@@ -18,9 +18,21 @@ definition:
     pipeline_id:
       type: int
       description: GitLab API path value for pipeline_id.
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters, including pagination and filters.
+    include_retried:
+      type: bool | None
+      description: Include retried jobs in the response. Defaults to `false`.
+      default: null
+    scope:
+      type: list[str] | None
+      description: "Scope of jobs to show, as one of the job status values: `created`, `waiting_for_resource`, `preparing`, `waiting_for_callback`, `pending`, `running`, `success`, `failed`, `canceling`, `canceled`, `skipped`, `manual`, or `scheduled`. All jobs are returned if `scope` is not provided."
+      default: null
+    page:
+      type: int | None
+      description: "Page number (default: `1`)."
+      default: null
+    per_page:
+      type: int | None
+      description: "Number of items to list per page (default: `20`, max: `100`)."
       default: null
     base_url:
       type: str
@@ -35,5 +47,9 @@ definition:
         headers:
           PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}
           Accept: application/json
-        params: ${{ inputs.params }}
+        params:
+          include_retried: ${{ inputs.include_retried }}
+          scope[]: ${{ inputs.scope }}
+          page: ${{ inputs.page }}
+          per_page: ${{ inputs.per_page }}
   returns: ${{ steps.request.result }}

@@ -10,13 +10,25 @@ from tracecat.api.app import (
     authorization_exception_handler,
     scope_denied_exception_handler,
 )
-from tracecat.api.common import tracecat_exception_handler
+from tracecat.api.app import (
+    create_app as create_api_app,
+)
+from tracecat.api.common import (
+    query_overflow_exception_handler,
+    query_timeout_exception_handler,
+    tracecat_exception_handler,
+)
 from tracecat.exceptions import (
     ScopeDeniedError,
     TracecatAuthorizationError,
     TracecatException,
     TracecatRLSViolationError,
     TracecatValidationError,
+)
+from tracecat.executor.action_gateway.app import create_app as create_action_gateway_app
+from tracecat.query.errors import (
+    TracecatQueryOverflowError,
+    TracecatQueryTimeoutError,
 )
 
 
@@ -29,6 +41,14 @@ def _build_app(exc: Exception) -> FastAPI:
     """
     app = FastAPI()
     app.add_exception_handler(TracecatException, tracecat_exception_handler)
+    app.add_exception_handler(
+        TracecatQueryTimeoutError,
+        query_timeout_exception_handler,
+    )
+    app.add_exception_handler(
+        TracecatQueryOverflowError,
+        query_overflow_exception_handler,
+    )
     app.add_exception_handler(
         TracecatAuthorizationError, authorization_exception_handler
     )
@@ -69,6 +89,8 @@ def _get(exc: Exception):
         pytest.param(
             TracecatValidationError("bad"), 500, id="other-tracecat-error-500"
         ),
+        pytest.param(TracecatQueryTimeoutError(), 422, id="query-timeout-422"),
+        pytest.param(TracecatQueryOverflowError(), 400, id="query-overflow-400"),
     ],
 )
 def test_exception_handler_status_codes(exc: Exception, expected_status: int) -> None:
@@ -124,3 +146,49 @@ def test_scope_denied_keeps_its_structured_body() -> None:
     error = response.json()["error"]
     assert error["code"] == "insufficient_scope"
     assert error["missing_scopes"] == ["org:rbac:update"]
+
+
+@pytest.mark.parametrize(
+    ("exc", "expected_status", "expected_code"),
+    [
+        pytest.param(
+            TracecatQueryTimeoutError(),
+            422,
+            "query_timeout",
+            id="timeout",
+        ),
+        pytest.param(
+            TracecatQueryOverflowError(),
+            400,
+            "query_numeric_overflow",
+            id="overflow",
+        ),
+    ],
+)
+def test_query_error_response_contract(
+    exc: Exception,
+    expected_status: int,
+    expected_code: str,
+) -> None:
+    response = _get(exc)
+
+    assert response.status_code == expected_status
+    body = response.json()
+    assert body["type"] == type(exc).__name__
+    assert body["message"] == str(exc)
+    assert body["detail"] == {
+        "code": expected_code,
+        "message": str(exc),
+    }
+
+
+def test_query_error_handlers_are_registered_in_both_api_apps() -> None:
+    for app in (create_api_app(), create_action_gateway_app()):
+        assert (
+            app.exception_handlers[TracecatQueryTimeoutError]
+            is query_timeout_exception_handler
+        )
+        assert (
+            app.exception_handlers[TracecatQueryOverflowError]
+            is query_overflow_exception_handler
+        )

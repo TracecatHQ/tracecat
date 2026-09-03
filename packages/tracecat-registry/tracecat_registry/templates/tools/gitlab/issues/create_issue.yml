@@ -15,11 +15,82 @@ definition:
     project_id:
       type: str
       description: GitLab API path value for project_id.
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters, including pagination and filters.
+    title:
+      type: str
+      description: The title of an issue.
+    assignee_id:
+      type: int | None
+      description: The ID of the user to assign the issue to. Only appears on GitLab Free.
+      default: null
+    assignee_ids:
+      type: str | None
+      description: The IDs of the users to assign the issue to, as a comma-separated list. Premium and Ultimate only.
+      default: null
+    confidential:
+      type: bool | None
+      description: Set an issue to be confidential. Default is `false`.
+      default: null
+    created_at:
+      type: str | None
+      description: When the issue was created. Date time string, ISO 8601 formatted, for example `2016-03-11T03:45:40Z`. Requires administrator or project/group owner rights.
+      default: null
+    description:
+      type: str | None
+      description: The description of an issue. Limited to 1,048,576 characters.
+      default: null
+    discussion_to_resolve:
+      type: str | None
+      description: The ID of a discussion to resolve. This fills out the issue with a default description and marks the discussion as resolved. Use in combination with `merge_request_to_resolve_discussions_of`.
+      default: null
+    due_date:
+      type: str | None
+      description: The due date. Date time string in the format `YYYY-MM-DD`, for example `2016-03-11`.
+      default: null
+    epic_id:
+      type: int | None
+      description: ID of the epic to add the issue to. Valid values are greater than or equal to 0. Premium and Ultimate only.
+      default: null
+    iid:
+      type: int | None
+      description: The internal ID of the project's issue (requires administrator or project owner rights).
+      default: null
+    issue_type:
+      type: str | None
+      description: The type of issue. One of `issue`, `incident`, `test_case` or `task`. Default is `issue`.
+      default: null
+    labels:
+      type: str | None
+      description: Comma-separated label names to assign to the new issue. If a label does not already exist, this creates a new project label and assigns it to the issue.
+      default: null
+    merge_request_to_resolve_discussions_of:
+      type: int | None
+      description: The IID of a merge request in which to resolve all issues. This fills out the issue with a default description and marks all discussions as resolved. When passing a description or title, these values take precedence over the default values.
+      default: null
+    milestone_id:
+      type: int | None
+      description: The global ID of a milestone to assign issue. Mutually exclusive with `milestone`.
+      default: null
+    milestone:
+      type: str | None
+      description: The title of a project or ancestor-group milestone to assign the issue to. Matched exactly (case-sensitive). Mutually exclusive with `milestone_id`.
+      default: null
+    severity:
+      type: str | None
+      description: The severity of the issue. Applies only to incidents. One of `unknown`, `low`, `medium`, `high`, or `critical`.
+      default: null
+    start_date:
+      type: str | None
+      description: The start date. Date time string in the format `YYYY-MM-DD`, for example `2016-03-11`.
+      default: null
+    weight:
+      type: int | None
+      description: The weight of the issue. Valid values are greater than or equal to 0. Premium and Ultimate only.
       default: null
     payload:
+      # Generic: GitLab accepts these attributes in the query string (its own curl
+      # examples do) or a JSON body, but a null body field violates NOT NULL on
+      # `confidential` and Grape reads a null array as "unassign". Named inputs above
+      # go on the query string; this stays for callers sending a body.
       type: dict[str, Any] | None
       description: API-native request body passed through without validation.
       default: null
@@ -36,6 +107,24 @@ definition:
         headers:
           PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}
           Accept: application/json
-        params: ${{ inputs.params }}
+        params:
+          title: ${{ inputs.title }}
+          assignee_id: ${{ inputs.assignee_id }}
+          assignee_ids: ${{ inputs.assignee_ids }}
+          confidential: ${{ inputs.confidential }}
+          created_at: ${{ inputs.created_at }}
+          description: ${{ inputs.description }}
+          discussion_to_resolve: ${{ inputs.discussion_to_resolve }}
+          due_date: ${{ inputs.due_date }}
+          epic_id: ${{ inputs.epic_id }}
+          iid: ${{ inputs.iid }}
+          issue_type: ${{ inputs.issue_type }}
+          labels: ${{ inputs.labels }}
+          merge_request_to_resolve_discussions_of: ${{ inputs.merge_request_to_resolve_discussions_of }}
+          milestone_id: ${{ inputs.milestone_id }}
+          milestone: ${{ inputs.milestone }}
+          severity: ${{ inputs.severity }}
+          start_date: ${{ inputs.start_date }}
+          weight: ${{ inputs.weight }}
         payload: ${{ inputs.payload }}
   returns: ${{ steps.request.result }}

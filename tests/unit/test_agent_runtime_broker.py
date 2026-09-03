@@ -18,9 +18,13 @@ from claude_agent_sdk.types import (
     McpStdioServerConfig,
 )
 
-from tracecat.agent.common.config import build_agent_runtime_uv_env
+from tracecat.agent.common.config import (
+    TRACECAT__AGENT_SANDBOX_TIMEOUT,
+    build_agent_runtime_uv_env,
+)
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.types import SandboxAgentConfig
+from tracecat.agent.constants import AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS
 from tracecat.agent.executor.loopback import LoopbackResult
 from tracecat.agent.runtime import session_paths as session_paths_module
 from tracecat.agent.runtime.claude_code import broker as broker_module
@@ -35,6 +39,7 @@ from tracecat.agent.runtime.claude_code.transport import (
     open_mcp_bridge_binding,
 )
 from tracecat.agent.runtime.session_paths import AgentSandboxPathMapping
+from tracecat.agent.sandbox.config import AgentResourceLimits
 
 
 def _make_request(tmp_path: Path) -> ClaudeTurnRequest:
@@ -60,7 +65,11 @@ def _make_request(tmp_path: Path) -> ClaudeTurnRequest:
     )
 
 
-def _make_transport(tmp_path: Path, *, use_jailed_paths: bool) -> SandboxedCLITransport:
+def _make_transport(
+    tmp_path: Path,
+    *,
+    use_jailed_paths: bool,
+) -> SandboxedCLITransport:
     runtime_home_dir = Path("/home/agent") if use_jailed_paths else tmp_path / "home"
     runtime_work_dir = Path("/work") if use_jailed_paths else tmp_path / "work"
     path_mapping = AgentSandboxPathMapping(
@@ -469,7 +478,10 @@ async def test_transport_connect_applies_selected_direct_port_to_sdk_options(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    transport = _make_transport(tmp_path, use_jailed_paths=False)
+    transport = _make_transport(
+        tmp_path,
+        use_jailed_paths=False,
+    )
     options = ClaudeAgentOptions(
         mcp_servers={"tracecat-registry": _trusted_mcp_config(4101, token="root")},
         agents={
@@ -525,6 +537,15 @@ async def test_transport_connect_applies_selected_direct_port_to_sdk_options(
     assert orjson.loads(command_settings) == {
         "env": build_agent_runtime_uv_env(tmp_path / "uv-state")
     }
+    # The transport relies on the sandbox default resource limits, which pin
+    # the static kill ceiling rather than the per-run timeout.
+    assert "config" not in captured_spawn_kwargs
+    expected_sandbox_limit = (
+        TRACECAT__AGENT_SANDBOX_TIMEOUT + AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS
+    )
+    default_limits = AgentResourceLimits()
+    assert default_limits.cpu_seconds == expected_sandbox_limit
+    assert default_limits.timeout_seconds == expected_sandbox_limit
 
     mcp_servers = cast(dict[str, Any], options.mcp_servers)
     assert mcp_servers["tracecat-registry"]["url"] == (

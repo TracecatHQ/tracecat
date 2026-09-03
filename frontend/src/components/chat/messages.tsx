@@ -1,6 +1,5 @@
 "use client"
 
-import { useQueryClient } from "@tanstack/react-query"
 import { MessageSquare } from "lucide-react"
 import { motion } from "motion/react"
 import Image from "next/image"
@@ -11,6 +10,7 @@ import { MarkdownWithFrontmatter } from "@/components/ai-elements/markdown-with-
 import { Dots } from "@/components/loading/dots"
 import { invalidateCaseCommentQueries } from "@/lib/cases/comment-queries"
 import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
+import { useQueryClient } from "@/lib/query"
 import {
   ALLOWED_MARKDOWN_IMAGE_PREFIXES,
   ALLOWED_MARKDOWN_LINK_PREFIXES,

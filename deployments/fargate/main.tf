@@ -39,6 +39,7 @@ module "ecs" {
   # Network configuration from network module
   vpc_id                  = module.network.vpc_id
   public_subnet_ids       = module.network.public_subnet_ids
+  public_subnet_cidrs     = var.public_subnet_cidrs
   private_subnet_ids      = module.network.private_subnet_ids
   private_route_table_ids = module.network.private_route_table_ids
 
@@ -70,7 +71,12 @@ module "ecs" {
 
   # Container environment variables
   tracecat_app_env                              = var.tracecat_app_env
+  platform_otel_enabled                         = var.platform_otel_enabled
+  otel_exporter_otlp_endpoint                   = var.otel_exporter_otlp_endpoint
+  otel_exporter_otlp_headers_arn                = var.otel_exporter_otlp_headers_arn
+  audit_trusted_proxy_cidrs                     = var.audit_trusted_proxy_cidrs
   log_level                                     = var.log_level
+  log_format                                    = var.log_format
   temporal_log_level                            = var.temporal_log_level
   feature_flags                                 = var.feature_flags
   ee_multi_tenant                               = var.ee_multi_tenant
@@ -154,6 +160,7 @@ module "ecs" {
   executor_memory                          = var.executor_memory
   executor_desired_count                   = var.executor_desired_count
   executor_client_timeout                  = var.executor_client_timeout
+  agent_sandbox_timeout                    = var.agent_sandbox_timeout
   executor_queue                           = var.executor_queue
   executor_registry_cache_max_entries      = var.executor_registry_cache_max_entries
   executor_registry_cache_max_bytes        = var.executor_registry_cache_max_bytes
@@ -182,6 +189,7 @@ module "ecs" {
   temporal_cpu                             = var.temporal_cpu
   temporal_memory                          = var.temporal_memory
   temporal_num_history_shards              = var.temporal_num_history_shards
+  temporal_default_namespace_retention     = var.temporal_default_namespace_retention
   temporal_db_tls_enabled                  = var.temporal_db_tls_enabled
   temporal_db_tls_enable_host_verification = var.temporal_db_tls_enable_host_verification
   temporal_db_force_ssl                    = var.temporal_db_force_ssl

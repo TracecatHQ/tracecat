@@ -20,9 +20,17 @@ definition:
     run_id:
       type: int
       description: GitHub API path value for run_id.
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters, including pagination and filters.
+    filter:
+      type: str | None
+      description: 'Filters jobs by their `completed_at` timestamp. `latest` returns jobs from the most recent execution of the workflow run. `all` returns all jobs for a workflow run, including from old executions of the workflow run. Can be one of: `latest`, `all`.'
+      default: null
+    per_page:
+      type: int | None
+      description: The number of results per page (max 100).
+      default: null
+    page:
+      type: int | None
+      description: The page number of the results to fetch.
       default: null
     base_url:
       type: str
@@ -38,5 +46,8 @@ definition:
         Authorization: Bearer ${{ SECRETS.github_oauth.GITHUB_USER_TOKEN }}
         Accept: application/vnd.github+json
         X-GitHub-Api-Version: '2022-11-28'
-      params: ${{ inputs.params }}
+      params:
+        filter: ${{ inputs.filter }}
+        per_page: ${{ inputs.per_page }}
+        page: ${{ inputs.page }}
   returns: ${{ steps.request.result }}

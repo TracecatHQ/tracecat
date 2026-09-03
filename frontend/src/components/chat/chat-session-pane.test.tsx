@@ -1,8 +1,8 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import type { UIMessage } from "ai"
 import type { ReactNode } from "react"
 import { ChatSessionPane } from "@/components/chat/chat-session-pane"
+import { QueryClient, QueryClientProvider } from "@/lib/query"
 
 const mockUseVercelChatResult = {
   clearError: jest.fn(),
@@ -72,6 +72,24 @@ jest.mock("@/lib/hooks", () => ({
     mcpIntegrationsIsLoading: false,
     mcpIntegrationsError: null,
   }),
+}))
+jest.mock("@/components/auth/scope-guard", () => ({
+  useScopeCheck: jest.fn(() => true),
+}))
+jest.mock("@/hooks/use-entitlements", () => ({
+  useEntitlements: jest.fn(() => ({
+    hasEntitlement: () => false,
+    isLoading: false,
+    hasEntitlementData: true,
+  })),
+}))
+jest.mock("@/hooks/use-agent-presets", () => ({
+  useAgentPresets: jest.fn(() => ({
+    presets: [],
+    presetsIsLoading: false,
+    presetsError: null,
+    refetchPresets: jest.fn(),
+  })),
 }))
 
 function renderChatSessionPane(

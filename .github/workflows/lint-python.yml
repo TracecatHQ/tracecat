@@ -6,6 +6,7 @@ on:
     paths:
       - tracecat/**
       - packages/**
+      - scripts/**
       - alembic/**
       - tests/**
       - pyproject.toml
@@ -16,6 +17,7 @@ on:
     paths:
       - tracecat/**
       - packages/**
+      - scripts/**
       - alembic/**
       - tests/**
       - pyproject.toml
@@ -34,13 +36,13 @@ jobs:
 
       - uses: astral-sh/ruff-action@4919ec5cf1f49eff0871dbcea0da843445b837e6 # v3
         with:
-          src: "tracecat/ tests/ packages/ alembic/"
+          src: "tracecat/ tests/ packages/ alembic/ scripts/"
           version-file: "pyproject.toml"
           args: check --no-fix
 
       - uses: astral-sh/ruff-action@4919ec5cf1f49eff0871dbcea0da843445b837e6 # v3
         with:
-          src: "tracecat/ tests/ packages/ alembic/"
+          src: "tracecat/ tests/ packages/ alembic/ scripts/"
           version-file: "pyproject.toml"
           args: format --diff
 

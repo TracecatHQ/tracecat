@@ -4,6 +4,7 @@ import asyncio
 from collections.abc import Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
+from typing import cast
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -21,6 +22,7 @@ from tracecat.agent.preset.activities import (
     resolve_agent_preset_version_ref_activity,
 )
 from tracecat.agent.worker import get_activities as get_agent_worker_activities
+from tracecat.dsl.interceptor import RuntimeErrorAttributionInterceptor
 from tracecat.dsl.worker import get_activities as get_dsl_worker_activities
 
 
@@ -80,13 +82,13 @@ async def test_executor_worker_continues_after_registry_cache_warmup_failure(
     close_storage_cache = AsyncMock()
     get_temporal_client = AsyncMock(return_value=object())
     warning = Mock()
-    worker_constructed = False
+    captured_interceptors: Sequence[object] = ()
 
     class _FakeWorker:
         def __init__(self, *args: object, **kwargs: object) -> None:
-            nonlocal worker_constructed
-            del args, kwargs
-            worker_constructed = True
+            nonlocal captured_interceptors
+            del args
+            captured_interceptors = cast(Sequence[object], kwargs["interceptors"])
 
         async def __aenter__(self) -> _FakeWorker:
             shutdown_event.set()
@@ -115,7 +117,8 @@ async def test_executor_worker_continues_after_registry_cache_warmup_failure(
     warmup.assert_awaited_once()
     initialize_backend.assert_awaited_once()
     get_temporal_client.assert_awaited_once()
-    assert worker_constructed is True
+    assert len(captured_interceptors) == 1
+    assert isinstance(captured_interceptors[0], RuntimeErrorAttributionInterceptor)
     warning.assert_called_once_with(
         "Registry artifact cache warmup failed; continuing worker startup",
         error="transient cache failure",
@@ -131,7 +134,7 @@ async def test_dsl_worker_treats_empty_concurrency_env_vars_as_defaults(
 ) -> None:
     from tracecat.dsl import worker
 
-    captured: dict[str, int | str | timedelta] = {}
+    captured: dict[str, object] = {}
     shutdown_event = asyncio.Event()
 
     class _FakeWorker:
@@ -155,8 +158,10 @@ async def test_dsl_worker_treats_empty_concurrency_env_vars_as_defaults(
                 activities,
                 workflows,
                 workflow_runner,
-                interceptors,
                 disable_eager_activity_execution,
+            )
+            captured["interceptor_types"] = tuple(
+                type(interceptor).__name__ for interceptor in interceptors
             )
             captured["task_queue"] = task_queue
             captured["threadpool_max_workers"] = activity_executor._max_workers
@@ -195,7 +200,48 @@ async def test_dsl_worker_treats_empty_concurrency_env_vars_as_defaults(
         "max_concurrent_activities": 100,
         "max_concurrent_workflow_tasks": 100,
         "graceful_shutdown_timeout": timedelta(seconds=30),
+        "interceptor_types": ("RuntimeErrorAttributionInterceptor",),
     }
+
+
+@pytest.mark.anyio
+async def test_agent_worker_registers_runtime_error_attribution_interceptor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tracecat.agent import worker
+
+    captured_interceptors: Sequence[object] = ()
+    shutdown_event = asyncio.Event()
+
+    class _FakeWorker:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            nonlocal captured_interceptors
+            del args
+            captured_interceptors = cast(Sequence[object], kwargs["interceptors"])
+
+        async def __aenter__(self) -> _FakeWorker:
+            shutdown_event.set()
+            return self
+
+        async def __aexit__(
+            self,
+            exc_type: object,
+            exc: object,
+            tb: object,
+        ) -> None:
+            del exc_type, exc, tb
+
+    monkeypatch.delenv("SENTRY_DSN", raising=False)
+    monkeypatch.setattr(worker, "get_temporal_client", AsyncMock(return_value=object()))
+    monkeypatch.setattr(worker, "get_activities", lambda: [])
+    monkeypatch.setattr(worker, "Worker", _FakeWorker)
+    monkeypatch.setattr(worker, "new_sandbox_runner", lambda: object())
+    monkeypatch.setattr(worker, "close_storage_client_cache", AsyncMock())
+
+    await worker.main(shutdown_event=shutdown_event)
+
+    assert len(captured_interceptors) == 1
+    assert isinstance(captured_interceptors[0], RuntimeErrorAttributionInterceptor)
 
 
 @pytest.mark.anyio
@@ -354,7 +400,7 @@ async def test_agent_executor_worker_treats_empty_numeric_env_vars_as_defaults(
     monkeypatch.setattr(
         executor_worker.config,
         "TRACECAT__AGENT_EXECUTOR_GRACEFUL_SHUTDOWN_TIMEOUT",
-        1860,
+        3660,
     )
     await executor_worker.main(shutdown_event=shutdown_event)
 
@@ -363,7 +409,7 @@ async def test_agent_executor_worker_treats_empty_numeric_env_vars_as_defaults(
             "task_queue": "test-agent-executor-queue",
             "max_concurrent_activities": 1,
             "threadpool_max_workers": 100,
-            "graceful_shutdown_timeout": timedelta(seconds=1860),
+            "graceful_shutdown_timeout": timedelta(seconds=3660),
         },
     ]
 

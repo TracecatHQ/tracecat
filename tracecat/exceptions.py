@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 
     from tracecat.executor.schemas import ExecutorActionErrorInfo
     from tracecat.registry.actions.schemas import RegistryActionValidationErrorInfo
+    from tracecat.registry.sync.schemas import SyncErrorCode
 
 
 class TracecatException(Exception):
@@ -119,6 +120,10 @@ class TracecatNotFoundError(TracecatException):
     """Raised when a resource is not found in the Tracecat database."""
 
 
+class WorkflowAliasResolutionError(TracecatNotFoundError):
+    """Raised when a configured workflow alias does not resolve."""
+
+
 class TracecatServiceError(TracecatException):
     """Tracecat generic user-facing service error"""
 
@@ -127,8 +132,24 @@ class RegistryError(TracecatException):
     """Generic exception raised when a registry error occurs."""
 
 
+class RegistryTemplateLoadError(RegistryError):
+    """Raised when a template action file cannot be loaded."""
+
+
+class RegistrySyncContentError(RegistryError):
+    """Registry sync failed on repository content; retrying cannot fix it."""
+
+    def __init__(self, *args, code: SyncErrorCode, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.code = code
+
+
 class BuiltinRegistryHasNoSelectionError(RegistryError):
     """Raised when the builtin platform registry has no selected version yet."""
+
+
+class RegistryLockInvalidDataError(RegistryError):
+    """Raised when registry lock resolution finds deterministic invalid data."""
 
 
 class RegistryActionError(RegistryError):

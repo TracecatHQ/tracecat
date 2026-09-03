@@ -97,9 +97,17 @@ Choose the enabled custom source model anywhere Tracecat lets you select an agen
 Refresh the source again after you add or remove models from the upstream gateway.
 Edit the source when you rotate credentials, change the base URL, or update static headers.
 
+## Troubleshooting
+
+A run that fails with `Model response timed out after <duration> without receiving data` (or `Gateway timeout` on a non-streaming request) hit `TRACECAT__LLM_PROXY_READ_TIMEOUT`, the read timeout between the sandbox LLM proxy and the gateway. The variable takes seconds, defaults to `600`, and applies to both passthrough and managed routes.
+
+A run that fails with `Agent execution timed out after 1800s` hit the action's `timeout`, which caps active runtime at 1800 seconds when unset. Tracecat clamps explicit values between 1800 seconds and `TRACECAT__AGENT_SANDBOX_TIMEOUT` (default `3600`), and a ceiling below 1800 seconds lowers both the default and the floor to the ceiling. See [Actions](/automations/actions#timeout).
+
 ## Related pages
 
 - See [AI agent](/agents/ai-agent) for the `ai.agent` and `ai.preset_agent` action reference.
 - See [AI action](/agents/ai-action) for single-call LLM workflow actions.
 - See [Secrets and variables](/agents/secrets-variables) for agent secret handling.
 - See [MCP servers](/automations/integrations/mcp-integrations) for connecting MCP tools to agents.
+- See [Environment variables](/self-hosting/environment-variables) for the agent and proxy timeout settings.
+- See [Air-gapped deployment](/self-hosting/air-gapped) for disconnected Kubernetes and self-hosted inference architecture.

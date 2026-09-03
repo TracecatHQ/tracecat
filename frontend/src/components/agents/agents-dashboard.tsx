@@ -1,6 +1,5 @@
 "use client"
 
-import { useQueryClient } from "@tanstack/react-query"
 import { format } from "date-fns"
 import {
   AlertTriangleIcon,
@@ -137,6 +136,7 @@ import {
 } from "@/lib/agents"
 import type { TracecatApiError } from "@/lib/errors"
 import { executionId as splitExecutionId } from "@/lib/event-history"
+import { useQueryClient } from "@/lib/query"
 import { cn, reconstructActionType, shortTimeAgo } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 

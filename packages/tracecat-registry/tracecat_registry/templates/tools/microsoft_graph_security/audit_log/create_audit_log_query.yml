@@ -1,0 +1,149 @@
+type: action
+definition:
+  title: Create audit log query
+  description: >-
+    Create a new auditLogQuery object. Returns `201 Created` and the
+    auditLogQuery, whose `status` moves from notStarted to succeeded before
+    records can be read. Auditing data is accessed through the Microsoft Purview
+    Audit Search API. Least privileged permission: AuditLogsQuery-Entra.Read.All
+    for both delegated (work or school account) and application; higher
+    privileged: AuditLogsQuery-CRM.Read.All, AuditLogsQuery-Endpoint.Read.All,
+    AuditLogsQuery-Exchange.Read.All, AuditLogsQuery-OneDrive.Read.All,
+    AuditLogsQuery-SharePoint.Read.All or AuditLogsQuery.Read.All. Delegated
+    access is not supported for personal Microsoft accounts. Available in the
+    global service only; not available in US Government L4, US Government L5
+    (DOD) or China operated by 21Vianet.
+    Microsoft's endpoint reference does not state a separate licensing requirement.
+  display_group: Microsoft Graph Security
+  doc_url: https://learn.microsoft.com/en-us/graph/api/security-auditcoreroot-post-auditlogqueries?view=graph-rest-1.0
+  namespace: tools.microsoft_graph_security
+  name: create_audit_log_query
+  secrets:
+    - type: oauth
+      provider_id: microsoft_graph_security
+      grant_type: client_credentials
+      optional: true
+    - type: oauth
+      provider_id: microsoft_graph_security
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: microsoft_graph
+      grant_type: client_credentials
+      optional: true
+    - type: oauth
+      provider_id: microsoft_graph
+      grant_type: authorization_code
+      optional: true
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Microsoft Graph v1.0 API root. If omitted, uses the workspace variable
+        `microsoft_graph_security.base_url`, then
+        `microsoft_graph.base_url`, then https://graph.microsoft.com/v1.0. This
+        endpoint is only available in the global service.
+      default: null
+    auth_mode:
+      type: enum["application", "delegated", "auto"]
+      description: >-
+        Credential to use. `application` requires
+        MICROSOFT_GRAPH_SECURITY_SERVICE_TOKEN, then MICROSOFT_GRAPH_SERVICE_TOKEN;
+        `delegated` requires MICROSOFT_GRAPH_SECURITY_USER_TOKEN, then
+        MICROSOFT_GRAPH_USER_TOKEN; `auto` tries all four in that order.
+      default: application
+    displayName:
+      type: str | None
+      description: Display name for the saved audit log query.
+      default: null
+    filterStartDateTime:
+      type: str | None
+      description: >-
+        Start date of the date range in the query, as an ISO 8601 timestamp, for
+        example "2024-10-01T00:00:00Z".
+      default: null
+    filterEndDateTime:
+      type: str | None
+      description: >-
+        End date of the date range in the query, as an ISO 8601 timestamp, for
+        example "2024-10-08T00:00:00Z".
+      default: null
+    recordTypeFilters:
+      type: list[str] | None
+      description: >-
+        The operation type or types indicated by the record, for example
+        "azureActiveDirectory", "exchangeAdmin", "sharePointFileOperation" or
+        "microsoftTeams". See the auditLogRecordType enumeration for the full
+        list of members.
+      default: null
+    keywordFilter:
+      type: str | None
+      description: >-
+        Free text field to search non-indexed properties of the audit log.
+      default: null
+    serviceFilter:
+      type: str | None
+      description: >-
+        Refers to the workload property in the audit record. This is the
+        Microsoft service where the activity occurred.
+      default: null
+    operationFilters:
+      type: list[str] | None
+      description: The name of the user or admin activity.
+      default: null
+    userPrincipalNameFilters:
+      type: list[str] | None
+      description: >-
+        The UPN (user principal name) of the user who performed the action
+        (specified in the operation property) that resulted in the record being
+        logged.
+      default: null
+    ipAddressFilters:
+      type: list[str] | None
+      description: >-
+        The IP address of the device that was used when the activity was logged.
+      default: null
+    objectIdFilters:
+      type: list[str] | None
+      description: >-
+        For SharePoint and OneDrive for Business activity, the full path name of
+        the file or folder accessed by the user. For Exchange admin audit
+        logging, the name of the object that was modified by the cmdlet.
+      default: null
+    administrativeUnitIdFilters:
+      type: list[str] | None
+      description: Administrative units tagged to an audit log record.
+      default: null
+    status:
+      type: str | None
+      description: >-
+        Current status of the query. The possible values are notStarted, running,
+        succeeded, failed, cancelled and unknownFutureValue.
+      default: null
+  steps:
+    - ref: call_graph
+      action: tools.microsoft_graph_sdk.call_method
+      args:
+        oauth_provider: microsoft_graph_security
+        path: /security/auditLog/queries
+        method: POST
+        base_url: ${{ inputs.base_url || VARS.microsoft_graph_security.base_url || VARS.microsoft_graph.base_url || "https://graph.microsoft.com/v1.0" }}
+        auth_mode: ${{ inputs.auth_mode }}
+        # Every property is optional and Microsoft never assigns a meaning to an
+        # explicit null, so unset filters are omitted rather than sent as null.
+        omit_none_payload_fields: true
+        payload:
+          "@odata.type": "#microsoft.graph.security.auditLogQuery"
+          displayName: ${{ inputs.displayName }}
+          filterStartDateTime: ${{ inputs.filterStartDateTime }}
+          filterEndDateTime: ${{ inputs.filterEndDateTime }}
+          recordTypeFilters: ${{ inputs.recordTypeFilters }}
+          keywordFilter: ${{ inputs.keywordFilter }}
+          serviceFilter: ${{ inputs.serviceFilter }}
+          operationFilters: ${{ inputs.operationFilters }}
+          userPrincipalNameFilters: ${{ inputs.userPrincipalNameFilters }}
+          ipAddressFilters: ${{ inputs.ipAddressFilters }}
+          objectIdFilters: ${{ inputs.objectIdFilters }}
+          administrativeUnitIdFilters: ${{ inputs.administrativeUnitIdFilters }}
+          status: ${{ inputs.status }}
+  returns: ${{ steps.call_graph.result }}

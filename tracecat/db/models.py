@@ -55,12 +55,14 @@ from tracecat.authz.enums import ScopeSource
 from tracecat.cases.agent_invocations.types import CaseCommentAgentInvocationError
 from tracecat.cases.durations.schemas import CaseDurationAnchorSelection
 from tracecat.cases.enums import (
+    CaseAgentSessionInteractionOperation,
     CaseCommentAgentInvocationStatus,
     CaseEventType,
     CasePriority,
     CaseSeverity,
     CaseStatus,
     CaseTaskStatus,
+    CaseVersionField,
 )
 from tracecat.identifiers import (
     OrganizationID,
@@ -82,6 +84,7 @@ CASE_PRIORITY_ENUM = Enum(CasePriority, name="casepriority")
 CASE_SEVERITY_ENUM = Enum(CaseSeverity, name="caseseverity")
 CASE_STATUS_ENUM = Enum(CaseStatus, name="casestatus")
 CASE_TASK_STATUS_ENUM = Enum(CaseTaskStatus, name="casetaskstatus")
+CASE_VERSION_FIELD_ENUM = Enum(CaseVersionField, name="caseversionfield")
 INTERACTION_STATUS_ENUM = Enum(InteractionStatus, name="interactionstatus")
 APPROVAL_STATUS_ENUM = Enum(ApprovalStatus, name="approvalstatus")
 INVITATION_STATUS_ENUM = Enum(InvitationStatus, name="invitationstatus")
@@ -2339,6 +2342,13 @@ class Case(WorkspaceModel):
         back_populates="case",
         cascade="all, delete",
     )
+    versions: Mapped[list[CaseVersion]] = relationship(
+        "CaseVersion",
+        back_populates="case",
+        cascade="all, delete-orphan",
+        lazy="raise",
+        passive_deletes=True,
+    )
     durations: Mapped[list[CaseDuration]] = relationship(
         "CaseDuration",
         back_populates="case",
@@ -2384,6 +2394,65 @@ class Case(WorkspaceModel):
     @property
     def short_id(self) -> str:
         return f"CASE-{self.case_number:04d}"
+
+
+class CaseVersion(WorkspaceModel):
+    """Immutable snapshot of one versioned case text field."""
+
+    __tablename__ = "case_version"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "case_id",
+            "field",
+            "version",
+            name="uq_case_version_workspace_case_field_version",
+        ),
+        CheckConstraint("version > 0", name="version_positive"),
+        Index(
+            "ix_case_version_case_timeline",
+            "workspace_id",
+            "case_id",
+            "created_at",
+            "surrogate_id",
+        ),
+        Index(
+            "ix_case_version_case_field_timeline",
+            "workspace_id",
+            "case_id",
+            "field",
+            "created_at",
+            "surrogate_id",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    case_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("case.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    field: Mapped[CaseVersionField] = mapped_column(
+        CASE_VERSION_FIELD_ENUM,
+        nullable=False,
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("user.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    case: Mapped[Case] = relationship("Case", back_populates="versions")
 
 
 class CaseComment(WorkspaceModel):
@@ -3093,6 +3162,52 @@ class AgentSession(WorkspaceModel):
         back_populates="session",
         cascade="all, delete-orphan",
         order_by="AgentSessionHistory.surrogate_id",
+    )
+
+
+class CaseAgentSessionInteraction(WorkspaceModel):
+    """Durable association between a case and an Inbox-facing agent session."""
+
+    # Inherited created_at/updated_at are the first-seen/last-seen timestamps.
+    __tablename__ = "case_agent_session_interaction"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "case_id",
+            "agent_session_id",
+            "operation",
+            name="uq_case_agent_session_interaction_ws_case_session_operation",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    case_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("case.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    agent_session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("agent_session.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    operation: Mapped[CaseAgentSessionInteractionOperation] = mapped_column(
+        String,
+        nullable=False,
+    )
+
+    case: Mapped[Case] = relationship("Case", lazy="raise")
+    agent_session: Mapped[AgentSession] = relationship(
+        "AgentSession",
+        lazy="raise",
     )
 
 

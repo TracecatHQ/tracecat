@@ -1,0 +1,58 @@
+---
+title: User management
+description: "Bootstrap the first superadmin, control who can register, and invite users into an organization."
+---
+
+import FirstSuperadmin from "/snippets/first-superadmin.mdx";
+
+## Overview
+
+A Tracecat account authenticates a person, and an organization membership decides what that account can open. Registration and SSO create accounts. Invitations and superadmin provisioning create memberships.
+
+## First login
+
+<FirstSuperadmin />
+
+## Registration
+
+Self-service registration needs `basic` in `TRACECAT__AUTH_TYPES`. Without it the sign-up page shows `Sign up unavailable`. OIDC and SAML create the account on the first successful sign-in.
+
+`TRACECAT__AUTH_ALLOWED_DOMAINS` is a comma-separated list of email domains permitted to create an account, and a blank value permits every domain. Tracecat applies the same list on every OIDC sign-in. SAML sign-in checks the organization's configured domains first. When none are configured, a single-tenant deployment falls back to this list and a multi-tenant deployment rejects the sign-in. An existing basic-auth account signs in with its password regardless of the list.
+
+The first superadmin bypasses the domain list. A blocked email fails with the message `Please enter a valid email address.`
+
+A password must be at least `TRACECAT__AUTH_MIN_PASSWORD_LENGTH` characters long, default `12`.
+
+## Joining an organization
+
+Registration and SSO create the account without an organization membership. Until an invitation or a superadmin grants one, the user sees `No organization access yet` after sign-in. That screen lists any pending invitations for their email and a `Sign out` button.
+
+![No organization access screen](/img/manage-platform/users-no-org-access.png)
+
+In a single-tenant deployment, a superadmin account joins the default organization as `organization-owner` at registration. With `TRACECAT__EE_MULTI_TENANT=true`, no account joins an organization automatically at registration. In both modes, registering through an invitation link joins that invitation's organization.
+
+### Invitations
+
+Organization owners and admins invite from the organization Members page with `Invite member`. The dialog takes an email and the role the account receives on acceptance. The invitation stays valid for 7 days.
+
+![Invite member dialog](/img/manage-platform/users-invitations.png)
+
+You send the link yourself. Open the pending member's row menu, choose `Copy invitation link`, and send it to the invitee.
+
+The link has the form `<app URL>/invitations/accept?token=<token>`. Tracecat rejects an email that is already a member or already holds a pending invitation.
+
+The invitee opens the link and signs in, or signs up with basic auth. A sign-up started from the link accepts the invitation during registration.
+
+The signed-in email must match the invitation. A used, revoked, or expired link shows `Invitation already accepted`, `Invitation revoked`, or `Invitation expired`.
+
+After acceptance the account holds the invited role organization-wide and lands on `/workspaces`.
+
+### Workspace membership
+
+Workspace admins add existing accounts from the workspace's Members page with `Add member`. The lookup is by email, and an unknown email fails with `Couldn't find a user with this email`. The account receives `workspace-editor` in that workspace.
+
+## Related pages
+
+- See [Basic](/authentication/basic) for email-and-password sign-in, the minimum password length, and changing a password.
+- See [Roles and permissions](/manage-platform/rbac) for what each built-in role can do and how organization membership gates workspace access.
+- See [Environment variables](/self-hosting/environment-variables) for `TRACECAT__AUTH_SUPERADMIN_EMAIL`, `TRACECAT__AUTH_ALLOWED_DOMAINS`, and `TRACECAT__AUTH_MIN_PASSWORD_LENGTH`.

@@ -1,13 +1,12 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { act, renderHook, waitFor } from "@testing-library/react"
 import type { ReactNode } from "react"
-
 import type { MCPVerificationStatusRead } from "@/client"
 import { toast } from "@/components/ui/use-toast"
 import {
   markStdioMcpVerificationStarted,
   useStdioMcpVerificationStatus,
 } from "@/hooks/use-stdio-mcp-verification-status"
+import { QueryClient, QueryClientProvider } from "@/lib/query"
 
 jest.mock("@/client", () => ({
   mcpIntegrationsGetMcpIntegrationVerificationStatus: jest.fn(

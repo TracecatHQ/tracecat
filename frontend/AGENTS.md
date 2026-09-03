@@ -58,6 +58,10 @@ Use these rules for work in `frontend/`.
 - Use "Title case example" style for UI copy rather than full title case.
 - Do not use all-caps for titles, headings, or field labels, and do not reach
   for the `uppercase` utility on them. Use sentence case instead.
+- Represent agents with `MousePointerClickIcon` (lucide), the same icon as the
+  Agents entry in the sidebar. Do not use `BotIcon` or any robot glyph for
+  agents; reserve `BotIcon` for non-agent machine identities such as service
+  accounts.
 
 ## Input and focus consistency
 

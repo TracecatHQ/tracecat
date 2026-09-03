@@ -13,11 +13,11 @@ definition:
     workspace_id:
       type: str
       description: The ID of the workspace to list runs for.
-    page[size]:
+    page_size:
       type: int
       description: The number of runs to return per page.
       default: 20
-    page[number]:
+    page_number:
       type: int
       description: The page number to return.
       default: 1
@@ -31,6 +31,6 @@ definition:
           Authorization: Bearer ${{ SECRETS.terraform.TERRAFORM_API_TOKEN }}
           Content-Type: application/vnd.api+json
         params:
-          page[size]: ${{ inputs.page[size] }}
-          page[number]: ${{ inputs.page[number] }}
+          "page[size]": ${{ inputs.page_size }}
+          "page[number]": ${{ inputs.page_number }}
   returns: ${{ steps.list_runs.result.data }}

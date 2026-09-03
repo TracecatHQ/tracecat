@@ -1,6 +1,5 @@
 "use client"
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   Copy,
   Download,
@@ -29,6 +28,9 @@ import {
   caseAttachmentsListAttachments,
 } from "@/client"
 import {
+  CASE_PANEL_ACTION_BOX_CLASS,
+  CASE_PANEL_ACTION_ROW_CLASS,
+  CASE_PANEL_BOX_CLASS,
   CASE_TASK_ROW_CLASS,
   TASK_HOVER_REVEAL_CLASS,
   TASK_ICON_TRIGGER_CLASS,
@@ -64,13 +66,8 @@ import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import { describeAttachmentUploadError } from "@/lib/cases/attachment-errors"
 import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
 import { useAttachmentObjectUrl } from "@/lib/cases/use-attachment-object-url"
-import {
-  cn,
-  copyToClipboard,
-  formatFileSize,
-  INSET_SURFACE,
-  shortTimeAgo,
-} from "@/lib/utils"
+import { useMutation, useQuery, useQueryClient } from "@/lib/query"
+import { cn, copyToClipboard, formatFileSize, shortTimeAgo } from "@/lib/utils"
 
 interface CaseAttachmentsSectionProps {
   caseId: string
@@ -81,10 +78,7 @@ interface CaseAttachmentsSectionProps {
  * The list's box: the same recessed card the tasks panel and comment threads
  * use, so all three read as boxes on one column.
  */
-const CASE_ATTACHMENTS_CONTAINER_CLASS = cn(
-  "overflow-hidden rounded-lg border border-border/60 p-2",
-  INSET_SURFACE
-)
+const CASE_ATTACHMENTS_CONTAINER_CLASS = CASE_PANEL_BOX_CLASS
 
 const MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024 // 20MB
 
@@ -108,26 +102,34 @@ function truncateHash(hash: string): string {
 interface AddAttachmentRowProps {
   isUploading: boolean
   onClick: () => void
+  standalone: boolean
 }
 
 /**
- * Muted ghost row that opens the file picker. Built to the task row's
- * geometry, so the plus sits exactly where a row's leading glyph does. Also
- * the panel's only empty state, like the tasks panel's `+ Add task` row.
+ * Muted ghost row that opens the file picker. When it follows attachment
+ * rows it is built to their geometry, so the plus sits exactly where a row's
+ * leading glyph does; when it is the panel's only content it shrinks to a
+ * compact action bar, the same one the Tables panel's `Link table` row uses.
  */
-function AddAttachmentRow({ isUploading, onClick }: AddAttachmentRowProps) {
+function AddAttachmentRow({
+  isUploading,
+  onClick,
+  standalone,
+}: AddAttachmentRowProps) {
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={isUploading}
       className={cn(
-        CASE_TASK_ROW_CLASS,
-        "flex h-11 w-full items-center gap-2 text-sm font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring disabled:pointer-events-none"
+        standalone
+          ? CASE_PANEL_ACTION_ROW_CLASS
+          : [CASE_TASK_ROW_CLASS, "h-11"],
+        "flex w-full items-center gap-2 text-sm font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring disabled:pointer-events-none"
       )}
     >
       <span className="flex size-6 shrink-0 items-center justify-center">
-        {isUploading ? <Spinner /> : <Plus className="size-5" />}
+        {isUploading ? <Spinner /> : <Plus className="size-4" />}
       </span>
       {isUploading ? "Uploading…" : "Add attachment"}
     </button>
@@ -618,7 +620,9 @@ export function CaseAttachmentsSection({
         onDragOver={handleDragOver}
         onDrop={handleDrop}
         className={cn(
-          CASE_ATTACHMENTS_CONTAINER_CLASS,
+          attachments.length === 0
+            ? CASE_PANEL_ACTION_BOX_CLASS
+            : CASE_ATTACHMENTS_CONTAINER_CLASS,
           "flex flex-col gap-0.5 transition-colors",
           isDragOver && "border-primary/50 bg-primary/5"
         )}
@@ -635,6 +639,7 @@ export function CaseAttachmentsSection({
         <AddAttachmentRow
           isUploading={isUploading}
           onClick={handleAddAttachment}
+          standalone={attachments.length === 0}
         />
         <input
           ref={fileInputRef}

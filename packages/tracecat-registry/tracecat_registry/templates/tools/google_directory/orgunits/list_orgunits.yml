@@ -1,0 +1,55 @@
+type: action
+definition:
+  title: List organizational units
+  description: Retrieves a list of all organizational units for an account.
+  display_group: Google Workspace Directory
+  doc_url: https://developers.google.com/workspace/admin/directory/reference/rest/v1/orgunits/list
+  namespace: tools.google_directory
+  name: list_orgunits
+  secrets:
+    - type: oauth
+      provider_id: google_admin
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_admin
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  expects:
+    customer_id:
+      type: str
+      description: >-
+        The unique ID for the customer's Google Workspace account. As an account administrator,
+        you can also use the `my_customer` alias to represent your account's `customerId`.
+      default: my_customer
+    org_unit_path:
+      type: str | None
+      description: >-
+        The full path to the organizational unit or its unique ID. Returns the children of the
+        specified organizational unit.
+      default: null
+    type:
+      type: str | None
+      description: >-
+        Whether to return all sub-organizations or just immediate children. Allowed values are
+        `all`, `children` (default), and `allIncludingParent`.
+      default: null
+  steps:
+    - ref: list_orgunits
+      action: tools.google_api.call_api
+      args:
+        service_name: admin
+        version: directory_v1
+        resource: orgunits
+        method_name: list
+        access_token: ${{ SECRETS.google_admin_oauth.GOOGLE_ADMIN_USER_TOKEN || SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/admin.directory.orgunit.readonly"]
+        params:
+          customerId: ${{ inputs.customer_id }}
+          orgUnitPath: ${{ inputs.org_unit_path }}
+          type: ${{ inputs.type }}
+  returns: ${{ steps.list_orgunits.result }}

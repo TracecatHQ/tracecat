@@ -29,44 +29,29 @@
             "icon": "workflow",
             "pages": [
               "automations/tracecat-mcp",
-              "automations/workflows",
-              "automations/actions",
               {
                 "group": "Core concepts",
+                "expanded": true,
                 "pages": [
+                  "automations/workflows",
+                  "automations/actions",
+                  "automations/tables",
                   "automations/core-concepts/expressions",
                   "automations/core-concepts/secrets",
                   "automations/core-concepts/variables",
+                  "automations/core-concepts/workflow-metadata",
                   "automations/core-concepts/functions",
                   "automations/core-concepts/jsonpath",
                   "automations/core-concepts/workflow-definition"
                 ]
               },
               {
-                "group": "Core actions",
-                "expanded": true,
-                "pages": [
-                  "automations/core-actions/request-actions/http",
-                  "automations/core-actions/request-actions/sql",
-                  "automations/core-actions/request-actions/ssh",
-                  "automations/core-actions/request-actions/grpc",
-                  "automations/core-actions/request-actions/email",
-                  "automations/core-actions/transform-actions/reshape",
-                  "automations/core-actions/transform-actions/python-script",
-                  "automations/core-actions/transform-actions/data-transforms",
-                  "automations/core-actions/transform-actions/require",
-                  "automations/core-actions/workflow-actions/run-subflow",
-                  "automations/core-actions/workflow-actions/scatter-gather-loops",
-                  "automations/core-actions/workflow-actions/while-loops",
-                  "automations/core-actions/case-actions/cases",
-                  "automations/core-actions/memory-actions/tables"
-                ]
-              },
-              {
                 "group": "Triggers",
+                "expanded": true,
                 "pages": [
                   "automations/triggers/webhooks",
                   "automations/triggers/schedules",
+                  "automations/triggers/workflows-as-apis",
                   "automations/triggers/error-workflows",
                   "automations/triggers/case-triggers",
                   "automations/triggers/task-triggers",
@@ -81,16 +66,23 @@
                   "automations/integrations/oauth-integrations",
                   "automations/integrations/mcp-integrations"
                 ]
-              },
+              }
+            ]
+          },
+          {
+            "group": "Resolve cases",
+            "icon": "ticket-check",
+            "pages": [
               "automations/cases",
               "automations/cases/agent-mentions",
-              "automations/tables"
+              "automations/cases/tasks"
             ]
           },
           {
             "group": "Building agents",
             "icon": "sparkles",
             "pages": [
+              "agents/workspace-chat",
               "agents/ai-action",
               "agents/ai-agent",
               "agents/custom-llm-providers",
@@ -99,7 +91,7 @@
             ]
           },
           {
-            "group": "Building custom actions",
+            "group": "Building custom integrations",
             "icon": "blocks",
             "pages": [
               "custom-actions/custom-registry",
@@ -112,13 +104,26 @@
             "group": "Self-hosting",
             "icon": "server",
             "pages": [
-              "self-hosting/architecture",
               "self-hosting/docker-compose",
-              "self-hosting/tls",
               "self-hosting/aws-fargate",
               "self-hosting/kubernetes",
+              "self-hosting/air-gapped",
+              "self-hosting/temporal-retention",
+              "self-hosting/architecture",
+              "self-hosting/tls",
               "self-hosting/environment-variables",
               "self-hosting/security"
+            ]
+          },
+          {
+            "group": "Manage platform",
+            "icon": "settings",
+            "pages": [
+              "manage-platform/users",
+              "manage-platform/rbac",
+              "manage-platform/custom-roles",
+              "manage-platform/service-accounts",
+              "manage-platform/git-sync"
             ]
           },
           {
@@ -144,12 +149,86 @@
         ]
       },
       {
-        "tab": "Tools",
+        "tab": "Core Actions",
         "groups": [
           {
-            "group": "Tools",
+            "group": "Request",
+            "icon": "globe",
+            "expanded": true,
+            "pages": [
+              "automations/core-actions/request-actions/http",
+              "automations/core-actions/request-actions/sql",
+              "automations/core-actions/request-actions/ssh",
+              "automations/core-actions/request-actions/grpc",
+              "automations/core-actions/request-actions/email"
+            ]
+          },
+          {
+            "group": "Transform",
+            "icon": "shuffle",
+            "expanded": true,
+            "pages": [
+              "automations/core-actions/transform-actions/reshape",
+              "automations/core-actions/transform-actions/python-script",
+              "automations/core-actions/transform-actions/data-transforms",
+              "automations/core-actions/transform-actions/require"
+            ]
+          },
+          {
+            "group": "Workflow",
+            "icon": "workflow",
+            "expanded": true,
+            "pages": [
+              "automations/core-actions/workflow-actions/run-subflow",
+              "automations/core-actions/workflow-actions/scatter-gather-loops",
+              "automations/core-actions/workflow-actions/while-loops"
+            ]
+          },
+          {
+            "group": "Agent",
+            "icon": "sparkles",
+            "expanded": true,
+            "pages": [
+              "agents/ai-agent",
+              "agents/ai-action"
+            ]
+          },
+          {
+            "group": "Case",
+            "icon": "ticket-check",
+            "expanded": true,
+            "pages": [
+              "automations/core-actions/case-actions/cases",
+              "automations/core-actions/case-actions/comments",
+              "automations/core-actions/case-actions/attachments",
+              "automations/core-actions/case-actions/tasks",
+              "automations/core-actions/case-actions/linked-rows"
+            ]
+          },
+          {
+            "group": "Table",
+            "icon": "table",
+            "expanded": true,
+            "pages": [
+              "automations/core-actions/memory-actions/tables",
+              "automations/core-actions/memory-actions/columns",
+              "automations/core-actions/memory-actions/lookups",
+              "automations/core-actions/memory-actions/rows",
+              "automations/core-actions/memory-actions/export"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Integrations",
+        "groups": [
+          {
+            "group": "Integrations",
             "icon": "wrench",
             "pages": [
+              "integrations/overview",
+              "tools/1password",
+              "tools/1password_sdk",
               "tools/abuseipdb",
               "tools/alertmedia",
               "tools/amazon_s3",
@@ -158,34 +237,55 @@
               "tools/aws_boto3",
               "tools/azure_log_analytics",
               "tools/caldera",
+              "tools/censys",
+              "tools/cisa_kev",
               "tools/cloudflare_sdk",
               "tools/confluence",
               "tools/crowdsec",
               "tools/crowdstrike",
+              "tools/databricks",
+              "tools/databricks_sdk",
               "tools/datadog",
+              "tools/dehashed",
+              "tools/domscan",
               "tools/elastic_security",
               "tools/elasticsearch",
               "tools/emailrep",
               "tools/exa",
               "tools/falconpy",
+              "tools/first_epss",
               "tools/fleetdm",
               "tools/freshservice",
+              "tools/gitguardian",
               "tools/github",
               "tools/gitlab",
               "tools/gmail",
+              "tools/google_alert_center",
               "tools/google_api",
+              "tools/google_chronicle",
+              "tools/google_cloud_logging",
+              "tools/google_directory",
               "tools/google_docs",
               "tools/google_drive",
+              "tools/google_forms",
               "tools/google_maps",
+              "tools/google_reports",
               "tools/google_scc",
               "tools/google_secops_detection",
               "tools/google_secops_soar",
               "tools/google_sheets",
+              "tools/google_slides",
               "tools/gophish",
+              "tools/greynoise",
+              "tools/hackernews",
               "tools/hackerone",
               "tools/hibp",
+              "tools/hudsonrock",
+              "tools/hunter",
               "tools/hybrid_analysis",
               "tools/ipinfo",
+              "tools/iru",
+              "tools/jamf",
               "tools/jira",
               "tools/kubernetes_sdk",
               "tools/ldap",
@@ -193,6 +293,9 @@
               "tools/linear",
               "tools/microsoft_defender_endpoint",
               "tools/microsoft_entra",
+              "tools/microsoft_graph_sdk",
+              "tools/microsoft_graph_security",
+              "tools/microsoft_outlook",
               "tools/microsoft_sentinel",
               "tools/microsoft_teams",
               "tools/minio",
@@ -201,30 +304,41 @@
               "tools/okta",
               "tools/okta_oar",
               "tools/okta_sdk",
+              "tools/openphish",
               "tools/opensearch",
+              "tools/osv",
               "tools/pagerduty",
               "tools/panther",
               "tools/phishlabs",
+              "tools/pipe0",
+              "tools/project_discovery",
               "tools/pymongo",
+              "tools/recorded_future",
+              "tools/rippling",
               "tools/rootly",
               "tools/runreveal",
               "tools/scanner",
               "tools/sentinel_one",
               "tools/sentry",
               "tools/servicenow",
+              "tools/shodan",
               "tools/slack",
               "tools/slack_sdk",
+              "tools/snowflake",
+              "tools/socket",
               "tools/splunk",
               "tools/sublime",
               "tools/tavily",
               "tools/tenable_sc",
               "tools/terraform",
+              "tools/threatfox",
               "tools/threatstream",
               "tools/urlhaus",
               "tools/urlscan",
               "tools/virustotal",
               "tools/wazuh",
               "tools/wiz",
+              "tools/x",
               "tools/zendesk"
             ]
           }
@@ -238,7 +352,10 @@
             "icon": "book-open",
             "pages": [
               "cheatsheets/functions",
-              "cheatsheets/jsonpath"
+              "cheatsheets/jsonpath",
+              "cheatsheets/common-mistakes",
+              "cheatsheets/transformations",
+              "cheatsheets/workflow-metadata"
             ]
           }
         ]
@@ -315,38 +432,22 @@
     },
     {
       "source": "/automations/core-actions/case-comments",
-      "destination": "/automations/core-actions/case-actions/cases"
+      "destination": "/automations/core-actions/case-actions/comments"
     },
     {
       "source": "/automations/core-actions/case-attachments",
-      "destination": "/automations/core-actions/case-actions/cases"
+      "destination": "/automations/core-actions/case-actions/attachments"
     },
     {
       "source": "/automations/core-actions/case-tasks",
-      "destination": "/automations/core-actions/case-actions/cases"
+      "destination": "/automations/core-actions/case-actions/tasks"
     },
     {
       "source": "/automations/core-actions/case-tables",
-      "destination": "/automations/core-actions/case-actions/cases"
+      "destination": "/automations/core-actions/case-actions/linked-rows"
     },
     {
       "source": "/automations/core-actions/case-metrics",
-      "destination": "/automations/core-actions/case-actions/cases"
-    },
-    {
-      "source": "/automations/core-actions/case-actions/comments",
-      "destination": "/automations/core-actions/case-actions/cases"
-    },
-    {
-      "source": "/automations/core-actions/case-actions/attachments",
-      "destination": "/automations/core-actions/case-actions/cases"
-    },
-    {
-      "source": "/automations/core-actions/case-actions/tasks",
-      "destination": "/automations/core-actions/case-actions/cases"
-    },
-    {
-      "source": "/automations/core-actions/case-actions/linked-rows",
       "destination": "/automations/core-actions/case-actions/cases"
     },
     {

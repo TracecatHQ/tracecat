@@ -18,13 +18,12 @@ definition:
     merge_request_iid:
       type: int
       description: GitLab API path value for merge_request_iid.
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters, including pagination and filters.
-      default: null
     payload:
+      # Generic: this endpoint rejects an explicit null on optional body fields,
+      # and a literal payload map cannot omit an unset optional.
       type: dict[str, Any] | None
-      description: API-native request body passed through without validation.
+      description: >-
+        API-native request body. Documented fields: auto_merge, merge_commit_message, merge_when_pipeline_succeeds, sha, should_remove_source_branch, squash, squash_commit_message.
       default: null
     base_url:
       type: str
@@ -39,6 +38,5 @@ definition:
         headers:
           PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}
           Accept: application/json
-        params: ${{ inputs.params }}
         payload: ${{ inputs.payload }}
   returns: ${{ steps.request.result }}

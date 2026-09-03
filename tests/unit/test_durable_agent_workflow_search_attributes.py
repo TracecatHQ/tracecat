@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from temporalio.common import TypedSearchAttributes
-from temporalio.exceptions import ActivityError
+from temporalio.exceptions import ActivityError, ApplicationError
 from tracecat_ee.agent.activities import BuildToolDefsArgs, BuildToolDefsResult
 from tracecat_ee.agent.workflows.durable import (
     BUILD_AGENT_TOOL_DEFINITIONS_PATCH,
@@ -23,12 +23,16 @@ from tracecat_ee.agent.workflows.durable import (
     AgentWorkflowArgs,
     DurableAgentWorkflow,
     WorkflowApprovalSubmission,
+    _agent_token_ttl_seconds,
+    _apply_configured_timeout,
     _approved_user_mcp_tool_name,
     _build_approved_tool_run_input,
+    _start_registry_tool_call,
 )
 
+from tracecat import config
 from tracecat.agent.common.types import MCPToolDefinition
-from tracecat.agent.executor.activity import AgentExecutorResult
+from tracecat.agent.executor.activity import AgentExecutorInput, AgentExecutorResult
 from tracecat.agent.executor.schemas import ApprovedToolCall
 from tracecat.agent.preset.activities import ResolveAgentPresetConfigActivityInput
 from tracecat.agent.schemas import AgentOutput, RunAgentArgs
@@ -37,6 +41,8 @@ from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import AgentConfig
 from tracecat.agent.workflow_config import agent_config_to_payload
 from tracecat.auth.types import Role
+from tracecat.dsl._converter import _serializer
+from tracecat.dsl.common import RETRY_POLICIES
 from tracecat.identifiers.workflow import ExecutionUUID, WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.workflow.executions.correlation import build_agent_session_correlation_id
@@ -88,6 +94,47 @@ def test_agent_workflow_args_ignores_legacy_workspace_credentials() -> None:
     assert workflow_args.agent_args.session_id == payload["agent_args"]["session_id"]
     assert not hasattr(workflow_args, "use_workspace_credentials")
     assert not hasattr(workflow_args.agent_args, "use_workspace_credentials")
+
+
+def test_agent_token_ttl_includes_executor_queue_and_setup_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "tracecat_ee.agent.workflows.durable.config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT",
+        300,
+    )
+
+    assert _agent_token_ttl_seconds(65) == 365
+
+
+@pytest.mark.parametrize("configured_timeout_seconds", [None, 3600])
+def test_apply_configured_timeout_preserves_inheritance_or_pins_explicit_value(
+    configured_timeout_seconds: int | None,
+) -> None:
+    role = Role(
+        type="service",
+        service_id="tracecat-service",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+    assert role.workspace_id is not None
+    executor_input = AgentExecutorInput(
+        session_id=uuid.uuid4(),
+        workspace_id=role.workspace_id,
+        user_prompt="hello",
+        config=AgentConfig(model_name="gpt-4o-mini", model_provider="openai"),
+        role=role,
+        mcp_auth_token="mcp-token",
+        llm_gateway_auth_token="llm-token",
+    )
+
+    result = _apply_configured_timeout(executor_input, configured_timeout_seconds)
+    payload = _serializer(result)
+
+    if configured_timeout_seconds is None:
+        assert "timeout_seconds" not in payload
+    else:
+        assert payload["timeout_seconds"] == configured_timeout_seconds
 
 
 def test_workflow_rotates_stream_from_new_approval_update() -> None:
@@ -540,7 +587,7 @@ async def test_run_skips_activity_error_emission_without_patch_marker() -> None:
             AsyncMock(),
         ) as emit_terminal_done_mock,
     ):
-        with pytest.raises(ActivityError):
+        with pytest.raises(ApplicationError):
             await workflow_instance.run(workflow_args)
 
     # Legacy replay (all patches off) on the pre-stream error path: should_stream
@@ -603,6 +650,7 @@ async def test_compile_agent_run_uses_legacy_activity_without_patch_marker() -> 
             cfg=cfg,
             subagents=[],
             internal_tool_context=None,
+            token_ttl_seconds=None,
         )
 
     patched_mock.assert_called_once_with(BUILD_AGENT_TOOL_DEFINITIONS_PATCH)
@@ -667,6 +715,7 @@ async def test_approval_pause_done_failure_does_not_abort_workflow() -> None:
         scopes=frozenset({"agent:execute", "secret:read"}),
     )
     workflow_instance = DurableAgentWorkflow(_build_workflow_args(role))
+    workflow_instance._initialize_run()
     activity_error = ActivityError(
         "stream close failed",
         scheduled_event_id=1,
@@ -755,11 +804,84 @@ def test_approved_user_mcp_tool_name_from_normalized_approval() -> None:
     assert _approved_user_mcp_tool_name("core.http_request") is None
 
 
+@pytest.mark.anyio
+async def test_sequential_approved_remote_tools_receive_fresh_mcp_tokens() -> None:
+    role = Role(
+        type="user",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        scopes=frozenset({"agent:execute", "secret:read"}),
+    )
+    workflow_instance = DurableAgentWorkflow(_build_workflow_args(role))
+    workflow_instance._initialize_run()
+    build_result = BuildToolDefsResult(
+        tool_definitions={},
+        registry_lock=RegistryLock(origins={}, actions={}),
+    )
+    approved_tools = [
+        ApprovedToolCall(
+            tool_call_id="call-1",
+            tool_name="mcp.Jira.getIssue",
+            args={"issue_key": "ISSUE-1"},
+        ),
+        ApprovedToolCall(
+            tool_call_id="call-2",
+            tool_name="mcp.Jira.getIssue",
+            args={"issue_key": "ISSUE-2"},
+        ),
+    ]
+
+    with (
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.now",
+            return_value=datetime(2026, 7, 14, tzinfo=UTC),
+        ),
+        patch(
+            "tracecat_ee.agent.workflows.durable._start_remote_mcp_tool_call"
+        ) as start_remote_mock,
+        patch.object(
+            workflow_instance,
+            "_race_tool_activity_against_cancel",
+            AsyncMock(side_effect=['{"issue": 1}', '{"issue": 2}']),
+        ),
+        patch.object(
+            workflow_instance,
+            "_mint_scope_mcp_token",
+            side_effect=["fresh-token-1", "fresh-token-2"],
+        ) as mint_token_mock,
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.execute_activity",
+            AsyncMock(return_value=SimpleNamespace(results=[])),
+        ),
+    ):
+        await workflow_instance._execute_and_reconcile_approved_tools(
+            approved_tools=approved_tools,
+            denied_tools=[],
+            registry_lock=build_result.registry_lock,
+            mcp_build_result=build_result,
+            internal_tool_context=None,
+            token_ttl_seconds=365,
+            active_stream_id=None,
+        )
+
+    assert mint_token_mock.call_count == 2
+    assert [call.kwargs["ttl_seconds"] for call in mint_token_mock.call_args_list] == [
+        365,
+        365,
+    ]
+    assert [
+        call.kwargs["mcp_auth_token"] for call in start_remote_mock.call_args_list
+    ] == ["fresh-token-1", "fresh-token-2"]
+
+
 def test_build_approved_tool_run_input_is_deterministic() -> None:
     workflow_id = uuid.UUID("00000000-0000-4000-8000-000000000123")
     run_id = uuid.UUID("00000000-0000-4000-8000-000000000456")
     execution_id = uuid.UUID("00000000-0000-4000-8000-000000000789")
     logical_time = datetime(2026, 3, 17, tzinfo=UTC)
+    agent_session_id = uuid.UUID("00000000-0000-4000-8000-000000000999")
     registry_lock = RegistryLock(
         origins={"tracecat_registry": "test-version"},
         actions={"core.http_request": "tracecat_registry"},
@@ -777,6 +899,7 @@ def test_build_approved_tool_run_input_is_deterministic() -> None:
         run_id=run_id,
         execution_id=execution_id,
         logical_time=logical_time,
+        agent_session_id=agent_session_id,
     )
 
     assert result.task.action == "core_http_request"
@@ -788,6 +911,49 @@ def test_build_approved_tool_run_input_is_deterministic() -> None:
         == f"{WorkflowUUID.from_uuid(workflow_id).short()}/{ExecutionUUID.from_uuid(execution_id).short()}"
     )
     assert result.run_context.logical_time == logical_time
+    assert result.agent_session_id == agent_session_id
+
+
+def test_approved_registry_tool_failures_are_not_retried() -> None:
+    role = Role(
+        type="user",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        service_id="tracecat-api",
+    )
+    registry_lock = RegistryLock(
+        origins={"tracecat_registry": "test-version"},
+        actions={"core.http_request": "tracecat_registry"},
+    )
+
+    with (
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.uuid4",
+            side_effect=[uuid.uuid4(), uuid.uuid4(), uuid.uuid4()],
+        ),
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.start_activity"
+        ) as start_activity_mock,
+    ):
+        _start_registry_tool_call(
+            ApprovedToolCall(
+                tool_call_id="call_123",
+                tool_name="core__http_request",
+                args={"url": "https://example.com", "method": "GET"},
+            ),
+            registry_lock=registry_lock,
+            service_role=role,
+            logical_time=datetime(2026, 3, 18, tzinfo=UTC),
+            agent_session_id=uuid.uuid4(),
+        )
+
+    retry_policy = start_activity_mock.call_args.kwargs["retry_policy"]
+    assert retry_policy == RETRY_POLICIES["activity:fail_fast"]
+    assert retry_policy.maximum_attempts == 1
+    assert start_activity_mock.call_args.kwargs["task_queue"] == (
+        config.TRACECAT__EXECUTOR_QUEUE
+    )
 
 
 def test_build_approved_tool_run_input_strips_proxy_metadata() -> None:
@@ -795,6 +961,7 @@ def test_build_approved_tool_run_input_strips_proxy_metadata() -> None:
     run_id = uuid.UUID("00000000-0000-4000-8000-000000000456")
     execution_id = uuid.UUID("00000000-0000-4000-8000-000000000789")
     logical_time = datetime(2026, 3, 17, tzinfo=UTC)
+    agent_session_id = uuid.UUID("00000000-0000-4000-8000-000000000999")
     registry_lock = RegistryLock(
         origins={"tracecat_registry": "test-version"},
         actions={"core.cases.create_case": "tracecat_registry"},
@@ -815,7 +982,9 @@ def test_build_approved_tool_run_input_strips_proxy_metadata() -> None:
         run_id=run_id,
         execution_id=execution_id,
         logical_time=logical_time,
+        agent_session_id=agent_session_id,
     )
 
     assert result.task.action == "core.cases.create_case"
     assert result.task.args == {"summary": "hello"}
+    assert result.agent_session_id == agent_session_id

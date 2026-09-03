@@ -11,10 +11,12 @@ from temporalio.common import TypedSearchAttributes
 from temporalio.exceptions import (
     ActivityError,
     ApplicationError,
+    is_cancelled_exception,
 )
 from temporalio.exceptions import (
     CancelledError as TemporalCancelledError,
 )
+from temporalio.exceptions import TimeoutError as TemporalTimeoutError
 
 with workflow.unsafe.imports_passed_through():
     from pydantic_ai.messages import ToolCallPart
@@ -26,6 +28,15 @@ with workflow.unsafe.imports_passed_through():
         MCPToolDefinition,
         SandboxAgentConfig,
         SandboxSubagentConfig,
+    )
+    from tracecat.agent.constants import AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS
+    from tracecat.agent.error_policy import (
+        agent_executor_timed_out,
+        agent_executor_unavailable,
+        agent_preparation_failed,
+        agent_session_initialization_failed,
+        agent_workflow_internal_error,
+        invalid_agent_configuration,
     )
     from tracecat.agent.executor.activity import (
         AgentExecutorInput,
@@ -85,10 +96,11 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.agent.tokens import (
         InternalToolContext,
         LLMRouteClaim,
+        mint_agent_otel_token,
         mint_llm_token,
         mint_mcp_token,
     )
-    from tracecat.agent.types import AgentConfig
+    from tracecat.agent.types import AgentConfig, clamp_agent_timeout_seconds
     from tracecat.agent.workflow_config import agent_config_from_payload
     from tracecat.auth.types import Role
     from tracecat.chat.schemas import ChatMessage
@@ -97,6 +109,13 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.executor.activities import ExecutorActivities
     from tracecat.logger import logger
     from tracecat.registry.lock.types import RegistryLock
+    from tracecat.runtime.errors import RuntimeErrorClassification
+    from tracecat.temporal.errors import (
+        extract_error_classifications,
+        iter_error_chain,
+        raise_application_error_from_classification,
+        raise_wrapped_application_error,
+    )
     from tracecat.workflow.executions.correlation import (
         build_agent_session_correlation_id,
     )
@@ -123,7 +142,6 @@ with workflow.unsafe.imports_passed_through():
 
 ROOT_AGENT_SCOPE = "root"
 AGENT_TOOL_DEFINITION_ERROR = "AgentToolDefinitionError"
-AGENT_EXECUTOR_PRE_STREAM_ERROR = "AgentExecutorPreStreamError"
 AGENT_RUNTIME_EXECUTION_ERROR = "AgentRuntimeExecutionError"
 BUILD_AGENT_TOOL_DEFINITIONS_PATCH = (
     "tracecat_ee.agent.workflows.durable.build_agent_tool_definitions"
@@ -155,6 +173,57 @@ def _activity_error_message(error: ActivityError) -> str:
     return str(error)
 
 
+def _agent_activity_classification(
+    error: ActivityError,
+) -> RuntimeErrorClassification:
+    """Classify an untyped pre-executor activity failure at its workflow boundary."""
+    if classifications := extract_error_classifications(
+        error,
+        include_implicit_context=False,
+    ):
+        classification = classifications[0]
+        return classification
+    cause = error.cause or error
+    retryable = not (isinstance(cause, ApplicationError) and cause.non_retryable)
+    return agent_preparation_failed(cause, retryable=retryable)
+
+
+def _executor_activity_classification(
+    error: ActivityError,
+) -> RuntimeErrorClassification:
+    """Classify activity transport failures that return no executor result."""
+    if classifications := extract_error_classifications(
+        error,
+        include_implicit_context=False,
+    ):
+        classification = classifications[0]
+        return classification
+    cause = error.cause or error
+    if any(
+        isinstance(current, TemporalTimeoutError)
+        for current in iter_error_chain(error, include_implicit_context=False)
+    ):
+        return agent_executor_timed_out(cause)
+    return agent_executor_unavailable(cause)
+
+
+def _agent_token_ttl_seconds(activity_timeout_seconds: int) -> int:
+    """Cover one active turn plus the executor queue and setup window."""
+    return activity_timeout_seconds + int(config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT)
+
+
+def _apply_configured_timeout(
+    executor_input: AgentExecutorInput,
+    configured_timeout_seconds: int | None,
+) -> AgentExecutorInput:
+    """Pin explicit timeouts while preserving deployment-level inheritance."""
+    if configured_timeout_seconds is None:
+        return executor_input
+    return executor_input.model_copy(
+        update={"timeout_seconds": configured_timeout_seconds}
+    )
+
+
 def _build_approved_tool_run_input(
     *,
     tool_call: ApprovedToolCall,
@@ -163,6 +232,7 @@ def _build_approved_tool_run_input(
     run_id: uuid.UUID,
     execution_id: uuid.UUID,
     logical_time: datetime,
+    agent_session_id: uuid.UUID,
 ):
     action_name = normalize_mcp_tool_name(tool_call.tool_name)
     return build_run_input(
@@ -173,6 +243,7 @@ def _build_approved_tool_run_input(
         run_id=run_id,
         execution_id=execution_id,
         logical_time=logical_time,
+        agent_session_id=agent_session_id,
     )
 
 
@@ -238,6 +309,7 @@ def _start_registry_tool_call(
     registry_lock: RegistryLock,
     service_role: Role,
     logical_time: datetime,
+    agent_session_id: uuid.UUID,
 ) -> workflow.ActivityHandle[Any]:
     """Execute an approved registry action on the executor task queue."""
     return workflow.start_activity(
@@ -250,6 +322,7 @@ def _start_registry_tool_call(
                 run_id=workflow.uuid4(),
                 execution_id=workflow.uuid4(),
                 logical_time=logical_time,
+                agent_session_id=agent_session_id,
             ),
             service_role,
         ],
@@ -499,6 +572,11 @@ APPROVAL_STREAM_V2_PATCH = "durable-agent-approval-stream-v2"
 
 @workflow.defn
 class DurableAgentWorkflow:
+    # Instance variables initialized in run() before _run_with_agent_executor()
+    # pyright: ignore[reportUninitializedInstanceVariable]
+    workspace_id: uuid.UUID
+    organization_id: uuid.UUID
+
     @workflow.init
     def __init__(self, args: AgentWorkflowArgs):
         self.role = args.role
@@ -507,14 +585,6 @@ class DurableAgentWorkflow:
 
         self._status: Literal["running", "waiting_for_results", "done"] = "running"
         self._turn: int = 0
-        if args.role.workspace_id is None:
-            raise ApplicationError("Role must have a workspace ID", non_retryable=True)
-        if args.role.organization_id is None:
-            raise ApplicationError(
-                "Role must have an organization ID", non_retryable=True
-            )
-        self.workspace_id = args.role.workspace_id
-        self.organization_id = args.role.organization_id
         self.session_id = args.agent_args.session_id
         self.active_stream_id = args.agent_args.active_stream_id
         self.harness_type = args.harness_type or "claude_code"
@@ -523,6 +593,16 @@ class DurableAgentWorkflow:
         self.max_tool_calls = args.agent_args.max_tool_calls
         self._cancel_requested: bool = False
         self._cancel_reason: str | None = None
+        self._executor_terminal_stream_error_emitted: bool | None = None
+
+    def _initialize_run(self) -> None:
+        """Initialize fallible workflow runtime state inside the interceptor."""
+        if (workspace_id := self.role.workspace_id) is None:
+            raise_application_error_from_classification(invalid_agent_configuration())
+        if (organization_id := self.role.organization_id) is None:
+            raise_application_error_from_classification(invalid_agent_configuration())
+        self.workspace_id = workspace_id
+        self.organization_id = organization_id
 
     def _upsert_tracecat_search_attributes(self) -> None:
         """Ensure direct agent runs have core Tracecat search attributes.
@@ -638,9 +718,8 @@ class DurableAgentWorkflow:
             cfg = preset_config
         else:
             if args.agent_args.config is None:
-                raise ApplicationError(
-                    "Config must be provided if preset_slug is not set",
-                    non_retryable=True,
+                raise_application_error_from_classification(
+                    invalid_agent_configuration()
                 )
             cfg = args.agent_args.config
 
@@ -678,6 +757,7 @@ class DurableAgentWorkflow:
         *,
         build_result: BuildToolDefsResult,
         internal_tool_context: InternalToolContext | None = None,
+        ttl_seconds: int | None = None,
     ) -> str:
         info = workflow.info()
         return mint_mcp_token(
@@ -692,6 +772,7 @@ class DurableAgentWorkflow:
             allowed_internal_tools=build_result.allowed_internal_tools,
             internal_tool_context=internal_tool_context,
             registry_lock=build_result.registry_lock,
+            ttl_seconds=ttl_seconds,
         )
 
     def _remint_scope_tokens(
@@ -699,12 +780,14 @@ class DurableAgentWorkflow:
         compiled_run: CompiledAgentRun,
         *,
         internal_tool_context: InternalToolContext | None,
+        ttl_seconds: int | None,
     ) -> CompiledAgentRun:
         root = compiled_run.root.model_copy(
             update={
                 "mcp_auth_token": self._mint_scope_mcp_token(
                     build_result=compiled_run.root.build_result,
                     internal_tool_context=internal_tool_context,
+                    ttl_seconds=ttl_seconds,
                 )
             }
         )
@@ -715,6 +798,7 @@ class DurableAgentWorkflow:
                         update={
                             "mcp_auth_token": self._mint_scope_mcp_token(
                                 build_result=subagent.scope.build_result,
+                                ttl_seconds=ttl_seconds,
                             )
                         }
                     )
@@ -730,6 +814,7 @@ class DurableAgentWorkflow:
         cfg: AgentConfig,
         subagents: list[ResolvedSubagentConfig],
         internal_tool_context: InternalToolContext | None,
+        token_ttl_seconds: int | None,
     ) -> CompiledAgentRun:
         root_spec = AgentScopeSpec(
             name=ROOT_AGENT_SCOPE,
@@ -765,6 +850,7 @@ class DurableAgentWorkflow:
                 mcp_auth_token=self._mint_scope_mcp_token(
                     build_result=legacy_build_result,
                     internal_tool_context=internal_tool_context,
+                    ttl_seconds=token_ttl_seconds,
                 ),
             )
             return CompiledAgentRun(
@@ -779,10 +865,8 @@ class DurableAgentWorkflow:
         for resolved_subagent in subagents:
             child_cfg = agent_config_from_payload(resolved_subagent.config)
             if has_manual_tool_approvals(child_cfg.tool_approvals):
-                raise ApplicationError(
-                    f"Subagent preset '{resolved_subagent.binding.preset}' uses manual approvals, "
-                    "which are not supported for subagents yet.",
-                    non_retryable=True,
+                raise_application_error_from_classification(
+                    invalid_agent_configuration()
                 )
             await self._apply_custom_model_provider_config(child_cfg)
             scope_spec = AgentScopeSpec(
@@ -817,9 +901,8 @@ class DurableAgentWorkflow:
 
         root_build_result = build_result.scopes.get(ROOT_AGENT_SCOPE)
         if root_build_result is None:
-            raise ApplicationError(
-                "Batched agent tool compilation did not return the root scope",
-                non_retryable=True,
+            raise_application_error_from_classification(
+                agent_preparation_failed(retryable=False)
             )
 
         _apply_tool_approvals(root_spec, root_build_result)
@@ -829,6 +912,7 @@ class DurableAgentWorkflow:
             mcp_auth_token=self._mint_scope_mcp_token(
                 build_result=root_build_result,
                 internal_tool_context=internal_tool_context,
+                ttl_seconds=token_ttl_seconds,
             ),
         )
         compiled_subagents: list[CompiledSubagentScope] = []
@@ -838,15 +922,12 @@ class DurableAgentWorkflow:
             scope_spec = subagent_spec.scope
             child_build_result = build_result.scopes.get(scope_spec.name)
             if child_build_result is None:
-                raise ApplicationError(
-                    f"Batched agent tool compilation did not return scope '{scope_spec.name}'",
-                    non_retryable=True,
+                raise_application_error_from_classification(
+                    agent_preparation_failed(retryable=False)
                 )
             if has_manual_tool_approvals(child_build_result.tool_approvals):
-                raise ApplicationError(
-                    f"Subagent preset '{subagent_spec.resolved.binding.preset}' uses manual approvals, "
-                    "which are not supported for subagents yet.",
-                    non_retryable=True,
+                raise_application_error_from_classification(
+                    invalid_agent_configuration()
                 )
             _apply_tool_approvals(scope_spec, child_build_result)
             route_resolution = _llm_route_for_config(
@@ -865,6 +946,7 @@ class DurableAgentWorkflow:
                         build_result=child_build_result,
                         mcp_auth_token=self._mint_scope_mcp_token(
                             build_result=child_build_result,
+                            ttl_seconds=token_ttl_seconds,
                         ),
                         model_route=scoped_route_model,
                     ),
@@ -882,39 +964,80 @@ class DurableAgentWorkflow:
     @workflow.run
     async def run(self, args: AgentWorkflowArgs) -> AgentOutput:
         """Run the agent until completion. The agent will call tools until it needs human approval."""
-        if workflow.patched(UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH):
-            self._upsert_tracecat_search_attributes()
-        logger.debug(
-            "DurableAgentWorkflow run", args=args, harness_type=self.harness_type
-        )
-        logger.debug("AGENT CONTEXT", agent_context=AgentContext.get())
-        if workflow.unsafe.is_replaying():
-            logger.debug("Workflow is replaying")
-        else:
-            logger.debug("Starting agent", prompt=args.agent_args.user_prompt)
+        self._initialize_run()
 
         try:
+            if workflow.patched(UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH):
+                self._upsert_tracecat_search_attributes()
+            logger.debug(
+                "DurableAgentWorkflow run", args=args, harness_type=self.harness_type
+            )
+            logger.debug("AGENT CONTEXT", agent_context=AgentContext.get())
+            if workflow.unsafe.is_replaying():
+                logger.debug("Workflow is replaying")
+            else:
+                logger.debug("Starting agent", prompt=args.agent_args.user_prompt)
+
             cfg = await self._build_config(args)
             # Success needs no write: last_error was already cleared at turn
             # start, and last_error is the only persisted run-outcome signal.
             return await self._run_with_agent_executor(args, cfg)
         except ActivityError as e:
+            if is_cancelled_exception(e):
+                raise
+            classification = _agent_activity_classification(e)
             # Pre-stream failure: persist last_error and stream it (the loopback
             # was not yet wired up to surface it inline).
             await self._finalize_session_error(
-                _activity_error_message(e),
+                classification.message,
                 should_stream=workflow.patched(EMIT_PRE_STREAM_SESSION_ERRORS_PATCH),
             )
-            raise
+            raise_wrapped_application_error(
+                e,
+                fallback_classification=classification,
+                include_implicit_context=False,
+            )
         except ApplicationError as e:
+            classifications = extract_error_classifications(
+                e,
+                include_implicit_context=False,
+            )
+            classification = (
+                classifications[0]
+                if classifications
+                else agent_preparation_failed(e, retryable=not e.non_retryable)
+            )
             # Runtime errors stream inline via the loopback, so persist-only.
             # Pre-stream errors (tool-definition / pre-runtime) stream too.
-            should_stream = e.type == AGENT_TOOL_DEFINITION_ERROR or (
-                e.type != AGENT_RUNTIME_EXECUTION_ERROR
-                and workflow.patched(EMIT_PRE_STREAM_SESSION_ERRORS_PATCH)
+            should_stream = (
+                not self._executor_terminal_stream_error_emitted
+                if self._executor_terminal_stream_error_emitted is not None
+                else e.type == AGENT_TOOL_DEFINITION_ERROR
+                or (
+                    e.type != AGENT_RUNTIME_EXECUTION_ERROR
+                    and workflow.patched(EMIT_PRE_STREAM_SESSION_ERRORS_PATCH)
+                )
             )
-            await self._finalize_session_error(e.message, should_stream=should_stream)
-            raise
+            await self._finalize_session_error(
+                classification.message,
+                should_stream=should_stream,
+            )
+            raise_wrapped_application_error(
+                e,
+                fallback_classification=classification,
+                include_implicit_context=False,
+            )
+        except Exception as e:
+            if is_cancelled_exception(e):
+                raise
+            # This is an intentional invariant fallback for workflow-owned code.
+            # Executor and activity failures are classified at narrower boundaries.
+            classification = agent_workflow_internal_error(e)
+            await self._finalize_session_error(
+                classification.message,
+                should_stream=workflow.patched(EMIT_PRE_STREAM_SESSION_ERRORS_PATCH),
+            )
+            raise_application_error_from_classification(classification)
         finally:
             # Terminal boundary only: approval-pause awaits inside the executor
             # loop and never reaches here. Clear the active-turn pointers so the
@@ -1183,6 +1306,12 @@ class DurableAgentWorkflow:
         """
         logger.info("Running agent executor", session_id=self.session_id)
 
+        timeout_seconds = clamp_agent_timeout_seconds(args.agent_args.timeout_seconds)
+        activity_timeout_seconds = (
+            timeout_seconds + AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS
+        )
+        token_ttl_seconds = _agent_token_ttl_seconds(activity_timeout_seconds)
+
         # Persist the workflow-id UUID token used to start this execution so
         # approval continuation can target the exact live workflow later.
         curr_run_id = AgentWorkflowID.from_workflow_id(
@@ -1235,9 +1364,8 @@ class DurableAgentWorkflow:
             retry_policy=RETRY_POLICIES["activity:fail_fast"],
         )
         if not create_result.success:
-            raise ApplicationError(
-                f"Failed to create agent session: {create_result.error}",
-                non_retryable=True,
+            raise_application_error_from_classification(
+                agent_session_initialization_failed(retryable=True)
             )
 
         # Build internal tool context for builder assistant sessions
@@ -1254,6 +1382,7 @@ class DurableAgentWorkflow:
             cfg=cfg,
             subagents=agents_result.subagents,
             internal_tool_context=internal_tool_context,
+            token_ttl_seconds=token_ttl_seconds,
         )
         root_registry_lock = compiled_run.registry_lock
         allowed_actions = compiled_run.root.tool_definitions
@@ -1296,6 +1425,7 @@ class DurableAgentWorkflow:
             base_url=cfg.base_url,
             model_settings=cfg.model_settings,
             routes=compiled_run.llm_routes,
+            ttl_seconds=token_ttl_seconds,
         )
         # Replay bridge for histories that recorded the v2 marker. Keep this
         # until those histories have drained. This does not make pre-v2
@@ -1303,6 +1433,11 @@ class DurableAgentWorkflow:
         # with the now-unconditional emit_session_done command; verify that no
         # such executions remain RUNNING before rollout.
         workflow.deprecate_patch(APPROVAL_STREAM_V2_PATCH)
+        agent_otel_auth_token = mint_agent_otel_token(
+            workspace_id=self.workspace_id,
+            organization_id=self.organization_id,
+            session_id=self.session_id,
+        )
 
         # Prepare executor input
         executor_input = AgentExecutorInput(
@@ -1315,11 +1450,16 @@ class DurableAgentWorkflow:
             role=self.role,
             mcp_auth_token=compiled_run.root.mcp_auth_token,
             llm_gateway_auth_token=llm_gateway_auth_token,
+            agent_otel_auth_token=agent_otel_auth_token,
             allowed_actions=allowed_actions,
             subagents=compiled_run.sandbox_subagents,
             sdk_session_id=load_result.sdk_session_id,
             sdk_session_data=load_result.sdk_session_data,
             is_fork=load_result.is_fork,
+        )
+        executor_input = _apply_configured_timeout(
+            executor_input,
+            args.agent_args.timeout_seconds,
         )
 
         # Run the executor activity
@@ -1327,60 +1467,70 @@ class DurableAgentWorkflow:
             logger.info("Executing agent turn", turn=self._turn)
 
             # Run one executor activity turn with update-driven cancellation.
-            if not workflow.patched(AGENT_REQUEST_CANCEL_PATCH):
-                result = await workflow.execute_activity(
-                    run_agent_activity,
-                    executor_input,
-                    task_queue=config.TRACECAT__AGENT_EXECUTOR_QUEUE,
-                    start_to_close_timeout=timedelta(
-                        seconds=config.TRACECAT__AGENT_SANDBOX_TIMEOUT
-                    ),
-                    heartbeat_timeout=timedelta(seconds=60),
-                    retry_policy=RETRY_POLICIES["activity:fail_fast"],
-                )
-            else:
-                activity_handle = workflow.start_activity(
-                    run_agent_activity,
-                    executor_input,
-                    cancellation_type=workflow.ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
-                    task_queue=config.TRACECAT__AGENT_EXECUTOR_QUEUE,
-                    start_to_close_timeout=timedelta(
-                        seconds=config.TRACECAT__AGENT_SANDBOX_TIMEOUT
-                    ),
-                    heartbeat_timeout=timedelta(seconds=60),
-                    retry_policy=RETRY_POLICIES["activity:fail_fast"],
-                )
-                # ActivityHandle is an asyncio.Task subclass, so .done() is
-                # valid. Neither wait_condition nor the handle poll emits
-                # history commands, so this race stays replay-safe.
-                await workflow.wait_condition(
-                    lambda handle=activity_handle: (
-                        handle.done() or self._cancel_requested
+            try:
+                if not workflow.patched(AGENT_REQUEST_CANCEL_PATCH):
+                    result = await workflow.execute_activity(
+                        run_agent_activity,
+                        executor_input,
+                        task_queue=config.TRACECAT__AGENT_EXECUTOR_QUEUE,
+                        start_to_close_timeout=timedelta(
+                            seconds=activity_timeout_seconds
+                        ),
+                        heartbeat_timeout=timedelta(seconds=60),
+                        retry_policy=RETRY_POLICIES["activity:fail_fast"],
                     )
-                )
-                if not activity_handle.done():
-                    activity_handle.cancel()
-                try:
-                    result = await activity_handle
-                except ActivityError as e:
-                    if self._cancel_requested and isinstance(
-                        e.cause, TemporalCancelledError
-                    ):
-                        # The activity was cancelled without returning a
-                        # loopback result (never picked up, still in setup, or
-                        # hard-cancelled), so no executor wrote the cancelled/
-                        # done frames to the per-turn stream. Emit them here or
-                        # the client's SSE reader blocks until disconnect.
-                        return await self._cancelled_turn_output(
-                            AgentExecutorResult(
-                                success=True,
-                                cancelled=True,
-                                cancelled_reason=self._cancel_reason or "user_cancel",
-                            ),
-                            info,
-                            emit_cancelled=True,
+                else:
+                    activity_handle = workflow.start_activity(
+                        run_agent_activity,
+                        executor_input,
+                        cancellation_type=workflow.ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
+                        task_queue=config.TRACECAT__AGENT_EXECUTOR_QUEUE,
+                        start_to_close_timeout=timedelta(
+                            seconds=activity_timeout_seconds
+                        ),
+                        heartbeat_timeout=timedelta(seconds=60),
+                        retry_policy=RETRY_POLICIES["activity:fail_fast"],
+                    )
+                    # ActivityHandle is an asyncio.Task subclass, so .done() is
+                    # valid. Neither wait_condition nor the handle poll emits
+                    # history commands, so this race stays replay-safe.
+                    await workflow.wait_condition(
+                        lambda handle=activity_handle: (
+                            handle.done() or self._cancel_requested
                         )
+                    )
+                    if not activity_handle.done():
+                        activity_handle.cancel()
+                    try:
+                        result = await activity_handle
+                    except ActivityError as e:
+                        if self._cancel_requested and isinstance(
+                            e.cause, TemporalCancelledError
+                        ):
+                            # The activity was cancelled without returning a
+                            # loopback result (never picked up, still in setup, or
+                            # hard-cancelled), so no executor wrote the cancelled/
+                            # done frames to the per-turn stream. Emit them here or
+                            # the client's SSE reader blocks until disconnect.
+                            return await self._cancelled_turn_output(
+                                AgentExecutorResult(
+                                    success=True,
+                                    cancelled=True,
+                                    cancelled_reason=self._cancel_reason
+                                    or "user_cancel",
+                                ),
+                                info,
+                                emit_cancelled=True,
+                            )
+                        raise
+            except ActivityError as e:
+                if is_cancelled_exception(e):
                     raise
+                raise_wrapped_application_error(
+                    e,
+                    fallback_classification=_executor_activity_classification(e),
+                    include_implicit_context=False,
+                )
 
             if result.cancelled:
                 logger.info(
@@ -1399,12 +1549,14 @@ class DurableAgentWorkflow:
                 terminal_stream_error_emitted = (
                     result.terminal_stream_error_emitted is not False
                 )
-                raise ApplicationError(
-                    f"Agent execution failed: {result.error}",
-                    type=AGENT_RUNTIME_EXECUTION_ERROR
-                    if terminal_stream_error_emitted
-                    else AGENT_EXECUTOR_PRE_STREAM_ERROR,
-                    non_retryable=True,
+                self._executor_terminal_stream_error_emitted = (
+                    terminal_stream_error_emitted
+                )
+                # A missing classification can only come from a legacy history or
+                # a broken executor contract. Treat it as a platform invariant,
+                # never infer ownership from the free-form error string.
+                raise_application_error_from_classification(
+                    result.classification or agent_workflow_internal_error()
                 )
 
             if result.approval_requested:
@@ -1470,6 +1622,7 @@ class DurableAgentWorkflow:
                     compiled_run = self._remint_scope_tokens(
                         compiled_run,
                         internal_tool_context=internal_tool_context,
+                        ttl_seconds=token_ttl_seconds,
                     )
                     llm_gateway_auth_token = mint_llm_token(
                         workspace_id=self.workspace_id,
@@ -1481,8 +1634,13 @@ class DurableAgentWorkflow:
                         base_url=cfg.base_url,
                         model_settings=cfg.model_settings,
                         routes=compiled_run.llm_routes,
+                        ttl_seconds=token_ttl_seconds,
                     )
-
+                    agent_otel_auth_token = mint_agent_otel_token(
+                        workspace_id=self.workspace_id,
+                        organization_id=self.organization_id,
+                        session_id=self.session_id,
+                    )
                 # Execute approved tools and reconcile the SDK transcript.
                 approved_tools, denied_tools = self._build_tool_lists_from_approvals(
                     result.approval_items or []
@@ -1508,7 +1666,9 @@ class DurableAgentWorkflow:
                         approved_tools=approved_tools,
                         denied_tools=denied_tools,
                         registry_lock=root_registry_lock,
-                        mcp_auth_token=compiled_run.root.mcp_auth_token,
+                        mcp_build_result=compiled_run.root.build_result,
+                        internal_tool_context=internal_tool_context,
+                        token_ttl_seconds=token_ttl_seconds,
                         # Post-approval: emit to the (possibly rotated) stream.
                         # set_approvals rotated self.active_stream_id when the
                         # rotation patch is active; otherwise it is the original.
@@ -1549,6 +1709,26 @@ class DurableAgentWorkflow:
                     retry_policy=RETRY_POLICIES["activity:fail_fast"],
                 )
 
+                # Refresh after reconciliation so the next turn
+                # window receives a full token TTL.
+                compiled_run = self._remint_scope_tokens(
+                    compiled_run,
+                    internal_tool_context=internal_tool_context,
+                    ttl_seconds=token_ttl_seconds,
+                )
+                llm_gateway_auth_token = mint_llm_token(
+                    workspace_id=self.workspace_id,
+                    organization_id=self.organization_id,
+                    session_id=self.session_id,
+                    model=cfg.model_name,
+                    provider=cfg.model_provider,
+                    catalog_id=cfg.catalog_id,
+                    base_url=cfg.base_url,
+                    model_settings=cfg.model_settings,
+                    routes=compiled_run.llm_routes,
+                    ttl_seconds=token_ttl_seconds,
+                )
+
                 # Update executor input for resume. Reconcile has replaced the
                 # interrupt artifacts with the real tool_result entry; the
                 # runtime only sends a hidden continuation tick. Emit the resumed
@@ -1563,12 +1743,17 @@ class DurableAgentWorkflow:
                     role=self.role,
                     mcp_auth_token=compiled_run.root.mcp_auth_token,
                     llm_gateway_auth_token=llm_gateway_auth_token,
+                    agent_otel_auth_token=agent_otel_auth_token,
                     allowed_actions=allowed_actions,
                     subagents=compiled_run.sandbox_subagents,
                     sdk_session_id=reload_result.sdk_session_id,
                     sdk_session_data=reload_result.sdk_session_data,
                     is_fork=reload_result.is_fork,
                     is_approval_continuation=True,
+                )
+                executor_input = _apply_configured_timeout(
+                    executor_input,
+                    args.agent_args.timeout_seconds,
                 )
                 self._turn += 1
                 continue
@@ -1768,7 +1953,9 @@ class DurableAgentWorkflow:
         approved_tools: list[ApprovedToolCall],
         denied_tools: list[DeniedToolCall],
         registry_lock: RegistryLock,
-        mcp_auth_token: str,
+        mcp_build_result: BuildToolDefsResult,
+        internal_tool_context: InternalToolContext | None,
+        token_ttl_seconds: int | None,
         active_stream_id: uuid.UUID | None,
     ) -> tuple[list, list[str]]:
         """Returns the reconciled results and the tool call ids the user's
@@ -1798,11 +1985,18 @@ class DurableAgentWorkflow:
             remote_mcp_tool_name = _approved_user_mcp_tool_name(tool_call.tool_name)
             try:
                 if remote_mcp_tool_name is not None:
+                    # Approved tools run sequentially and can each consume the
+                    # full executor timeout, so no call reuses an aging token.
+                    approved_tool_mcp_token = self._mint_scope_mcp_token(
+                        build_result=mcp_build_result,
+                        internal_tool_context=internal_tool_context,
+                        ttl_seconds=token_ttl_seconds,
+                    )
                     raw_result = await self._race_tool_activity_against_cancel(
                         _start_remote_mcp_tool_call(
                             tool_call,
                             remote_tool_name=remote_mcp_tool_name,
-                            mcp_auth_token=mcp_auth_token,
+                            mcp_auth_token=approved_tool_mcp_token,
                         )
                     )
                     result = PendingToolResult(
@@ -1818,6 +2012,7 @@ class DurableAgentWorkflow:
                             registry_lock=registry_lock,
                             service_role=service_role,
                             logical_time=logical_time,
+                            agent_session_id=self.session_id,
                         )
                     )
                     result = PendingToolResult(

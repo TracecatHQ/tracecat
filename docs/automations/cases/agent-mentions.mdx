@@ -1,6 +1,7 @@
 ---
 title: "Mention agents in case comments"
 description: "Invoke a preset agent from a case comment, follow its reply, and inspect the full agent session."
+sidebarTitle: "Agent mentions"
 icon: "lock"
 ---
 
@@ -18,7 +19,8 @@ Your workspace role also needs:
 - `agent:execute` to invoke the selected agent.
 - `case:update` to create the comment.
 
-Without these requirements, `@` behaves as regular comment text and never starts an agent run.
+Without `agent:read` and `agent:execute`, `@` behaves as regular comment text and never starts an agent run.
+Without either entitlement, `@` still opens the list, showing an Enterprise notice in place of agent names.
 
 ## Mention an agent
 
@@ -66,8 +68,12 @@ The session contains the full transcript, including tool calls, errors, and appr
 Comment-created sessions have a `From comment` badge in the case chat history.
 Use the history search to find these sessions after the comment thread is no longer visible.
 
+## Run workflows from an agent
+
+A mentioned agent can run workflows configured as tools on its preset. When you need fixed order, deterministic branching, or guaranteed steps, use a `/` command to [run the workflow directly](/automations/triggers/comment-triggers).
+
 ## Related pages
 
-- See [Cases](/automations/cases) to configure and manage case records.
+- See [Case management](/automations/cases) to configure and manage case records.
 - See [AI agent](/agents/ai-agent) to configure agent tools, outputs, and approvals.
 - See [Comment triggers](/automations/triggers/comment-triggers) to run a workflow from a case comment instead of invoking a preset agent.

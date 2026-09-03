@@ -71,7 +71,7 @@ export default function CasePanelProvider({
           setIsOpen(isOpen)
         }}
       >
-        {caseId && <CasePanelView caseId={caseId} />}
+        {caseId && <CasePanelView caseId={caseId} showPanelVersionHistory />}
       </SlidingPanel>
     </CasePanelContext.Provider>
   )

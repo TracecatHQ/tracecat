@@ -9,7 +9,6 @@ import orjson
 
 QA_VERIFIED_STDIO_SOURCE_PINS = {
     "sentinelone-mcp": "07d4992089b10affff6163f296b1f6cb5734539f",
-    "jamf-mcp": "53843c4da3ef666b70de1ee793fa9e8c432b9972",
 }
 
 # Source SHAs retain the QA provenance; exact registry versions are the runtime pins.
@@ -18,11 +17,6 @@ QA_VERIFIED_STDIO_PACKAGE_PINS = {
         "manager": "uvx",
         "package": "mcp-panther==2.3.1",
         "source_sha": "7e6eca6f4f7f790057ed860bcfac669e13898d0c",
-    },
-    "google-cloud-secops-mcp": {
-        "manager": "uvx",
-        "package": "google-secops-mcp==0.7.0",
-        "source_sha": "fde561ff33fb69a1565780bd5f141f4750cfc770",
     },
     "clickhouse-mcp": {
         "manager": "uvx",
@@ -33,11 +27,6 @@ QA_VERIFIED_STDIO_PACKAGE_PINS = {
         "manager": "uvx",
         "package": "falcon-mcp==0.13.0",
         "source_sha": "5f6c0581e8f941a3a05ad884c4ae667b85b8f6b7",
-    },
-    "virustotal-mcp": {
-        "manager": "uvx",
-        "package": "gti-mcp==0.1.2",
-        "source_sha": "2552eeb5d0056317e352579a666c746a659e0b49",
     },
     "okta-mcp": {
         "manager": "uvx",
@@ -54,11 +43,6 @@ QA_VERIFIED_STDIO_PACKAGE_PINS = {
         "package": "zscaler-mcp==0.13.1",
         "source_sha": "23912913f8588c650b104d3bd30c0c755d6962cd",
     },
-    "servicenow-mcp": {
-        "manager": "uvx",
-        "package": "servicenow-mcp==0.1.1",
-        "source_sha": "06250607bdfc814f9bb56551bba16c3a7fb5a8c9",
-    },
     "pagerduty-mcp": {
         "manager": "uvx",
         "package": "pagerduty-mcp==1.1.0",
@@ -68,11 +52,6 @@ QA_VERIFIED_STDIO_PACKAGE_PINS = {
         "manager": "uvx",
         "package": "rootly-mcp-server==2.3.9",
         "source_sha": "f4f55a049dbee11c8321daf52e4d6d5e2ab4f806",
-    },
-    "semgrep-mcp": {
-        "manager": "uvx",
-        "package": "semgrep-mcp==0.9.0",
-        "source_sha": "6e340f843bf82a2f42de77125ae75cfd020abf9b",
     },
     "greynoise-mcp": {
         "manager": "npx",
@@ -90,6 +69,28 @@ QA_VERIFIED_STDIO_PACKAGE_PINS = {
         "source_sha": "fac7c8a312c6f6aee8330de72182dcf45bf4ae26",
     },
 }
+
+# Launchers retired by the 2026-08-13 cold-install audit: each one fails on a
+# fresh dependency resolution, so no catalog row may reintroduce them.
+RETIRED_STDIO_LAUNCHERS = (
+    "scc-mcp==",
+    "gti-mcp==",
+    "google-secops-mcp==",
+    "servicenow-mcp==",
+    "semgrep-mcp==",
+    "Jamf-Concepts/mcp-hub",
+    '"scc_mcp"',
+    '"gti_mcp"',
+    '"secops_mcp"',
+)
+
+# Rows dropped from the catalog with no replacement recipe. Google SecOps left
+# this tuple once Google's managed remote server replaced the retired local
+# stdio recipe.
+RETIRED_CATALOG_SLUGS = (
+    "google-security-command-center-mcp",
+    "virustotal-mcp",
+)
 
 
 def _catalog_servers() -> dict[str, dict[str, Any]]:
@@ -166,3 +167,20 @@ def test_unavailable_qa_integrations_are_coming_soon_without_specs() -> None:
         assert public_servers[slug]["status"] == "coming_soon"
         assert "connection_spec" not in private_servers[slug]
         assert private_servers[slug]["_research"]["notes"].startswith("Coming soon")
+
+
+def test_retired_stdio_launchers_are_absent() -> None:
+    """Retired recipes must not creep back in, in any row or option."""
+    catalog_path = (
+        Path(__file__).parents[2]
+        / "packages/tracecat-ee/tracecat_ee/mcp/catalog/mcp_catalog_private.json"
+    )
+    raw = catalog_path.read_text(encoding="utf-8")
+    for launcher in RETIRED_STDIO_LAUNCHERS:
+        assert launcher not in raw
+
+    private_servers = _catalog_servers()
+    public_servers = _public_catalog_servers()
+    for slug in RETIRED_CATALOG_SLUGS:
+        assert slug not in private_servers
+        assert slug not in public_servers

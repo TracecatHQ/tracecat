@@ -4,48 +4,54 @@ title: "Welcome to Tracecat"
 
 Tracecat is the AI automation platform for security teams and agents.
 
-## Automating security work
+## Get started
 
-The AI-native security automation platform.
+The recommended way to start is to connect your coding agent to the Tracecat MCP server.
+Your agent then builds and runs workflows, agents, tables, and cases for you.
 
 <Columns cols={2}>
-  <Card title="Automations" icon="workflow" href="/automations/workflows">
-    Turn prompts into workflows, triggers, and tables via Tracecat MCP.
+  <Card title="Getting started" icon="rocket" href="/overview/getting-started">
+    Try Tracecat today by self-hosting with Docker Compose.
   </Card>
-  <Card title="Agents" icon="sparkles" href="/agents/ai-agent">
-    Build custom AI agents that call tools and MCP (stdio, remote) servers.
-  </Card>
-  <Card title="Cases" icon="layers" href="/automations/cases">
-    Resolve work items with agents and workflows.
-  </Card>
-  <Card title="Custom actions" icon="blocks" href="/custom-actions/custom-registry">
-    Build your own custom actions and sync them into Tracecat via git.
-  </Card>
-  <Card title="Deploy MCP servers" icon="boxes" href="/automations/integrations/mcp-integrations">
-    Host your own sandboxed MCP server in Tracecat.
-  </Card>
-  <Card title="Self-hosting" icon="server" href="/self-hosting/docker-compose">
-    Host your Tracecat in your own infrastructure.
+  <Card title="Tracecat MCP" icon="terminal" href="/automations/tracecat-mcp">
+    View every tool your agent can call in Tracecat.
   </Card>
 </Columns>
 
-## Securing agents at scale
-
-<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
-
-Protect your organization's agent rollout with the same security features as Tracecat automation.
+## Explore the platform
 
 <Columns cols={2}>
-  <Card title="Agent control plane" icon="monitor-check" href="/automations/workflows" disabled>
-    Connect local agents to any tool, MCP server, workflow, or agent in Tracecat.
+  <Card title="Agents" icon="sparkles" href="/agents/ai-agent">
+    Build custom AI agents that call tools and MCP (stdio, remote) servers.
   </Card>
-  <Card title="Monitor agents" icon="eye" href="/automations/workflows" disabled>
-    Monitor agent tool calls and activity across all connected agents (Claude Code, Cursor, OpenAI Codex).
+  <Card title="Workflows" icon="workflow" href="/automations/workflows">
+    Draft, publish, and run workflow definitions.
   </Card>
-  <Card title="Detections" icon="brick-wall-shield" href="/automations/workflows" disabled>
-    Detect and block malicious tool calls with pre-built and custom rules.
+  <Card title="Actions" icon="zap" href="/automations/actions">
+    Configure action inputs, success and error paths, and control flow.
   </Card>
-  <Card title="Human-in-the-loop" icon="shield-check" href="/automations/workflows" disabled>
-    Approve or reject agent tools calls from within Tracecat UI, Slack, or Microsoft Teams.
+  <Card title="Triggers" icon="webhook" href="/automations/triggers/webhooks">
+    Start workflows from external systems with webhooks.
+  </Card>
+  <Card title="Case management" icon="layers" href="/automations/cases">
+    Resolve work items with agents and workflows.
+  </Card>
+  <Card title="Workspace chat" icon="message-circle" href="/agents/workspace-chat">
+    Chat across your workspace with tools, MCP servers, and preset agents.
+  </Card>
+  <Card title="Tables" icon="table" href="/automations/tables">
+    Store structured data and query it from workflows and agents.
+  </Card>
+  <Card title="Integrations" icon="plug" href="/automations/integrations/prebuilt-credentials">
+    Configure prebuilt credentials for Tracecat's built-in integrations.
+  </Card>
+  <Card title="Custom integrations" icon="blocks" href="/custom-actions/custom-registry">
+    Build your own custom actions and sync them into Tracecat via git.
+  </Card>
+  <Card title="MCP servers" icon="boxes" href="/automations/integrations/mcp-integrations">
+    Connect third-party remote and stdio MCP servers for your agents to call.
+  </Card>
+  <Card title="Self-hosting" icon="server" href="/self-hosting/docker-compose">
+    Host your Tracecat in your own infrastructure.
   </Card>
 </Columns>

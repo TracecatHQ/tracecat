@@ -80,6 +80,8 @@ from tracecat.agent.mcp.metadata import (
     PROXY_TOOL_METADATA_KEY,
 )
 from tracecat.agent.mcp.utils import (
+    LEGACY_REGISTRY_MCP_SERVER_NAME,
+    REGISTRY_MCP_SERVER_NAME,
     STDIO_MCP_TOOL_NAME_RE,
     action_name_to_mcp_tool_name,
     normalize_mcp_tool_name,
@@ -230,6 +232,8 @@ CHILD_AGENT_DISALLOWED_TOOLS = [
     *CLAUDE_CODE_STATEFUL_TOOLS,
 ]
 
+TOOL_SEARCH_TOOL_NAME = "ToolSearch"
+
 # Tools that require internet access (these bypass sandbox network isolation
 # because they're executed server-side by Anthropic, not in the sandbox)
 INTERNET_TOOLS = [
@@ -258,12 +262,14 @@ COMMAND_LINE_TOOLS_PROMPT = (
 # interpolate into the system prompt.
 STDIO_MCP_TOOL_DESCRIPTION_MAX_CHARS = 500
 
-REGISTRY_MCP_SERVER_NAME = "tracecat-registry"
 REGISTRY_MCP_TOOL_PREFIX = f"mcp__{REGISTRY_MCP_SERVER_NAME}__"
 REGISTRY_MCP_DOT_PREFIX = f"mcp.{REGISTRY_MCP_SERVER_NAME}."
-LEGACY_REGISTRY_MCP_TOOL_PREFIX = "mcp__tracecat_registry__"
-LEGACY_REGISTRY_MCP_DOT_PREFIX = "mcp.tracecat_registry."
+LEGACY_REGISTRY_MCP_TOOL_PREFIX = f"mcp__{LEGACY_REGISTRY_MCP_SERVER_NAME}__"
+LEGACY_REGISTRY_MCP_DOT_PREFIX = f"mcp.{LEGACY_REGISTRY_MCP_SERVER_NAME}."
 SUBAGENT_REGISTRY_MCP_SERVER_PREFIX = "tracecat-registry-"
+RESERVED_MCP_SERVER_NAMES = frozenset(
+    {REGISTRY_MCP_SERVER_NAME, LEGACY_REGISTRY_MCP_SERVER_NAME}
+)
 TRUSTED_MCP_BRIDGE_URL = f"http://127.0.0.1:{TRACECAT__AGENT_MCP_BRIDGE_PORT}/mcp"
 
 # Increase the SDK's stdout/stderr capture buffer above its default 1 MiB so
@@ -504,7 +510,9 @@ class ClaudeAgentRuntime:
         servers: dict[str, McpStdioServerConfig] = {}
         tools_by_server: dict[str, list[MCPServerToolSummary]] = {}
         blocked_approval_tools: set[str] = set()
-        used_names = set(existing_names or ())
+        # Keep trusted registry identities unavailable to user-supplied servers,
+        # including turns that expose no registry actions.
+        used_names = set(RESERVED_MCP_SERVER_NAMES) | set(existing_names or ())
         if not source_configs:
             return _StdioMCPServerSpec(
                 servers=servers,
@@ -1379,6 +1387,8 @@ class ClaudeAgentRuntime:
             )
 
             disallowed_tools = list(CHILD_AGENT_DISALLOWED_TOOLS)
+            if subagent.config.model_provider == "bedrock":
+                disallowed_tools.append(TOOL_SEARCH_TOOL_NAME)
             if not self._runtime_internet_access_enabled:
                 disallowed_tools.extend(INTERNET_TOOLS)
 
@@ -1527,12 +1537,17 @@ class ClaudeAgentRuntime:
             env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = (
                 CUSTOM_MODEL_PROVIDER_AUTO_COMPACT_WINDOW
             )
-        # The CLI disables tool search (deferred tool loading) for
-        # non-first-party base URLs — ours is always the socket bridge — unless
-        # explicitly enabled. Every leg terminates at the managed LiteLLM or an
-        # Anthropic-compatible passthrough gateway; both tolerate its wire
-        # artifacts (defer_loading, tool_reference; verified on LiteLLM 1.89).
-        env["ENABLE_TOOL_SEARCH"] = "true"
+        # Bedrock does not consistently support tool search across APIs, models,
+        # and opaque inference profiles. Explicitly disable it for Bedrock roots
+        # so the CLI sends full tool definitions without tool_reference blocks.
+        # Bedrock subagents are handled through their per-agent disallowed tools.
+        env["ENABLE_TOOL_SEARCH"] = (
+            "false" if payload.config.model_provider == "bedrock" else "true"
+        )
+        # Sandbox-safe Claude OTel env (no headers, no tenant endpoint — the
+        # shim points the SDK at its OtelBridge).
+        if payload.agent_otel_sandbox_env:
+            env.update(payload.agent_otel_sandbox_env)
         return env
 
     def _build_options(
@@ -1705,9 +1720,17 @@ class ClaudeAgentRuntime:
             )
 
             stderr_queue: asyncio.Queue[str] = asyncio.Queue()
+            reserved_subagent_server_names = {
+                server_name
+                for subagent in payload.subagents
+                for server_name in (
+                    self._subagent_registry_server_name(subagent.alias),
+                    f"{LEGACY_REGISTRY_MCP_SERVER_NAME}-{subagent.alias}",
+                )
+            }
             stdio_mcp_spec = self._stdio_mcp_server_spec(
                 source_configs=payload.config.mcp_servers,
-                existing_names=set(mcp_servers),
+                existing_names=set(mcp_servers) | reserved_subagent_server_names,
             )
             self._stdio_approval_blocked_tools = stdio_mcp_spec.blocked_approval_tools
             stdio_mcp_servers = stdio_mcp_spec.servers

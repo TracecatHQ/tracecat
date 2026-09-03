@@ -8,6 +8,7 @@ import {
   HashIcon,
   LayersIcon,
   SearchIcon,
+  XIcon,
 } from "lucide-react"
 import type { AgentSessionEntity } from "@/client"
 import {
@@ -66,6 +67,8 @@ interface InboxHeaderProps {
   onUpdatedAfterChange: (value: DateFilterValue) => void
   createdAfter: DateFilterValue
   onCreatedAfterChange: (value: DateFilterValue) => void
+  caseId: string | null
+  onClearCaseFilter: () => void
 }
 
 export function InboxHeader({
@@ -79,12 +82,15 @@ export function InboxHeader({
   onUpdatedAfterChange,
   createdAfter,
   onCreatedAfterChange,
+  caseId,
+  onClearCaseFilter,
 }: InboxHeaderProps) {
   // Count only non-default filters (don't count limit since it always has a value)
   const activeFilterCount =
     (entityType !== "all" ? 1 : 0) +
     (updatedAfter !== null ? 1 : 0) +
-    (createdAfter !== null ? 1 : 0)
+    (createdAfter !== null ? 1 : 0) +
+    (caseId ? 1 : 0)
 
   return (
     <header className="flex h-10 shrink-0 items-center border-b pl-3 pr-4">
@@ -107,6 +113,25 @@ export function InboxHeader({
             "focus-visible:ring-0 focus-visible:ring-offset-0"
           )}
         />
+        {caseId ? (
+          <div
+            className="flex h-6 max-w-56 items-center gap-1.5 rounded-md border bg-muted/40 px-2 text-xs"
+            title={caseId}
+          >
+            <span className="shrink-0 text-muted-foreground">
+              Filtered by case
+            </span>
+            <span className="truncate font-mono">{caseId.slice(0, 8)}</span>
+            <button
+              type="button"
+              aria-label="Clear case filter"
+              className="ml-0.5 rounded-sm text-muted-foreground hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+              onClick={onClearCaseFilter}
+            >
+              <XIcon className="size-3.5" />
+            </button>
+          </div>
+        ) : null}
       </div>
 
       {/* Middle section: spacer */}

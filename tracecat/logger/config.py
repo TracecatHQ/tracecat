@@ -1,58 +1,26 @@
-from __future__ import annotations
+"""Process-wide Loguru configuration."""
 
-import sys
-from typing import Literal
-
-import loguru
-import orjson
-
-LogConfigType = Literal["stderr:log", "file:log", "file:json"]
-
-LOG_FORMAT = (
-    "<level>{level: <8}</level>"
-    " [<cyan>{time:YYYY-MM-DD HH:mm:ss.SSS}</cyan>]"
-    " [<green>{process}</green>][<magenta>{thread}</magenta>]"
-    " <light-red>{name}</light-red>:<light-red>{function}</light-red><light-red>@{line}</light-red>"
-    " - <level>{message}</level> | {extra}"
-)
+import os
+from enum import StrEnum
 
 
-def serialize(record: loguru.Record):
-    subset = {"timestamp": record["time"].timestamp(), "message": record["message"]}
-    return orjson.dumps(subset).decode()
+class LogFormat(StrEnum):
+    """Supported stderr rendering formats."""
+
+    CONSOLE = "console"
+    JSON = "json"
 
 
-def formatter(record: loguru.Record):
-    # Note this function returns the string to be formatted, not the actual message to be logged
-    record["extra"]["serialized"] = serialize(record)
-    return "{extra[serialized]}\n"
+def log_format_from_env() -> LogFormat:
+    """Resolve the configured process-wide log rendering format."""
+    raw_value = os.environ.get("TRACECAT__LOG_FORMAT")
+    if raw_value is None or not raw_value.strip():
+        return LogFormat.CONSOLE
 
-
-LOG_CONFIG = {
-    "stderr:log": {
-        "sink": sys.stderr,
-        "level": "INFO",
-        "colorize": True,
-        "backtrace": True,
-        # "enqueue": True,  # Causes pickling errors if enabled
-        "format": "{time} | <level>{level: <8}</level> <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level> | {extra}",
-    },
-    "file:log": {
-        "sink": "/var/lib/tracecat/logs/debug_log.log",
-        "level": "DEBUG",
-        "rotation": "20 days",
-        "retention": "1 months",
-        "backtrace": True,
-        "enqueue": True,
-        "format": "{time} | <level>{level: <8}</level> <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level> | {extra}",
-    },
-    "file:json": {
-        "sink": "/var/lib/tracecat/logs/info_log.ndjson",
-        "level": "INFO",
-        "rotation": "20 days",
-        "retention": "1 months",
-        "serialize": True,
-        "format": formatter,
-        "enqueue": True,
-    },
-}
+    try:
+        return LogFormat(raw_value.strip().lower())
+    except ValueError as error:
+        supported = ", ".join(log_format.value for log_format in LogFormat)
+        raise ValueError(
+            f"TRACECAT__LOG_FORMAT must be one of {supported} (got {raw_value!r})"
+        ) from error

@@ -1,0 +1,26 @@
+type: action
+definition:
+  title: Get cluster
+  description: Retrieve information for a cluster by identifier.
+  display_group: Databricks
+  doc_url: https://databricks-sdk-py.readthedocs.io/en/latest/workspace/compute/clusters.html#databricks.sdk.service.compute.ClustersExt.get
+  namespace: tools.databricks
+  name: get_cluster
+  expects:
+    base_url:
+      type: str | None
+      description: Databricks workspace URL.
+      default: null
+    cluster_id:
+      type: str
+      description: Cluster about which to retrieve information.
+  steps:
+    - ref: get_cluster
+      action: tools.databricks_sdk.call_method
+      args:
+        base_url: ${{ inputs.base_url || VARS.databricks.base_url }}
+        service: clusters
+        method_name: get
+        params:
+          cluster_id: ${{ inputs.cluster_id }}
+  returns: ${{ steps.get_cluster.result }}

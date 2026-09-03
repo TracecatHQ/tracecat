@@ -21,6 +21,7 @@ from typing import Any, TypedDict, cast
 
 import orjson
 import pytest
+from claude_agent_sdk import ClaudeAgentOptions
 
 import tracecat.agent.executor.activity as executor_activity
 import tracecat.agent.runtime.claude_code.broker as broker_module
@@ -71,6 +72,12 @@ from tracecat.agent.skill.service import SkillService
 from tracecat.agent.skill.types import ResolvedSkillRef
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
+from tracecat.exceptions import TracecatAuthorizationError
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorKind,
+    RuntimeErrorOwner,
+)
 from tracecat.sandbox.types import (
     SandboxEgressRule,
     SandboxNetworkPolicy,
@@ -92,6 +99,14 @@ def workflow_bucket() -> Iterator[None]:
 @pytest.fixture(autouse=True)
 def clean_redis_db() -> Iterator[None]:
     yield
+
+
+def _fake_temporal_activity() -> SimpleNamespace:
+    """Provide the Temporal APIs used when exercising the activity directly."""
+    return SimpleNamespace(
+        heartbeat=lambda _message: None,
+        info=lambda: SimpleNamespace(attempt=1, task_queue="test-agent-queue"),
+    )
 
 
 class _LiteLLMRequestPayload(TypedDict, total=False):
@@ -263,7 +278,33 @@ def _make_executor_input(*, enable_internet_access: bool) -> AgentExecutorInput:
         role=Role(type="service", service_id="tracecat-agent-executor"),
         mcp_auth_token="mcp-token",
         llm_gateway_auth_token="llm-token",
+        agent_otel_auth_token="otel-token",
     )
+
+
+@pytest.mark.anyio
+async def test_run_agent_activity_classifies_missing_stdio_source_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executor_input = _make_executor_input(enable_internet_access=False)
+    executor_input.config.mcp_servers = [
+        {
+            "type": "stdio",
+            "name": "local-tools",
+            "command": "uvx",
+        }
+    ]
+    monkeypatch.setattr(executor_activity, "activity", _fake_temporal_activity())
+
+    result = await run_agent_activity(executor_input)
+
+    assert result.success is False
+    assert result.error == "Agent configuration is invalid"
+    assert result.classification is not None
+    assert result.classification.owner is RuntimeErrorOwner.USER
+    assert result.classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
+    assert result.classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+    assert result.terminal_stream_error_emitted is False
 
 
 def _make_passthrough_executor_input(
@@ -283,6 +324,7 @@ def _make_passthrough_executor_input(
         role=Role(type="service", service_id="tracecat-agent-executor"),
         mcp_auth_token="mcp-token",
         llm_gateway_auth_token="llm-token",
+        agent_otel_auth_token="otel-token",
     )
 
 
@@ -617,7 +659,7 @@ class _FakeLLMSocketProxy:
         *,
         socket_path: Path,
         routing_plan: LLMRoutingPlan,
-        on_error: Callable[[str], None] | None = None,
+        on_error: Callable[[llm_proxy_module.LLMProxyError], None] | None = None,
     ) -> None:
         del on_error
         self.socket_path = socket_path
@@ -1143,7 +1185,7 @@ async def _run_full_claude_harness_runtime_case(
     monkeypatch.setattr(
         executor_activity,
         "activity",
-        SimpleNamespace(heartbeat=lambda _message: None),
+        _fake_temporal_activity(),
     )
     monkeypatch.setattr(
         executor_activity.AgentSessionService,
@@ -1527,7 +1569,7 @@ async def _run_mcp_compression_initialize_case(
     monkeypatch.setattr(
         executor_activity,
         "activity",
-        SimpleNamespace(heartbeat=lambda _message: None),
+        _fake_temporal_activity(),
     )
     monkeypatch.setattr(
         executor_activity.AgentSessionService,
@@ -2057,7 +2099,7 @@ async def _run_activity_with_fake_loopback_runtime(
     monkeypatch.setattr(
         executor_activity,
         "activity",
-        SimpleNamespace(heartbeat=lambda _message: None),
+        _fake_temporal_activity(),
     )
     monkeypatch.setattr(
         executor_activity.AgentSessionService,
@@ -2404,7 +2446,7 @@ async def test_run_agent_activity_with_fake_litellm_provider_spawns_runtime_in_e
     monkeypatch.setattr(
         executor_activity,
         "activity",
-        SimpleNamespace(heartbeat=lambda _message: None),
+        _fake_temporal_activity(),
     )
     monkeypatch.setattr(
         executor_activity.AgentSessionService,
@@ -2574,7 +2616,7 @@ async def _run_attached_skills_visible_case(
     monkeypatch.setattr(
         executor_activity,
         "activity",
-        SimpleNamespace(heartbeat=lambda _message: None),
+        _fake_temporal_activity(),
     )
 
     try:
@@ -2698,7 +2740,7 @@ async def _run_duckdb_cli_available_case(
     monkeypatch.setattr(
         executor_activity,
         "activity",
-        SimpleNamespace(heartbeat=lambda _message: None),
+        _fake_temporal_activity(),
     )
     monkeypatch.setattr(
         executor_activity.AgentSessionService,
@@ -3005,6 +3047,111 @@ async def test_executor_starts_llm_socket_proxy_for_passthrough_provider_with_in
     assert fake_broker.requests[0].enable_internet_access is True
 
 
+async def _run_executor_through_route_materialization(
+    *,
+    executor_input: AgentExecutorInput,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> AgentExecutorResult:
+    async def fake_create_job_directory(self: SandboxedAgentExecutor) -> Path:
+        del self
+        (tmp_path / "sockets").mkdir()
+        return tmp_path
+
+    async def fake_resolve_agent_otel_config(
+        self: SandboxedAgentExecutor,
+    ) -> SimpleNamespace:
+        del self
+        return SimpleNamespace(enabled=False)
+
+    async def fake_cleanup(self: SandboxedAgentExecutor) -> None:
+        del self
+
+    monkeypatch.setattr(
+        SandboxedAgentExecutor,
+        "_create_job_directory",
+        fake_create_job_directory,
+    )
+    monkeypatch.setattr(
+        SandboxedAgentExecutor,
+        "_resolve_agent_otel_config",
+        fake_resolve_agent_otel_config,
+    )
+    monkeypatch.setattr(
+        SandboxedAgentExecutor,
+        "_cleanup",
+        fake_cleanup,
+    )
+    return await SandboxedAgentExecutor(input=executor_input).run()
+
+
+@pytest.mark.anyio
+async def test_executor_classifies_passthrough_without_base_url_as_invalid_config(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    valid_input = _make_passthrough_executor_input(enable_internet_access=False)
+    executor_input = valid_input.model_copy(
+        update={"config": replace(valid_input.config, base_url=None)}
+    )
+
+    result = await _run_executor_through_route_materialization(
+        executor_input=executor_input,
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+    )
+
+    assert result.success is False
+    assert result.classification is not None
+    assert result.classification.owner is RuntimeErrorOwner.USER
+    assert result.classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
+    assert result.classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+
+
+@pytest.mark.anyio
+async def test_executor_classifies_revoked_passthrough_catalog_as_invalid_config(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    catalog_id = uuid.uuid4()
+    valid_input = _make_passthrough_executor_input(enable_internet_access=False)
+    executor_input = valid_input.model_copy(
+        update={"config": replace(valid_input.config, catalog_id=catalog_id)}
+    )
+
+    class _RevokedCatalogService(_FakeAgentManagementService):
+        async def get_catalog_credentials(
+            self, requested_catalog_id: uuid.UUID
+        ) -> dict[str, str]:
+            assert requested_catalog_id == catalog_id
+            raise TracecatAuthorizationError("catalog access revoked")
+
+    @contextlib.asynccontextmanager
+    async def fake_agent_management_context(
+        _role: Role,
+    ) -> AsyncIterator[_RevokedCatalogService]:
+        yield _RevokedCatalogService()
+
+    monkeypatch.setattr(
+        llm_proxy_module.AgentManagementService,
+        "with_session",
+        fake_agent_management_context,
+    )
+
+    result = await _run_executor_through_route_materialization(
+        executor_input=executor_input,
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+    )
+
+    assert result.success is False
+    assert result.classification is not None
+    assert result.classification.owner is RuntimeErrorOwner.USER
+    assert result.classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
+    assert result.classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+    assert "catalog access revoked" not in result.classification.message
+
+
 @pytest.mark.anyio
 async def test_executor_skips_artifact_working_set_without_scoped_role(
     monkeypatch: pytest.MonkeyPatch,
@@ -3109,19 +3256,18 @@ async def test_executor_routes_passthrough_subagent_by_its_own_model_config(
 class _DummyBridge:
     instances: list[_DummyBridge] = []
 
-    def __init__(
-        self, socket_path: Path, port: int, listener_fd: int | None = None
-    ) -> None:
-        self.socket_path = socket_path
-        self.port = port
-        self.listener_fd = listener_fd
+    def __init__(self, **kwargs: object) -> None:
+        self.kwargs = kwargs
+        self.socket_path = kwargs.get("socket_path")
+        self.port = kwargs.get("port")
+        self.listener_fd = kwargs.get("listener_fd")
         self.started = False
         self.stopped = False
         type(self).instances.append(self)
 
     async def start(self) -> int:
         self.started = True
-        return self.port if self.port else 4312
+        return self.port if isinstance(self.port, int) and self.port else 4312
 
     async def stop(self) -> None:
         self.stopped = True
@@ -3138,6 +3284,87 @@ class _FakeProcess:
 
     def terminate(self) -> None:
         self.returncode = -15
+
+
+class _ClosablePipe:
+    def close(self) -> None:
+        pass
+
+
+class _ConnectedFakeProcess:
+    stdin = _ClosablePipe()
+    stdout = object()
+    stderr = None
+    returncode = 0
+    pid = 12345
+
+
+@pytest.mark.anyio
+async def test_transport_shim_init_payload_excludes_otel_auth_token_field(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """The shim init payload no longer carries agent_otel_auth_token.
+
+    The host injects the JWT into the sandbox env as OTEL_EXPORTER_OTLP_HEADERS
+    (built by the executor activity), so the shim has nothing OTel-specific
+    to know about beyond the env it's given.
+    """
+    captured: dict[str, Path] = {}
+    path_mapping = session_paths_module.AgentSandboxPathMapping(
+        host_home_dir=tmp_path / "home",
+        host_work_dir=tmp_path / "project",
+        runtime_home_dir=tmp_path / "home",
+        runtime_work_dir=tmp_path / "project",
+    )
+    transport = SandboxedCLITransport(
+        options=ClaudeAgentOptions(env={"ANTHROPIC_AUTH_TOKEN": "fake-llm-token"}),
+        session_id="session-1",
+        socket_dir=tmp_path / "sockets",
+        llm_socket_path=tmp_path / "sockets" / "llm.sock",
+        job_dir=tmp_path,
+        path_mapping=path_mapping,
+        enable_internet_access=False,
+        use_jailed_paths=False,
+    )
+    (tmp_path / "sockets").mkdir()
+
+    async def fake_build_claude_command(self: SandboxedCLITransport) -> list[str]:
+        del self
+        return ["claude", "--print"]
+
+    async def fake_spawn_jailed_runtime(**kwargs: object) -> object:
+        init_payload_path = kwargs["init_payload_path"]
+        assert isinstance(init_payload_path, Path)
+        captured["init_payload_path"] = init_payload_path
+        return nsjail_module.SpawnedRuntime(
+            process=cast(Any, _ConnectedFakeProcess()),
+            job_dir=None,
+        )
+
+    monkeypatch.setattr(
+        transport_module.SandboxedCLITransport,
+        "_build_claude_command",
+        fake_build_claude_command,
+    )
+    monkeypatch.setattr(
+        transport_module,
+        "spawn_jailed_runtime",
+        fake_spawn_jailed_runtime,
+    )
+
+    await transport.connect()
+    await transport.close()
+
+    init_payload = orjson.loads(captured["init_payload_path"].read_bytes())
+    assert "agent_otel_auth_token" not in init_payload
+    assert set(init_payload.keys()) == {
+        "command",
+        "env",
+        "cwd",
+        "mcp_bridge_port",
+        "mcp_bridge_fd",
+    }
 
 
 @pytest.mark.anyio
@@ -3179,7 +3406,7 @@ async def test_sandbox_shim_starts_bridge_and_sets_child_base_url(
         "create_subprocess_exec",
         fake_create_subprocess_exec,
     )
-    monkeypatch.setattr(shim_entrypoint, "LLMBridge", _DummyBridge)
+    monkeypatch.setattr(shim_entrypoint, "SandboxSocketBridge", _DummyBridge)
 
     async def fake_pump_stream(*_args: object) -> None:
         return None
@@ -3193,6 +3420,11 @@ async def test_sandbox_shim_starts_bridge_and_sets_child_base_url(
         "_pump_stdin_to_process",
         fake_pump_stdin_to_process,
     )
+
+    # The shim merges os.environ into child_env, so clear these to keep the
+    # "not in child_env" assertions independent of the host environment.
+    monkeypatch.delenv("agent_otel_auth_token", raising=False)
+    monkeypatch.delenv("TRACECAT__AGENT_OTEL_AUTH_TOKEN", raising=False)
 
     await shim_entrypoint.run_sandboxed_claude_shim()
 
@@ -3215,6 +3447,8 @@ async def test_sandbox_shim_starts_bridge_and_sets_child_base_url(
     assert child_env["TRACECAT__LLM_BRIDGE_PORT"] == "4312"
     assert child_env["TRACECAT__MCP_BRIDGE_PORT"] == "4313"
     assert child_env["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:4312"
+    assert "agent_otel_auth_token" not in child_env
+    assert "TRACECAT__AGENT_OTEL_AUTH_TOKEN" not in child_env
 
 
 if __name__ == "__main__":

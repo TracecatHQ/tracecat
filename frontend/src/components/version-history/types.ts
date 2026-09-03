@@ -24,7 +24,12 @@ export interface VersionHistoryEntry {
   description?: string
   /** ISO 8601 creation timestamp of the version. */
   createdAt: string
-  /** True when this version is the one the document currently points at. */
+  /**
+   * True when this entry is current within its host-defined version stream.
+   * When provided, this takes precedence over the document descriptor's
+   * `currentVersionId` fallback, allowing hosts to mark multiple current
+   * entries (for example, one per independently versioned field).
+   */
   isCurrent?: boolean
 }
 
@@ -78,7 +83,11 @@ export interface VersionedDocumentDescriptor {
   entityLabel: string
   /** Display name of this particular document. */
   name: string
-  /** Version the document currently points at. Null when never published. */
+  /**
+   * Current version fallback for entries without an explicit `isCurrent`.
+   * Null when there is no single current version, including hosts with
+   * multiple independently versioned streams.
+   */
   currentVersionId: string | null
 }
 

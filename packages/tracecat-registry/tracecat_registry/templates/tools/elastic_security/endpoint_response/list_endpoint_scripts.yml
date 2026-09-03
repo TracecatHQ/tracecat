@@ -10,9 +10,25 @@ definition:
     - name: elastic_security
       keys: ["ELASTIC_API_KEY"]
   expects:
-    params:
-      type: dict[str, Any] | None
-      description: Optional native Kibana query parameters.
+    page:
+      type: int | None
+      description: Page number of the results to return. Defaults to 1.
+      default: null
+    pageSize:
+      type: int | None
+      description: Number of results to return per page. Defaults to 10. Max value is 1000.
+      default: null
+    sortField:
+      type: str | None
+      description: The field to sort the results by. Defaults to name. Allowed values are `name`, `createdAt`, `createdBy`, `updatedAt`, `updatedBy`, `fileSize`.
+      default: null
+    sortDirection:
+      type: str | None
+      description: The direction to sort the results by. Defaults to asc (ascending). Allowed values are `asc`, `desc`.
+      default: null
+    kuery:
+      type: str | None
+      description: A KQL query string to filter the list of scripts. Nearly all fields in the script object are searchable.
       default: null
     base_url:
       type: str | None
@@ -45,7 +61,12 @@ definition:
       args:
         url: ${{ inputs.base_url || VARS.elastic_security.base_url }}${{ steps.build_path.result }}
         method: GET
-        params: ${{ inputs.params }}
+        params:
+          page: ${{ inputs.page }}
+          pageSize: ${{ inputs.pageSize }}
+          sortField: ${{ inputs.sortField }}
+          sortDirection: ${{ inputs.sortDirection }}
+          kuery: ${{ inputs.kuery }}
         verify_ssl: ${{ inputs.verify_ssl }}
         headers:
           Authorization: ApiKey ${{ SECRETS.elastic_security.ELASTIC_API_KEY }}

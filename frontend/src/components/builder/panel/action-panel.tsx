@@ -111,6 +111,10 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { ValidationErrorView } from "@/components/validation-errors"
+import {
+  DEFAULT_ACTION_TIMEOUT_SECONDS,
+  isAgentAction,
+} from "@/lib/action-timeout"
 import type { RequestValidationError, TracecatApiError } from "@/lib/errors"
 import { useAction, useGetRegistryAction, useOrgAppSettings } from "@/lib/hooks"
 import { PERMITTED_INTERACTION_ACTIONS } from "@/lib/interactions"
@@ -173,15 +177,15 @@ const actionFormSchema = z.object({
     .transform((val) => normalizeOptionalExpression(val))
     .optional(),
   // Retry policy fields
-  max_attempts: z.number().int().min(0).optional(),
-  timeout: z.number().int().min(1).optional(),
+  max_attempts: z.number().int().safe().min(0).optional(),
+  timeout: z.number().int().safe().min(1).optional(),
   retry_until: z
     .string()
     .max(1000, "Retry until must be less than 1000 characters")
     .transform((val) => normalizeOptionalExpression(val))
     .optional(),
   // Control flow options fields
-  start_delay: z.number().min(0).optional(),
+  start_delay: z.number().finite().min(0).optional(),
   join_strategy: z.enum($JoinStrategy.enum).optional(),
   wait_until: z
     .string()
@@ -322,6 +326,7 @@ function ActionPanelContent({
 
   // Special-case: disable form mode for reshape actions
   const isReshapeAction = action?.type === "core.transform.reshape"
+  const isAgentBackedAction = isAgentAction(action?.type)
 
   const actionInputsObj = useMemo(
     () => parseYaml(action?.inputs) ?? {},
@@ -339,7 +344,7 @@ function ActionPanelContent({
       for_each: actionControlFlow?.for_each || undefined,
       run_if: actionControlFlow?.run_if || undefined,
       max_attempts: actionControlFlow?.retry_policy?.max_attempts,
-      timeout: actionControlFlow?.retry_policy?.timeout,
+      timeout: actionControlFlow?.retry_policy?.timeout ?? undefined,
       retry_until: actionControlFlow?.retry_policy?.retry_until || undefined,
       start_delay: actionControlFlow?.start_delay,
       join_strategy: actionControlFlow?.join_strategy,
@@ -370,6 +375,8 @@ function ActionPanelContent({
 
   // Local form state for this action. We always seed it from the latest
   // server-backed baseFormValues; hydration from drafts happens via effects.
+  // Agent timeout bounds are deployment-specific; the server clamps
+  // out-of-range values on save, so the form doesn't duplicate them.
   const methods = useForm<ActionFormSchema>({
     resolver: zodResolver(actionFormSchema),
     defaultValues: baseFormValues,
@@ -1562,8 +1569,14 @@ function ActionPanelContent({
                       {/* Timeout */}
                       <ControlFlowField
                         label="Timeout"
-                        description="Define the timeout in seconds for the action."
-                        tooltip={<TimeoutTooltip />}
+                        description={
+                          isAgentBackedAction
+                            ? "Define the maximum active runtime in seconds for the agent."
+                            : "Define the timeout in seconds for the action."
+                        }
+                        tooltip={
+                          <TimeoutTooltip isAgent={isAgentBackedAction} />
+                        }
                       >
                         <FormField
                           name="timeout"
@@ -1582,7 +1595,12 @@ function ActionPanelContent({
                                         : undefined
                                     )
                                   }
-                                  placeholder="300"
+                                  min={1}
+                                  placeholder={
+                                    isAgentBackedAction
+                                      ? "Deployment default"
+                                      : String(DEFAULT_ACTION_TIMEOUT_SECONDS)
+                                  }
                                   className="text-xs"
                                 />
                               </FormControl>

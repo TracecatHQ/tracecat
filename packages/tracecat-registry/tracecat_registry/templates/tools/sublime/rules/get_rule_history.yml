@@ -13,9 +13,17 @@ definition:
     id:
       type: str
       description: Sublime rule ID.
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters.
+    classification_created_at_gte:
+      type: datetime | None
+      description: Filter by classifications made after this datetime. Results are limited to the most recent 180 days.
+      default: null
+    classification_created_at_lte:
+      type: datetime | None
+      description: Filter by classifications made before this datetime. Results are limited to the most recent 180 days.
+      default: null
+    use_rule_last_updated_as_created_at:
+      type: bool | None
+      description: Filter by classifications made since the rule has been updated. Results are limited to the most recent 180 days.
       default: null
     base_url:
       type: str | None
@@ -27,7 +35,10 @@ definition:
       args:
         url: ${{ inputs.base_url || VARS.sublime.base_url }}/v0/rules/${{ FN.url_encode(inputs.id) }}/rule-history
         method: GET
-        params: ${{ inputs.params }}
+        params:
+          "classification_created_at[gte]": ${{ inputs.classification_created_at_gte }}
+          "classification_created_at[lte]": ${{ inputs.classification_created_at_lte }}
+          use_rule_last_updated_as_created_at: ${{ inputs.use_rule_last_updated_as_created_at }}
         headers:
           Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}
   returns: ${{ steps.request.result.data }}

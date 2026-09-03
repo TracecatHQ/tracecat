@@ -1,7 +1,6 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useQueryClient } from "@tanstack/react-query"
 import { useEffect, useRef, useState } from "react"
 import { type ControllerRenderProps, useForm } from "react-hook-form"
 import { z } from "zod"
@@ -35,8 +34,10 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
+import { invalidateCaseFieldQueries } from "@/lib/cases/invalidation"
 import { getCaseFieldTypeConfig } from "@/lib/data-type"
 import type { TracecatApiError } from "@/lib/errors"
+import { useQueryClient } from "@/lib/query"
 import { type SqlTypeCreatable, SqlTypeCreatableEnum } from "@/lib/tables"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -76,13 +77,19 @@ const parseMultiSelectDefault = (value: string | null): string[] => {
 
 const caseFieldFormSchema = z
   .object({
-    name: z
+    displayName: z
       .string()
+      .trim()
       .min(1, "Field name is required")
-      .max(100, "Field name must be less than 100 characters")
-      .refine(
-        (value) => /^[a-zA-Z][a-zA-Z0-9_]*$/.test(value),
-        "Field name must start with a letter and contain only letters, numbers, and underscores"
+      .max(255, "Field name must be 255 characters or fewer"),
+    reference: z
+      .string()
+      .trim()
+      .min(1, "Reference is required")
+      .max(100, "Reference must be 100 characters or fewer")
+      .regex(
+        /^[a-zA-Z_][a-zA-Z0-9_]*$/,
+        "Reference must start with a letter or underscore and contain only letters, numbers, and underscores"
       ),
     type: z.enum(SqlTypeCreatableEnum),
     nullable: z.boolean().default(true),
@@ -137,7 +144,8 @@ interface EditCustomFieldDialogProps {
 }
 
 const emptyDefaults: CaseFieldFormValues = {
-  name: "",
+  displayName: "",
+  reference: "",
   type: "TEXT",
   nullable: true,
   default: null,
@@ -151,7 +159,8 @@ function getFormDefaults(field: CaseFieldReadMinimal): CaseFieldFormValues {
 
   if (safeType === "MULTI_SELECT") {
     return {
-      name: field.id,
+      displayName: field.display_name,
+      reference: field.id,
       type: safeType,
       nullable: field.nullable,
       default: "",
@@ -161,7 +170,8 @@ function getFormDefaults(field: CaseFieldReadMinimal): CaseFieldFormValues {
   }
 
   return {
-    name: field.id,
+    displayName: field.display_name,
+    reference: field.id,
     type: safeType,
     nullable: field.nullable,
     default: field.default ?? "",
@@ -333,7 +343,8 @@ export function EditCustomFieldDialog({
         workspaceId,
         fieldId: field.id,
         requestBody: {
-          name: data.name,
+          ...(data.reference !== field.id ? { name: data.reference } : {}),
+          display_name: data.displayName,
           nullable: data.nullable,
           default: defaultValue,
           options: isSelectableColumnType(data.type)
@@ -342,9 +353,7 @@ export function EditCustomFieldDialog({
         },
       })
 
-      queryClient.invalidateQueries({
-        queryKey: ["case-fields", workspaceId],
-      })
+      await invalidateCaseFieldQueries(queryClient, workspaceId)
 
       toast({
         title: "Field updated",
@@ -357,9 +366,9 @@ export function EditCustomFieldDialog({
       if (error instanceof ApiError) {
         const apiError = error as TracecatApiError
         if (apiError.status === 409) {
-          form.setError("name", {
+          form.setError("reference", {
             type: "manual",
-            message: "A field with this name already exists",
+            message: "A field with this reference already exists",
           })
           return
         }
@@ -391,16 +400,33 @@ export function EditCustomFieldDialog({
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             <FormField
               control={form.control}
-              name="name"
+              name="displayName"
               render={({ field: fieldInput }) => (
                 <FormItem>
-                  <FormLabel>Identifier / Slug</FormLabel>
+                  <FormLabel>Name</FormLabel>
                   <FormControl>
                     <Input {...fieldInput} />
                   </FormControl>
                   <FormDescription>
-                    A human readable ID of the field. Use snake_case for best
-                    compatibility.
+                    Human-readable label shown throughout the product.
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="reference"
+              render={({ field: fieldInput }) => (
+                <FormItem>
+                  <FormLabel>Reference</FormLabel>
+                  <FormControl>
+                    <Input {...fieldInput} className="font-mono" />
+                  </FormControl>
+                  <FormDescription>
+                    Used in APIs and workflows. Changing it may break existing
+                    references.
                   </FormDescription>
                   <FormMessage />
                 </FormItem>

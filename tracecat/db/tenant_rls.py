@@ -72,7 +72,9 @@ INITIAL_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES = (
 # Tables introduced after the initial RLS rollout. Their creating or follow-up
 # revisions must apply policy SQL explicitly.
 POST_RLS_WORKSPACE_SCOPED_TABLES = (
+    "case_agent_session_interaction",
     "case_table_row",
+    "case_version",
     "case_comment_agent_invocation",
     "agent_channel_token",
     "agent_preset_version",

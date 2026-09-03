@@ -60,6 +60,11 @@ export const RESOURCE_CATEGORIES: Record<
     description: "Credential and secret management",
     resources: ["secret"],
   },
+  integrations: {
+    label: "Integrations",
+    description: "OAuth and MCP integration management",
+    resources: ["integration"],
+  },
   workspace: {
     label: "Workspace",
     description: "Workspace settings, members, and access control",

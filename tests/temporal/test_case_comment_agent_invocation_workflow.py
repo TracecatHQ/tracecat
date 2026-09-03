@@ -393,7 +393,13 @@ async def test_comment_mention_runs_agent_and_posts_reply(
     monkeypatch: pytest.MonkeyPatch,
     svc_role: Role,
 ) -> None:
-    role = svc_role.model_copy(update={"type": "service", "user_id": None})
+    role = svc_role.model_copy(
+        update={
+            "type": "service",
+            "user_id": None,
+            "scopes": frozenset({"case:update", "agent:execute"}),
+        }
+    )
     assert role.workspace_id is not None
     invocation_id = uuid.uuid4()
     queue = f"comment-agent-e2e-{invocation_id}"

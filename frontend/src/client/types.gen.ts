@@ -120,7 +120,7 @@ export type ActionRetryPolicy = {
    */
   max_attempts?: number
   /**
-   * Timeout for the action in seconds.
+   * Timeout for the action in seconds. Agent-backed AI actions clamp to the deployment's agent timeout bounds (see ActionStatement).
    */
   timeout?: number
   /**
@@ -517,6 +517,94 @@ export type AgentModelAccessRead = {
   organization_id: string
   workspace_id: string | null
   catalog_id: string
+}
+
+/**
+ * Organization-scoped Claude Code OTel configuration.
+ *
+ * See https://code.claude.com/docs/en/monitoring-usage for the env vars
+ * these fields map onto.
+ */
+export type AgentOtelConfig = {
+  /**
+   * Whether Claude Code telemetry is enabled for agent runs.
+   */
+  enabled?: boolean
+  /**
+   * OTLP collector endpoint for all signals.
+   */
+  endpoint?: string | null
+  /**
+   * Whether metrics are exported.
+   */
+  metrics_enabled?: boolean
+  /**
+   * Whether logs and events are exported.
+   */
+  logs_enabled?: boolean
+  /**
+   * Whether traces are exported. Enables Claude Code beta tracing.
+   */
+  traces_enabled?: boolean
+  /**
+   * Metrics aggregation temporality.
+   */
+  metrics_temporality?: "delta" | "cumulative" | null
+  /**
+   * Metrics export interval in milliseconds.
+   */
+  metric_export_interval_ms?: number | null
+  /**
+   * Logs export interval in milliseconds.
+   */
+  logs_export_interval_ms?: number | null
+  /**
+   * Whether metrics include the Claude Code session identifier.
+   */
+  metrics_include_session_id?: boolean | null
+  /**
+   * Whether metrics include the Claude Code version.
+   */
+  metrics_include_version?: boolean | null
+  /**
+   * Whether metrics include the authenticated account identifier.
+   */
+  metrics_include_account_uuid?: boolean | null
+  /**
+   * Whether telemetry includes user prompt content.
+   */
+  log_user_prompts?: boolean | null
+  /**
+   * Whether telemetry includes tool parameters and input arguments.
+   */
+  log_tool_details?: boolean | null
+  /**
+   * Whether telemetry includes tool input and output content.
+   */
+  log_tool_content?: boolean | null
+  /**
+   * Resource attributes attached to exported telemetry.
+   */
+  resource_attributes?: {
+    [key: string]: string
+  }
+}
+
+export type AgentOtelSettingsRead = {
+  agent_otel_config?: AgentOtelConfig
+}
+
+export type AgentOtelSettingsUpdate = {
+  /**
+   * Claude Code OTel telemetry configuration for agent runs.
+   */
+  agent_otel_config?: AgentOtelConfig
+  /**
+   * Encrypted headers for the Claude Code OTLP exporter. Omitted values leave existing headers unchanged.
+   */
+  agent_otel_headers?: {
+    [key: string]: string
+  } | null
 }
 
 export type AgentOutput = {
@@ -1609,6 +1697,42 @@ export type CachePoint = {
 export type ttl = "5m" | "1h"
 
 /**
+ * Lifecycle state for the durable backfill operation.
+ */
+export type CaseAgentSessionBackfillStatus = "running" | "completed" | "failed"
+
+/**
+ * Aggregate result of the historical interaction backfill.
+ */
+export type CaseAgentSessionInteractionBackfillResponse = {
+  batches_processed: number
+  sessions_scanned: number
+  history_rows_scanned: number
+  mutation_candidates: number
+  inserted: number
+  existing: number
+  skipped: {
+    [key: string]: number
+  }
+}
+
+/**
+ * Response after starting or joining the durable backfill.
+ */
+export type CaseAgentSessionInteractionBackfillStartResponse = {
+  operation_id: string
+}
+
+/**
+ * Current state and optional result of the durable backfill.
+ */
+export type CaseAgentSessionInteractionBackfillStatusResponse = {
+  operation_id: string
+  status: CaseAgentSessionBackfillStatus
+  report?: CaseAgentSessionInteractionBackfillResponse | null
+}
+
+/**
  * Case artifact shown in artifact-capable chat surfaces.
  */
 export type CaseArtifact = {
@@ -2289,6 +2413,23 @@ export type CaseFieldUpdate = {
 }
 
 /**
+ * One table with at least one row linked to a case.
+ *
+ * ``row_count`` counts links, including links whose source row was deleted.
+ *
+ * ``columns`` carries the table's column definitions so a caller can render
+ * the linked rows without a separate table read. It is empty when the table
+ * itself is gone. ``is_index`` is not populated here; read the table directly
+ * when unique-index state matters.
+ */
+export type CaseLinkedTableRead = {
+  table_id: string
+  table_name?: string | null
+  row_count: number
+  columns: Array<TableColumnRead>
+}
+
+/**
  * Case priority values aligned with urgency levels.
  *
  * Values:
@@ -2399,6 +2540,31 @@ export type CaseStatusGroupCounts = {
   closed?: number
   unknown?: number
   other?: number
+}
+
+export type CaseTableRowBatchLink = {
+  table_id: string
+  row_ids: Array<string>
+}
+
+/**
+ * linked_count + already_linked_count == number of distinct row IDs requested.
+ */
+export type CaseTableRowBatchLinkResponse = {
+  linked_count: number
+  already_linked_count: number
+}
+
+export type CaseTableRowBatchUnlink = {
+  table_id: string
+  row_ids: Array<string>
+}
+
+/**
+ * Row IDs with no link are silently skipped.
+ */
+export type CaseTableRowBatchUnlinkResponse = {
+  unlinked_count: number
 }
 
 export type CaseTableRowInsertCreate = {
@@ -2523,6 +2689,64 @@ export type CaseUpdate = {
   payload?: {
     [key: string]: unknown
   } | null
+}
+
+/**
+ * Minimal user metadata for a case-version author.
+ */
+export type CaseVersionActorRead = {
+  id: string
+  email: string
+  first_name?: string | null
+  last_name?: string | null
+}
+
+/**
+ * Raw snapshots for client-side comparison of a selected case version.
+ */
+export type CaseVersionCompareRead = {
+  selected: CaseVersionContentRead
+  predecessor?: CaseVersionContentRead | null
+}
+
+/**
+ * Content for one immutable case field version.
+ */
+export type CaseVersionContentRead = {
+  id: string
+  field: CaseVersionField
+  version: number
+  content: string
+}
+
+/**
+ * Case text fields that have immutable version history.
+ */
+export type CaseVersionField = "summary" | "description"
+
+/**
+ * Version metadata returned by the case history endpoint.
+ */
+export type CaseVersionReadMinimal = {
+  id: string
+  field: CaseVersionField
+  version: number
+  actor?: CaseVersionActorRead | null
+  created_at: string
+  /**
+   * Whether this is the latest immutable version for its field
+   */
+  is_latest: boolean
+}
+
+/**
+ * Confirmation that a historical case field version was restored.
+ */
+export type CaseVersionRestoreRead = {
+  restored?: boolean
+  case_id: string
+  restored_from_version_id: string
+  field: CaseVersionField
 }
 
 /**
@@ -3188,6 +3412,30 @@ export type CursorPaginatedResponse_CaseReadMinimal_ = {
 
 export type CursorPaginatedResponse_CaseTableRowRead_ = {
   items: Array<CaseTableRowRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+export type CursorPaginatedResponse_CaseVersionReadMinimal_ = {
+  items: Array<CaseVersionReadMinimal>
   /**
    * Cursor for next page
    */
@@ -5007,6 +5255,9 @@ export type MCPHTTPOAuth2ConnectionSpec = {
   oauth_resource?: string | null
   oauth_authorization_endpoint?: string | null
   oauth_token_endpoint?: string | null
+  oauth_authorize_params?: {
+    [key: string]: string
+  }
   /**
    * Configure-dialog view of ``credentials``; same data, UI field shape.
    */
@@ -5047,9 +5298,13 @@ export type MCPHttpIntegrationCreate = {
    */
   oauth_integration_id?: string | null
   /**
-   * Custom credentials as JSON headers. Required for custom auth type; optional additional headers for OAuth2 auth type.
+   * HTTP headers as a JSON object. Required for custom auth type; optional additional headers for OAuth2 auth type.
    */
   custom_credentials?: string | null
+  /**
+   * OAuth client credentials as a JSON object (client_id / client_secret) for catalog OAuth2 rows that declare an 'oauth_client' credential. Kept separate from custom_credentials so one connect can carry both a user-created OAuth client and extra HTTP headers.
+   */
+  oauth_client_credentials?: string | null
 }
 
 /**
@@ -6038,6 +6293,10 @@ export type ProviderMetadata = {
    */
   enabled?: boolean
   /**
+   * Whether the client secret is a service account JSON key instead of an OAuth client secret
+   */
+  service_account_json?: boolean
+  /**
    * URL to API documentation
    */
   api_docs_url?: string | null
@@ -6788,6 +7047,7 @@ export type RunActionInput = {
   interaction_context?: InteractionContext | null
   stream_id?: string
   session_id?: string | null
+  agent_session_id?: string | null
   registry_lock: RegistryLock
 }
 
@@ -12321,6 +12581,16 @@ export type AdminAgentListPlatformCatalogData = {
 
 export type AdminAgentListPlatformCatalogResponse = AgentCatalogListResponse
 
+export type AdminMaintenanceStartCaseAgentSessionInteractionBackfillResponse =
+  CaseAgentSessionInteractionBackfillStartResponse
+
+export type AdminMaintenanceGetCaseAgentSessionInteractionBackfillData = {
+  operationId: string
+}
+
+export type AdminMaintenanceGetCaseAgentSessionInteractionBackfillResponse =
+  CaseAgentSessionInteractionBackfillStatusResponse
+
 export type AdminRegistryListPlatformRepositoriesResponse =
   Array<RegistryRepositoryReadMinimal>
 
@@ -12390,6 +12660,10 @@ export type InboxGetPendingCountData = {
 export type InboxGetPendingCountResponse = InboxPendingCount
 
 export type InboxListItemsData = {
+  /**
+   * Filter items to root sessions associated with this case
+   */
+  caseId?: string | null
   /**
    * Only items created at or after this time (ISO 8601)
    */
@@ -12599,6 +12873,14 @@ export type SettingsUpdateAgentSettingsData = {
 }
 
 export type SettingsUpdateAgentSettingsResponse = void
+
+export type SettingsGetAgentOtelSettingsResponse = AgentOtelSettingsRead
+
+export type SettingsUpdateAgentOtelSettingsData = {
+  requestBody: AgentOtelSettingsUpdate
+}
+
+export type SettingsUpdateAgentOtelSettingsResponse = void
 
 export type OrganizationSecretsListOrgSecretsData = {
   /**
@@ -13107,11 +13389,51 @@ export type CasesDeleteTaskData = {
 
 export type CasesDeleteTaskResponse = void
 
+export type CasesListCaseVersionsData = {
+  caseId: string
+  /**
+   * Cursor for pagination
+   */
+  cursor?: string | null
+  /**
+   * Optionally include only summary or description versions
+   */
+  field?: CaseVersionField | null
+  /**
+   * Maximum items per page
+   */
+  limit?: number
+  workspaceId: string
+}
+
+export type CasesListCaseVersionsResponse =
+  CursorPaginatedResponse_CaseVersionReadMinimal_
+
+export type CasesCompareCaseVersionData = {
+  caseId: string
+  versionId: string
+  workspaceId: string
+}
+
+export type CasesCompareCaseVersionResponse = CaseVersionCompareRead
+
+export type CasesRestoreCaseVersionData = {
+  caseId: string
+  versionId: string
+  workspaceId: string
+}
+
+export type CasesRestoreCaseVersionResponse = CaseVersionRestoreRead
+
 export type CasesListCaseRowsData = {
   caseId: string
   cursor?: string | null
   limit?: number
   reverse?: boolean
+  /**
+   * Restrict results to one linked table
+   */
+  tableId?: string | null
   workspaceId: string
 }
 
@@ -13126,6 +13448,13 @@ export type CasesLinkCaseRowData = {
 
 export type CasesLinkCaseRowResponse = CaseTableRowRead
 
+export type CasesListCaseLinkedTablesData = {
+  caseId: string
+  workspaceId: string
+}
+
+export type CasesListCaseLinkedTablesResponse = Array<CaseLinkedTableRead>
+
 export type CasesInsertCaseRowData = {
   caseId: string
   requestBody: CaseTableRowInsertCreate
@@ -13133,6 +13462,22 @@ export type CasesInsertCaseRowData = {
 }
 
 export type CasesInsertCaseRowResponse = CaseTableRowRead
+
+export type CasesBatchLinkCaseRowsData = {
+  caseId: string
+  requestBody: CaseTableRowBatchLink
+  workspaceId: string
+}
+
+export type CasesBatchLinkCaseRowsResponse = CaseTableRowBatchLinkResponse
+
+export type CasesBatchUnlinkCaseRowsData = {
+  caseId: string
+  requestBody: CaseTableRowBatchUnlink
+  workspaceId: string
+}
+
+export type CasesBatchUnlinkCaseRowsResponse = CaseTableRowBatchUnlinkResponse
 
 export type CasesUnlinkCaseRowData = {
   caseId: string
@@ -17890,6 +18235,31 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/admin/maintenance/case-agent-session-interactions/backfill": {
+    post: {
+      res: {
+        /**
+         * Successful Response
+         */
+        202: CaseAgentSessionInteractionBackfillStartResponse
+      }
+    }
+  }
+  "/admin/maintenance/case-agent-session-interactions/backfill/{operation_id}": {
+    get: {
+      req: AdminMaintenanceGetCaseAgentSessionInteractionBackfillData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseAgentSessionInteractionBackfillStatusResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/admin/registry/repos": {
     get: {
       res: {
@@ -18430,6 +18800,29 @@ export type $OpenApiTs = {
     }
     patch: {
       req: SettingsUpdateAgentSettingsData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/settings/agent-otel": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentOtelSettingsRead
+      }
+    }
+    patch: {
+      req: SettingsUpdateAgentOtelSettingsData
       res: {
         /**
          * Successful Response
@@ -19040,6 +19433,51 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workspaces/{workspace_id}/cases/{case_id}/versions": {
+    get: {
+      req: CasesListCaseVersionsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_CaseVersionReadMinimal_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/cases/{case_id}/versions/{version_id}/compare": {
+    get: {
+      req: CasesCompareCaseVersionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseVersionCompareRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/cases/{case_id}/versions/{version_id}/restore": {
+    post: {
+      req: CasesRestoreCaseVersionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseVersionRestoreRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workspaces/{workspace_id}/cases/{case_id}/rows": {
     get: {
       req: CasesListCaseRowsData
@@ -19068,6 +19506,21 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workspaces/{workspace_id}/cases/{case_id}/rows/tables": {
+    get: {
+      req: CasesListCaseLinkedTablesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<CaseLinkedTableRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workspaces/{workspace_id}/cases/{case_id}/rows/insert": {
     post: {
       req: CasesInsertCaseRowData
@@ -19076,6 +19529,36 @@ export type $OpenApiTs = {
          * Successful Response
          */
         201: CaseTableRowRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/cases/{case_id}/rows/batch-link": {
+    post: {
+      req: CasesBatchLinkCaseRowsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseTableRowBatchLinkResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/cases/{case_id}/rows/batch-unlink": {
+    post: {
+      req: CasesBatchUnlinkCaseRowsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseTableRowBatchUnlinkResponse
         /**
          * Validation Error
          */

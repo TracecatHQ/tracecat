@@ -354,17 +354,21 @@ CASE_COMMENT_MAX_LENGTH = 25_000
 
 
 class CaseCommentCreate(Schema):
-    content: str = Field(default=..., min_length=1, max_length=CASE_COMMENT_MAX_LENGTH)
+    content: str = Field(default=..., max_length=CASE_COMMENT_MAX_LENGTH)
     parent_id: uuid.UUID | None = Field(default=None)
     workflow_id: AnyWorkflowID | None = Field(default=None)
 
     @field_validator("content")
     @classmethod
-    def validate_content(cls, value: str) -> str:
-        stripped = value.strip()
-        if not stripped:
+    def strip_content(cls, value: str) -> str:
+        return value.strip()
+
+    @model_validator(mode="after")
+    def validate_content(self) -> CaseCommentCreate:
+        """Allow an empty body only when the comment runs a workflow."""
+        if not self.content and self.workflow_id is None:
             raise ValueError("Comment content cannot be blank")
-        return stripped
+        return self
 
 
 class CaseCommentUpdate(Schema):
@@ -376,6 +380,7 @@ class CaseCommentUpdate(Schema):
     @field_validator("content")
     @classmethod
     def validate_content(cls, value: str | None) -> str | None:
+        """Reject blank edits; only creation with a workflow may leave a comment empty."""
         if value is None:
             return None
         stripped = value.strip()

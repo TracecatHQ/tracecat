@@ -93,23 +93,21 @@ Required secrets:
 
 ### Input fields
 
-<ParamField path="payload" type="object" required>
+<ParamField path="assignees" type="object" required>
 
-API-native JSON request body.
+Details about the assignees to assign and unassign. Requires `add` and `remove`, each a list of user profile `uid`s to assign or unassign. Users need to activate their user profile by logging into Kibana at least once.
+
+</ParamField>
+
+<ParamField path="ids" type="array[string]" required>
+
+A list of alerts `id`s.
 
 </ParamField>
 
 <ParamField path="base_url" type="string | null">
 
 Kibana base URL (e.g. https://localhost:5601).
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="params" type="object | null">
-
-Optional native Kibana query parameters.
 
 Default: `null`.
 
@@ -161,9 +159,9 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="dry_run" type="boolean | null">
 
-Optional native Kibana query parameters.
+Enables dry run mode for the request call. Enable dry run mode to verify that bulk actions can be applied to specified rules. Certain rules, such as prebuilt Elastic rules on a Basic subscription, can't be edited and will return errors in the request response. Rules specified in the request will be temporarily updated. These updates won't be written to Elasticsearch. Dry run mode is not supported for the `export` bulk action.
 
 Default: `null`.
 
@@ -203,21 +201,13 @@ Required secrets:
 
 <ParamField path="payload" type="object" required>
 
-API-native JSON request body.
+API-native request body. Documented fields: endpoint_ids (required), parameters (required), agent_type, alert_ids, case_ids, comment.
 
 </ParamField>
 
 <ParamField path="base_url" type="string | null">
 
 Kibana base URL (e.g. https://localhost:5601).
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="params" type="object | null">
-
-Optional native Kibana query parameters.
 
 Default: `null`.
 
@@ -264,14 +254,6 @@ API-native JSON request body.
 <ParamField path="base_url" type="string | null">
 
 Kibana base URL (e.g. https://localhost:5601).
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="params" type="object | null">
-
-Optional native Kibana query parameters.
 
 Default: `null`.
 
@@ -343,14 +325,6 @@ Default: `"application/octet-stream"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-Optional native Kibana query parameters.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="space_id" type="string | null">
 
 Optional Kibana space ID. Omit for the default space.
@@ -392,14 +366,6 @@ API-native JSON request body.
 <ParamField path="base_url" type="string | null">
 
 Kibana base URL (e.g. https://localhost:5601).
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="params" type="object | null">
-
-Optional native Kibana query parameters, including API identifiers where required.
 
 Default: `null`.
 
@@ -451,14 +417,6 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-Optional native Kibana query parameters, including API identifiers where required.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="space_id" type="string | null">
 
 Optional Kibana space ID. Omit for the default space.
@@ -499,9 +457,25 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="id" type="string | null">
 
-Optional native Kibana query parameters, including API identifiers where required.
+Exception item's identifier. Either `id` or `item_id` must be specified.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="item_id" type="string | null">
+
+Human readable exception item string identifier, e.g. `trusted-linux-processes`. Either `id` or `item_id` must be specified.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="namespace_type" type="string | null">
+
+`single` deletes the item in the current Kibana space; `agnostic` deletes an item in a space-agnostic list. Must match the list that owns the item. Defaults to single.
 
 Default: `null`.
 
@@ -559,14 +533,6 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-Optional native Kibana query parameters.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="space_id" type="string | null">
 
 Optional Kibana space ID. Omit for the default space.
@@ -613,9 +579,17 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="exclude_export_details" type="boolean | null">
 
-Optional native Kibana query parameters.
+Determines whether a summary of the exported rules is returned. Defaults to `false`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="file_name" type="string | null">
+
+File name for saving the exported rules. Defaults to `export.ndjson`.
 
 Default: `null`.
 
@@ -655,21 +629,13 @@ Required secrets:
 
 <ParamField path="payload" type="object" required>
 
-API-native JSON request body.
+API-native request body. Documented fields: endpoint_ids (required), parameters (required), agent_type, alert_ids, case_ids, comment.
 
 </ParamField>
 
 <ParamField path="base_url" type="string | null">
 
 Kibana base URL (e.g. https://localhost:5601).
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="params" type="object | null">
-
-Optional native Kibana query parameters.
 
 Default: `null`.
 
@@ -721,14 +687,6 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-Optional native Kibana query parameters.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="space_id" type="string | null">
 
 Optional Kibana space ID. Omit for the default space.
@@ -763,21 +721,13 @@ Required secrets:
 
 <ParamField path="payload" type="object" required>
 
-API-native JSON request body.
+API-native request body. Documented fields: endpoint_ids (required), path (required), agent_type, alert_ids, case_ids, comment.
 
 </ParamField>
 
 <ParamField path="base_url" type="string | null">
 
 Kibana base URL (e.g. https://localhost:5601).
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="params" type="object | null">
-
-Optional native Kibana query parameters.
 
 Default: `null`.
 
@@ -817,21 +767,13 @@ Required secrets:
 
 <ParamField path="payload" type="object" required>
 
-API-native JSON request body.
+API-native request body. Documented fields: endpoint_ids (required), agent_type, alert_ids, case_ids, comment.
 
 </ParamField>
 
 <ParamField path="base_url" type="string | null">
 
 Kibana base URL (e.g. https://localhost:5601).
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="params" type="object | null">
-
-Optional native Kibana query parameters.
 
 Default: `null`.
 
@@ -878,14 +820,6 @@ Response action ID.
 <ParamField path="base_url" type="string | null">
 
 Kibana base URL (e.g. https://localhost:5601).
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="params" type="object | null">
-
-Optional native Kibana query parameters.
 
 Default: `null`.
 
@@ -943,14 +877,6 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-Optional native Kibana query parameters.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="space_id" type="string | null">
 
 Optional Kibana space ID. Omit for the default space.
@@ -989,6 +915,14 @@ Base64-encoded NDJSON rules file.
 
 </ParamField>
 
+<ParamField path="as_new_list" type="boolean | null">
+
+Generates a new list ID for each imported exception list. Defaults to `false`.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string | null">
 
 Kibana base URL (e.g. https://localhost:5601).
@@ -1005,9 +939,25 @@ Default: `"rules.ndjson"`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="overwrite" type="boolean | null">
 
-Optional native import query parameters such as overwrite.
+Determines whether existing rules with the same `rule_id` are overwritten. Defaults to `false`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="overwrite_action_connectors" type="boolean | null">
+
+Determines whether existing actions with the same `kibana.alert.rule.actions.id` are overwritten. Defaults to `false`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="overwrite_exceptions" type="boolean | null">
+
+Determines whether existing exception lists with the same `list_id` are overwritten. Both the exception list container and its items are overwritten. Defaults to `false`.
 
 Default: `null`.
 
@@ -1047,21 +997,13 @@ Required secrets:
 
 <ParamField path="payload" type="object" required>
 
-API-native JSON request body.
+API-native request body. Documented fields: endpoint_ids (required), agent_type, alert_ids, case_ids, comment.
 
 </ParamField>
 
 <ParamField path="base_url" type="string | null">
 
 Kibana base URL (e.g. https://localhost:5601).
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="params" type="object | null">
-
-Optional native Kibana query parameters.
 
 Default: `null`.
 
@@ -1107,9 +1049,81 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="fields" type="array[string] | null">
 
-Optional native Kibana query parameters.
+List of `alert.attributes` field names to return for each rule (for example `name`, `enabled`). If omitted, the default field set is returned.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="filter" type="string | null">
+
+Search query. Filters the returned results according to the value of the specified field, using the `alert.attributes.&lt;field name>:&lt;field value>` syntax, where `&lt;field name>` can be: name, enabled, tags, createdBy, interval, updatedBy. Even though the JSON rule object uses `created_by` and `updated_by` fields, you must use `createdBy` and `updatedBy` fields in the filter.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="gap_auto_fill_scheduler_id" type="string | null">
+
+Gap auto fill scheduler ID used to determine gap fill status for rules.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="gap_fill_statuses" type="array[string] | null">
+
+Gap fill statuses. Possible values: unfilled, in_progress, filled, error.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="gaps_range_end" type="string | null">
+
+Gaps range end.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="gaps_range_start" type="string | null">
+
+Gaps range start.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+Page number. Defaults to 1.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+Rules per page. Defaults to 20.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_field" type="string | null">
+
+Field to sort by. Possible values: created_at, createdAt, enabled, execution_summary.last_execution.date, execution_summary.last_execution.metrics.execution_gap_duration_s, execution_summary.last_execution.metrics.total_indexing_duration_ms, execution_summary.last_execution.metrics.total_search_duration_ms, execution_summary.last_execution.status, name, risk_score, riskScore, severity, updated_at, updatedAt.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_order" type="string | null">
+
+Sort order. Possible values: asc, desc.
 
 Default: `null`.
 
@@ -1155,9 +1169,41 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="kuery" type="string | null">
 
-Optional native Kibana query parameters.
+A KQL query string to filter the list of scripts. Nearly all fields in the script object are searchable.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+Page number of the results to return. Defaults to 1.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="pageSize" type="integer | null">
+
+Number of results to return per page. Defaults to 10. Max value is 1000.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sortDirection" type="string | null">
+
+The direction to sort the results by. Defaults to asc (ascending). Allowed values are `asc`, `desc`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sortField" type="string | null">
+
+The field to sort the results by. Defaults to name. Allowed values are `name`, `createdAt`, `createdBy`, `updatedAt`, `updatedBy`, `fileSize`.
 
 Default: `null`.
 
@@ -1195,6 +1241,12 @@ Required secrets:
 
 ### Input fields
 
+<ParamField path="hostStatuses" type="array[string]" required>
+
+A set of host statuses to filter the results by (for example, `healthy`, `updating`). Allowed values are `healthy`, `offline`, `updating`, `inactive`, `unenrolled`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string | null">
 
 Kibana base URL (e.g. https://localhost:5601).
@@ -1203,9 +1255,41 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="kuery" type="string | null">
 
-Optional native Kibana query parameters.
+A KQL string to filter the endpoint metadata results.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+The page number to return.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="pageSize" type="integer | null">
+
+The number of endpoints to return per page.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sortDirection" type="string | null">
+
+The sort order, either `asc` or `desc`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sortField" type="string | null">
+
+The field used to sort the results. Allowed values are `enrolled_at`, `metadata.host.hostname`, `host_status`, `metadata.Endpoint.policy.applied.name`, `metadata.Endpoint.policy.applied.status`, `metadata.host.os.name`, `metadata.host.ip`, `metadata.agent.version`, `last_checkin`.
 
 Default: `null`.
 
@@ -1243,6 +1327,12 @@ Required secrets:
 
 ### Input fields
 
+<ParamField path="list_id" type="array[string]" required>
+
+The `list_id`s of the items to fetch.
+
+</ParamField>
+
 <ParamField path="base_url" type="string | null">
 
 Kibana base URL (e.g. https://localhost:5601).
@@ -1251,9 +1341,57 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="filter" type="array[string] | null">
 
-Optional native Kibana query parameters, including API identifiers where required.
+Filters the returned results according to the value of the specified field, using the `&lt;field name>:&lt;field value>` syntax.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="namespace_type" type="array[string] | null">
+
+Determines whether the returned containers are Kibana associated with a Kibana space or available in all spaces. Possible values: agnostic, single.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+The page number to return.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+The number of exception list items to return per page.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="search" type="string | null">
+
+Free-text search term applied to exception list item fields (for example a hostname or file path fragment).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_field" type="string | null">
+
+Determines which field is used to sort the results.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_order" type="string | null">
+
+Determines the sort order, which can be `desc` or `asc`.
 
 Default: `null`.
 
@@ -1299,9 +1437,49 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="filter" type="string | null">
 
-Optional native Kibana query parameters, including API identifiers where required.
+Filters the returned results according to the value of the specified field. Uses the `so type.field name:field` value syntax, where `so type` can be: exception-list (specify a space-aware exception list) or exception-list-agnostic (specify an exception list that is shared across spaces).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="namespace_type" type="array[string] | null">
+
+Determines whether the returned containers are Kibana associated with a Kibana space or available in all spaces. Possible values: agnostic, single.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+The page number to return.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+The number of exception lists to return per page.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_field" type="string | null">
+
+Determines which field is used to sort the results.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_order" type="string | null">
+
+Determines the sort order, which can be `desc` or `asc`.
 
 Default: `null`.
 
@@ -1339,6 +1517,22 @@ Required secrets:
 
 ### Input fields
 
+<ParamField path="agentIds" type="array[string] | null">
+
+A list of Elastic Agent IDs to filter the response actions by.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="agentTypes" type="string | null">
+
+The agent type to filter response actions by. Defaults to `endpoint`. Allowed values are `endpoint`, `sentinel_one`, `crowdstrike`, `microsoft_defender_endpoint`.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string | null">
 
 Kibana base URL (e.g. https://localhost:5601).
@@ -1347,9 +1541,33 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="commands" type="array[string] | null">
 
-Optional native Kibana query parameters.
+A list of response action command names to filter by. Allowed values are `isolate`, `unisolate`, `kill-process`, `suspend-process`, `running-processes`, `get-file`, `execute`, `upload`, `scan`, `runscript`, `cancel`, `memory-dump`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="endDate" type="string | null">
+
+An end date in ISO 8601 format or Date Math format (for example, `now`).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+The page number to return.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="pageSize" type="integer | null">
+
+The number of response actions to return per page.
 
 Default: `null`.
 
@@ -1363,11 +1581,43 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="startDate" type="string | null">
+
+A start date in ISO 8601 format or Date Math format (for example, `now-24h`).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="types" type="array[string] | null">
+
+A list of response action types to filter by (`automated`, `manual`).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="userIds" type="array[string] | null">
+
+A list of user IDs that submitted the response actions.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="verify_ssl" type="boolean">
 
 Whether to verify SSL certificates.
 
 Default: `true`.
+
+</ParamField>
+
+<ParamField path="withOutputs" type="array[string] | null">
+
+A list of response action IDs whose outputs should be included in the response.
+
+Default: `null`.
 
 </ParamField>
 
@@ -1396,14 +1646,6 @@ API-native JSON request body.
 <ParamField path="base_url" type="string | null">
 
 Kibana base URL (e.g. https://localhost:5601).
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="params" type="object | null">
-
-Optional native Kibana query parameters.
 
 Default: `null`.
 
@@ -1455,9 +1697,9 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="enable_logged_requests" type="boolean | null">
 
-Optional native Kibana query parameters.
+Enables logging and returning in response ES queries, performed during rule execution.
 
 Default: `null`.
 
@@ -1497,21 +1739,13 @@ Required secrets:
 
 <ParamField path="payload" type="object" required>
 
-API-native JSON request body.
+API-native request body. Documented fields: endpoint_ids (required), agent_type, alert_ids, case_ids, comment.
 
 </ParamField>
 
 <ParamField path="base_url" type="string | null">
 
 Kibana base URL (e.g. https://localhost:5601).
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="params" type="object | null">
-
-Optional native Kibana query parameters.
 
 Default: `null`.
 
@@ -1551,21 +1785,13 @@ Required secrets:
 
 <ParamField path="payload" type="object" required>
 
-API-native JSON request body.
+API-native request body. Documented fields: command (required), endpoint_ids (required), agent_type, alert_ids, case_ids, comment, timeout.
 
 </ParamField>
 
 <ParamField path="base_url" type="string | null">
 
 Kibana base URL (e.g. https://localhost:5601).
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="params" type="object | null">
-
-Optional native Kibana query parameters.
 
 Default: `null`.
 
@@ -1605,21 +1831,13 @@ Required secrets:
 
 <ParamField path="payload" type="object" required>
 
-API-native JSON request body.
+API-native request body. Documented fields: endpoint_ids (required), parameters (required), agent_type, alert_ids, case_ids, comment.
 
 </ParamField>
 
 <ParamField path="base_url" type="string | null">
 
 Kibana base URL (e.g. https://localhost:5601).
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="params" type="object | null">
-
-Optional native Kibana query parameters.
 
 Default: `null`.
 
@@ -1671,14 +1889,6 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-Optional native Kibana query parameters.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="space_id" type="string | null">
 
 Optional Kibana space ID. Omit for the default space.
@@ -1713,21 +1923,13 @@ Required secrets:
 
 <ParamField path="payload" type="object" required>
 
-API-native JSON request body.
+API-native request body. Documented fields: endpoint_ids (required), path (required), agent_type, alert_ids, case_ids, comment.
 
 </ParamField>
 
 <ParamField path="base_url" type="string | null">
 
 Kibana base URL (e.g. https://localhost:5601).
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="params" type="object | null">
-
-Optional native Kibana query parameters.
 
 Default: `null`.
 
@@ -1765,6 +1967,14 @@ Required secrets:
 
 ### Input fields
 
+<ParamField path="alert_ids" type="array[string] | null">
+
+Filter results to Attack discoveries that include any of the provided alert IDs.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string | null">
 
 Kibana base URL (e.g. https://localhost:5601).
@@ -1773,9 +1983,105 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="connector_names" type="array[string] | null">
 
-Optional native search, filter, pagination, and sorting parameters.
+Filter results to Attack discoveries created by any of the provided human readable connector names. Note that values must match the human readable `connector_name` property of an Attack discovery, which are distinct from `connector_id` values used to generate Attack discoveries.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="enable_field_rendering" type="boolean | null">
+
+Enables a markdown syntax used to render pivot fields. This is primarily used for Attack Discovery views within Kibana. Defaults to `false`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="end" type="string | null">
+
+End of the time range for the search. Accepts absolute timestamps (ISO 8601) or relative date math (e.g. "now", "now-24h").
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="ids" type="array[string] | null">
+
+Filter results to the Attack discoveries with the specified IDs.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="include_all_authors" type="boolean | null">
+
+If `true`, the response will include all attack discoveries matching other criteria regardless of who created them. Mutually exclusive with `shared`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="include_unique_alert_ids" type="boolean | null">
+
+If `true`, the response will include `unique_alert_ids` and `unique_alert_ids_count` aggregated across the matched Attack discoveries.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+Page number to return (used for pagination). Defaults to 1.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+Number of Attack discoveries to return per page (used for pagination). Defaults to 10.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="scheduled" type="boolean | null">
+
+Whether to filter by scheduled or ad-hoc attack discoveries. If omitted, both types of attack discoveries are returned. Use `true` to return only scheduled discoveries or `false` to return only ad-hoc discoveries.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="search" type="string | null">
+
+Free-text search query applied to relevant text fields of Attack discoveries (title, description, tags, etc.).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="shared" type="boolean | null">
+
+Whether to filter by shared visibility. If omitted, both shared and privately visible Attack discoveries are returned. Use `true` to return only shared discoveries, `false` to return only those visible to the current user. Mutually exclusive with `include_all_authors`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_field" type="string | null">
+
+Field used to sort results. Possible values: @timestamp. Defaults to @timestamp.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_order" type="string | null">
+
+Sort order direction, `asc` for ascending or `desc` for descending. Possible values: asc, desc. Defaults to desc.
 
 Default: `null`.
 
@@ -1789,11 +2095,35 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="start" type="string | null">
+
+Start of the time range for the search. Accepts absolute timestamps (ISO 8601) or relative date math (e.g. "now-7d").
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="status" type="array[string] | null">
+
+Filter by alert workflow status. Provide one or more of the allowed workflow states. Possible values: acknowledged, closed, open.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="verify_ssl" type="boolean">
 
 Whether to verify SSL certificates.
 
 Default: `true`.
+
+</ParamField>
+
+<ParamField path="with_replacements" type="boolean | null">
+
+When true, return the created Attack discoveries with text replacements applied to the detailsMarkdown, entitySummaryMarkdown, summaryMarkdown, and title fields. Defaults to `true`.
+
+Default: `null`.
 
 </ParamField>
 
@@ -1822,14 +2152,6 @@ API-native JSON request body.
 <ParamField path="base_url" type="string | null">
 
 Kibana base URL (e.g. https://localhost:5601).
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="params" type="object | null">
-
-Optional native Kibana query parameters.
 
 Default: `null`.
 
@@ -1875,9 +2197,89 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
+<ParamField path="entity_types" type="array[string] | null">
 
-Optional native entity filters, fields, sorting, and pagination parameters.
+Entity types to include in the results. Possible values: user, host, service, generic.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="fields" type="array[string] | null">
+
+Fields to include in the response.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="filter" type="string | null">
+
+A Kibana Query Language (KQL) filter for the search-after mode.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="filterQuery" type="string | null">
+
+An Elasticsearch query string to filter entities in page mode.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+Page number to return (1-indexed) in page mode.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+Number of entities per page in page mode.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="searchAfter" type="string | null">
+
+JSON-encoded search_after value for cursor-based pagination.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="size" type="integer | null">
+
+Number of entities to return in search-after mode.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_field" type="string | null">
+
+Field to sort results by in page mode.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_order" type="string | null">
+
+Sort order in page mode. Possible values: asc, desc.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="source" type="array[string] | null">
+
+Fields to include in the response source.
 
 Default: `null`.
 
@@ -1929,14 +2331,6 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="params" type="object | null">
-
-Optional native Kibana query parameters.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="space_id" type="string | null">
 
 Optional Kibana space ID. Omit for the default space.
@@ -1971,21 +2365,13 @@ Required secrets:
 
 <ParamField path="payload" type="object" required>
 
-API-native JSON request body.
+API-native request body. Documented fields: endpoint_ids (required), parameters (required), agent_type, alert_ids, case_ids, comment.
 
 </ParamField>
 
 <ParamField path="base_url" type="string | null">
 
 Kibana base URL (e.g. https://localhost:5601).
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="params" type="object | null">
-
-Optional native Kibana query parameters.
 
 Default: `null`.
 
@@ -2025,21 +2411,13 @@ Required secrets:
 
 <ParamField path="payload" type="object" required>
 
-API-native JSON request body.
+API-native request body. Documented fields: endpoint_ids (required), parameters (required), agent_type, alert_ids, case_ids, comment.
 
 </ParamField>
 
 <ParamField path="base_url" type="string | null">
 
 Kibana base URL (e.g. https://localhost:5601).
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="params" type="object | null">
-
-Optional native Kibana query parameters.
 
 Default: `null`.
 
@@ -2077,23 +2455,21 @@ Required secrets:
 
 ### Input fields
 
-<ParamField path="payload" type="object" required>
+<ParamField path="ids" type="array[string]" required>
 
-API-native JSON request body.
+A list of alerts `id`s.
+
+</ParamField>
+
+<ParamField path="tags" type="object" required>
+
+Object with list of tags to add and remove. Requires `tags_to_add` and `tags_to_remove`, each a list of keywords to organize related alerts into categories that you can filter and group.
 
 </ParamField>
 
 <ParamField path="base_url" type="string | null">
 
 Kibana base URL (e.g. https://localhost:5601).
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="params" type="object | null">
-
-Optional native Kibana query parameters.
 
 Default: `null`.
 
@@ -2162,14 +2538,6 @@ Default: `null`.
 MIME type of the uploaded file.
 
 Default: `"application/octet-stream"`.
-
-</ParamField>
-
-<ParamField path="params" type="object | null">
-
-Optional native Kibana query parameters.
-
-Default: `null`.
 
 </ParamField>
 

@@ -1,0 +1,37 @@
+type: action
+definition:
+  title: Search records
+  description: Search records. Calls POST /v1/searches/run/sync directly.
+  display_group: Pipe0
+  doc_url: https://www.pipe0.com/docs/api/search/run-sync
+  namespace: tools.pipe0
+  name: search_records
+  secrets:
+    - name: pipe0
+      keys: ["PIPE0_API_KEY"]
+  expects:
+    search:
+      type: dict[str, Any]
+      description: Pipe0 search object. Takes a search_id and a config object holding limit and filters.
+    config:
+      type: dict[str, Any] | None
+      description: Pipe0 run configuration object, covering environment, widgets, and field_definitions.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Pipe0 API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.pipe0.base_url || "https://api.pipe0.com" }}/v1/searches/run/sync
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.pipe0.PIPE0_API_KEY }}
+          Accept: application/json
+          Content-Type: application/json
+        payload:
+          search: ${{ inputs.search }}
+          config: ${{ inputs.config }}
+  returns: ${{ steps.request.result }}

@@ -18,9 +18,17 @@ definition:
     merge_request_iid:
       type: int
       description: GitLab API path value for merge_request_iid.
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters, including pagination and filters.
+    include_diverged_commits_count:
+      type: bool | None
+      description: If `true`, response includes the commits behind the target branch.
+      default: null
+    include_rebase_in_progress:
+      type: bool | None
+      description: If `true`, response includes whether a rebase operation is in progress.
+      default: null
+    render_html:
+      type: bool | None
+      description: If `true`, response includes rendered HTML for title and description.
       default: null
     base_url:
       type: str
@@ -35,5 +43,8 @@ definition:
         headers:
           PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}
           Accept: application/json
-        params: ${{ inputs.params }}
+        params:
+          include_diverged_commits_count: ${{ inputs.include_diverged_commits_count }}
+          include_rebase_in_progress: ${{ inputs.include_rebase_in_progress }}
+          render_html: ${{ inputs.render_html }}
   returns: ${{ steps.request.result }}

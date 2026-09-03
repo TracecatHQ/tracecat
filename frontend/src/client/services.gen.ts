@@ -64,6 +64,9 @@ import type {
   AdminListTiersData,
   AdminListTiersResponse,
   AdminListUsersResponse,
+  AdminMaintenanceGetCaseAgentSessionInteractionBackfillData,
+  AdminMaintenanceGetCaseAgentSessionInteractionBackfillResponse,
+  AdminMaintenanceStartCaseAgentSessionInteractionBackfillResponse,
   AdminPromoteOrgRepositoryVersionData,
   AdminPromoteOrgRepositoryVersionResponse,
   AdminPromoteToSuperuserData,
@@ -312,8 +315,14 @@ import type {
   CasesAddTagResponse,
   CasesBatchDeleteCasesData,
   CasesBatchDeleteCasesResponse,
+  CasesBatchLinkCaseRowsData,
+  CasesBatchLinkCaseRowsResponse,
+  CasesBatchUnlinkCaseRowsData,
+  CasesBatchUnlinkCaseRowsResponse,
   CasesBatchUpdateCasesData,
   CasesBatchUpdateCasesResponse,
+  CasesCompareCaseVersionData,
+  CasesCompareCaseVersionResponse,
   CasesCreateCaseData,
   CasesCreateCaseResponse,
   CasesCreateCommentData,
@@ -338,10 +347,14 @@ import type {
   CasesLinkCaseRowResponse,
   CasesListCaseDropdownValuesData,
   CasesListCaseDropdownValuesResponse,
+  CasesListCaseLinkedTablesData,
+  CasesListCaseLinkedTablesResponse,
   CasesListCaseRowsData,
   CasesListCaseRowsResponse,
   CasesListCasesData,
   CasesListCasesResponse,
+  CasesListCaseVersionsData,
+  CasesListCaseVersionsResponse,
   CasesListCommentsData,
   CasesListCommentsResponse,
   CasesListCommentThreadsData,
@@ -356,6 +369,8 @@ import type {
   CasesListTasksResponse,
   CasesRemoveTagData,
   CasesRemoveTagResponse,
+  CasesRestoreCaseVersionData,
+  CasesRestoreCaseVersionResponse,
   CasesSearchCaseAggregatesData,
   CasesSearchCaseAggregatesResponse,
   CasesSearchCasesData,
@@ -690,6 +705,7 @@ import type {
   ServiceAccountsUpdateOrganizationServiceAccountResponse,
   ServiceAccountsUpdateWorkspaceServiceAccountData,
   ServiceAccountsUpdateWorkspaceServiceAccountResponse,
+  SettingsGetAgentOtelSettingsResponse,
   SettingsGetAgentSettingsResponse,
   SettingsGetAppSettingsResponse,
   SettingsGetAuditSettingsResponse,
@@ -697,6 +713,8 @@ import type {
   SettingsGetSamlSettingsResponse,
   SettingsTestAuditWebhookData,
   SettingsTestAuditWebhookResponse,
+  SettingsUpdateAgentOtelSettingsData,
+  SettingsUpdateAgentOtelSettingsResponse,
   SettingsUpdateAgentSettingsData,
   SettingsUpdateAgentSettingsResponse,
   SettingsUpdateAppSettingsData,
@@ -8006,6 +8024,43 @@ export const adminAgentListPlatformCatalog = (
 }
 
 /**
+ * Start Case Agent Session Interaction Backfill
+ * Start or join the durable historical case-mutation backfill.
+ * @returns CaseAgentSessionInteractionBackfillStartResponse Successful Response
+ * @throws ApiError
+ */
+export const adminMaintenanceStartCaseAgentSessionInteractionBackfill =
+  (): CancelablePromise<AdminMaintenanceStartCaseAgentSessionInteractionBackfillResponse> => {
+    return __request(OpenAPI, {
+      method: "POST",
+      url: "/admin/maintenance/case-agent-session-interactions/backfill",
+    })
+  }
+
+/**
+ * Get Case Agent Session Interaction Backfill
+ * Poll a durable historical case-mutation backfill.
+ * @param data The data for the request.
+ * @param data.operationId
+ * @returns CaseAgentSessionInteractionBackfillStatusResponse Successful Response
+ * @throws ApiError
+ */
+export const adminMaintenanceGetCaseAgentSessionInteractionBackfill = (
+  data: AdminMaintenanceGetCaseAgentSessionInteractionBackfillData
+): CancelablePromise<AdminMaintenanceGetCaseAgentSessionInteractionBackfillResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/admin/maintenance/case-agent-session-interactions/backfill/{operation_id}",
+    path: {
+      operation_id: data.operationId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * List Platform Repositories
  * List all platform registry repositories.
  * @returns RegistryRepositoryReadMinimal Successful Response
@@ -8240,6 +8295,7 @@ export const inboxGetPendingCount = (
  * @param data.orderBy Column name to order by (created_at, updated_at)
  * @param data.sort Sort direction (asc or desc)
  * @param data.search Case-insensitive search on item title
+ * @param data.caseId Filter items to root sessions associated with this case
  * @param data.group Filter items to a single display group
  * @param data.entityType Filter items to a single entity type
  * @param data.createdAfter Only items created at or after this time (ISO 8601)
@@ -8263,6 +8319,7 @@ export const inboxListItems = (
       order_by: data.orderBy,
       sort: data.sort,
       search: data.search,
+      case_id: data.caseId,
       group: data.group,
       entity_type: data.entityType,
       created_after: data.createdAfter,
@@ -8949,6 +9006,40 @@ export const settingsUpdateAgentSettings = (
   return __request(OpenAPI, {
     method: "PATCH",
     url: "/settings/agent",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Agent Otel Settings
+ * @returns AgentOtelSettingsRead Successful Response
+ * @throws ApiError
+ */
+export const settingsGetAgentOtelSettings =
+  (): CancelablePromise<SettingsGetAgentOtelSettingsResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/settings/agent-otel",
+    })
+  }
+
+/**
+ * Update Agent Otel Settings
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const settingsUpdateAgentOtelSettings = (
+  data: SettingsUpdateAgentOtelSettingsData
+): CancelablePromise<SettingsUpdateAgentOtelSettingsResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/settings/agent-otel",
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
@@ -10168,13 +10259,104 @@ export const casesDeleteTask = (
 }
 
 /**
+ * List Case Versions
+ * List immutable case field versions newest-first.
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.workspaceId
+ * @param data.limit Maximum items per page
+ * @param data.cursor Cursor for pagination
+ * @param data.field Optionally include only summary or description versions
+ * @returns CursorPaginatedResponse_CaseVersionReadMinimal_ Successful Response
+ * @throws ApiError
+ */
+export const casesListCaseVersions = (
+  data: CasesListCaseVersionsData
+): CancelablePromise<CasesListCaseVersionsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/cases/{case_id}/versions",
+    path: {
+      case_id: data.caseId,
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+      field: data.field,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Compare Case Version
+ * Return a case field version and its immediate predecessor.
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.versionId
+ * @param data.workspaceId
+ * @returns CaseVersionCompareRead Successful Response
+ * @throws ApiError
+ */
+export const casesCompareCaseVersion = (
+  data: CasesCompareCaseVersionData
+): CancelablePromise<CasesCompareCaseVersionResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/cases/{case_id}/versions/{version_id}/compare",
+    path: {
+      case_id: data.caseId,
+      version_id: data.versionId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Restore Case Version
+ * Restore one historical case field version atomically.
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.versionId
+ * @param data.workspaceId
+ * @returns CaseVersionRestoreRead Successful Response
+ * @throws ApiError
+ */
+export const casesRestoreCaseVersion = (
+  data: CasesRestoreCaseVersionData
+): CancelablePromise<CasesRestoreCaseVersionResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/cases/{case_id}/versions/{version_id}/restore",
+    path: {
+      case_id: data.caseId,
+      version_id: data.versionId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * List Case Rows
+ * List linked rows.
+ *
+ * ``total_estimate`` is an exact count when ``table_id`` is set, null otherwise.
  * @param data The data for the request.
  * @param data.caseId
  * @param data.workspaceId
  * @param data.limit
  * @param data.cursor
  * @param data.reverse
+ * @param data.tableId Restrict results to one linked table
  * @returns CursorPaginatedResponse_CaseTableRowRead_ Successful Response
  * @throws ApiError
  */
@@ -10192,6 +10374,7 @@ export const casesListCaseRows = (
       limit: data.limit,
       cursor: data.cursor,
       reverse: data.reverse,
+      table_id: data.tableId,
     },
     errors: {
       422: "Validation Error",
@@ -10227,6 +10410,34 @@ export const casesLinkCaseRow = (
 }
 
 /**
+ * List Case Linked Tables
+ * List the tables that have rows linked to a case, with their columns.
+ *
+ * Only ``case:read`` is required: the links, and the column definitions needed
+ * to render them, are case data.
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.workspaceId
+ * @returns CaseLinkedTableRead Successful Response
+ * @throws ApiError
+ */
+export const casesListCaseLinkedTables = (
+  data: CasesListCaseLinkedTablesData
+): CancelablePromise<CasesListCaseLinkedTablesResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/cases/{case_id}/rows/tables",
+    path: {
+      case_id: data.caseId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Insert Case Row
  * @param data The data for the request.
  * @param data.caseId
@@ -10241,6 +10452,62 @@ export const casesInsertCaseRow = (
   return __request(OpenAPI, {
     method: "POST",
     url: "/workspaces/{workspace_id}/cases/{case_id}/rows/insert",
+    path: {
+      case_id: data.caseId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Batch Link Case Rows
+ * Link rows in bulk; conflict handling makes an integrity error unreachable.
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns CaseTableRowBatchLinkResponse Successful Response
+ * @throws ApiError
+ */
+export const casesBatchLinkCaseRows = (
+  data: CasesBatchLinkCaseRowsData
+): CancelablePromise<CasesBatchLinkCaseRowsResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/cases/{case_id}/rows/batch-link",
+    path: {
+      case_id: data.caseId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Batch Unlink Case Rows
+ * Unlink rows in bulk, returning zero for a fully no-op batch.
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns CaseTableRowBatchUnlinkResponse Successful Response
+ * @throws ApiError
+ */
+export const casesBatchUnlinkCaseRows = (
+  data: CasesBatchUnlinkCaseRowsData
+): CancelablePromise<CasesBatchUnlinkCaseRowsResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/cases/{case_id}/rows/batch-unlink",
     path: {
       case_id: data.caseId,
       workspace_id: data.workspaceId,

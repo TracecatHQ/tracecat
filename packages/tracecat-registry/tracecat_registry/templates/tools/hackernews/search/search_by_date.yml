@@ -1,0 +1,54 @@
+type: action
+definition:
+  title: Search by date
+  description: Search Hacker News by date. Calls GET /api/v1/search_by_date directly.
+  display_group: Hacker News
+  doc_url: https://hn.algolia.com/api
+  namespace: tools.hackernews
+  name: search_by_date
+  secrets: []
+  expects:
+    query:
+      type: str | None
+      description: Full-text search query.
+      default: null
+    tags:
+      type: str | None
+      description: Algolia tag filter, such as story, comment, front_page, author_pg, story_1, or grouped tags.
+      default: null
+    numericFilters:
+      type: str | None
+      description: Algolia numeric filters, such as created_at_i>1700000000, points>10, or num_comments>=5.
+      default: null
+    page:
+      type: int | None
+      description: Page number to retrieve.
+      default: null
+    hitsPerPage:
+      type: int | None
+      description: Number of hits per page.
+      default: null
+    restrictSearchableAttributes:
+      type: str | None
+      description: Comma-delimited attributes to search, such as url.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the HN Algolia API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.hackernews.base_url || "https://hn.algolia.com" }}/api/v1/search_by_date
+        method: GET
+        headers:
+          Accept: application/json
+        params:
+          query: ${{ inputs.query }}
+          tags: ${{ inputs.tags }}
+          numericFilters: ${{ inputs.numericFilters }}
+          page: ${{ inputs.page }}
+          hitsPerPage: ${{ inputs.hitsPerPage }}
+          restrictSearchableAttributes: ${{ inputs.restrictSearchableAttributes }}
+  returns: ${{ steps.request.result }}

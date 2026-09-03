@@ -1,6 +1,5 @@
 "use client"
 
-import { useQueryClient } from "@tanstack/react-query"
 import type { JSONSchema7 } from "json-schema"
 import { AlertTriangleIcon } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
@@ -38,6 +37,7 @@ import type {
   AgentSessionWithStatus,
 } from "@/lib/agents"
 import { jsonSchemaToZod } from "@/lib/jsonschema"
+import { useQueryClient } from "@/lib/query"
 import { reconstructActionType } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 

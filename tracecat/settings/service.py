@@ -26,10 +26,12 @@ from tracecat.db.models import OrganizationSetting
 from tracecat.db.rls import set_rls_context_from_role
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
+from tracecat.network import DisallowedUrlError, validate_url_resolves_public_async
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
 from tracecat.service import BaseOrgService
 from tracecat.settings.constants import SENSITIVE_SETTINGS_KEYS
 from tracecat.settings.schemas import (
+    AgentOtelSettingsUpdate,
     AgentSettingsUpdate,
     AppSettingsUpdate,
     AuditSettingsUpdate,
@@ -45,6 +47,10 @@ VERSIONED_RESOURCE_RESOLUTION_STRATEGY_SETTING = (
     "app_versioned_resource_resolution_strategy"
 )
 AUDIT_SETTINGS_KEYS = frozenset(AuditSettingsUpdate.keys())
+
+
+class AgentOtelEndpointNotAllowedError(Exception):
+    """Raised when the OTel collector endpoint resolves to a non-public address."""
 
 
 def _deserialize_setting_value(
@@ -69,6 +75,7 @@ class SettingsService(BaseOrgService):
     service_name = "settings"
     groups: list[type[BaseSettingsGroup]] = [
         AgentSettingsUpdate,
+        AgentOtelSettingsUpdate,
         GitSettingsUpdate,
         SAMLSettingsUpdate,
         AppSettingsUpdate,
@@ -337,6 +344,24 @@ class SettingsService(BaseOrgService):
     async def update_agent_settings(self, params: AgentSettingsUpdate) -> None:
         agent_settings = await self.list_org_settings(keys=AgentSettingsUpdate.keys())
         await self._update_grouped_settings(agent_settings, params)
+
+    @require_scope("org:settings:update")
+    @audit_log(resource_type="organization_setting", action="update")
+    async def update_agent_otel_settings(self, params: AgentOtelSettingsUpdate) -> None:
+        otel_config = params.agent_otel_config
+        if otel_config.enabled and otel_config.endpoint is not None:
+            # The host posts tenant telemetry to this endpoint, so a private
+            # address would make it an internal-network oracle. Reject before
+            # persisting; the error carries no address.
+            try:
+                await validate_url_resolves_public_async(str(otel_config.endpoint))
+            except DisallowedUrlError as exc:
+                raise AgentOtelEndpointNotAllowedError from exc
+
+        otel_settings = await self.list_org_settings(
+            keys=AgentOtelSettingsUpdate.keys()
+        )
+        await self._update_grouped_settings(otel_settings, params)
 
 
 def _resolve_setting_override(key: str) -> Any:

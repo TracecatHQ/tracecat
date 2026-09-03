@@ -1,0 +1,45 @@
+type: action
+definition:
+  title: Lookup hash
+  description: Lookup a Hash entity by id. Calls GET /v2/hash/{id} directly.
+  display_group: Recorded Future
+  doc_url: https://docs.recordedfuture.com/reference/hash-lookup
+  namespace: tools.recorded_future
+  name: lookup_hash
+  secrets:
+    - name: recorded_future
+      keys: ["RECORDED_FUTURE_API_KEY"]
+  expects:
+    id:
+      type: str
+      description: Hash entity id.
+    fields:
+      type: str | None
+      description: The enrichment fields requested for the entities returned. Several fields can be given as a comma separated string. See https://docs.recordedfuture.com/reference/enrichment-field-attributes for a list of values.
+      default: null
+    metadata:
+      type: bool | None
+      description: Annotates the response with additional metadata explaining the response data elements.
+      default: null
+    taggedText:
+      type: bool | None
+      description: Enable or disable entity tags in text fragments.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Recorded Future API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.recorded_future.base_url || "https://api.recordedfuture.com" }}/v2/hash/${{ FN.url_encode(inputs.id) }}
+        method: GET
+        headers:
+          Accept: application/json
+          X-RFToken: ${{ SECRETS.recorded_future.RECORDED_FUTURE_API_KEY }}
+        params:
+          fields: ${{ inputs.fields }}
+          metadata: ${{ inputs.metadata }}
+          taggedText: ${{ inputs.taggedText }}
+  returns: ${{ steps.request.result }}

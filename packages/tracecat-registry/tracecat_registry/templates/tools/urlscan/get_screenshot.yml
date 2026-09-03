@@ -1,0 +1,31 @@
+type: action
+definition:
+  title: Get screenshot
+  description: >-
+    Get a urlscan PNG screenshot. Calls GET /screenshots/{uuid}.png directly.
+  display_group: URLScan
+  doc_url: https://docs.urlscan.io/apis/urlscan-openapi/scanning/getscreenshot
+  namespace: tools.urlscan
+  name: get_screenshot
+  secrets:
+    - name: urlscan
+      keys: ["URLSCAN_API_KEY"]
+  expects:
+    uuid:
+      type: str
+      description: urlscan scan UUID.
+    base_url:
+      type: str | None
+      description: urlscan base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.urlscan.base_url || "https://urlscan.io" }}/screenshots/${{ FN.url_encode(inputs.uuid) }}.png
+        method: GET
+        base64_encode_data: true
+        headers:
+          API-Key: ${{ SECRETS.urlscan.URLSCAN_API_KEY }}
+          Accept: image/png
+  returns: ${{ steps.request.result }}

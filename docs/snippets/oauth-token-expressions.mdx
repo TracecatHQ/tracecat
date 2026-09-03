@@ -35,11 +35,19 @@ ${{ SECRETS.google_drive_oauth.GOOGLE_DRIVE_USER_TOKEN }}
 ${{ SECRETS.custom_my_security_api_oauth.CUSTOM_MY_SECURITY_API_SERVICE_TOKEN }}
 ```
 
-When either grant type is allowed, use a fallback:
+When the provider has **both** grant types configured, you can fall back across
+both keys:
 
 ```yaml
 ${{ SECRETS.microsoft_sentinel_oauth.MICROSOFT_SENTINEL_USER_TOKEN || SECRETS.microsoft_sentinel_oauth.MICROSOFT_SENTINEL_SERVICE_TOKEN }}
 ```
+
+<Warning>
+  Validation checks both sides of a `||` independently, so this fallback only
+  passes when the provider is configured for both `authorization_code` and
+  `client_credentials`. If only one grant is set up, reference that grant's key
+  directly — otherwise the workflow fails validation on the missing one.
+</Warning>
 
 <Info>
   Tracecat refreshes expiring authorization-code tokens when the provider

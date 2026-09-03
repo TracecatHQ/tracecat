@@ -1,0 +1,40 @@
+type: action
+definition:
+  title: Get alert
+  description: Fetch an alert by id. Calls GET /alert/v3/{alert_id} directly.
+  display_group: Recorded Future
+  doc_url: https://docs.recordedfuture.com/reference/alerts-get-by-id
+  namespace: tools.recorded_future
+  name: get_alert
+  secrets:
+    - name: recorded_future
+      keys: ["RECORDED_FUTURE_API_KEY"]
+  expects:
+    alert_id:
+      type: str
+      description: Id of alert to fetch.
+    fields:
+      type: str | None
+      description: Fields to include in the response. If no specific fields are requested, all available fields are included in the response. Values should be separated by comma. Available fields are ai_insights, enriched_entities, hits, id, log, owner_organisation_details, review, rule, title, triggered_by, type and url.
+      default: null
+    taggedText:
+      type: bool | None
+      description: Include text tags.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Recorded Future API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.recorded_future.base_url || "https://api.recordedfuture.com" }}/alert/v3/${{ FN.url_encode(inputs.alert_id) }}
+        method: GET
+        headers:
+          Accept: application/json
+          X-RFToken: ${{ SECRETS.recorded_future.RECORDED_FUTURE_API_KEY }}
+        params:
+          fields: ${{ inputs.fields }}
+          taggedText: ${{ inputs.taggedText }}
+  returns: ${{ steps.request.result }}

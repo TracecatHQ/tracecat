@@ -1,0 +1,69 @@
+type: action
+definition:
+  title: Create form
+  description: Create a new form using the title given in the provided form message in the request.
+  display_group: Google Forms
+  doc_url: https://developers.google.com/workspace/forms/api/reference/rest/v1/forms/create
+  namespace: tools.google_forms
+  name: create_form
+  secrets:
+    - type: oauth
+      provider_id: google_forms
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_forms
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  expects:
+    title:
+      type: str
+      description: Required. The title of the form which is visible to responders.
+    document_title:
+      type: str | None
+      description: >-
+        The title of the document which is visible in Drive. If `title` is empty,
+        `document_title` may appear in its place in the Google Forms UI and be visible to
+        responders. It can be set on create but cannot be modified by a batchUpdate
+        request.
+      default: null
+    unpublished:
+      type: bool | None
+      description: >-
+        Whether the form is unpublished. If set to `true`, the form doesn't accept
+        responses. If set to `false` or unset, the form is published and accepts
+        responses.
+      default: null
+  steps:
+    - ref: build_body
+      action: core.script.run_python
+      args:
+        inputs:
+          title: ${{ inputs.title }}
+          document_title: ${{ inputs.document_title }}
+        script: |
+          def main(title, document_title):
+              # Only `info.title` and `info.documentTitle` are settable on create; the
+              # description, items and settings must be added with a later batchUpdate.
+              # Values inside `body` are not pruned, and Forms rejects a null documentTitle.
+              info = {"title": title}
+              if document_title is not None:
+                  info["documentTitle"] = document_title
+              return {"info": info}
+    - ref: create_form
+      action: tools.google_api.call_api
+      args:
+        service_name: forms
+        version: v1
+        resource: forms
+        method_name: create
+        access_token: ${{ SECRETS.google_forms_oauth.GOOGLE_FORMS_USER_TOKEN || SECRETS.google_forms_oauth.GOOGLE_FORMS_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/forms.body"]
+        params:
+          unpublished: ${{ inputs.unpublished }}
+          body: ${{ steps.build_body.result }}
+  returns: ${{ steps.create_form.result }}

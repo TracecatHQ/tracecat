@@ -1,6 +1,5 @@
 "use client"
 
-import { useQueryClient } from "@tanstack/react-query"
 import {
   Check,
   CircleIcon,
@@ -70,6 +69,7 @@ import {
 import { toast } from "@/components/ui/use-toast"
 import { User } from "@/lib/auth"
 import { formatCaseFieldDisplayLabel } from "@/lib/case-field-display"
+import { useQueryClient } from "@/lib/query"
 import { durationToHumanReadable, formatISODurationCompact } from "@/lib/time"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -91,15 +91,6 @@ function withBadgeTooltip(
       </TooltipContent>
     </Tooltip>
   )
-}
-
-function formatFieldTooltipLabel(fieldId: string): string {
-  const normalized = fieldId.replace(/[_-]+/g, " ").trim()
-  if (!normalized) {
-    return fieldId
-  }
-
-  return normalized.charAt(0).toUpperCase() + normalized.slice(1)
 }
 
 function formatTooltipTimestamp(timestamp?: string | null): string | null {
@@ -144,7 +135,10 @@ interface CaseItemProps {
   tags?: CaseTagRead[]
   members?: WorkspaceMember[]
   dropdownDefinitions?: CaseDropdownDefinitionRead[]
-  fieldTypesById?: ReadonlyMap<string, CaseFieldReadMinimal["type"]>
+  fieldMetadataById?: ReadonlyMap<
+    string,
+    Pick<CaseFieldReadMinimal, "display_name" | "type">
+  >
   durationNamesById?: ReadonlyMap<CaseDurationDefinitionRead["id"], string>
   visibleColumnIds?: string[]
 }
@@ -159,7 +153,7 @@ export function CaseItem({
   tags,
   members,
   dropdownDefinitions,
-  fieldTypesById,
+  fieldMetadataById,
   durationNamesById,
   visibleColumnIds,
 }: CaseItemProps) {
@@ -212,10 +206,8 @@ export function CaseItem({
         const fieldId = columnId.slice("field:".length)
         const value = caseData.field_values?.[fieldId]
         if (value != null) {
-          const label = formatCaseFieldDisplayLabel(
-            value,
-            fieldTypesById?.get(fieldId)
-          )
+          const fieldMetadata = fieldMetadataById?.get(fieldId)
+          const label = formatCaseFieldDisplayLabel(value, fieldMetadata?.type)
           const badge = (
             <CaseColumnBadge
               key={columnId}
@@ -224,7 +216,11 @@ export function CaseItem({
             />
           )
           badges.push(
-            withBadgeTooltip(badge, formatFieldTooltipLabel(fieldId), columnId)
+            withBadgeTooltip(
+              badge,
+              fieldMetadata?.display_name ?? fieldId,
+              columnId
+            )
           )
         }
       }
@@ -232,7 +228,7 @@ export function CaseItem({
     return badges.length > 0 ? badges : null
   }, [
     visibleColumnIds,
-    fieldTypesById,
+    fieldMetadataById,
     caseData.dropdown_values,
     caseData.field_values,
   ])

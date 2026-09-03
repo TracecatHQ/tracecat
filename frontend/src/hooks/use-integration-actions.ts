@@ -1,15 +1,16 @@
 "use client"
 
-import { useMutation, useQueryClient } from "@tanstack/react-query"
 import type { OAuthGrantType } from "@/client"
 import {
   integrationsConnectProvider,
+  integrationsDeleteIntegration,
   integrationsDisconnectIntegration,
   integrationsTestConnection,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
 import type { TracecatApiError } from "@/lib/errors"
 import { integrationKeys } from "@/lib/integrations"
+import { useMutation, useQueryClient } from "@/lib/query"
 
 interface ProviderRef {
   providerId: string
@@ -90,6 +91,36 @@ export function useDisconnectProvider(workspaceId: string) {
     onError: (error: TracecatApiError) => {
       toast({
         title: "Failed to disconnect",
+        description: `${error.body?.detail ?? error.message}`,
+        variant: "destructive",
+      })
+    },
+  })
+}
+
+/**
+ * Delete a custom OAuth provider. Removes the provider definition along with
+ * any stored credentials, so the row disappears from the integrations list.
+ */
+export function useDeleteProvider(workspaceId: string) {
+  const invalidate = useInvalidateIntegrationQueries(workspaceId)
+  return useMutation({
+    mutationFn: async ({ providerId, grantType }: ProviderRef) =>
+      await integrationsDeleteIntegration({
+        providerId,
+        workspaceId,
+        grantType,
+      }),
+    onSuccess: (_, variables) => {
+      invalidate(variables)
+      toast({
+        title: "Provider deleted",
+        description: "The custom provider and its credentials were removed.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      toast({
+        title: "Failed to delete provider",
         description: `${error.body?.detail ?? error.message}`,
         variant: "destructive",
       })

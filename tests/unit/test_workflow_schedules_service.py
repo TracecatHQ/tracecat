@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from datetime import timedelta
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from temporalio.exceptions import ApplicationError
 
 from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.service import AuditService
@@ -14,13 +15,70 @@ from tracecat.auth.types import Role
 from tracecat.authz.scopes import EDITOR_SCOPES
 from tracecat.db.models import Schedule, Workflow
 from tracecat.exceptions import ScopeDeniedError, TracecatNotFoundError
-from tracecat.identifiers import WorkspaceID
+from tracecat.identifiers import ScheduleUUID, WorkspaceID
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorKind,
+    RuntimeErrorOwner,
+)
+from tracecat.temporal.errors import extract_error_classification
 from tracecat.workflow.schedules import bridge
-from tracecat.workflow.schedules.schemas import ScheduleCreate, ScheduleUpdate
+from tracecat.workflow.schedules.schemas import (
+    GetScheduleActivityInputs,
+    ScheduleCreate,
+    ScheduleUpdate,
+)
 from tracecat.workflow.schedules.service import WorkflowSchedulesService
 
 pytestmark = pytest.mark.usefixtures("db")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("error", "kind", "retry_disposition"),
+    [
+        (
+            TracecatNotFoundError("missing schedule"),
+            RuntimeErrorKind.WORKFLOW_BOOTSTRAP_INVALID_DATA,
+            RetryDisposition.NON_RETRYABLE,
+        ),
+        (
+            RuntimeError("schedule diagnostic must not enter history"),
+            RuntimeErrorKind.WORKFLOW_BOOTSTRAP_UNAVAILABLE,
+            RetryDisposition.RETRYABLE,
+        ),
+    ],
+)
+async def test_get_schedule_trigger_inputs_activity_classifies_failures(
+    svc_role: Role,
+    error: Exception,
+    kind: RuntimeErrorKind,
+    retry_disposition: RetryDisposition,
+) -> None:
+    mock_service = AsyncMock()
+    mock_service.get_schedule.side_effect = error
+    mock_ctx = AsyncMock()
+    mock_ctx.__aenter__.return_value = mock_service
+    inputs = GetScheduleActivityInputs(
+        role=svc_role,
+        schedule_id=ScheduleUUID.new_uuid4(),
+        workflow_id=WorkflowUUID.new_uuid4(),
+    )
+
+    with patch(
+        "tracecat.workflow.schedules.service.WorkflowSchedulesService.with_session",
+        return_value=mock_ctx,
+    ):
+        with pytest.raises(ApplicationError) as exc_info:
+            await WorkflowSchedulesService.get_schedule_trigger_inputs_activity(inputs)
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert classification.kind is kind
+    assert classification.retry_disposition is retry_disposition
+    assert str(error) not in str(exc_info.value)
 
 
 async def _create_workflow_with_schedule(

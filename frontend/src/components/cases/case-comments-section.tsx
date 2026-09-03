@@ -1,7 +1,6 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useQuery } from "@tanstack/react-query"
 import {
   AlertCircle,
   ArrowUpIcon,
@@ -18,28 +17,10 @@ import {
 import Link from "next/link"
 import type React from "react"
 import type { RefObject } from "react"
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useLayoutEffect, useRef, useState } from "react"
 import { type UseFormReturn, useForm } from "react-hook-form"
 import { z } from "zod"
-import {
-  type CaseCommentRead,
-  type CaseCommentThreadRead,
-  foldersListFolders,
-  type WorkflowFolderRead,
-  type WorkflowReadMinimal,
-  workflowsListWorkflows,
-} from "@/client"
-import { AgentMentionPopover } from "@/components/agents/agent-mention-popover"
-import {
-  ModelSelector,
-  ModelSelectorContent,
-  ModelSelectorEmpty,
-  ModelSelectorGroup,
-  ModelSelectorInput,
-  ModelSelectorItem,
-  ModelSelectorList,
-  ModelSelectorTrigger,
-} from "@/components/ai-elements/model-selector"
+import type { CaseCommentRead, CaseCommentThreadRead } from "@/client"
 import {
   CaseCommentAgentAttribution,
   CaseCommentAgentInvocationList,
@@ -49,8 +30,9 @@ import {
   CaseEventTimestamp,
   CaseUserAvatar,
 } from "@/components/cases/case-panel-common"
-import { CommentMentionOverlay } from "@/components/cases/comment-mention-overlay"
-import { TagBadge } from "@/components/tag-badge"
+import { MentionHint } from "@/components/mentions/mention-hint"
+import { MentionOverlay } from "@/components/mentions/mention-overlay"
+import { MentionPopover } from "@/components/mentions/mention-popover"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -76,25 +58,19 @@ import {
   FormItem,
   FormMessage,
 } from "@/components/ui/form"
-import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from "@/components/ui/hover-card"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
 import { useAuth } from "@/hooks/use-auth"
-import { useCommentMentions } from "@/hooks/use-comment-mentions"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import { useMentions } from "@/hooks/use-mentions"
 import { SYSTEM_USER_READ, User } from "@/lib/auth"
 import {
   createPastedImageFile,
   extractImageFiles,
   useCaseImageUpload,
 } from "@/lib/cases/use-case-image-upload"
-import type { TextSplice } from "@/lib/comment-mentions"
 import { executionId, getWorkflowExecutionUrl } from "@/lib/event-history"
 import {
   useCaseComments,
@@ -104,29 +80,32 @@ import {
   useDeleteCaseComment,
   useUpdateCaseComment,
 } from "@/lib/hooks"
+import type { TextSplice } from "@/lib/mentions"
 import { cn, INSET_SURFACE } from "@/lib/utils"
 
+/**
+ * Validates the display text in the composer. The length limit lives in
+ * `commentWireSchema` because it applies to the serialized value the API
+ * receives, which can be longer than the display text.
+ */
 const commentFormSchema = z.object({
-  content: z
-    .string()
-    .min(1, { message: "Comment cannot be empty" })
-    .max(25000, { message: "Comment cannot be longer than 25000 characters" }),
+  content: z.string().min(1, { message: "Comment cannot be empty" }),
+})
+
+/** Validates the wire value sent to the API after mentions are serialized. */
+const commentWireSchema = z
+  .string()
+  .max(25000, { message: "Comment cannot be longer than 25000 characters" })
+
+/** Inline edits have no mentions, so display and wire text are the same. */
+const commentEditFormSchema = z.object({
+  content: commentFormSchema.shape.content.pipe(commentWireSchema),
 })
 
 type CommentFormSchema = z.infer<typeof commentFormSchema>
 
 function getCommentUser(comment: CaseCommentRead) {
   return new User(comment.user ?? SYSTEM_USER_READ)
-}
-
-type WorkflowCommentSelectorItem = {
-  id: string
-  title: string
-  alias: string | null
-  folderName: string
-  folderPath: string | null
-  showFolderPath: boolean
-  tags: WorkflowReadMinimal["tags"]
 }
 
 type WorkflowCommentStatus = "running" | "succeeded" | "failed"
@@ -176,115 +155,6 @@ function getWorkflowStatusBadge(status: WorkflowCommentStatus) {
         </span>
       )
   }
-}
-
-function toWorkflowCommentSelectorItems(
-  workflows: WorkflowReadMinimal[],
-  folders: WorkflowFolderRead[]
-): WorkflowCommentSelectorItem[] {
-  const folderMap = new Map(folders.map((folder) => [folder.id, folder]))
-  const folderNameCounts = folders.reduce(
-    (counts, folder) =>
-      counts.set(folder.name, (counts.get(folder.name) ?? 0) + 1),
-    new Map<string, number>()
-  )
-
-  return workflows.map((workflow) => {
-    const folder = workflow.folder_id ? folderMap.get(workflow.folder_id) : null
-    const folderName = folder?.name ?? "No folder"
-    return {
-      id: workflow.id,
-      title: workflow.title,
-      alias: workflow.alias ?? null,
-      folderName,
-      folderPath: folder?.path ?? null,
-      showFolderPath: folder
-        ? (folderNameCounts.get(folder.name) ?? 0) > 1
-        : false,
-      tags: workflow.tags,
-    }
-  })
-}
-
-function useCommentWorkflowSelectorData(
-  workspaceId: string,
-  enabled: boolean
-): {
-  items: WorkflowCommentSelectorItem[]
-  isLoading: boolean
-} {
-  const { data: workflows = [], isLoading: workflowsIsLoading } = useQuery({
-    queryKey: ["comment-workflows", workspaceId],
-    queryFn: async () => {
-      const response = await workflowsListWorkflows({
-        workspaceId,
-        limit: 0,
-      })
-      return response.items
-    },
-    enabled,
-    staleTime: 5 * 60 * 1000,
-  })
-  const { data: folders = [], isLoading: foldersIsLoading } = useQuery({
-    queryKey: ["comment-workflow-folders", workspaceId],
-    queryFn: async () => await foldersListFolders({ workspaceId }),
-    enabled,
-    staleTime: 5 * 60 * 1000,
-  })
-
-  const items = useMemo(
-    () => toWorkflowCommentSelectorItems(workflows, folders),
-    [folders, workflows]
-  )
-
-  return {
-    items,
-    isLoading: workflowsIsLoading || foldersIsLoading,
-  }
-}
-
-function WorkflowSelectorTagBadges({
-  tags,
-}: {
-  tags: WorkflowReadMinimal["tags"]
-}) {
-  if (!tags?.length) {
-    return null
-  }
-
-  const [firstTag, ...remainingTags] = tags
-  if (!firstTag) {
-    return null
-  }
-
-  return (
-    <div className="ml-auto flex shrink-0 items-center gap-1">
-      <TagBadge tag={firstTag} className="h-5 shrink-0 px-1.5" />
-      {remainingTags.length ? (
-        <HoverCard openDelay={100} closeDelay={100}>
-          <HoverCardTrigger asChild>
-            <Badge
-              variant="outline"
-              className="h-5 shrink-0 rounded-full px-2 text-[11px]"
-            >
-              + {remainingTags.length}
-            </Badge>
-          </HoverCardTrigger>
-          <HoverCardContent
-            side="top"
-            align="end"
-            className="w-auto max-w-64 px-3 py-2"
-          >
-            <div className="flex flex-wrap gap-1">
-              {tags.map((tag) => (
-                <TagBadge key={tag.id} tag={tag} className="h-5 px-1.5" />
-              ))}
-            </div>
-          </HoverCardContent>
-        </HoverCard>
-      ) : null}
-    </div>
-  )
 }
 
 function getWorkflowRunPath(
@@ -367,7 +237,6 @@ export function CommentSection({
                 editingCommentId={editingCommentId}
                 onEdit={(commentId) => setEditingCommentId(commentId)}
                 onStopEditing={() => setEditingCommentId(null)}
-                workflowSelectionEnabled={repliesEnabled}
               />
             ))
           : caseComments
@@ -386,11 +255,7 @@ export function CommentSection({
                 </CommentThreadShell>
               ))}
       </div>
-      <CommentComposer
-        caseId={caseId}
-        workspaceId={workspaceId}
-        workflowSelectionEnabled={repliesEnabled}
-      />
+      <CommentComposer caseId={caseId} workspaceId={workspaceId} />
     </div>
   )
 }
@@ -416,7 +281,6 @@ function CommentThread({
   editingCommentId,
   onEdit,
   onStopEditing,
-  workflowSelectionEnabled,
 }: {
   caseId: string
   workspaceId: string
@@ -425,7 +289,6 @@ function CommentThread({
   editingCommentId: string | null
   onEdit: (commentId: string) => void
   onStopEditing: () => void
-  workflowSelectionEnabled: boolean
 }) {
   const { comment } = thread
   const replies = thread.replies ?? []
@@ -505,7 +368,6 @@ function CommentThread({
             parentId={comment.id}
             placeholder="Leave a reply..."
             mode="inline"
-            workflowSelectionEnabled={workflowSelectionEnabled}
           />
         </div>
       ) : null}
@@ -534,8 +396,13 @@ function CommentRow({
 }) {
   const user = getCommentUser(comment)
   const isWorkflowComment = !!comment.workflow
+  // A failed comment may never have started a run, so polling its execution
+  // id would only produce 404s; render the badge from the persisted status.
+  const persistedStatus = getWorkflowCommentStatus(comment)
   const { execution } = useCompactWorkflowExecution(
-    comment.workflow?.wf_exec_id ?? undefined
+    persistedStatus === "failed"
+      ? undefined
+      : (comment.workflow?.wf_exec_id ?? undefined)
   )
   const workflowStatus = execution
     ? execution.status === "COMPLETED"
@@ -543,12 +410,46 @@ function CommentRow({
       : execution.status === "RUNNING"
         ? "running"
         : "failed"
-    : getWorkflowCommentStatus(comment)
+    : persistedStatus
   const workflowRunPath = getWorkflowRunPath(
     workspaceId,
     execution?.id ?? comment.workflow?.wf_exec_id ?? null
   )
   const canManage = !comment.is_deleted && currentUserId === comment.user?.id
+  // Only a bare `/Workflow` command saves with an empty body; the workflow
+  // header stands alone in that case. The API rejects blank content otherwise.
+  const hasBody = comment.content.trim() !== ""
+
+  function renderBody() {
+    if (isEditing) {
+      return (
+        <InlineCommentEdit
+          comment={comment}
+          caseId={caseId}
+          workspaceId={workspaceId}
+          onStopEditing={onStopEditing}
+        />
+      )
+    }
+    if (comment.is_deleted) {
+      return (
+        <p className="text-sm italic text-muted-foreground">Comment deleted</p>
+      )
+    }
+    if (!hasBody) {
+      return null
+    }
+    return (
+      <ScrollArea className="w-full">
+        <div className="min-w-0 text-sm leading-6">
+          <CaseCommentViewer
+            content={comment.content}
+            workspaceId={workspaceId}
+          />
+        </div>
+      </ScrollArea>
+    )
+  }
 
   return (
     <div className="group space-y-3">
@@ -617,25 +518,7 @@ function CommentRow({
         </div>
       </div>
 
-      {isEditing ? (
-        <InlineCommentEdit
-          comment={comment}
-          caseId={caseId}
-          workspaceId={workspaceId}
-          onStopEditing={onStopEditing}
-        />
-      ) : comment.is_deleted ? (
-        <p className="text-sm italic text-muted-foreground">Comment deleted</p>
-      ) : (
-        <ScrollArea className="w-full">
-          <div className="min-w-0 text-sm leading-6">
-            <CaseCommentViewer
-              content={comment.content}
-              workspaceId={workspaceId}
-            />
-          </div>
-        </ScrollArea>
-      )}
+      {renderBody()}
       {!comment.is_deleted ? (
         <CaseCommentAgentInvocationList mentions={comment.mentions} />
       ) : null}
@@ -762,7 +645,6 @@ function CommentComposer({
   mode = "default",
   onSubmitted,
   autoFocus = false,
-  workflowSelectionEnabled = false,
 }: {
   caseId: string
   workspaceId: string
@@ -771,7 +653,6 @@ function CommentComposer({
   mode?: "default" | "inline"
   onSubmitted?: () => void
   autoFocus?: boolean
-  workflowSelectionEnabled?: boolean
 }) {
   const { createComment, createCommentIsPending } = useCreateCaseComment({
     caseId,
@@ -783,13 +664,8 @@ function CommentComposer({
   const textMetricsClassName = isInline
     ? "px-0 py-1 text-sm"
     : "px-0 py-0 text-sm"
-  const [selectorOpen, setSelectorOpen] = useState(false)
-  const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(
-    null
-  )
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
-  const { items: workflowItems, isLoading: workflowsAreLoading } =
-    useCommentWorkflowSelectorData(workspaceId, workflowSelectionEnabled)
+  const [isFocused, setIsFocused] = useState(false)
   const form = useForm<CommentFormSchema>({
     resolver: zodResolver(commentFormSchema),
     defaultValues: {
@@ -807,8 +683,8 @@ function CommentComposer({
     textarea.style.overflowY = "hidden"
   }, [isInline])
 
-  // Mentions live as display text (`@Label`) in the textarea; the hook maps
-  // them back to wire tokens on submit.
+  // Mentions live as display text (`@Label`, `/Label`) in the textarea; the
+  // hook maps them back to the wire value on submit.
   const getContent = useCallback(() => form.getValues("content"), [form])
   const setContent = useCallback(
     (next: string) => {
@@ -819,11 +695,14 @@ function CommentComposer({
     },
     [form]
   )
-  const mentions = useCommentMentions({
+  const mentions = useMentions({
     workspaceId,
     textareaRef,
     getText: getContent,
     setText: setContent,
+    // A comment may invoke several agents, but runs at most one workflow.
+    agents: { entitlements: ["agent_addons", "case_addons"] },
+    workflows: { entitlements: ["case_addons"], single: true },
   })
 
   const { handlePaste, isUploading: imageUploading } = useCommentImagePaste({
@@ -837,38 +716,21 @@ function CommentComposer({
 
   const content = form.watch("content")
   const trimmedContent = content.trim()
-  const selectedWorkflow = useMemo(
-    () =>
-      selectedWorkflowId
-        ? (workflowItems.find((item) => item.id === selectedWorkflowId) ?? null)
-        : null,
-    [selectedWorkflowId, workflowItems]
-  )
-  const workflowItemsByFolder = useMemo(() => {
-    const groups = new Map<string, WorkflowCommentSelectorItem[]>()
-    for (const item of workflowItems) {
-      const group = groups.get(item.folderName)
-      if (group) {
-        group.push(item)
-        continue
-      }
-      groups.set(item.folderName, [item])
-    }
-    return [...groups.entries()]
-  }, [workflowItems])
 
   useLayoutEffect(() => {
     adjustTextareaHeight()
   }, [adjustTextareaHeight, content])
 
   const handleSubmit = async (values: CommentFormSchema) => {
-    // Length limits apply to what the API receives, not the shorter display
-    // text, so validate the serialized value.
+    const workflowId = mentions.workflowId
     const nextContent = mentions.serialize(values.content).trim()
-    if (!nextContent) {
+    // A bare `/Workflow` command still runs and saves with an empty body.
+    if (!nextContent && !workflowId) {
       return
     }
-    const serialized = commentFormSchema.safeParse({ content: nextContent })
+    // The length limit applies to what the API receives, not the shorter
+    // display text, so check the serialized value.
+    const serialized = commentWireSchema.safeParse(nextContent)
     if (!serialized.success) {
       form.setError("content", {
         message: serialized.error.issues[0]?.message,
@@ -879,11 +741,10 @@ function CommentComposer({
       await createComment({
         content: nextContent,
         parent_id: parentId,
-        ...(selectedWorkflowId ? { workflow_id: selectedWorkflowId } : {}),
+        ...(workflowId ? { workflow_id: workflowId } : {}),
       })
       form.reset({ content: "" })
       mentions.reset()
-      setSelectedWorkflowId(null)
       onSubmitted?.()
     } catch (error) {
       console.error("Error creating comment:", error)
@@ -922,16 +783,19 @@ function CommentComposer({
             name="content"
             render={({ field }) => (
               <FormItem>
-                <AgentMentionPopover
+                <MentionPopover
                   open={mentions.isOpen}
+                  kind={mentions.kind}
                   caret={mentions.caret}
                   sections={mentions.sections}
                   itemCount={mentions.itemCount}
                   activeIndex={mentions.activeIndex}
                   isLoading={mentions.isLoading}
+                  locked={mentions.locked}
+                  hasError={mentions.hasError}
                   onSelect={mentions.selectSuggestion}
                 >
-                  <CommentMentionOverlay
+                  <MentionOverlay
                     text={content}
                     mentions={mentions.ranges}
                     className={textMetricsClassName}
@@ -953,8 +817,10 @@ function CommentComposer({
                       name={field.name}
                       onBlur={() => {
                         field.onBlur()
+                        setIsFocused(false)
                         mentions.dismiss()
                       }}
+                      onFocus={() => setIsFocused(true)}
                       onChange={(event) => {
                         mentions.handleTextChange(
                           event.target.value,
@@ -971,108 +837,19 @@ function CommentComposer({
                       value={field.value}
                     />
                   </FormControl>
-                </AgentMentionPopover>
+                </MentionPopover>
                 <FormMessage />
               </FormItem>
             )}
           />
 
           <div className="flex items-end justify-between gap-2">
-            {workflowSelectionEnabled ? (
-              <ModelSelector open={selectorOpen} onOpenChange={setSelectorOpen}>
-                <ModelSelectorTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    className={cn(
-                      "h-7 max-w-full justify-start gap-1.5 rounded-full border border-border/70 px-2 text-xs font-normal text-muted-foreground hover:text-foreground",
-                      isInline && "h-7"
-                    )}
-                  >
-                    <span className="truncate">
-                      {selectedWorkflow
-                        ? selectedWorkflow.title
-                        : "No workflow selected"}
-                    </span>
-                    {selectedWorkflow?.alias ? (
-                      <Badge
-                        variant="outline"
-                        className="h-5 shrink-0 rounded-full px-1.5 text-xs leading-none"
-                      >
-                        {selectedWorkflow.alias}
-                      </Badge>
-                    ) : null}
-                    <ChevronDown className="size-3.5 text-muted-foreground" />
-                  </Button>
-                </ModelSelectorTrigger>
-                <ModelSelectorContent className="max-w-2xl">
-                  <ModelSelectorInput placeholder="Search workflows, folders, or tags..." />
-                  <ModelSelectorList>
-                    <ModelSelectorEmpty>
-                      {workflowsAreLoading
-                        ? "Loading workflows..."
-                        : "No workflows found."}
-                    </ModelSelectorEmpty>
-                    <ModelSelectorGroup heading="Selection">
-                      <ModelSelectorItem
-                        value="no workflow selected"
-                        onSelect={() => {
-                          setSelectedWorkflowId(null)
-                          setSelectorOpen(false)
-                        }}
-                      >
-                        <span className="text-sm">No workflow selected</span>
-                      </ModelSelectorItem>
-                    </ModelSelectorGroup>
-                    {workflowItemsByFolder.map(([folderName, items]) => (
-                      <ModelSelectorGroup key={folderName} heading={folderName}>
-                        {items.map((item) => (
-                          <ModelSelectorItem
-                            key={item.id}
-                            value={[
-                              item.title,
-                              item.alias ?? "",
-                              item.folderName,
-                              item.folderPath ?? "",
-                              ...(item.tags?.map((tag) => tag.name) ?? []),
-                            ].join(" ")}
-                            onSelect={() => {
-                              setSelectedWorkflowId(item.id)
-                              setSelectorOpen(false)
-                            }}
-                          >
-                            <div className="min-w-0 space-y-1 py-1">
-                              <div className="flex min-w-0 items-center gap-2 overflow-hidden">
-                                <span className="truncate text-sm font-medium">
-                                  {item.title}
-                                </span>
-                                {item.alias ? (
-                                  <Badge
-                                    variant="outline"
-                                    className="h-5 shrink-0 rounded-full px-1.5 text-xs leading-none"
-                                  >
-                                    {item.alias}
-                                  </Badge>
-                                ) : null}
-                                <WorkflowSelectorTagBadges tags={item.tags} />
-                              </div>
-                              {item.showFolderPath && item.folderPath ? (
-                                <p className="truncate text-xs text-muted-foreground">
-                                  {item.folderPath}
-                                </p>
-                              ) : null}
-                            </div>
-                          </ModelSelectorItem>
-                        ))}
-                      </ModelSelectorGroup>
-                    ))}
-                  </ModelSelectorList>
-                </ModelSelectorContent>
-              </ModelSelector>
-            ) : (
-              <div />
-            )}
-            <div className="flex items-center gap-2">
+            <MentionHint
+              show={isFocused && !trimmedContent}
+              agents={mentions.agents}
+              workflows={mentions.workflows}
+            />
+            <div className="ml-auto flex items-center gap-2">
               {imageUploading ? (
                 <span className="text-xs text-muted-foreground">
                   Uploading image…
@@ -1117,7 +894,7 @@ function InlineCommentEdit({
   })
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const form = useForm<CommentFormSchema>({
-    resolver: zodResolver(commentFormSchema),
+    resolver: zodResolver(commentEditFormSchema),
     defaultValues: {
       content: comment.content,
     },

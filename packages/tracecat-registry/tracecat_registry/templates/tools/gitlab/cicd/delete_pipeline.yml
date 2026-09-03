@@ -18,14 +18,6 @@ definition:
     pipeline_id:
       type: int
       description: GitLab API path value for pipeline_id.
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters, including pagination and filters.
-      default: null
-    payload:
-      type: dict[str, Any] | None
-      description: API-native request body passed through without validation.
-      default: null
     base_url:
       type: str
       description: GitLab API v4 base URL. Set this input to a workspace variable for a reusable self-managed host.
@@ -39,6 +31,4 @@ definition:
         headers:
           PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}
           Accept: application/json
-        params: ${{ inputs.params }}
-        payload: ${{ inputs.payload }}
   returns: ${{ steps.request.result }}

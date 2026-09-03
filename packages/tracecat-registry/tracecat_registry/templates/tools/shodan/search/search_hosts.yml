@@ -1,0 +1,50 @@
+type: action
+definition:
+  title: Search hosts
+  description: >-
+    Search Shodan host banners. Calls GET /shodan/host/search directly.
+  display_group: Shodan
+  doc_url: https://developer.shodan.io/api#shodan-host-search
+  namespace: tools.shodan
+  name: search_hosts
+  secrets:
+    - name: shodan
+      keys: ["SHODAN_API_KEY"]
+  expects:
+    query:
+      type: str
+      description: 'Shodan search query. The provided string is used to search the database of banners in Shodan, with the additional option to provide filters inside the search query using a "filter:value" format. For example, the following search query would find Apache Web servers located in Germany: "apache country:DE".'
+    facets:
+      type: str | None
+      description: A comma-separated list of properties to get summary information on. Property names can also be in the format of "property:count", where "count" is the number of facets that will be returned for a property (i.e. "country:100" to get the top 100 countries for a search query).
+      default: null
+    page:
+      type: int | None
+      description: "The page number to page through results 100 at a time (default: 1)"
+      default: null
+    minify:
+      type: bool | None
+      description: "True or False; whether or not to truncate some of the larger fields (default: True)"
+      default: null
+    fields:
+      type: str | None
+      description: "Comma-separated list of fields to return in the search results. Example: tags,http.title,http.favicon.hash"
+      default: null
+    base_url:
+      type: str | None
+      description: Shodan REST API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.shodan.base_url || "https://api.shodan.io" }}/shodan/host/search
+        method: GET
+        params:
+          key: ${{ SECRETS.shodan.SHODAN_API_KEY }}
+          query: ${{ inputs.query }}
+          facets: ${{ inputs.facets }}
+          page: ${{ inputs.page }}
+          minify: ${{ inputs.minify }}
+          fields: ${{ inputs.fields }}
+  returns: ${{ steps.request.result }}

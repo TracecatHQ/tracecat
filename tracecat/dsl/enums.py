@@ -13,6 +13,14 @@ class PlatformAction(StrEnum):
     RUN_PYTHON = "core.script.run_python"
 
     @classmethod
+    def is_agent(cls, action: str) -> bool:
+        return action in (
+            cls.AI_AGENT,
+            cls.AI_PRESET_AGENT,
+            cls.AI_ACTION,
+        )
+
+    @classmethod
     def is_streamable(cls, action: str) -> bool:
         return action in (
             cls.AI_AGENT,

@@ -15,7 +15,14 @@ from tracecat.cases.agent_invocations.service import (
     CaseCommentAgentInvocationService,
 )
 from tracecat.cases.agent_invocations.types import PreparedCommentAgentSession
-from tracecat.cases.enums import CaseCommentAgentInvocationStatus, MentionTargetType
+from tracecat.cases.agent_sessions.service import (
+    CaseAgentSessionInteractionService,
+)
+from tracecat.cases.enums import (
+    CaseAgentSessionInteractionOperation,
+    CaseCommentAgentInvocationStatus,
+    MentionTargetType,
+)
 from tracecat.db.models import CaseCommentAgentInvocation, CaseCommentMention
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.service import BaseWorkspaceService
@@ -71,7 +78,9 @@ class CaseCommentAgentInvocationDispatcher(BaseWorkspaceService):
             if agent_session is None:
                 raise TracecatNotFoundError("Linked agent session not found")
         else:
-            preset_service = AgentPresetService(self.session, self.role)
+            preset_service = AgentPresetService(
+                self.session, session_service.execution_role
+            )
             preset_version = await preset_service.resolve_agent_preset_version(
                 preset_id=preset_id
             )
@@ -92,6 +101,12 @@ class CaseCommentAgentInvocationDispatcher(BaseWorkspaceService):
                     channel_context=COMMENT_AGENT_SESSION_CONTEXT,
                 )
 
+        await CaseAgentSessionInteractionService(self.session, self.role).record(
+            case_id=case_id,
+            agent_session_id=agent_session.id,
+            operation=CaseAgentSessionInteractionOperation.UPDATE,
+        )
+        await self.session.commit()
         await session_service.ensure_display_only_user_messages(
             agent_session.id,
             agent_input.display_messages,

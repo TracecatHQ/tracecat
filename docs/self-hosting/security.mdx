@@ -1,7 +1,9 @@
 ---
 title: Security
-description: "Harden your self-hosted Tracecat deployment: rotate secrets, lock down network egress, configure SSO and RBAC, and meet common compliance baselines."
+description: "Harden your self-hosted Tracecat deployment: replace default infrastructure credentials, generate and store platform secrets, sandbox executor code, and set up SSO and TLS."
 ---
+
+import GenerateSecrets from "/snippets/generate-secrets.mdx";
 
 ## Infrastructure credentials
 
@@ -46,7 +48,7 @@ Tracecat requires four cryptographic secrets, plus an optional keyring if you en
 | `USER_AUTH_SECRET` | Password reset tokens, email verification, OAuth state, the MCP OIDC issuer keypair, and the internal OIDC client secret. |
 | `TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING` | Versioned keyring for Temporal payload encryption. Optional. Tracecat reads it only when `TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED` is true. |
 
-<Snippet file="generate-secrets.mdx" />
+<GenerateSecrets />
 
 ### Temporal payload keyring
 
@@ -152,6 +154,8 @@ Review that code and pin those dependencies as you would any code with direct ac
 ## Authentication
 
 Docker Compose deployments default to basic email/password authentication. For production, configure [OIDC](/authentication/oidc) or [SAML](/authentication/saml) SSO.
+
+See [Roles and permissions](/manage-platform/rbac) for the roles you assign to users and groups once they can sign in.
 
 ## TLS
 

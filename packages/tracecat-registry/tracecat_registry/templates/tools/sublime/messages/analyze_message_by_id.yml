@@ -14,8 +14,11 @@ definition:
       type: str
       description: Sublime message ID.
     payload:
+      # Generic: this endpoint rejects an explicit null on optional body fields,
+      # and a literal payload map cannot omit an unset optional.
       type: dict[str, Any]
-      description: API-native JSON request body.
+      description: >-
+        API-native request body. Documented fields: queries, rules, run_active_detection_rules, run_all_detection_rules, run_all_insights.
     base_url:
       type: str | None
       description: Base URL of the Sublime API.

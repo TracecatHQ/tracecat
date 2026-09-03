@@ -2,15 +2,23 @@
 title: "Getting started"
 ---
 
+import FirstSuperadmin from "/snippets/first-superadmin.mdx";
 import McpInstallation from "/snippets/mcp-installation.mdx";
 
-Self-host your own instance or join Tracecat Community Cloud.
-The easiest way to get started is to connect your agent harness (Claude Code, Cursor, OpenAI Codex) to Tracecat.
+The recommended way to get started is to connect your coding agent — Claude Code, OpenAI Codex, GitHub Copilot, or Cursor — to the Tracecat MCP server.
+This works with Tracecat Cloud or your own self-hosted instance.
+
+## Connect MCP
+
+Connecting your agent to Tracecat Cloud automatically creates an account for you.
+You can also sign up manually via [https://platform.tracecat.com](https://platform.tracecat.com).
+
+<McpInstallation />
 
 ## Self-host
 
-Docker Compose is the easiest way to self-host.
-Check out the full guide [here](/self-hosting/docker-compose) or follow the quickstart below.
+Docker Compose is the fastest way to self-host.
+Follow the full [Docker Compose guide](/self-hosting/docker-compose) or the quickstart below.
 
 ```bash
 # Setup environment variables and secrets
@@ -28,9 +36,6 @@ curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat
 docker compose up -d
 ```
 
-## Connect MCP
+### First login
 
-Connecting your agent to Tracecat Cloud automatically creates an account for you.
-You can also sign up manually via [https://platform.tracecat.com](https://platform.tracecat.com).
-
-<McpInstallation />
+<FirstSuperadmin />

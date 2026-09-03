@@ -12,7 +12,6 @@ import { SshPrivateKeyField } from "@/components/ssh-keys/ssh-private-key-field"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
-  DialogClose,
   DialogContent,
   DialogFooter,
   DialogHeader,
@@ -40,12 +39,19 @@ interface CreateSSHKeyDialogProps
   extends DialogProps,
     React.HTMLAttributes<HTMLDivElement> {
   children?: React.ReactNode
-  handler: (params: SecretCreate) => void
+  /** Saves the key. The dialog closes only after this resolves. */
+  handler: (params: SecretCreate) => void | Promise<void>
   fieldConfig?: {
     name?: FieldConfig
     description?: FieldConfig
     environment?: FieldConfig
   }
+  /** Dialog heading. Defaults to "Create new SSH key". */
+  title?: string
+  /** Copy under the heading. */
+  description?: string
+  /** Submit button label. Defaults to "Create SSH key". */
+  submitLabel?: string
 }
 const createSSHKeySchema = z.object({
   name: z.string().default(""),
@@ -69,8 +75,16 @@ export function CreateSSHKeyDialog({
   className,
   handler,
   fieldConfig,
+  title = "Create new SSH key",
+  description = "Create a new SSH key that can be used to authenticate into your private actions registry.",
+  submitLabel = "Create SSH key",
+  open,
+  onOpenChange,
 }: CreateSSHKeyDialogProps) {
-  const [showDialog, setShowDialog] = React.useState(false)
+  // Uncontrolled by default; pass `open` + `onOpenChange` to drive it from a menu item.
+  const [internalOpen, setInternalOpen] = React.useState(false)
+  const showDialog = open ?? internalOpen
+  const setShowDialog = onOpenChange ?? setInternalOpen
 
   const methods = useForm<CreateSSHKeyForm>({
     mode: "onChange",
@@ -82,21 +96,28 @@ export function CreateSSHKeyDialog({
       private_key: "",
     },
   })
-  const { control, register } = methods
+  const {
+    control,
+    register,
+    formState: { isSubmitting },
+  } = methods
 
   const onSubmit = async (values: CreateSSHKeyForm) => {
     const { private_key, ...rest } = values
+    const secret: SecretCreate = {
+      type: "ssh_key",
+      keys: [{ key: "PRIVATE_KEY", value: private_key }],
+      ...rest,
+    }
     try {
-      const secret: SecretCreate = {
-        type: "ssh_key",
-        keys: [{ key: "PRIVATE_KEY", value: private_key }],
-        ...rest,
-      }
       await handler(secret)
     } catch (error) {
+      // Keep the dialog open so the user can retry.
       console.error(error)
+      return
     }
     methods.reset()
+    setShowDialog(false)
   }
   const onValidationFailed = () => {
     console.error("Form validation failed")
@@ -110,12 +131,9 @@ export function CreateSSHKeyDialog({
       {children}
       <DialogContent className={className}>
         <DialogHeader>
-          <DialogTitle>Create new SSH key</DialogTitle>
+          <DialogTitle>{title}</DialogTitle>
           <div className="flex text-sm leading-relaxed text-muted-foreground">
-            <span>
-              Create a new SSH key that can be used to authenticate into your
-              private actions registry.
-            </span>
+            <span>{description}</span>
           </div>
         </DialogHeader>
         <Form {...methods}>
@@ -190,12 +208,14 @@ export function CreateSSHKeyDialog({
                 name="private_key"
               />
               <DialogFooter>
-                <DialogClose asChild>
-                  <Button className="ml-auto space-x-2" type="submit">
-                    <KeyRoundIcon className="mr-2 size-4" />
-                    Create SSH key
-                  </Button>
-                </DialogClose>
+                <Button
+                  className="ml-auto space-x-2"
+                  type="submit"
+                  disabled={isSubmitting}
+                >
+                  <KeyRoundIcon className="mr-2 size-4" />
+                  {submitLabel}
+                </Button>
               </DialogFooter>
             </div>
           </form>

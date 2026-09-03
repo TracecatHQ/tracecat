@@ -1,11 +1,42 @@
 """Google OAuth providers."""
 
-from .docs import GoogleDocsOAuthProvider
+from .admin import GoogleAdminACProvider, GoogleAdminCCProvider
+from .chronicle import GoogleChronicleACProvider, GoogleChronicleCCProvider
+from .cloud_logging import GoogleCloudLoggingACProvider, GoogleCloudLoggingCCProvider
+from .common import (
+    GoogleAuthorizationCodeOAuthProvider,
+    get_google_ac_metadata,
+    get_google_cc_metadata,
+)
+from .docs import GoogleDocsACProvider, GoogleDocsCCProvider
+from .drive import GoogleDriveACProvider, GoogleDriveCCProvider
+from .forms import GoogleFormsACProvider, GoogleFormsCCProvider
+from .gmail import GoogleGmailACProvider, GoogleGmailCCProvider
 from .service_account import GoogleServiceAccountOAuthProvider
-from .sheets import GoogleSheetsOAuthProvider
+from .sheets import GoogleSheetsACProvider, GoogleSheetsCCProvider
+from .slides import GoogleSlidesACProvider, GoogleSlidesCCProvider
 
 __all__ = [
-    "GoogleDocsOAuthProvider",
+    "GoogleAdminACProvider",
+    "GoogleAdminCCProvider",
+    "GoogleAuthorizationCodeOAuthProvider",
+    "GoogleChronicleACProvider",
+    "GoogleChronicleCCProvider",
+    "GoogleCloudLoggingACProvider",
+    "GoogleCloudLoggingCCProvider",
+    "GoogleDocsACProvider",
+    "GoogleDocsCCProvider",
+    "GoogleDriveACProvider",
+    "GoogleDriveCCProvider",
+    "GoogleFormsACProvider",
+    "GoogleFormsCCProvider",
+    "GoogleGmailACProvider",
+    "GoogleGmailCCProvider",
     "GoogleServiceAccountOAuthProvider",
-    "GoogleSheetsOAuthProvider",
+    "GoogleSheetsACProvider",
+    "GoogleSheetsCCProvider",
+    "GoogleSlidesACProvider",
+    "GoogleSlidesCCProvider",
+    "get_google_ac_metadata",
+    "get_google_cc_metadata",
 ]

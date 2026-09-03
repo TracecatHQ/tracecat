@@ -1,0 +1,48 @@
+type: action
+definition:
+  title: Lock device
+  description: Lock a device. For macOS an unlock PIN is generated and returned in the response. On Apple silicon running macOS earlier than 11.5 this deactivates the Mac, and reactivation requires network access and a Secure Token administrator.
+  display_group: Iru (Kandji)
+  doc_url: https://api-docs.iru.com/#f2fc0e99-c758-4eb8-bb3d-0ea72d0c0213
+  namespace: tools.iru
+  name: lock_device
+  secrets:
+    - name: iru
+      keys: ["IRU_API_TOKEN"]
+  expects:
+    base_url:
+      type: str | None
+      description: Iru (Kandji) API base URL (e.g. https://acme.api.kandji.io).
+      default: null
+    device_id:
+      type: str
+      description: Device UUID.
+    message:
+      type: str | None
+      description: Message to display on the locked device.
+      default: null
+    phone_number:
+      type: str | None
+      description: Phone number to display on the locked device.
+      default: null
+  steps:
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          params:
+            Message: ${{ inputs.message }}
+            PhoneNumber: ${{ inputs.phone_number }}
+        script: |
+          def main(params):
+              return {k: v for k, v in params.items() if v is not None}
+    - ref: lock_device
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.iru.base_url }}/api/v1/devices/${{ FN.url_encode(inputs.device_id) }}/action/lock
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.iru.IRU_API_TOKEN }}
+          Content-Type: application/json
+        payload: ${{ steps.build_payload.result }}
+  returns: ${{ steps.lock_device.result }}

@@ -2,12 +2,13 @@
 
 import {
   BookOpenIcon,
-  BotIcon,
   BuildingIcon,
   LayersIcon,
   LogOutIcon,
   LogsIcon,
+  MousePointerClickIcon,
   UsersIcon,
+  WrenchIcon,
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
@@ -60,7 +61,7 @@ export function AdminSidebar({
     {
       title: "Agent",
       url: "/admin/agent",
-      icon: BotIcon,
+      icon: MousePointerClickIcon,
       isActive: pathname?.includes("/admin/agent"),
     },
     {
@@ -68,6 +69,12 @@ export function AdminSidebar({
       url: "/admin/audit",
       icon: LogsIcon,
       isActive: pathname?.includes("/admin/audit"),
+    },
+    {
+      title: "Maintenance",
+      url: "/admin/maintenance",
+      icon: WrenchIcon,
+      isActive: pathname?.includes("/admin/maintenance"),
     },
   ]
 

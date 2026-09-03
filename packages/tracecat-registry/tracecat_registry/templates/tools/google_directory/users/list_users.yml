@@ -1,0 +1,110 @@
+type: action
+definition:
+  title: List users
+  description: Retrieves a paginated list of either deleted users or all users in a domain.
+  display_group: Google Workspace Directory
+  doc_url: https://developers.google.com/workspace/admin/directory/reference/rest/v1/users/list
+  namespace: tools.google_directory
+  name: list_users
+  secrets:
+    - type: oauth
+      provider_id: google_admin
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_admin
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  expects:
+    customer:
+      type: str | None
+      description: >-
+        The unique ID for the customer's Google Workspace account. In case of a multi-domain
+        account, to fetch all users for a customer, use this field instead of `domain`. You can
+        also use the `my_customer` alias to represent your account's `customerId`. You must
+        provide either the `customer` or the `domain` parameter; set this to null when scoping
+        the request with `domain`.
+      default: my_customer
+    domain:
+      type: str | None
+      description: >-
+        The domain name. Use this field to get users from only one domain. To return all domains
+        for a customer account, use the `customer` query parameter instead.
+      default: null
+    query:
+      type: str | None
+      description: >-
+        Query string for searching user fields. For more information on constructing user
+        queries, see
+        https://developers.google.com/workspace/admin/directory/v1/guides/search-users.
+      default: null
+    max_results:
+      type: int | None
+      description: Maximum number of results to return.
+      default: null
+    page_token:
+      type: str | None
+      description: Token to specify next page in the list. The page token is only valid for three days.
+      default: null
+    order_by:
+      type: str | None
+      description: >-
+        Property to use for sorting results. Allowed values are `email`, `familyName`, and
+        `givenName`.
+      default: null
+    sort_order:
+      type: str | None
+      description: >-
+        Whether to return results in ascending or descending order, ignoring case. Allowed values
+        are `ASCENDING` and `DESCENDING`.
+      default: null
+    projection:
+      type: str | None
+      description: >-
+        What subset of fields to fetch for this user. Allowed values are `basic`, `custom`, and
+        `full`.
+      default: null
+    custom_field_mask:
+      type: str | None
+      description: >-
+        A comma-separated list of schema names. All fields from these schemas are fetched. This
+        should only be set when `projection=custom`.
+      default: null
+    show_deleted:
+      type: str | None
+      description: >-
+        If set to `true`, retrieves the list of deleted users. (Default: `false`)
+      default: null
+    view_type:
+      type: str | None
+      description: >-
+        Whether to fetch the administrator-only or domain-wide public view of the user. Allowed
+        values are `admin_view` and `domain_public`.
+      default: null
+  steps:
+    - ref: list_users
+      action: tools.google_api.call_api
+      args:
+        service_name: admin
+        version: directory_v1
+        resource: users
+        method_name: list
+        access_token: ${{ SECRETS.google_admin_oauth.GOOGLE_ADMIN_USER_TOKEN || SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/admin.directory.user.readonly"]
+        params:
+          customer: ${{ inputs.customer }}
+          domain: ${{ inputs.domain }}
+          query: ${{ inputs.query }}
+          maxResults: ${{ inputs.max_results }}
+          pageToken: ${{ inputs.page_token }}
+          orderBy: ${{ inputs.order_by }}
+          sortOrder: ${{ inputs.sort_order }}
+          projection: ${{ inputs.projection }}
+          customFieldMask: ${{ inputs.custom_field_mask }}
+          showDeleted: ${{ inputs.show_deleted }}
+          viewType: ${{ inputs.view_type }}
+  returns: ${{ steps.list_users.result }}

@@ -1,0 +1,33 @@
+type: action
+definition:
+  title: Assess third-party risk
+  description: >-
+    Assess third-party risk. Calls POST /json/v3/search-by-domain/assessment directly.
+  display_group: HudsonRock
+  doc_url: https://docs.hudsonrock.com/docs/third-party-risk-assessment
+  namespace: tools.hudsonrock
+  name: assess_third_party_risk
+  secrets:
+    - name: hudsonrock
+      keys: ["HUDSONROCK_API_KEY"]
+  expects:
+    domain:
+      type: str
+      description: The domain to evaluate for potential security risks.
+    base_url:
+      type: str | None
+      description: Base URL of the HudsonRock API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.hudsonrock.base_url || "https://api.hudsonrock.com" }}/json/v3/search-by-domain/assessment
+        method: POST
+        headers:
+          Accept: application/json
+          Content-Type: application/json
+          api-key: ${{ SECRETS.hudsonrock.HUDSONROCK_API_KEY }}
+        payload:
+          domain: ${{ inputs.domain }}
+  returns: ${{ steps.request.result }}

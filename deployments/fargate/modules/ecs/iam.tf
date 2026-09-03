@@ -193,6 +193,23 @@ resource "aws_iam_policy" "temporal_payload_encryption_keyring_access" {
   })
 }
 
+resource "aws_iam_policy" "platform_otel_headers_access" {
+  count       = var.otel_exporter_otlp_headers_arn != null ? 1 : 0
+  name        = "${var.iam_name_prefix}PlatformOTelHeadersAccessPolicy"
+  description = "Policy for accessing OTLP exporter headers"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
+        Resource = [var.otel_exporter_otlp_headers_arn]
+      }
+    ]
+  })
+}
+
 resource "aws_iam_policy" "ui_secrets_access" {
   name        = "${var.iam_name_prefix}UISecretsAccessPolicy"
   description = "Policy for accessing Tracecat UI secrets"
@@ -253,6 +270,12 @@ resource "aws_iam_role_policy_attachment" "api_execution_api_only_secrets" {
   role       = aws_iam_role.api_execution.name
 }
 
+resource "aws_iam_role_policy_attachment" "api_execution_platform_otel_headers" {
+  count      = var.otel_exporter_otlp_headers_arn != null ? 1 : 0
+  policy_arn = aws_iam_policy.platform_otel_headers_access[0].arn
+  role       = aws_iam_role.api_execution.name
+}
+
 # Worker execution role
 resource "aws_iam_role" "worker_execution" {
   name               = "${var.iam_name_prefix}WorkerExecutionRole"
@@ -266,6 +289,12 @@ resource "aws_iam_role_policy_attachment" "worker_execution_ecs_poll" {
 
 resource "aws_iam_role_policy_attachment" "worker_execution_secrets" {
   policy_arn = aws_iam_policy.secrets_access.arn
+  role       = aws_iam_role.worker_execution.name
+}
+
+resource "aws_iam_role_policy_attachment" "worker_execution_platform_otel_headers" {
+  count      = var.otel_exporter_otlp_headers_arn != null ? 1 : 0
+  policy_arn = aws_iam_policy.platform_otel_headers_access[0].arn
   role       = aws_iam_role.worker_execution.name
 }
 
@@ -499,6 +528,43 @@ resource "aws_iam_role_policy" "mcp_task_db_access" {
           aws_db_instance.core_database.master_user_secret[0].secret_arn,
         ]
       }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy" "mcp_task_blob_access" {
+  count = var.enable_mcp ? 1 : 0
+  name  = "${var.iam_name_prefix}MCPBlobAccessPolicy"
+  role  = aws_iam_role.mcp_task[0].id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "AllowMCPBlobObjectOperations"
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:DeleteObject",
+        ]
+        Resource = [
+          "${aws_s3_bucket.skills.arn}/*",
+          "${aws_s3_bucket.workflow.arn}/*",
+        ]
+      },
+      {
+        Sid    = "AllowMCPBlobBucketOperations"
+        Effect = "Allow"
+        Action = [
+          "s3:ListBucket",
+          "s3:GetBucketLocation",
+        ]
+        Resource = [
+          aws_s3_bucket.skills.arn,
+          aws_s3_bucket.workflow.arn,
+        ]
+      },
     ]
   })
 }

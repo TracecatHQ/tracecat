@@ -17,33 +17,47 @@ import type { LucideIcon } from "lucide-react"
 import {
   Blend,
   BlocksIcon,
+  Boxes,
   BoxIcon,
+  BriefcaseBusiness,
+  Bug,
   Building2Icon,
   CirclePlay,
   Code,
   Cpu,
+  Crosshair,
   DatabaseIcon,
+  FileKey,
+  Fingerprint,
   Fish,
+  FishSymbol,
   FolderTree,
+  Gauge,
   Globe,
+  GlobeLock,
   Headset,
   KeyRound,
+  Landmark,
   Laptop,
   Link,
   ListChecks,
   LogInIcon,
   MailIcon,
+  MailSearch,
   MapPin,
   MergeIcon,
   MessageCircleMore,
   MessageCirclePlus,
   Microscope,
+  MonitorX,
+  Newspaper,
   Plug2,
   Radar,
   RefreshCcw,
   ScanSearch,
   Search,
   SendIcon,
+  Server,
   ShieldAlert,
   ShieldBan,
   ShieldCheck,
@@ -52,8 +66,11 @@ import {
   SplitIcon,
   Swords,
   Table,
+  Telescope,
+  UserSearch,
   Users,
   WandSparkles,
+  Waypoints,
   WorkflowIcon,
   ZapIcon,
 } from "lucide-react"
@@ -617,6 +634,9 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     ),
     "tools.microsoft_defender_xdr": createIconRenderer(MicrosoftDefenderIcon),
     "tools.microsoft_entra": createIconRenderer(MicrosoftEntraIcon),
+    "tools.microsoft_graph_sdk": createIconRenderer(MicrosoftGraphIcon),
+    "tools.microsoft_graph_security": createIconRenderer(MicrosoftGraphIcon),
+    "tools.microsoft_outlook": createIconRenderer(MicrosoftOutlookIcon),
     "tools.microsoft_teams": createIconRenderer(MicrosoftTeamsIcon),
     "tools.microsoft_sentinel": createIconRenderer(MicrosoftSentinelIcon),
     "tools.azure_log_analytics": createIconRenderer(AzureLogAnalyticsIcon),
@@ -624,8 +644,14 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.google_docs": createIconRenderer(GoogleDocsIcon),
     "tools.google_drive": createIconRenderer(GoogleDriveIcon),
     "tools.google_api": createIconRenderer(GoogleIcon),
+    "tools.google_cloud_logging": createIconRenderer(GoogleCloudLoggingIcon),
     "tools.google_scc": createIconRenderer(GoogleIcon),
     "tools.gmail": createIconRenderer(GmailIcon),
+    "tools.google_slides": createIconRenderer(GoogleSlidesIcon),
+    "tools.google_forms": createIconRenderer(GoogleFormsIcon),
+    "tools.google_directory": createIconRenderer(GoogleIcon),
+    "tools.google_reports": createIconRenderer(GoogleIcon),
+    "tools.google_alert_center": createIconRenderer(GoogleIcon),
     "tools.google_secops_detection": createIconRenderer(GoogleSecOpsIcon),
     "tools.google_secops_soar": createIconRenderer(GoogleSecOpsIcon),
     // Existing vendor marks reused across additional namespaces
@@ -636,6 +662,8 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.exa": createIconRenderer(ExaIcon),
     "tools.linear": createIconRenderer(LinearIcon),
     "tools.notion": createIconRenderer(NotionIcon),
+    "tools.1password": createIconRenderer(OnePasswordIcon),
+    "tools.1password_sdk": createIconRenderer(OnePasswordIcon),
     "tools.okta": createIconRenderer(OktaIcon),
     "tools.okta_oar": createIconRenderer(OktaIcon),
     "tools.okta_sdk": createIconRenderer(OktaIcon),
@@ -643,14 +671,21 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.sentry": createIconRenderer(SentryIcon),
     "tools.slack_sdk": createIconRenderer(SlackIcon),
     "tools.terraform": createIconRenderer(TerraformIcon),
+    "tools.x": createIconRenderer(Icons.twitter, {
+      iconClassName: "fill-current",
+    }),
     // New brand marks
     "tools.confluence": createIconRenderer(ConfluenceIcon),
+    "tools.databricks": createIconRenderer(DatabricksIcon),
+    "tools.databricks_sdk": createIconRenderer(DatabricksIcon),
     "tools.google_maps": createIconRenderer(GoogleMapsIcon),
     "tools.hackerone": createIconRenderer(HackerOneIcon),
     "tools.hibp": createIconRenderer(HaveIBeenPwnedIcon),
     "tools.kubernetes_sdk": createIconRenderer(KubernetesIcon),
     "tools.minio": createIconRenderer(MinioIcon),
     "tools.pymongo": createIconRenderer(MongoDbIcon),
+    "tools.recorded_future": createIconRenderer(RecordedFutureIcon),
+    "tools.snowflake": createIconRenderer(SnowflakeIcon),
     "tools.zendesk": createIconRenderer(ZendeskIcon),
     // MCP catalog raster brand marks reused for tool namespaces
     "tools.cloudflare_sdk": createCatalogIconRenderer("cloudflare_mcp"),
@@ -658,6 +693,9 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.falconpy": createCatalogIconRenderer("crowdstrike_falcon_mcp"),
     "tools.elastic_security": createCatalogIconRenderer("elastic_mcp"),
     "tools.elasticsearch": createCatalogIconRenderer("elastic_mcp"),
+    "tools.greynoise": createCatalogIconRenderer("greynoise_mcp"),
+    "tools.iru": createCatalogIconRenderer("iru_mcp"),
+    "tools.jamf": createCatalogIconRenderer("jamf_mcp"),
     "tools.panther": createCatalogIconRenderer("panther_mcp"),
     "tools.rootly": createCatalogIconRenderer("rootly_mcp"),
     "tools.sentinel_one": createCatalogIconRenderer("sentinelone_mcp"),
@@ -675,9 +713,29 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
       Swords,
       "bg-red-500/10 text-red-600 dark:text-red-400"
     ),
+    "tools.censys": createColoredLucideRenderer(
+      Telescope,
+      "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400"
+    ),
+    "tools.cisa_kev": createColoredLucideRenderer(
+      Landmark,
+      "bg-red-500/10 text-red-600 dark:text-red-400"
+    ),
     "tools.crowdsec": createColoredLucideRenderer(
       Users,
       "bg-sky-500/10 text-sky-600 dark:text-sky-400"
+    ),
+    "tools.dehashed": createColoredLucideRenderer(
+      UserSearch,
+      "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+    ),
+    "tools.domscan": createColoredLucideRenderer(
+      GlobeLock,
+      "bg-blue-500/10 text-blue-600 dark:text-blue-400"
+    ),
+    "tools.first_epss": createColoredLucideRenderer(
+      Gauge,
+      "bg-violet-500/10 text-violet-600 dark:text-violet-400"
     ),
     "tools.fleetdm": createColoredLucideRenderer(
       Laptop,
@@ -686,6 +744,22 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.freshservice": createColoredLucideRenderer(
       Headset,
       "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+    ),
+    "tools.gitguardian": createColoredLucideRenderer(
+      FileKey,
+      "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+    ),
+    "tools.hackernews": createColoredLucideRenderer(
+      Newspaper,
+      "bg-orange-500/10 text-orange-600 dark:text-orange-400"
+    ),
+    "tools.hudsonrock": createColoredLucideRenderer(
+      MonitorX,
+      "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+    ),
+    "tools.hunter": createColoredLucideRenderer(
+      MailSearch,
+      "bg-blue-500/10 text-blue-600 dark:text-blue-400"
     ),
     "tools.hybrid_analysis": createColoredLucideRenderer(
       Microscope,
@@ -703,9 +777,37 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
       KeyRound,
       "bg-amber-500/10 text-amber-600 dark:text-amber-400"
     ),
+    "tools.openphish": createColoredLucideRenderer(
+      FishSymbol,
+      "bg-rose-500/10 text-rose-600 dark:text-rose-400"
+    ),
+    "tools.osv": createColoredLucideRenderer(
+      Bug,
+      "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+    ),
     "tools.phishlabs": createColoredLucideRenderer(
       Fish,
       "bg-orange-500/10 text-orange-600 dark:text-orange-400"
+    ),
+    "tools.pipe0": createColoredLucideRenderer(
+      Waypoints,
+      "bg-purple-500/10 text-purple-600 dark:text-purple-400"
+    ),
+    "tools.project_discovery": createColoredLucideRenderer(
+      Crosshair,
+      "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400"
+    ),
+    "tools.rippling": createColoredLucideRenderer(
+      BriefcaseBusiness,
+      "bg-purple-500/10 text-purple-600 dark:text-purple-400"
+    ),
+    "tools.shodan": createColoredLucideRenderer(
+      Server,
+      "bg-sky-500/10 text-sky-600 dark:text-sky-400"
+    ),
+    "tools.socket": createColoredLucideRenderer(
+      Boxes,
+      "bg-teal-500/10 text-teal-600 dark:text-teal-400"
     ),
     "tools.tavily": createColoredLucideRenderer(
       Search,
@@ -714,6 +816,10 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.tenable_sc": createColoredLucideRenderer(
       ScanSearch,
       "bg-sky-500/10 text-sky-600 dark:text-sky-400"
+    ),
+    "tools.threatfox": createColoredLucideRenderer(
+      Fingerprint,
+      "bg-red-500/10 text-red-600 dark:text-red-400"
     ),
     "tools.threatstream": createColoredLucideRenderer(
       Radar,
@@ -745,7 +851,17 @@ export const providerIcons: Record<
 > = {
   microsoft_graph: ({ className, ...rest }) => (
     <div className={className}>
-      <MicrosoftIcon {...rest} />
+      <MicrosoftGraphIcon {...rest} />
+    </div>
+  ),
+  microsoft_graph_security: ({ className, ...rest }) => (
+    <div className={className}>
+      <MicrosoftGraphIcon {...rest} />
+    </div>
+  ),
+  microsoft_outlook: ({ className, ...rest }) => (
+    <div className={className}>
+      <MicrosoftOutlookIcon {...rest} />
     </div>
   ),
   microsoft_defender: ({ className, ...rest }) => (
@@ -853,6 +969,26 @@ export const providerIcons: Record<
       <GmailIcon {...rest} />
     </div>
   ),
+  google_admin: ({ className, ...rest }) => (
+    <div className={className}>
+      <GoogleIcon {...rest} />
+    </div>
+  ),
+  google_cloud_logging: ({ className, ...rest }) => (
+    <div className={className}>
+      <GoogleCloudLoggingIcon {...rest} />
+    </div>
+  ),
+  google_slides: ({ className, ...rest }) => (
+    <div className={className}>
+      <GoogleSlidesIcon {...rest} />
+    </div>
+  ),
+  google_forms: ({ className, ...rest }) => (
+    <div className={className}>
+      <GoogleFormsIcon {...rest} />
+    </div>
+  ),
   github: ({ className, ...rest }) => (
     <div className={className}>
       <GitHubIcon {...rest} />
@@ -863,6 +999,17 @@ export const providerIcons: Record<
       <ServiceNowIcon {...rest} />
     </div>
   ),
+  databricks: ({ className, ...rest }) => (
+    <div className={className}>
+      <DatabricksIcon {...rest} />
+    </div>
+  ),
+  snowflake: ({ className, ...rest }) => (
+    <div className={className}>
+      <SnowflakeIcon {...rest} />
+    </div>
+  ),
+  jamf: createCatalogIconRenderer("jamf_mcp"),
   slack: ({ className, iconClassName, flairsize: _ignored, ...rest }) => (
     <div className={cn("!rounded-sm", className)}>
       <SlackIcon {...rest} className={cn("size-full", iconClassName)} />
@@ -975,6 +1122,8 @@ export const secretIcons: Record<
       <JiraIcon {...rest} />
     </div>
   ),
+  jamf: createCatalogIconRenderer("jamf_mcp"),
+  iru: createCatalogIconRenderer("iru_mcp"),
   datadog: ({ className, ...rest }) => (
     <div className={className}>
       <DatadogIcon {...rest} />
@@ -998,6 +1147,16 @@ export const secretIcons: Record<
   notion: ({ className, ...rest }) => (
     <div className={className}>
       <NotionIcon {...rest} />
+    </div>
+  ),
+  onepassword: ({ className, ...rest }) => (
+    <div className={className}>
+      <OnePasswordIcon {...rest} />
+    </div>
+  ),
+  onepassword_events: ({ className, ...rest }) => (
+    <div className={className}>
+      <OnePasswordIcon {...rest} />
     </div>
   ),
   linear: ({ className, ...rest }) => (
@@ -1058,6 +1217,16 @@ export const secretIcons: Record<
   gophish: ({ className, ...rest }) => (
     <div className={className}>
       <GophishIcon {...rest} />
+    </div>
+  ),
+  databricks: ({ className, ...rest }) => (
+    <div className={className}>
+      <DatabricksIcon {...rest} />
+    </div>
+  ),
+  snowflake: ({ className, ...rest }) => (
+    <div className={className}>
+      <SnowflakeIcon {...rest} />
     </div>
   ),
   // Default fallback using KeyRound icon
@@ -1617,6 +1786,62 @@ export function GoogleDocsIcon({ className, ...rest }: IconProps) {
   )
 }
 
+export function GoogleSlidesIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 47 65"
+      width="100%"
+      height="100%"
+      className={className}
+      {...rest}
+    >
+      <path
+        d="M29.375 0L4.406 0C1.983 0 0 1.994 0 4.432v56.136c0 2.438 1.983 4.432 4.406 4.432h38.188c2.423 0 4.406-1.994 4.406-4.432V17.727L29.375 0z"
+        fill="#F4B400"
+      />
+      <path
+        d="M29.375 0v13.295c0 2.448 1.983 4.432 4.406 4.432H47L29.375 0z"
+        fill="#F1A800"
+      />
+      <path
+        d="M11.75 29.545h23.5c1.22 0 2.203.99 2.203 2.216v13.296c0 1.226-.983 2.216-2.203 2.216h-23.5c-1.22 0-2.203-.99-2.203-2.216V31.761c0-1.226.983-2.216 2.203-2.216zm2.203 4.432v8.864h19.094v-8.864H13.953z"
+        fill="#F1F1F1"
+      />
+    </svg>
+  )
+}
+
+export function GoogleFormsIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 47 65"
+      width="100%"
+      height="100%"
+      className={className}
+      {...rest}
+    >
+      <path
+        d="M29.375 0L4.406 0C1.983 0 0 1.994 0 4.432v56.136c0 2.438 1.983 4.432 4.406 4.432h38.188c2.423 0 4.406-1.994 4.406-4.432V17.727L29.375 0z"
+        fill="#7248B9"
+      />
+      <path
+        d="M29.375 0v13.295c0 2.448 1.983 4.432 4.406 4.432H47L29.375 0z"
+        fill="#56368A"
+      />
+      <g fill="#F1F1F1">
+        <circle cx="14.688" cy="31.761" r="2.216" />
+        <rect x="20.563" y="30.284" width="16.156" height="2.955" rx="1.477" />
+        <circle cx="14.688" cy="40.625" r="2.216" />
+        <rect x="20.563" y="39.148" width="16.156" height="2.955" rx="1.477" />
+        <circle cx="14.688" cy="49.489" r="2.216" />
+        <rect x="20.563" y="48.011" width="16.156" height="2.955" rx="1.477" />
+      </g>
+    </svg>
+  )
+}
+
 export function GoogleDriveIcon(props: React.SVGProps<SVGSVGElement>) {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 87.3 78" {...props}>
@@ -1680,9 +1905,8 @@ export function MicrosoftIcon({ className, ...rest }: IconProps) {
     <svg
       viewBox="0 0 256 256"
       xmlns="http://www.w3.org/2000/svg"
-      width="256"
-      height="256"
       preserveAspectRatio="xMidYMid"
+      className={className}
       {...rest}
     >
       <path fill="#F1511B" d="M121.666 121.666H0V0h121.666z" />
@@ -1729,6 +1953,34 @@ export function GoogleIcon({ className, ...rest }: IconProps) {
         fill="#EA4335"
       />
       <path d="M1 1h22v22H1z" fill="none" />
+    </svg>
+  )
+}
+
+/**
+ * Google Cloud Logging product mark.
+ *
+ * Source: Google's official Cloud product icon library, `cloud_logging.svg`
+ * from the legacy icon pack linked at https://cloud.google.com/icons. The
+ * vector geometry and official colors are preserved; CSS classes from the
+ * source SVG are expressed as presentation attributes for React.
+ */
+export function GoogleCloudLoggingIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      className={className}
+      {...rest}
+    >
+      <rect fill="#4285f4" x="6" y="11" width="4" height="2" />
+      <rect fill="#4285f4" x="4" y="18" width="6" height="2" />
+      <polygon fill="#4285f4" points="4 18 6 18 6 6 4 6 4 18" />
+      <polygon fill="#669df6" points="9 7 22 7 22 3 9 3 9 7" />
+      <polygon fill="#669df6" points="9 14 22 14 22 10 9 10 9 14" />
+      <polygon fill="#669df6" points="9 21 22 21 22 17 9 17 9 21" />
+      <polygon fill="#aecbfa" points="2 8 8 8 8 2 2 2 2 8" />
     </svg>
   )
 }
@@ -1791,6 +2043,174 @@ export function MicrosoftEntraIcon({ className, ...rest }: IconProps) {
         d="M9.001 1v4.275l.109-.123a3.053 3.053 0 0 1 2.302-1.026c.472 0 .916.107 1.313.291l-2.579-2.909A1.524 1.524 0 0 0 9 1.001Z"
       />
       <path fill="#96bcc2" d="M13.365 10.199 9.001 5.276v7.65l4.364-2.727z" />
+    </svg>
+  )
+}
+
+/**
+ * Stable ids for SVG fragments (clip paths, gradients) referenced by `url(#…)`.
+ *
+ * This module is imported by server components (for example
+ * `src/app/status/page.tsx`), so `useId()` is not available here. Namespacing
+ * each fragment per icon keeps one brand mark from hijacking another's
+ * gradient or clip path when several icons render on the same page. Repeat
+ * instances of the *same* icon re-declare an identical definition, which
+ * resolves to identical output.
+ */
+const MICROSOFT_GRAPH_CLIP_ID = "tracecat-microsoft-graph-clip"
+const MICROSOFT_OUTLOOK_GRADIENT_ID = "tracecat-microsoft-outlook-gradient"
+
+/**
+ * Microsoft Graph product mark, also used for Microsoft Graph Security.
+ *
+ * Source: Microsoft's official `microsoft-graph.svg` docs asset,
+ * https://github.com/MicrosoftDocs/m365copilot-docs/blob/main/docs/assets/icons/microsoft-graph.svg
+ * (raw: https://raw.githubusercontent.com/MicrosoftDocs/m365copilot-docs/main/docs/assets/icons/microsoft-graph.svg).
+ * The clip path, polygon points, fill colors, and `0 0 48 48` viewBox are
+ * copied verbatim; only the source's `<style>` block and its `<use>`-indirected
+ * clip path were rewritten as presentation attributes and a direct
+ * `<clipPath>`. Microsoft publishes no separate Graph Security product mark,
+ * so the Graph mark stands in for it. Provenance note only — not an
+ * endorsement by Microsoft.
+ */
+export function MicrosoftGraphIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 48 48"
+      aria-hidden="true"
+      className={className}
+      {...rest}
+    >
+      <defs>
+        <clipPath id={MICROSOFT_GRAPH_CLIP_ID}>
+          <path d="M34.9,3.2H13.1c-0.7,0-1.4,0.4-1.8,1L0.5,23c-0.4,0.6-0.4,1.4,0,2.1l10.9,18.7c0.4,0.6,1.1,1,1.8,1h21.7c0.7,0,1.4-0.4,1.8-1L47.5,25c0.4-0.6,0.4-1.4,0-2.1L36.7,4.3C36.3,3.6,35.6,3.2,34.9,3.2z" />
+        </clipPath>
+      </defs>
+      <g clipPath={`url(#${MICROSOFT_GRAPH_CLIP_ID})`}>
+        <polygon fill="#28A8EA" points="11.3,3.1 15.6,11.1 35.4,3.1" />
+        <polygon fill="#0078D4" points="11.3,3.1 15.6,11.1 0.2,23.3 0.2,3.1" />
+        <polygon fill="#0364B8" points="-0.8,24 15.6,11.1 16.5,37.1" />
+        <polygon fill="#14447D" points="-0.8,24 16.5,37.1 11.5,44.8 0.2,45.2" />
+        <polygon fill="#0F335E" points="11.5,44.8 16.5,37.1 36.2,45.2" />
+        <polygon fill="#0364B8" points="16.5,37.1 36.7,24 36.2,45.2" />
+        <polygon fill="#28A8EA" points="16.5,37.1 15.6,11.1 36.7,24" />
+        <polygon fill="#50D9FF" points="15.6,11.1 36.2,2.8 36.7,24" />
+        <polygon fill="#28A8EA" points="36.7,24 36.2,2.8 48.1,3.1 48.1,24" />
+        <polygon fill="#0078D4" points="36.7,24 36.2,45.9 47.5,45.9 48.1,24" />
+      </g>
+    </svg>
+  )
+}
+
+/**
+ * Microsoft Outlook product mark.
+ *
+ * Source: Microsoft's official `logo-outlook.svg` docs asset,
+ * https://github.com/OfficeDev/office-js-docs-pr/blob/main/docs/images/index/logo-outlook.svg
+ * (raw: https://raw.githubusercontent.com/OfficeDev/office-js-docs-pr/main/docs/images/index/logo-outlook.svg).
+ * Path data, fill colors, opacities, gradient stops, and the `0 0 64 64`
+ * viewBox are copied verbatim; only the gradient id was namespaced and the
+ * source's `<title>` element dropped. Provenance note only — not an
+ * endorsement by Microsoft.
+ */
+export function MicrosoftOutlookIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 64 64"
+      aria-hidden="true"
+      className={className}
+      {...rest}
+    >
+      <defs>
+        <linearGradient
+          id={MICROSOFT_OUTLOOK_GRADIENT_ID}
+          x1="38"
+          y1="33"
+          x2="38"
+          y2="56"
+          gradientUnits="userSpaceOnUse"
+        >
+          <stop offset="0" stopColor="#35b8f1" />
+          <stop offset="1" stopColor="#28a8ea" />
+        </linearGradient>
+      </defs>
+      <path
+        fill="#123b6d"
+        d="M58.963,33.037a1.19075,1.19075,0,0,0-.57607-1.02619v-.00014l-.00626-.00362-.02279-.01331L39.62569,21.01765a2.55722,2.55722,0,0,0-.25114-.14728h-.00007a2.52872,2.52872,0,0,0-2.30451,0h-.00014a2.555,2.555,0,0,0-.25107.14728L18.08661,31.99378l-.02279.01331-.00626.00362v.00014a1.20191,1.20191,0,0,0,.02912,2.06945L36.81876,45.05642a2.58192,2.58192,0,0,0,.25107.14714l.00014.00014a2.52872,2.52872,0,0,0,2.30451,0l.00007-.00014a2.58419,2.58419,0,0,0,.25114-.14714L58.35777,34.0803A1.19026,1.19026,0,0,0,58.963,33.037Z"
+      />
+      <rect
+        x="19.55556"
+        y="25.77778"
+        width="12.44444"
+        height="11.4074"
+        fill="#0364b8"
+      />
+      <path
+        fill="#0358a7"
+        d="M57,15V10.33333A2.35445,2.35445,0,0,0,54.625,8L21.375,8A2.35445,2.35445,0,0,0,19,10.3333V15Z"
+      />
+      <rect x="19" y="14" width="13" height="12" fill="#0078d4" />
+      <rect x="32" y="14" width="13" height="12" fill="#28a8ea" />
+      <rect x="45" y="14" width="12" height="12" fill="#50d9ff" />
+      <rect x="45" y="26" width="12" height="12" fill="#28a8ea" />
+      <rect x="32" y="26" width="13" height="12" fill="#0078d4" />
+      <rect x="32" y="38" width="13" height="12" fill="#0364b8" />
+      <rect
+        x="19.55556"
+        y="37.18519"
+        width="12.44444"
+        height="10.37037"
+        fill="#14447d"
+      />
+      <rect x="45" y="38" width="12" height="11" fill="#0078d4" />
+      <path
+        fill={`url(#${MICROSOFT_OUTLOOK_GRADIENT_ID})`}
+        d="M58.4165,33.94727v.001l-.023.0127-.00585.00293L39.4209,44.10742a2.74007,2.74007,0,0,1-.25391.13574h0A2.7542,2.7542,0,0,1,38,44.5c-.023,0-.04443-.00684-.06738-.00732l-1.06348-.584a2.61066,2.61066,0,0,1-.25439-.13965l-19.001-10.43213-.00586-.00293-.00928-.00537L17.00049,33H17V53.53564A2.54863,2.54863,0,0,0,19.625,56H56.44629A2.68182,2.68182,0,0,0,58,55.50977l-.04-.02149A2.40455,2.40455,0,0,0,59,53.53564V33A1.08315,1.08315,0,0,1,58.4165,33.94727Z"
+      />
+      <path
+        fill="#1490df"
+        d="M58.41667,33.94752v.00082l-.02318.0124-.0058.00311L39.42115,44.10723a2.67244,2.67244,0,0,1-.25428.136l-.00007,0a2.7788,2.7788,0,0,1-2.33332,0l-.00011-.00006a2.66723,2.66723,0,0,1-.2542-.13594L17.6126,33.96385l-.00582-.00311-.02317-.0124v-.00082A1.084,1.084,0,0,1,17.00029,33H17V53.53569A2.54844,2.54844,0,0,0,19.625,56l36.75,0A2.54844,2.54844,0,0,0,59,53.53571l0-20.53559A1.084,1.084,0,0,1,58.41667,33.94752Z"
+      />
+      <path
+        fill="#28a8ea"
+        d="M19.62974,56,56.4463,56A2.68351,2.68351,0,0,0,58,55.51L36.86893,43.90854a2.65293,2.65293,0,0,1-.25431-.13963L17.6137,33.33694l-.00582-.00319-.00908-.005L17,33V53.46559A2.58338,2.58338,0,0,0,19.62974,56Z"
+      />
+      <path
+        fill="#0a2767"
+        opacity="0.5"
+        d="M57,33.56982V34.7002L39.41992,44.10986c-.08008.0503-.16992.09034-.25.13037A2.67752,2.67752,0,0,1,38,44.5h-.06006l-1.06982-.58984c-.08985-.04-.16992-.09034-.26026-.14014L19,34.1001V32.96l18.1001,9.93018c.08984.06006.1499.08984.1997.11963l.88038.48046a1.6646,1.6646,0,0,0,.56-.15039C38.79,43.31006,53.18994,35.60986,57,33.56982Z"
+      />
+      <path
+        opacity="0.2"
+        d="M33,20.33008V46.66992a1.73444,1.73444,0,0,1-.04.3999A2.31378,2.31378,0,0,1,30.66992,49H17V33l.50977.28027A1.0108,1.0108,0,0,1,17.48,33.04a1.19309,1.19309,0,0,1,.58008-1.03027c.00976-.00977.02-.00977.02978-.01954l1.47022-.86035V26H19V18H30.66992A2.326,2.326,0,0,1,33,20.33008Z"
+      />
+      <path
+        opacity="0.1"
+        d="M34,20.33008V44.66992A3.36171,3.36171,0,0,1,30.66992,48H17V33l.50977.28027A1.0108,1.0108,0,0,1,17.48,33.04a1.19309,1.19309,0,0,1,.58008-1.03027c.00976-.00977.02-.00977.02978-.01954l1.47022-.86035V26H19V17H30.66992A3.34177,3.34177,0,0,1,34,20.33008Z"
+      />
+      <path
+        opacity="0.2"
+        d="M33,20.33008V44.66992A2.326,2.326,0,0,1,30.66992,47H17V33l.50977.28027A1.0108,1.0108,0,0,1,17.48,33.04a1.19309,1.19309,0,0,1,.58008-1.03027c.00976-.00977.02-.00977.02978-.01954l1.47022-.86035V26H19V18H30.66992A2.326,2.326,0,0,1,33,20.33008Z"
+      />
+      <path
+        opacity="0.1"
+        d="M32,20.33008V44.66992A2.326,2.326,0,0,1,29.66992,47H17V33l.50977.28027A1.0108,1.0108,0,0,1,17.48,33.04a1.19309,1.19309,0,0,1,.58008-1.03027c.00976-.00977.02-.00977.02978-.01954l1.47022-.86035V26H19V18H29.66992A2.326,2.326,0,0,1,32,20.33008Z"
+      />
+      <rect x="4" y="18" width="28" height="28" rx="2.33333" fill="#0f78d4" />
+      <path
+        fill="#fff"
+        d="M11.73084,28.24309A6.34184,6.34184,0,0,1,14.22112,25.492,7.53053,7.53053,0,0,1,18.179,24.5a7.00239,7.00239,0,0,1,3.66128.94089,6.27763,6.27763,0,0,1,2.4238,2.62834,8.48865,8.48865,0,0,1,.84884,3.86581,8.9505,8.9505,0,0,1-.87441,4.04479,6.42925,6.42925,0,0,1-2.49539,2.72038,7.27893,7.27893,0,0,1-3.79934.96646,7.17188,7.17188,0,0,1-3.74309-.95112,6.37644,6.37644,0,0,1-2.45448-2.63345,8.27935,8.27935,0,0,1-.85907-3.81979A9.18371,9.18371,0,0,1,11.73084,28.24309Zm2.65391,6.45836a4.11969,4.11969,0,0,0,1.4011,1.81018,3.65747,3.65747,0,0,0,2.18858.65964,3.84171,3.84171,0,0,0,2.33688-.68009,3.94748,3.94748,0,0,0,1.36019-1.8153,7.01546,7.01546,0,0,0,.43465-2.52607,7.67843,7.67843,0,0,0-.40908-2.55676,4.0475,4.0475,0,0,0-1.31417-1.88177,3.6208,3.6208,0,0,0-2.31642-.71589,3.78108,3.78108,0,0,0-2.23972.66476A4.15708,4.15708,0,0,0,14.395,29.48567a7.24314,7.24314,0,0,0-.01023,5.21578Z"
+      />
+      <path
+        opacity="0.05"
+        d="M40.417,43.57471l-.99609.53271A2.721,2.721,0,0,1,38,44.5l-.05518-.001L57.96533,55.49121a2.4383,2.4383,0,0,0,1.01026-1.72705Z"
+      />
+      <path
+        opacity="0.05"
+        d="M57.96875,55.49316a2.53779,2.53779,0,0,0,.69873-.75732L39.36475,44.13965c-.06446.03662-.12989.07178-.19776.10351A2.7542,2.7542,0,0,1,38,44.5l-.05518-.001Z"
+      />
     </svg>
   )
 }
@@ -2224,6 +2644,42 @@ export function HackerOneIcon({ className, ...rest }: IconProps) {
   )
 }
 
+export function RecordedFutureIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg role="img" viewBox="0 0 45.8 43" className={className} {...rest}>
+      <title>Recorded Future</title>
+      <path
+        fill="currentColor"
+        d="M23,18.4c-1.8,0-3.3,1.5-3.3,3.3S21.2,25,23,25s3.3-1.5,3.3-3.3l0,0C26.3,19.9,24.8,18.4,23,18.4L23,18.4z"
+      />
+      <path
+        fill="currentColor"
+        d="M42.5,18.4c-1.8,0-3.3,1.5-3.3,3.3c0,1.8,1.5,3.3,3.3,3.3c1.8,0,3.3-1.5,3.3-3.3l0,0C45.8,19.9,44.3,18.4,42.5,18.4C42.5,18.4,42.5,18.4,42.5,18.4z"
+      />
+      <path
+        fill="currentColor"
+        d="M3.3,18.4c-1.8,0-3.3,1.5-3.3,3.3C0,23.5,1.5,25,3.3,25s3.3-1.5,3.3-3.3l0,0C6.6,19.9,5.1,18.4,3.3,18.4C3.3,18.4,3.3,18.4,3.3,18.4z"
+      />
+      <path
+        fill="currentColor"
+        d="M20.2,40.2L20.2,40.2v-9.7l0,0c0-1.5,1.2-2.7,2.7-2.7c1.5,0,2.7,1.2,2.7,2.7l0,0v9.7l0,0v0c0,1.5-1.2,2.7-2.7,2.7C21.4,43,20.2,41.8,20.2,40.2L20.2,40.2z"
+      />
+      <path
+        fill="currentColor"
+        d="M30,35.3L30,35.3V8.1l0,0c-0.1-1.5,1.1-2.8,2.6-2.9c1.5-0.1,2.8,1.1,2.9,2.6c0,0.1,0,0.2,0,0.3l0,0v27.1l0,0v0.1c-0.1,1.5-1.4,2.6-2.9,2.6C31.2,37.8,30.1,36.7,30,35.3L30,35.3z"
+      />
+      <path
+        fill="currentColor"
+        d="M10.4,35.3L10.4,35.3V8.1c0-1.5,1.2-2.7,2.7-2.7s2.7,1.2,2.7,2.7v27.1l0,0v0.1c0,1.5-1.2,2.7-2.7,2.7S10.4,36.8,10.4,35.3L10.4,35.3z"
+      />
+      <path
+        fill="currentColor"
+        d="M20.2,12.4L20.2,12.4V2.7l0,0c0-1.5,1.2-2.7,2.7-2.7c1.5,0,2.7,1.2,2.7,2.7l0,0v9.7l0,0v0.1c0,1.5-1.2,2.7-2.7,2.7C21.4,15.2,20.2,14,20.2,12.4L20.2,12.4z"
+      />
+    </svg>
+  )
+}
+
 export function HaveIBeenPwnedIcon({ className, ...rest }: IconProps) {
   return (
     <svg role="img" viewBox="0 0 24 24" className={className} {...rest}>
@@ -2500,6 +2956,101 @@ export function GophishIcon({ className, ...rest }: IconProps) {
           />
         </g>
       </g>
+    </svg>
+  )
+}
+
+export function OnePasswordIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      role="img"
+      viewBox="0 0 60 60"
+      className={className}
+      fillRule="evenodd"
+      clipRule="evenodd"
+      strokeLinejoin="round"
+      strokeMiterlimit="2"
+      {...rest}
+    >
+      <title>1Password</title>
+      <g transform="matrix(-0.495868,0,0,0.495868,59.5041,-0.0218678)">
+        <circle cx="60" cy="60.044" r="60" fill="white" />
+      </g>
+      <g transform="matrix(-48.8784,0,0,48.8784,54.1919,29.7525)">
+        <circle
+          cx="0.5"
+          cy="0"
+          r="0.5"
+          fill="url(#tracecat-onepassword-blue-gradient)"
+        />
+      </g>
+      <g transform="matrix(-0.495868,0,0,0.495868,59.5041,-0.0213719)">
+        <circle cx="60" cy="60.044" r="36.429" fill="white" />
+        <circle cx="60" cy="60.044" r="19.286" fill="#DCE4FA" />
+      </g>
+      <g transform="matrix(0,27.6269,27.6269,0,29.7517,15.9385)">
+        <path
+          d="M0.142,-0.154C0.092,-0.154 0.067,-0.154 0.048,-0.144C0.032,-0.136 0.018,-0.122 0.01,-0.106C0,-0.087 0,-0.062 0,-0.012L0,0.012C0,0.062 0,0.087 0.01,0.106C0.018,0.122 0.032,0.136 0.048,0.144C0.067,0.154 0.092,0.154 0.142,0.154L0.525,0.154C0.53,0.154 0.532,0.154 0.535,0.153C0.537,0.153 0.539,0.152 0.541,0.151C0.543,0.149 0.545,0.148 0.548,0.144L0.592,0.101C0.6,0.092 0.604,0.088 0.609,0.087C0.613,0.085 0.618,0.085 0.622,0.087C0.627,0.088 0.631,0.092 0.639,0.101L0.683,0.144C0.686,0.148 0.688,0.149 0.69,0.151C0.692,0.152 0.694,0.153 0.696,0.153C0.698,0.154 0.701,0.154 0.706,0.154L0.858,0.154C0.908,0.154 0.933,0.154 0.952,0.144C0.968,0.136 0.982,0.122 0.99,0.106C1,0.087 1,0.062 1,0.012L1,-0.012C1,-0.062 1,-0.087 0.99,-0.106C0.982,-0.122 0.968,-0.136 0.952,-0.144C0.933,-0.154 0.908,-0.154 0.858,-0.154L0.475,-0.154C0.47,-0.154 0.468,-0.154 0.465,-0.153C0.463,-0.153 0.461,-0.152 0.459,-0.151C0.457,-0.149 0.455,-0.148 0.452,-0.144L0.408,-0.1C0.4,-0.092 0.396,-0.088 0.391,-0.087C0.387,-0.085 0.382,-0.085 0.378,-0.087C0.373,-0.088 0.369,-0.092 0.361,-0.1L0.317,-0.144C0.314,-0.148 0.312,-0.149 0.31,-0.151C0.308,-0.152 0.306,-0.153 0.304,-0.153C0.302,-0.154 0.299,-0.154 0.294,-0.154L0.142,-0.154Z"
+          fill="url(#tracecat-onepassword-keyhole-gradient)"
+          fillRule="nonzero"
+        />
+      </g>
+      <defs>
+        <linearGradient
+          id="tracecat-onepassword-blue-gradient"
+          x1="0"
+          y1="0"
+          x2="1"
+          y2="0"
+          gradientUnits="userSpaceOnUse"
+          gradientTransform="matrix(6.12323e-17,1,-1,6.12323e-17,0.50001,-0.50001)"
+        >
+          <stop offset="0" stopColor="#1D48F5" />
+          <stop offset="1" stopColor="#499FF5" />
+        </linearGradient>
+        <linearGradient
+          id="tracecat-onepassword-keyhole-gradient"
+          x1="0"
+          y1="0"
+          x2="1"
+          y2="0"
+          gradientUnits="userSpaceOnUse"
+          gradientTransform="matrix(1,0,0,1,0,3.41026e-05)"
+        >
+          <stop offset="0" stopColor="#151729" />
+          <stop offset="1" stopColor="#1B1C33" />
+        </linearGradient>
+      </defs>
+    </svg>
+  )
+}
+
+export function DatabricksIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg role="img" viewBox="0 0 104.26 112.97" className={className} {...rest}>
+      <title>Databricks</title>
+      <polygon
+        fill="#FF3621"
+        points="0 29.44 0 32.84 52.13 62.25 98.69 35.96 98.7 46.58 52.13 73.04 2.62 44.91 0 46.37 0 66.72 52.13 96.06 98.69 69.86 98.7 80.4 52.13 106.86 2.62 78.73 0 80.19 0 83.64 52.13 112.97 104.26 83.64 104.26 63.27 101.63 61.82 52.13 89.95 5.56 63.49 5.56 53 52.13 79.17 104.26 49.83 104.26 29.76 101.63 28.3 52.13 56.44 7.95 31.33 52.13 6.38 88.52 26.94 91.7 25.15 91.7 22.35 52.13 0 0 29.44"
+      />
+    </svg>
+  )
+}
+
+export function SnowflakeIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg role="img" viewBox="0 0 54.26 51.02" className={className} {...rest}>
+      <title>Snowflake</title>
+      <path
+        fill="#29B5E8"
+        fillRule="evenodd"
+        d="M17.566,26.44 C17.675,26.101 17.72,25.753 17.712,25.408 C17.699,25.159 17.667,24.91 17.595,24.66 C17.38,23.886 16.871,23.194 16.108,22.758 L5.253,16.547 C3.721,15.673 1.767,16.193 0.888,17.709 C0,19.223 0.524,21.157 2.056,22.033 L8.122,25.509 L2.056,28.976 C0.524,29.854 0.002,31.788 0.888,33.309 C1.767,34.821 3.721,35.338 5.253,34.464 L16.108,28.249 C16.84,27.831 17.337,27.176 17.566,26.44 L17.566,26.44 Z M20.512,32.261 C19.888,32.208 19.24,32.338 18.657,32.674 L7.794,38.882 C6.266,39.758 5.744,41.702 6.626,43.218 C7.512,44.731 9.464,45.252 10.99,44.372 L17.075,40.893 L17.075,47.845 C17.075,49.596 18.505,51.015 20.275,51.015 C22.036,51.015 23.47,49.596 23.47,47.845 L23.47,35.417 C23.47,33.748 22.165,32.378 20.512,32.261 L20.512,32.261 Z M31.636,18.754 C32.258,18.805 32.905,18.674 33.488,18.341 L44.348,12.128 C45.879,11.251 46.398,9.315 45.518,7.795 C44.637,6.281 42.683,5.762 41.155,6.637 L35.073,10.12 L35.073,3.166 C35.073,1.419 33.644,0 31.874,0 C30.104,0 28.678,1.419 28.678,3.166 L28.678,15.594 C28.678,17.261 29.98,18.633 31.636,18.754 L31.636,18.754 Z M7.794,12.128 L18.657,18.341 C19.24,18.674 19.888,18.805 20.512,18.754 C22.165,18.633 23.47,17.261 23.47,15.594 L23.47,3.166 C23.47,1.419 22.036,0 20.275,0 C18.505,0 17.075,1.419 17.075,3.166 L17.075,10.12 L10.99,6.637 C9.464,5.762 7.512,6.281 6.626,7.795 C5.744,9.315 6.266,11.251 7.794,12.128 L7.794,12.128 Z M28.208,25.483 C28.208,25.303 28.098,25.051 27.969,24.918 L26.662,23.628 C26.533,23.501 26.279,23.395 26.096,23.395 L26.046,23.395 C25.864,23.395 25.61,23.501 25.483,23.628 L24.176,24.918 C24.045,25.051 23.945,25.303 23.945,25.483 L23.945,25.534 C23.945,25.712 24.045,25.962 24.176,26.092 L25.483,27.385 C25.612,27.513 25.864,27.618 26.046,27.618 L26.096,27.618 C26.279,27.618 26.533,27.513 26.662,27.385 L27.969,26.092 C28.098,25.962 28.208,25.712 28.208,25.534 L28.208,25.483 Z M31.817,26.724 L27.302,31.193 C27.173,31.324 26.923,31.431 26.735,31.431 L26.408,31.431 L25.741,31.431 L25.408,31.431 C25.225,31.431 24.972,31.324 24.841,31.193 L20.328,26.724 C20.199,26.598 20.095,26.345 20.095,26.166 L20.095,25.836 L20.095,25.175 L20.095,24.849 C20.095,24.666 20.199,24.413 20.328,24.285 L24.841,19.817 C24.972,19.685 25.225,19.582 25.408,19.582 L25.741,19.582 L26.408,19.582 L26.735,19.582 C26.919,19.582 27.173,19.685 27.302,19.817 L31.817,24.285 C31.945,24.413 32.05,24.666 32.05,24.849 L32.05,25.175 L32.05,25.836 L32.05,26.166 C32.05,26.345 31.945,26.598 31.817,26.724 L31.817,26.724 Z M44.348,38.882 L33.488,32.674 C32.905,32.338 32.258,32.208 31.636,32.261 C29.98,32.378 28.678,33.748 28.678,35.417 L28.678,47.845 C28.678,49.596 30.104,51.015 31.874,51.015 C33.644,51.015 35.073,49.596 35.073,47.845 L35.073,40.893 L41.155,44.372 C42.683,45.252 44.637,44.731 45.518,43.218 C46.398,41.702 45.879,39.758 44.348,38.882 L44.348,38.882 Z M50.091,22.033 L44.025,25.509 L50.091,28.976 C51.623,29.854 52.147,31.788 51.261,33.309 C50.377,34.821 48.422,35.338 46.895,34.464 L36.033,28.249 C35.308,27.831 34.805,27.176 34.582,26.44 C34.476,26.101 34.427,25.753 34.439,25.408 C34.445,25.159 34.482,24.91 34.551,24.66 C34.769,23.886 35.278,23.195 36.033,22.758 L46.895,16.547 C48.422,15.673 50.377,16.193 51.261,17.709 C52.147,19.223 51.623,21.157 50.091,22.033 L50.091,22.033 Z"
+      />
+      <path
+        fill="#29B5E8"
+        fillRule="evenodd"
+        d="M54.259,3.197 C54.259,4.94 53.082,6.394 51.116,6.394 C49.163,6.394 48,4.926 48,3.197 C48,1.455 49.163,0 51.116,0 C53.082,0 54.259,1.455 54.259,3.197 L54.259,3.197 Z M53.635,3.197 C53.635,1.716 52.639,0.59 51.116,0.59 C49.62,0.59 48.623,1.66 48.623,3.197 C48.623,4.665 49.62,5.804 51.116,5.804 C52.639,5.804 53.635,4.679 53.635,3.197 L53.635,3.197 Z M49.883,1.756 L51.226,1.756 C51.96,1.756 52.444,2.154 52.444,2.772 C52.444,3.156 52.251,3.444 51.96,3.622 L52.486,4.377 L52.486,4.528 L51.725,4.528 L51.212,3.801 L50.617,3.801 L50.617,4.528 L49.883,4.528 L49.883,1.756 Z M51.212,2.429 L50.617,2.429 L50.617,3.156 L51.212,3.156 C51.489,3.156 51.669,3.032 51.669,2.799 C51.669,2.552 51.503,2.429 51.212,2.429 L51.212,2.429 Z"
+      />
     </svg>
   )
 }

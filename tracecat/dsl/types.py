@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, NotRequired, TypedDict
 
-from pydantic import TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field
 
 from tracecat.expressions.common import ExprContext
 
@@ -51,21 +51,26 @@ class Task:
     delay: float = field(default=0.0, compare=False)
 
 
-@dataclass(frozen=True, slots=True)
-class ActionErrorInfo:
+class ActionErrorInfo(BaseModel):
     """Contains information about an action error."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     ref: str
     message: str
     type: str
     expr_context: ExprContext = ExprContext.ACTIONS
     attempt: int = 1
-    stream_id: StreamID = field(default_factory=_root_stream_factory)
+    stream_id: StreamID = Field(default_factory=_root_stream_factory)
     children: list[ActionErrorInfo] | None = None
+
+    def model_post_init(self, context: Any, /) -> None:
+        """Preserve the established Temporal wire shape for defaulted fields."""
+        del context
+        self.__pydantic_fields_set__.update(
+            {"expr_context", "attempt", "stream_id", "children"}
+        )
 
     def format(self, loc: str = "run_action") -> str:
         locator = f"{self.expr_context}.{self.ref} -> {loc}"
         return f"[{locator}] (Attempt {self.attempt})\n\n{self.message}"
-
-
-ActionErrorInfoAdapter = TypeAdapter(ActionErrorInfo)

@@ -4,11 +4,12 @@
  * Verifies the React.memo wrappers on MessagePart, ToolInput, and ToolOutput
  * by counting renders via a spy on the mocked CodeBlock component.
  */
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+
 import { render } from "@testing-library/react"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useUpdateChat, useVercelChat } from "@/hooks/use-chat"
 import { useBuilderRegistryActions, useListMcpIntegrations } from "@/lib/hooks"
+import { QueryClient, QueryClientProvider } from "@/lib/query"
 
 // Track how many times the CodeBlock mock renders
 let codeBlockRenderCount = 0
@@ -80,6 +81,24 @@ jest.mock("@/lib/hooks", () => ({
 }))
 jest.mock("@/providers/workspace-id", () => ({
   useWorkspaceId: () => "workspace-1",
+}))
+jest.mock("@/components/auth/scope-guard", () => ({
+  useScopeCheck: jest.fn(() => true),
+}))
+jest.mock("@/hooks/use-entitlements", () => ({
+  useEntitlements: jest.fn(() => ({
+    hasEntitlement: () => false,
+    isLoading: false,
+    hasEntitlementData: true,
+  })),
+}))
+jest.mock("@/hooks/use-agent-presets", () => ({
+  useAgentPresets: jest.fn(() => ({
+    presets: [],
+    presetsIsLoading: false,
+    presetsError: null,
+    refetchPresets: jest.fn(),
+  })),
 }))
 
 import { ToolInput, ToolOutput } from "@/components/ai-elements/tool"

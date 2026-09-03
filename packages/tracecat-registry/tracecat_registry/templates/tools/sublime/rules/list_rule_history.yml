@@ -10,9 +10,31 @@ definition:
     - name: sublime
       keys: ["SUBLIME_API_KEY"]
   expects:
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters.
+    classification_created_at_gte:
+      type: datetime
+      description: Filter by classifications made after this datetime. Results are limited to the most recent 180 days.
+    classification_created_at_lte:
+      type: datetime
+      description: Filter by classifications made before this datetime. Results are limited to the most recent 180 days.
+    active:
+      type: bool | None
+      description: Restrict to rules that are active
+      default: null
+    count:
+      type: int | None
+      description: Number of results to return
+      default: null
+    in_feed:
+      type: bool | None
+      description: Restrict to rules that are in a feed
+      default: null
+    offset:
+      type: int | None
+      description: Offset from the first result
+      default: null
+    type:
+      type: list[str] | None
+      description: Restrict to rules that have one of the given types. One of 'detection', 'triage', 'dlp'.
       default: null
     base_url:
       type: str | None
@@ -24,7 +46,14 @@ definition:
       args:
         url: ${{ inputs.base_url || VARS.sublime.base_url }}/v0/rules/rule-history
         method: GET
-        params: ${{ inputs.params }}
+        params:
+          "classification_created_at[gte]": ${{ inputs.classification_created_at_gte }}
+          "classification_created_at[lte]": ${{ inputs.classification_created_at_lte }}
+          active: ${{ inputs.active }}
+          count: ${{ inputs.count }}
+          in_feed: ${{ inputs.in_feed }}
+          offset: ${{ inputs.offset }}
+          type: ${{ inputs.type }}
         headers:
           Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}
   returns: ${{ steps.request.result.data }}

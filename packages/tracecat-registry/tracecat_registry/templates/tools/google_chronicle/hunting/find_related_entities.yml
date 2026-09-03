@@ -1,0 +1,115 @@
+type: action
+definition:
+  title: Find related entities
+  description: >-
+    Finds all the entities associated with provided entity. The API returns a maximum of
+    100 entities.
+  display_group: Google Chronicle
+  doc_url: https://docs.cloud.google.com/chronicle/docs/reference/rest/v1/projects.locations.instances/findRelatedEntities
+  namespace: tools.google_chronicle
+  name: find_related_entities
+  secrets:
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: client_credentials
+      optional: true
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Chronicle API base URL. If omitted, uses the workspace variable
+        `google_chronicle.base_url`, for example https://us-chronicle.googleapis.com.
+      default: null
+    instance:
+      type: str
+      description: >-
+        The name of the parent resource, which is the SecOps instance to find related
+        entities for. Format:
+        projects/{project}/locations/{location}/instances/{instance}
+    startTime:
+      type: str
+      description: >-
+        Inclusive start of the time range to search related entities for, in RFC 3339
+        format, e.g. "2014-10-02T15:01:23Z".
+    endTime:
+      type: str
+      description: >-
+        Exclusive end of the time range to search related entities for, in RFC 3339
+        format.
+    entityId:
+      type: str | None
+      description: >-
+        ID of the entity. Use this or the `field_and_value_*` inputs to identify the
+        entity.
+      default: null
+    field_and_value_value:
+      type: str | None
+      description: Indicator value used to identify the entity.
+      default: null
+    field_and_value_entity_namespace:
+      type: str | None
+      description: Entity namespace, applicable to asset entities.
+      default: null
+    field_and_value_field_path:
+      type: str | None
+      description: UDM field path identifying the indicator type.
+      default: null
+    field_and_value_value_type:
+      type: str | None
+      description: Chronicle value type identifying the indicator type.
+      default: null
+    entityTypes:
+      type: list[str] | None
+      description: >-
+        Entity types to filter related entities by. If unspecified, will return all
+        related entities for the given entity.
+      default: null
+    domainType:
+      type: str | None
+      description: >-
+        The domain type to retrieve. This is taken into account when the entity type is
+        specified as "DOMAIN_NAME".
+      default: null
+    excludeFirstLastSeen:
+      type: bool | None
+      description: >-
+        If true, then the related entities will not have first/last seen info and reduce
+        latency of endpoint.
+      default: null
+    includeAllUdmEventTypesForFirstLastSeen:
+      type: bool | None
+      description: >-
+        If true, it includes all types of events we show in UDM Search to calculate the
+        first and last seen time of an entity.
+      default: null
+    limit:
+      type: int | None
+      description: >-
+        The maximum number of Entities to return. The service may return fewer than this
+        value. If unspecified, at most 100 entities will be returned. The maximum value
+        is 100; values above 100 will be coerced to 100.
+      default: null
+  steps:
+    - ref: call_api
+      action: tools.google_chronicle.call_api
+      args:
+        url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}:findRelatedEntities
+        method: GET
+        params:
+          timeRange.startTime: ${{ inputs.startTime }}
+          timeRange.endTime: ${{ inputs.endTime }}
+          entityId: ${{ inputs.entityId }}
+          fieldAndValue.value: ${{ inputs.field_and_value_value }}
+          fieldAndValue.entityNamespace: ${{ inputs.field_and_value_entity_namespace }}
+          fieldAndValue.fieldPath: ${{ inputs.field_and_value_field_path }}
+          fieldAndValue.valueType: ${{ inputs.field_and_value_value_type }}
+          entityTypes: ${{ inputs.entityTypes }}
+          domainType: ${{ inputs.domainType }}
+          excludeFirstLastSeen: ${{ inputs.excludeFirstLastSeen }}
+          includeAllUdmEventTypesForFirstLastSeen: ${{ inputs.includeAllUdmEventTypesForFirstLastSeen }}
+          limit: ${{ inputs.limit }}
+  returns: ${{ steps.call_api.result }}

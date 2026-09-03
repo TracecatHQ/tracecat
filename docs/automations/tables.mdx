@@ -76,6 +76,9 @@ For example, use `core.table.search_rows` when you want to search across rows:
     limit: 25
 ```
 
+`core.table.search_rows` also filters on row creation time: `start_time` and `end_time` bound each row's `created_at` timestamp.
+The `limit` ceiling is 200 and larger values raise an error; page with `paginate: true` and `cursor` to read more rows, or use `core.table.download`, which returns up to 1000 rows.
+
 ## Index and upsert
 
 You'll often need to deduplicate data or require all values in a column to be unique.
@@ -91,11 +94,72 @@ For example:
 
 A unique index enforces that rule, and `core.table.insert_row` with `upsert: true` updates the existing row instead of creating a duplicate.
 
+To create the index from a workflow definition, create the table with `core.table.create_table`, then set the column's `is_index` with `core.table.update_column`:
+
+```yaml
+- ref: ensure_alerts_table
+  action: core.table.create_table
+  args:
+    name: alerts
+    columns:
+      - name: alert_id
+        type: TEXT
+    raise_on_duplicate: false
+- ref: index_alert_id
+  action: core.table.update_column
+  depends_on:
+    - ensure_alerts_table
+  args:
+    table: alerts
+    column: alert_id
+    update:
+      is_index: true
+```
+
+A table can have one single-column unique index, and creating it fails if the column already contains duplicate values; remove the duplicates first.
+
+Setting `is_index: true` is not idempotent: a second call raises `Table cannot have multiple unique indexes`.
+A workflow that repeats the index step on every run must guard it, and downstream steps need `join_strategy: any`:
+
+```yaml
+- ref: alerts_metadata
+  action: core.table.get_table_metadata
+  depends_on:
+    - ensure_alerts_table
+  args:
+    name: alerts
+- ref: index_alert_id
+  action: core.table.update_column
+  depends_on:
+    - alerts_metadata
+  run_if: ${{ FN.length(ACTIONS.alerts_metadata.result.columns[?(@.is_index == true)]) == 0 }}
+  args:
+    table: alerts
+    column: alert_id
+    update:
+      is_index: true
+- ref: upsert_alert
+  action: core.table.insert_row
+  depends_on:
+    - alerts_metadata
+    - index_alert_id
+  join_strategy: any
+  args:
+    table: alerts
+    upsert: true
+    row_data:
+      alert_id: ${{ TRIGGER.alert_id }}
+```
+
 ## Table actions
 
 Use `core.table.*` actions when you want your workflows to work with tables directly.
 
-- [Tables](/automations/core-actions/memory-actions/tables) to create tables, inspect metadata, insert rows, search rows, and export data
+- [Tables](/automations/core-actions/memory-actions/tables) to create tables, inspect metadata, and update table settings
+- [Columns](/automations/core-actions/memory-actions/columns) to add, update, and delete columns
+- [Lookups](/automations/core-actions/memory-actions/lookups) to look up and search rows
+- [Rows](/automations/core-actions/memory-actions/rows) to insert, update, and delete rows
+- [Export](/automations/core-actions/memory-actions/export) to download a table
 - Use `core.table.insert_row` with `upsert: true` when you want to update an existing row that matches a unique index
 
 `core.table.create_table` takes `columns` as a JSON array of column objects.

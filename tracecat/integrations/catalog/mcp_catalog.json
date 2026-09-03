@@ -45,17 +45,10 @@
     },
     {
       "slug": "google-cloud-secops-mcp",
-      "name": "Google Cloud SecOps",
-      "description": "Triage SIEM alerts and run SOAR workflows on Google Cloud SecOps",
+      "name": "Google SecOps",
+      "description": "Investigate alerts, search UDM events, and run SOAR cases on Google SecOps",
       "category": "SIEM / Datalake",
-      "icon": "https://www.google.com/s2/favicons?domain=cloud.google.com&sz=128"
-    },
-    {
-      "slug": "google-security-command-center-mcp",
-      "name": "Google Security Command Center",
-      "description": "Triage vulnerability findings and fetch remediation guidance from Google Security Command Center",
-      "category": "Cloud",
-      "icon": "https://www.google.com/s2/favicons?domain=cloud.google.com&sz=128"
+      "icon": "https://docs.cloud.google.com/_static/clouddocs/images/icons/products/secops-color.svg"
     },
     {
       "slug": "sumo-logic-mcp",
@@ -69,14 +62,14 @@
       "name": "Datadog",
       "description": "Query Datadog metrics, logs, traces, monitors, and incidents",
       "category": "SIEM / Datalake",
-      "icon": "https://www.google.com/s2/favicons?domain=docs.datadoghq.com&sz=128"
+      "icon": "https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/datadog.svg"
     },
     {
       "slug": "sentry-mcp",
       "name": "Sentry",
       "description": "Search issues, events, and releases on Sentry",
       "category": "SIEM / Datalake",
-      "icon": "https://cdn.simpleicons.org/sentry"
+      "icon": "https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/sentry.svg"
     },
     {
       "slug": "clickhouse-mcp",
@@ -102,9 +95,9 @@
     {
       "slug": "jamf-mcp",
       "name": "Jamf",
-      "description": "Manage Apple devices across Jamf Pro, Protect, and Security Cloud",
+      "description": "Search Jamf developer docs, generate API code, and run Jamf API requests",
       "category": "Endpoint",
-      "icon": "https://www.google.com/s2/favicons?domain=jamf.com&sz=128"
+      "icon": "https://media.jamf.com/images/icons/jamf-logo-dark.svg"
     },
     {
       "slug": "iru-mcp",
@@ -149,13 +142,6 @@
       "icon": "https://www.google.com/s2/favicons?domain=docs.feedly.com&sz=128"
     },
     {
-      "slug": "virustotal-mcp",
-      "name": "VirusTotal",
-      "description": "Look up file, URL, IP, and domain reputation via Google Threat Intelligence",
-      "category": "Threat Intelligence",
-      "icon": "https://cdn.simpleicons.org/virustotal"
-    },
-    {
       "slug": "misp-mcp",
       "name": "MISP",
       "description": "Search events, indicators, objects, tags, galaxies, and feeds in MISP",
@@ -190,7 +176,7 @@
       "name": "AWS",
       "description": "Call any of 15,000+ AWS APIs via the official AWS MCP server",
       "category": "Cloud",
-      "icon": "https://www.google.com/s2/favicons?domain=docs.aws.amazon.com&sz=128"
+      "icon": "https://upload.wikimedia.org/wikipedia/commons/9/93/Amazon_Web_Services_Logo.svg"
     },
     {
       "slug": "cloudflare-mcp",
@@ -215,13 +201,6 @@
       "icon": "https://cdn.simpleicons.org/paloaltonetworks"
     },
     {
-      "slug": "sixtyfour-mcp",
-      "name": "Sixtyfour",
-      "description": "Enrich people and companies on demand with Sixtyfour",
-      "category": "Network",
-      "icon": "https://www.google.com/s2/favicons?domain=www.sixtyfour.ai&sz=128"
-    },
-    {
       "slug": "linear-mcp",
       "name": "Linear",
       "description": "Create, search, and update Linear issues and projects",
@@ -240,12 +219,12 @@
       "name": "Freshservice",
       "description": "Create and manage Freshservice tickets, service requests, and ITSM records",
       "category": "Ticketing",
-      "icon": "https://www.google.com/s2/favicons?domain=freshservice.com&sz=128"
+      "icon": "https://www.freshworks.com/beta/icons/template-2026/freshservice-logo-icon.svg"
     },
     {
       "slug": "servicenow-mcp",
       "name": "ServiceNow",
-      "description": "Query and update ServiceNow ITSM records via the Zurich MCP server",
+      "description": "Query and update ServiceNow records via your instance's MCP server",
       "category": "Ticketing",
       "icon": "https://www.google.com/s2/favicons?domain=www.servicenow.com&sz=128"
     },
@@ -301,9 +280,9 @@
     {
       "slug": "semgrep-mcp",
       "name": "Semgrep",
-      "description": "Run SAST scans and review findings with Semgrep",
+      "description": "Scan code for vulnerabilities with Semgrep Guardian",
       "category": "AppSec",
-      "icon": "https://www.google.com/s2/favicons?domain=semgrep.dev&sz=128"
+      "icon": "https://raw.githubusercontent.com/semgrep/semgrep/develop/images/semgrep-logo-light.svg"
     },
     {
       "slug": "snyk-mcp",
@@ -331,7 +310,7 @@
       "name": "Oneleet",
       "description": "Manage compliance controls, evidence, policies, monitors, and pentest findings in Oneleet",
       "category": "Compliance",
-      "icon": "https://www.google.com/s2/favicons?domain=oneleet.com&sz=128"
+      "icon": "https://app.oneleet.com/logo.svg"
     },
     {
       "slug": "grafana-mcp",
@@ -359,7 +338,7 @@
       "name": "GitHub",
       "description": "Read repos, issues, PRs, and code search on GitHub",
       "category": "Source Control",
-      "icon": "https://www.google.com/s2/favicons?domain=github.com&sz=128"
+      "icon": "https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/github.svg"
     },
     {
       "slug": "gitlab-mcp",

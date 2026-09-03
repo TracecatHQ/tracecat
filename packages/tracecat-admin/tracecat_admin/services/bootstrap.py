@@ -145,6 +145,7 @@ async def create_superuser(
                 session=session,
                 user_id=user.id,
                 is_superuser=True,
+                allow_new_members=True,
             )
             await session.commit()
 
@@ -169,6 +170,7 @@ async def create_superuser(
                 session=session,
                 user_id=user.id,
                 is_superuser=True,
+                allow_new_members=True,
             )
             await session.commit()
             await session.refresh(user)
@@ -464,6 +466,7 @@ async def create_dev_user(
             user_id=superuser.id,
             is_superuser=True,
             organization_id=organization_id,
+            allow_new_members=True,
         )
         user, created = await _get_or_create_local_user(
             session=session,

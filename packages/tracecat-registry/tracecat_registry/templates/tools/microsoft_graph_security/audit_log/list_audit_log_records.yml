@@ -1,0 +1,70 @@
+type: action
+definition:
+  title: List audit log records
+  description: >-
+    List auditLogRecord objects for a completed
+    audit log query. Returns the single Microsoft Graph page, including
+    `@odata.nextLink`. Auditing data is accessed through the Microsoft Purview
+    Audit Search API. Least privileged permission: AuditLogsQuery-Entra.Read.All
+    for both delegated (work or school account) and application; higher
+    privileged: AuditLogsQuery-CRM.Read.All, AuditLogsQuery-Endpoint.Read.All,
+    AuditLogsQuery-Exchange.Read.All, AuditLogsQuery-OneDrive.Read.All,
+    AuditLogsQuery-SharePoint.Read.All or AuditLogsQuery.Read.All. Delegated
+    access is not supported for personal Microsoft accounts. Available in the
+    global service only; not available in US Government L4, US Government L5
+    (DOD) or China operated by 21Vianet. Microsoft says this method supports
+    unnamed OData query parameters, so this action exposes none. For other
+    parameters, use `tools.microsoft_graph_sdk.call_method` with `oauth_provider`
+    set to `microsoft_graph_security`.
+    No separate licensing requirement is documented.
+  display_group: Microsoft Graph Security
+  doc_url: https://learn.microsoft.com/en-us/graph/api/security-auditlogquery-list-records?view=graph-rest-1.0
+  namespace: tools.microsoft_graph_security
+  name: list_audit_log_records
+  secrets:
+    - type: oauth
+      provider_id: microsoft_graph_security
+      grant_type: client_credentials
+      optional: true
+    - type: oauth
+      provider_id: microsoft_graph_security
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: microsoft_graph
+      grant_type: client_credentials
+      optional: true
+    - type: oauth
+      provider_id: microsoft_graph
+      grant_type: authorization_code
+      optional: true
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Microsoft Graph v1.0 API root. If omitted, uses the workspace variable
+        `microsoft_graph_security.base_url`, then
+        `microsoft_graph.base_url`, then https://graph.microsoft.com/v1.0. This
+        endpoint is only available in the global service.
+      default: null
+    auth_mode:
+      type: enum["application", "delegated", "auto"]
+      description: >-
+        Credential to use. `application` requires
+        MICROSOFT_GRAPH_SECURITY_SERVICE_TOKEN, then MICROSOFT_GRAPH_SERVICE_TOKEN;
+        `delegated` requires MICROSOFT_GRAPH_SECURITY_USER_TOKEN, then
+        MICROSOFT_GRAPH_USER_TOKEN; `auto` tries all four in that order.
+      default: application
+    auditLogQueryId:
+      type: str
+      description: The unique identifier of the auditLogQuery.
+  steps:
+    - ref: call_graph
+      action: tools.microsoft_graph_sdk.call_method
+      args:
+        oauth_provider: microsoft_graph_security
+        path: /security/auditLog/queries/${{ FN.url_encode(inputs.auditLogQueryId) }}/records
+        method: GET
+        base_url: ${{ inputs.base_url || VARS.microsoft_graph_security.base_url || VARS.microsoft_graph.base_url || "https://graph.microsoft.com/v1.0" }}
+        auth_mode: ${{ inputs.auth_mode }}
+  returns: ${{ steps.call_graph.result }}

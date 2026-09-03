@@ -8,8 +8,11 @@ definition:
   name: eml_analyze
   expects:
     payload:
+      # Generic: this endpoint rejects an explicit null on optional body fields,
+      # and a literal payload map cannot omit an unset optional.
       type: dict[str, Any]
-      description: API-native analyze request containing raw_message and optional rules or queries.
+      description: >-
+        API-native request body. Documented fields: raw_message (required), queries, rules, run_active_detection_rules, run_all_detection_rules, run_all_insights.
     base_url:
       type: str
       description: Base URL of the Sublime EML Analyzer API.

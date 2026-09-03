@@ -31,7 +31,7 @@ from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
-from tracecat.exceptions import RegistryError
+from tracecat.exceptions import RegistryError, RegistryTemplateLoadError
 from tracecat.expressions.expectations import create_expectation_model
 from tracecat.expressions.validation import TemplateValidator
 from tracecat.git.utils import GitUrl, get_git_repository_sha, parse_git_url
@@ -823,7 +823,7 @@ class Repository:
                     path=file_path,
                     error=str(exc),
                 )
-                raise RegistryError(
+                raise RegistryTemplateLoadError(
                     f"Failed to load template action from {file_path}: {exc}"
                 ) from exc
             if template_action is None:

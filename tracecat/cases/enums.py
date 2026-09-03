@@ -57,6 +57,20 @@ class CaseStatus(StrEnum):
     OTHER = "other"
 
 
+class CaseVersionField(StrEnum):
+    """Case text fields that have immutable version history."""
+
+    SUMMARY = "summary"
+    DESCRIPTION = "description"
+
+
+class CaseAgentSessionInteractionOperation(StrEnum):
+    """Operations that associate an agent session with a case."""
+
+    CREATE = "create"
+    UPDATE = "update"
+
+
 class CaseEventType(StrEnum):
     """Case activity type values."""
 

@@ -10,9 +10,45 @@ definition:
     - name: elastic_security
       keys: ["ELASTIC_API_KEY"]
   expects:
-    params:
-      type: dict[str, Any] | None
-      description: Optional native Kibana query parameters.
+    fields:
+      type: list[str] | None
+      description: List of `alert.attributes` field names to return for each rule (for example `name`, `enabled`). If omitted, the default field set is returned.
+      default: null
+    filter:
+      type: str | None
+      description: "Search query. Filters the returned results according to the value of the specified field, using the `alert.attributes.<field name>:<field value>` syntax, where `<field name>` can be: name, enabled, tags, createdBy, interval, updatedBy. Even though the JSON rule object uses `created_by` and `updated_by` fields, you must use `createdBy` and `updatedBy` fields in the filter."
+      default: null
+    sort_field:
+      type: str | None
+      description: "Field to sort by. Possible values: created_at, createdAt, enabled, execution_summary.last_execution.date, execution_summary.last_execution.metrics.execution_gap_duration_s, execution_summary.last_execution.metrics.total_indexing_duration_ms, execution_summary.last_execution.metrics.total_search_duration_ms, execution_summary.last_execution.status, name, risk_score, riskScore, severity, updated_at, updatedAt."
+      default: null
+    sort_order:
+      type: str | None
+      description: "Sort order. Possible values: asc, desc."
+      default: null
+    page:
+      type: int | None
+      description: Page number. Defaults to 1.
+      default: null
+    per_page:
+      type: int | None
+      description: Rules per page. Defaults to 20.
+      default: null
+    gaps_range_start:
+      type: str | None
+      description: Gaps range start.
+      default: null
+    gaps_range_end:
+      type: str | None
+      description: Gaps range end.
+      default: null
+    gap_fill_statuses:
+      type: list[str] | None
+      description: "Gap fill statuses. Possible values: unfilled, in_progress, filled, error."
+      default: null
+    gap_auto_fill_scheduler_id:
+      type: str | None
+      description: Gap auto fill scheduler ID used to determine gap fill status for rules.
       default: null
     base_url:
       type: str | None
@@ -45,7 +81,17 @@ definition:
       args:
         url: ${{ inputs.base_url || VARS.elastic_security.base_url }}${{ steps.build_path.result }}
         method: GET
-        params: ${{ inputs.params }}
+        params:
+          fields: ${{ inputs.fields }}
+          filter: ${{ inputs.filter }}
+          sort_field: ${{ inputs.sort_field }}
+          sort_order: ${{ inputs.sort_order }}
+          page: ${{ inputs.page }}
+          per_page: ${{ inputs.per_page }}
+          gaps_range_start: ${{ inputs.gaps_range_start }}
+          gaps_range_end: ${{ inputs.gaps_range_end }}
+          gap_fill_statuses: ${{ inputs.gap_fill_statuses }}
+          gap_auto_fill_scheduler_id: ${{ inputs.gap_auto_fill_scheduler_id }}
         verify_ssl: ${{ inputs.verify_ssl }}
         headers:
           Authorization: ApiKey ${{ SECRETS.elastic_security.ELASTIC_API_KEY }}

@@ -460,7 +460,8 @@ export const $ActionRetryPolicy = {
     timeout: {
       type: "integer",
       title: "Timeout",
-      description: "Timeout for the action in seconds.",
+      description:
+        "Timeout for the action in seconds. Agent-backed AI actions clamp to the deployment's agent timeout bounds (see ActionStatement).",
       default: 300,
     },
     retry_until: {
@@ -1960,6 +1961,217 @@ export const $AgentModelAccessRead = {
   required: ["id", "organization_id", "workspace_id", "catalog_id"],
   title: "AgentModelAccessRead",
   description: "Model access entry.",
+} as const
+
+export const $AgentOtelConfig = {
+  properties: {
+    enabled: {
+      type: "boolean",
+      title: "Enabled",
+      description: "Whether Claude Code telemetry is enabled for agent runs.",
+      default: false,
+    },
+    endpoint: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 2083,
+          minLength: 1,
+          format: "uri",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Endpoint",
+      description: "OTLP collector endpoint for all signals.",
+    },
+    metrics_enabled: {
+      type: "boolean",
+      title: "Metrics Enabled",
+      description: "Whether metrics are exported.",
+      default: true,
+    },
+    logs_enabled: {
+      type: "boolean",
+      title: "Logs Enabled",
+      description: "Whether logs and events are exported.",
+      default: true,
+    },
+    traces_enabled: {
+      type: "boolean",
+      title: "Traces Enabled",
+      description:
+        "Whether traces are exported. Enables Claude Code beta tracing.",
+      default: false,
+    },
+    metrics_temporality: {
+      anyOf: [
+        {
+          type: "string",
+          enum: ["delta", "cumulative"],
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Metrics Temporality",
+      description: "Metrics aggregation temporality.",
+    },
+    metric_export_interval_ms: {
+      anyOf: [
+        {
+          type: "integer",
+          exclusiveMinimum: 0,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Metric Export Interval Ms",
+      description: "Metrics export interval in milliseconds.",
+    },
+    logs_export_interval_ms: {
+      anyOf: [
+        {
+          type: "integer",
+          exclusiveMinimum: 0,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Logs Export Interval Ms",
+      description: "Logs export interval in milliseconds.",
+    },
+    metrics_include_session_id: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Metrics Include Session Id",
+      description:
+        "Whether metrics include the Claude Code session identifier.",
+    },
+    metrics_include_version: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Metrics Include Version",
+      description: "Whether metrics include the Claude Code version.",
+    },
+    metrics_include_account_uuid: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Metrics Include Account Uuid",
+      description:
+        "Whether metrics include the authenticated account identifier.",
+    },
+    log_user_prompts: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Log User Prompts",
+      description: "Whether telemetry includes user prompt content.",
+    },
+    log_tool_details: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Log Tool Details",
+      description:
+        "Whether telemetry includes tool parameters and input arguments.",
+    },
+    log_tool_content: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Log Tool Content",
+      description: "Whether telemetry includes tool input and output content.",
+    },
+    resource_attributes: {
+      additionalProperties: {
+        type: "string",
+      },
+      type: "object",
+      title: "Resource Attributes",
+      description: "Resource attributes attached to exported telemetry.",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "AgentOtelConfig",
+  description: `Organization-scoped Claude Code OTel configuration.
+
+See https://code.claude.com/docs/en/monitoring-usage for the env vars
+these fields map onto.`,
+} as const
+
+export const $AgentOtelSettingsRead = {
+  properties: {
+    agent_otel_config: {
+      $ref: "#/components/schemas/AgentOtelConfig",
+    },
+  },
+  type: "object",
+  title: "AgentOtelSettingsRead",
+} as const
+
+export const $AgentOtelSettingsUpdate = {
+  properties: {
+    agent_otel_config: {
+      $ref: "#/components/schemas/AgentOtelConfig",
+      description: "Claude Code OTel telemetry configuration for agent runs.",
+    },
+    agent_otel_headers: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Otel Headers",
+      description:
+        "Encrypted headers for the Claude Code OTLP exporter. Omitted values leave existing headers unchanged.",
+    },
+  },
+  type: "object",
+  title: "AgentOtelSettingsUpdate",
 } as const
 
 export const $AgentOutput = {
@@ -6229,6 +6441,102 @@ export const $CachePoint = {
   title: "CachePoint",
 } as const
 
+export const $CaseAgentSessionBackfillStatus = {
+  type: "string",
+  enum: ["running", "completed", "failed"],
+  title: "CaseAgentSessionBackfillStatus",
+  description: "Lifecycle state for the durable backfill operation.",
+} as const
+
+export const $CaseAgentSessionInteractionBackfillResponse = {
+  properties: {
+    batches_processed: {
+      type: "integer",
+      title: "Batches Processed",
+    },
+    sessions_scanned: {
+      type: "integer",
+      title: "Sessions Scanned",
+    },
+    history_rows_scanned: {
+      type: "integer",
+      title: "History Rows Scanned",
+    },
+    mutation_candidates: {
+      type: "integer",
+      title: "Mutation Candidates",
+    },
+    inserted: {
+      type: "integer",
+      title: "Inserted",
+    },
+    existing: {
+      type: "integer",
+      title: "Existing",
+    },
+    skipped: {
+      additionalProperties: {
+        type: "integer",
+      },
+      type: "object",
+      title: "Skipped",
+    },
+  },
+  type: "object",
+  required: [
+    "batches_processed",
+    "sessions_scanned",
+    "history_rows_scanned",
+    "mutation_candidates",
+    "inserted",
+    "existing",
+    "skipped",
+  ],
+  title: "CaseAgentSessionInteractionBackfillResponse",
+  description: "Aggregate result of the historical interaction backfill.",
+} as const
+
+export const $CaseAgentSessionInteractionBackfillStartResponse = {
+  properties: {
+    operation_id: {
+      type: "string",
+      format: "uuid",
+      title: "Operation Id",
+    },
+  },
+  type: "object",
+  required: ["operation_id"],
+  title: "CaseAgentSessionInteractionBackfillStartResponse",
+  description: "Response after starting or joining the durable backfill.",
+} as const
+
+export const $CaseAgentSessionInteractionBackfillStatusResponse = {
+  properties: {
+    operation_id: {
+      type: "string",
+      format: "uuid",
+      title: "Operation Id",
+    },
+    status: {
+      $ref: "#/components/schemas/CaseAgentSessionBackfillStatus",
+    },
+    report: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseAgentSessionInteractionBackfillResponse",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  required: ["operation_id", "status"],
+  title: "CaseAgentSessionInteractionBackfillStatusResponse",
+  description: "Current state and optional result of the durable backfill.",
+} as const
+
 export const $CaseArtifact = {
   properties: {
     id: {
@@ -6581,7 +6889,6 @@ export const $CaseCommentCreate = {
     content: {
       type: "string",
       maxLength: 25000,
-      minLength: 1,
       title: "Content",
     },
     parent_id: {
@@ -8531,6 +8838,49 @@ export const $CaseFieldUpdate = {
   description: "Update a case field.",
 } as const
 
+export const $CaseLinkedTableRead = {
+  properties: {
+    table_id: {
+      type: "string",
+      format: "uuid",
+      title: "Table Id",
+    },
+    table_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Table Name",
+    },
+    row_count: {
+      type: "integer",
+      title: "Row Count",
+    },
+    columns: {
+      items: {
+        $ref: "#/components/schemas/TableColumnRead",
+      },
+      type: "array",
+      title: "Columns",
+    },
+  },
+  type: "object",
+  required: ["table_id", "row_count", "columns"],
+  title: "CaseLinkedTableRead",
+  description: `One table with at least one row linked to a case.
+
+\`\`row_count\`\` counts links, including links whose source row was deleted.
+
+\`\`columns\`\` carries the table's column definitions so a caller can render
+the linked rows without a separate table read. It is empty when the table
+itself is gone. \`\`is_index\`\` is not populated here; read the table directly
+when unique-index state matters.`,
+} as const
+
 export const $CasePriority = {
   type: "string",
   enum: ["unknown", "low", "medium", "high", "critical", "other"],
@@ -8878,6 +9228,83 @@ export const $CaseStatusGroupCounts = {
   },
   type: "object",
   title: "CaseStatusGroupCounts",
+} as const
+
+export const $CaseTableRowBatchLink = {
+  properties: {
+    table_id: {
+      type: "string",
+      format: "uuid",
+      title: "Table Id",
+    },
+    row_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      maxItems: 100,
+      minItems: 1,
+      title: "Row Ids",
+    },
+  },
+  type: "object",
+  required: ["table_id", "row_ids"],
+  title: "CaseTableRowBatchLink",
+} as const
+
+export const $CaseTableRowBatchLinkResponse = {
+  properties: {
+    linked_count: {
+      type: "integer",
+      title: "Linked Count",
+    },
+    already_linked_count: {
+      type: "integer",
+      title: "Already Linked Count",
+    },
+  },
+  type: "object",
+  required: ["linked_count", "already_linked_count"],
+  title: "CaseTableRowBatchLinkResponse",
+  description:
+    "linked_count + already_linked_count == number of distinct row IDs requested.",
+} as const
+
+export const $CaseTableRowBatchUnlink = {
+  properties: {
+    table_id: {
+      type: "string",
+      format: "uuid",
+      title: "Table Id",
+    },
+    row_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      maxItems: 100,
+      minItems: 1,
+      title: "Row Ids",
+    },
+  },
+  type: "object",
+  required: ["table_id", "row_ids"],
+  title: "CaseTableRowBatchUnlink",
+} as const
+
+export const $CaseTableRowBatchUnlinkResponse = {
+  properties: {
+    unlinked_count: {
+      type: "integer",
+      title: "Unlinked Count",
+    },
+  },
+  type: "object",
+  required: ["unlinked_count"],
+  title: "CaseTableRowBatchUnlinkResponse",
+  description: "Row IDs with no link are silently skipped.",
 } as const
 
 export const $CaseTableRowInsertCreate = {
@@ -9519,6 +9946,170 @@ export const $CaseUpdate = {
   },
   type: "object",
   title: "CaseUpdate",
+} as const
+
+export const $CaseVersionActorRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    email: {
+      type: "string",
+      title: "Email",
+    },
+    first_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "First Name",
+    },
+    last_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Name",
+    },
+  },
+  type: "object",
+  required: ["id", "email"],
+  title: "CaseVersionActorRead",
+  description: "Minimal user metadata for a case-version author.",
+} as const
+
+export const $CaseVersionCompareRead = {
+  properties: {
+    selected: {
+      $ref: "#/components/schemas/CaseVersionContentRead",
+    },
+    predecessor: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseVersionContentRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  required: ["selected"],
+  title: "CaseVersionCompareRead",
+  description:
+    "Raw snapshots for client-side comparison of a selected case version.",
+} as const
+
+export const $CaseVersionContentRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    field: {
+      $ref: "#/components/schemas/CaseVersionField",
+    },
+    version: {
+      type: "integer",
+      title: "Version",
+    },
+    content: {
+      type: "string",
+      title: "Content",
+    },
+  },
+  type: "object",
+  required: ["id", "field", "version", "content"],
+  title: "CaseVersionContentRead",
+  description: "Content for one immutable case field version.",
+} as const
+
+export const $CaseVersionField = {
+  type: "string",
+  enum: ["summary", "description"],
+  title: "CaseVersionField",
+  description: "Case text fields that have immutable version history.",
+} as const
+
+export const $CaseVersionReadMinimal = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    field: {
+      $ref: "#/components/schemas/CaseVersionField",
+    },
+    version: {
+      type: "integer",
+      title: "Version",
+    },
+    actor: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseVersionActorRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    is_latest: {
+      type: "boolean",
+      title: "Is Latest",
+      description: "Whether this is the latest immutable version for its field",
+    },
+  },
+  type: "object",
+  required: ["id", "field", "version", "created_at", "is_latest"],
+  title: "CaseVersionReadMinimal",
+  description: "Version metadata returned by the case history endpoint.",
+} as const
+
+export const $CaseVersionRestoreRead = {
+  properties: {
+    restored: {
+      type: "boolean",
+      title: "Restored",
+      default: true,
+    },
+    case_id: {
+      type: "string",
+      format: "uuid",
+      title: "Case Id",
+    },
+    restored_from_version_id: {
+      type: "string",
+      format: "uuid",
+      title: "Restored From Version Id",
+    },
+    field: {
+      $ref: "#/components/schemas/CaseVersionField",
+    },
+  },
+  type: "object",
+  required: ["case_id", "restored_from_version_id", "field"],
+  title: "CaseVersionRestoreRead",
+  description:
+    "Confirmation that a historical case field version was restored.",
 } as const
 
 export const $CaseViewedEventRead = {
@@ -11303,6 +11894,69 @@ export const $CursorPaginatedResponse_CaseTableRowRead_ = {
   type: "object",
   required: ["items"],
   title: "CursorPaginatedResponse[CaseTableRowRead]",
+} as const
+
+export const $CursorPaginatedResponse_CaseVersionReadMinimal_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/CaseVersionReadMinimal",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[CaseVersionReadMinimal]",
 } as const
 
 export const $CursorPaginatedResponse_InboxItemRead_ = {
@@ -16276,6 +16930,13 @@ export const $MCPHTTPOAuth2ConnectionSpec = {
       ],
       title: "Oauth Token Endpoint",
     },
+    oauth_authorize_params: {
+      additionalProperties: {
+        type: "string",
+      },
+      type: "object",
+      title: "Oauth Authorize Params",
+    },
     config_fields: {
       items: {
         $ref: "#/components/schemas/MCPConfigField",
@@ -16386,7 +17047,22 @@ export const $MCPHttpIntegrationCreate = {
       ],
       title: "Custom Credentials",
       description:
-        "Custom credentials as JSON headers. Required for custom auth type; optional additional headers for OAuth2 auth type.",
+        "HTTP headers as a JSON object. Required for custom auth type; optional additional headers for OAuth2 auth type.",
+    },
+    oauth_client_credentials: {
+      anyOf: [
+        {
+          type: "string",
+          format: "password",
+          writeOnly: true,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Oauth Client Credentials",
+      description:
+        "OAuth client credentials as a JSON object (client_id / client_secret) for catalog OAuth2 rows that declare an 'oauth_client' credential. Kept separate from custom_credentials so one connect can carry both a user-created OAuth client and extra HTTP headers.",
     },
   },
   type: "object",
@@ -19961,6 +20637,13 @@ export const $ProviderMetadata = {
       description: "Whether this provider is available for use",
       default: true,
     },
+    service_account_json: {
+      type: "boolean",
+      title: "Service Account Json",
+      description:
+        "Whether the client secret is a service account JSON key instead of an OAuth client secret",
+      default: false,
+    },
     api_docs_url: {
       anyOf: [
         {
@@ -22349,6 +23032,18 @@ export const $RunActionInput = {
       ],
       title: "Session Id",
     },
+    agent_session_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Session Id",
+    },
     registry_lock: {
       $ref: "#/components/schemas/RegistryLock",
     },
@@ -24700,7 +25395,7 @@ export const $SkillUploadSessionCreate = {
     },
     size_bytes: {
       type: "integer",
-      exclusiveMinimum: 0,
+      minimum: 0,
       title: "Size Bytes",
     },
     content_type: {

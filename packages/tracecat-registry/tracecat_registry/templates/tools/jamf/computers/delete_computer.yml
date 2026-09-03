@@ -1,0 +1,33 @@
+type: action
+definition:
+  title: Delete computer
+  description: Permanently delete a computer's inventory record from Jamf Pro. The computer is not erased, but it stops being managed and its inventory history is lost. This cannot be undone.
+  display_group: Jamf Pro
+  doc_url: https://developer.jamf.com/jamf-pro/reference/delete_v4-computers-inventory-id
+  namespace: tools.jamf
+  name: delete_computer
+  secrets:
+    - type: oauth
+      provider_id: jamf
+      grant_type: client_credentials
+      optional: true
+    - name: jamf
+      keys: ["JAMF_API_TOKEN"]
+      optional: true
+  expects:
+    base_url:
+      type: str | None
+      description: Jamf Pro base URL (e.g. https://acme.jamfcloud.com).
+      default: null
+    computer_id:
+      type: str
+      description: Computer ID.
+  steps:
+    - ref: delete_computer
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.jamf.base_url }}/api/v4/computers-inventory/${{ FN.url_encode(inputs.computer_id) }}
+        method: DELETE
+        headers:
+          Authorization: Bearer ${{ SECRETS.jamf_oauth.JAMF_SERVICE_TOKEN || SECRETS.jamf.JAMF_API_TOKEN }}
+  returns: ${{ steps.delete_computer.result }}

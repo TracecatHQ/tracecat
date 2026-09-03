@@ -1,0 +1,45 @@
+type: action
+definition:
+  title: Make user admin
+  description: Makes a user a super administrator.
+  display_group: Google Workspace Directory
+  doc_url: https://developers.google.com/workspace/admin/directory/reference/rest/v1/users/makeAdmin
+  namespace: tools.google_directory
+  name: make_user_admin
+  secrets:
+    - type: oauth
+      provider_id: google_admin
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_admin
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  expects:
+    user_key:
+      type: str
+      description: >-
+        Identifies the user in the API request. The value can be the user's primary email
+        address, alias email address, or unique user ID.
+    status:
+      type: bool
+      description: Indicates the administrator status of the user.
+  steps:
+    - ref: make_user_admin
+      action: tools.google_api.call_api
+      args:
+        service_name: admin
+        version: directory_v1
+        resource: users
+        method_name: makeAdmin
+        access_token: ${{ SECRETS.google_admin_oauth.GOOGLE_ADMIN_USER_TOKEN || SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/admin.directory.user"]
+        params:
+          userKey: ${{ inputs.user_key }}
+          body:
+            status: ${{ inputs.status }}
+  returns: ${{ steps.make_user_admin.result }}

@@ -1,0 +1,23 @@
+type: action
+definition:
+  title: Get public feed
+  description: >-
+    Get the public feed. Calls GET /openphish/public_feed/refs/heads/main/feed.txt directly.
+  display_group: OpenPhish
+  doc_url: https://raw.githubusercontent.com/openphish/public_feed/refs/heads/main/feed.txt
+  namespace: tools.openphish
+  name: get_public_feed
+  expects:
+    base_url:
+      type: str | None
+      description: Base URL of the OpenPhish public feed host.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.openphish.base_url || "https://raw.githubusercontent.com" }}/openphish/public_feed/refs/heads/main/feed.txt
+        method: GET
+        headers:
+          Accept: text/plain
+  returns: ${{ steps.request.result }}

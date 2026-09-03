@@ -1,0 +1,166 @@
+type: action
+definition:
+  title: Create scan
+  description: >-
+    Create a vulnerability scan. Calls POST /v1/scans directly.
+  display_group: ProjectDiscovery
+  doc_url: https://docs.projectdiscovery.io/api-reference/scans/create-scan
+  namespace: tools.project_discovery
+  name: create_scan
+  secrets:
+    - name: project_discovery
+      keys: ["PDCP_API_KEY"]
+  expects:
+    targets:
+      type: list[str] | None
+      description: Targets to scan.
+      default: null
+    templates:
+      type: list[str] | None
+      description: Templates to run.
+      default: null
+    assets:
+      type: list[str] | None
+      description: Assets to scan.
+      default: null
+    private_templates:
+      type: list[dict[str, Any]] | None
+      description: >-
+        Array of PrivateTemplates objects. Each object requires `name` (string) and
+        `contents` (string).
+      default: null
+    name:
+      type: str | None
+      description: Scan name.
+      default: null
+    recommended:
+      type: bool | None
+      description: Run recommended templates.
+      default: null
+    all:
+      type: bool | None
+      description: Run all templates.
+      default: null
+    alerting_config_ids:
+      type: list[str] | None
+      description: Alerting config IDs.
+      default: null
+    scan_config_ids:
+      type: list[str] | None
+      description: Scan config IDs.
+      default: null
+    reporting_config_ids:
+      type: list[str] | None
+      description: Reporting config IDs.
+      default: null
+    early_templates:
+      type: list[str] | None
+      description: Early templates to run.
+      default: null
+    exclude_targets:
+      type: list[str] | None
+      description: Targets to exclude.
+      default: null
+    enumeration_ids:
+      type: list[dict[str, Any]] | None
+      description: >-
+        Array of EnumerationIds objects. Each object requires `id` (string).
+      default: null
+    schedule_only:
+      type: bool | None
+      description: Only schedule the scan.
+      default: null
+    disable_global_alert_config:
+      type: bool | None
+      description: Disable the global alert config.
+      default: null
+    disable_global_report_config:
+      type: bool | None
+      description: Disable the global report config.
+      default: null
+    disable_global_scan_config:
+      type: bool | None
+      description: Disable the global scan config.
+      default: null
+    socks5_proxy:
+      type: str | None
+      description: SOCKS5 proxy.
+      default: null
+    agent_id:
+      type: str | None
+      description: Agent ID.
+      default: null
+    agent_tags:
+      type: list[str] | None
+      description: Agent tags.
+      default: null
+    agent_networks:
+      type: list[str] | None
+      description: Agent networks.
+      default: null
+    agent_behavior:
+      type: str | None
+      description: Agent behavior (distribute or mirror). Defaults to distribute.
+      default: null
+    automatic_scan:
+      type: bool | None
+      description: Enable automatic scan.
+      default: null
+    scan_all_assets:
+      type: bool | None
+      description: Scan all assets.
+      default: null
+    exclusions:
+      type: list[str] | None
+      description: Combined inclusion and exclusion patterns for scan scope. Exclusion patterns (e.g. `*.staging.company.com`) filter out matching targets. Inclusion patterns use a `+` prefix (e.g. `+prod-*.company.com`) to restrict scanning to only matching targets (allowlist mode). When inclusion patterns are present, targets must match at least one inclusion pattern and not match any exclusion pattern. Supports exact domains, wildcard patterns, IP addresses, and CIDR ranges.
+      default: null
+    asset_filters:
+      type: dict[str, Any] | None
+      description: Asset filters object (documented keys are is_tech, is_favicon, is_new, labels, host, port, status_code, content_length, title, domain, cname, technologies, ip, is_screenshot, time, start_date, end_date, custom_filter, search, enumeration_ids, only_dns, only_ip, not_seen_for_days).
+      default: null
+    team_id:
+      type: str | None
+      description: "Retrieve the Team ID from: https://cloud.projectdiscovery.io/settings/team"
+      default: null
+    base_url:
+      type: str | None
+      description: ProjectDiscovery Cloud API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.project_discovery.base_url || "https://api.projectdiscovery.io" }}/v1/scans
+        method: POST
+        headers:
+          X-Api-Key: ${{ SECRETS.project_discovery.PDCP_API_KEY }}
+          X-Team-Id: ${{ inputs.team_id }}
+          Content-Type: application/json
+        payload:
+          targets: ${{ inputs.targets }}
+          templates: ${{ inputs.templates }}
+          assets: ${{ inputs.assets }}
+          private_templates: ${{ inputs.private_templates }}
+          name: ${{ inputs.name }}
+          recommended: ${{ inputs.recommended }}
+          all: ${{ inputs.all }}
+          alerting_config_ids: ${{ inputs.alerting_config_ids }}
+          scan_config_ids: ${{ inputs.scan_config_ids }}
+          reporting_config_ids: ${{ inputs.reporting_config_ids }}
+          early_templates: ${{ inputs.early_templates }}
+          exclude_targets: ${{ inputs.exclude_targets }}
+          enumeration_ids: ${{ inputs.enumeration_ids }}
+          schedule_only: ${{ inputs.schedule_only }}
+          disable_global_alert_config: ${{ inputs.disable_global_alert_config }}
+          disable_global_report_config: ${{ inputs.disable_global_report_config }}
+          disable_global_scan_config: ${{ inputs.disable_global_scan_config }}
+          socks5_proxy: ${{ inputs.socks5_proxy }}
+          agent_id: ${{ inputs.agent_id }}
+          agent_tags: ${{ inputs.agent_tags }}
+          agent_networks: ${{ inputs.agent_networks }}
+          agent_behavior: ${{ inputs.agent_behavior }}
+          automatic_scan: ${{ inputs.automatic_scan }}
+          scan_all_assets: ${{ inputs.scan_all_assets }}
+          exclusions: ${{ inputs.exclusions }}
+          asset_filters: ${{ inputs.asset_filters }}
+  returns: ${{ steps.request.result }}

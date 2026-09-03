@@ -1,0 +1,30 @@
+type: action
+definition:
+  title: List supported files
+  description: >-
+    List supported files. Calls GET /v0/orgs/{org_slug}/supported-files directly.
+  display_group: Socket
+  doc_url: https://docs.socket.dev/reference/getsupportedfiles
+  namespace: tools.socket
+  name: list_supported_files
+  secrets:
+    - name: socket
+      keys: ["SOCKET_API_TOKEN"]
+  expects:
+    org_slug:
+      type: str
+      description: Socket organization slug.
+    base_url:
+      type: str | None
+      description: Base URL of the Socket API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.socket.base_url || "https://api.socket.dev" }}/v0/orgs/${{ FN.url_encode(inputs.org_slug) }}/supported-files
+        method: GET
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.socket.SOCKET_API_TOKEN }}
+  returns: ${{ steps.request.result }}

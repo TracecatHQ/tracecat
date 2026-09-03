@@ -33,6 +33,7 @@ from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.socket_io import SocketStreamWriter
 from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
 from tracecat.agent.common.types import (
+    MCPServerConfig,
     MCPToolDefinition,
     SandboxAgentConfig,
     SandboxSubagentConfig,
@@ -254,6 +255,28 @@ def test_get_litellm_route_model_prefixes_provider_route(
 
 class TestClaudeAgentRuntimeRun:
     """Tests for ClaudeAgentRuntime.run()."""
+
+    def test_stdio_servers_cannot_claim_registry_names(self) -> None:
+        """Reserve trusted registry identities even without registry actions."""
+        configs: list[MCPServerConfig] = [
+            {
+                "type": "stdio",
+                "name": "tracecat-registry",
+                "command": "canonical-server",
+            },
+            {
+                "type": "stdio",
+                "name": "tracecat_registry",
+                "command": "legacy-server",
+            },
+        ]
+
+        spec = ClaudeAgentRuntime._stdio_mcp_server_spec(source_configs=configs)
+
+        assert set(spec.servers) == {
+            "tracecat-registry-2",
+            "tracecat_registry-2",
+        }
 
     def test_trusted_mcp_bridge_disables_response_compression(self) -> None:
         """The MCP SDK parses bridge responses itself, so request plain JSON."""
@@ -1299,15 +1322,42 @@ class TestClaudeAgentRuntimeRun:
         assert captured_options
         assert captured_options[0].env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] == "128000"
 
-    def test_enables_tool_search(
+    @pytest.mark.parametrize(
+        ("provider", "expected"),
+        [
+            ("anthropic", "true"),
+            ("bedrock", "false"),
+        ],
+    )
+    def test_configures_tool_search_by_root_provider(
+        self,
+        sample_init_payload: RuntimeInitPayload,
+        provider: str,
+        expected: str,
+    ) -> None:
+        payload = replace(
+            sample_init_payload,
+            config=sample_init_payload.config.model_copy(
+                update={"model_provider": provider}
+            ),
+        )
+
+        env = ClaudeAgentRuntime._sdk_env(payload)
+
+        assert env["ENABLE_TOOL_SEARCH"] == expected
+
+    def test_passthrough_keeps_experimental_beta_features_enabled(
         self,
         sample_init_payload: RuntimeInitPayload,
     ) -> None:
-        # Always on: the CLI would otherwise disable deferred tool loading
-        # because the socket bridge is not a first-party Anthropic host.
-        env = ClaudeAgentRuntime._sdk_env(sample_init_payload)
+        payload = replace(
+            sample_init_payload,
+            config=sample_init_payload.config.model_copy(update={"passthrough": True}),
+        )
 
-        assert env["ENABLE_TOOL_SEARCH"] == "true"
+        env = ClaudeAgentRuntime._sdk_env(payload)
+
+        assert "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS" not in env
 
     @pytest.mark.anyio
     async def test_agents_toggle_adds_agent_tool_without_custom_subagents(
@@ -1411,7 +1461,19 @@ class TestClaudeAgentRuntimeRun:
                             "enabled": True,
                             "subagents": [{"preset": "analyst"}],
                         }
-                    )
+                    ),
+                    "mcp_servers": [
+                        {
+                            "type": "stdio",
+                            "name": "tracecat-registry-analyst",
+                            "command": "canonical-collision",
+                        },
+                        {
+                            "type": "stdio",
+                            "name": "tracecat_registry-analyst",
+                            "command": "legacy-collision",
+                        },
+                    ],
                 }
             ),
             subagents=[child],
@@ -1439,7 +1501,15 @@ class TestClaudeAgentRuntimeRun:
                     "Authorization": "Bearer test-jwt-token",
                     "Accept-Encoding": "identity",
                 },
-            }
+            },
+            "tracecat-registry-analyst-2": {
+                "type": "stdio",
+                "command": "canonical-collision",
+            },
+            "tracecat_registry-analyst-2": {
+                "type": "stdio",
+                "command": "legacy-collision",
+            },
         }
         agent_def = options.agents["analyst"]
         assert agent_def.model == "openai/gpt-5-mini"
@@ -1479,6 +1549,36 @@ class TestClaudeAgentRuntimeRun:
             "EnterWorktree",
             "ExitWorktree",
         }
+        assert "ToolSearch" not in (agent_def.disallowedTools or [])
+
+    def test_bedrock_subagent_disallows_tool_search(
+        self,
+        mock_socket_writer: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+    ) -> None:
+        child = SandboxSubagentConfig(
+            alias="analyst",
+            description="Use for Bedrock analysis.",
+            prompt="Analyze the request.",
+            config=sample_init_payload.config.model_copy(
+                update={
+                    "model_name": "bedrock-profile",
+                    "model_provider": "bedrock",
+                }
+            ),
+            mcp_auth_token="child-mcp-token",
+        )
+        payload = replace(sample_init_payload, subagents=[child])
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer,
+            transport_factory=lambda _: MagicMock(),
+        )
+
+        definitions = runtime._build_agent_definitions(payload=payload)
+
+        assert definitions is not None
+        assert "ToolSearch" in (definitions["analyst"].disallowedTools or [])
+        assert runtime._sdk_env(payload)["ENABLE_TOOL_SEARCH"] == "true"
 
     def test_explicit_subagent_without_scoped_tools_stays_toolless(
         self,

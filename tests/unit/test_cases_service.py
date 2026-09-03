@@ -250,6 +250,17 @@ class TestCasesService:
         assert retrieved_case.priority == case_create_params.priority
         assert retrieved_case.severity == case_create_params.severity
 
+    async def test_case_exists(
+        self,
+        cases_service: CasesService,
+        case_create_params: CaseCreate,
+    ) -> None:
+        """Test the lightweight case existence probe."""
+        created_case = await cases_service.create_case(case_create_params)
+
+        assert await cases_service.case_exists(created_case.id) is True
+        assert await cases_service.case_exists(uuid.uuid4()) is False
+
     async def test_create_and_get_case_with_assignee(
         self,
         cases_service: CasesService,
@@ -1937,6 +1948,54 @@ class TestCasesService:
         )
 
         assert search_response.model_dump() == list_response.model_dump()
+
+    async def test_search_cases_reverse_pagination_returns_adjacent_page(
+        self, cases_service: CasesService
+    ) -> None:
+        """A previous cursor returns the adjacent page, not the first page."""
+        for i in range(9):
+            await cases_service.create_case(
+                CaseCreate(
+                    summary=f"Reverse pagination case {i}",
+                    description="Case for reverse pagination test",
+                    status=CaseStatus.NEW,
+                    priority=CasePriority.MEDIUM,
+                    severity=CaseSeverity.LOW,
+                )
+            )
+
+        async def get_page(cursor: str | None = None, *, reverse: bool = False):
+            return await cases_service.search_cases(
+                params=CursorPaginationParams(
+                    limit=3,
+                    cursor=cursor,
+                    reverse=reverse,
+                )
+            )
+
+        all_cases = await cases_service.search_cases(
+            params=CursorPaginationParams(limit=20)
+        )
+        expected_ids = [case.id for case in all_cases.items]
+
+        page1 = await get_page()
+        page2 = await get_page(page1.next_cursor)
+        page3 = await get_page(page2.next_cursor)
+        assert [case.id for case in page3.items] == expected_ids[6:9]
+        assert page3.prev_cursor is not None
+
+        back = await get_page(page3.prev_cursor, reverse=True)
+        assert [case.id for case in back.items] == expected_ids[3:6]
+        assert back.next_cursor is not None
+        assert back.prev_cursor is not None
+
+        forward_again = await get_page(back.next_cursor)
+        assert [case.id for case in forward_again.items] == expected_ids[6:9]
+
+        back_to_first = await get_page(back.prev_cursor, reverse=True)
+        assert [case.id for case in back_to_first.items] == expected_ids[:3]
+        assert back_to_first.next_cursor is not None
+        assert back_to_first.prev_cursor is None
 
     async def test_search_cases_gates_duration_selectinload(
         self, cases_service: CasesService

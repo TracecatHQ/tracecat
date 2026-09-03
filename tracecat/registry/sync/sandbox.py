@@ -260,7 +260,7 @@ def main(
             )
         )
     except Exception as exc:
-        return SyncResultError(error=str(exc)).model_dump(mode="json")
+        return SyncResultError.from_exception(exc).model_dump(mode="json")
     return result.model_dump(mode="json")
 """
 
@@ -754,5 +754,5 @@ class RegistrySyncSandbox:
 
             parsed_result = SyncResultAdapter.validate_python(result.output)
             if isinstance(parsed_result, SyncResultError):
-                raise RegistryError(parsed_result.error)
+                raise parsed_result.to_exception()
             return parsed_result

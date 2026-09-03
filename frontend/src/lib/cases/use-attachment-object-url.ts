@@ -1,8 +1,8 @@
 "use client"
 
-import { useQuery } from "@tanstack/react-query"
 import { useEffect, useState } from "react"
 import { caseAttachmentsDownloadAttachment } from "@/client"
+import { useQuery } from "@/lib/query"
 
 /**
  * Resolve a case attachment image to a short-lived object URL.
@@ -40,6 +40,7 @@ export function useAttachmentObjectUrl(
         attachmentId: attachmentId as string,
         preview: true,
       })
+      // Cross-origin presigned host: must be listed in TRACECAT__CSP_CONNECT_SRC_ORIGINS.
       const fetched = await fetch(response.download_url)
       if (!fetched.ok) {
         throw new Error(`Failed to load image (${fetched.status})`)

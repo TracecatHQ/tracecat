@@ -1,6 +1,5 @@
 "use client"
 
-import { useQueryClient } from "@tanstack/react-query"
 import {
   type ChatOnDataCallback,
   type ChatStatus,
@@ -14,7 +13,6 @@ import {
 import {
   CheckIcon,
   Loader2,
-  MousePointer2OffIcon,
   MousePointerClickIcon,
   PencilIcon,
   RefreshCcwIcon,
@@ -24,7 +22,6 @@ import { motion } from "motion/react"
 import {
   type ChangeEvent,
   type FocusEvent,
-  type KeyboardEvent,
   memo,
   type ReactNode,
   useCallback,
@@ -34,7 +31,6 @@ import {
   useState,
 } from "react"
 import type {
-  AgentPresetReadMinimal,
   AgentSessionEntity,
   AgentSessionReadVercel,
   ApprovalDecision,
@@ -48,19 +44,8 @@ import {
 } from "@/components/ai-elements/conversation"
 import { Message, MessageContent } from "@/components/ai-elements/message"
 import {
-  ModelSelector,
-  ModelSelectorContent,
-  ModelSelectorEmpty,
-  ModelSelectorGroup,
-  ModelSelectorInput,
-  ModelSelectorItem,
-  ModelSelectorList,
-  ModelSelectorTrigger,
-} from "@/components/ai-elements/model-selector"
-import {
   PromptInput,
   PromptInputBody,
-  PromptInputButton,
   PromptInputFooter,
   PromptInputHeader,
   type PromptInputMessage,
@@ -96,6 +81,8 @@ import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { getIcon, ProviderIcon } from "@/components/icons"
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { Dots } from "@/components/loading/dots"
+import { MentionHint } from "@/components/mentions/mention-hint"
+import { MentionPopover } from "@/components/mentions/mention-popover"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -109,6 +96,7 @@ import {
   useUpdateChat,
   useVercelChat,
 } from "@/hooks/use-chat"
+import { useMentions } from "@/hooks/use-mentions"
 import { useOverflowBadges } from "@/hooks/use-overflow-badges"
 import { isAgentToolSelectable } from "@/lib/agent-tools"
 import {
@@ -126,36 +114,35 @@ import {
   transformMessages,
 } from "@/lib/chat"
 import { useBuilderRegistryActions, useListMcpIntegrations } from "@/lib/hooks"
+import { findAgentMention, type MentionRange } from "@/lib/mentions"
+import { useQueryClient } from "@/lib/query"
 import { cn } from "@/lib/utils"
 import type { ChatSurface } from "@/types/chat-surface"
 import { ARTIFACT_DATA_PART_TYPE } from "@/types/workspace-chat-artifacts"
 
-const MAX_TOOL_MENTION_RESULTS = 40
 const AGENT_TOOL_NAMES = new Set(["Agent", "Task"])
 const AGENT_TOOL_TARGET_KEYS = ["subagent_type", "agent_type", "type", "name"]
 const AGENT_TOOL_NESTED_INPUT_KEYS = ["args", "input", "tool_input"]
 
-type ToolMentionToken = {
-  start: number
-  end: number
-  query: string
-}
-
-type ToolMentionState = ToolMentionToken & {
-  activeIndex: number
-}
-
 const TOOL_ICON_PROPS = { className: "size-5 p-[3px]" } as const
-
-type ToolSuggestion = {
-  value: string
-  label: string
-  description?: string
-  group?: string
-}
 
 function messageHasVisibleParts(message: UIMessage): boolean {
   return message.parts.some((part) => part.type !== ARTIFACT_DATA_PART_TYPE)
+}
+
+/**
+ * Raised to abandon a submit that sent no message.
+ *
+ * `submitPrompt` runs its cleanup after any submit that resolves, clearing
+ * attachments and blanking the textarea, so a turn that produced nothing has to
+ * reject to leave the composer alone. It swallows the rejection. Anything worth
+ * telling the user is reported before this is thrown.
+ */
+class SubmitAbandonedError extends Error {
+  constructor(reason: string) {
+    super(reason)
+    this.name = "SubmitAbandonedError"
+  }
 }
 
 /**
@@ -215,43 +202,20 @@ function areToolListsEqual(left: string[], right: string[]): boolean {
   )
 }
 
-function getToolMentionToken(
-  text: string,
-  caret: number
-): ToolMentionToken | undefined {
-  const beforeCaret = text.slice(0, caret)
-  const atIndex = beforeCaret.lastIndexOf("@")
-  if (atIndex < 0) {
-    return undefined
-  }
-
-  const priorChar = atIndex === 0 ? " " : beforeCaret[atIndex - 1]
-  if (priorChar.trim() !== "") {
-    return undefined
-  }
-
-  const query = beforeCaret.slice(atIndex + 1)
-  if (/\s/.test(query)) {
-    return undefined
-  }
-
-  return {
-    start: atIndex,
-    end: caret,
-    query,
-  }
-}
-
+/**
+ * Session preset wiring for the composer. The list itself comes from the
+ * mention popover, so this only carries the active selection and the write.
+ */
 type ChatPresetSelector = {
   label: string
-  presets?: AgentPresetReadMinimal[]
-  presetsIsLoading: boolean
-  presetsError: unknown
   selectedPresetId: string | null
-  onSelect: (presetId: string | null) => void | Promise<void>
+  /**
+   * Awaited before a message is sent so the preset lands on the same turn.
+   * Resolves false when the write failed, which aborts the send.
+   */
+  onSelect: (presetId: string | null) => Promise<boolean>
   disabled?: boolean
   showSpinner?: boolean
-  noPresetDescription?: string
 }
 
 export interface ChatSessionPaneProps {
@@ -268,6 +232,11 @@ export interface ChatSessionPaneProps {
   modelInfo?: ModelInfo
   toolsEnabled?: boolean
   agentAddonsEnabled?: boolean
+  /**
+   * Whether `@` offers agent presets on this surface. Independent of the
+   * entitlement: an un-entitled org still gets the trigger, on a lock row.
+   */
+  agentMentionsSupported?: boolean
   mcpEnabled?: boolean
   /** Autofocus the prompt input when the pane mounts. */
   autoFocusInput?: boolean
@@ -333,6 +302,7 @@ export function ChatSessionPane({
   modelInfo,
   toolsEnabled = true,
   agentAddonsEnabled = true,
+  agentMentionsSupported = false,
   mcpEnabled = false,
   autoFocusInput = false,
   onBeforeSend,
@@ -360,7 +330,26 @@ export function ChatSessionPane({
   >(undefined)
 
   const [input, setInput] = useState<string>("")
-  const [toolMention, setToolMention] = useState<ToolMentionState>()
+  const [isInputFocused, setIsInputFocused] = useState(false)
+  const promptTextareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const getInputText = useCallback(() => input, [input])
+  const mentions = useMentions({
+    workspaceId,
+    textareaRef: promptTextareaRef,
+    getText: getInputText,
+    setText: setInput,
+    // Presets are an agent add-on, so an un-entitled org gets the lock row
+    // rather than a dead `@`. Chat offers no `/` workflow commands.
+    agents: agentMentionsSupported
+      ? { entitlements: ["agent_addons"], single: true }
+      : undefined,
+  })
+  const {
+    handleTextChange: handleMentionTextChange,
+    handleKeyDown: handleMentionKeyDown,
+    dismiss: dismissMentions,
+    dropPrefix: dropMentionPrefix,
+  } = mentions
   const [selectedTools, setSelectedTools] = useState<string[]>([])
   const [selectedMcpIntegrations, setSelectedMcpIntegrations] = useState<
     string[]
@@ -372,12 +361,19 @@ export function ChatSessionPane({
   const { updateChat, isUpdating: isUpdatingTools } = useUpdateChat(workspaceId)
   const { cancelChatTurn, isCancellingChatTurn } =
     useCancelChatTurn(workspaceId)
-  const { registryActions, registryActionsIsLoading } =
-    useBuilderRegistryActions()
+  const { registryActions } = useBuilderRegistryActions()
   const sessionMcpEnabled = mcpEnabled && entityType === "copilot"
-  const { mcpIntegrations } = useListMcpIntegrations(workspaceId, undefined, {
-    enabled: toolsEnabled && sessionMcpEnabled,
-  })
+  // Without agent add-ons a session may only use the servers the workspace
+  // configured itself, so ask the API for that half of the list. The picker
+  // then cannot offer a Tracecat-managed catalog connector the run would drop.
+  const mcpIntegrationsSource = agentAddonsEnabled ? undefined : "workspace"
+  const { mcpIntegrations } = useListMcpIntegrations(
+    workspaceId,
+    mcpIntegrationsSource,
+    {
+      enabled: toolsEnabled && sessionMcpEnabled,
+    }
+  )
 
   // Check if this is a legacy read-only session
   const isReadonly = chat ? "is_readonly" in chat && chat.is_readonly : false
@@ -537,6 +533,8 @@ export function ChatSessionPane({
   }, [cancelChatTurn, cancelRequested, chat?.id, isReadonly])
   const isInputDisabledRef = useRef(isInputDisabled)
   isInputDisabledRef.current = isInputDisabled
+  /** Guards `handleSubmit` against re-entry while it awaits a preset write. */
+  const submitInFlightRef = useRef(false)
   const wasInputDisabledRef = useRef(isInputDisabled)
 
   useEffect(() => {
@@ -618,22 +616,19 @@ export function ChatSessionPane({
     onMessagesChange?.(messages)
   }, [messages, onMessagesChange])
 
-  const toolSuggestions = useMemo<ToolSuggestion[]>(() => {
-    const actions = registryActions ?? []
-    return actions
-      .filter((action) => isAgentToolSelectable(action.action))
-      .map((action) => ({
-        value: action.action,
-        label: action.default_title || action.action,
-        description: action.description ?? undefined,
-        group: action.namespace,
-      }))
-      .sort((left, right) => left.value.localeCompare(right.value))
-  }, [registryActions])
-
-  const toolSuggestionMap = useMemo(
-    () => new Map(toolSuggestions.map((tool) => [tool.value, tool])),
-    [toolSuggestions]
+  // Display labels for the selected-tool chips. Tools are picked in the Tools
+  // popover, which builds its own list, so nothing here needs ordering.
+  const toolLabels = useMemo(
+    () =>
+      new Map<string, string>(
+        (registryActions ?? [])
+          .filter((action) => isAgentToolSelectable(action.action))
+          .map((action) => [
+            action.action,
+            action.default_title || action.action,
+          ])
+      ),
+    [registryActions]
   )
 
   const persistToolsChainRef = useRef<Promise<void>>(Promise.resolve())
@@ -813,17 +808,6 @@ export function ChatSessionPane({
     [chat, isReadonly, updateChat]
   )
 
-  const addSelectedTool = useCallback(
-    (toolName: string) => {
-      if (selectedToolsRef.current.includes(toolName)) {
-        return
-      }
-
-      commitSelectedTools([...selectedToolsRef.current, toolName])
-    },
-    [commitSelectedTools]
-  )
-
   const removeSelectedTool = useCallback(
     (toolName: string) => {
       commitSelectedTools(
@@ -833,180 +817,23 @@ export function ChatSessionPane({
     [commitSelectedTools]
   )
 
-  const mentionEnabled =
-    toolsEnabled && !isReadonly && !inputDisabled && canSubmit
-
-  useEffect(() => {
-    if (!mentionEnabled) {
-      setToolMention(undefined)
-    }
-  }, [mentionEnabled])
-
-  const filteredToolSuggestions = useMemo(() => {
-    if (!toolMention) {
-      return []
-    }
-
-    const needle = toolMention.query.trim().toLowerCase()
-    const matches = toolSuggestions.filter((tool) => {
-      if (!needle) {
-        return true
-      }
-      return [tool.value, tool.label, tool.description ?? "", tool.group ?? ""]
-        .join(" ")
-        .toLowerCase()
-        .includes(needle)
-    })
-    return matches.slice(0, MAX_TOOL_MENTION_RESULTS)
-  }, [toolMention, toolSuggestions])
-
-  useEffect(() => {
-    if (!toolMention) {
-      return
-    }
-    if (filteredToolSuggestions.length === 0) {
-      setToolMention((current) => {
-        if (!current || current.activeIndex === 0) {
-          return current
-        }
-        return { ...current, activeIndex: 0 }
-      })
-      return
-    }
-
-    setToolMention((current) => {
-      if (!current) {
-        return current
-      }
-      const clampedIndex = Math.min(
-        current.activeIndex,
-        filteredToolSuggestions.length - 1
-      )
-      if (clampedIndex === current.activeIndex) {
-        return current
-      }
-      return { ...current, activeIndex: clampedIndex }
-    })
-  }, [filteredToolSuggestions.length, toolMention])
-
-  const handleSelectMentionTool = useCallback(
-    (toolName: string, textarea?: HTMLTextAreaElement) => {
-      const mention = toolMention
-      if (!mention) {
-        return
-      }
-
-      addSelectedTool(toolName)
-      setInput((current) => {
-        const before = current.slice(0, mention.start)
-        const after = current.slice(mention.end)
-        return `${before}${after}`
-      })
-      setToolMention(undefined)
-
-      if (!textarea) {
-        return
-      }
-
-      const caretPosition = mention.start
-      requestAnimationFrame(() => {
-        textarea.focus()
-        textarea.setSelectionRange(caretPosition, caretPosition)
-      })
-    },
-    [addSelectedTool, toolMention]
-  )
-
   const handleInputChange = useCallback(
     (event: ChangeEvent<HTMLTextAreaElement>) => {
       const nextText = event.target.value
+      // The mention layer diffs against the previous value, so it has to run
+      // before the new text lands in state.
+      handleMentionTextChange(
+        nextText,
+        event.target.selectionStart ?? nextText.length
+      )
       setInput(nextText)
-
-      if (!mentionEnabled) {
-        setToolMention(undefined)
-        return
-      }
-
-      const caret = event.target.selectionStart ?? nextText.length
-      const nextMention = getToolMentionToken(nextText, caret)
-      if (!nextMention) {
-        setToolMention(undefined)
-        return
-      }
-
-      setToolMention((current) => ({
-        ...nextMention,
-        activeIndex: current?.activeIndex ?? 0,
-      }))
     },
-    [mentionEnabled]
-  )
-
-  const handleInputKeyDown = useCallback(
-    (event: KeyboardEvent<HTMLTextAreaElement>) => {
-      if (!toolMention) {
-        return
-      }
-
-      if (event.key === "Escape") {
-        event.preventDefault()
-        setToolMention(undefined)
-        return
-      }
-
-      if (event.key === "ArrowDown") {
-        event.preventDefault()
-        if (filteredToolSuggestions.length === 0) {
-          return
-        }
-        setToolMention((current) => {
-          if (!current) {
-            return current
-          }
-          return {
-            ...current,
-            activeIndex:
-              (current.activeIndex + 1) % filteredToolSuggestions.length,
-          }
-        })
-        return
-      }
-
-      if (event.key === "ArrowUp") {
-        event.preventDefault()
-        if (filteredToolSuggestions.length === 0) {
-          return
-        }
-        setToolMention((current) => {
-          if (!current) {
-            return current
-          }
-          const nextIndex =
-            (current.activeIndex - 1 + filteredToolSuggestions.length) %
-            filteredToolSuggestions.length
-          return { ...current, activeIndex: nextIndex }
-        })
-        return
-      }
-
-      if (
-        (event.key === "Enter" || event.key === "Tab") &&
-        filteredToolSuggestions.length > 0
-      ) {
-        event.preventDefault()
-        const selected =
-          filteredToolSuggestions[toolMention.activeIndex] ??
-          filteredToolSuggestions[0]
-        if (selected) {
-          handleSelectMentionTool(selected.value, event.currentTarget)
-        }
-      }
-    },
-    [filteredToolSuggestions, handleSelectMentionTool, toolMention]
+    [handleMentionTextChange]
   )
 
   const handleInputFocus = useCallback(() => {
     promptTextareaFocusedRef.current = true
+    setIsInputFocused(true)
   }, [])
 
   const handlePromptPointerDownCapture = useCallback(() => {
@@ -1022,7 +849,8 @@ export function ChatSessionPane({
 
   const handleInputBlur = useCallback(
     (event: FocusEvent<HTMLTextAreaElement>) => {
-      setToolMention(undefined)
+      setIsInputFocused(false)
+      dismissMentions()
 
       const nextFocusedElement = event.relatedTarget
       if (
@@ -1041,7 +869,7 @@ export function ChatSessionPane({
         shouldRestoreInputFocusRef.current = false
       }
     },
-    []
+    [dismissMentions]
   )
 
   useEffect(() => {
@@ -1054,17 +882,14 @@ export function ChatSessionPane({
 
   const selectedToolBadges = useMemo(
     () =>
-      selectedTools.map((toolName) => {
-        const suggestion = toolSuggestionMap.get(toolName)
-        return {
-          value: toolName,
-          label: suggestion?.label ?? toolName,
-          icon: getIcon(toolName, {
-            className: "size-5 shrink-0",
-          }),
-        }
-      }),
-    [selectedTools, toolSuggestionMap]
+      selectedTools.map((toolName) => ({
+        value: toolName,
+        label: toolLabels.get(toolName) ?? toolName,
+        icon: getIcon(toolName, {
+          className: "size-5 shrink-0",
+        }),
+      })),
+    [selectedTools, toolLabels]
   )
 
   const transformedMessages = useMemo(
@@ -1167,14 +992,107 @@ export function ChatSessionPane({
       return
     }
 
+    // A submit awaits the preset write before it sends, and the composer stays
+    // enabled meanwhile. Without this a second Enter would see the optimistic
+    // `selectedPresetId`, skip the write it is still waiting on, and send under
+    // the preset the server has -- then the first submit would resume and send
+    // again. A ref rather than state because two keystrokes in the same tick
+    // would both read a stale `false`.
+    if (submitInFlightRef.current) {
+      // Reject rather than return: a resolved duplicate makes `submitPrompt`
+      // clear attachments and blank the textarea, and the submit still running
+      // reads that live value to tell the sent message from a newer draft.
+      throw new SubmitAbandonedError("A submit is already in flight")
+    }
+    submitInFlightRef.current = true
+    try {
+      await submitMessage(message)
+    } finally {
+      submitInFlightRef.current = false
+    }
+  }
+
+  const submitMessage = async (message: PromptInputMessage) => {
     const messageText = message.text || ""
+
+    // An `@Agent` mention sets the session preset for the whole conversation.
+    // Awaited first so the write lands before the turn is sent, and before the
+    // tool and MCP persistence chains below.
+    const agentMention = findAgentMention(mentions.ranges)
+    if (agentMention) {
+      // The mention names the agent that should answer, so nothing below may
+      // fall through and run the turn under the previous one.
+      if (!presetSelector) {
+        // `ChatInterface` drops the selector as soon as agent add-ons stop
+        // resolving -- revoked, or a refetch that failed -- while the bound
+        // range survives in the composer. Nothing here can apply the mention,
+        // and nothing else would tell the user, so say so before abandoning.
+        toast({
+          title: "Could not route to the mentioned agent",
+          description:
+            "Agent presets are unavailable right now. Reload and try again.",
+        })
+        throw new SubmitAbandonedError("Preset selector is unavailable")
+      }
+      if (agentMention.targetId !== presetSelector.selectedPresetId) {
+        // The draft is left intact -- `handlePresetChange` has already toasted
+        // the error -- so the user can retry.
+        const applied = await presetSelector.onSelect(agentMention.targetId)
+        if (!applied) {
+          // Reject rather than return: `submitPrompt` treats a resolved submit
+          // as sent and runs its cleanup, which drops any attached files even
+          // though nothing left the composer. It swallows a rejection instead.
+          throw new SubmitAbandonedError(
+            "Failed to persist the mentioned agent preset"
+          )
+        }
+      }
+    }
+
+    // Enter does not empty the box until the awaits here resolve, so the user
+    // carries on typing onto the end of the message being sent. Only what
+    // follows it is a new draft: keeping the whole value would strand the sent
+    // text in the composer for the next submit to send again. `input` is this
+    // closure's snapshot, so only the ref knows the live value.
+    const remainingDraft = () => {
+      const live = promptTextareaRef.current?.value ?? ""
+      return live.startsWith(messageText)
+        ? live.slice(messageText.length)
+        : live
+    }
+    // Ranges follow the text they describe: the ones inside the prefix go with
+    // it, the rest keep their bindings at their new offsets. Clearing them all
+    // would unbind a mention picked while this submit was in flight, leaving
+    // the surviving draft naming an agent that its own submit would not route
+    // to. `dropPrefix` re-reads the ranges, since this closure's copy predates
+    // any such pick.
+    const clearSubmittedDraft = () => {
+      const live = promptTextareaRef.current?.value ?? ""
+      const remaining = remainingDraft()
+      setInput(remaining)
+      dropMentionPrefix(live.length - remaining.length)
+    }
+
+    // The optimistic branch blanks the composer before `onBeforeSend` resolves,
+    // so the submitted text's bindings have to come off at the same moment.
+    // Held here so a cancelled submit can put them back with the text.
+    let submittedMentions: MentionRange[] = []
 
     if (onBeforeSend) {
       if (optimisticBeforeSend) {
         optimisticMessageKnownTextPartKeysRef.current =
           matchingUserTextPartKeys(messages, messageText)
         setOptimisticMessageText(messageText)
-        setInput("")
+        // Cut the prefix now, while the live value still carries it. Leaving it
+        // to the `clearSubmittedDraft` below would measure a zero cut against a
+        // composer this branch has already blanked, and the submitted mention
+        // would outlive its text as a range nothing renders -- which the next
+        // send reads back, re-applying a preset the user has since cleared.
+        // Cutting here rather than after the await is also what keeps a mention
+        // picked while the await runs: its offsets are already relative to the
+        // blanked composer, so a deferred cut would filter it out instead.
+        submittedMentions = mentions.ranges
+        clearSubmittedDraft()
       }
 
       const result = await onBeforeSend(
@@ -1185,11 +1103,20 @@ export function ChatSessionPane({
       // Only clear input if onBeforeSend succeeded (non-null)
       // If null, the action was cancelled and user keeps their draft
       if (result !== null) {
-        setInput("")
+        clearSubmittedDraft()
       } else if (optimisticBeforeSend) {
         optimisticMessageKnownTextPartKeysRef.current = new Set()
         setOptimisticMessageText(null)
-        setInput(messageText)
+        // Restoring the cancelled message would clobber a newer draft.
+        if (!remainingDraft()) {
+          // The bindings go back with the text: a restored draft that still
+          // reads `@Agent` has to route there when the user retries it.
+          mentions.commitEdit({
+            text: messageText,
+            mentions: submittedMentions,
+            caret: messageText.length,
+          })
+        }
       }
       // Parent will handle switching sessions and sending via pendingMessage
       return
@@ -1200,7 +1127,7 @@ export function ChatSessionPane({
     }
 
     // Clear input for normal message sending
-    setInput("")
+    clearSubmittedDraft()
 
     try {
       await persistToolsChainRef.current.catch(() => undefined)
@@ -1215,6 +1142,14 @@ export function ChatSessionPane({
     }
   }
 
+  // The badge stands in for the hint once a preset owns the session. Unlike the
+  // hint it is state rather than a discoverability cue, so focus does not gate
+  // it.
+  const activePresetLabel =
+    presetSelector && !isReadonly && presetSelector.selectedPresetId
+      ? presetSelector.label
+      : null
+
   const promptComposer = (
     <div ref={promptInputContainerRef} className={promptCenterClass}>
       {isReadonly ? (
@@ -1225,135 +1160,113 @@ export function ChatSessionPane({
           {readonlyDescription}
         </div>
       ) : null}
-      {mentionEnabled && toolMention && (
-        <div className="absolute inset-x-0 bottom-full z-30 mb-2">
-          <div className="overflow-hidden rounded-md border bg-popover shadow-md">
-            {registryActionsIsLoading ? (
-              <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
-                <Loader2 className="size-3 animate-spin" />
-                Loading tools...
-              </div>
-            ) : null}
-            {!registryActionsIsLoading &&
-              filteredToolSuggestions.length === 0 && (
-                <div className="px-3 py-2 text-xs text-muted-foreground">
-                  No tools found for
-                  {` "${toolMention.query}"`}.
-                </div>
-              )}
-            {!registryActionsIsLoading &&
-              filteredToolSuggestions.length > 0 && (
-                <div className="max-h-64 overflow-y-auto p-1">
-                  {filteredToolSuggestions.map((tool, index) => {
-                    const isActive = toolMention.activeIndex === index
-                    const isSelected = selectedTools.includes(tool.value)
-
-                    return (
-                      <button
-                        key={tool.value}
-                        type="button"
-                        onMouseDown={(event) => event.preventDefault()}
-                        onClick={() => handleSelectMentionTool(tool.value)}
-                        className={cn(
-                          "flex w-full items-start justify-between gap-2 rounded-sm px-2 py-2 text-left",
-                          isActive && "bg-accent"
-                        )}
-                      >
-                        <div className="flex min-w-0 items-start gap-2">
-                          {getIcon(tool.value, {
-                            className: "mt-0.5 size-6 shrink-0",
-                          })}
-                          <div className="min-w-0">
-                            <p className="truncate text-xs font-medium text-foreground">
-                              {tool.label}
-                            </p>
-                            <p className="truncate text-[11px] text-muted-foreground">
-                              {tool.value}
-                            </p>
-                          </div>
-                        </div>
-                        {isSelected ? (
-                          <CheckIcon className="mt-0.5 size-3.5 text-muted-foreground" />
-                        ) : null}
-                      </button>
-                    )
-                  })}
-                </div>
-              )}
-          </div>
-        </div>
-      )}
-      <PromptInput onSubmit={handleSubmit} className={promptInputClassName}>
-        {/* Workspace chat surfaces attached tools via the Tools popover, so the
-            header chip row is reserved for the other chat surfaces. */}
-        {toolsEnabled && !isWorkspaceChat && selectedToolBadges.length > 0 && (
-          <SelectedToolsHeader
-            badges={selectedToolBadges}
-            onRemove={removeSelectedTool}
-            removeDisabled={
-              isUpdatingTools || isReadonly || inputDisabled || !toolsEnabled
-            }
-          />
-        )}
-        <PromptInputBody>
-          <PromptInputTextarea
-            onChange={handleInputChange}
-            onKeyDown={handleInputKeyDown}
-            onFocus={handleInputFocus}
-            onBlur={handleInputBlur}
-            placeholder={
-              isReadonly
-                ? readonlyDescription
-                : (inputDisabled || isOptimisticBeforeSendPending) &&
-                    inputDisabledPlaceholder
-                  ? inputDisabledPlaceholder
-                  : placeholder
-            }
-            value={input}
-            autoFocus={autoFocusInput && !isReadonly && !inputDisabled}
-            disabled={isInputDisabled}
-          />
-        </PromptInputBody>
-        <PromptInputFooter>
-          <PromptInputTools>
-            {presetSelector && !isReadonly && (
-              <PromptPresetSelector
-                selector={presetSelector}
-                disabled={inputDisabled || !canSubmit}
+      <MentionPopover
+        open={mentions.isOpen}
+        kind={mentions.kind}
+        caret={mentions.caret}
+        sections={mentions.sections}
+        itemCount={mentions.itemCount}
+        activeIndex={mentions.activeIndex}
+        isLoading={mentions.isLoading}
+        locked={mentions.locked}
+        hasError={mentions.hasError}
+        onSelect={mentions.selectSuggestion}
+      >
+        <PromptInput onSubmit={handleSubmit} className={promptInputClassName}>
+          {/* Workspace chat surfaces attached tools via the Tools popover, so
+              the header chip row is reserved for the other chat surfaces. */}
+          {toolsEnabled &&
+            !isWorkspaceChat &&
+            selectedToolBadges.length > 0 && (
+              <SelectedToolsHeader
+                badges={selectedToolBadges}
+                onRemove={removeSelectedTool}
+                removeDisabled={
+                  isUpdatingTools ||
+                  isReadonly ||
+                  inputDisabled ||
+                  !toolsEnabled
+                }
               />
             )}
-            {toolsEnabled && !isReadonly && (
-              <ChatToolsPicker
-                registryActions={registryActions ?? []}
-                selectedTools={selectedTools}
-                onToolsChange={commitSelectedTools}
-                mcpIntegrations={mcpIntegrations ?? []}
-                selectedMcpIntegrations={selectedMcpIntegrations}
-                onMcpChange={commitSelectedMcpIntegrations}
-                agentAddonsEnabled={agentAddonsEnabled}
-                mcpEnabled={sessionMcpEnabled}
-                disabled={inputDisabled || isUpdatingTools}
-                surface={surface}
-                mcpIntegrationsHref={`/workspaces/${workspaceId}/mcp-servers`}
+          <PromptInputBody>
+            <PromptInputTextarea
+              ref={promptTextareaRef}
+              onChange={handleInputChange}
+              // The mention layer owns popover keys and atomic mention
+              // backspace. It calls preventDefault when it consumes a key,
+              // which is what stops the prompt input from submitting on Enter
+              // while the popover is open.
+              onKeyDown={handleMentionKeyDown}
+              onFocus={handleInputFocus}
+              onBlur={handleInputBlur}
+              onSelect={mentions.handleSelectionChange}
+              placeholder={
+                isReadonly
+                  ? readonlyDescription
+                  : (inputDisabled || isOptimisticBeforeSendPending) &&
+                      inputDisabledPlaceholder
+                    ? inputDisabledPlaceholder
+                    : placeholder
+              }
+              value={input}
+              autoFocus={autoFocusInput && !isReadonly && !inputDisabled}
+              disabled={isInputDisabled}
+            />
+          </PromptInputBody>
+          <PromptInputFooter>
+            <PromptInputTools>
+              {toolsEnabled && !isReadonly && (
+                <ChatToolsPicker
+                  registryActions={registryActions ?? []}
+                  selectedTools={selectedTools}
+                  onToolsChange={commitSelectedTools}
+                  mcpIntegrations={mcpIntegrations ?? []}
+                  selectedMcpIntegrations={selectedMcpIntegrations}
+                  onMcpChange={commitSelectedMcpIntegrations}
+                  agentAddonsEnabled={agentAddonsEnabled}
+                  mcpEnabled={sessionMcpEnabled}
+                  disabled={inputDisabled || isUpdatingTools}
+                  surface={surface}
+                  mcpIntegrationsHref={`/workspaces/${workspaceId}/mcp-servers`}
+                />
+              )}
+              {!isReadonly && modelInfo ? (
+                <PromptModelIndicator modelInfo={modelInfo} />
+              ) : null}
+            </PromptInputTools>
+            <div className="flex items-center gap-2">
+              {activePresetLabel ? (
+                <ActivePresetBadge
+                  label={activePresetLabel}
+                  showSpinner={presetSelector?.showSpinner}
+                  disabled={
+                    presetSelector?.disabled || inputDisabled || !canSubmit
+                  }
+                  onClear={() => void presetSelector?.onSelect(null)}
+                />
+              ) : (
+                <MentionHint
+                  show={isInputFocused && !input.trim()}
+                  agents={mentions.agents}
+                  workflows={mentions.workflows}
+                />
+              )}
+              <PromptInputSubmit
+                disabled={
+                  isReadonly ||
+                  (isGeneratingTurn
+                    ? isCancellingChatTurn || cancelRequested
+                    : isInputDisabled || !input.trim())
+                }
+                onStop={() => void handleStop()}
+                status={status}
+                className="size-7 text-muted-foreground/80"
               />
-            )}
-            {!isReadonly && modelInfo ? (
-              <PromptModelIndicator modelInfo={modelInfo} />
-            ) : null}
-          </PromptInputTools>
-          <PromptInputSubmit
-            disabled={
-              isReadonly ||
-              (isGeneratingTurn
-                ? isCancellingChatTurn || cancelRequested
-                : isInputDisabled || !input.trim())
-            }
-            onStop={() => void handleStop()}
-            status={status}
-            className="size-7 text-muted-foreground/80"
-          />
-        </PromptInputFooter>
-      </PromptInput>
+            </div>
+          </PromptInputFooter>
+        </PromptInput>
+      </MentionPopover>
     </div>
   )
 
@@ -1636,154 +1549,41 @@ function OptimisticPendingMessage({ text }: { text: string }) {
   )
 }
 
-function PromptPresetSelector({
-  selector,
+/**
+ * The session's active agent preset, shown where the mention hint otherwise
+ * sits. Clearing it is the only way back to a tools-only session.
+ */
+function ActivePresetBadge({
+  label,
   disabled = false,
+  showSpinner = false,
+  onClear,
 }: {
-  selector: ChatPresetSelector
+  label: string
   disabled?: boolean
+  showSpinner?: boolean
+  onClear: () => void
 }) {
-  const [open, setOpen] = useState(false)
-
-  const effectiveDisabled = Boolean(disabled || selector.disabled)
-
-  useEffect(() => {
-    if (effectiveDisabled) {
-      setOpen(false)
-    }
-  }, [effectiveDisabled])
-
-  const errorMessage = useMemo(() => {
-    if (typeof selector.presetsError === "string") {
-      return selector.presetsError
-    }
-    if (
-      selector.presetsError &&
-      typeof selector.presetsError === "object" &&
-      "body" in selector.presetsError &&
-      typeof (selector.presetsError as { body?: { detail?: unknown } }).body
-        ?.detail === "string"
-    ) {
-      return (selector.presetsError as { body?: { detail?: string } }).body
-        ?.detail
-    }
-    if (
-      selector.presetsError &&
-      typeof selector.presetsError === "object" &&
-      "message" in selector.presetsError &&
-      typeof (selector.presetsError as { message?: unknown }).message ===
-        "string"
-    ) {
-      return (selector.presetsError as { message: string }).message
-    }
-    return "Failed to load presets"
-  }, [selector.presetsError])
-
-  const noPresetValue = "__workspace_default_preset__"
-
-  const handleSelect = (value: string) => {
-    setOpen(false)
-    void selector.onSelect(value === noPresetValue ? null : value)
-  }
-  const PresetIcon =
-    selector.selectedPresetId === null
-      ? MousePointer2OffIcon
-      : MousePointerClickIcon
-
   return (
-    <ModelSelector
-      open={open}
-      onOpenChange={(nextOpen) => {
-        if (effectiveDisabled) {
-          return
-        }
-        setOpen(nextOpen)
-      }}
-    >
-      <ModelSelectorTrigger asChild>
-        <PromptInputButton
-          size="sm"
-          variant="ghost"
-          disabled={effectiveDisabled}
-          className="h-7 max-w-[16rem] justify-start gap-1.5 px-2 text-xs"
-          aria-label="Select preset agent"
+    <span className="flex h-7 min-w-0 max-w-[14rem] items-center gap-1.5 rounded-md border border-border/70 px-2 text-xs text-muted-foreground">
+      <MousePointerClickIcon className="size-3 shrink-0" />
+      <span className="truncate" title={label}>
+        {label}
+      </span>
+      {showSpinner ? (
+        <Loader2 className="size-3 shrink-0 animate-spin" />
+      ) : (
+        <button
+          type="button"
+          onClick={onClear}
+          disabled={disabled}
+          aria-label="Clear agent"
+          className="shrink-0 text-muted-foreground/70 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
         >
-          <span className="flex min-w-0 items-center gap-1.5">
-            <PresetIcon className="size-3 text-muted-foreground" />
-            <span className="truncate" title={selector.label}>
-              {selector.label}
-            </span>
-          </span>
-          {selector.showSpinner ? (
-            <span className="ml-auto inline-flex items-center">
-              <Loader2 className="size-3 animate-spin text-muted-foreground" />
-            </span>
-          ) : null}
-        </PromptInputButton>
-      </ModelSelectorTrigger>
-      <ModelSelectorContent title="Select preset agent" className="sm:max-w-lg">
-        {selector.presetsIsLoading ? (
-          <div className="flex items-center gap-2 p-3 text-xs text-muted-foreground">
-            <Loader2 className="size-3 animate-spin" />
-            Loading presets...
-          </div>
-        ) : selector.presetsError ? (
-          <div className="p-3 text-xs text-red-600">{errorMessage}</div>
-        ) : (
-          <>
-            <ModelSelectorInput
-              placeholder="Search presets..."
-              className="text-xs"
-            />
-            <ModelSelectorList className="max-h-64 overflow-y-auto">
-              <ModelSelectorEmpty className="py-4 text-xs text-muted-foreground">
-                No presets found.
-              </ModelSelectorEmpty>
-              <ModelSelectorGroup>
-                <ModelSelectorItem
-                  value="no preset"
-                  onSelect={() => handleSelect(noPresetValue)}
-                  className="flex items-start justify-between gap-2 py-2 text-xs"
-                >
-                  <div className="flex flex-col">
-                    <span className="font-medium">No preset</span>
-                    <span className="text-muted-foreground">
-                      {selector.noPresetDescription ??
-                        "Use workspace default agent instructions."}
-                    </span>
-                  </div>
-                  {selector.selectedPresetId === null ? (
-                    <CheckIcon className="mt-0.5 size-3.5" />
-                  ) : null}
-                </ModelSelectorItem>
-                {(selector.presets ?? []).map((preset) => (
-                  <ModelSelectorItem
-                    key={preset.id}
-                    value={`${preset.name} ${preset.description ?? ""}`}
-                    onSelect={() => handleSelect(preset.id)}
-                    className="flex items-start justify-between gap-2 py-2 text-xs"
-                  >
-                    <div className="flex min-w-0 flex-col">
-                      <span className="truncate font-medium">
-                        {preset.name}
-                      </span>
-                      {preset.description ? (
-                        <span className="text-muted-foreground">
-                          {preset.description}
-                        </span>
-                      ) : null}
-                    </div>
-                    {selector.selectedPresetId === preset.id ? (
-                      <CheckIcon className="mt-0.5 size-3.5" />
-                    ) : null}
-                  </ModelSelectorItem>
-                ))}
-              </ModelSelectorGroup>
-            </ModelSelectorList>
-          </>
-        )}
-      </ModelSelectorContent>
-    </ModelSelector>
+          <XIcon className="size-3" />
+        </button>
+      )}
+    </span>
   )
 }
 

@@ -11,7 +11,10 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.common import TypedSearchAttributes
 
-from tracecat.agent.session.service import AgentSessionService
+from tracecat.agent.session.service import (
+    AGENT_SESSION_EXECUTION_SCOPES,
+    AgentSessionService,
+)
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
@@ -119,6 +122,11 @@ async def test_run_turn_stamps_tracecat_search_attributes(
     assert response is not None
     first_prompt_check.assert_not_awaited()
     temporal_client.start_workflow.assert_awaited_once()
+    workflow_args = temporal_client.start_workflow.await_args.args[1]
+    assert workflow_args.role.scopes == (
+        (role_with_user.scopes or frozenset()) | AGENT_SESSION_EXECUTION_SCOPES
+    )
+    assert role_with_user.scopes == frozenset({"agent:execute", "secret:read"})
     kwargs = temporal_client.start_workflow.await_args.kwargs
     search_attributes = kwargs["search_attributes"]
     assert isinstance(search_attributes, TypedSearchAttributes)

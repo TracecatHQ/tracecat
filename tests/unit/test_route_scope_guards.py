@@ -18,6 +18,7 @@ from tracecat.cases.rows import router as case_rows_router
 from tracecat.cases.tag_definitions import router as case_tag_definitions_router
 from tracecat.cases.tags import internal_router as internal_case_tags_router
 from tracecat.cases.tags import router as case_tags_router
+from tracecat.cases.versions import router as case_versions_router
 from tracecat.contexts import ctx_role
 from tracecat.exceptions import ScopeDeniedError
 from tracecat.inbox import router as inbox_router
@@ -370,6 +371,21 @@ async def test_case_duration_scope_guards(
 @pytest.mark.parametrize(
     ("endpoint", "required_scope"),
     [
+        (case_versions_router.list_case_versions, "case:read"),
+        (case_versions_router.compare_case_version, "case:read"),
+        (case_versions_router.restore_case_version, "case:update"),
+    ],
+)
+async def test_case_version_scope_guards(
+    endpoint: AsyncEndpoint, required_scope: str
+) -> None:
+    await _assert_endpoint_requires_scope(endpoint, required_scope)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("endpoint", "required_scope"),
+    [
         (case_tag_definitions_router.list_case_tags, "case:read"),
         (case_tag_definitions_router.get_case_tag, "case:read"),
         (case_tag_definitions_router.create_case_tag, "case:create"),
@@ -532,6 +548,12 @@ async def test_workflow_execution_stop_scope_guards(
         (case_dropdowns_router.reorder_dropdown_options, "case:update"),
         (case_dropdowns_router.list_case_dropdown_values, "case:read"),
         (case_dropdowns_router.set_case_dropdown_value, "case:update"),
+        (case_rows_router.list_case_rows, "case:read"),
+        (case_rows_router.list_case_linked_tables, "case:read"),
+        (case_rows_router.link_case_row, "case:update"),
+        (case_rows_router.batch_link_case_rows, "case:update"),
+        (case_rows_router.batch_unlink_case_rows, "case:update"),
+        (case_rows_router.unlink_case_row, "case:update"),
     ],
 )
 async def test_case_scope_guards(endpoint: AsyncEndpoint, required_scope: str) -> None:

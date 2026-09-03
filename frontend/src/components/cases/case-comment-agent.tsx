@@ -2,9 +2,9 @@
 
 import {
   AlertCircleIcon,
-  BotIcon,
   ClockIcon,
   LoaderCircleIcon,
+  MousePointerClickIcon,
 } from "lucide-react"
 
 import type {
@@ -25,7 +25,7 @@ function CaseCommentAgentAvatar({ presetName }: { presetName: string }) {
       className="size-5"
     >
       <AvatarFallback className="text-muted-foreground">
-        <BotIcon aria-hidden="true" className="size-3" />
+        <MousePointerClickIcon aria-hidden="true" className="size-3" />
       </AvatarFallback>
     </Avatar>
   )

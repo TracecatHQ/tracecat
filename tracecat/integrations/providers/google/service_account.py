@@ -6,7 +6,7 @@ import asyncio
 from datetime import UTC, datetime
 from typing import Any, ClassVar
 
-from google.auth.exceptions import GoogleAuthError
+from google.auth.exceptions import GoogleAuthError, RefreshError
 from google.auth.transport.requests import Request
 from google.oauth2 import service_account
 from pydantic import SecretStr
@@ -15,13 +15,37 @@ from tracecat.integrations.providers.base import (
     ServiceAccountOAuthProvider,
     validate_oauth_endpoint,
 )
+from tracecat.integrations.providers.google.common import (
+    GOOGLE_AUTH_URL,
+    GOOGLE_TOKEN_URL,
+    get_google_cc_metadata,
+)
 from tracecat.integrations.schemas import ProviderMetadata, ProviderScopes
 from tracecat.integrations.types import TokenResponse
 from tracecat.logger import logger
 
-GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
-GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+__all__ = [
+    "GOOGLE_AUTH_URL",
+    "GOOGLE_TOKEN_URL",
+    "GoogleServiceAccountOAuthProvider",
+]
+
 DEFAULT_SCOPES = ["https://www.googleapis.com/auth/cloud-platform"]
+
+DOMAIN_WIDE_DELEGATION_ERROR = (
+    "Google rejected the domain-wide delegation grant (unauthorized_client). "
+    "The scopes configured on this integration must match exactly the scopes "
+    "delegated to this service account's client ID in the Admin console "
+    "(Security > Access and data control > API controls > Domain-wide delegation)."
+)
+
+
+def _is_unauthorized_client(exc: GoogleAuthError) -> bool:
+    """Return True for Google's structured ``unauthorized_client`` refresh error."""
+    if not isinstance(exc, RefreshError) or len(exc.args) < 2:
+        return False
+    details = exc.args[1]
+    return isinstance(details, dict) and details.get("error") == "unauthorized_client"
 
 
 class GoogleServiceAccountOAuthProvider(ServiceAccountOAuthProvider):
@@ -29,14 +53,12 @@ class GoogleServiceAccountOAuthProvider(ServiceAccountOAuthProvider):
 
     id: ClassVar[str] = "google"
     scopes: ClassVar[ProviderScopes] = ProviderScopes(default=DEFAULT_SCOPES)
-    metadata: ClassVar[ProviderMetadata] = ProviderMetadata(
+    metadata: ClassVar[ProviderMetadata] = get_google_cc_metadata(
         id="google",
-        name="Google Cloud (Service account)",
+        name="Google Cloud",
         description=(
-            "Authenticate to Google Cloud APIs using a service account JSON key. "
+            "Authenticate to Google Cloud APIs with a service account JSON key."
         ),
-        requires_config=True,
-        enabled=True,
         api_docs_url="https://cloud.google.com/docs/authentication",
         setup_guide_url="https://developers.google.com/identity/protocols/oauth2/service-account",
         troubleshooting_url="https://cloud.google.com/iam/docs/best-practices-for-managing-service-account-keys",
@@ -122,6 +144,8 @@ class GoogleServiceAccountOAuthProvider(ServiceAccountOAuthProvider):
                 provider=self.id,
                 error=str(exc),
             )
+            if _is_unauthorized_client(exc):
+                raise ValueError(DOMAIN_WIDE_DELEGATION_ERROR) from exc
             raise
 
         if not credentials.token:

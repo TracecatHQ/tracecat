@@ -17,9 +17,57 @@ definition:
     repo:
       type: str
       description: GitHub API path value for repo.
-    params:
-      type: dict[str, Any] | None
-      description: API-native query parameters, including pagination and filters.
+    milestone:
+      type: int | str | None
+      description: If an `integer` is passed, it should refer to a milestone by its `number` field. If the string `*` is passed, issues with any milestone are accepted. If the string `none` is passed, issues without milestones are returned.
+      default: null
+    state:
+      type: str | None
+      description: 'Indicates the state of the issues to return. Can be one of: `open`, `closed`, `all`.'
+      default: null
+    assignee:
+      type: str | None
+      description: Can be the name of a user. Pass in `none` for issues with no assigned user, and `*` for issues assigned to any user.
+      default: null
+    type:
+      type: str | None
+      description: Can be the name of an issue type. If the string `*` is passed, issues with any type are accepted. If the string `none` is passed, issues without type are returned.
+      default: null
+    creator:
+      type: str | None
+      description: The user that created the issue.
+      default: null
+    mentioned:
+      type: str | None
+      description: A user that's mentioned in the issue.
+      default: null
+    issue_field_values:
+      type: str | None
+      description: A comma-separated list of issue field filters in `field_slug:value` format. Only issues matching all specified field values are returned. Requires issue fields to be enabled for the repository. Issue fields are not available for user-owned repositories, and field availability for organization-owned public repositories depends on the organization's visibility settings. For example, `priority:Urgent,severity:High` filters issues where the `priority` field is `Urgent` AND the `severity` field is `High`.
+      default: null
+    labels:
+      type: str | None
+      description: 'A list of comma separated label names. Example: `bug,ui,@high`'
+      default: null
+    sort:
+      type: str | None
+      description: 'What to sort results by. Can be one of: `created`, `updated`, `comments`.'
+      default: null
+    direction:
+      type: str | None
+      description: 'The direction to sort the results by. Can be one of: `asc`, `desc`.'
+      default: null
+    since:
+      type: str | None
+      description: 'Only show results that were last updated after the given time. This is a timestamp in [ISO 8601](https://en.wikipedia.org/wiki/ISO_8601) format: `YYYY-MM-DDTHH:MM:SSZ`.'
+      default: null
+    per_page:
+      type: int | None
+      description: The number of results per page (max 100).
+      default: null
+    page:
+      type: int | None
+      description: The page number of the results to fetch.
       default: null
     base_url:
       type: str
@@ -35,5 +83,18 @@ definition:
         Authorization: Bearer ${{ SECRETS.github_oauth.GITHUB_USER_TOKEN }}
         Accept: application/vnd.github+json
         X-GitHub-Api-Version: '2022-11-28'
-      params: ${{ inputs.params }}
+      params:
+        milestone: ${{ inputs.milestone }}
+        state: ${{ inputs.state }}
+        assignee: ${{ inputs.assignee }}
+        type: ${{ inputs.type }}
+        creator: ${{ inputs.creator }}
+        mentioned: ${{ inputs.mentioned }}
+        issue_field_values: ${{ inputs.issue_field_values }}
+        labels: ${{ inputs.labels }}
+        sort: ${{ inputs.sort }}
+        direction: ${{ inputs.direction }}
+        since: ${{ inputs.since }}
+        per_page: ${{ inputs.per_page }}
+        page: ${{ inputs.page }}
   returns: ${{ steps.request.result }}

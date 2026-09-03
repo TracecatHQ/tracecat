@@ -2,4 +2,4 @@
 
 This package contains enterprise features for Tracecat.
 
-Enterprise features require a valid Tracecat Enterprise License.
+Production use of Enterprise features requires a valid Tracecat Enterprise License.

@@ -30,6 +30,7 @@ from tracecat.executor.registry_artifacts import (
     SQUASHFS_MOUNT_OPTIONS,
     RegistryArtifactCache,
     RegistryArtifactCacheCapacityError,
+    RegistryArtifactCacheLeaseContentionError,
     RegistryArtifactCacheLoopError,
     RegistryArtifactEviction,
     RegistryArtifactExtractionError,
@@ -37,6 +38,7 @@ from tracecat.executor.registry_artifacts import (
     RegistryArtifactUriError,
     SquashfsArtifact,
     SquashfsMountCommandError,
+    SquashfsMountUnavailableError,
     TarballArtifact,
     _squashfs_listing_size,
     bundled_builtin_registry_uri,
@@ -659,10 +661,10 @@ class TestRegistryArtifactCache:
         assert list(outside.iterdir()) == []
 
     @pytest.mark.anyio
-    async def test_artifact_candidates_direct_squashfs_include_gzip_fallback(
+    async def test_artifact_candidates_direct_squashfs_have_no_gzip_fallback(
         self, temp_cache_dir
     ):
-        """Test direct SquashFS URIs fall back to sibling gzip tarballs."""
+        """Direct SquashFS URIs must not synthesize absent gzip artifacts."""
         cache = RegistryArtifactCache(temp_cache_dir)
 
         with patch.object(cache, "_can_try_squashfs") as can_try_squashfs:
@@ -675,15 +677,13 @@ class TestRegistryArtifactCache:
                 "s3://bucket/path/site-packages.squashfs",
             )
 
+        assert len(candidates) == 1
         assert isinstance(candidates[0], SquashfsArtifact)
-        assert isinstance(candidates[1], TarballArtifact)
         assert [artifact.uri for artifact in candidates] == [
             "s3://bucket/path/site-packages.squashfs",
-            "s3://bucket/path/site-packages.tar.gz",
         ]
         assert [artifact.format for artifact in candidates] == [
             RegistryArtifactFormat.SQUASHFS,
-            RegistryArtifactFormat.TAR_GZ,
         ]
         can_try_squashfs.assert_not_called()
 
@@ -747,8 +747,8 @@ class TestRegistryArtifactCache:
             error_type="RuntimeError",
         )
 
-    def test_can_try_squashfs_does_not_require_mount_binary(self, temp_cache_dir):
-        """Prefer SquashFS whenever enabled; extraction may work without mounts."""
+    def test_mount_capability_is_checked_lazily(self, temp_cache_dir):
+        """An enabled executor learns mount availability from the actual spawn."""
         cache = RegistryArtifactCache(temp_cache_dir)
 
         with (
@@ -763,7 +763,7 @@ class TestRegistryArtifactCache:
         ):
             ctx = cache._context_for("squashfs-test")
             assert cache._can_try_squashfs() is True
-            assert ctx.can_mount_squashfs() is False
+            assert ctx.can_mount_squashfs() is True
 
     @pytest.mark.anyio
     async def test_artifact_candidates_skip_non_registry_tarballs(self, temp_cache_dir):
@@ -859,7 +859,7 @@ class TestRegistryArtifactCache:
 
         with (
             patch(
-                "tracecat.executor.registry_artifacts.asyncio.create_subprocess_exec",
+                "tracecat.executor.registry_artifact_mounts.asyncio.create_subprocess_exec",
                 new_callable=AsyncMock,
                 return_value=process,
             ) as create_subprocess_exec,
@@ -903,7 +903,7 @@ class TestRegistryArtifactCache:
 
         with (
             patch(
-                "tracecat.executor.registry_artifacts.asyncio.create_subprocess_exec",
+                "tracecat.executor.registry_artifact_mounts.asyncio.create_subprocess_exec",
                 new_callable=AsyncMock,
                 return_value=process,
             ) as create_subprocess_exec,
@@ -1250,14 +1250,24 @@ class TestRegistryArtifactCache:
         assert cache._failed_startup_cleanup == {}
 
     @pytest.mark.anyio
-    async def test_materialize_extracts_squashfs_when_mount_fails(self, temp_cache_dir):
-        """Test that SquashFS mount failures fall back to unsquashfs extraction."""
+    async def test_mount_unavailable_uses_reusable_squashfs_extraction(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """A spawn denial never probes a legacy tarball or repeats extraction."""
         cache = RegistryArtifactCache(temp_cache_dir)
+        mount_attempts = 0
+        extraction_attempts = 0
 
         async def mock_mount(self, ctx, image_path):
-            raise SquashfsMountCommandError("operation not permitted")
+            nonlocal mount_attempts
+            mount_attempts += 1
+            raise SquashfsMountUnavailableError(
+                "mount command is unavailable to this executor"
+            )
 
         async def mock_extract(self, ctx, image_path):
+            nonlocal extraction_attempts
+            extraction_attempts += 1
             target_dir = ctx.paths.squashfs_extract_dir
             target_dir.mkdir(parents=True, exist_ok=True)
             (target_dir / "module.py").write_text("VALUE = 1")
@@ -1265,17 +1275,8 @@ class TestRegistryArtifactCache:
 
         with (
             patch(
-                "tracecat.executor.registry_artifacts.blob.file_exists",
-                new_callable=AsyncMock,
-                return_value=True,
-            ),
-            patch(
                 "tracecat.executor.registry_artifacts.config.TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED",
                 True,
-            ),
-            patch(
-                "tracecat.executor.registry_artifacts.shutil.which",
-                return_value="/sbin/mount",
             ),
             patch.object(SquashfsArtifact, "mount", mock_mount),
             patch.object(SquashfsArtifact, "extract", mock_extract),
@@ -1285,24 +1286,31 @@ class TestRegistryArtifactCache:
                 new_callable=AsyncMock,
             ) as tarball_materialize,
         ):
-            result = await _materialize(
-                cache,
-                compute_registry_artifact_cache_key(
-                    "s3://bucket/path/site-packages.tar.gz"
-                ),
-                "s3://bucket/path/site-packages.tar.gz",
-            )
+            artifact_uri = "s3://bucket/path/site-packages.squashfs"
+            async with cache.lease([artifact_uri]) as first_result:
+                assert len(first_result) == 1
+                assert (first_result[0] / "module.py").read_text() == "VALUE = 1"
+                assert first_result[0].name == "extracted"
 
-        assert len(result) == 1
-        assert (result[0] / "module.py").read_text() == "VALUE = 1"
-        assert result[0].name == "extracted"
+            assert first_result[0].is_dir()
+
+            async with cache.lease([artifact_uri]) as second_result:
+                assert second_result == first_result
+
+            later_uri = "s3://bucket/path/later-site-packages.squashfs"
+            async with cache.lease([later_uri]) as later_result:
+                assert later_result[0].name == "extracted"
+
+        assert first_result[0].is_dir()
+        assert mount_attempts == 1
+        assert extraction_attempts == 2
         tarball_materialize.assert_not_awaited()
 
     @pytest.mark.anyio
-    async def test_materialize_extracts_squashfs_without_mount_binary(
-        self, temp_cache_dir
-    ):
-        """Test that SquashFS is still preferred when only unsquashfs is available."""
+    async def test_materialize_retains_extraction_when_mounting_is_disabled(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """An explicit extract-only deployment retains its SquashFS cache."""
         cache = RegistryArtifactCache(temp_cache_dir)
 
         async def mock_extract(self, ctx, image_path):
@@ -1312,34 +1320,25 @@ class TestRegistryArtifactCache:
             return target_dir
 
         with (
-            patch(
-                "tracecat.executor.registry_artifacts.blob.file_exists",
+            patch(SQUASHFS_ENABLED_CONFIG, False),
+            patch.object(
+                SquashfsArtifact,
+                "mount",
                 new_callable=AsyncMock,
-                return_value=True,
-            ),
-            patch(
-                "tracecat.executor.registry_artifacts.config.TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED",
-                True,
-            ),
-            patch(
-                "tracecat.executor.registry_artifacts.shutil.which", return_value=None
-            ),
+            ) as mount,
             patch.object(SquashfsArtifact, "extract", mock_extract),
         ):
-            result = await _materialize(
-                cache,
-                compute_registry_artifact_cache_key(
-                    "s3://bucket/path/site-packages.tar.gz"
-                ),
-                "s3://bucket/path/site-packages.tar.gz",
-            )
+            artifact_uri = "s3://bucket/path/site-packages.squashfs"
+            async with cache.lease([artifact_uri]) as result:
+                assert len(result) == 1
+                assert (result[0] / "module.py").read_text() == "VALUE = 1"
+                assert result[0].name == "extracted"
 
-        assert len(result) == 1
-        assert (result[0] / "module.py").read_text() == "VALUE = 1"
-        assert result[0].name == "extracted"
+        assert result[0].is_dir()
+        mount.assert_not_awaited()
 
     @pytest.mark.anyio
-    async def test_materialize_falls_back_to_gzip_when_squashfs_extract_fails(
+    async def test_legacy_tarball_uri_falls_back_after_squashfs_sidecar_fails(
         self, temp_cache_dir
     ):
         """Test that legacy gzip remains the final compatibility fallback."""
@@ -1768,6 +1767,194 @@ class TestRegistryArtifactCacheLease:
 
         async with cache.lease(uris) as registry_paths:
             assert registry_paths == expected
+
+    @pytest.mark.anyio
+    async def test_lease_retries_contention_after_releasing_partial_pins(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """A transient retry starts only after the incomplete lease set unwinds."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        first_uri = "s3://bucket/first.tar.gz"
+        second_uri = "s3://bucket/second.tar.gz"
+        first_key = compute_registry_artifact_cache_key(first_uri)
+        second_key = compute_registry_artifact_cache_key(second_uri)
+        first_target = _write_tarball_entry(temp_cache_dir, first_key)
+        second_target = cache._paths_for(second_key).tarball_target_dir
+        candidate = TarballArtifact(uri=second_uri, cache_key=second_key)
+        materialize_attempts = 0
+        observed_delays: list[float] = []
+
+        async def materialize_candidates(
+            ctx: RegistryArtifactMaterializationContext,
+            candidates: list[SquashfsArtifact | TarballArtifact],
+        ) -> list[Path]:
+            nonlocal materialize_attempts
+            assert ctx.cache_key == second_key
+            assert candidates == [candidate]
+            materialize_attempts += 1
+            if materialize_attempts == 1:
+                raise RegistryArtifactCacheLeaseContentionError(
+                    current_bytes=10,
+                    additional_bytes=5,
+                    max_bytes=12,
+                )
+            second_target.mkdir(parents=True)
+            return [second_target]
+
+        async def observe_backoff(delay: float) -> None:
+            observed_delays.append(delay)
+            assert cache._refcount(first_key) == 0
+            assert cache._refcount(second_key) == 0
+
+        with (
+            patch.object(
+                cache,
+                "_artifact_candidates",
+                new_callable=AsyncMock,
+                return_value=[candidate],
+            ),
+            patch.object(
+                cache,
+                "_materialize_candidates",
+                new_callable=AsyncMock,
+                side_effect=materialize_candidates,
+            ),
+            patch(
+                "tracecat.executor.registry_artifacts._sleep_registry_artifact_capacity_retry",
+                side_effect=observe_backoff,
+            ),
+            patch("tracecat.executor.registry_artifacts.logger.warning") as warning,
+        ):
+            async with cache.lease([first_uri, second_uri]) as registry_paths:
+                assert registry_paths == [first_target, second_target]
+                assert cache._refcount(first_key) == 1
+                assert cache._refcount(second_key) == 1
+
+        assert materialize_attempts == 2
+        assert len(observed_delays) == 1
+        assert 0 <= observed_delays[0] <= 0.25
+        warning.assert_called_once_with(
+            "Retrying registry artifact admission after lease contention",
+            attempt=1,
+            max_attempts=4,
+            current_bytes=10,
+            additional_bytes=5,
+            max_bytes=12,
+            retry_delay_ms=f"{observed_delays[0] * 1000:.1f}",
+        )
+        assert cache._refcount(first_key) == 0
+        assert cache._refcount(second_key) == 0
+
+    @pytest.mark.anyio
+    async def test_lease_does_not_retry_permanent_capacity_error(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """An artifact that cannot fit under the limit fails immediately."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        artifact_uri = "s3://bucket/oversized.tar.gz"
+        cache_key = compute_registry_artifact_cache_key(artifact_uri)
+        candidate = TarballArtifact(uri=artifact_uri, cache_key=cache_key)
+        capacity_error = RegistryArtifactCacheCapacityError(
+            current_bytes=10,
+            additional_bytes=5,
+            max_bytes=12,
+        )
+
+        with (
+            patch.object(
+                cache,
+                "_artifact_candidates",
+                new_callable=AsyncMock,
+                return_value=[candidate],
+            ),
+            patch.object(
+                cache,
+                "_materialize_candidates",
+                new_callable=AsyncMock,
+                side_effect=capacity_error,
+            ) as materialize_candidates,
+            patch(
+                "tracecat.executor.registry_artifacts._sleep_registry_artifact_capacity_retry",
+                new_callable=AsyncMock,
+            ) as sleep,
+        ):
+            with pytest.raises(RegistryArtifactCacheCapacityError) as raised:
+                async with cache.lease([artifact_uri]):
+                    pass
+
+        assert raised.value is capacity_error
+        materialize_candidates.assert_awaited_once()
+        sleep.assert_not_awaited()
+        assert cache._refcount(cache_key) == 0
+
+    @pytest.mark.anyio
+    async def test_lease_bounds_repeated_contention_retries(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """Persistent lease contention stops after four total attempts."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        artifact_uri = "s3://bucket/contended.tar.gz"
+        cache_key = compute_registry_artifact_cache_key(artifact_uri)
+        candidate = TarballArtifact(uri=artifact_uri, cache_key=cache_key)
+        contention_error = RegistryArtifactCacheLeaseContentionError(
+            current_bytes=10,
+            additional_bytes=5,
+            max_bytes=12,
+        )
+
+        with (
+            patch.object(
+                cache,
+                "_artifact_candidates",
+                new_callable=AsyncMock,
+                return_value=[candidate],
+            ),
+            patch.object(
+                cache,
+                "_materialize_candidates",
+                new_callable=AsyncMock,
+                side_effect=contention_error,
+            ) as materialize_candidates,
+            patch(
+                "tracecat.executor.registry_artifacts._sleep_registry_artifact_capacity_retry",
+                new_callable=AsyncMock,
+            ) as sleep,
+        ):
+            with pytest.raises(RegistryArtifactCacheLeaseContentionError) as raised:
+                async with cache.lease([artifact_uri]):
+                    pass
+
+        assert raised.value is contention_error
+        assert materialize_candidates.await_count == 4
+        assert sleep.await_count == 3
+        assert cache._refcount(cache_key) == 0
+
+    @pytest.mark.anyio
+    async def test_lease_does_not_retry_consumer_capacity_error(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """The lease wrapper never mistakes an action failure for admission."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        artifact_uri = "s3://bucket/cached.tar.gz"
+        cache_key = compute_registry_artifact_cache_key(artifact_uri)
+        _write_tarball_entry(temp_cache_dir, cache_key)
+        consumer_error = RegistryArtifactCacheLeaseContentionError(
+            current_bytes=10,
+            additional_bytes=5,
+            max_bytes=12,
+        )
+
+        with patch(
+            "tracecat.executor.registry_artifacts._sleep_registry_artifact_capacity_retry",
+            new_callable=AsyncMock,
+        ) as sleep:
+            with pytest.raises(RegistryArtifactCacheLeaseContentionError) as raised:
+                async with cache.lease([artifact_uri]):
+                    raise consumer_error
+
+        assert raised.value is consumer_error
+        sleep.assert_not_awaited()
+        assert cache._refcount(cache_key) == 0
 
     @pytest.mark.anyio
     async def test_overlapping_same_key_leases_share_one_mount_until_final_release(
@@ -2365,6 +2552,120 @@ class TestRegistryArtifactCacheLease:
 
 class TestRegistryArtifactCacheEviction:
     """Tests for bounded eviction of registry artifact cache entries."""
+
+    @pytest.mark.anyio
+    async def test_capacity_blocked_only_by_active_lease_is_transient(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """Admission identifies bytes that become available on lease release."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        busy_key = "busy"
+        _write_image_entry(temp_cache_dir, busy_key, size=4096, mtime=100.0)
+        snapshot = cache._scan_cache_snapshot()
+        additional_bytes = _filesystem_allocation_unit(temp_cache_dir)
+        fixed_bytes = (
+            snapshot.structural_bytes + snapshot.staging_bytes + snapshot.trash_bytes
+        )
+        cache._acquire_lease(busy_key)
+
+        try:
+            with pytest.raises(RegistryArtifactCacheLeaseContentionError) as raised:
+                async with cache._admission_lock:
+                    await cache._ensure_cache_capacity(
+                        additional_bytes=additional_bytes,
+                        protected_key="cold",
+                        max_bytes=fixed_bytes + additional_bytes,
+                    )
+        finally:
+            cache._release_lease(busy_key)
+
+        assert raised.value.current_bytes == (
+            fixed_bytes + snapshot.entries[busy_key].size_bytes
+        )
+        assert raised.value.additional_bytes == additional_bytes
+        assert raised.value.max_bytes == fixed_bytes + additional_bytes
+
+    @pytest.mark.anyio
+    async def test_capacity_pinned_by_current_attempt_is_permanent(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """Reacquiring this attempt's own pins cannot relieve capacity pressure."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        attempt_key = "attempt"
+        _write_image_entry(temp_cache_dir, attempt_key, size=4096, mtime=100.0)
+        snapshot = cache._scan_cache_snapshot()
+        additional_bytes = _filesystem_allocation_unit(temp_cache_dir)
+        fixed_bytes = (
+            snapshot.structural_bytes + snapshot.staging_bytes + snapshot.trash_bytes
+        )
+        cache._acquire_lease(attempt_key)
+
+        try:
+            with pytest.raises(RegistryArtifactCacheCapacityError) as raised:
+                async with cache._admission_lock:
+                    await cache._ensure_cache_capacity(
+                        additional_bytes=additional_bytes,
+                        protected_key="cold",
+                        max_bytes=fixed_bytes + additional_bytes,
+                        attempt_cache_keys={attempt_key, "cold"},
+                    )
+        finally:
+            cache._release_lease(attempt_key)
+
+        assert type(raised.value) is RegistryArtifactCacheCapacityError
+        assert raised.value.current_bytes == (
+            fixed_bytes + snapshot.entries[attempt_key].size_bytes
+        )
+
+    @pytest.mark.anyio
+    async def test_capacity_rechecks_contention_after_eviction_yields(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """A cache hit racing an eviction remains eligible for lease retry."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        oldest_key = "oldest"
+        newly_busy_key = "newly-busy"
+        _write_image_entry(temp_cache_dir, oldest_key, size=4096, mtime=100.0)
+        _write_image_entry(temp_cache_dir, newly_busy_key, size=4096, mtime=200.0)
+        snapshot = cache._scan_cache_snapshot()
+        additional_bytes = _filesystem_allocation_unit(temp_cache_dir)
+        fixed_bytes = (
+            snapshot.structural_bytes + snapshot.staging_bytes + snapshot.trash_bytes
+        )
+        original_evict = cache._evict_entry
+        evicted_keys: list[str] = []
+
+        async def evict_then_pin_remaining(cache_key: str) -> RegistryArtifactEviction:
+            eviction = await original_evict(cache_key)
+            evicted_keys.append(cache_key)
+            if len(evicted_keys) == 1:
+                cache._acquire_lease(newly_busy_key)
+            return eviction
+
+        try:
+            with (
+                patch.object(
+                    cache,
+                    "_evict_entry",
+                    side_effect=evict_then_pin_remaining,
+                ),
+                pytest.raises(RegistryArtifactCacheLeaseContentionError) as raised,
+            ):
+                async with cache._admission_lock:
+                    await cache._ensure_cache_capacity(
+                        additional_bytes=additional_bytes,
+                        protected_key="cold",
+                        max_bytes=fixed_bytes + additional_bytes,
+                    )
+        finally:
+            cache._release_lease(newly_busy_key)
+
+        assert evicted_keys == [oldest_key]
+        assert raised.value.current_bytes == (
+            snapshot.total_bytes - snapshot.entries[oldest_key].size_bytes
+        )
+        assert raised.value.additional_bytes == additional_bytes
+        assert raised.value.max_bytes == fixed_bytes + additional_bytes
 
     def test_snapshot_accounts_for_invalid_entry_children(
         self, temp_cache_dir: Path
@@ -4119,15 +4420,15 @@ class TestSquashfsMountPolicy:
     """Tests for per-artifact SquashFS fallback."""
 
     @pytest.mark.anyio
-    async def test_loop_device_exhaustion_isolated_sticky_extraction_fallback(
+    async def test_loop_device_exhaustion_uses_ephemeral_extraction_fallback(
         self, temp_cache_dir: Path
     ) -> None:
         """Protect the cache's fail-open policy when loop devices are saturated.
 
         A mount-command failure must extract only the affected cold artifact,
-        preserve already-leased mounts, reuse that extraction on later leases,
-        and still let unrelated artifacts attempt mounting. This models loop
-        exhaustion deterministically without consuming host-global devices.
+        preserve already-leased mounts, discard the expanded tree after its
+        final lease, and still let later artifacts attempt mounting. This models
+        loop exhaustion deterministically without consuming host-global devices.
         """
         cache = RegistryArtifactCache(temp_cache_dir)
         held_uri = "s3://bucket/already-mounted.squashfs"
@@ -4159,14 +4460,21 @@ class TestSquashfsMountPolicy:
                 async with cache.lease([saturated_uri]) as saturated_paths:
                     extracted = cache._paths_for(saturated_key).squashfs_extract_dir
                     assert saturated_paths == [extracted]
+                    assert extracted.is_dir()
                     assert held_mount in harness.mounted
                     assert cache._refcount(held_key) == 1
                     assert harness.unmounts == []
 
-                # The extracted directory is the cache entry's sticky path;
-                # freeing a loop elsewhere does not trigger a remount attempt.
-                async with cache.lease([saturated_uri]) as cached_paths:
-                    assert cached_paths == [extracted]
+                assert not extracted.exists()
+                assert cache._paths_for(saturated_key).squashfs_image_path.is_file()
+
+                # The retained image is mounted again first; while loop devices
+                # remain unavailable, only this lease gets a fresh extraction.
+                async with cache.lease([saturated_uri]) as repeated_paths:
+                    assert repeated_paths == [extracted]
+                    assert extracted.is_dir()
+
+                assert not extracted.exists()
 
                 async with cache.lease([later_uri]) as later_paths:
                     later_mount = cache._paths_for(later_key).squashfs_mount_dir
@@ -4175,11 +4483,16 @@ class TestSquashfsMountPolicy:
 
                 assert held_mount in harness.mounted
 
-        assert harness.mount_attempts == [held_key, saturated_key, later_key]
-        assert harness.extraction_attempts == [saturated_key]
+        assert harness.mount_attempts == [
+            held_key,
+            saturated_key,
+            saturated_key,
+            later_key,
+        ]
+        assert harness.extraction_attempts == [saturated_key, saturated_key]
         assert harness.unmounts == [later_mount, held_mount]
         assert cache._paths_for(saturated_key).squashfs_image_path.is_file()
-        assert cache._paths_for(saturated_key).squashfs_extract_dir.is_dir()
+        assert not cache._paths_for(saturated_key).squashfs_extract_dir.exists()
         assert cache._refcount(held_key) == 0
         assert cache._refcount(saturated_key) == 0
         assert cache._refcount(later_key) == 0

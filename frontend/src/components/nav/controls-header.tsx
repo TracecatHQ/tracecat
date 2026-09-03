@@ -1,6 +1,5 @@
 "use client"
 
-import { useQueryClient } from "@tanstack/react-query"
 import { formatDistanceToNow } from "date-fns"
 import {
   AlertTriangle,
@@ -48,6 +47,7 @@ import { AddCaseDropdown } from "@/components/cases/add-case-dropdown"
 import { AddCaseDuration } from "@/components/cases/add-case-duration"
 import { AddCaseTag } from "@/components/cases/add-case-tag"
 import { AddCustomField } from "@/components/cases/add-custom-field"
+import { CaseAgentRunsAction } from "@/components/cases/case-agent-runs-action"
 import {
   PRIORITIES,
   SEVERITIES,
@@ -58,6 +58,7 @@ import { CreateCaseDialog } from "@/components/cases/case-create-dialog"
 import { CaseDurationMetrics } from "@/components/cases/case-duration-metrics"
 import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
 import { useCaseSelection } from "@/components/cases/case-selection-context"
+import { CaseVersionHistory } from "@/components/cases/case-version-history"
 import {
   CasesViewMode,
   CasesViewToggle,
@@ -78,15 +79,14 @@ import {
 import { FolderPathBreadcrumb } from "@/components/nav/folder-path-breadcrumb"
 import { CreateGroupButton } from "@/components/rbac/create-group-button"
 import { CreateRoleButton } from "@/components/rbac/create-role-button"
-import { RegistryActionsControls } from "@/components/registry/workspace-actions-controls"
 import { CreateSkillButton } from "@/components/skills/create-skill-button"
 import { SkillsDetailActions } from "@/components/skills/skills-detail-actions"
 import { TableSelectionActionsBar } from "@/components/tables/ag-grid-bulk-actions"
 import { CreateTableDialog } from "@/components/tables/table-create-dialog"
 import { TableImportTableDialog } from "@/components/tables/table-import-table-dialog"
 import { TableInsertButton } from "@/components/tables/table-insert-button"
-import { TableLinkRowsToCaseCommand } from "@/components/tables/table-link-rows-to-case-command"
 import { CreateTagDialog } from "@/components/tags/create-tag-dialog"
+import { useQueryClient } from "@/lib/query"
 
 const SimpleEditor = dynamic(
   () =>
@@ -1823,6 +1823,30 @@ function CaseStatusControl({
   )
 }
 
+function CaseDetailActions({
+  caseId,
+  workspaceId,
+}: {
+  caseId: string
+  workspaceId: string
+}) {
+  const { caseData } = useGetCase({ caseId, workspaceId })
+
+  return (
+    <>
+      <CaseStatusControl caseId={caseId} workspaceId={workspaceId} />
+      <CaseAgentRunsAction caseId={caseId} workspaceId={workspaceId} />
+      {caseData ? (
+        <CaseVersionHistory
+          workspaceId={workspaceId}
+          caseId={caseId}
+          caseLabel={caseData.short_id}
+        />
+      ) : null}
+    </>
+  )
+}
+
 function TableBreadcrumb({
   tableId,
   workspaceId,
@@ -1863,7 +1887,6 @@ function TableDetailsActions() {
         resources={["table"]}
       />
       <TableSelectionActionsBar />
-      <TableLinkRowsToCaseCommand />
       <TableInsertButton />
     </>
   )
@@ -2041,7 +2064,6 @@ function getPageConfig(
   if (pagePath.startsWith("/actions")) {
     return {
       title: "Actions",
-      actions: <RegistryActionsControls />,
     }
   }
 
@@ -2252,7 +2274,7 @@ export function ControlsHeader({ onToggleChat }: ControlsHeaderProps = {}) {
         {pageConfig.actions
           ? pageConfig.actions
           : caseId && (
-              <CaseStatusControl caseId={caseId} workspaceId={workspaceId} />
+              <CaseDetailActions caseId={caseId} workspaceId={workspaceId} />
             )}
 
         {onToggleChat && (

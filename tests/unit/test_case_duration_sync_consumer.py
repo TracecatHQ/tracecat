@@ -29,6 +29,8 @@ class FakeRedisClient:
         self.acked: list[list[str]] = []
         self.deleted: list[list[str]] = []
         self.calls: list[tuple[str, list[str]]] = []
+        # Declared so tests can drive the run loop via the stream read.
+        self.xreadgroup: AsyncMock = AsyncMock(return_value=[])
 
     async def xack(
         self,
@@ -1130,6 +1132,41 @@ async def test_claim_idle_messages_drains_all_available_batches(
 
 
 @pytest.mark.anyio
+async def test_claim_idle_messages_does_not_claim_after_stop_during_pending_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stop_event = asyncio.Event()
+    pending_started = asyncio.Event()
+    finish_pending = asyncio.Event()
+    client = AsyncMock()
+
+    async def pending_during_shutdown(
+        *args: object, **kwargs: object
+    ) -> list[dict[str, str]]:
+        del args, kwargs
+        pending_started.set()
+        await finish_pending.wait()
+        return [{"message_id": "1-0"}]
+
+    client.xpending_range = AsyncMock(side_effect=pending_during_shutdown)
+    client.xclaim = AsyncMock()
+    consumer = CaseDurationSyncConsumer(
+        cast(RedisClient, client), stop_event=stop_event
+    )
+    handle_entries_mock = AsyncMock()
+    monkeypatch.setattr(consumer, "_handle_entries", handle_entries_mock)
+
+    claim_task = asyncio.create_task(consumer._claim_idle_messages())
+    await asyncio.wait_for(pending_started.wait(), timeout=5.0)
+    stop_event.set()
+    finish_pending.set()
+    await asyncio.wait_for(claim_task, timeout=5.0)
+
+    client.xclaim.assert_not_awaited()
+    handle_entries_mock.assert_not_awaited()
+
+
+@pytest.mark.anyio
 async def test_consumer_retries_transient_read_failure_and_processes_next_batch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1306,3 +1343,189 @@ async def test_consumer_resets_backoff_after_successful_iteration(
         await consumer.run()
 
     assert [call.args[0] for call in sleep_mock.await_args_list] == [1.0, 0, 1.0]
+
+
+@pytest.mark.anyio
+async def test_consumer_finishes_batch_on_stop_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A SIGTERM stop signal lets the in-flight batch finish before exit.
+
+    Rolling upgrades cancel the API pod with SIGTERM; the consumer must not
+    strand the batch it is processing — it should complete handling (and ack)
+    the entries it already read, then exit its loop gracefully.
+    """
+    stop_event = asyncio.Event()
+    client = FakeRedisClient()
+
+    async def fake_xreadgroup(
+        **kwargs: object,
+    ) -> list[tuple[str, list[tuple[str, dict[str, str]]]]]:
+        del kwargs
+        return [
+            (
+                "stream",
+                [
+                    (
+                        "1-0",
+                        {
+                            "workspace_id": str(uuid.uuid4()),
+                            "case_id": str(uuid.uuid4()),
+                            "reason": "case_event",
+                            "event_type": "case_updated",
+                        },
+                    )
+                ],
+            )
+        ]
+
+    async def fake_handle_entries(entries: object) -> None:
+        # SIGTERM arrives while the batch is in flight; the stop signal
+        # arrives mid-processing but must not abort the batch.
+        stop_event.set()
+        await asyncio.sleep(0)
+        del entries
+
+    handle_entries_mock = AsyncMock(side_effect=fake_handle_entries)
+
+    consumer = CaseDurationSyncConsumer(
+        cast(RedisClient, client), stop_event=stop_event
+    )
+    monkeypatch.setattr(consumer, "_ensure_group", AsyncMock())
+    monkeypatch.setattr(consumer, "_handle_entries", handle_entries_mock)
+    xreadgroup_mock = AsyncMock(side_effect=fake_xreadgroup)
+    client.xreadgroup = xreadgroup_mock
+
+    await asyncio.wait_for(consumer.run(), timeout=5.0)
+
+    assert stop_event.is_set()
+    assert xreadgroup_mock.await_count == 1
+    assert handle_entries_mock.await_count == 1
+
+
+@pytest.mark.anyio
+async def test_consumer_does_not_read_after_stop_during_initialization(
+    monkeypatch: pytest.MonkeyPatch,
+    rollout_backfill_mock: AsyncMock,
+) -> None:
+    """Shutdown during pre-read initialization must not claim a fresh batch."""
+    stop_event = asyncio.Event()
+    initialization_started = asyncio.Event()
+    finish_initialization = asyncio.Event()
+
+    async def initialize_rollout() -> bool:
+        initialization_started.set()
+        await finish_initialization.wait()
+        return True
+
+    rollout_backfill_mock.side_effect = initialize_rollout
+    client = FakeRedisClient()
+    consumer = CaseDurationSyncConsumer(
+        cast(RedisClient, client), stop_event=stop_event
+    )
+    ensure_group_mock = AsyncMock()
+    monkeypatch.setattr(consumer, "_ensure_group", ensure_group_mock)
+
+    run_task = asyncio.create_task(consumer.run())
+    await asyncio.wait_for(initialization_started.wait(), timeout=5.0)
+    stop_event.set()
+    finish_initialization.set()
+    await asyncio.wait_for(run_task, timeout=5.0)
+
+    ensure_group_mock.assert_awaited_once()
+    client.xreadgroup.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_claim_idle_messages_stops_claiming_after_stop_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Shutdown mid-claim must not keep claiming fresh pending batches.
+
+    A large or continuously replenished pending list would otherwise keep
+    the consumer working until the drain deadline cancels it midway through
+    a claimed batch, recreating the unacked-job delay the graceful stop is
+    meant to avoid. Only the batch already claimed may complete.
+    """
+    stop_event = asyncio.Event()
+
+    class ClaimingFakeClient:
+        def __init__(self) -> None:
+            self.claim_calls = 0
+
+        async def xpending_range(
+            self, *args: object, **kwargs: object
+        ) -> list[dict[str, str]]:
+            # Always report a full pending batch: a continuously replenished
+            # pending list must not keep the shutdown-bound consumer busy.
+            return [{"message_id": f"{i}-0"} for i in range(10)]
+
+        async def xclaim(
+            self, *args: object, **kwargs: object
+        ) -> list[tuple[str, dict[str, str]]]:
+            self.claim_calls += 1
+            if self.claim_calls == 1:
+                # SIGTERM arrives as the first claimed batch completes.
+                stop_event.set()
+            return [
+                (
+                    f"{self.claim_calls}-0",
+                    {
+                        "workspace_id": str(uuid.uuid4()),
+                        "case_id": str(uuid.uuid4()),
+                        "reason": "case_event",
+                        "event_type": "case_updated",
+                    },
+                )
+            ]
+
+    client = ClaimingFakeClient()
+    consumer = CaseDurationSyncConsumer(
+        cast(RedisClient, client), stop_event=stop_event
+    )
+    handle_mock = AsyncMock(return_value=None)
+    monkeypatch.setattr(consumer, "_handle_entries", handle_mock)
+
+    await consumer._claim_idle_messages()
+
+    assert client.claim_calls == 1
+    handle_mock.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_run_does_not_start_pending_recovery_after_stop_signal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A due pending-check must not fire once the stop signal is set.
+
+    The signal can arrive while the consumer is blocked in xreadgroup() or
+    handling new-stream entries; the loop body then reaches the due
+    pending-check. Starting recovery there would claim fresh work the
+    terminating pod never had in flight.
+    """
+    stop_event = asyncio.Event()
+    client = FakeRedisClient()
+
+    async def fake_handle_entries(entries: object) -> None:
+        # SIGTERM arrives while new-stream entries are being handled; the
+        # pending-check interval is due on this same iteration.
+        stop_event.set()
+        del entries
+
+    client.xreadgroup = AsyncMock(
+        side_effect=lambda **kwargs: [("stream", [("1-0", {"workspace_id": "w"})])]
+    )
+    consumer = CaseDurationSyncConsumer(
+        cast(RedisClient, client), stop_event=stop_event
+    )
+    consumer._pending_check_interval = 0.0
+    monkeypatch.setattr(consumer, "_ensure_group", AsyncMock())
+    monkeypatch.setattr(
+        consumer, "_handle_entries", AsyncMock(side_effect=fake_handle_entries)
+    )
+    claim_mock = AsyncMock(return_value=None)
+    monkeypatch.setattr(consumer, "_claim_idle_messages", claim_mock)
+
+    await asyncio.wait_for(consumer.run(), timeout=5.0)
+
+    claim_mock.assert_not_awaited()
