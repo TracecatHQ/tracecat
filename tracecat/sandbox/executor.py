@@ -123,11 +123,6 @@ def _nsjail_failure_hint(stderr: str) -> str | None:
 
 
 _NSJAIL_LAUNCH_FAILURE_EXIT_CODE = 0xFF
-# Trusted entrypoints exit with this code when a host-injected guard (e.g.
-# the RLIMIT_NPROC cap) cannot be enforced. This is a deployment
-# misconfiguration, not a workload failure, and must classify as
-# infrastructure failure even after the launcher's start marker.
-_NSJAIL_GUARD_FAILURE_EXIT_CODE = 0xFE
 _NSJAIL_POLICY_VIOLATION_EXIT_CODES = {128 + signal.SIGSYS}
 _NSJAIL_RESOURCE_LIMIT_EXIT_CODES = {
     128 + signal.SIGKILL,
@@ -138,7 +133,25 @@ _WORKLOAD_LAUNCHER_NAME = ".tracecat-workload-launcher.py"
 _WORKLOAD_STARTED_MARKER = b"\x00tracecat-workload-started\x00"
 _WORKLOAD_LAUNCHER_SCRIPT = f"""\
 import os
+import resource
 import sys
+
+# Authoritative in-jail process cap: the trusted launcher enforces the
+# host-injected RLIMIT_NPROC BEFORE the workload-started marker exists, so a
+# guard failure classifies as infrastructure failure, not a workload fault.
+# Lowering the hard limit is irreversible for the unprivileged workload, so
+# enforcement here cannot be undone by jailed code.
+_guard_raw = os.environ.get("TRACECAT__SANDBOX_RLIMIT_NPROC")
+if _guard_raw:
+    try:
+        _limit = int(_guard_raw)
+        if _limit <= 0:
+            raise ValueError(f"non-positive cap: {{_limit}}")
+        _soft, _hard = resource.getrlimit(resource.RLIMIT_NPROC)
+        if not (_hard != resource.RLIM_INFINITY and 0 < _hard <= _limit):
+            resource.setrlimit(resource.RLIMIT_NPROC, (_limit, _limit))
+    except (ValueError, OSError, OverflowError):
+        os._exit({_NSJAIL_LAUNCH_FAILURE_EXIT_CODE})
 
 os.write(2, {_WORKLOAD_STARTED_MARKER!r})
 os.execv("/usr/local/bin/python3", ["/usr/local/bin/python3", sys.argv[1]])
@@ -172,8 +185,6 @@ def _classify_missing_nsjail_result(
         and not workload_started
         and not result_file_exists
     ):
-        return SandboxErrorCode.INFRASTRUCTURE_FAILURE
-    if returncode == _NSJAIL_GUARD_FAILURE_EXIT_CODE:
         return SandboxErrorCode.INFRASTRUCTURE_FAILURE
     if returncode in _NSJAIL_POLICY_VIOLATION_EXIT_CODES:
         return SandboxErrorCode.POLICY_VIOLATION

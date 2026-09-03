@@ -517,9 +517,6 @@ async def _pump_stream(
         await loop.run_in_executor(None, dst.flush)
 
 
-_GUARD_FAILURE_EXIT_CODE = 254  # 0xFE: pre-workload guard failure
-
-
 def _enforce_nproc_limit() -> None:
     """Cap the jail's process count via RLIMIT_NPROC.
 
@@ -548,7 +545,10 @@ def _enforce_nproc_limit() -> None:
         # Values are host-injected; a malformed value or an unenforceable
         # rlimit means the process cap is not in place. Exit instead of
         # running untrusted code without the enforced cap.
-        raise SystemExit(_GUARD_FAILURE_EXIT_CODE) from exc
+        raise SystemExit(
+            f"_enforce_nproc_limit: could not enforce RLIMIT_NPROC={raw!r}: "
+            f"{type(exc).__name__}"
+        ) from exc
 
 
 def main() -> None:
