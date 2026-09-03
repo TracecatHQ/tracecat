@@ -5,6 +5,8 @@ const defaultNodeWidth = 172
 const defaultNodeHeight = 36
 const builderNodeWidth = 256
 const triggerNodeAutoLayoutGap = 64
+const autoLayoutNodeSep = 120
+const autoLayoutRankSep = 150
 
 interface HydratedGraphMergeOptions {
   preserveEphemeral?: boolean
@@ -155,7 +157,11 @@ export function getLayoutedElements(
 } {
   const dagreGraph = new Dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}))
   const isHorizontal = direction === "LR"
-  dagreGraph.setGraph({ rankdir: direction, nodesep: 250, ranksep: 300 })
+  dagreGraph.setGraph({
+    rankdir: direction,
+    nodesep: autoLayoutNodeSep,
+    ranksep: autoLayoutRankSep,
+  })
 
   nodes.forEach((node) => {
     const { width, height } = getNodeLayoutDimensions(node)

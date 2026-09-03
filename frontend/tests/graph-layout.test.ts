@@ -68,7 +68,7 @@ describe("getLayoutedElements", () => {
 
     expect(nodes.map((node) => node.position)).toEqual([
       { x: 0, y: 0 },
-      { x: 0, y: 400 },
+      { x: 0, y: 250 },
     ])
   })
 
@@ -89,7 +89,7 @@ describe("getLayoutedElements", () => {
 
     expect(nodes.map((node) => node.position)).toEqual([
       { x: 0, y: 0 },
-      { x: 0, y: 400 },
+      { x: 0, y: 250 },
     ])
   })
 
@@ -103,7 +103,7 @@ describe("getLayoutedElements", () => {
     const action = nodes.find((node) => node.type === "udf")
 
     expect(trigger?.position.y).toBe(0)
-    expect(action?.position.y).toBe(400)
+    expect(action?.position.y).toBe(250)
   })
 
   it.each([
