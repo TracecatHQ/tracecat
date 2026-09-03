@@ -15,6 +15,7 @@ from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
 from tracecat.authz.controls import has_scope, require_scope
 from tracecat.authz.enums import OwnerType
+from tracecat.authz.membership import org_membership_predicate
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.authz.service import resolve_grantable_role
 from tracecat.cases.service import CaseFieldsService
@@ -477,9 +478,7 @@ class WorkspaceService(BaseOrgService):
         # Org membership is derived from assignments: absence of any assignment
         # in this org means we must also grant the org-member role.
         org_membership_stmt = select(Membership).where(
-            Membership.user_id == user_id,
-            Membership.organization_id == organization_id,
-            Membership.workspace_id.is_(None),
+            org_membership_predicate(user_id, organization_id),
         )
         result = await self.session.execute(org_membership_stmt)
         created_org_membership = result.first() is None

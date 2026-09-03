@@ -16,6 +16,7 @@ from tracecat.authz.controls import (
     validate_scope_string,
 )
 from tracecat.authz.enums import ScopeSource
+from tracecat.authz.membership import org_membership_predicate
 from tracecat.authz.scopes import PRESET_ROLE_SCOPES
 from tracecat.authz.service import resolve_grantable_role, resolve_granter_scopes
 from tracecat.db.models import (
@@ -440,9 +441,7 @@ class RBACService(BaseOrgService):
 
         # Verify user belongs to this organization
         stmt = select(Membership).where(
-            Membership.user_id == user_id,
-            Membership.organization_id == self.organization_id,
-            Membership.workspace_id.is_(None),
+            org_membership_predicate(user_id, self.organization_id),
         )
         result = await self.session.execute(stmt)
         if result.scalar_one_or_none() is None:
@@ -702,9 +701,7 @@ class RBACService(BaseOrgService):
         """
         # Verify user belongs to this organization
         stmt = select(Membership).where(
-            Membership.user_id == user_id,
-            Membership.organization_id == self.organization_id,
-            Membership.workspace_id.is_(None),
+            org_membership_predicate(user_id, self.organization_id),
         )
         result = await self.session.execute(stmt)
         if result.scalar_one_or_none() is None:

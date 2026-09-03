@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.auth.types import Role
+from tracecat.authz.membership import org_membership_predicate
 from tracecat.authz.seeding import seed_system_roles_for_org
 from tracecat.cases.service import CaseFieldsService
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
@@ -200,8 +201,7 @@ async def delete_organization_with_cleanup(
     organization are revoked before the org membership rows are removed.
     """
     org_member_user_ids = select(Membership.user_id).where(
-        Membership.organization_id == organization.id,
-        Membership.workspace_id.is_(None),
+        org_membership_predicate(None, organization.id),
     )
     await session.execute(
         delete(AccessToken).where(
@@ -439,9 +439,7 @@ async def ensure_single_tenant_user_defaults_in_session(
     # acceptable org-wide role, there is nothing to repair.
     membership_result = await session.execute(
         select(Membership).where(
-            Membership.user_id == user_id,
-            Membership.organization_id == organization_id,
-            Membership.workspace_id.is_(None),
+            org_membership_predicate(user_id, organization_id),
         )
     )
     membership = membership_result.scalar_one_or_none()

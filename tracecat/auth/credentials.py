@@ -44,6 +44,7 @@ from tracecat.auth.users import (
     optional_current_active_user,
 )
 from tracecat.authz.controls import has_scope
+from tracecat.authz.membership import org_membership_predicate
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.authz.service import MembershipService, MembershipWithOrg
 from tracecat.contexts import ctx_agent_session_id, ctx_role
@@ -615,9 +616,7 @@ async def _resolve_org_for_regular_user(
                     Organization.id == Membership.organization_id,
                 )
                 .where(
-                    Membership.user_id == user.id,
-                    Membership.organization_id == cookie_org_id,
-                    Membership.workspace_id.is_(None),
+                    org_membership_predicate(user.id, cookie_org_id),
                     Organization.is_active.is_(True),
                 )
             )
@@ -631,8 +630,7 @@ async def _resolve_org_for_regular_user(
         select(Membership.organization_id)
         .join(Organization, Organization.id == Membership.organization_id)
         .where(
-            Membership.user_id == user.id,
-            Membership.workspace_id.is_(None),
+            org_membership_predicate(user.id),
             Organization.is_active.is_(True),
         )
         .order_by(Organization.created_at.asc(), Organization.id.asc())

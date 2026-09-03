@@ -11,6 +11,7 @@ from tracecat.auth.dependencies import OrgActorRole, OrgUserRole
 from tracecat.auth.schemas import SessionRead, UserUpdate
 from tracecat.auth.users import current_active_user
 from tracecat.authz.controls import require_scope
+from tracecat.authz.membership import org_membership_predicate
 from tracecat.db.dependencies import AsyncDBSession, AsyncDBSessionBypass
 from tracecat.db.models import (
     Membership,
@@ -116,8 +117,7 @@ async def list_current_user_organization_memberships(
             Membership.organization_id == Organization.id,
         )
         .where(
-            Membership.user_id == role.user_id,
-            Membership.workspace_id.is_(None),
+            org_membership_predicate(role.user_id),
             Organization.is_active.is_(True),
         )
         .order_by(Organization.name.asc(), Organization.id.asc())
@@ -259,8 +259,7 @@ async def get_current_org_member(
         .where(
             and_(
                 User.id == role.user_id,  # pyright: ignore[reportArgumentType]
-                Membership.organization_id == role.organization_id,  # pyright: ignore[reportArgumentType]
-                Membership.workspace_id.is_(None),
+                org_membership_predicate(None, role.organization_id),
             )
         )
     )

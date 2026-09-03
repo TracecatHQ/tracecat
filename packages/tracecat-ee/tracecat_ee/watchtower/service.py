@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.agent.mcp.metadata import strip_proxy_tool_metadata
+from tracecat.authz.membership import org_membership_predicate
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import (
     Membership,
@@ -606,8 +607,7 @@ async def _resolve_unambiguous_org(
 
     memberships_result = await session.execute(
         select(Membership.organization_id).where(
-            Membership.user_id == user_id,
-            Membership.workspace_id.is_(None),
+            org_membership_predicate(user_id),
         )
     )
     organization_ids = set(memberships_result.scalars().all())

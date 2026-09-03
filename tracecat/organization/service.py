@@ -25,6 +25,7 @@ from tracecat.auth.users import (
     get_user_manager_context,
 )
 from tracecat.authz.controls import require_scope
+from tracecat.authz.membership import org_membership_predicate
 from tracecat.authz.seeding import seed_system_roles_for_org
 from tracecat.authz.service import resolve_grantable_role
 from tracecat.db.models import (
@@ -180,9 +181,7 @@ async def accept_invitation_for_user(
         membership = (
             await session.execute(
                 select(Membership).where(
-                    Membership.user_id == user_id,
-                    Membership.organization_id == invitation.organization_id,
-                    Membership.workspace_id.is_(None),
+                    org_membership_predicate(user_id, invitation.organization_id),
                 )
             )
         ).scalar_one()
@@ -237,11 +236,7 @@ class OrgService(BaseOrgService):
         """
         statement = select(User).join(
             Membership,
-            and_(
-                Membership.user_id == User.id,
-                Membership.organization_id == self.organization_id,
-                Membership.workspace_id.is_(None),
-            ),
+            org_membership_predicate(User.id, self.organization_id),
         )
         result = await self.session.execute(statement)
         return result.scalars().all()
@@ -262,11 +257,7 @@ class OrgService(BaseOrgService):
             select(User)
             .join(
                 Membership,
-                and_(
-                    Membership.user_id == User.id,
-                    Membership.organization_id == self.organization_id,
-                    Membership.workspace_id.is_(None),
-                ),
+                org_membership_predicate(User.id, self.organization_id),
             )
             .where(cast(User.id, UUID) == user_id)
         )
@@ -420,9 +411,7 @@ class OrgService(BaseOrgService):
         return (
             await self.session.execute(
                 select(Membership).where(
-                    Membership.user_id == user_id,
-                    Membership.organization_id == organization_id,
-                    Membership.workspace_id.is_(None),
+                    org_membership_predicate(user_id, organization_id),
                 )
             )
         ).scalar_one()
@@ -460,11 +449,7 @@ class OrgService(BaseOrgService):
             .join(User, cast(AccessToken.user_id, UUID) == User.id)
             .join(
                 Membership,
-                and_(
-                    Membership.user_id == User.id,
-                    Membership.organization_id == self.organization_id,
-                    Membership.workspace_id.is_(None),
-                ),
+                org_membership_predicate(User.id, self.organization_id),
             )
             .options(contains_eager(AccessToken.user))
         )
@@ -488,11 +473,7 @@ class OrgService(BaseOrgService):
             .join(User, cast(AccessToken.user_id, UUID) == User.id)
             .join(
                 Membership,
-                and_(
-                    Membership.user_id == User.id,
-                    Membership.organization_id == self.organization_id,
-                    Membership.workspace_id.is_(None),
-                ),
+                org_membership_predicate(User.id, self.organization_id),
             )
             .where(AccessToken.id == session_id)
         )
@@ -539,8 +520,7 @@ class OrgService(BaseOrgService):
             select(Membership)
             .join(User, Membership.user_id == User.id)
             .where(
-                Membership.organization_id == self.organization_id,
-                Membership.workspace_id.is_(None),
+                org_membership_predicate(None, self.organization_id),
                 func.lower(User.email) == email.lower(),
             )
         )
@@ -760,9 +740,10 @@ class OrgService(BaseOrgService):
             membership = (
                 await self.session.execute(
                     select(Membership).where(
-                        Membership.user_id == self.role.user_id,
-                        Membership.organization_id == invitation.organization_id,
-                        Membership.workspace_id.is_(None),
+                        org_membership_predicate(
+                            self.role.user_id,
+                            invitation.organization_id,
+                        ),
                     )
                 )
             ).scalar_one()

@@ -18,6 +18,7 @@ from tracecat.audit.logger import audit_log
 from tracecat.audit.service import AuditService
 from tracecat.audit.types import AuditAction
 from tracecat.auth.types import Role
+from tracecat.authz.membership import org_membership_predicate
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.models import (
     Membership,
@@ -172,8 +173,7 @@ class AdminOrgService(BasePlatformService):
             select(Membership)
             .join(User, Membership.user_id == User.id)
             .where(
-                Membership.organization_id == org_id,
-                Membership.workspace_id.is_(None),
+                org_membership_predicate(None, org_id),
                 func.lower(User.email) == params.email.lower(),
             )
         )

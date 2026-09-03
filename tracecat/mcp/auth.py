@@ -45,6 +45,7 @@ from tracecat.auth.credentials import compute_effective_scopes
 from tracecat.auth.types import Role
 from tracecat.authz.controls import has_scope
 from tracecat.authz.enums import OrgRole, WorkspaceRole
+from tracecat.authz.membership import org_membership_predicate
 from tracecat.config import (
     REDIS_URL,
     TRACECAT__PUBLIC_APP_URL,
@@ -1135,9 +1136,7 @@ async def resolve_org_membership(
     async with get_async_session_bypass_rls_context_manager() as session:
         result = await session.execute(
             select(Membership).where(
-                Membership.user_id == user_id,
-                Membership.organization_id == organization_id,
-                Membership.workspace_id.is_(None),
+                org_membership_predicate(user_id, organization_id),
             )
         )
         membership = result.scalars().first()
@@ -1265,8 +1264,7 @@ async def list_user_workspaces(
             select(Membership.organization_id)
             .join(Organization, Organization.id == Membership.organization_id)
             .where(
-                Membership.user_id == user.id,
-                Membership.workspace_id.is_(None),
+                org_membership_predicate(user.id),
                 Organization.is_active.is_(True),
             )
         )
@@ -1437,8 +1435,7 @@ async def resolve_org_role_for_request(
             select(Membership.organization_id)
             .join(Organization, Organization.id == Membership.organization_id)
             .where(
-                Membership.user_id == user.id,
-                Membership.workspace_id.is_(None),
+                org_membership_predicate(user.id),
                 Organization.is_active.is_(True),
             )
         )
