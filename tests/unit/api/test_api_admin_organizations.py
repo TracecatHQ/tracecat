@@ -20,7 +20,7 @@ from tracecat import config
 from tracecat.api.app import app
 from tracecat.auth.types import Role
 from tracecat.db.engine import get_async_session_bypass_rls
-from tracecat.email.client import InvitationEmail
+from tracecat.email.client import Mailer, OutboundEmail
 from tracecat.exceptions import TracecatValidationError
 from tracecat.invitations.enums import InvitationStatus
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
@@ -267,17 +267,8 @@ async def test_admin_org_invitation_schedules_configured_email(
 
     with (
         patch.object(organizations_router, "AdminOrgService") as mock_service_class,
-        patch.object(organizations_router, "is_email_configured", return_value=True),
-        patch.object(
-            organizations_router,
-            "build_accept_url",
-            return_value="https://app.example.com/invitations/accept?token=raw-token",
-        ),
-        patch.object(
-            organizations_router,
-            "send_invitation_emails",
-            new_callable=AsyncMock,
-        ) as mock_send,
+        patch.object(config, "TRACECAT__EMAIL_DOMAIN", "mail.example.com"),
+        patch.object(Mailer, "deliver") as mock_deliver,
     ):
         mock_service = AsyncMock()
         mock_service.create_organization_invitation.return_value = invitation
@@ -289,18 +280,12 @@ async def test_admin_org_invitation_schedules_configured_email(
         )
 
     assert response.status_code == status.HTTP_201_CREATED
-    mock_send.assert_awaited_once_with(
-        [
-            InvitationEmail(
-                to=invitation.email,
-                accept_url=(
-                    "https://app.example.com/invitations/accept?token=raw-token"
-                ),
-                context_name="Acme",
-                kind="organization",
-            )
-        ]
-    )
+    mock_deliver.assert_called_once()
+    message = mock_deliver.call_args.args[0]
+    assert isinstance(message, OutboundEmail)
+    assert message.to == (invitation.email,)
+    assert message.subject == "Join Acme on Tracecat"
+    assert message.from_addr == "Tracecat <no-reply@mail.example.com>"
 
 
 @pytest.mark.anyio

@@ -112,7 +112,9 @@ TRACECAT__SMTP_USER = (os.environ.get("TRACECAT__SMTP_USER") or "").strip() or N
 TRACECAT__SMTP_PASSWORD = (
     os.environ.get("TRACECAT__SMTP_PASSWORD") or ""
 ).strip() or None
-TRACECAT__EMAIL_FROM = (os.environ.get("TRACECAT__EMAIL_FROM") or "").strip() or None
+TRACECAT__EMAIL_DOMAIN = (
+    os.environ.get("TRACECAT__EMAIL_DOMAIN") or ""
+).strip() or None
 
 TRACECAT__PLATFORM_OTEL_ENABLED = env_bool(
     "TRACECAT__PLATFORM_OTEL_ENABLED", default=False
