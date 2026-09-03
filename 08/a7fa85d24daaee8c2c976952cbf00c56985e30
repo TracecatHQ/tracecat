@@ -1,0 +1,33 @@
+Dockerfile
+  s_c966cf3ad9dcbc::t_7349f0203b3a8c 222,224-225,231-232,301
+tests/unit/test_generate_mcp_docs.py
+  s_c966cf3ad9dcbc::t_7349f0203b3a8c 1-30
+tests/unit/test_builtin_skills.py
+  s_c966cf3ad9dcbc::t_7349f0203b3a8c 281,284,295-298
+tracecat/agent/executor/activity.py
+  s_c966cf3ad9dcbc::t_7349f0203b3a8c 1096-1106,1108,1113,1116-1121
+  s_c966cf3ad9dcbc::t_eda765d5cebd3f 81-84,1082,1088,1092-1093,1107
+  s_c966cf3ad9dcbc::t_b8bfe58799c8d1 1094-1095
+tracecat/mcp/server.py
+  s_c966cf3ad9dcbc::t_7349f0203b3a8c 5047-5048,5066
+scripts/generate_mcp_docs.py
+  s_c966cf3ad9dcbc::t_7349f0203b3a8c 6-20,116-117,126-133,135,137-138
+docs/snippets/mcp-tools.mdx
+  s_c966cf3ad9dcbc::t_751f3b59d9b5ad 146-147
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "08a7fa85d24daaee8c2c976952cbf00c56985e30",
+  "prompts": {},
+  "sessions": {
+    "s_c966cf3ad9dcbc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06370-1876-7c91-8f74-9ed313754937",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
