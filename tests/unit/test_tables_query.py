@@ -148,6 +148,16 @@ def test_hostile_column_names_are_not_resolvable(field: str) -> None:
     assert resolver.resolve(field) is None
 
 
+@pytest.mark.parametrize("field", ["st;atus", '"status"', "status;--", "sta tus"])
+def test_invalid_names_never_alias_to_existing_columns(field: str) -> None:
+    # Guard against resolving through sanitize_identifier, which would strip the
+    # offending characters and silently alias the input onto a real column.
+    assert sanitize_identifier(field) == "status"
+    resolver = TableFieldResolver([_column("status", SqlType.TEXT.value)])
+
+    assert resolver.resolve(field) is None
+
+
 def test_resolves_case_insensitive_fallback() -> None:
     resolver = TableFieldResolver([_column("status", SqlType.TEXT.value)])
 
