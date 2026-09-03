@@ -5,7 +5,7 @@ mode: wide
 ---
 
 <Info>
-  Every Tracecat feature works in self-hosted and air-gapped deployments. Our engineering principle is simple: if a feature cannot run on-premises, we do not ship it to Tracecat Cloud.
+  Every Tracecat feature works in self-hosted and air-gapped deployments. We ship a feature to Tracecat Cloud only when it can also run on-premises.
 </Info>
 
 Tracecat supports fully air-gapped operation on production Kubernetes. Use internet access during preparation to stage every required artifact, then run Tracecat with zero internet connectivity.
@@ -58,7 +58,7 @@ Use [vLLM](https://docs.vllm.ai/en/stable/serving/parallelism_scaling/) as the d
 
 ## Open model reference
 
-**Reviewed September 2026.** Each [DGX Spark](https://docs.nvidia.com/dgx/dgx-spark/hardware.html) provides 128 GB of unified memory. Static weight figures exclude KV cache, serving overhead, and concurrency. Calculated figures use two bytes per BF16 parameter, one byte per FP8 parameter, and half a byte per FP4 parameter.
+Reviewed September 2026. Each [DGX Spark](https://docs.nvidia.com/dgx/dgx-spark/hardware.html) provides 128 GB of unified memory. Static weight figures exclude KV cache, serving overhead, and concurrency. Calculated figures use two bytes per BF16 parameter, one byte per FP8 parameter, and half a byte per FP4 parameter.
 
 | Model | Compute against 2–3 DGX Spark nodes | Size and precision | Tool calling | Context: input / output | Defensive cyber evidence |
 | --- | --- | --- | --- | --- | --- |
