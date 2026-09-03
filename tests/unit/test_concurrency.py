@@ -10,6 +10,7 @@ from tracecat.concurrency import (
     apartial,
     cooperative,
     cooperative_every,
+    drain_future_through_cancellation,
     rejoin_future_through_cancellation,
 )
 
@@ -586,6 +587,33 @@ async def test_cooperative_exception_during_sleep():
     assert len(result) >= 1
     assert result[0] == 1
     assert len(result) <= 2  # At most 2 items before exception
+
+
+@pytest.mark.anyio
+async def test_drain_future_returns_failure_after_repeated_cancellation() -> None:
+    started = asyncio.Event()
+    release = asyncio.Event()
+    cleanup_error = RuntimeError("cleanup failed")
+
+    async def operation() -> None:
+        started.set()
+        await release.wait()
+        raise cleanup_error
+
+    operation_task = asyncio.create_task(operation())
+    draining_task = asyncio.create_task(
+        drain_future_through_cancellation(operation_task)
+    )
+    await started.wait()
+
+    draining_task.cancel()
+    await asyncio.sleep(0)
+    draining_task.cancel()
+    await asyncio.sleep(0)
+    assert not draining_task.done()
+
+    release.set()
+    assert await draining_task is cleanup_error
 
 
 @pytest.mark.anyio

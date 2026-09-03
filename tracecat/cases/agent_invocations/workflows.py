@@ -30,6 +30,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.cases.agent_invocations.types import (
         CaseCommentAgentInvocationErrorKind,
     )
+    from tracecat.concurrency import drain_future_through_cancellation
     from tracecat.dsl.common import RETRY_POLICIES
     from tracecat.logger import logger
 
@@ -109,20 +110,13 @@ class CaseCommentAgentInvocationWorkflow:
             )
         )
         try:
-            await asyncio.shield(task)
-        except BaseException as cleanup_error:
-            if is_cancelled_exception(cleanup_error):
-                try:
-                    await asyncio.shield(task)
-                except BaseException as retry_error:
-                    logger.error(
-                        "Failed to persist cancelled comment agent invocation",
-                        invocation_id=str(input.invocation_id),
-                        error=str(retry_error),
-                    )
-            else:
-                logger.error(
-                    "Failed to persist comment agent invocation failure",
-                    invocation_id=str(input.invocation_id),
-                    error=str(cleanup_error),
-                )
+            cleanup_error = await drain_future_through_cancellation(task)
+        except BaseException as cleanup_exception:
+            cleanup_error = cleanup_exception
+
+        if cleanup_error is not None:
+            logger.error(
+                "Failed to persist comment agent invocation failure",
+                invocation_id=str(input.invocation_id),
+                error=str(cleanup_error),
+            )
