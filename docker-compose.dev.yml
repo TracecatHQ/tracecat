@@ -131,6 +131,7 @@ services:
       TRACECAT__DB_SSLMODE: ${TRACECAT__DB_SSLMODE}
       TRACECAT__DB_URI: ${TRACECAT__DB_URI} # Sensitive
       TRACECAT__PUBLIC_API_URL: ${TRACECAT__PUBLIC_API_URL}
+      TRACECAT__PUBLIC_APP_URL: ${TRACECAT__PUBLIC_APP_URL}
       TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY} # Sensitive
       TRACECAT__SERVICE_NAME: worker
       TRACECAT__AGENT_SANDBOX_TIMEOUT: ${TRACECAT__AGENT_SANDBOX_TIMEOUT:-3600}
@@ -232,6 +233,10 @@ services:
       TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED:-false}
       PYTHONPATH: ${PYTHONPATH:+${PYTHONPATH}:}/home/apiuser/.local:/app/local_registry
       # Sandbox
+      # NOTE: *_ALLOWED_EGRESS_CIDRS gate private-network exceptions only;
+      # the *_TCP_PORTS values apply to those CIDRs. Public IPv4 egress
+      # remains unrestricted (any public IPv4, any port) regardless of the
+      # allowed-egress CIDR settings. See tracecat/sandbox/networking.py.
       TRACECAT__DISABLE_NSJAIL: ${TRACECAT__DISABLE_NSJAIL:-true}
       TRACECAT__SANDBOX_NSJAIL_PATH: /usr/local/bin/nsjail
       TRACECAT__SANDBOX_ROOTFS_PATH: /var/lib/tracecat/sandbox-rootfs
@@ -446,6 +451,9 @@ services:
       TRACECAT__SANDBOX_NSJAIL_PATH: /usr/local/bin/nsjail
       TRACECAT__SANDBOX_ROOTFS_PATH: /var/lib/tracecat/sandbox-rootfs
       TRACECAT__SANDBOX_CACHE_DIR: /var/lib/tracecat/sandbox-cache
+      # NOTE: TRACECAT__SANDBOX_AGENT_ALLOWED_EGRESS_CIDRS gates
+      # private-network exceptions only (ports apply to those CIDRs). With
+      # empty CIDRs, public egress is unrestricted on all ports.
       TRACECAT__SANDBOX_AGENT_ALLOWED_EGRESS_CIDRS: ${TRACECAT__SANDBOX_AGENT_ALLOWED_EGRESS_CIDRS:-}
       TRACECAT__SANDBOX_AGENT_ALLOWED_EGRESS_TCP_PORTS: ${TRACECAT__SANDBOX_AGENT_ALLOWED_EGRESS_TCP_PORTS:-443}
       TRACECAT__SANDBOX_BLOCKED_EGRESS_CIDRS: ${TRACECAT__SANDBOX_BLOCKED_EGRESS_CIDRS:-}

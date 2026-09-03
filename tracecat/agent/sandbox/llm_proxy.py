@@ -42,7 +42,7 @@ from tracecat.runtime.errors import RuntimeErrorClassification
 # passthrough upstream URL. The contract for stored ``base_url`` is the
 # OpenAI-compatible "/v1" form (so catalog discovery can hit
 # ``{base_url}/models`` → ``/v1/models``). In passthrough mode the SDK
-# clients (Claude Code SDK, pydantic-ai) emit fully-qualified paths like
+# clients such as the Claude Code SDK emit fully-qualified paths like
 # ``/v1/messages``, so we strip the version suffix from direct route ``base_url``
 # to avoid producing ``/v1/v1/messages``, which the upstream rejects with
 # a 404 "model not found".
@@ -63,11 +63,42 @@ _NON_CRITICAL_PATHS = frozenset(
 )
 
 # User-friendly error messages by status code
+_ALLOWED_HTTP_METHODS = frozenset({"GET", "POST"})
+"""Methods the jailed runtime may use through the LLM socket proxy.
+
+Inference is POST and provider/catalog discovery is GET. Rejecting
+DELETE/PUT/PATCH/CONNECT/etc. prevents in-jail code from exercising gateway
+administration or destructive endpoints with the host-attached credentials.
+"""
+
+_POST_PATH_ALLOWLIST = frozenset(
+    {
+        "/v1/messages",
+        "/v1/messages/count_tokens",
+        "/v1/responses",
+        "/v1/chat/completions",
+        "/v1/completions",
+        "/v1/embeddings",
+        "/api/event_logging/batch",
+    }
+)
+"""POST paths the jailed Claude runtime may send through the proxy.
+
+Covers inference, token counting, OpenAI-compatible passthrough routes, and
+the CLI's event-log batching. Every other POST path is rejected before the
+gateway so jailed code cannot reach administrative or billing endpoints
+with the host-attached credentials.
+"""
+
+_GET_PATH_ALLOWLIST = frozenset({"/v1/models", "/models"})
+"""GET paths the jailed runtime may use: provider/model discovery only."""
+
 _ERROR_MESSAGES = {
     400: "Invalid request to LLM provider",
     401: "Authentication failed - check your API credentials",
     403: "Access denied - check your API permissions",
     404: "Model not found - check your model configuration",
+    405: "HTTP method not allowed by the LLM socket proxy",
     429: "Rate limit exceeded - please try again later",
     500: "LLM provider internal error",
     502: "LLM provider unavailable",
@@ -845,7 +876,36 @@ class LLMSocketProxy:
         trace_request_id = _get_or_create_trace_request_id(headers)
 
         try:
+            # Method allowlist: the socket is reachable by untrusted in-jail
+            # code, so it must not be able to reach host gateway credentials
+            # for destructive or administrative operations. LLM inference is
+            # POST (streaming + completions) and provider/catalog discovery is
+            # GET; anything else (DELETE/PUT/PATCH/CONNECT/...) is rejected
+            # before it ever reaches the gateway.
+            if method not in _ALLOWED_HTTP_METHODS:
+                await self._write_error_response(
+                    writer,
+                    status_code=405,
+                    detail="HTTP method not allowed by the LLM socket proxy",
+                    request_counter=request_counter,
+                    trace_request_id=trace_request_id,
+                )
+                return
+
             path_without_query = request["path"].split("?", 1)[0]
+            allowed_paths = (
+                _GET_PATH_ALLOWLIST if method == "GET" else _POST_PATH_ALLOWLIST
+            )
+            if path_without_query not in allowed_paths:
+                await self._write_error_response(
+                    writer,
+                    status_code=404,
+                    detail="Path not allowed by the LLM socket proxy",
+                    request_counter=request_counter,
+                    trace_request_id=trace_request_id,
+                )
+                return
+
             if path_without_query == "/api/event_logging/batch":
                 await self._write_response(
                     writer,
@@ -1168,13 +1228,14 @@ class LLMSocketProxy:
             }
         )
         reason = _ERROR_MESSAGES.get(status_code, detail)
+        # RFC 9110: 405 responses must advertise the accepted methods.
+        allow_header = "Allow: GET, POST\r\n" if status_code == 405 else ""
         response_head = (
             f"HTTP/1.1 {status_code} {reason}\r\n"
             "Content-Type: application/json\r\n"
             f"Content-Length: {len(body)}\r\n"
             f"X-Request-ID: {trace_request_id}\r\n"
-            "Connection: close\r\n"
-            "\r\n"
+            "Connection: close\r\n" + allow_header + "\r\n"
         )
         writer.write(response_head.encode("utf-8") + body)
         await writer.drain()

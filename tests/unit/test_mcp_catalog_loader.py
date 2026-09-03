@@ -602,7 +602,6 @@ def test_private_catalog_overlay_does_not_drop_public_rows() -> None:
         assert entry.slug in private_by_slug
 
     for slug in (
-        "splunk-mcp",
         "hashicorp-vault-mcp",
         "palo-alto-mcp",
         "terraform-mcp",
@@ -637,6 +636,31 @@ def test_private_catalog_overlay_does_not_drop_public_rows() -> None:
         "client_id": "oauth_client",
         "client_secret": "oauth_client",
     }
+
+    glean_spec = private_by_slug["glean-mcp"].connection_spec
+    assert glean_spec is not None
+    assert glean_spec.kind == "http_oauth2"
+    assert glean_spec.requires_config is True
+    assert glean_spec.server_uri == (
+        "https://{GLEAN_BACKEND_DOMAIN}/mcp/{MCP_SERVER_NAME}"
+    )
+    # Tenant-hosted OAuth server: endpoints are discovered from the backend host.
+    assert glean_spec.oauth_authorization_endpoint is None
+    assert glean_spec.oauth_token_endpoint is None
+    glean_credentials = {
+        credential.key: credential for credential in glean_spec.credentials
+    }
+    assert {key: cred.target for key, cred in glean_credentials.items()} == {
+        "GLEAN_BACKEND_DOMAIN": "server_uri",
+        "MCP_SERVER_NAME": "server_uri",
+        "client_id": "oauth_client",
+        "client_secret": "oauth_client",
+    }
+    assert glean_credentials["MCP_SERVER_NAME"].default_value == "default"
+    # DCR is greenlisted by Glean, so a static client is optional, not required.
+    assert glean_credentials["client_id"].required is False
+    assert glean_credentials["client_secret"].required is False
+    assert glean_credentials["client_secret"].secret is True
 
     semgrep_spec = private_by_slug["semgrep-mcp"].connection_spec
     assert semgrep_spec is not None
@@ -679,6 +703,44 @@ def test_private_catalog_overlay_does_not_drop_public_rows() -> None:
         "X-Wiz-MCP-Mode",
     }
     assert headers["X-Wiz-MCP-Mode"].default_value == "gateway"
+
+    # Splunk's MCP Server app is customer-hosted, so both options take the
+    # endpoint from the user. Encrypted tokens work on Cloud and Enterprise;
+    # OAuth is Splunk Cloud only, with a static client and discovered endpoints.
+    splunk = private_by_slug["splunk-mcp"]
+    assert splunk.status == "available"
+    assert splunk.connection_options is not None
+    assert [option.id for option in splunk.connection_options] == [
+        "encrypted-token",
+        "cloud-oauth",
+    ]
+    assert splunk.connection_spec is not None
+    assert splunk.connection_spec.kind == "http_custom"
+    assert splunk.connection_spec.requires_config is True
+    assert {
+        credential.key: credential.target
+        for credential in splunk.connection_spec.credentials
+    } == {"SPLUNK_MCP_ENDPOINT": "server_uri", "Authorization": "http_header"}
+    assert all(credential.required for credential in splunk.connection_spec.credentials)
+    splunk_oauth = next(
+        option for option in splunk.connection_options if option.id == "cloud-oauth"
+    ).connection_spec
+    assert splunk_oauth.kind == "http_oauth2"
+    assert splunk_oauth.requires_config is True
+    assert splunk_oauth.scopes == ["openid", "offline_access"]
+    assert splunk_oauth.oauth_authorization_endpoint is None
+    assert splunk_oauth.oauth_token_endpoint is None
+    splunk_oauth_credentials = {
+        credential.key: credential for credential in splunk_oauth.credentials
+    }
+    assert {key: cred.target for key, cred in splunk_oauth_credentials.items()} == {
+        "SPLUNK_MCP_ENDPOINT": "server_uri",
+        "client_id": "oauth_client",
+        "client_secret": "oauth_client",
+    }
+    assert splunk_oauth_credentials["client_id"].required is True
+    assert splunk_oauth_credentials["client_secret"].required is True
+    assert splunk_oauth_credentials["client_secret"].secret is True
 
 
 def test_google_secops_row_ships_templated_uri_and_pinned_authorize_params() -> None:

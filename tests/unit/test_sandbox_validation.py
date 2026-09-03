@@ -11,7 +11,12 @@ from tracecat.sandbox.executor import (
     _validate_env_key,
     _validate_path,
 )
-from tracecat.sandbox.types import SandboxBindMount, SandboxConfig
+from tracecat.sandbox.types import (
+    ResourceLimits,
+    SandboxBindMount,
+    SandboxConfig,
+)
+from tracecat.sandbox.wrapper import INSTALL_SCRIPT
 
 
 class TestValidateEnvKey:
@@ -215,9 +220,14 @@ class TestEnvMap:
 
         env_map = executor._build_env_map(config, "execute")
 
-        # Ensure NO TRACECAT__ vars are present
+        # Ensure only the host-injected process-cap var is present: no
+        # secrets leak. TRACECAT__SANDBOX_RLIMIT_NPROC is injected by the
+        # executor itself (not read from the host environment) so the jailed
+        # wrapper can enforce the process cap that nsjail cannot.
         tracecat_vars = [k for k in env_map.keys() if k.startswith("TRACECAT__")]
-        assert tracecat_vars == [], f"Found TRACECAT__ vars in env_map: {tracecat_vars}"
+        assert tracecat_vars == ["TRACECAT__SANDBOX_RLIMIT_NPROC"], (
+            f"Unexpected TRACECAT__ vars in env_map: {tracecat_vars}"
+        )
 
     def test_env_map_only_contains_expected_keys(self, monkeypatch: pytest.MonkeyPatch):
         """Verify env_map contains ONLY the expected keys, nothing more."""
@@ -233,7 +243,8 @@ class TestEnvMap:
 
         env_map = executor._build_env_map(config, "execute")
 
-        # Expected keys are ONLY base env + user-specified vars
+        # Expected keys are ONLY base env + user-specified vars + the
+        # host-injected process cap
         expected_keys = {
             "PATH",
             "HOME",
@@ -241,6 +252,7 @@ class TestEnvMap:
             "PYTHONUNBUFFERED",
             "LANG",
             "LC_ALL",
+            "TRACECAT__SANDBOX_RLIMIT_NPROC",
             "USER_VAR",
         }
         assert set(env_map.keys()) == expected_keys
@@ -270,7 +282,38 @@ class TestEnvMap:
         env_map = executor._build_env_map(config, "install")
 
         assert "UV_CACHE_DIR" in env_map
-        assert env_map["UV_CACHE_DIR"] == "/uv-cache"
+        assert env_map["UV_CACHE_DIR"] == "/cache/uv-cache"
+
+    def test_env_map_install_phase_injects_nproc_limit(self):
+        """Install must inject the process cap: uv runs untrusted build backends."""
+        executor = NsjailExecutor()
+        config = SandboxConfig(resources=ResourceLimits(max_processes=32))
+
+        env_map = executor._build_env_map(config, "install")
+
+        assert env_map["TRACECAT__SANDBOX_RLIMIT_NPROC"] == "32"
+
+
+class TestInstallScript:
+    """Tests for the static INSTALL_SCRIPT entrypoint."""
+
+    def test_install_script_is_valid_python(self):
+        compile(INSTALL_SCRIPT, "<INSTALL_SCRIPT>", "exec")
+
+    def test_install_script_enforces_nproc_before_uv(self):
+        """The install entrypoint must apply the process cap before uv runs.
+
+        uv executes arbitrary build backends from user-selected source
+        dependencies; without the cap, a fork bomb in a build backend can
+        exhaust the shared container PID limit and disrupt other jails.
+        """
+        assert "_enforce_nproc_limit()" in INSTALL_SCRIPT
+        # rindex: the call site (not the def line) must precede subprocess.run.
+        enforcement_pos = INSTALL_SCRIPT.rindex("_enforce_nproc_limit()")
+        uv_pos = INSTALL_SCRIPT.index("subprocess.run")
+        assert enforcement_pos < uv_pos, (
+            "Process cap must be applied before launching uv"
+        )
 
     def test_no_sensitive_host_vars_leak(self, monkeypatch: pytest.MonkeyPatch):
         """Comprehensive test that common sensitive env vars don't leak.
