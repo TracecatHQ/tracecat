@@ -1,0 +1,19 @@
+tracecat/mcp/server.py
+  s_9a54319da2a825::t_946d3ab7df8b52 2260-2264,2808-2814
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "80c156c23241418ee66fc03d2cc8c8fd8bb53faf",
+  "prompts": {},
+  "sessions": {
+    "s_9a54319da2a825": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "80f8d3bf-1038-48a9-9042-14f4e23d6c5a",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
