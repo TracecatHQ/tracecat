@@ -44,3 +44,7 @@ def raise_for_sandbox_error_code(
         raise SandboxInfrastructureError(message)
     if error_code is not None:
         raise SandboxWorkloadError(message, error_code=error_code)
+
+
+class SandboxFileSafetyError(SandboxError):
+    """A sandbox-controlled file failed a host-side safety check."""

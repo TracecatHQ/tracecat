@@ -19,6 +19,7 @@ import importlib
 import inspect
 import json
 import os
+import resource
 import sys
 import traceback
 import uuid
@@ -129,8 +130,54 @@ def to_json_safe(value):
         return value.decode("utf-8", errors="replace")
     return repr(value)
 
+def _enforce_nproc_limit() -> None:
+    """Cap the jail's process count via RLIMIT_NPROC.
+
+    nsjail cannot enforce rlimit_nproc when it creates a user namespace
+    (clone_newuser), so the host injects the configured limit via
+    TRACECAT__SANDBOX_RLIMIT_NPROC and this trusted entrypoint applies it
+    before any untrusted code runs. Lowering a hard rlimit is permitted for
+    unprivileged processes, and the limit is enforced per real UID, which
+    covers every process in the jail.
+
+    Fails closed: if a cap was injected but cannot be enforced, refuse to
+    run untrusted code rather than continuing uncapped. A missing cap
+    (direct/dev mode) is not an enforcement failure.
+    """
+    raw = os.environ.get("TRACECAT__SANDBOX_RLIMIT_NPROC")
+    if not raw:
+        return
+    try:
+        limit = int(raw)
+        if limit <= 0:
+            raise ValueError(f"non-positive cap: {limit}")
+        _soft, current_hard = resource.getrlimit(resource.RLIMIT_NPROC)
+        finite = current_hard != resource.RLIM_INFINITY
+        # Already capped when the inherited hard cap is at or below the
+        # requested limit (including 0 = no child processes), or when a
+        # stricter finite soft limit is in force: raising either would only
+        # relax enforcement.
+        already_capped = (
+            0 <= current_hard <= limit
+            if finite
+            else 0 < _soft <= limit
+        )
+        if not already_capped:
+            resource.setrlimit(resource.RLIMIT_NPROC, (limit, limit))
+    except (ValueError, OSError, OverflowError) as exc:
+        # Values are host-injected; a malformed value or an unenforceable
+        # rlimit means the process cap is not in place. Exit instead of
+        # running untrusted code without the enforced cap.
+        raise SystemExit(
+            f"_enforce_nproc_limit: could not enforce RLIMIT_NPROC={raw!r}: "
+            f"{type(exc).__name__}"
+        ) from exc
+
+
 def main():
     """Execute user script and capture results."""
+    _enforce_nproc_limit()
+
     # Read inputs from file
     inputs_path = Path("/work/inputs.json")
     if inputs_path.exists():
@@ -222,9 +269,52 @@ if __name__ == "__main__":
 INSTALL_SCRIPT = """
 import json
 import os
+import resource
 import subprocess
 import sys
 from pathlib import Path
+
+
+def _enforce_nproc_limit() -> None:
+    # Cap the jail's process count via RLIMIT_NPROC before uv runs.
+    #
+    # nsjail cannot enforce rlimit_nproc when it creates a user namespace
+    # (clone_newuser), so the host injects the configured limit via
+    # TRACECAT__SANDBOX_RLIMIT_NPROC and this trusted entrypoint applies it
+    # before any untrusted build backend runs. uv inherits the rlimit and
+    # passes it to build-backend child processes, containing fork bombs from
+    # malicious or broken source packages to this install's process cap.
+    raw = os.environ.get("TRACECAT__SANDBOX_RLIMIT_NPROC")
+    if not raw:
+        return
+    try:
+        limit = int(raw)
+        if limit <= 0:
+            raise ValueError(f"non-positive cap: {limit}")
+        _soft, current_hard = resource.getrlimit(resource.RLIMIT_NPROC)
+        finite = current_hard != resource.RLIM_INFINITY
+        # Already capped when the inherited hard cap is at or below the
+        # requested limit (including 0 = no child processes), or when a
+        # stricter finite soft limit is in force: raising either would only
+        # relax enforcement.
+        already_capped = (
+            0 <= current_hard <= limit
+            if finite
+            else 0 < _soft <= limit
+        )
+        if not already_capped:
+            resource.setrlimit(resource.RLIMIT_NPROC, (limit, limit))
+    except (ValueError, OSError, OverflowError) as exc:
+        # Values are host-injected; a malformed value or an unenforceable
+        # rlimit means the process cap is not in place. Exit instead of
+        # running untrusted code without the enforced cap.
+        raise SystemExit(
+            f"_enforce_nproc_limit: could not enforce RLIMIT_NPROC={raw!r}: "
+            f"{type(exc).__name__}"
+        ) from exc
+
+
+_enforce_nproc_limit()
 
 # Read dependencies from secure JSON file (written with 0o600 permissions)
 deps_path = Path("/work/dependencies.json")

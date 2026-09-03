@@ -62,13 +62,53 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
+import resource
 import traceback
 from pathlib import Path
 from typing import Any
 
 from fastmcp import Client
 from fastmcp.client.transports import StdioTransport
+
+
+def _enforce_nproc_limit() -> None:
+    # Cap the jail's process count via RLIMIT_NPROC before the MCP command runs.
+    #
+    # nsjail cannot enforce rlimit_nproc when it creates a user namespace
+    # (clone_newuser), so the host injects the configured limit via
+    # TRACECAT__SANDBOX_RLIMIT_NPROC and this trusted entrypoint applies it
+    # before spawning the user-selected MCP command. The command inherits the
+    # rlimit, containing fork bombs to this probe's configured process cap.
+    raw = os.environ.get("TRACECAT__SANDBOX_RLIMIT_NPROC")
+    if not raw:
+        return
+    try:
+        limit = int(raw)
+        if limit <= 0:
+            raise ValueError(f"non-positive cap: {limit}")
+        _soft, current_hard = resource.getrlimit(resource.RLIMIT_NPROC)
+        finite = current_hard != resource.RLIM_INFINITY
+        # Already capped when the inherited hard cap is at or below the
+        # requested limit (including 0 = no child processes), or when a
+        # stricter finite soft limit is in force: raising either would only
+        # relax enforcement.
+        already_capped = (
+            0 <= current_hard <= limit
+            if finite
+            else 0 < _soft <= limit
+        )
+        if not already_capped:
+            resource.setrlimit(resource.RLIMIT_NPROC, (limit, limit))
+    except (ValueError, OSError, OverflowError) as exc:
+        # Values are host-injected; a malformed value or an unenforceable
+        # rlimit means the process cap is not in place. Exit instead of
+        # running untrusted code without the enforced cap.
+        raise SystemExit(
+            f"_enforce_nproc_limit: could not enforce RLIMIT_NPROC={raw!r}: "
+            f"{type(exc).__name__}"
+        ) from exc
 
 URL_PATTERN = re.compile(r"\bhttps?://\S+", re.IGNORECASE)
 URL_USERINFO_PATTERN = re.compile(r"^(https?://)[^/@]*@", re.IGNORECASE)
@@ -143,6 +183,9 @@ def write_result(result: dict[str, Any]) -> None:
 
 
 async def main() -> None:
+    # Apply the process cap before anything untrusted (the MCP command) runs.
+    _enforce_nproc_limit()
+
     payload = json.loads(Path("input.json").read_text(encoding="utf-8"))
     command = payload["command"]
     args = payload.get("args") or []
@@ -412,7 +455,14 @@ async def probe_stdio_mcp_tools_in_sandbox(
                 message="Connection to the MCP server timed out",
                 error=f"Timed out after {timeout_seconds}s while probing stdio MCP server",
             )
-        error = sanitize_stdio_probe_error(result.error or result.stderr, env=env)
+        # Python-sandbox probes report string errors; stringify defensively in
+        # case a structured action-style error ever reaches this path.
+        probe_error = (
+            result.error
+            if isinstance(result.error, str) or result.error is None
+            else str(result.error)
+        )
+        error = sanitize_stdio_probe_error(probe_error or result.stderr, env=env)
         return StdioMCPProbeResult(
             success=False,
             message="Failed to connect to the stdio MCP server",
