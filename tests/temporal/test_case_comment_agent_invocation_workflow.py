@@ -426,6 +426,55 @@ async def test_failure_cleanup_survives_repeated_cancellation(
 
 
 @pytest.mark.anyio
+async def test_failure_cleanup_survives_temporal_cancellation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cleanup_started = asyncio.Event()
+    release_cleanup = asyncio.Event()
+    original_shield = asyncio.shield
+    cancellations_remaining = 3
+
+    async def slow_cleanup(*args: object, **kwargs: object) -> None:
+        cleanup_started.set()
+        await release_cleanup.wait()
+
+    async def shield_with_temporal_cancellation[T](
+        future: asyncio.Future[T],
+    ) -> T:
+        nonlocal cancellations_remaining
+        if cancellations_remaining:
+            cancellations_remaining -= 1
+            raise CancelledError("workflow cancelled")
+        return await original_shield(future)
+
+    monkeypatch.setattr(
+        invocation_workflows.workflow,
+        "execute_activity",
+        slow_cleanup,
+    )
+    monkeypatch.setattr(asyncio, "shield", shield_with_temporal_cancellation)
+    invocation_id = uuid.uuid4()
+    cleanup_task = asyncio.create_task(
+        invocation_workflows.CaseCommentAgentInvocationWorkflow()._record_failure(
+            schemas.CaseCommentAgentInvocationWorkflowInput(
+                role=Role(type="service", service_id="tracecat-api"),
+                invocation_id=invocation_id,
+            ),
+            "cancelled",
+            "cancelled",
+        )
+    )
+
+    await cleanup_started.wait()
+    await asyncio.sleep(0)
+    assert cancellations_remaining == 0
+    assert not cleanup_task.done()
+
+    release_cleanup.set()
+    await cleanup_task
+
+
+@pytest.mark.anyio
 @pytest.mark.integration
 async def test_comment_mention_runs_agent_and_posts_reply(
     monkeypatch: pytest.MonkeyPatch,

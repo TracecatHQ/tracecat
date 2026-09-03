@@ -110,7 +110,10 @@ class CaseCommentAgentInvocationWorkflow:
             )
         )
         try:
-            cleanup_error = await drain_future_through_cancellation(task)
+            cleanup_error = await drain_future_through_cancellation(
+                task,
+                is_cancellation=is_cancelled_exception,
+            )
         except BaseException as cleanup_exception:
             cleanup_error = cleanup_exception
 

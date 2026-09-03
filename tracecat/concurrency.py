@@ -10,18 +10,26 @@ from tracecat.logger import logger
 T = TypeVar("T")
 
 
+def _is_asyncio_cancellation(error: BaseException) -> bool:
+    return isinstance(error, asyncio.CancelledError)
+
+
 async def drain_future_through_cancellation[T](
     future: asyncio.Future[T],
+    *,
+    is_cancellation: Callable[[BaseException], bool] = _is_asyncio_cancellation,
 ) -> BaseException | None:
-    """Wait through caller cancellation and return any terminal future error."""
+    """Wait through caller cancellation and return any terminal future error.
+
+    Cancellation is ignored only while the future remains pending. A
+    cancellation raised by the future itself is returned as its terminal error.
+    """
     while not future.done():
         try:
             await asyncio.shield(future)
-        except asyncio.CancelledError as error:
-            if future.cancelled():
-                return error
-            continue
-        except Exception as error:
+        except (asyncio.CancelledError, Exception) as error:
+            if is_cancellation(error) and not future.done():
+                continue
             return error
 
     try:
