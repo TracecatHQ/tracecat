@@ -12,6 +12,7 @@ import contextlib
 import json
 import logging
 import os
+import resource
 import socket
 import sys
 from pathlib import Path
@@ -516,8 +517,45 @@ async def _pump_stream(
         await loop.run_in_executor(None, dst.flush)
 
 
+def _enforce_nproc_limit() -> None:
+    """Cap the jail's process count via RLIMIT_NPROC.
+
+    nsjail cannot enforce rlimit_nproc when it creates a user namespace
+    (clone_newuser), so the host injects the configured limit via
+    TRACECAT__SANDBOX_RLIMIT_NPROC and this trusted shim applies it before
+    starting the Claude runtime. Lowering a hard rlimit is permitted for
+    unprivileged processes, and the limit is enforced per real UID, which
+    covers every process in the jail.
+    """
+    raw = os.environ.get("TRACECAT__SANDBOX_RLIMIT_NPROC")
+    if not raw:
+        return
+    try:
+        limit = int(raw)
+        if limit <= 0:
+            raise ValueError(f"non-positive cap: {limit}")
+        _soft, current_hard = resource.getrlimit(resource.RLIMIT_NPROC)
+        finite = current_hard != resource.RLIM_INFINITY
+        # Already capped when the inherited hard cap is at or below the
+        # requested limit (including 0 = no child processes), or when a
+        # stricter finite soft limit is in force: raising either would only
+        # relax enforcement.
+        already_capped = 0 <= current_hard <= limit if finite else 0 < _soft <= limit
+        if not already_capped:
+            resource.setrlimit(resource.RLIMIT_NPROC, (limit, limit))
+    except (ValueError, OSError, OverflowError) as exc:
+        # Values are host-injected; a malformed value or an unenforceable
+        # rlimit means the process cap is not in place. Exit instead of
+        # running untrusted code without the enforced cap.
+        raise SystemExit(
+            f"_enforce_nproc_limit: could not enforce RLIMIT_NPROC={raw!r}: "
+            f"{type(exc).__name__}"
+        ) from exc
+
+
 def main() -> None:
     """CLI entry point for the sandbox shim."""
+    _enforce_nproc_limit()
     logging.basicConfig(
         level=os.environ.get("LOG_LEVEL", "INFO").upper(),
         format="%(asctime)s %(levelname)s %(name)s %(message)s",

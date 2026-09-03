@@ -2408,14 +2408,11 @@ allowlisted CIDRs are CIDR strings.
 `{_CASE_EVENT_TYPE_VALUES_JSON}`.
 - `create_table.columns`: list of column objects with schema \
 `{"name": str, "type": SqlType, "nullable": bool?, "default": any?, "options": list[str]?}`. \
-`options` are only valid for `SELECT` and `MULTI_SELECT`. `create_table` does \
-not create unique indexes; call `get_table`, then `create_column_index` with \
-the table UUID and column UUID.
-- `create_column.column` uses the same column object schema and adds one column \
-to an existing table, so migrating a table is never needed to add a field. It \
-alters the schema every workflow and view reads, so name the table and column \
-and get the user's confirmation before calling it. On a table that already has \
-rows, keep `nullable` true or set a `default`.
+`options` only apply to `SELECT`/`MULTI_SELECT`. `create_table` creates no \
+unique indexes; use `create_column_index` (UUIDs from `get_table`).
+- `create_column.column` adds one column (same schema) to an existing table. \
+Confirm the table and column with the user first; on a populated table keep \
+`nullable` true or set a `default`.
 - Keep table names, column names, and case field names under 63 characters.
 - `update_workflow` accepts metadata plus optional `definition_yaml` and \
 `update_mode`; do not pass `patch_ops` to it. Use `edit_workflow` for RFC 6902 \

@@ -19,7 +19,6 @@
       "name": "Splunk",
       "description": "Search indexes and triage events on Splunk (Cloud or on-prem)",
       "category": "SIEM / Datalake",
-      "status": "coming_soon",
       "icon": "https://www.google.com/s2/favicons?domain=help.splunk.com&sz=128"
     },
     {
