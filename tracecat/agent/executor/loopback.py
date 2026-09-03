@@ -30,7 +30,7 @@ from tracecat.agent.channels.schemas import ChannelType
 from tracecat.agent.channels.service import PENDING_SLACK_BOT_TOKEN, AgentChannelService
 from tracecat.agent.channels.sinks import ExternalChannelSink
 from tracecat.agent.channels.sinks.slack import SlackStreamSink
-from tracecat.agent.common.protocol import RuntimeEventEnvelope
+from tracecat.agent.common.protocol import RuntimeErrorCode, RuntimeEventEnvelope
 from tracecat.agent.common.socket_io import MessageType, read_message
 from tracecat.agent.common.stream_types import (
     StreamEventType,
@@ -40,6 +40,7 @@ from tracecat.agent.common.stream_types import (
 from tracecat.agent.error_policy import (
     agent_executor_protocol_failed,
     agent_executor_unavailable,
+    user_agent_execution_failed,
 )
 from tracecat.agent.session.history import prepare_session_history
 from tracecat.agent.session.service import AgentSessionService
@@ -666,7 +667,8 @@ class LoopbackHandler:
 
             case "error":
                 return await self._handle_error(
-                    envelope.error or "Unknown runtime error"
+                    envelope.error or "Unknown runtime error",
+                    error_code=envelope.error_code,
                 )
 
             case "done":
@@ -920,16 +922,23 @@ class LoopbackHandler:
         error: str,
         *,
         classification: RuntimeErrorClassification | None = None,
+        error_code: str | None = None,
     ) -> bool:
         """Handle a terminal runtime error."""
         stream_sink = await self.prepare()
-        logger.error("Runtime error", error=error)
+        logger.error("Runtime error", error=error, error_code=error_code)
         await self._emit_terminal_stream_error(stream_sink, error)
         self._result.error = error
         # A classification is trusted only when the host-side runtime hands it
-        # over in-process. Error envelopes arriving over the sandbox socket
-        # carry no ownership metadata by design, so those stay platform-owned.
-        self._result.classification = classification or agent_executor_unavailable()
+        # over in-process. Socket envelopes carry no ownership metadata by
+        # design; only a machine-readable code can attribute those, and
+        # anything else stays platform-owned.
+        if classification is not None:
+            self._result.classification = classification
+        elif error_code == RuntimeErrorCode.RUN_LIMIT_EXCEEDED:
+            self._result.classification = user_agent_execution_failed(retryable=False)
+        else:
+            self._result.classification = agent_executor_unavailable()
         return True
 
     async def send_error(
@@ -937,9 +946,12 @@ class LoopbackHandler:
         error: str,
         *,
         classification: RuntimeErrorClassification | None = None,
+        error_code: str | None = None,
     ) -> None:
         """Handle a terminal runtime error."""
-        await self._handle_error(error, classification=classification)
+        await self._handle_error(
+            error, classification=classification, error_code=error_code
+        )
 
     async def _handle_done(self) -> bool:
         """Handle runtime completion."""
