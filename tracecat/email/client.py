@@ -2,30 +2,18 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from email.message import EmailMessage
-from email.utils import formataddr, parseaddr
-from typing import Protocol, Self
+from email.utils import formataddr
+from typing import Annotated, Protocol
 
 import aiosmtplib
-from pydantic import EmailStr, TypeAdapter, ValidationError
+from fastapi import BackgroundTasks, Depends
 
 from tracecat import config
-from tracecat.email.templates import InvitationKind, render_invitation_email
+from tracecat.email.templates import render_invitation_email
 from tracecat.logger import logger
-
-_EMAIL_ADDRESS_ADAPTER = TypeAdapter(EmailStr)
-
-
-@dataclass(frozen=True, slots=True)
-class InvitationEmail:
-    """An invitation email awaiting rendering."""
-
-    to: str
-    accept_url: str
-    context_name: str
-    kind: InvitationKind
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,54 +35,17 @@ class EmailTransport(Protocol):
 
 
 class SMTPTransport:
-    """SMTP transport backed by a reusable ``aiosmtplib`` connection."""
+    """SMTP transport that opens one connection per message."""
 
     def __init__(self, host: str, port: int, username: str, password: str) -> None:
         self._host = host
         self._port = port
         self._username = username
         self._password = password
-        self._client: aiosmtplib.SMTP | None = None
-
-    async def __aenter__(self) -> Self:
-        use_tls = self._port == 465
-        client = aiosmtplib.SMTP(
-            hostname=self._host,
-            port=self._port,
-            use_tls=use_tls,
-            start_tls=not use_tls,
-        )
-        try:
-            await client.connect()
-            await client.login(self._username, self._password)
-        except BaseException:
-            client.close()
-            raise
-        self._client = client
-        return self
-
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_value: BaseException | None,
-        traceback: object | None,
-    ) -> None:
-        if self._client is not None:
-            try:
-                await self._client.quit()
-            finally:
-                self._client = None
 
     async def send(self, message: OutboundEmail) -> None:
-        """Send one message over the open SMTP connection."""
-        if self._client is None:
-            raise RuntimeError("SMTP transport is not connected")
-
-        sender_name, sender_email = parseaddr(message.from_addr)
         mime = EmailMessage()
-        mime["From"] = (
-            formataddr((sender_name, sender_email)) if sender_name else sender_email
-        )
+        mime["From"] = message.from_addr
         mime["To"] = ", ".join(message.to)
         mime["Subject"] = message.subject
         for key, value in message.headers.items():
@@ -102,29 +53,31 @@ class SMTPTransport:
         mime.set_content(message.text)
         mime.add_alternative(message.html, subtype="html")
 
-        await self._client.send_message(
+        # Port 465 is implicit TLS; everything else upgrades via STARTTLS.
+        await aiosmtplib.send(
             mime,
-            sender=sender_email,
-            recipients=list(message.to),
+            hostname=self._host,
+            port=self._port,
+            username=self._username,
+            password=self._password,
+            use_tls=self._port == 465,
+            start_tls=self._port != 465,
         )
 
 
 def is_email_configured() -> bool:
-    """Return whether all required SMTP settings contain valid values."""
-    if not (
+    """Return whether every required SMTP setting is present."""
+    return bool(
         config.TRACECAT__SMTP_HOST
         and config.TRACECAT__SMTP_USER
         and config.TRACECAT__SMTP_PASSWORD
-        and config.TRACECAT__EMAIL_FROM
-    ):
-        return False
+        and config.TRACECAT__EMAIL_DOMAIN
+    )
 
-    _, sender_email = parseaddr(config.TRACECAT__EMAIL_FROM)
-    try:
-        _EMAIL_ADDRESS_ADAPTER.validate_python(sender_email)
-    except ValidationError:
-        return False
-    return True
+
+def platform_from_addr() -> str:
+    """Build the platform sender address from the verified sending domain."""
+    return formataddr(("Tracecat", f"no-reply@{config.TRACECAT__EMAIL_DOMAIN}"))
 
 
 def build_accept_url(token: str) -> str:
@@ -135,42 +88,22 @@ def build_accept_url(token: str) -> str:
     )
 
 
-def _render_invitation(message: InvitationEmail) -> OutboundEmail:
+def invitation_email(*, to: str, organization_name: str, token: str) -> OutboundEmail:
+    """Render an organization invitation into a deliverable message."""
     subject, html, text = render_invitation_email(
-        accept_url=message.accept_url,
-        context_name=message.context_name,
-        kind=message.kind,
+        accept_url=build_accept_url(token),
+        context_name=organization_name,
     )
     return OutboundEmail(
-        to=(message.to,),
+        to=(to,),
         subject=subject,
         html=html,
         text=text,
-        from_addr=config.TRACECAT__EMAIL_FROM or "",
+        from_addr=platform_from_addr(),
     )
 
 
-async def send_emails(
-    messages: Sequence[OutboundEmail], transport: EmailTransport
-) -> None:
-    """Send messages serially without propagating per-message failures."""
-    for index, message in enumerate(messages):
-        try:
-            await transport.send(message)
-        except Exception as error:
-            logger.error(
-                "Failed to send email",
-                error_type=type(error).__name__,
-                message_index=index,
-                message_count=len(messages),
-            )
-
-
-async def send_invitation_emails(messages: Sequence[InvitationEmail]) -> None:
-    """Render and send invitation emails using the configured SMTP relay."""
-    if not messages or not is_email_configured():
-        return
-
+async def _send(message: OutboundEmail) -> None:
     transport = SMTPTransport(
         host=config.TRACECAT__SMTP_HOST or "",
         port=config.TRACECAT__SMTP_PORT,
@@ -178,14 +111,27 @@ async def send_invitation_emails(messages: Sequence[InvitationEmail]) -> None:
         password=config.TRACECAT__SMTP_PASSWORD or "",
     )
     try:
-        async with transport:
-            await send_emails(
-                [_render_invitation(message) for message in messages],
-                transport,
-            )
+        await transport.send(message)
     except Exception as error:
-        logger.error(
-            "Failed to connect to SMTP relay",
-            error_type=type(error).__name__,
-            message_count=len(messages),
-        )
+        logger.error("Failed to send email", error_type=type(error).__name__)
+
+
+class Mailer:
+    """Queues sends after the response; routers never touch BackgroundTasks."""
+
+    def __init__(self, tasks: BackgroundTasks) -> None:
+        self._tasks = tasks
+
+    def deliver(self, message: OutboundEmail) -> None:
+        # ponytail: in-process send, swap for a Temporal activity when agent mail needs retries.
+        if not is_email_configured():
+            logger.debug("Email is not configured; dropping message")
+            return
+        self._tasks.add_task(_send, message)
+
+
+def _get_mailer(tasks: BackgroundTasks) -> Mailer:
+    return Mailer(tasks)
+
+
+MailerDep = Annotated[Mailer, Depends(_get_mailer)]
