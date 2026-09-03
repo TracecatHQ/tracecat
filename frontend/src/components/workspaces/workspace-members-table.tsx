@@ -61,10 +61,11 @@ import { useQueryClient } from "@/lib/query"
  * Group-derived members cannot be removed here; their group must change.
  */
 function describeMemberSource(source: WorkspaceMember["source"]): string {
+  const groups = (source.group_names ?? []).join(", ")
   if (source.kind === "direct") {
-    return "Direct"
+    return groups ? `Direct + ${groups}` : "Direct"
   }
-  return (source.group_names ?? []).join(", ") || "Group"
+  return groups || "Group"
 }
 
 export function WorkspaceMembersTable({

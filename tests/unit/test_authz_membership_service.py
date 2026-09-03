@@ -495,7 +495,7 @@ async def test_delete_membership_rejects_group_derived_member(
     assert membership is not None
 
 
-async def test_delete_membership_removes_direct_assignment_despite_group(
+async def test_delete_membership_rejects_mixed_member(
     session: AsyncSession,
     membership_service: MembershipService,
     organization: Organization,
@@ -505,7 +505,7 @@ async def test_delete_membership_removes_direct_assignment_despite_group(
     workspace_editor_role: DBRole,
     granting_group: Group,
 ) -> None:
-    """A direct assignment is deleted even when a group also grants access."""
+    """Removal is refused while a group still grants access, direct row or not."""
     session.add(
         UserRoleAssignment(
             organization_id=organization.id,
@@ -517,10 +517,12 @@ async def test_delete_membership_removes_direct_assignment_despite_group(
     )
     await session.commit()
 
-    await membership_service.delete_membership(
-        workspace_id=workspace.id,
-        user_id=member_user.id,
-    )
+    with pytest.raises(GroupDerivedMembershipError) as excinfo:
+        await membership_service.delete_membership(
+            workspace_id=workspace.id,
+            user_id=member_user.id,
+        )
+    assert excinfo.value.group_names == [granting_group.name]
 
     assignment = await session.scalar(
         select(UserRoleAssignment).where(
@@ -528,7 +530,7 @@ async def test_delete_membership_removes_direct_assignment_despite_group(
             UserRoleAssignment.user_id == member_user.id,
         )
     )
-    assert assignment is None
+    assert assignment is not None
 
 
 async def test_list_workspace_members_reports_direct_source(

@@ -267,10 +267,10 @@ class MembershipService(BaseService):
                 role_name=role_name
                 if is_direct
                 else (group_role_by_user.get(user.id) or role_name),
-                source=WorkspaceMemberSource(kind=WorkspaceMemberSourceKind.DIRECT)
-                if is_direct
-                else WorkspaceMemberSource(
-                    kind=WorkspaceMemberSourceKind.GROUP,
+                source=WorkspaceMemberSource(
+                    kind=WorkspaceMemberSourceKind.DIRECT
+                    if is_direct
+                    else WorkspaceMemberSourceKind.GROUP,
                     group_names=groups_by_user.get(user.id, []),
                 ),
             )
@@ -381,27 +381,18 @@ class MembershipService(BaseService):
         Note: The authorization cache is request-scoped, so changes will be
         reflected in subsequent requests automatically.
         """
-        # Membership is derived, so deleting the workspace-scoped assignments
-        # delists the user. Group-derived access survives the delete, so refuse
-        # rather than return success without removing the member.
-        has_direct = (
-            await self.session.execute(
-                select(literal(1)).where(
-                    UserRoleAssignment.workspace_id == workspace_id,
-                    UserRoleAssignment.user_id == user_id,
-                )
+        # Membership is derived, so deleting the workspace-scoped assignment
+        # delists the user only if no group still grants access. Refuse in that
+        # case rather than return success without removing the member.
+        group_names = await self.list_membership_group_names(
+            workspace_id, user_id=user_id
+        )
+        if group_names:
+            raise GroupDerivedMembershipError(
+                "This member's workspace access comes from group membership. "
+                "Remove them from the granting group instead.",
+                group_names=group_names,
             )
-        ).first() is not None
-        if not has_direct:
-            group_names = await self.list_membership_group_names(
-                workspace_id, user_id=user_id
-            )
-            if group_names:
-                raise GroupDerivedMembershipError(
-                    "This member's workspace access comes from group membership. "
-                    "Remove them from the granting group instead.",
-                    group_names=group_names,
-                )
 
         await self.session.execute(
             delete(UserRoleAssignment).where(

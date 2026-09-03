@@ -130,8 +130,8 @@ class WorkspaceMemberSource(Schema):
     """Where a member's workspace access comes from.
 
     ``kind`` is ``"direct"`` for a direct role assignment, or ``"group"`` when
-    access is derived only from group membership, in which case ``group_names``
-    lists the granting groups.
+    access is derived only from group membership. ``group_names`` lists every
+    granting group in either case, since group grants also shape effective scopes.
     """
 
     kind: WorkspaceMemberSourceKind
