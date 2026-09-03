@@ -6806,9 +6806,9 @@ async def update_case_field(
         display_name: Optional new human-readable field name.
         type: Optional uppercase SqlType value: TEXT, INTEGER, NUMERIC, DATE,
             BOOLEAN, TIMESTAMPTZ, JSONB, SELECT, or MULTI_SELECT.
-        options: Optional list of strings such as `["low","medium","high"]`.
-            Required for SELECT and MULTI_SELECT, invalid for other types. Use
-            `[]` to clear select options.
+        options: Optional list of strings. For SELECT and MULTI_SELECT fields,
+            sets the available values (e.g. `["low","medium","high"]`); use
+            `[]` to clear them. Invalid for all other field types.
 
     Returns a confirmation message.
     """
