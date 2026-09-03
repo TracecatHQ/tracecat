@@ -14,6 +14,8 @@ from tracecat.api.app import app
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session, get_async_session_bypass_rls
+from tracecat.email.client import InvitationEmail
+from tracecat.invitations.enums import InvitationStatus
 from tracecat.organization import router as organization_router
 
 
@@ -159,6 +161,68 @@ async def test_update_org_member_omits_superuser_flag(
     assert data["user_id"] == str(user.id)
     assert data["role"] == "Admin"
     assert "is_superuser" not in data
+
+
+@pytest.mark.anyio
+async def test_create_org_invitation_schedules_configured_email(
+    client: TestClient, test_admin_role: Role
+) -> None:
+    organization_id = test_admin_role.organization_id
+    assert organization_id is not None
+    role_id = uuid.uuid4()
+    invitation = SimpleNamespace(
+        id=uuid.uuid4(),
+        organization_id=organization_id,
+        email="invitee@example.com",
+        role_id=role_id,
+        role_obj=SimpleNamespace(name="Member", slug="organization-member"),
+        status=InvitationStatus.PENDING,
+        invited_by=test_admin_role.user_id,
+        expires_at=datetime(2026, 1, 8, tzinfo=UTC),
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        accepted_at=None,
+        token="token-123",
+    )
+    mock_session = await app.dependency_overrides[get_async_session]()
+    mock_session.scalar = AsyncMock(return_value="Acme")
+
+    with (
+        patch.object(organization_router, "OrgService") as mock_service_class,
+        patch.object(organization_router, "is_email_configured", return_value=True),
+        patch.object(
+            organization_router,
+            "build_accept_url",
+            return_value="https://app.example.com/invitations/accept?token=token-123",
+        ),
+        patch.object(
+            organization_router,
+            "send_invitation_emails",
+            new_callable=AsyncMock,
+        ) as mock_send,
+    ):
+        mock_service = AsyncMock()
+        mock_service.organization_id = organization_id
+        mock_service.create_invitation.return_value = invitation
+        mock_service_class.return_value = mock_service
+
+        response = client.post(
+            "/organization/invitations",
+            json={"email": invitation.email, "role_id": str(role_id)},
+        )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    mock_send.assert_awaited_once_with(
+        [
+            InvitationEmail(
+                to=invitation.email,
+                accept_url=(
+                    "https://app.example.com/invitations/accept?token=token-123"
+                ),
+                context_name="Acme",
+                kind="organization",
+            )
+        ]
+    )
 
 
 @pytest.mark.anyio

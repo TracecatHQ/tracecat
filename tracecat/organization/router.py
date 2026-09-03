@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy import and_, func, select
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
@@ -22,6 +22,12 @@ from tracecat.db.models import (
 )
 from tracecat.db.models import (
     Role as DBRole,
+)
+from tracecat.email.client import (
+    InvitationEmail,
+    build_accept_url,
+    is_email_configured,
+    send_invitation_emails,
 )
 from tracecat.exceptions import (
     TracecatAuthorizationError,
@@ -488,9 +494,15 @@ async def create_invitation(
     role: OrgUserRole,
     session: AsyncDBSession,
     params: OrgInvitationCreate,
+    background_tasks: BackgroundTasks,
 ) -> OrgInvitationRead:
     """Create an invitation to join the organization."""
     service = OrgService(session, role=role)
+    organization_name = None
+    if is_email_configured():
+        organization_name = await session.scalar(
+            select(Organization.name).where(Organization.id == service.organization_id)
+        )
     try:
         invitation = await service.create_invitation(
             email=params.email,
@@ -508,6 +520,19 @@ async def create_invitation(
             status_code=status.HTTP_409_CONFLICT,
             detail="An invitation already exists for this email",
         ) from e
+
+    if organization_name is not None:
+        background_tasks.add_task(
+            send_invitation_emails,
+            [
+                InvitationEmail(
+                    to=invitation.email,
+                    accept_url=build_accept_url(invitation.token),
+                    context_name=organization_name,
+                    kind="organization",
+                )
+            ],
+        )
 
     return OrgInvitationRead(
         id=invitation.id,
