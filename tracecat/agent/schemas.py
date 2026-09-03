@@ -12,6 +12,8 @@ from typing import (
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from tracecat.agent.common.types import MCPServerConfig
+from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.agent.types import AgentConfig, DeferredToolResults
 from tracecat.chat.schemas import ChatMessage
 
@@ -73,8 +75,6 @@ class RunAgentArgs(BaseModel):
         """Ensure either config or preset_slug is provided."""
         if self.config is None and self.preset_slug is None:
             raise ValueError("Either 'config' or 'preset_slug' must be provided")
-        if self.preset_version is not None and self.preset_slug is None:
-            raise ValueError("'preset_version' requires 'preset_slug'")
         return self
 
 
@@ -209,3 +209,64 @@ class AgentOutput(BaseModel):
 class ToolFilters(BaseModel):
     actions: list[str] | None = None
     namespaces: list[str] | None = None
+
+
+# Pinned registry contract; do not change until all pre-removal locks expire.
+class AgentConfigSchema(BaseModel):
+    """Agent configuration for request validation."""
+
+    model_name: str
+    model_provider: str
+    catalog_id: uuid.UUID | None = None
+    base_url: str | None = None
+    instructions: str | None = None
+    output_type: Any | None = None
+    actions: list[str] | None = None
+    namespaces: list[str] | None = None
+    tool_approvals: dict[str, bool] | None = None
+    model_settings: dict[str, Any] | None = None
+    mcp_servers: list[MCPServerConfig] | None = None
+    agents: AgentSubagentsConfig = Field(default_factory=AgentSubagentsConfig)
+    retries: int = Field(default=20)
+    enable_thinking: bool = Field(default=True)
+
+
+class RankableItemSchema(TypedDict):
+    """Item that can be ranked."""
+
+    id: str | int
+    text: str
+
+
+class InternalRunAgentRequest(BaseModel):
+    """Request body for /internal/agent/run endpoint."""
+
+    user_prompt: str
+    config: AgentConfigSchema | None = None
+    preset_slug: str | None = None
+    preset_version: int | None = None
+    max_requests: int = Field(default=120, le=120)
+    max_tool_calls: int | None = Field(default=None, le=40)
+
+    @model_validator(mode="after")
+    def validate_config_or_preset(self) -> InternalRunAgentRequest:
+        """Ensure either config or preset_slug is provided."""
+        if self.config is None and self.preset_slug is None:
+            raise ValueError("Either 'config' or 'preset_slug' must be provided")
+        return self
+
+
+class InternalRankItemsRequest(BaseModel):
+    """Request body for /internal/agent/rank and /rank-pairwise. Extra pairwise fields are ignored."""
+
+    items: list[RankableItemSchema]
+    criteria_prompt: str
+    model_name: str
+    model_provider: str
+    catalog_id: uuid.UUID | None = None
+    model_settings: dict[str, Any] | None = None
+    max_requests: int = 5
+    retries: int = 3
+    base_url: str | None = None
+    min_items: int | None = None
+    max_items: int | None = None
