@@ -14,7 +14,7 @@ from typing import Any, cast
 import orjson
 import temporalio.api.enums.v1
 from pydantic import BaseModel, ValidationError
-from temporalio.api.common.v1 import message_pb2
+from temporalio.api.common.v1 import Payloads, message_pb2
 from temporalio.api.enums.v1 import EventType, PendingActivityState, ResetReapplyType
 from temporalio.api.history.v1 import HistoryEvent
 from temporalio.api.workflowservice.v1 import request_response_pb2
@@ -41,6 +41,7 @@ from tracecat.dsl.common import (
     DSLRunArgs,
     edge_components_from_dep,
 )
+from tracecat.dsl.constants import PINNED_SKIPPED_REFS_MEMO_KEY
 from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.schemas import ROOT_STREAM, TaskResult, TriggerInputs
 from tracecat.dsl.types import Task
@@ -209,6 +210,15 @@ async def _resolve_trigger_context(trigger_inputs: StoredObject | None) -> Any |
     return await retrieve_stored_object(trigger_inputs)
 
 
+@dataclass(frozen=True, slots=True)
+class PinnedRunContext:
+    """Start-time run args plus the scheduler's self-skipped pin report."""
+
+    run_args: DSLRunArgs
+    started_at: datetime.datetime
+    skipped_pinned_refs: frozenset[str]
+
+
 class WorkflowExecutionsService:
     """Workflow executions service."""
 
@@ -307,26 +317,51 @@ class WorkflowExecutionsService:
                 selected_events[event.action_ref] = event
         return selected_events
 
-    async def _get_start_run_context(
+    async def _get_pinned_run_context(
         self, wf_exec_id: WorkflowExecutionID
-    ) -> tuple[DSLRunArgs, datetime.datetime] | None:
+    ) -> PinnedRunContext | None:
+        """Read a run's start args and the pinned refs its scheduler self-skipped.
+
+        Returns None when the run has no pinned results, so callers can bail
+        out before walking the rest of the history.
+        """
         handle = self.handle(wf_exec_id)
+        run_args: DSLRunArgs | None = None
+        started_at: datetime.datetime | None = None
+        skipped_pinned_refs: frozenset[str] = frozenset()
         async for event in handle.fetch_history_events():
-            if event.event_type != EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED:
-                continue
-            attrs = event.workflow_execution_started_event_attributes
-            run_args_data = await extract_first(attrs.input)
-            started_at = event.event_time.ToDatetime(datetime.UTC)
-            try:
-                return DSLRunArgs(**run_args_data), started_at
-            except ValidationError as e:
-                self.logger.warning(
-                    "Failed to parse workflow start args",
-                    wf_exec_id=wf_exec_id,
-                    error=e,
-                )
-                return None
-        return None
+            if event.event_type == EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED:
+                attrs = event.workflow_execution_started_event_attributes
+                run_args_data = await extract_first(attrs.input)
+                started_at = event.event_time.ToDatetime(datetime.UTC)
+                try:
+                    run_args = DSLRunArgs(**run_args_data)
+                except ValidationError as e:
+                    self.logger.warning(
+                        "Failed to parse workflow start args",
+                        wf_exec_id=wf_exec_id,
+                        error=e,
+                    )
+                    return None
+                if not run_args.pinned_action_results:
+                    return None
+            elif event.event_type == EventType.EVENT_TYPE_WORKFLOW_PROPERTIES_MODIFIED:
+                memo = event.workflow_properties_modified_event_attributes.upserted_memo
+                payload = memo.fields.get(PINNED_SKIPPED_REFS_MEMO_KEY)
+                if payload is None:
+                    continue
+                value = await extract_first(Payloads(payloads=[payload]))
+                if isinstance(value, list):
+                    skipped_pinned_refs = frozenset(
+                        ref for ref in cast(list[Any], value) if isinstance(ref, str)
+                    )
+        if run_args is None or started_at is None:
+            return None
+        return PinnedRunContext(
+            run_args=run_args,
+            started_at=started_at,
+            skipped_pinned_refs=skipped_pinned_refs,
+        )
 
     @staticmethod
     def _compute_dag_ref_order(dsl: DSLInput | None) -> dict[str, int]:
@@ -379,14 +414,21 @@ class WorkflowExecutionsService:
         if not dag_order:
             return events
 
-        fallback_rank = len(dag_order) + 1
+        # Rows that are not workflow actions keep their edge position: the
+        # trigger row stays first, terminal rows (result, failure) stay last.
+        leading_rank = -1
+        trailing_rank = len(dag_order) + 1
+
+        def rank(event: WorkflowExecutionEventCompact) -> int:
+            action_rank = dag_order.get(event.action_ref)
+            if action_rank is not None:
+                return action_rank
+            if event.action_ref == WF_TRIGGER_REF:
+                return leading_rank
+            return trailing_rank
+
         indexed = list(enumerate(events))
-        indexed.sort(
-            key=lambda item: (
-                dag_order.get(item[1].action_ref, fallback_rank),
-                item[0],
-            )
-        )
+        indexed.sort(key=lambda item: (rank(item[1]), item[0]))
         return [event for _, event in indexed]
 
     async def _stitch_pinned_compact_events(
@@ -395,20 +437,19 @@ class WorkflowExecutionsService:
         wf_exec_id: WorkflowExecutionID,
         compact_events: list[WorkflowExecutionEventCompact],
     ) -> list[WorkflowExecutionEventCompact]:
-        run_context = await self._get_start_run_context(wf_exec_id)
+        run_context = await self._get_pinned_run_context(wf_exec_id)
         if run_context is None:
             return compact_events
 
-        run_args, run_started_at = run_context
-        if not run_args.pinned_action_results:
-            return compact_events
-
+        run_args = run_context.run_args
+        run_started_at = run_context.started_at
         pinned_refs = set(run_args.pinned_action_results)
-        if not pinned_refs:
-            return compact_events
 
         existing_refs = {event.action_ref for event in compact_events}
-        refs_to_stitch = sorted(pinned_refs - existing_refs)
+        # A pin that self-skipped via `run_if` produced no result, so it gets no row.
+        refs_to_stitch = sorted(
+            pinned_refs - existing_refs - run_context.skipped_pinned_refs
+        )
         if not refs_to_stitch:
             return compact_events
 

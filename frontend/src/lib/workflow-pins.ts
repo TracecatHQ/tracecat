@@ -10,18 +10,9 @@ type WorkflowWithDraftPins = {
   draft_pins?: WorkflowDraftPins | null
 }
 
-type ActionReadWithDepends = ActionRead & {
-  depends_on?: string[] | null
-}
-
 export type PinDomains = {
   pinnedRefs: Set<string>
   forceSkipRefs: Set<string>
-}
-
-function parseDependencySourceRef(depRef: string): string {
-  const [sourceRef] = depRef.split(".", 1)
-  return sourceRef
 }
 
 export function getWorkflowDraftPins(
@@ -53,12 +44,17 @@ export function computePinDomains(
     return { pinnedRefs: new Set(), forceSkipRefs: new Set() }
   }
 
-  const actionList = Object.values(actions) as ActionReadWithDepends[]
-  const allActionRefs = new Set<string>(
-    actionList
-      .map((action) => slugifyActionRef(action.title))
-      .filter((actionRef) => actionRef.length > 0)
-  )
+  const actionList = Object.values(actions)
+  // Workflow reads describe the graph via `upstream_edges` keyed by action ID,
+  // so resolve edges through an ID -> ref map rather than `depends_on`.
+  const refByActionId = new Map<string, string>()
+  for (const action of actionList) {
+    const actionRef = slugifyActionRef(action.title)
+    if (actionRef.length > 0) {
+      refByActionId.set(action.id, actionRef)
+    }
+  }
+  const allActionRefs = new Set<string>(refByActionId.values())
 
   const pinnedRefs = new Set(
     pins.action_refs.filter((actionRef) => allActionRefs.has(actionRef))
@@ -73,14 +69,17 @@ export function computePinDomains(
   }
 
   for (const action of actionList) {
-    const targetRef = slugifyActionRef(action.title)
-    if (!allActionRefs.has(targetRef)) {
+    const targetRef = refByActionId.get(action.id)
+    if (!targetRef) {
       continue
     }
 
-    for (const depRef of action.depends_on ?? []) {
-      const sourceRef = parseDependencySourceRef(depRef)
-      if (!allActionRefs.has(sourceRef)) {
+    for (const edge of action.upstream_edges ?? []) {
+      if (edge.source_type !== "udf") {
+        continue
+      }
+      const sourceRef = refByActionId.get(edge.source_id)
+      if (!sourceRef || sourceRef === targetRef) {
         continue
       }
       adjacency.get(sourceRef)?.add(targetRef)

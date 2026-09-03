@@ -12,6 +12,7 @@ from temporalio.exceptions import ActivityError, is_cancelled_exception
 
 from tracecat.auth.types import Role
 from tracecat.dsl.action import ScatterActionInput
+from tracecat.dsl.constants import PINNED_SKIPPED_REFS_MEMO_KEY
 
 _SCHEDULER_TASK_SPAWN_YIELD_EVERY = 16
 """Yield while spawning ready task coroutines to avoid long workflow activations."""
@@ -245,6 +246,8 @@ class DSLScheduler:
         self.role = role
         self.run_context = run_context
         self.pinned_action_results = pinned_action_results or {}
+        self.skipped_pinned_refs: list[str] = []
+        """Pinned refs that self-skipped via `run_if`, in scheduling order."""
         # Workflow-safe logger by default; callers can inject a pre-bound instance.
         self.logger = logger or workflow_logger
         self.tasks: dict[str, ActionStatement] = {}
@@ -357,6 +360,21 @@ class DSLScheduler:
                     changed = True
 
         return frozenset(skip_domain - set(pinned_refs))
+
+    def _record_skipped_pinned_ref(self, ref: str) -> None:
+        """Publish pinned refs that self-skipped so read APIs do not stitch them.
+
+        A pinned task that self-skips emits no Temporal event, so the compact
+        event reader cannot tell it apart from a pin that was reused. The memo
+        is the only durable signal it has.
+        """
+        if ref in self.skipped_pinned_refs:
+            return
+        self.skipped_pinned_refs.append(ref)
+        if workflow.in_workflow():
+            workflow.upsert_memo(
+                {PINNED_SKIPPED_REFS_MEMO_KEY: list(self.skipped_pinned_refs)}
+            )
 
     def _build_loop_regions(self) -> dict[str, LoopRegion]:
         # Phase 1: validate each loop.end and map loop scope -> end ref.
@@ -847,7 +865,25 @@ class DSLScheduler:
         if original_delay > 0:
             task = replace(task, delay=0.0)
         try:
-            # 1) Skip propagation (force-skip) takes highest precedence over everything else
+            # 1) Pinned root action short-circuit (run_if still respected).
+            # This runs before skip propagation on purpose: a pin's upstream is
+            # force-skipped by design, so every incoming edge of a pinned task is
+            # marked SKIPPED. Checking propagation first would skip the pin
+            # itself and make any fan-in downstream of it unreachable.
+            if task.stream_id == ROOT_STREAM and ref in self.pinned_action_refs:
+                if await self._task_should_skip(task, stmt):
+                    self.logger.debug("Pinned task should self-skip", task=task)
+                    # Drop the pre-seeded pinned result so downstream sees the
+                    # same context it would for any other skipped task.
+                    self._get_action_context(task.stream_id).pop(ref, None)
+                    self._record_skipped_pinned_ref(ref)
+                    return await self._handle_skip_path(task, stmt)
+                action_ctx = self._get_action_context(task.stream_id)
+                action_ctx[ref] = self.pinned_action_results[ref].model_copy(deep=True)
+                self.logger.debug("Using pinned action result", task=task)
+                return await self._handle_success_path(task)
+
+            # 2) Skip propagation (force-skip) takes precedence over everything else
             if task.ref in self.force_skip_refs or self._skip_should_propagate(
                 task, stmt
             ):
@@ -855,16 +891,6 @@ class DSLScheduler:
                     "Task should be force-skipped, propagating", task=task
                 )
                 return await self._handle_skip_path(task, stmt)
-
-            # 2) Pinned root action short-circuit (run_if still respected).
-            if task.stream_id == ROOT_STREAM and ref in self.pinned_action_refs:
-                if await self._task_should_skip(task, stmt):
-                    self.logger.debug("Pinned task should self-skip", task=task)
-                    return await self._handle_skip_path(task, stmt)
-                action_ctx = self._get_action_context(task.stream_id)
-                action_ctx[ref] = self.pinned_action_results[ref].model_copy(deep=True)
-                self.logger.debug("Using pinned action result", task=task)
-                return await self._handle_success_path(task)
 
             # 3) Evaluate `run_if` early when possible so branch-local guards can
             # self-skip before mixed visited/skipped parents are treated as unreachable.
