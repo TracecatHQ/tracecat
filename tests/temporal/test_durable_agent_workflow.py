@@ -21,7 +21,6 @@ import tracecat_ee.agent.workflows.durable as durable_workflow_module
 
 pytestmark = [pytest.mark.temporal, pytest.mark.usefixtures("db")]
 
-from pydantic_ai.tools import ToolApproved, ToolDenied
 from temporalio import activity
 from temporalio import workflow as temporal_workflow
 from temporalio.api.enums.v1 import EventType
@@ -59,6 +58,7 @@ from tracecat_ee.agent.workflows.durable import (
 
 from tests.shared import recorded_patch_ids
 from tracecat import config
+from tracecat.agent import internal_router
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.agent.common.types import MCPToolDefinition
@@ -72,7 +72,11 @@ from tracecat.agent.preset.resolver import (
     ResolvedAgentsRuntimeConfig,
     ResolvedSubagentConfig,
 )
-from tracecat.agent.schemas import RunAgentArgs
+from tracecat.agent.schemas import (
+    AgentConfigSchema,
+    InternalRunAgentRequest,
+    RunAgentArgs,
+)
 from tracecat.agent.session.activities import (
     CreateSessionInput,
     CreateSessionResult,
@@ -98,7 +102,7 @@ from tracecat.agent.subagents import (
     ResolvedAttachedSubagentRef,
 )
 from tracecat.agent.tokens import UserMCPServerClaim
-from tracecat.agent.types import AgentConfig
+from tracecat.agent.types import AgentConfig, ToolApproved, ToolDenied
 from tracecat.agent.workflow_config import agent_config_to_payload
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
@@ -626,6 +630,75 @@ async def test_agent_workflow_simple_execution(
         assert result.message_history == session_messages
 
     assert [input.session_id for input in message_load_inputs] == [mock_session_id]
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
+async def test_internal_agent_runner_executes_durable_workflow(
+    svc_role: Role,
+    temporal_client: Client,
+    agent_worker_factory,
+    mock_session_id: uuid.UUID,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queue = f"test-internal-agent-queue-{mock_session_id}"
+    executor_inputs: list[AgentExecutorInput] = []
+
+    def mock_executor(
+        call_count: int,
+        input: AgentExecutorInput,
+    ) -> AgentExecutorResult:
+        del call_count
+        executor_inputs.append(input)
+        return AgentExecutorResult(
+            success=True,
+            output={"status": "ranked"},
+            result_num_turns=1,
+            result_usage={"input_tokens": 7, "output_tokens": 3},
+        )
+
+    async def get_test_temporal_client() -> Client:
+        return temporal_client
+
+    activities = create_activities_with_mock_executor(mock_executor)
+    monkeypatch.setattr(config, "TRACECAT__AGENT_QUEUE", queue)
+    monkeypatch.setattr(
+        internal_router,
+        "get_temporal_client",
+        get_test_temporal_client,
+    )
+    workflow_args = internal_router.build_agent_workflow_args(
+        InternalRunAgentRequest(
+            user_prompt="Rank the incident",
+            config=AgentConfigSchema(
+                model_name="test-model",
+                model_provider="test-provider",
+                actions=[],
+            ),
+            max_requests=6,
+            max_tool_calls=0,
+        ),
+        role=svc_role,
+        session_id=mock_session_id,
+    )
+    async with agent_worker_factory(
+        temporal_client,
+        task_queue=queue,
+        custom_activities=activities,
+    ):
+        result = await internal_router._execute_agent_workflow(
+            workflow_args,
+            session_id=mock_session_id,
+        )
+
+    assert result.output == {"status": "ranked"}
+    assert result.session_id == mock_session_id
+    assert result.usage is not None
+    assert result.usage.requests == 1
+    assert result.usage.input_tokens == 7
+    assert len(executor_inputs) == 1
+    assert executor_inputs[0].user_prompt == "Rank the incident"
+    assert executor_inputs[0].config.model_name == "test-model"
 
 
 @pytest.mark.anyio
@@ -3014,9 +3087,4 @@ class TestAgentWorkflowStateManagement:
     async def test_workflow_tracks_turns(self) -> None:
         """Test that workflow properly increments turn counter."""
         # This would be tested in full integration tests
-        pass
-
-    async def test_workflow_handles_max_turns(self) -> None:
-        """Test that workflow respects max turns limit (when implemented)."""
-        # Feature not yet implemented but should be tested when added
         pass

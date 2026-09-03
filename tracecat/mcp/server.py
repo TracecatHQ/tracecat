@@ -2686,8 +2686,7 @@ Cases: `core.cases.add_case_tag`, `core.cases.assign_user`,
 
 Require/Python: `core.require`, `core.script.run_python`
 
-AI: `ai.action`, `ai.agent`, `ai.preset_agent`, `ai.rank_documents`,
-`ai.select_field`, `ai.select_fields`, `ai.agent.create_preset`,
+AI: `ai.action`, `ai.agent`, `ai.preset_agent`, `ai.agent.create_preset`,
 `ai.agent.delete_preset`, `ai.agent.get_preset`, `ai.agent.list_presets`,
 `ai.agent.update_preset`, `ai.skill.archive_skill`, `ai.skill.create_skill`,
 `ai.skill.get_skill`, `ai.skill.get_skill_version`,
