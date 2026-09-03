@@ -660,7 +660,16 @@ class AgentCatalogService(BaseService):
                     "model_name",
                 ],
                 set_={
-                    "model_metadata": stmt.excluded.model_metadata,
+                    # Keep the org-configured output cap across refreshes;
+                    # discovery output replaces everything else.
+                    "model_metadata": stmt.excluded.model_metadata.concat(
+                        sa.func.jsonb_strip_nulls(
+                            sa.func.jsonb_build_object(
+                                "max_output_tokens",
+                                AgentCatalog.model_metadata["max_output_tokens"],
+                            )
+                        )
+                    ),
                     "last_refreshed_at": stmt.excluded.last_refreshed_at,
                 },
             )

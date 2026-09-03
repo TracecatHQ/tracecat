@@ -5815,6 +5815,21 @@ export const $AzureAICatalogCreate = {
       ],
       title: "Display Name",
     },
+    max_output_tokens: {
+      anyOf: [
+        {
+          type: "integer",
+          maximum: 1000000,
+          minimum: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Output Tokens",
+      description:
+        "Cap on output tokens per LLM request. Overrides the agent runtime's built-in default, e.g. for Bedrock models that reject large maxTokens.",
+    },
     model_provider: {
       type: "string",
       const: "azure_ai",
@@ -5852,6 +5867,21 @@ export const $AzureAICatalogUpdate = {
       ],
       title: "Display Name",
     },
+    max_output_tokens: {
+      anyOf: [
+        {
+          type: "integer",
+          maximum: 1000000,
+          minimum: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Output Tokens",
+      description:
+        "Cap on output tokens per LLM request. Overrides the agent runtime's built-in default, e.g. for Bedrock models that reject large maxTokens.",
+    },
     model_provider: {
       type: "string",
       const: "azure_ai",
@@ -5881,6 +5911,21 @@ export const $AzureOpenAICatalogCreate = {
         },
       ],
       title: "Display Name",
+    },
+    max_output_tokens: {
+      anyOf: [
+        {
+          type: "integer",
+          maximum: 1000000,
+          minimum: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Output Tokens",
+      description:
+        "Cap on output tokens per LLM request. Overrides the agent runtime's built-in default, e.g. for Bedrock models that reject large maxTokens.",
     },
     model_provider: {
       type: "string",
@@ -5918,6 +5963,21 @@ export const $AzureOpenAICatalogUpdate = {
         },
       ],
       title: "Display Name",
+    },
+    max_output_tokens: {
+      anyOf: [
+        {
+          type: "integer",
+          maximum: 1000000,
+          minimum: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Output Tokens",
+      description:
+        "Cap on output tokens per LLM request. Overrides the agent runtime's built-in default, e.g. for Bedrock models that reject large maxTokens.",
     },
     model_provider: {
       type: "string",
@@ -5973,6 +6033,21 @@ export const $BedrockCatalogCreate = {
         },
       ],
       title: "Display Name",
+    },
+    max_output_tokens: {
+      anyOf: [
+        {
+          type: "integer",
+          maximum: 1000000,
+          minimum: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Output Tokens",
+      description:
+        "Cap on output tokens per LLM request. Overrides the agent runtime's built-in default, e.g. for Bedrock models that reject large maxTokens.",
     },
     model_provider: {
       type: "string",
@@ -6035,6 +6110,21 @@ export const $BedrockCatalogUpdate = {
         },
       ],
       title: "Display Name",
+    },
+    max_output_tokens: {
+      anyOf: [
+        {
+          type: "integer",
+          maximum: 1000000,
+          minimum: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Output Tokens",
+      description:
+        "Cap on output tokens per LLM request. Overrides the agent runtime's built-in default, e.g. for Bedrock models that reject large maxTokens.",
     },
     model_provider: {
       type: "string",
@@ -12450,6 +12540,34 @@ export const $CustomOAuthProviderCreate = {
   ],
   title: "CustomOAuthProviderCreate",
   description: "Request payload for creating a custom OAuth provider.",
+} as const
+
+export const $CustomProviderCatalogUpdate = {
+  properties: {
+    model_provider: {
+      type: "string",
+      const: "custom-model-provider",
+      title: "Model Provider",
+    },
+    max_output_tokens: {
+      anyOf: [
+        {
+          type: "integer",
+          maximum: 1000000,
+          minimum: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Output Tokens",
+    },
+  },
+  type: "object",
+  required: ["model_provider"],
+  title: "CustomProviderCatalogUpdate",
+  description:
+    "Editable metadata on a model discovered from a custom provider.",
 } as const
 
 export const $DSLConfig_Input = {
@@ -29403,6 +29521,21 @@ export const $VertexAICatalogCreate = {
       ],
       title: "Display Name",
     },
+    max_output_tokens: {
+      anyOf: [
+        {
+          type: "integer",
+          maximum: 1000000,
+          minimum: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Output Tokens",
+      description:
+        "Cap on output tokens per LLM request. Overrides the agent runtime's built-in default, e.g. for Bedrock models that reject large maxTokens.",
+    },
     model_provider: {
       type: "string",
       const: "vertex_ai",
@@ -29439,6 +29572,21 @@ export const $VertexAICatalogUpdate = {
         },
       ],
       title: "Display Name",
+    },
+    max_output_tokens: {
+      anyOf: [
+        {
+          type: "integer",
+          maximum: 1000000,
+          minimum: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Output Tokens",
+      description:
+        "Cap on output tokens per LLM request. Overrides the agent runtime's built-in default, e.g. for Bedrock models that reject large maxTokens.",
     },
     model_provider: {
       type: "string",

@@ -289,6 +289,58 @@ async def test_upsert_discovered_models_removes_stale_models(
 
 
 @pytest.mark.anyio
+async def test_upsert_discovered_models_preserves_max_output_tokens(
+    session: AsyncSession,
+    svc_organization: Organization,
+) -> None:
+    service = AgentCatalogService(session=session)
+    provider = AgentCustomProvider(
+        organization_id=svc_organization.id,
+        display_name="Provider",
+        base_url="https://api.example.com",
+    )
+    session.add(provider)
+    await session.commit()
+
+    await service.upsert_discovered_models(
+        org_id=svc_organization.id,
+        custom_provider_id=provider.id,
+        model_provider="custom-model-provider",
+        models=[{"id": "model-a", "owned_by": "v1"}, {"id": "model-b"}],
+    )
+    row_a = (
+        await session.execute(
+            select(AgentCatalog).where(
+                AgentCatalog.custom_provider_id == provider.id,
+                AgentCatalog.model_name == "model-a",
+            )
+        )
+    ).scalar_one()
+    row_a.model_metadata = {**(row_a.model_metadata or {}), "max_output_tokens": 8192}
+    await session.commit()
+
+    await service.upsert_discovered_models(
+        org_id=svc_organization.id,
+        custom_provider_id=provider.id,
+        model_provider="custom-model-provider",
+        models=[{"id": "model-a", "owned_by": "v2"}, {"id": "model-b"}],
+    )
+
+    result = await session.execute(
+        select(AgentCatalog.model_name, AgentCatalog.model_metadata).where(
+            AgentCatalog.custom_provider_id == provider.id
+        )
+    )
+    by_name = dict(result.tuples().all())
+    assert by_name["model-a"] == {
+        "id": "model-a",
+        "owned_by": "v2",
+        "max_output_tokens": 8192,
+    }
+    assert by_name["model-b"] == {"id": "model-b"}
+
+
+@pytest.mark.anyio
 async def test_upsert_discovered_models_clears_catalog_when_empty(
     session: AsyncSession,
     svc_organization: Organization,

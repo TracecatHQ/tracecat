@@ -1510,6 +1510,18 @@ class ClaudeAgentRuntime:
         env["ENABLE_TOOL_SEARCH"] = (
             "false" if payload.config.model_provider == "bedrock" else "true"
         )
+        # One CLI process serves the root and every subagent, so the strictest
+        # configured cap governs all of them.
+        caps = [
+            cap
+            for cap in (
+                payload.config.max_output_tokens,
+                *(sub.config.max_output_tokens for sub in payload.subagents),
+            )
+            if cap is not None
+        ]
+        if caps:
+            env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] = str(min(caps))
         # Sandbox-safe Claude OTel env (no headers, no tenant endpoint — the
         # shim points the SDK at its OtelBridge).
         if payload.agent_otel_sandbox_env:

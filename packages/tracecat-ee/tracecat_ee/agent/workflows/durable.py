@@ -672,6 +672,8 @@ class DurableAgentWorkflow:
         cfg.passthrough = result.passthrough
         if result.model_name:
             cfg.model_name = result.model_name
+        if result.max_output_tokens is not None:
+            cfg.max_output_tokens = result.max_output_tokens
         logger.info(
             "Applied custom model provider runtime config",
             passthrough=cfg.passthrough,

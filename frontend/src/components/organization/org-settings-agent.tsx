@@ -111,6 +111,44 @@ import { cn } from "@/lib/utils"
 
 const CURSOR_PAGE_SIZE = 100
 
+const MAX_OUTPUT_TOKENS_LIMIT = 1_000_000
+
+const maxOutputTokensSchema = z
+  .string()
+  .trim()
+  .optional()
+  .refine(
+    (value) => {
+      if (!value) {
+        return true
+      }
+      const parsed = Number(value)
+      return (
+        Number.isInteger(parsed) &&
+        parsed >= 1 &&
+        parsed <= MAX_OUTPUT_TOKENS_LIMIT
+      )
+    },
+    {
+      message: `Must be a whole number between 1 and ${MAX_OUTPUT_TOKENS_LIMIT.toLocaleString()}.`,
+    }
+  )
+
+function parseMaxOutputTokens(value: string | undefined): number | null {
+  const trimmed = value?.trim()
+  if (!trimmed) {
+    return null
+  }
+  return Number(trimmed)
+}
+
+function getCatalogMetadataMaxOutputTokens(
+  metadata: Record<string, unknown> | null | undefined
+): string {
+  const value = metadata?.max_output_tokens
+  return typeof value === "number" ? String(value) : ""
+}
+
 const customProviderSchema = z
   .object({
     displayName: z.string().trim().min(1, "Name is required"),
@@ -185,6 +223,7 @@ const bedrockCloudModelSchema = z.object({
   provider: z.literal("bedrock"),
   model_name: z.string().trim().min(1, "Model name is required"),
   display_name: z.string().trim().optional(),
+  max_output_tokens: maxOutputTokensSchema,
   inference_profile_id: z.string().trim().optional(),
   model_id: z.string().trim().optional(),
   use_converse: z.boolean().default(false),
@@ -194,6 +233,7 @@ const azureOpenAICloudModelSchema = z.object({
   provider: z.literal("azure_openai"),
   model_name: z.string().trim().min(1, "Model name is required"),
   display_name: z.string().trim().optional(),
+  max_output_tokens: maxOutputTokensSchema,
   deployment_name: z.string().trim().min(1, "Deployment name is required"),
 })
 
@@ -201,6 +241,7 @@ const azureAICloudModelSchema = z.object({
   provider: z.literal("azure_ai"),
   model_name: z.string().trim().min(1, "Model name is required"),
   display_name: z.string().trim().optional(),
+  max_output_tokens: maxOutputTokensSchema,
   azure_ai_model_name: z
     .string()
     .trim()
@@ -211,6 +252,7 @@ const vertexAICloudModelSchema = z.object({
   provider: z.literal("vertex_ai"),
   model_name: z.string().trim().min(1, "Model name is required"),
   display_name: z.string().trim().optional(),
+  max_output_tokens: maxOutputTokensSchema,
   vertex_model: z.string().trim().min(1, "Vertex model is required"),
 })
 
@@ -260,6 +302,7 @@ function buildCloudCatalogDefaults(
 ): CloudCatalogModelFormValues {
   const metadata = entry?.model_metadata ?? null
   const displayName = getCatalogMetadataString(metadata, "display_name")
+  const maxOutputTokens = getCatalogMetadataMaxOutputTokens(metadata)
   const modelName = entry?.model_name ?? ""
   switch (provider) {
     case "bedrock":
@@ -267,6 +310,7 @@ function buildCloudCatalogDefaults(
         provider: "bedrock",
         model_name: modelName,
         display_name: displayName,
+        max_output_tokens: maxOutputTokens,
         inference_profile_id: getCatalogMetadataString(
           metadata,
           "inference_profile_id"
@@ -279,6 +323,7 @@ function buildCloudCatalogDefaults(
         provider: "azure_openai",
         model_name: modelName,
         display_name: displayName,
+        max_output_tokens: maxOutputTokens,
         deployment_name: getCatalogMetadataString(metadata, "deployment_name"),
       }
     case "azure_ai":
@@ -286,6 +331,7 @@ function buildCloudCatalogDefaults(
         provider: "azure_ai",
         model_name: modelName,
         display_name: displayName,
+        max_output_tokens: maxOutputTokens,
         azure_ai_model_name: getCatalogMetadataString(
           metadata,
           "azure_ai_model_name"
@@ -296,6 +342,7 @@ function buildCloudCatalogDefaults(
         provider: "vertex_ai",
         model_name: modelName,
         display_name: displayName,
+        max_output_tokens: maxOutputTokens,
         vertex_model: getCatalogMetadataString(metadata, "vertex_model"),
       }
   }
@@ -309,12 +356,14 @@ function buildCatalogCreatePayload(
   | AzureAICatalogCreate
   | VertexAICatalogCreate {
   const displayName = values.display_name?.trim() || null
+  const maxOutputTokens = parseMaxOutputTokens(values.max_output_tokens)
   switch (values.provider) {
     case "bedrock":
       return {
         model_provider: "bedrock",
         model_name: values.model_name,
         display_name: displayName,
+        max_output_tokens: maxOutputTokens,
         inference_profile_id: values.inference_profile_id || null,
         model_id: values.model_id || null,
         use_converse: values.use_converse,
@@ -324,6 +373,7 @@ function buildCatalogCreatePayload(
         model_provider: "azure_openai",
         model_name: values.model_name,
         display_name: displayName,
+        max_output_tokens: maxOutputTokens,
         deployment_name: values.deployment_name,
       }
     case "azure_ai":
@@ -331,6 +381,7 @@ function buildCatalogCreatePayload(
         model_provider: "azure_ai",
         model_name: values.model_name,
         display_name: displayName,
+        max_output_tokens: maxOutputTokens,
         azure_ai_model_name: values.azure_ai_model_name,
       }
     case "vertex_ai":
@@ -338,6 +389,7 @@ function buildCatalogCreatePayload(
         model_provider: "vertex_ai",
         model_name: values.model_name,
         display_name: displayName,
+        max_output_tokens: maxOutputTokens,
         vertex_model: values.vertex_model,
       }
     default:
@@ -349,11 +401,13 @@ function buildCatalogCreatePayload(
 
 function buildCatalogUpdatePayload(values: CloudCatalogModelFormValues) {
   const displayName = values.display_name?.trim() || null
+  const maxOutputTokens = parseMaxOutputTokens(values.max_output_tokens)
   switch (values.provider) {
     case "bedrock":
       return {
         model_provider: "bedrock" as const,
         display_name: displayName,
+        max_output_tokens: maxOutputTokens,
         inference_profile_id: values.inference_profile_id || null,
         model_id: values.model_id || null,
         use_converse: values.use_converse,
@@ -362,18 +416,21 @@ function buildCatalogUpdatePayload(values: CloudCatalogModelFormValues) {
       return {
         model_provider: "azure_openai" as const,
         display_name: displayName,
+        max_output_tokens: maxOutputTokens,
         deployment_name: values.deployment_name,
       }
     case "azure_ai":
       return {
         model_provider: "azure_ai" as const,
         display_name: displayName,
+        max_output_tokens: maxOutputTokens,
         azure_ai_model_name: values.azure_ai_model_name,
       }
     case "vertex_ai":
       return {
         model_provider: "vertex_ai" as const,
         display_name: displayName,
+        max_output_tokens: maxOutputTokens,
         vertex_model: values.vertex_model,
       }
     default:
@@ -1099,13 +1156,139 @@ function CustomProviderDialog({
   )
 }
 
+const customModelSettingsSchema = z.object({
+  max_output_tokens: maxOutputTokensSchema,
+})
+
+type CustomModelSettingsFormValues = z.infer<typeof customModelSettingsSchema>
+
+function CustomModelSettingsDialog({
+  model,
+  onOpenChange,
+}: {
+  model: ModelCatalogEntry | null
+  onOpenChange: (open: boolean) => void
+}) {
+  const queryClient = useQueryClient()
+  const form = useForm<CustomModelSettingsFormValues>({
+    resolver: zodResolver(customModelSettingsSchema),
+    mode: "onBlur",
+    defaultValues: {
+      max_output_tokens: getCatalogMetadataMaxOutputTokens(model?.metadata),
+    },
+  })
+
+  useEffect(() => {
+    if (!model) {
+      return
+    }
+    form.reset({
+      max_output_tokens: getCatalogMetadataMaxOutputTokens(model.metadata),
+    })
+  }, [form, model])
+
+  const saveMutation = useMutation({
+    mutationFn: async (values: CustomModelSettingsFormValues) => {
+      if (!model) {
+        return
+      }
+      return await updateCatalogEntry({
+        catalogId: model.id,
+        requestBody: {
+          model_provider: "custom-model-provider",
+          max_output_tokens: parseMaxOutputTokens(values.max_output_tokens),
+        },
+      })
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["organization", "agent-catalog"],
+      })
+      onOpenChange(false)
+      toast({
+        title: "Model updated",
+        description: "Saved the model settings.",
+      })
+    },
+    onError: (error: ApiError) => {
+      toast({
+        title: "Update failed",
+        description:
+          getApiErrorDetail(error) ?? "Unable to save the model settings.",
+        variant: "destructive",
+      })
+    },
+  })
+
+  return (
+    <Dialog onOpenChange={onOpenChange} open={model !== null}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Edit model settings</DialogTitle>
+          <DialogDescription>
+            {model ? getCustomSourceModelTitle(model) : ""}
+          </DialogDescription>
+        </DialogHeader>
+        <Form {...form}>
+          <form
+            className="space-y-4"
+            onSubmit={form.handleSubmit((values) =>
+              saveMutation.mutateAsync(values)
+            )}
+          >
+            <FormField
+              control={form.control}
+              name="max_output_tokens"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Max output tokens</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      inputMode="numeric"
+                      placeholder="e.g. 8192"
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    Optional cap on output tokens per request. Overrides the
+                    agent runtime default; set this if the model rejects large
+                    max_tokens values. Kept when the source is refreshed.
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <DialogFooter>
+              <Button
+                onClick={() => onOpenChange(false)}
+                type="button"
+                variant="outline"
+              >
+                Cancel
+              </Button>
+              <Button disabled={saveMutation.isPending} type="submit">
+                {saveMutation.isPending ? (
+                  <Loader2 className="mr-2 size-4 animate-spin" />
+                ) : null}
+                Save
+              </Button>
+            </DialogFooter>
+          </form>
+        </Form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function CustomSourceModelRow({
   disabled,
   model,
+  onEdit,
   onToggle,
 }: {
   disabled: boolean
   model: ModelCatalogEntry
+  onEdit: (model: ModelCatalogEntry) => void
   onToggle: (model: ModelCatalogEntry) => Promise<void>
 }) {
   const title = getCustomSourceModelTitle(model)
@@ -1162,6 +1345,9 @@ function CustomSourceModelRow({
             }}
           >
             {model.enabled ? "Disable" : "Enable"}
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => onEdit(model)}>
+            Edit settings
           </DropdownMenuItem>
           <DropdownMenuItem
             onSelect={async () => {
@@ -1773,6 +1959,30 @@ function CloudCatalogModelDialog({
               )}
             />
 
+            <FormField
+              control={form.control}
+              name="max_output_tokens"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Max output tokens</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      value={field.value ?? ""}
+                      inputMode="numeric"
+                      placeholder="e.g. 8192"
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    Optional cap on output tokens per request. Overrides the
+                    agent runtime default; set this if the model rejects large
+                    max_tokens values.
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
             {provider === "bedrock" ? (
               <>
                 <FormField
@@ -1929,6 +2139,8 @@ export function OrgSettingsAgentForm() {
   const [deletingProvider, setDeletingProvider] =
     useState<AgentCustomProviderRead | null>(null)
   const [expandedProvider, setExpandedProvider] = useState<string | null>(null)
+  const [editingCustomModel, setEditingCustomModel] =
+    useState<ModelCatalogEntry | null>(null)
   const [customProviderDialogOpen, setCustomProviderDialogOpen] =
     useState(false)
   const [cloudModelDialog, setCloudModelDialog] = useState<{
@@ -2878,6 +3090,7 @@ export function OrgSettingsAgentForm() {
                           disabled={!agentAddonsEnabled || isSelectionUpdating}
                           key={getModelSelectionKey(toModelSelection(model))}
                           model={model}
+                          onEdit={setEditingCustomModel}
                           onToggle={handleModelToggle}
                         />
                       ))}
@@ -2960,6 +3173,15 @@ export function OrgSettingsAgentForm() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <CustomModelSettingsDialog
+        model={editingCustomModel}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditingCustomModel(null)
+          }
+        }}
+      />
 
       <CloudCatalogModelDialog
         entry={cloudModelDialog?.entry ?? null}

@@ -1502,6 +1502,10 @@ export type AwsAssumeRoleAccessRead = {
  */
 export type AzureAICatalogCreate = {
   display_name?: string | null
+  /**
+   * Cap on output tokens per LLM request. Overrides the agent runtime's built-in default, e.g. for Bedrock models that reject large maxTokens.
+   */
+  max_output_tokens?: number | null
   model_provider: "azure_ai"
   model_name: string
   azure_ai_model_name: string
@@ -1509,6 +1513,10 @@ export type AzureAICatalogCreate = {
 
 export type AzureAICatalogUpdate = {
   display_name?: string | null
+  /**
+   * Cap on output tokens per LLM request. Overrides the agent runtime's built-in default, e.g. for Bedrock models that reject large maxTokens.
+   */
+  max_output_tokens?: number | null
   model_provider: "azure_ai"
   azure_ai_model_name: string
 }
@@ -1518,6 +1526,10 @@ export type AzureAICatalogUpdate = {
  */
 export type AzureOpenAICatalogCreate = {
   display_name?: string | null
+  /**
+   * Cap on output tokens per LLM request. Overrides the agent runtime's built-in default, e.g. for Bedrock models that reject large maxTokens.
+   */
+  max_output_tokens?: number | null
   model_provider: "azure_openai"
   model_name: string
   deployment_name: string
@@ -1525,6 +1537,10 @@ export type AzureOpenAICatalogCreate = {
 
 export type AzureOpenAICatalogUpdate = {
   display_name?: string | null
+  /**
+   * Cap on output tokens per LLM request. Overrides the agent runtime's built-in default, e.g. for Bedrock models that reject large maxTokens.
+   */
+  max_output_tokens?: number | null
   model_provider: "azure_openai"
   deployment_name: string
 }
@@ -1542,6 +1558,10 @@ export type BatchPositionUpdate = {
  */
 export type BedrockCatalogCreate = {
   display_name?: string | null
+  /**
+   * Cap on output tokens per LLM request. Overrides the agent runtime's built-in default, e.g. for Bedrock models that reject large maxTokens.
+   */
+  max_output_tokens?: number | null
   model_provider: "bedrock"
   model_name: string
   inference_profile_id?: string | null
@@ -1551,6 +1571,10 @@ export type BedrockCatalogCreate = {
 
 export type BedrockCatalogUpdate = {
   display_name?: string | null
+  /**
+   * Cap on output tokens per LLM request. Overrides the agent runtime's built-in default, e.g. for Bedrock models that reject large maxTokens.
+   */
+  max_output_tokens?: number | null
   model_provider: "bedrock"
   inference_profile_id?: string | null
   model_id?: string | null
@@ -3621,6 +3645,14 @@ export type CustomOAuthProviderCreate = {
    * OAuth client secret for the provider
    */
   client_secret?: string | null
+}
+
+/**
+ * Editable metadata on a model discovered from a custom provider.
+ */
+export type CustomProviderCatalogUpdate = {
+  model_provider: "custom-model-provider"
+  max_output_tokens?: number | null
 }
 
 /**
@@ -8858,6 +8890,10 @@ export type VersionedResourceResolutionStrategy = "pinned" | "latest"
  */
 export type VertexAICatalogCreate = {
   display_name?: string | null
+  /**
+   * Cap on output tokens per LLM request. Overrides the agent runtime's built-in default, e.g. for Bedrock models that reject large maxTokens.
+   */
+  max_output_tokens?: number | null
   model_provider: "vertex_ai"
   model_name: string
   vertex_model: string
@@ -8865,6 +8901,10 @@ export type VertexAICatalogCreate = {
 
 export type VertexAICatalogUpdate = {
   display_name?: string | null
+  /**
+   * Cap on output tokens per LLM request. Overrides the agent runtime's built-in default, e.g. for Bedrock models that reject large maxTokens.
+   */
+  max_output_tokens?: number | null
   model_provider: "vertex_ai"
   vertex_model: string
 }
@@ -11444,6 +11484,7 @@ export type UpdateCatalogEntryData = {
     | AzureOpenAICatalogUpdate
     | AzureAICatalogUpdate
     | VertexAICatalogUpdate
+    | CustomProviderCatalogUpdate
 }
 
 export type UpdateCatalogEntryResponse = AgentCatalogRead

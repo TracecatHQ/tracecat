@@ -37,6 +37,15 @@ class CloudCatalogModelBase(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     display_name: str | None = None
+    max_output_tokens: int | None = Field(
+        default=None,
+        ge=1,
+        le=1_000_000,
+        description=(
+            "Cap on output tokens per LLM request. Overrides the agent runtime's "
+            "built-in default, e.g. for Bedrock models that reject large maxTokens."
+        ),
+    )
 
 
 class BedrockCatalogCreate(CloudCatalogModelBase):
@@ -129,10 +138,18 @@ class VertexAICatalogUpdate(CloudCatalogModelBase):
     vertex_model: str = Field(min_length=1)
 
 
+class CustomProviderCatalogUpdate(BaseModel):
+    """Editable metadata on a model discovered from a custom provider."""
+
+    model_provider: Literal["custom-model-provider"]
+    max_output_tokens: int | None = Field(default=None, ge=1, le=1_000_000)
+
+
 AgentCatalogUpdate = Annotated[
     BedrockCatalogUpdate
     | AzureOpenAICatalogUpdate
     | AzureAICatalogUpdate
-    | VertexAICatalogUpdate,
+    | VertexAICatalogUpdate
+    | CustomProviderCatalogUpdate,
     Field(discriminator="model_provider"),
 ]

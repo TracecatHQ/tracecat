@@ -139,5 +139,6 @@ class AgentConfigPayload(BaseModel):
     retries: int
     enable_thinking: bool = Field(default=True)
     enable_internet_access: bool = Field(default=False)
+    max_output_tokens: int | None = Field(default=None, ge=1, le=1_000_000)
     resolved_skills: list[ResolvedSkillRefPayload] | None = Field(default=None)
     builtin_skills: list[str] | None = Field(default=None)
