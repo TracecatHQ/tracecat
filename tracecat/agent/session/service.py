@@ -566,7 +566,7 @@ class AgentSessionService(BaseWorkspaceService):
         *,
         channel_context: dict[str, Any] | None = None,
         agents_binding: ResolvedAgentsConfig | None = None,
-        fork_parent: AgentSession | None = None,
+        parent_session_id: uuid.UUID | None = None,
     ) -> AgentSession:
         """Create a new agent session.
 
@@ -575,12 +575,22 @@ class AgentSessionService(BaseWorkspaceService):
             channel_context: Trusted external channel metadata to bind to session.
             agents_binding: Already-resolved internal subagent binding from the
                 workflow.
-            fork_parent: Preloaded parent whose SDK history this new session
-                forks. Callers should use ``fork_session`` to create forks.
+            parent_session_id: Session whose SDK history and work dir the new
+                session forks.
 
         Returns:
             The created AgentSession model.
+
+        Raises:
+            TracecatNotFoundError: If ``parent_session_id`` does not exist.
         """
+        parent: AgentSession | None = None
+        if parent_session_id is not None:
+            parent = await self.get_session(parent_session_id)
+            if parent is None:
+                raise TracecatNotFoundError(
+                    f"Parent session with ID {parent_session_id} not found"
+                )
         # Apply default tools based on entity type if tools not provided.
         # Workspace chat merges its always-on defaults at runtime instead, so
         # ``tools`` stores only the extras the user added (never the defaults).
@@ -625,18 +635,16 @@ class AgentSessionService(BaseWorkspaceService):
             agent_preset_id=logical_preset_id,
             agent_preset_version_id=pinned_preset_version_id,
             agents_binding=resolved_agents_binding,
-            # Harness
+            # Harness and work dir - inherit from the fork parent when present
             harness_type=(
-                fork_parent.harness_type
-                if fork_parent is not None and fork_parent.harness_type is not None
+                parent.harness_type
+                if parent is not None and parent.harness_type is not None
                 else args.harness_type
             ),
             work_dir_snapshot=(
-                copy.deepcopy(fork_parent.work_dir_snapshot)
-                if fork_parent is not None
-                else None
+                copy.deepcopy(parent.work_dir_snapshot) if parent is not None else None
             ),
-            parent_session_id=fork_parent.id if fork_parent is not None else None,
+            parent_session_id=parent_session_id,
         )
         # Use provided ID if given, otherwise DB default generates one
         if args.id:
@@ -908,25 +916,12 @@ class AgentSessionService(BaseWorkspaceService):
         if args.id is not None:
             existing = await self.get_session(args.id)
             if existing:
-                if (
-                    parent_session_id is not None
-                    and existing.parent_session_id != parent_session_id
-                ):
-                    raise ValueError(
-                        "Existing session does not match the requested fork parent"
-                    )
                 return existing, False
-        if parent_session_id is not None:
-            new_session = await self.fork_session(
-                parent_session_id,
-                child_args=args,
-                agents_binding=agents_binding,
-            )
-        else:
-            new_session = await self.create_session(
-                args,
-                agents_binding=agents_binding,
-            )
+        new_session = await self.create_session(
+            args,
+            agents_binding=agents_binding,
+            parent_session_id=parent_session_id,
+        )
         return new_session, True
 
     async def list_sessions(
@@ -3628,22 +3623,18 @@ class AgentSessionService(BaseWorkspaceService):
         parent_session_id: uuid.UUID,
         *,
         entity_type: AgentSessionEntity | None = None,
-        child_args: AgentSessionCreate | None = None,
-        agents_binding: ResolvedAgentsConfig | None = None,
     ) -> AgentSession:
-        """Create a forked session from a parent session.
+        """Create a read-only reviewer session forked from a parent session.
 
-        By default, creates the read-only reviewer session used after approval
-        decisions. DSL agent actions provide ``child_args`` to create a fork
-        with their deterministic session ID and resolved runtime configuration.
+        Used after approval decisions so users can ask for context or
+        clarification. Workflow forks that need their own configuration go
+        through ``create_session`` with ``parent_session_id`` instead.
 
         Args:
             parent_session_id: The ID of the session to fork.
             entity_type: Override entity type for the forked session. If None,
                 inherits from parent. Use APPROVAL for inbox forks to hide
                 from main chat list.
-            child_args: Optional explicit child configuration for workflow forks.
-            agents_binding: Resolved subagent binding for an explicit child.
 
         Returns:
             The newly created forked AgentSession.
@@ -3655,17 +3646,6 @@ class AgentSessionService(BaseWorkspaceService):
         if parent is None:
             raise TracecatNotFoundError(
                 f"Parent session with ID {parent_session_id} not found"
-            )
-
-        if child_args is not None:
-            if entity_type is not None:
-                raise ValueError(
-                    "entity_type cannot be combined with explicit fork child args"
-                )
-            return await self.create_session(
-                child_args,
-                agents_binding=agents_binding,
-                fork_parent=parent,
             )
 
         # Forked sessions are read-only "reviewer" sessions.

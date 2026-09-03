@@ -4,7 +4,6 @@ import uuid
 from unittest.mock import patch
 
 import pytest
-from tracecat_ee.agent.workflows.durable import AgentWorkflowArgs
 
 from tracecat.agent.schemas import RunAgentArgs
 from tracecat.agent.types import AgentConfig
@@ -12,7 +11,6 @@ from tracecat.dsl.workflow import (
     _agent_child_run,
     _agent_child_session,
     _with_agent_child_run_id,
-    _with_agent_parent_session_id,
 )
 from tracecat.temporal.patches import WorkflowPatch
 
@@ -64,25 +62,11 @@ def test_agent_child_run_id_is_replay_safe(
 
 
 @pytest.mark.parametrize(
-    ("requested", "patched", "expected_session", "expected_parent", "continues"),
+    ("requested", "patched", "expected_session", "expected_parent"),
     [
-        pytest.param(None, None, "fresh", None, False, id="fresh-session"),
-        pytest.param(
-            "parent",
-            False,
-            "parent",
-            None,
-            True,
-            id="legacy-replay",
-        ),
-        pytest.param(
-            "parent",
-            True,
-            "fresh",
-            "parent",
-            False,
-            id="fork-parent",
-        ),
+        pytest.param(None, None, "fresh", None, id="fresh-session"),
+        pytest.param("parent", False, "parent", None, id="legacy-replay"),
+        pytest.param("parent", True, "fresh", "parent", id="fork-parent"),
     ],
 )
 def test_agent_child_session_forks_explicit_parent(
@@ -90,7 +74,6 @@ def test_agent_child_session_forks_explicit_parent(
     patched: bool | None,
     expected_session: str,
     expected_parent: str | None,
-    continues: bool,
 ) -> None:
     parent_session_id = uuid.uuid4()
     fresh_session_id = uuid.uuid4()
@@ -117,17 +100,7 @@ def test_agent_child_session_forks_explicit_parent(
     )
     assert child_session.session_id == expected_session_id
     assert child_session.parent_session_id == expected_parent_session_id
-    assert child_session.continue_existing_session is continues
     assert uuid4_mock.call_count == int(expected_session == "fresh")
-
-    workflow_args = _with_agent_parent_session_id(
-        AgentWorkflowArgs.model_construct(),
-        child_session=child_session,
-    )
-    serialized = workflow_args.model_dump(mode="json", exclude_unset=True)
-    assert ("parent_session_id" in serialized) is (expected_parent == "parent")
-    if expected_parent == "parent":
-        assert serialized["parent_session_id"] == str(parent_session_id)
 
     if requested is None:
         patched_mock.assert_not_called()

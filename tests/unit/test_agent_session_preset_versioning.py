@@ -166,7 +166,7 @@ async def test_create_session_preserves_null_preset_version_for_current() -> Non
 
 
 @pytest.mark.anyio
-async def test_fork_session_preserves_parent_runtime_state() -> None:
+async def test_create_session_with_parent_inherits_runtime_state() -> None:
     service, session, role = _build_service()
     assert role.workspace_id is not None
     parent_session_id = uuid.uuid4()
@@ -185,15 +185,15 @@ async def test_fork_session_preserves_parent_runtime_state() -> None:
     service._resolve_agents_binding_for_preset_version_id = AsyncMock(return_value=None)
     child_session_id = uuid.uuid4()
 
-    created = await service.fork_session(
-        parent_session_id,
-        child_args=AgentSessionCreate(
+    created = await service.create_session(
+        AgentSessionCreate(
             id=child_session_id,
             title="Workflow fork",
             entity_type=AgentSessionEntity.WORKFLOW,
             entity_id=uuid.uuid4(),
             tools=["core.http_request"],
         ),
+        parent_session_id=parent_session_id,
     )
 
     service.get_session.assert_awaited_with(parent_session_id)
