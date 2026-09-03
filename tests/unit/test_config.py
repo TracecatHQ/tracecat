@@ -44,7 +44,7 @@ REGISTRY_POLICY_ENV_VARS = {
     "TRACECAT__SANDBOX_REGISTRY_ALLOWED_EGRESS_TCP_PORTS",
 }
 TRACED_COMPOSE_SERVICES = ("api", "worker", "executor")
-SENTRY_WORKFLOW_COMPOSE_SERVICES = ("worker", "agent-worker", "executor")
+SENTRY_PLATFORM_COMPOSE_SERVICES = ("api", "worker", "agent-worker", "executor")
 PLATFORM_OTEL_COMPOSE_ENV = (
     "TRACECAT__PLATFORM_OTEL_ENABLED: ${TRACECAT__PLATFORM_OTEL_ENABLED:-false}",
     "OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4318}",
@@ -352,8 +352,8 @@ def test_platform_otel_env_is_forwarded_to_traced_compose_services(
 
 
 @pytest.mark.parametrize("path", TRACED_COMPOSE_ENV_FILES, ids=lambda path: path.name)
-@pytest.mark.parametrize("service", SENTRY_WORKFLOW_COMPOSE_SERVICES)
-def test_sentry_dsn_is_forwarded_to_workflow_compose_services(
+@pytest.mark.parametrize("service", SENTRY_PLATFORM_COMPOSE_SERVICES)
+def test_sentry_dsn_is_forwarded_to_platform_compose_services(
     path: Path, service: str
 ) -> None:
     source = path.read_text()
