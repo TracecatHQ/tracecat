@@ -26,7 +26,6 @@ from tracecat.agent.preset.resolver import resolve_agents_config
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
     AgentPresetRead,
-    AgentPresetReadMinimal,
     AgentPresetSkillBindingBase,
     AgentPresetSkillBindingChange,
     AgentPresetSkillBindingRead,
@@ -38,7 +37,6 @@ from tracecat.agent.preset.schemas import (
     StringListFieldChange,
     ToolApprovalFieldChange,
     _agent_preset_capabilities,
-    build_agent_preset_read_minimal,
     build_subagent_eligibility,
 )
 from tracecat.agent.preset.subagent_bindings import SubagentBindingService
@@ -256,17 +254,6 @@ class AgentPresetService(BaseWorkspaceService):
             created_at=preset.created_at,
             updated_at=preset.updated_at,
             skills=await self._list_head_skill_bindings(preset.id),
-        )
-
-    async def build_preset_read_minimal(
-        self, preset: AgentPreset
-    ) -> AgentPresetReadMinimal:
-        """Build list metadata using normalized head-edge membership."""
-
-        preset_ids = await self.subagents.preset_ids_with_subagents([preset.id])
-        return build_agent_preset_read_minimal(
-            preset,
-            has_subagents=preset.id in preset_ids,
         )
 
     async def get_version_subagent_binding(
