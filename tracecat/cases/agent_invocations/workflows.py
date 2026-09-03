@@ -108,21 +108,26 @@ class CaseCommentAgentInvocationWorkflow:
                 retry_policy=RETRY_POLICIES["activity:fail_slow"],
             )
         )
-        try:
-            await asyncio.shield(task)
-        except BaseException as cleanup_error:
-            if is_cancelled_exception(cleanup_error):
-                try:
-                    await asyncio.shield(task)
-                except BaseException as retry_error:
-                    logger.error(
-                        "Failed to persist cancelled comment agent invocation",
-                        invocation_id=str(input.invocation_id),
-                        error=str(retry_error),
-                    )
-            else:
-                logger.error(
-                    "Failed to persist comment agent invocation failure",
-                    invocation_id=str(input.invocation_id),
-                    error=str(cleanup_error),
-                )
+        cleanup_error: BaseException | None = None
+        # Cancellation can be delivered again on later workflow activations.
+        # Do not let a fixed number of interrupted waits abandon this activity.
+        while not task.done():
+            try:
+                await asyncio.shield(task)
+            except BaseException as cleanup_exception:
+                if not is_cancelled_exception(cleanup_exception):
+                    cleanup_error = cleanup_exception
+                    break
+
+        if cleanup_error is None:
+            try:
+                task.result()
+            except BaseException as cleanup_exception:
+                cleanup_error = cleanup_exception
+
+        if cleanup_error is not None:
+            logger.error(
+                "Failed to persist comment agent invocation failure",
+                invocation_id=str(input.invocation_id),
+                error=str(cleanup_error),
+            )

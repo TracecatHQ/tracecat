@@ -388,6 +388,44 @@ async def test_parent_preserves_failure_across_cleanup(
 
 
 @pytest.mark.anyio
+async def test_failure_cleanup_survives_repeated_cancellation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cleanup_started = asyncio.Event()
+    release_cleanup = asyncio.Event()
+
+    async def slow_cleanup(*args: object, **kwargs: object) -> None:
+        cleanup_started.set()
+        await release_cleanup.wait()
+
+    monkeypatch.setattr(
+        invocation_workflows.workflow,
+        "execute_activity",
+        slow_cleanup,
+    )
+    invocation_id = uuid.uuid4()
+    cleanup_task = asyncio.create_task(
+        invocation_workflows.CaseCommentAgentInvocationWorkflow()._record_failure(
+            schemas.CaseCommentAgentInvocationWorkflowInput(
+                role=Role(type="service", service_id="tracecat-api"),
+                invocation_id=invocation_id,
+            ),
+            "cancelled",
+            "cancelled",
+        )
+    )
+
+    await cleanup_started.wait()
+    for _ in range(3):
+        cleanup_task.cancel()
+        await asyncio.sleep(0)
+        assert not cleanup_task.done()
+
+    release_cleanup.set()
+    await cleanup_task
+
+
+@pytest.mark.anyio
 @pytest.mark.integration
 async def test_comment_mention_runs_agent_and_posts_reply(
     monkeypatch: pytest.MonkeyPatch,
