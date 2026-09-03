@@ -168,6 +168,82 @@ async def test_load_session_history_omits_cancelled_marker_rows() -> None:
     assert "cancelled" not in history.sdk_session_data
 
 
+@pytest.mark.parametrize(
+    ("child_sdk_session_id", "expected_is_fork"),
+    [
+        pytest.param(None, True, id="first_turn"),
+        pytest.param("child-sdk", False, id="later_turn"),
+    ],
+)
+@pytest.mark.anyio
+async def test_load_session_history_forks_parent_only_until_child_has_sdk_session(
+    child_sdk_session_id: str | None,
+    expected_is_fork: bool,
+) -> None:
+    """A parented child without an SDK ID forks its parent's transcript first.
+
+    Once it has an SDK ID, it resumes its own transcript without forking.
+    """
+    service, _ = _build_service()
+    child_id = uuid.uuid4()
+    parent_id = uuid.uuid4()
+    child_session = SimpleNamespace(
+        id=child_id,
+        parent_session_id=parent_id,
+        sdk_session_id=child_sdk_session_id,
+        curr_run_id=None,
+    )
+    parent_session = SimpleNamespace(
+        id=parent_id,
+        parent_session_id=None,
+        sdk_session_id="parent-sdk",
+        curr_run_id=None,
+    )
+
+    def history_entry(line_uuid: str, message: str) -> SimpleNamespace:
+        return SimpleNamespace(
+            id=uuid.uuid4(),
+            kind=MessageKind.CHAT_MESSAGE.value,
+            raw_session_line=None,
+            content={
+                "type": "user",
+                "uuid": line_uuid,
+                "message": {"role": "user", "content": message},
+            },
+        )
+
+    entries_by_session_id = {
+        parent_id: [history_entry("parent-line-uuid", "Parent prompt.")],
+        child_id: [history_entry("child-line-uuid", "Child prompt.")],
+    }
+    loaded_session_ids: list[uuid.UUID] = []
+
+    async def execute(stmt: Any) -> Mock:
+        loaded_session_id = next(iter(stmt.compile().params.values()))
+        loaded_session_ids.append(loaded_session_id)
+        return _mock_scalar_result(entries_by_session_id[loaded_session_id])
+
+    sessions = {child_id: child_session, parent_id: parent_session}
+    service.get_session = AsyncMock(side_effect=sessions.__getitem__)
+    service.session.execute = AsyncMock(side_effect=execute)
+
+    history = await service.load_session_history(child_id)
+
+    assert history is not None
+    assert history.is_fork is expected_is_fork
+    expected_source_id = parent_id if expected_is_fork else child_id
+    expected_sdk_session_id = "parent-sdk" if expected_is_fork else "child-sdk"
+    expected_line_uuid = "parent-line-uuid" if expected_is_fork else "child-line-uuid"
+    expected_get_session_ids = [child_id, parent_id] if expected_is_fork else [child_id]
+    assert history.sdk_session_id == expected_sdk_session_id
+    assert orjson.loads(history.sdk_session_data)["uuid"] == expected_line_uuid
+    assert loaded_session_ids == [expected_source_id]
+    assert service.get_session.await_count == len(expected_get_session_ids)
+    assert [call.args[0] for call in service.get_session.await_args_list] == (
+        expected_get_session_ids
+    )
+
+
 @pytest.mark.anyio
 async def test_display_only_context_splits_ui_from_model_history() -> None:
     """Raw source text is visible while the full prompt only reaches the model."""
