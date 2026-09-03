@@ -16,12 +16,25 @@ function createNode(id: string, type: string, overrides?: Partial<Node>): Node {
   } as Node
 }
 
-function createEdge(source: string, target: string): Edge {
+function createEdge(
+  source: string,
+  target: string,
+  sourceHandle?: "success" | "error"
+): Edge {
   return {
     id: `${source}-${target}`,
     source,
     target,
+    sourceHandle,
   }
+}
+
+function positionOf(nodes: Node[], id: string) {
+  const node = nodes.find((n) => n.id === id)
+  if (!node) {
+    throw new Error(`missing node ${id}`)
+  }
+  return node.position
 }
 
 describe("getNodeLayoutDimensions", () => {
@@ -92,6 +105,44 @@ describe("getLayoutedElements", () => {
     expect(trigger?.position.y).toBe(0)
     expect(action?.position.y).toBe(400)
   })
+
+  it.each([
+    ["success first", ["success", "error"] as const],
+    ["error first", ["error", "success"] as const],
+  ])(
+    "places success branches left of error branches (%s edge order)",
+    (_label, order) => {
+      const nodes = [
+        createNode("trigger", "trigger"),
+        createNode("require", "udf"),
+        createNode("on-success", "udf"),
+        createNode("on-error", "udf"),
+        createNode("after-success", "udf"),
+        createNode("after-error", "udf"),
+      ]
+      const branchEdges = order.map((handle) =>
+        createEdge("require", `on-${handle}`, handle)
+      )
+      const edges = [
+        createEdge("trigger", "require"),
+        ...branchEdges,
+        createEdge("on-success", "after-success", "success"),
+        createEdge("on-error", "after-error", "success"),
+      ]
+
+      const { nodes: layouted } = getLayoutedElements(nodes, edges)
+
+      expect(positionOf(layouted, "on-success").x).toBeLessThan(
+        positionOf(layouted, "on-error").x
+      )
+      expect(positionOf(layouted, "after-success").x).toBe(
+        positionOf(layouted, "on-success").x
+      )
+      expect(positionOf(layouted, "after-error").x).toBe(
+        positionOf(layouted, "on-error").x
+      )
+    }
+  )
 })
 
 describe("mergeHydratedNodes", () => {
