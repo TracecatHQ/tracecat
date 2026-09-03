@@ -17,7 +17,10 @@ from tracecat_ee.admin.organizations.schemas import (
 )
 
 from tracecat import config
+from tracecat.api.app import app
 from tracecat.auth.types import Role
+from tracecat.db.engine import get_async_session_bypass_rls
+from tracecat.email.client import InvitationEmail
 from tracecat.exceptions import TracecatValidationError
 from tracecat.invitations.enums import InvitationStatus
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
@@ -249,6 +252,55 @@ async def test_create_organization_invitation_success(
     args = mock_svc.create_organization_invitation.await_args.args
     assert args[0] == org_id
     assert args[1].role_slug == "organization-owner"
+
+
+@pytest.mark.anyio
+async def test_admin_org_invitation_schedules_configured_email(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    org_id = uuid.uuid4()
+    invitation = _org_invitation_read(org_id, token="raw-token")
+    assert isinstance(invitation, AdminOrgInvitationCreateResponse)
+    mock_session = await app.dependency_overrides[get_async_session_bypass_rls]()
+    mock_session.scalar = AsyncMock(return_value="Acme")
+
+    with (
+        patch.object(organizations_router, "AdminOrgService") as mock_service_class,
+        patch.object(organizations_router, "is_email_configured", return_value=True),
+        patch.object(
+            organizations_router,
+            "build_accept_url",
+            return_value="https://app.example.com/invitations/accept?token=raw-token",
+        ),
+        patch.object(
+            organizations_router,
+            "send_invitation_emails",
+            new_callable=AsyncMock,
+        ) as mock_send,
+    ):
+        mock_service = AsyncMock()
+        mock_service.create_organization_invitation.return_value = invitation
+        mock_service_class.return_value = mock_service
+
+        response = client.post(
+            f"/admin/organizations/{org_id}/invitations",
+            json={"email": invitation.email},
+        )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    mock_send.assert_awaited_once_with(
+        [
+            InvitationEmail(
+                to=invitation.email,
+                accept_url=(
+                    "https://app.example.com/invitations/accept?token=raw-token"
+                ),
+                context_name="Acme",
+                kind="organization",
+            )
+        ]
+    )
 
 
 @pytest.mark.anyio

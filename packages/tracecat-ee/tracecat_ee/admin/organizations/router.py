@@ -4,12 +4,20 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
 
 from tracecat import config
 from tracecat.auth.credentials import SuperuserRole
 from tracecat.db.dependencies import AsyncDBSessionBypass
+from tracecat.db.models import Organization
+from tracecat.email.client import (
+    InvitationEmail,
+    build_accept_url,
+    is_email_configured,
+    send_invitation_emails,
+)
 from tracecat.exceptions import TracecatValidationError
 from tracecat.invitations.enums import InvitationStatus
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
@@ -145,11 +153,17 @@ async def create_organization_invitation(
     session: AsyncDBSessionBypass,
     org_id: uuid.UUID,
     params: AdminOrgInvitationCreate,
+    background_tasks: BackgroundTasks,
 ) -> AdminOrgInvitationCreateResponse:
     """Create a platform-scoped invitation for an organization."""
     service = AdminOrgService(session, role)
+    organization_name = None
+    if is_email_configured():
+        organization_name = await session.scalar(
+            select(Organization.name).where(Organization.id == org_id)
+        )
     try:
-        return await service.create_organization_invitation(org_id, params)
+        invitation = await service.create_organization_invitation(org_id, params)
     except TracecatValidationError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -157,6 +171,21 @@ async def create_organization_invitation(
         ) from e
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+
+    if organization_name is not None:
+        background_tasks.add_task(
+            send_invitation_emails,
+            [
+                InvitationEmail(
+                    to=invitation.email,
+                    accept_url=build_accept_url(invitation.token),
+                    context_name=organization_name,
+                    kind="organization",
+                )
+            ],
+        )
+
+    return invitation
 
 
 @router.get(
