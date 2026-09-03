@@ -233,9 +233,9 @@ services:
       PYTHONPATH: ${PYTHONPATH:+${PYTHONPATH}:}/home/apiuser/.local:/app/local_registry
       # Sandbox
       # NOTE: *_ALLOWED_EGRESS_CIDRS gate private-network exceptions only;
-      # the *_TCP_PORTS values apply to those CIDRs. Public egress is
-      # unrestricted (any public IPv4, any port) unless CIDRs are configured.
-      # See tracecat/sandbox/networking.py.
+      # the *_TCP_PORTS values apply to those CIDRs. Public IPv4 egress
+      # remains unrestricted (any public IPv4, any port) regardless of the
+      # allowed-egress CIDR settings. See tracecat/sandbox/networking.py.
       TRACECAT__DISABLE_NSJAIL: ${TRACECAT__DISABLE_NSJAIL:-true}
       TRACECAT__SANDBOX_NSJAIL_PATH: /usr/local/bin/nsjail
       TRACECAT__SANDBOX_ROOTFS_PATH: /var/lib/tracecat/sandbox-rootfs

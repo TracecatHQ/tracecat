@@ -106,7 +106,8 @@ async def test_install_packages_rejoins_copy_before_cleanup_on_cancellation(
     # site-packages tree must not.)
     published = cache_dir / "packages" / "abc123" / "site-packages"
     assert not published.exists()
-    assert list((cache_dir / "packages").glob("*.tmp")) == []
+    # Recursive: a stranded .tmp tree lives at packages/<cache_key>/site-packages.*.tmp.
+    assert list((cache_dir / "packages").glob("**/*.tmp")) == []
 
 
 @pytest.mark.anyio

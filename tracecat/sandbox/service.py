@@ -340,16 +340,18 @@ class SandboxService:
                 except SandboxFileSafetyError as exc:
                     logger.warning(
                         "Discarded cancelled package promotion",
-                        error=str(exc),
+                        error=type(exc).__name__,
                     )
                 except Exception as exc:
                     # A copy-worker failure that already completed before the
                     # join (e.g. PermissionError or shutil.Error) must not
                     # mask the pending cancellation either; log it and let the
-                    # cancellation win once the thread is rejoined.
+                    # cancellation win once the thread is rejoined. Log the
+                    # exception class only: str(exc) can embed sandbox-
+                    # controlled filenames and paths.
                     logger.warning(
                         "Cancelled package promotion copy worker failed",
-                        error=str(exc),
+                        error=type(exc).__name__,
                     )
                 raise
             except SandboxFileSafetyError as exc:

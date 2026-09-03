@@ -139,17 +139,27 @@ def _enforce_nproc_limit() -> None:
     before any untrusted code runs. Lowering a hard rlimit is permitted for
     unprivileged processes, and the limit is enforced per real UID, which
     covers every process in the jail.
+
+    Fails closed: if a cap was injected but cannot be enforced, refuse to
+    run untrusted code rather than continuing uncapped. A missing cap
+    (direct/dev mode) is not an enforcement failure.
     """
     raw = os.environ.get("TRACECAT__SANDBOX_RLIMIT_NPROC")
     if not raw:
         return
     try:
         limit = int(raw)
-        if limit > 0:
-            resource.setrlimit(resource.RLIMIT_NPROC, (limit, limit))
-    except (ValueError, OSError):
-        # Values are host-injected; ignore malformed or unenforceable ones.
-        pass
+        if limit <= 0:
+            raise ValueError(f"non-positive cap: {limit}")
+        resource.setrlimit(resource.RLIMIT_NPROC, (limit, limit))
+    except (ValueError, OSError) as exc:
+        # Values are host-injected; a malformed value or an unenforceable
+        # rlimit means the process cap is not in place. Exit instead of
+        # running untrusted code without the enforced cap.
+        raise SystemExit(
+            f"_enforce_nproc_limit: could not enforce RLIMIT_NPROC={raw!r}: "
+            f"{type(exc).__name__}"
+        ) from exc
 
 
 def main():
@@ -267,11 +277,17 @@ def _enforce_nproc_limit() -> None:
         return
     try:
         limit = int(raw)
-        if limit > 0:
-            resource.setrlimit(resource.RLIMIT_NPROC, (limit, limit))
-    except (ValueError, OSError):
-        # Values are host-injected; ignore malformed or unenforceable ones.
-        pass
+        if limit <= 0:
+            raise ValueError(f"non-positive cap: {limit}")
+        resource.setrlimit(resource.RLIMIT_NPROC, (limit, limit))
+    except (ValueError, OSError) as exc:
+        # Values are host-injected; a malformed value or an unenforceable
+        # rlimit means the process cap is not in place. Exit instead of
+        # running untrusted code without the enforced cap.
+        raise SystemExit(
+            f"_enforce_nproc_limit: could not enforce RLIMIT_NPROC={raw!r}: "
+            f"{type(exc).__name__}"
+        ) from exc
 
 
 _enforce_nproc_limit()

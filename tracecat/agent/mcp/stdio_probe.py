@@ -86,11 +86,17 @@ def _enforce_nproc_limit() -> None:
         return
     try:
         limit = int(raw)
-        if limit > 0:
-            resource.setrlimit(resource.RLIMIT_NPROC, (limit, limit))
-    except (ValueError, OSError):
-        # Values are host-injected; ignore malformed or unenforceable ones.
-        pass
+        if limit <= 0:
+            raise ValueError(f"non-positive cap: {limit}")
+        resource.setrlimit(resource.RLIMIT_NPROC, (limit, limit))
+    except (ValueError, OSError) as exc:
+        # Values are host-injected; a malformed value or an unenforceable
+        # rlimit means the process cap is not in place. Exit instead of
+        # running untrusted code without the enforced cap.
+        raise SystemExit(
+            f"_enforce_nproc_limit: could not enforce RLIMIT_NPROC={raw!r}: "
+            f"{type(exc).__name__}"
+        ) from exc
 
 URL_PATTERN = re.compile(r"\bhttps?://\S+", re.IGNORECASE)
 URL_USERINFO_PATTERN = re.compile(r"^(https?://)[^/@]*@", re.IGNORECASE)

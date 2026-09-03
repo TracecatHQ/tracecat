@@ -1193,13 +1193,14 @@ class LLMSocketProxy:
             }
         )
         reason = _ERROR_MESSAGES.get(status_code, detail)
+        # RFC 9110: 405 responses must advertise the accepted methods.
+        allow_header = "Allow: GET, POST\r\n" if status_code == 405 else ""
         response_head = (
             f"HTTP/1.1 {status_code} {reason}\r\n"
             "Content-Type: application/json\r\n"
             f"Content-Length: {len(body)}\r\n"
             f"X-Request-ID: {trace_request_id}\r\n"
-            "Connection: close\r\n"
-            "\r\n"
+            "Connection: close\r\n" + allow_header + "\r\n"
         )
         writer.write(response_head.encode("utf-8") + body)
         await writer.drain()

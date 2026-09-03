@@ -69,11 +69,19 @@ def _invalid_result(
     stderr_limit: int,
     exit_code: int | None,
     execution_time_ms: float,
+    include_error_code: bool = False,
 ) -> ResultEnvelopeOutcome:
     return ResultEnvelopeOutcome(
         result=SandboxResult(
             success=False,
             error=error,
+            # A rejected envelope was produced by sandbox-controlled code, so
+            # classify it as a workload failure: without an explicit code the
+            # error policy treats the failure as retryable, letting a corrupt
+            # result file trigger retry loops.
+            error_code=(
+                SandboxErrorCode.WORKLOAD_FAILURE if include_error_code else None
+            ),
             stdout=stdout,
             stderr=stderr[:stderr_limit],
             exit_code=exit_code,
@@ -106,9 +114,11 @@ def decode_result_envelope(
             max_bytes=max_bytes,
         )
     except SandboxFileSafetyError as exc:
+        # Log the exception class only: str(exc) can embed sandbox-controlled
+        # paths from the rejected file.
         logger.warning(
             f"Rejected unsafe {log_label} result file",
-            error=str(exc),
+            error=type(exc).__name__,
         )
         return _invalid_result(
             error=invalid_result_error,
@@ -117,6 +127,7 @@ def decode_result_envelope(
             stderr_limit=stderr_limit,
             exit_code=exit_code,
             execution_time_ms=execution_time_ms,
+            include_error_code=include_error_code,
         )
 
     if result_data is None:
@@ -147,6 +158,7 @@ def decode_result_envelope(
             stderr_limit=stderr_limit,
             exit_code=exit_code,
             execution_time_ms=execution_time_ms,
+            include_error_code=include_error_code,
         )
 
     result_stdout: str = stdout

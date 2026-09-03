@@ -1920,7 +1920,7 @@ async def _run_nproc_cap_case(
         "        forked += 1",
         "except OSError:",
         "    pass",
-        f"capped = soft == {expected} and forked < 300",
+        f"capped = soft == {expected} and 0 < forked < 300",
         # Zombie children still count against RLIMIT_NPROC until reaped, so
         # the un-reaped fork loop is exactly what makes the cap bind.
         'print(json.dumps({"soft": soft, "forked": forked, "capped": capped}))',

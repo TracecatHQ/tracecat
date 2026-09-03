@@ -308,7 +308,8 @@ class TestInstallScript:
         exhaust the shared container PID limit and disrupt other jails.
         """
         assert "_enforce_nproc_limit()" in INSTALL_SCRIPT
-        enforcement_pos = INSTALL_SCRIPT.index("_enforce_nproc_limit()")
+        # rindex: the call site (not the def line) must precede subprocess.run.
+        enforcement_pos = INSTALL_SCRIPT.rindex("_enforce_nproc_limit()")
         uv_pos = INSTALL_SCRIPT.index("subprocess.run")
         assert enforcement_pos < uv_pos, (
             "Process cap must be applied before launching uv"

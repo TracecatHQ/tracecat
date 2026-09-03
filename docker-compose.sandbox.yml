@@ -11,8 +11,10 @@ services:
     # Hard cap on total processes (incl. all jails and their children):
     # in-jail RLIMIT_NPROC is bypassable via nested user namespaces (fresh
     # per-userns fork counter), so the container cgroup pids limit is the
-    # reliable fork-bomb bound. Verify headroom when adding jail workloads.
-    pids_limit: 1024
+    # reliable fork-bomb bound. 4096 leaves headroom above the default
+    # concurrency ceiling (16 activities x 64 in-jail processes = 1024)
+    # plus executor threads and nsjail launchers.
+    pids_limit: 4096
     # Required for nsjail sandbox execution.
     cap_add:
       - SYS_ADMIN
@@ -27,7 +29,7 @@ services:
 
   agent-executor:
     # Same fork-bomb bound as executor (nested userns bypasses in-jail caps).
-    pids_limit: 1024
+    pids_limit: 4096
     # Required for nsjail sandbox execution.
     cap_add:
       - SYS_ADMIN
