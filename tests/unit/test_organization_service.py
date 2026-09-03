@@ -982,169 +982,6 @@ class TestOrganizationServiceSessions:
             await service.delete_session(token.id)
 
 
-class TestOrganizationServiceAddMember:
-    """Tests for OrgService.add_member()."""
-
-    @pytest.mark.anyio
-    async def test_add_member_creates_membership(
-        self,
-        session: AsyncSession,
-        org1: Organization,
-        admin_in_org1: User,
-    ):
-        """Test add_member makes the user an organization member."""
-        # Create a new user not yet in the org
-        new_user = User(
-            id=uuid.uuid4(),
-            email=f"newuser-{uuid.uuid4().hex[:8]}@example.com",
-            hashed_password="hashed",
-            role=UserRole.BASIC,
-            is_active=True,
-            is_superuser=False,
-            is_verified=True,
-        )
-        session.add(new_user)
-        await session.commit()
-
-        role = create_admin_role(org1.id, admin_in_org1.id)
-        service = OrgService(session, role=role)
-
-        membership = await service.add_member(
-            user_id=new_user.id,
-            organization_id=org1.id,
-        )
-
-        assert membership.user_id == new_user.id
-        assert membership.organization_id == org1.id
-
-    @pytest.mark.anyio
-    async def test_add_member_with_admin_role(
-        self,
-        session: AsyncSession,
-        org1: Organization,
-        admin_in_org1: User,
-    ):
-        """Test add_member can assign admin role."""
-        new_user = User(
-            id=uuid.uuid4(),
-            email=f"newadmin-{uuid.uuid4().hex[:8]}@example.com",
-            hashed_password="hashed",
-            role=UserRole.ADMIN,
-            is_active=True,
-            is_superuser=False,
-            is_verified=True,
-        )
-        session.add(new_user)
-        await session.commit()
-
-        role = create_admin_role(org1.id, admin_in_org1.id)
-        service = OrgService(session, role=role)
-
-        membership = await service.add_member(
-            user_id=new_user.id,
-            organization_id=org1.id,
-        )
-
-        assert membership.user_id == new_user.id
-        assert membership.organization_id == org1.id
-
-    @pytest.mark.anyio
-    async def test_add_member_with_owner_role(
-        self,
-        session: AsyncSession,
-        org1: Organization,
-        admin_in_org1: User,
-    ):
-        """Test add_member can assign owner role."""
-        new_user = User(
-            id=uuid.uuid4(),
-            email=f"newowner-{uuid.uuid4().hex[:8]}@example.com",
-            hashed_password="hashed",
-            role=UserRole.ADMIN,
-            is_active=True,
-            is_superuser=False,
-            is_verified=True,
-        )
-        session.add(new_user)
-        await session.commit()
-
-        role = create_admin_role(org1.id, admin_in_org1.id)
-        service = OrgService(session, role=role)
-
-        membership = await service.add_member(
-            user_id=new_user.id,
-            organization_id=org1.id,
-        )
-
-        assert membership.user_id == new_user.id
-        assert membership.organization_id == org1.id
-
-    @pytest.mark.anyio
-    async def test_add_member_default_role_is_member(
-        self,
-        session: AsyncSession,
-        org1: Organization,
-        admin_in_org1: User,
-    ):
-        """Test add_member defaults to MEMBER role when not specified."""
-        new_user = User(
-            id=uuid.uuid4(),
-            email=f"defaultrole-{uuid.uuid4().hex[:8]}@example.com",
-            hashed_password="hashed",
-            role=UserRole.BASIC,
-            is_active=True,
-            is_superuser=False,
-            is_verified=True,
-        )
-        session.add(new_user)
-        await session.commit()
-
-        role = create_admin_role(org1.id, admin_in_org1.id)
-        service = OrgService(session, role=role)
-
-        membership = await service.add_member(
-            user_id=new_user.id,
-            organization_id=org1.id,
-        )
-
-        assert membership.user_id == new_user.id
-        assert membership.organization_id == org1.id
-
-    @pytest.mark.anyio
-    async def test_add_member_user_appears_in_list_members(
-        self,
-        session: AsyncSession,
-        org1: Organization,
-        admin_in_org1: User,
-    ):
-        """Test that added member appears in list_members."""
-        new_user = User(
-            id=uuid.uuid4(),
-            email=f"listcheck-{uuid.uuid4().hex[:8]}@example.com",
-            hashed_password="hashed",
-            role=UserRole.BASIC,
-            is_active=True,
-            is_superuser=False,
-            is_verified=True,
-        )
-        session.add(new_user)
-        await session.commit()
-
-        role = create_admin_role(org1.id, admin_in_org1.id)
-        service = OrgService(session, role=role)
-
-        # Add member
-        await service.add_member(
-            user_id=new_user.id,
-            organization_id=org1.id,
-        )
-
-        # Verify they appear in list_members
-        members = await service.list_members()
-        member_ids = {user.id for user in members}
-        assert new_user.id in member_ids
-
-
 class TestOrganizationServiceInvitations:
     """Tests for OrgService invitation methods."""
 
@@ -1725,13 +1562,12 @@ class TestOrganizationServiceInvitations:
             role_id=org1_member_role.id,
         )
 
-        standalone_membership = await accept_invitation_for_user(
+        standalone_org_id = await accept_invitation_for_user(
             session,
             user_id=standalone_superuser.id,
             token=standalone_invitation.token,
         )
-        assert standalone_membership.user_id == standalone_superuser.id
-        assert standalone_membership.organization_id == org1.id
+        assert standalone_org_id == org1.id
 
         user_role = Role(
             type="user",
@@ -1791,13 +1627,12 @@ class TestOrganizationServiceInvitations:
             role_id=org1_member_role.id,
         )
 
-        standalone_membership = await accept_invitation_for_user(
+        standalone_org_id = await accept_invitation_for_user(
             session,
             user_id=standalone_superuser.id,
             token=standalone_invitation.token,
         )
-        assert standalone_membership.user_id == standalone_superuser.id
-        assert standalone_membership.organization_id == org1.id
+        assert standalone_org_id == org1.id
 
         user_role = Role(
             type="user",

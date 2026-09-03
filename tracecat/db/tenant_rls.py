@@ -275,38 +275,33 @@ def _assignment_org_read_policy(table: str) -> str:
     return f"{policy_name(table)}_org_read"
 
 
+def _assignment_write_policy(table: str, verb: str) -> str:
+    return f"{policy_name(table)}_{verb}"
+
+
+# A workspace-scoped session may only touch rows for its own workspace; org-wide
+# rows (workspace_id IS NULL) are writable only without a workspace context.
+_ASSIGNMENT_WRITE_PREDICATE = """
+                current_setting('{bypass_var}', true) = '{bypass_on}'
+                OR (
+                    organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid
+                    AND (
+                        NULLIF(current_setting('app.current_workspace_id', true), '')::uuid IS NULL
+                        OR workspace_id = NULLIF(current_setting('app.current_workspace_id', true), '')::uuid
+                    )
+                )
+"""
+
+
 def enable_assignment_split_table_rls(table: str) -> str:
-    # Split policy so org-presence queries can read assignments in every
-    # workspace while writes stay pinned to the session's workspace. The FOR ALL
-    # policy keeps the original org+optional-workspace clause; the additive
-    # FOR SELECT policy widens reads to the whole org (permissive policies OR).
+    # Split policies so org-presence queries read the whole org while writes stay
+    # workspace-scoped. Separate INSERT/UPDATE/DELETE policies replace a FOR ALL
+    # policy whose WITH CHECK let a workspace session write org-wide rows.
+    predicate = _ASSIGNMENT_WRITE_PREDICATE.format(
+        bypass_var=RLS_BYPASS_VAR, bypass_on=RLS_BYPASS_ON
+    )
     return f"""
         ALTER TABLE "{table}" ENABLE ROW LEVEL SECURITY;
-
-        CREATE POLICY {policy_name(table)} ON "{table}"
-            FOR ALL
-            USING (
-                current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}'
-                OR (
-                    organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid
-                    AND (
-                        workspace_id IS NULL
-                        OR workspace_id = NULLIF(current_setting('app.current_workspace_id', true), '')::uuid
-                        OR NULLIF(current_setting('app.current_workspace_id', true), '')::uuid IS NULL
-                    )
-                )
-            )
-            WITH CHECK (
-                current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}'
-                OR (
-                    organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid
-                    AND (
-                        workspace_id IS NULL
-                        OR workspace_id = NULLIF(current_setting('app.current_workspace_id', true), '')::uuid
-                        OR NULLIF(current_setting('app.current_workspace_id', true), '')::uuid IS NULL
-                    )
-                )
-            );
 
         CREATE POLICY {_assignment_org_read_policy(table)} ON "{table}"
             FOR SELECT
@@ -314,12 +309,28 @@ def enable_assignment_split_table_rls(table: str) -> str:
                 current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}'
                 OR organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid
             );
+
+        CREATE POLICY {_assignment_write_policy(table, "insert")} ON "{table}"
+            FOR INSERT
+            WITH CHECK ({predicate});
+
+        CREATE POLICY {_assignment_write_policy(table, "update")} ON "{table}"
+            FOR UPDATE
+            USING ({predicate})
+            WITH CHECK ({predicate});
+
+        CREATE POLICY {_assignment_write_policy(table, "delete")} ON "{table}"
+            FOR DELETE
+            USING ({predicate});
     """
 
 
 def disable_assignment_split_table_rls(table: str) -> str:
     return f"""
         DROP POLICY IF EXISTS {_assignment_org_read_policy(table)} ON "{table}";
+        DROP POLICY IF EXISTS {_assignment_write_policy(table, "insert")} ON "{table}";
+        DROP POLICY IF EXISTS {_assignment_write_policy(table, "update")} ON "{table}";
+        DROP POLICY IF EXISTS {_assignment_write_policy(table, "delete")} ON "{table}";
         DROP POLICY IF EXISTS {policy_name(table)} ON "{table}";
         ALTER TABLE "{table}" DISABLE ROW LEVEL SECURITY;
     """

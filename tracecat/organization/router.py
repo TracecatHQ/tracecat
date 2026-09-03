@@ -11,7 +11,10 @@ from tracecat.auth.dependencies import OrgActorRole, OrgUserRole
 from tracecat.auth.schemas import SessionRead, UserUpdate
 from tracecat.auth.users import current_active_user
 from tracecat.authz.controls import require_scope
-from tracecat.authz.membership import org_membership_predicate
+from tracecat.authz.membership import (
+    org_membership_predicate,
+    resolve_org_role_names,
+)
 from tracecat.db.dependencies import AsyncDBSession, AsyncDBSessionBypass
 from tracecat.db.models import (
     Membership,
@@ -19,7 +22,6 @@ from tracecat.db.models import (
     OrganizationDomain,
     OrganizationInvitation,
     User,
-    UserRoleAssignment,
 )
 from tracecat.db.models import (
     Role as DBRole,
@@ -279,18 +281,10 @@ async def get_current_org_member(
             detail="User is not a member of this organization",
         )
 
-    # Get role name from RBAC assignment
-    rbac_stmt = (
-        select(DBRole.name)
-        .join(UserRoleAssignment, UserRoleAssignment.role_id == DBRole.id)
-        .where(
-            UserRoleAssignment.user_id == user.id,
-            UserRoleAssignment.organization_id == role.organization_id,
-            UserRoleAssignment.workspace_id.is_(None),
-        )
-    )
-    rbac_result = await session.execute(rbac_stmt)
-    role_name = rbac_result.scalar_one_or_none()
+    # Org role can come from a direct assignment or an org-wide group grant.
+    resolved = await resolve_org_role_names(session, role.organization_id, [user.id])
+    org_role = resolved.get(user.id)
+    role_name = org_role.name if org_role else None
 
     # Superusers always show as Owner
     if role_name is None and role.is_platform_superuser:
@@ -319,27 +313,15 @@ async def list_org_members(
     members = await service.list_members()
     now = datetime.now(UTC)
 
-    # Build a map of user_id -> RBAC role name for org-wide assignments
+    # Org role can come from a direct assignment or an org-wide group grant.
     user_ids = [user.id for user in members]
-    rbac_stmt = (
-        select(UserRoleAssignment.user_id, DBRole.name, DBRole.slug)
-        .join(DBRole, UserRoleAssignment.role_id == DBRole.id)
-        .where(
-            UserRoleAssignment.organization_id == role.organization_id,
-            UserRoleAssignment.workspace_id.is_(None),
-            UserRoleAssignment.user_id.in_(user_ids),  # pyright: ignore[reportAttributeAccessIssue]
-        )
-    )
-    rbac_result = await session.execute(rbac_stmt)
-    rbac_map: dict[str, tuple[str, str | None]] = {
-        str(user_id): (name, slug) for user_id, name, slug in rbac_result.tuples().all()
-    }
+    rbac_map = await resolve_org_role_names(session, role.organization_id, user_ids)
 
     result: list[OrgMemberRead] = []
     for user in members:
-        rbac_info = rbac_map.get(str(user.id))
-        if rbac_info:
-            role_name, role_slug = rbac_info
+        org_role = rbac_map.get(user.id)
+        if org_role is not None:
+            role_name, role_slug = org_role.name, org_role.slug
         else:
             role_name = "Member"
             role_slug = "organization-member"
@@ -415,18 +397,12 @@ async def update_org_member(
     service = OrgService(session, role=role)
     try:
         user = await service.update_member(user_id, params)
-        # Get role name from RBAC assignment
-        rbac_stmt = (
-            select(DBRole.name)
-            .join(UserRoleAssignment, UserRoleAssignment.role_id == DBRole.id)
-            .where(
-                UserRoleAssignment.user_id == user.id,
-                UserRoleAssignment.organization_id == role.organization_id,
-                UserRoleAssignment.workspace_id.is_(None),
-            )
+        # Org role can come from a direct assignment or an org-wide group grant.
+        resolved = await resolve_org_role_names(
+            session, role.organization_id, [user.id]
         )
-        rbac_result = await session.execute(rbac_stmt)
-        role_name = rbac_result.scalar_one_or_none() or "Member"
+        org_role = resolved.get(user.id)
+        role_name = org_role.name if org_role else "Member"
         return OrgMemberDetail(
             user_id=user.id,
             first_name=user.first_name,

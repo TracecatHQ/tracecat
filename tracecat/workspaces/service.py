@@ -15,7 +15,6 @@ from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
 from tracecat.authz.controls import has_scope, require_scope
 from tracecat.authz.enums import OwnerType
-from tracecat.authz.membership import org_membership_predicate
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.authz.service import resolve_grantable_role
 from tracecat.cases.service import CaseFieldsService
@@ -23,11 +22,7 @@ from tracecat.db.models import (
     Invitation,
     Membership,
     Ownership,
-    UserRoleAssignment,
     Workspace,
-)
-from tracecat.db.models import (
-    Role as DBRole,
 )
 from tracecat.exceptions import (
     TracecatAuthorizationError,
@@ -412,147 +407,6 @@ class WorkspaceService(BaseOrgService):
         )
         result = await self.session.execute(statement)
         return result.scalars().all()
-
-    async def get_invitation_by_token(self, token: str) -> Invitation | None:
-        """Retrieve an invitation by its unique token.
-
-        This method does not require workspace role checks as it's used
-        during the public invitation acceptance flow.
-
-        Args:
-            token: The invitation token.
-
-        Returns:
-            The invitation if found, None otherwise.
-        """
-        statement = (
-            select(Invitation)
-            .where(Invitation.token == token)
-            .options(selectinload(Invitation.workspace))
-        )
-        result = await self.session.execute(statement)
-        return result.scalar_one_or_none()
-
-    @audit_log(resource_type="workspace_invitation", action="accept")
-    async def accept_invitation(
-        self,
-        token: str,
-        user_id: UserID,
-    ) -> Membership:
-        """Accept a workspace invitation.
-
-        This method validates the invitation, creates org membership if needed,
-        creates the workspace membership, and updates the invitation status.
-
-        Uses optimistic locking via conditional UPDATE to prevent TOCTOU race
-        conditions - the status check and update happen atomically in a single
-        database operation.
-
-        Note: This method does not require workspace role checks as it's called
-        by the user accepting their own invitation.
-
-        Args:
-            token: The invitation token.
-            user_id: The user accepting the invitation.
-
-        Returns:
-            The created workspace membership.
-
-        Raises:
-            TracecatNotFoundError: If the invitation is not found.
-            TracecatValidationError: If the invitation is expired, already
-                accepted, or revoked.
-        """
-        invitation = await self.get_invitation_by_token(token)
-        if invitation is None:
-            raise TracecatNotFoundError("Invitation not found")
-
-        # Check expiry before attempting atomic update
-        if invitation.expires_at < datetime.now(UTC):
-            raise TracecatValidationError("Invitation has expired")
-
-        # Get the workspace to find the organization
-        workspace = invitation.workspace
-        organization_id = workspace.organization_id
-
-        # Org membership is derived from assignments: absence of any assignment
-        # in this org means we must also grant the org-member role.
-        org_membership_stmt = select(Membership).where(
-            org_membership_predicate(user_id, organization_id),
-        )
-        result = await self.session.execute(org_membership_stmt)
-        created_org_membership = result.first() is None
-
-        # Check if user is already a member of the workspace
-        ws_membership_stmt = select(Membership).where(
-            Membership.user_id == user_id,
-            Membership.workspace_id == invitation.workspace_id,
-        )
-        result = await self.session.execute(ws_membership_stmt)
-        if result.scalar_one_or_none():
-            raise TracecatValidationError("User is already a member of this workspace")
-
-        # Atomically update invitation status only if still PENDING.
-        # This prevents TOCTOU race conditions where an admin might revoke
-        # the invitation between our check and commit.
-        now = datetime.now(UTC)
-        update_result = await self.session.execute(
-            update(Invitation)
-            .where(
-                Invitation.id == invitation.id,
-                Invitation.status == InvitationStatus.PENDING,
-            )
-            .values(status=InvitationStatus.ACCEPTED, accepted_at=now)
-        )
-
-        if update_result.rowcount == 0:  # pyright: ignore[reportAttributeAccessIssue]
-            # Status changed between fetch and update - re-fetch for accurate error
-            await self.session.refresh(invitation)
-            if invitation.status == InvitationStatus.ACCEPTED:
-                raise TracecatValidationError("Invitation has already been accepted")
-            if invitation.status == InvitationStatus.REVOKED:
-                raise TracecatValidationError("Invitation has been revoked")
-            # Shouldn't reach here, but handle gracefully
-            raise TracecatValidationError("Invitation is no longer valid")
-
-        # Create RBAC role assignment for the workspace; membership follows.
-        ws_assignment = UserRoleAssignment(
-            organization_id=organization_id,
-            user_id=user_id,
-            workspace_id=invitation.workspace_id,
-            role_id=invitation.role_id,
-        )
-        self.session.add(ws_assignment)
-
-        # If we auto-created org membership, also assign org-member RBAC role
-        if created_org_membership:
-            org_member_role_result = await self.session.execute(
-                select(DBRole).where(
-                    DBRole.organization_id == organization_id,
-                    DBRole.slug == "organization-member",
-                )
-            )
-            org_member_role = org_member_role_result.scalar_one_or_none()
-            if org_member_role is not None:
-                org_assignment = UserRoleAssignment(
-                    organization_id=organization_id,
-                    user_id=user_id,
-                    workspace_id=None,
-                    role_id=org_member_role.id,
-                )
-                self.session.add(org_assignment)
-
-        await self.session.commit()
-
-        membership = (
-            await self.session.execute(
-                select(Membership).where(
-                    Membership.user_id == user_id,
-                    Membership.workspace_id == invitation.workspace_id,
-                )
-            )
-        ).scalar_one()
-        return membership
 
     @require_scope("workspace:member:remove")
     @audit_log(

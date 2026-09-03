@@ -11,6 +11,7 @@ from sqlalchemy.sql.elements import ColumnElement
 
 from tracecat.auth.types import Role
 from tracecat.authz.controls import ensure_can_grant_scopes, require_scope
+from tracecat.authz.enums import WorkspaceMemberSourceKind
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import SupportsExecute
 from tracecat.db.models import (
@@ -233,20 +234,29 @@ class MembershipService(BaseService):
         )
         rows = (await self.session.execute(statement)).all()
 
-        # One extra query for group provenance rather than an N+1 per member.
+        # One extra query for group provenance and group-granted roles, rather
+        # than an N+1 per member.
         group_statement = (
-            select(GroupMember.user_id, Group.name)
+            select(GroupMember.user_id, Group.name, DBRole.name)
             .join(Group, Group.id == GroupMember.group_id)
             .join(GroupRoleAssignment, GroupRoleAssignment.group_id == Group.id)
+            .join(DBRole, DBRole.id == GroupRoleAssignment.role_id)
             .where(GroupRoleAssignment.workspace_id == workspace_id)
             .distinct()
-            .order_by(GroupMember.user_id, Group.name)
+            .order_by(GroupMember.user_id, Group.name, DBRole.name)
         )
         groups_by_user: dict[UUID, list[str]] = {}
-        for member_user_id, group_name in (
-            await self.session.execute(group_statement)
-        ).all():
-            groups_by_user.setdefault(member_user_id, []).append(group_name)
+        group_role_by_user: dict[UUID, str] = {}
+        for member_user_id, group_name, group_role_name in (
+            (await self.session.execute(group_statement)).tuples().all()
+        ):
+            names = groups_by_user.setdefault(member_user_id, [])
+            if group_name not in names:
+                names.append(group_name)
+            # Several groups may grant a member: first role name alphabetically wins.
+            existing = group_role_by_user.get(member_user_id)
+            if existing is None or group_role_name < existing:
+                group_role_by_user[member_user_id] = group_role_name
 
         return [
             WorkspaceMember(
@@ -254,11 +264,14 @@ class MembershipService(BaseService):
                 first_name=user.first_name,
                 last_name=user.last_name,
                 email=user.email,
-                role_name=role_name,
-                source=WorkspaceMemberSource(kind="direct")
+                role_name=role_name
+                if is_direct
+                else (group_role_by_user.get(user.id) or role_name),
+                source=WorkspaceMemberSource(kind=WorkspaceMemberSourceKind.DIRECT)
                 if is_direct
                 else WorkspaceMemberSource(
-                    kind="group", group_names=groups_by_user.get(user.id, [])
+                    kind=WorkspaceMemberSourceKind.GROUP,
+                    group_names=groups_by_user.get(user.id, []),
                 ),
             )
             for user, role_name, is_direct in rows

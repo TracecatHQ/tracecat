@@ -33810,9 +33810,7 @@ export const $WorkspaceMember = {
 export const $WorkspaceMemberSource = {
   properties: {
     kind: {
-      type: "string",
-      enum: ["direct", "group"],
-      title: "Kind",
+      $ref: "#/components/schemas/WorkspaceMemberSourceKind",
     },
     group_names: {
       items: {
@@ -33830,6 +33828,13 @@ export const $WorkspaceMemberSource = {
 \`\`kind\`\` is \`\`"direct"\`\` for a direct role assignment, or \`\`"group"\`\` when
 access is derived only from group membership, in which case \`\`group_names\`\`
 lists the granting groups.`,
+} as const
+
+export const $WorkspaceMemberSourceKind = {
+  type: "string",
+  enum: ["direct", "group"],
+  title: "WorkspaceMemberSourceKind",
+  description: "Where a workspace member's access comes from.",
 } as const
 
 export const $WorkspaceMembershipCreate = {

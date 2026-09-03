@@ -64,11 +64,7 @@ function describeMemberSource(source: WorkspaceMember["source"]): string {
   if (source.kind === "direct") {
     return "Direct"
   }
-  const groupNames = source.group_names ?? []
-  if (groupNames.length === 0) {
-    return "Group"
-  }
-  return groupNames.join(", ")
+  return (source.group_names ?? []).join(", ") || "Group"
 }
 
 export function WorkspaceMembersTable({
@@ -303,9 +299,10 @@ export function WorkspaceMembersTable({
                         (isGroupDerived ? (
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              {/* A span keeps the tooltip reachable: a disabled
-                                  menu item emits no pointer events itself. */}
-                              <span className="block">
+                              {/* A focusable span keeps the tooltip reachable by
+                                  pointer and keyboard: a disabled menu item emits
+                                  no pointer events and is not focusable itself. */}
+                              <span className="block" tabIndex={0}>
                                 <DropdownMenuItem
                                   disabled
                                   onSelect={(event) => event.preventDefault()}

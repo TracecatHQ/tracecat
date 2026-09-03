@@ -19,6 +19,7 @@ from tracecat.db.tenant_rls import (
     SPECIAL_TENANT_POLICY_TABLES,
     SPECIAL_WORKSPACE_POLICY_TABLES,
     WORKSPACE_POLICY_TABLES,
+    disable_assignment_split_table_rls,
     enable_agent_tag_link_table_rls,
     enable_assignment_split_table_rls,
 )
@@ -118,18 +119,35 @@ def test_assignment_split_policy_keeps_writes_workspace_scoped() -> None:
         policy_sql = enable_assignment_split_table_rls(table)
 
         assert f'ALTER TABLE "{table}" ENABLE ROW LEVEL SECURITY' in policy_sql
-        assert f"CREATE POLICY rls_policy_{table} ON" in policy_sql
-        assert f"CREATE POLICY rls_policy_{table}_org_read ON" in policy_sql
-        assert "FOR SELECT" in policy_sql
-        # The FOR ALL policy must still pin writes to the session workspace.
-        for_all_policy = policy_sql.split("FOR SELECT")[0]
-        assert for_all_policy.count("WITH CHECK") == 1
-        assert for_all_policy.count("app.current_workspace_id") == 4
+        # A FOR ALL policy would re-admit org-wide writes from a workspace session.
+        assert "FOR ALL" not in policy_sql
+        for verb in ("insert", "update", "delete"):
+            assert f"CREATE POLICY rls_policy_{table}_{verb} ON" in policy_sql
+            assert f"FOR {verb.upper()}" in policy_sql
+
+        # Writes never match an org-wide row while a workspace context is set.
+        write_sql = policy_sql.split("_org_read")[-1]
+        assert "workspace_id IS NULL" not in write_sql
+        assert (
+            "NULLIF(current_setting('app.current_workspace_id', true), '')::uuid IS NULL"
+            in write_sql
+        )
+
         # The additive read policy is org-only, with the bypass clause.
-        org_read_policy = policy_sql.split("_org_read")[1]
+        org_read_policy = policy_sql.split("_org_read")[1].split("CREATE POLICY")[0]
+        assert "FOR SELECT" in org_read_policy
         assert "app.current_workspace_id" not in org_read_policy
         assert "app.rls_bypass" in org_read_policy
         assert "WITH CHECK" not in org_read_policy
+
+
+def test_assignment_split_policy_disable_drops_every_policy() -> None:
+    for table in ASSIGNMENT_SPLIT_POLICY_TABLES:
+        disable_sql = disable_assignment_split_table_rls(table)
+        for verb in ("insert", "update", "delete"):
+            assert f"DROP POLICY IF EXISTS rls_policy_{table}_{verb}" in disable_sql
+        assert f"DROP POLICY IF EXISTS rls_policy_{table}_org_read" in disable_sql
+        assert f'DROP POLICY IF EXISTS rls_policy_{table} ON "{table}"' in disable_sql
 
 
 def test_agent_tag_link_is_registered_for_tenant_rls() -> None:

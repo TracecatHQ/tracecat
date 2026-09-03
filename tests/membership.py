@@ -30,11 +30,16 @@ async def _role_id(
     if role_id is not None:
         return role_id
 
-    # Seeding is idempotent but can collide with a fixture seeding in parallel.
+    # Seeding can collide with a fixture seeding in parallel. A savepoint keeps
+    # the collision from discarding the session's other uncommitted state.
     try:
-        await seed_system_roles_for_org(session, organization_id)
+        async with session.begin_nested():
+            await seed_system_roles_for_org(session, organization_id)
     except IntegrityError:
-        await session.rollback()
+        role_id = (await session.execute(stmt)).scalar_one_or_none()
+        if role_id is None:
+            raise
+        return role_id
     return (await session.execute(stmt)).scalar_one()
 
 

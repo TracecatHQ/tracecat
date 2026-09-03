@@ -141,9 +141,11 @@ async def test_update_org_member_omits_superuser_flag(
     user = _member_user()
     mock_session = await app.dependency_overrides[get_async_session]()
 
-    # Mock the RBAC role name query result
+    # Mock the RBAC role resolution query result
+    rbac_tuples = Mock()
+    rbac_tuples.all.return_value = [(user.id, "Admin", "organization-admin")]
     rbac_result = Mock()
-    rbac_result.scalar_one_or_none.return_value = "Admin"
+    rbac_result.tuples.return_value = rbac_tuples
     mock_session.execute = AsyncMock(return_value=rbac_result)
 
     with patch.object(organization_router, "OrgService") as MockService:

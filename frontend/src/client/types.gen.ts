@@ -10136,11 +10136,14 @@ export type WorkspaceMember = {
  * lists the granting groups.
  */
 export type WorkspaceMemberSource = {
-  kind: "direct" | "group"
+  kind: WorkspaceMemberSourceKind
   group_names?: Array<string>
 }
 
-export type kind3 = "direct" | "group"
+/**
+ * Where a workspace member's access comes from.
+ */
+export type WorkspaceMemberSourceKind = "direct" | "group"
 
 export type WorkspaceMembershipCreate = {
   user_id: string

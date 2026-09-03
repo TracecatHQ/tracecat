@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal, NotRequired, TypedDict
+from typing import NotRequired, TypedDict
 
 from pydantic import EmailStr, Field, computed_field, field_validator
 
 from tracecat import config
+from tracecat.authz.enums import WorkspaceMemberSourceKind
 from tracecat.core.schemas import Schema
 from tracecat.git.constants import GIT_SSH_URL_REGEX
 from tracecat.identifiers import InvitationID, OrganizationID, UserID, WorkspaceID
@@ -133,7 +134,7 @@ class WorkspaceMemberSource(Schema):
     lists the granting groups.
     """
 
-    kind: Literal["direct", "group"]
+    kind: WorkspaceMemberSourceKind
     group_names: list[str] = Field(default_factory=list)
 
 

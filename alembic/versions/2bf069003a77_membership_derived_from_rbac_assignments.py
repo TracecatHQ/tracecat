@@ -135,21 +135,9 @@ AND NOT EXISTS (
 )
 """
 
-# Repopulate the dropped tables from the assignment graph on downgrade.
-REPOPULATE_ORG_MEMBERSHIP = """
-INSERT INTO organization_membership (user_id, organization_id)
-SELECT DISTINCT user_id, organization_id
-FROM (
-  SELECT user_id, organization_id FROM user_role_assignment
-  UNION ALL
-  SELECT gm.user_id, gra.organization_id
-  FROM   group_role_assignment gra JOIN group_member gm ON gm.group_id = gra.group_id
-) o
-ON CONFLICT DO NOTHING
-"""
-
-REPOPULATE_WORKSPACE_MEMBERSHIP = """
-INSERT INTO membership (user_id, workspace_id)
+# The old tables' rows, derived from the assignment graph. Shared by the
+# compatibility views on upgrade and the repopulated tables on downgrade.
+MEMBERSHIP_ROWS = """
 SELECT DISTINCT user_id, workspace_id
 FROM (
   SELECT user_id, workspace_id
@@ -159,8 +147,46 @@ FROM (
   FROM   group_role_assignment gra JOIN group_member gm ON gm.group_id = gra.group_id
   WHERE  gra.workspace_id IS NOT NULL
 ) w
-ON CONFLICT DO NOTHING
 """
+
+ORG_MEMBERSHIP_ROWS = """
+SELECT user_id, organization_id, min(assigned_at) AS created_at,
+       max(assigned_at) AS updated_at
+FROM (
+  SELECT user_id, organization_id, assigned_at FROM user_role_assignment
+  UNION ALL
+  SELECT gm.user_id, gra.organization_id, gra.assigned_at
+  FROM   group_role_assignment gra JOIN group_member gm ON gm.group_id = gra.group_id
+) o
+GROUP BY user_id, organization_id
+"""
+
+# Compatibility views keep the dropped table names readable while old API pods
+# still query them during a rolling upgrade; writes to them fail in that window.
+# security_invoker (PG 15+) applies the caller's RLS on the assignment tables.
+# TODO: a later contract migration drops both views once no old pod remains.
+CREATE_MEMBERSHIP_VIEW = (
+    f"CREATE VIEW membership WITH (security_invoker = true) AS {MEMBERSHIP_ROWS}"
+)
+CREATE_ORG_MEMBERSHIP_VIEW = (
+    "CREATE VIEW organization_membership WITH (security_invoker = true) AS "
+    f"{ORG_MEMBERSHIP_ROWS}"
+)
+
+REPOPULATE_WORKSPACE_MEMBERSHIP = (
+    f"INSERT INTO membership (user_id, workspace_id) {MEMBERSHIP_ROWS} "
+    "ON CONFLICT DO NOTHING"
+)
+REPOPULATE_ORG_MEMBERSHIP = (
+    "INSERT INTO organization_membership "
+    f"(user_id, organization_id, created_at, updated_at) {ORG_MEMBERSHIP_ROWS} "
+    "ON CONFLICT DO NOTHING"
+)
+
+DROP_COMPAT_VIEWS = (
+    "DROP VIEW IF EXISTS membership",
+    "DROP VIEW IF EXISTS organization_membership",
+)
 
 
 def backfill_assignments(connection: Connection) -> tuple[int, int]:
@@ -218,8 +244,16 @@ def upgrade() -> None:
     op.drop_index("ix_org_membership_org_id", table_name="organization_membership")
     op.drop_table("organization_membership")
 
+    # 4. Recreate the names as read-only views so old pods survive the rollout.
+    op.execute(CREATE_MEMBERSHIP_VIEW)
+    op.execute(CREATE_ORG_MEMBERSHIP_VIEW)
+
 
 def downgrade() -> None:
+    # The views own these names until dropped; the tables below reclaim them.
+    for statement in DROP_COMPAT_VIEWS:
+        op.execute(statement)
+
     op.create_table(
         "membership",
         sa.Column("user_id", sa.UUID(), autoincrement=False, nullable=False),
