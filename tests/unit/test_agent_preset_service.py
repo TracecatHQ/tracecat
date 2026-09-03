@@ -3465,6 +3465,43 @@ class TestAgentPresetService:
             == 0
         )
 
+    async def test_subagent_binding_rejects_foreign_current_version(
+        self,
+        session: AsyncSession,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """A child's current version must belong to that same logical preset."""
+
+        child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Owned Child", "slug": "owned-child"}
+            )
+        )
+        foreign = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Foreign Version", "slug": "foreign-version"}
+            )
+        )
+        parent = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={
+                    "name": "Ownership Parent",
+                    "slug": "ownership-parent",
+                    "agents": AgentSubagentsConfig.model_validate(
+                        {"subagents": [{"preset": child.slug}]}
+                    ),
+                }
+            )
+        )
+
+        child.current_version_id = foreign.current_version_id
+        session.add(child)
+        await session.flush()
+
+        with pytest.raises(TracecatNotFoundError, match="Current version"):
+            await agent_preset_service.subagents.get_head_binding(parent.id)
+
     async def test_delete_preset_soft_deletes_when_only_referenced_as_subagent_in_history(
         self,
         agent_preset_service: AgentPresetService,

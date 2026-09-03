@@ -116,6 +116,7 @@ class SubagentBindingService(BaseWorkspaceService):
                 sa.and_(
                     AgentPresetVersion.workspace_id == AgentPreset.workspace_id,
                     AgentPresetVersion.id == AgentPreset.current_version_id,
+                    AgentPresetVersion.preset_id == AgentPreset.id,
                 ),
             )
             .where(
@@ -148,6 +149,7 @@ class SubagentBindingService(BaseWorkspaceService):
                 sa.and_(
                     AgentPresetVersion.workspace_id == AgentPreset.workspace_id,
                     AgentPresetVersion.id == AgentPreset.current_version_id,
+                    AgentPresetVersion.preset_id == AgentPreset.id,
                 ),
             )
             .where(
