@@ -513,6 +513,25 @@ def _build_output_type_context() -> dict[str, Any]:
         "notes": [
             "Use a literal string output_type for simple primitive responses.",
             "Use a JSON Schema object when you want structured agent output.",
+            "Prefer no output_type at all. The agent's side effects — cases "
+            "opened, messages sent, rows written — are its output.",
+            "Define an output_type only when a downstream deterministic step "
+            "must branch on the returned value. If nothing consumes it, it is "
+            "ceremony that duplicates data the tool calls already recorded, and "
+            "the two copies can silently disagree.",
+            "An agent whose job is to communicate (Slack, Teams, chat, opening "
+            "a case) should call the tool that does it rather than returning a "
+            "message-shaped object for something else to send.",
+            "Ask the user before adding an output_type schema.",
+            "Omitting output_type on update_agent_preset leaves the existing "
+            "value unchanged, exactly like actions, skills, and "
+            "mcp_integration_ids: both the MCP tool and "
+            "core.presets.update_preset drop null arguments before building "
+            "the update payload.",
+            "There is no way to REMOVE an output_type over MCP once it is set. "
+            "Clearing it requires an explicit null on the REST endpoint "
+            "PATCH /agent/presets/{preset_id}. Decide deliberately before "
+            "setting one.",
         ],
     }
 
@@ -2114,6 +2133,28 @@ _CASE_EVENT_TYPE_VALUES = [event_type.value for event_type in CaseEventType]
 _CASE_EVENT_TYPE_VALUES_JSON = json.dumps(
     _CASE_EVENT_TYPE_VALUES, separators=(",", ":")
 )
+_CASE_EVENT_TYPE_VALUES_CSV = ", ".join(_CASE_EVENT_TYPE_VALUES)
+
+# Named placeholders substituted into the prompt literals below. The prompt
+# literals are deliberately NOT f-strings and are never run through
+# `str.format`: they carry `${{ ... }}` expression examples whose braces both
+# mechanisms would mangle. Plain `str.replace` on these exact names leaves every
+# other brace in the text untouched.
+_PROMPT_PLACEHOLDERS: dict[str, str] = {
+    "{_TEMPLATE_FILE_WARNING}": _TEMPLATE_FILE_WARNING,
+    "{_CSV_FILE_WARNING}": _CSV_FILE_WARNING,
+    "{_SKILL_FILE_WARNING}": _SKILL_FILE_WARNING,
+    "{_CASE_EVENT_TYPE_VALUES_JSON}": _CASE_EVENT_TYPE_VALUES_JSON,
+    "{_CASE_EVENT_TYPE_VALUES_CSV}": _CASE_EVENT_TYPE_VALUES_CSV,
+}
+
+
+def _render_prompt_text(template: str) -> str:
+    """Substitute the named `_PROMPT_PLACEHOLDERS` into a prompt literal."""
+    for placeholder, value in _PROMPT_PLACEHOLDERS.items():
+        template = template.replace(placeholder, value)
+    return template
+
 
 # ---------------------------------------------------------------------------
 # Server instructions — sent to every MCP client on connection
@@ -2152,13 +2193,55 @@ show candidate integrations first.
 - `${{ ACTIONS.<ref>.result }}` — output from a completed action
 - `${{ SECRETS.<name>.<KEY> }}` — secret value
 - `${{ VARS.<name>.<key> }}` — workspace variable
+- `${{ var.<key> }}` — current `for_each` iteration item (there is no `LOCAL` \
+context)
 - `${{ FN.<func>(<args>) }}` — built-in function call (e.g. FN.length, FN.join, FN.now)
-- Operators include `||`, `&&`, comparisons, arithmetic, and ternary \
-`${{ condition -> true_value : false_value }}`
-- Literals: `None` (NOT `null`), `true`, `false`, strings, numbers
+- Operators include `||`, `&&`, comparisons, and arithmetic
+- Ternary is Python-style: `${{ true_value if condition else false_value }}`. \
+`->` is NOT a ternary; it is a trailing typecast: `${{ TRIGGER.count -> int }}`, \
+casting to `int`, `float`, `str`, or `bool`
+- Literals: `None`, `True`, `False` — capitalized. `null`, `true`, and `false` \
+do not parse — `${{ TRIGGER.x || false }}` is a parse error. \
+Use `${{ TRIGGER.x || False }}`, `${{ TRIGGER.x || 0 }}`, or `${{ TRIGGER.x || "" }}`.
 - There is NO inline `for` comprehension syntax in expressions. \
 Use `core.script.run_python` for list transformations; see loop guidance below \
 for workflow fan-out.
+
+### OAuth tokens in expressions
+Integration OAuth tokens resolve through a secret named `<provider_id>_oauth` \
+with key `<PROVIDER_ID_UPPER>_USER_TOKEN` for the `authorization_code` grant or \
+`<PROVIDER_ID_UPPER>_SERVICE_TOKEN` for `client_credentials`. The expression \
+validator rejects any other key name.
+- Built-in provider IDs are stable lowercase-with-underscores (`slack`, \
+`google_drive`, `microsoft_sentinel`). Custom providers get a `custom_` prefix.
+- Discover exact provider IDs with `list_integrations`; never derive one from a \
+display name.
+- Use the grant `list_integrations` reports as configured. Validation walks \
+both sides of a `||`, so a two-key fallback passes only when the provider has \
+both grants configured:
+
+```yaml
+headers:
+  Authorization: "Bearer ${{ SECRETS.azure_log_analytics_oauth.AZURE_LOG_ANALYTICS_USER_TOKEN || SECRETS.azure_log_analytics_oauth.AZURE_LOG_ANALYTICS_SERVICE_TOKEN }}"
+```
+
+## Conditions and transforms before Python
+Take the cheapest rung that does the job:
+1. An inline expression in `args` — `${{ FN.lowercase(TRIGGER.email) }}`, \
+`${{ ACTIONS.fetch.result.count > 10 }}`, or a `||` default.
+2. `run_if` on the action itself to skip it — \
+`run_if: ${{ TRIGGER.severity in ["high", "critical"] }}`.
+3. A `core.transform.*` action for shaping: `core.transform.reshape` to build a \
+payload, `core.transform.filter`, `core.transform.map`, \
+`core.transform.deduplicate`, or `core.transform.drop_nulls` for list work, and \
+`core.transform.eval_jsonpaths` to pull fields out of a nested response.
+4. `core.script.run_python` when the work is genuinely data-heavy — joins, \
+grouping, batching, chunked writes, or bounded async HTTP loops.
+
+Repeating the same `run_if` on several sibling branches is fine and idiomatic. \
+Do not introduce a `core.script.run_python` router action purely to evaluate a \
+condition in one place; that trades a duplicated one-line expression for an \
+extra scheduled action and a serialization hop.
 
 ## Loop and batching guidance
 - Default to `core.transform.scatter` for workflow-level loop management: \
@@ -2215,7 +2298,7 @@ helpers call Tracecat APIs.
 - `depends_on` — list of action refs this action waits for
 - `run_if` — conditional expression to skip execution
 - `for_each` — iterate over a list
-- `retry_policy` — {{max_attempts, timeout}}
+- `retry_policy` — {max_attempts, timeout}
 - `join_strategy` — `all` (default) or `any`
 
 ## Recommended authoring sequence
@@ -2324,7 +2407,7 @@ allowlisted CIDRs are CIDR strings.
 - Case trigger status: `"online"` or `"offline"`; event type values: \
 `{_CASE_EVENT_TYPE_VALUES_JSON}`.
 - `create_table.columns`: list of column objects with schema \
-`{{"name": str, "type": SqlType, "nullable": bool?, "default": any?, "options": list[str]?}}`. \
+`{"name": str, "type": SqlType, "nullable": bool?, "default": any?, "options": list[str]?}`. \
 `options` are only valid for `SELECT` and `MULTI_SELECT`. `create_table` does \
 not create unique indexes; call `get_table`, then `create_column_index` with \
 the table UUID and column UUID.
@@ -2337,12 +2420,24 @@ e.g. `["low","medium","high"]`; use `[]` to clear options on update.
 - Tag `color` values should be hex strings such as `"#ff0000"` when provided.
 
 Read the `tracecat://platform/dsl-reference` resource for the full DSL specification.
+
+## Canonical upstream references
+Fetch these when you need detail; this prompt does not restate them.
+- https://docs.tracecat.com/automations/core-concepts/expressions
+- https://docs.tracecat.com/automations/core-concepts/functions
+- https://docs.tracecat.com/automations/core-concepts/secrets
+- https://docs.tracecat.com/automations/integrations/oauth-integrations
+- https://docs.tracecat.com/automations/triggers/case-triggers
+- https://docs.tracecat.com/automations/tables
+- https://docs.tracecat.com/cheatsheets/common-mistakes
 """
+
+_MCP_INSTRUCTIONS_RENDERED = _render_prompt_text(_MCP_INSTRUCTIONS)
 
 mcp = FastMCP(
     "tracecat-workflows",
     auth=auth,
-    instructions=_MCP_INSTRUCTIONS,
+    instructions=_MCP_INSTRUCTIONS_RENDERED,
 )
 
 # ---------------------------------------------------------------------------
@@ -2465,13 +2560,18 @@ Expressions are wrapped in `${{ }}` and can reference:
 - `SECRETS.<secret_name>.<KEY>` — secret value from the workspace/org
 - `VARS.<variable_name>.<key>` — workspace variable value
 - `ENV.<name>` — environment variable
-- `LOCAL.<key>` — current for_each iteration item (only inside `for_each` actions)
+- `var.<key>` — current `for_each` iteration item, bound by
+  `for var.<key> in <list>`. There is no `LOCAL` context.
 
 ### Operators
 - Logical: `||` (or), `&&` (and)
 - Comparison: `==`, `!=`, `<`, `>`, `<=`, `>=`
 - Arithmetic: `+`, `-`, `*`, `/`
-- Ternary: `${{ condition -> true_value : false_value }}`
+- Ternary: `${{ true_value if condition else false_value }}` — Python-style
+- Typecast: `${{ <expr> -> int }}` — a trailing `->` casts to `int`, `float`,
+  `str`, or `bool`. It is not a ternary operator.
+- Literals: `None`, `True`, `False` (capitalized); `null`/`true`/`false` do not
+  parse
 - Member access: `obj.field` or `obj["field"]`
 - Indexing: `list[0]`, `list[-1]`
 
@@ -2555,8 +2655,9 @@ Workflow: `core.workflow.create_workflow`, `core.workflow.edit_workflow`,
 `core.workflow.execute`, `core.workflow.get_authoring_context`,
 `core.workflow.get_case_trigger`, `core.workflow.get_status`,
 `core.workflow.get_webhook`, `core.workflow.get_workflow`,
-`core.workflow.publish`, `core.workflow.run`,
-`core.workflow.update_case_trigger`, `core.workflow.update_webhook`
+`core.workflow.list_executions`, `core.workflow.publish`,
+`core.workflow.run`, `core.workflow.update_case_trigger`,
+`core.workflow.update_webhook`
 
 Tables: `core.table.create_column`, `core.table.create_table`,
 `core.table.delete_column`, `core.table.delete_row`, `core.table.download`,
@@ -2755,6 +2856,11 @@ actions:
 ```
 
 ### Case-Triggered Workflow (Event Ingestion)
+There is no `TRIGGER.payload`. A case trigger delivers `case_id`, `event`
+(`id`, `type`, `data`, `created_at`, `user_id`, `wf_exec_id`), `tags` (objects
+with `id`, `ref`, `name`, `color`), and `workspace_id`. `status: online` requires
+a non-empty `event_types`. `tag_filters` are tag refs matched with OR semantics;
+an empty list means no tag filtering.
 ```yaml
 case_trigger:
   status: online
@@ -2766,10 +2872,16 @@ actions:
     action: core.script.run_python
     args:
       inputs:
-        case_payload: "${{ TRIGGER.payload }}"
+        case_id: "${{ TRIGGER.case_id }}"
+        event_type: "${{ TRIGGER.event.type }}"
+        tags: "${{ TRIGGER.tags }}"
       script: |
-        def main(case_payload):
-            return {"case_id": case_payload.get("id"), "tags": case_payload.get("tags", [])}
+        def main(case_id, event_type, tags):
+            return {
+                "case_id": case_id,
+                "event_type": event_type,
+                "tag_refs": [tag["ref"] for tag in tags],
+            }
 ```
 """
 
@@ -2805,12 +2917,7 @@ unknown, new, in_progress, on_hold, resolved, closed, other
 todo, in_progress, completed, blocked
 
 ### Case Event Types (for case triggers)
-case_created, case_updated, case_closed, case_reopened, case_viewed, \
-priority_changed, severity_changed, status_changed, fields_changed, \
-assignee_changed, attachment_created, attachment_deleted, tag_added, \
-tag_removed, payload_changed, task_created, task_deleted, \
-task_status_changed, task_priority_changed, task_workflow_changed, \
-task_assignee_changed, dropdown_value_changed
+{_CASE_EVENT_TYPE_VALUES_CSV}
 
 ## Table Column Types
 TEXT, INTEGER, NUMERIC, DATE, BOOLEAN, TIMESTAMPTZ, JSONB, SELECT, MULTI_SELECT
@@ -2838,6 +2945,8 @@ manual, scheduled, webhook, case
 draft, published
 """
 
+_DOMAIN_REFERENCE_RENDERED = _render_prompt_text(_DOMAIN_REFERENCE_TEXT)
+
 
 @mcp.resource(
     "tracecat://platform/domain-reference",
@@ -2847,7 +2956,7 @@ draft, published
 )
 def get_domain_reference() -> str:
     """Return valid domain enum values for cases, tables, workflows, and triggers."""
-    return _DOMAIN_REFERENCE_TEXT
+    return _DOMAIN_REFERENCE_RENDERED
 
 
 async def _build_action_catalog(workspace_id: uuid.UUID) -> ActionCatalogResponse:
@@ -4923,7 +5032,38 @@ async def get_case_trigger(
         raise ToolError(f"Failed to get case trigger: {e}") from None
 
 
-@mcp.tool()
+# Plain literal so `scripts/generate_mcp_docs.py` can resolve it statically. The
+# live `CaseEventType` values are appended at decoration time, below, rather
+# than interpolated here - that keeps this the single source of the prose.
+_UPDATE_CASE_TRIGGER_DESCRIPTION = """Update an existing case trigger for a workflow.
+
+This tool replaces the whole trigger: every call sends `status`, `event_types`
+and `tag_filters`, so pass all three. Omitting `event_types` or `tag_filters`
+clears them, and omitting `status` fails the write outright because the column
+is non-null. Call `get_case_trigger` first and send its current values back,
+changing only what you mean to change. Patching `/case_trigger` through
+`edit_workflow` is partial, unlike this tool.
+
+Valid `event_types` values: {_CASE_EVENT_TYPE_VALUES_CSV}.
+
+Args:
+    workspace_id: The workspace ID.
+    workflow_id: The workflow ID.
+    status: Enum string: `"online"` or `"offline"`. `"online"` is rejected
+        unless `event_types` is non-empty and the workflow has a runnable
+        published definition, so publish before enabling.
+    event_types: List of case event type strings using underscores. The
+        valid values are listed above.
+    tag_filters: List of case tag *refs* (slugs), e.g. `["malware","phishing"]`,
+        not tag names or UUIDs. Refs are OR-matched: the trigger fires when the
+        case carries any listed tag. An empty list means no tag filtering. Refs
+        that do not exist yet are created automatically.
+
+Returns a confirmation message.
+"""
+
+
+@mcp.tool(description=_render_prompt_text(_UPDATE_CASE_TRIGGER_DESCRIPTION))
 async def update_case_trigger(
     workspace_id: uuid.UUID,
     workflow_id: MCPWorkflowUUID,
@@ -4933,15 +5073,9 @@ async def update_case_trigger(
 ) -> MCPMessageResponse:
     """Update an existing case trigger for a workflow.
 
-    Args:
-        workspace_id: The workspace ID.
-        workflow_id: The workflow ID.
-        status: Enum string: `"online"` or `"offline"`.
-        event_types: List of case event type strings using underscores.
-            Valid values are documented in the shared MCP instructions.
-        tag_filters: List of tag ref strings, e.g. `["malware","phishing"]`.
-
-    Returns a confirmation message.
+    Client-facing text lives in `_UPDATE_CASE_TRIGGER_DESCRIPTION`, which both
+    the MCP decorator and the docs generator read, so there is one copy to keep
+    correct.
     """
     try:
         workflow_id = WorkflowUUID.new(workflow_id)

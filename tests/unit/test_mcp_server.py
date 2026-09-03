@@ -10653,7 +10653,9 @@ async def test_publish_skill_uses_workspace_skill_service(
 
 
 def _prompt_source_text() -> str:
-    return "\n".join([mcp_server._MCP_INSTRUCTIONS, mcp_server._DSL_REFERENCE_TEXT])
+    return "\n".join(
+        [mcp_server._MCP_INSTRUCTIONS_RENDERED, mcp_server._DSL_REFERENCE_TEXT]
+    )
 
 
 def _prompt_fenced_blocks(language: str) -> list[str]:
@@ -10805,10 +10807,20 @@ def test_prompt_expressions_respect_prompt_action_result_shapes() -> None:
 
 
 def test_mcp_instruction_text_stays_within_context_budget() -> None:
-    assert len(mcp_server._MCP_INSTRUCTIONS) <= 14500, (
+    # The rendered skill-transfer warning is longer than its placeholder and is
+    # required guidance for clients that cannot read local skill directories.
+    assert len(mcp_server._MCP_INSTRUCTIONS_RENDERED) <= 15000, (
         "MCP instructions exceeded the prompt budget. Compress existing guidance "
         "or intentionally raise this ceiling with a clear reason."
     )
+
+
+def test_mcp_instruction_named_placeholders_are_all_rendered() -> None:
+    assert not re.findall(
+        r"\{_[A-Z][A-Z0-9_]*\}",
+        mcp_server._MCP_INSTRUCTIONS_RENDERED,
+    )
+    assert mcp_server._SKILL_FILE_WARNING in mcp_server._MCP_INSTRUCTIONS_RENDERED
 
 
 def test_dsl_reference_text_stays_within_context_budget() -> None:
