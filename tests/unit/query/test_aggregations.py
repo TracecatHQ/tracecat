@@ -46,6 +46,7 @@ def _compile(
     fields: Mapping[str, ResolvedAggregationField],
     *,
     entity_id: sa.ColumnElement[Any] | None = None,
+    base_has_multi_valued_join: bool = False,
     limit: int = 100,
 ) -> str:
     return _sql(
@@ -54,6 +55,7 @@ def _compile(
             spec,
             fields,
             limit=limit,
+            base_has_multi_valued_join=base_has_multi_valued_join,
             entity_id=entity_id,
         )
     )
@@ -712,6 +714,7 @@ def test_compiler_clears_base_limit_and_offset() -> None:
             AggregationSpec(group_by=[]),
             {},
             limit=25,
+            base_has_multi_valued_join=False,
         )
     )
 
@@ -734,6 +737,7 @@ def test_compiler_rejects_base_distinct(distinct_on: bool) -> None:
             AggregationSpec(group_by=[]),
             {},
             limit=25,
+            base_has_multi_valued_join=False,
         )
 
 
@@ -754,6 +758,44 @@ def test_compiler_rejects_grouped_or_having_base(clause: str) -> None:
             AggregationSpec(group_by=[]),
             {},
             limit=25,
+            base_has_multi_valued_join=False,
+        )
+
+
+def test_base_multi_valued_join_deduplicates_counts() -> None:
+    sql = _compile(
+        AggregationSpec(group_by=[]),
+        {},
+        base_has_multi_valued_join=True,
+        entity_id=sa.column("case_id", sa.Uuid()),
+    )
+
+    assert "count(DISTINCT case_id) AS count" in sql
+
+
+def test_base_multi_valued_join_rejects_additive_aggregates() -> None:
+    spec = AggregationSpec(
+        group_by=[],
+        aggs=[AggSpec(function=AggFunction.SUM, field="amount")],
+    )
+
+    with pytest.raises(TracecatValidationError, match="multi-valued field"):
+        _compile(
+            spec,
+            {"amount": _field("amount", sa.Integer(), FieldKind.NUMBER)},
+            base_has_multi_valued_join=True,
+            entity_id=sa.column("case_id", sa.Uuid()),
+        )
+
+
+def test_compiler_rejects_row_locking_base() -> None:
+    with pytest.raises(TracecatValidationError, match="must not use row locking"):
+        compile_aggregation(
+            _base_statement().with_for_update(),
+            AggregationSpec(group_by=[]),
+            {},
+            limit=25,
+            base_has_multi_valued_join=False,
         )
 
 

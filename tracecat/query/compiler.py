@@ -57,6 +57,7 @@ def compile_aggregation(
     resolved_fields: Mapping[str, ResolvedAggregationField],
     *,
     limit: int,
+    base_has_multi_valued_join: bool,
     entity_id: ColumnElement[Any] | InstrumentedAttribute[Any] | None = None,
 ) -> Select[Any]:
     """Compile aggregation clauses onto an entity-scoped base statement.
@@ -70,6 +71,8 @@ def compile_aggregation(
         spec: Validated shared aggregation query shape.
         resolved_fields: Trusted aggregation expressions keyed by field address.
         limit: Maximum number of groups the caller will return.
+        base_has_multi_valued_join: Whether joins already present in the base
+            statement can fan one entity out to multiple rows.
         entity_id: Stable row identity used to de-duplicate counts when a
             multi-valued field explodes one entity into many rows.
 
@@ -93,6 +96,10 @@ def compile_aggregation(
         raise TracecatValidationError(
             "Aggregation base statement must not use GROUP BY or HAVING"
         )
+    if statement._for_update_arg is not None:
+        raise TracecatValidationError(
+            "Aggregation base statement must not use row locking"
+        )
 
     resolved_groups = [
         (group, _resolve_aggregation_field(group.field, resolved_fields))
@@ -113,7 +120,11 @@ def compile_aggregation(
         for agg, field in resolved_aggs
         if field is not None and field.is_multi_valued
     }
-    has_multi_valued_join = has_multi_valued_group or bool(multi_valued_agg_fields)
+    has_multi_valued_join = (
+        base_has_multi_valued_join
+        or has_multi_valued_group
+        or bool(multi_valued_agg_fields)
+    )
     needs_entity_id = spec.min_count is not None or any(
         agg.function is AggFunction.COUNT for agg in spec.aggs
     )
@@ -131,7 +142,8 @@ def compile_aggregation(
             agg,
             field,
             has_multi_valued_join=has_multi_valued_join,
-            has_other_multi_valued_source=has_multi_valued_group
+            has_other_multi_valued_source=base_has_multi_valued_join
+            or has_multi_valued_group
             or any(
                 multi_valued_field != agg.field
                 for multi_valued_field in multi_valued_agg_fields
