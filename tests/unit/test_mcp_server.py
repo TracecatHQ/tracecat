@@ -10708,7 +10708,12 @@ async def test_publish_skill_uses_workspace_skill_service(
 
 def _prompt_source_text() -> str:
     return "\n".join(
-        [mcp_server._MCP_INSTRUCTIONS_RENDERED, mcp_server._DSL_REFERENCE_TEXT]
+        [
+            mcp_server._MCP_INSTRUCTIONS_RENDERED,
+            mcp_server._DSL_REFERENCE_TEXT,
+            mcp_server._AUTHORING_GUIDE_TEXT,
+            inspect.cleandoc(mcp_server.edit_workflow.__doc__ or ""),
+        ]
     )
 
 
@@ -10863,9 +10868,11 @@ def test_prompt_expressions_respect_prompt_action_result_shapes() -> None:
 def test_mcp_instruction_text_stays_within_context_budget() -> None:
     # The rendered skill-transfer warning is longer than its placeholder and is
     # required guidance for clients that cannot read local skill directories.
-    assert len(mcp_server._MCP_INSTRUCTIONS_RENDERED) <= 15000, (
-        "MCP instructions exceeded the prompt budget. Compress existing guidance "
-        "or intentionally raise this ceiling with a clear reason."
+    assert len(mcp_server._MCP_INSTRUCTIONS_RENDERED) <= 10000, (
+        "MCP instructions exceeded the prompt budget. Always-on instructions "
+        "carry only rules that fail hard when violated; move long-form guidance "
+        "into the `tracecat://platform/authoring-guide` resource or a tool "
+        "docstring, or intentionally raise this ceiling with a clear reason."
     )
 
 
