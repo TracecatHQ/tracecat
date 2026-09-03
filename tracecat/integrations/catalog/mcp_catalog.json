@@ -410,6 +410,13 @@
       "description": "Read and write pages, databases, and comments on Notion",
       "category": "Productivity",
       "icon": "https://www.google.com/s2/favicons?domain=developers.notion.com&sz=128"
+    },
+    {
+      "slug": "glean-mcp",
+      "name": "Glean",
+      "description": "Search company knowledge and run Glean agents with permission-aware results",
+      "category": "Productivity",
+      "icon": "https://www.google.com/s2/favicons?domain=www.glean.com&sz=128"
     }
   ]
 }
