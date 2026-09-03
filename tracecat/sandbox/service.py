@@ -518,7 +518,16 @@ class SandboxService:
                     stdout=result.stdout[:500] if result.stdout else None,
                     stderr=result.stderr[:500] if result.stderr else None,
                 )
-                raise SandboxExecutionError(error_msg)
+                # Same trust boundary as the nsjail path: a rejected result
+                # envelope was produced by sandbox-controlled code and must
+                # classify as a workload failure, not a retryable fault.
+                message = (
+                    error_msg
+                    if isinstance(error_msg, str)
+                    else "Sandbox execution failed"
+                )
+                raise_for_sandbox_error_code(result.error_code, message)
+                raise SandboxExecutionError(message)
 
             return result.output
 

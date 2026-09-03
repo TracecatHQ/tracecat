@@ -529,6 +529,7 @@ class UnsafePidExecutor:
                 execution_time_ms=execution_time_ms,
                 max_bytes=TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES,
                 stream_source="envelope",
+                include_error_code=True,
             )
             if outcome is not None:
                 return outcome.result

@@ -195,7 +195,7 @@ services:
     # Container-level fork-bomb bound: in-jail RLIMIT_NPROC is bypassable
     # via nested user namespaces (fresh per-userns fork counter), so the
     # cgroup pids limit is the reliable bound. 4096 leaves headroom above
-    # the in-jail 64-process caps at default concurrency (16 x 64 = 1024).
+    # the in-jail 64-process caps at executor default concurrency (16 x 64 = 1024).
     pids_limit: 4096
     networks:
       - core
@@ -416,7 +416,7 @@ services:
       # Container-level fork-bomb bound: in-jail RLIMIT_NPROC is bypassable
       # via nested user namespaces (fresh per-userns fork counter), so the
       # cgroup pids limit is the reliable bound. 4096 leaves headroom above
-      # the in-jail 64-process caps at default concurrency (16 x 64 = 1024).
+      # the in-jail 64-process caps at executor default concurrency (16 x 64 = 1024).
       pids_limit: 4096
       networks:
         - core

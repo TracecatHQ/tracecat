@@ -123,6 +123,11 @@ def _nsjail_failure_hint(stderr: str) -> str | None:
 
 
 _NSJAIL_LAUNCH_FAILURE_EXIT_CODE = 0xFF
+# Trusted entrypoints exit with this code when a host-injected guard (e.g.
+# the RLIMIT_NPROC cap) cannot be enforced. This is a deployment
+# misconfiguration, not a workload failure, and must classify as
+# infrastructure failure even after the launcher's start marker.
+_NSJAIL_GUARD_FAILURE_EXIT_CODE = 0xFE
 _NSJAIL_POLICY_VIOLATION_EXIT_CODES = {128 + signal.SIGSYS}
 _NSJAIL_RESOURCE_LIMIT_EXIT_CODES = {
     128 + signal.SIGKILL,
@@ -167,6 +172,8 @@ def _classify_missing_nsjail_result(
         and not workload_started
         and not result_file_exists
     ):
+        return SandboxErrorCode.INFRASTRUCTURE_FAILURE
+    if returncode == _NSJAIL_GUARD_FAILURE_EXIT_CODE:
         return SandboxErrorCode.INFRASTRUCTURE_FAILURE
     if returncode in _NSJAIL_POLICY_VIOLATION_EXIT_CODES:
         return SandboxErrorCode.POLICY_VIOLATION
