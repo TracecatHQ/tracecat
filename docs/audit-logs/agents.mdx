@@ -45,7 +45,7 @@ Telemetry can carry prompt and tool content, so decide what leaves your deployme
 - `log_user_prompts` includes user prompt content in log events.
 - `log_tool_details` includes tool parameters and input arguments.
 - `log_tool_content` includes tool input and output content.
-- `metrics_include_session_id` attaches the Claude Code session identifier to metrics.
+- `metrics_include_session_id` attaches the Claude Code session identifier to metrics. This is Claude Code's own identifier, not the Tracecat session ID; correlate on `tracecat.session_id` instead.
 - `metrics_include_version` attaches the Claude Code version to metrics.
 - `metrics_include_account_uuid` attaches the authenticated account identifier to metrics.
 
@@ -62,7 +62,7 @@ Set `resource_attributes` to a string map that Tracecat attaches to every export
 }
 ```
 
-Attribute names and values must both be non-empty.
+Attribute names and values must both be non-empty. Names starting with `tracecat.` are reserved.
 
 The remaining fields tune transport and export cadence:
 
@@ -73,6 +73,17 @@ The remaining fields tune transport and export cadence:
 | `logs_export_interval_ms` | Positive integer | Logs export interval in milliseconds. |
 
 Leave a field unset to keep the Claude Code default.
+
+## Correlating telemetry with agent runs
+
+Every agent run stamps its own resource attributes onto all exported signals:
+
+- `tracecat.session_id` is the agent session ID, the same value an agent action returns in `ACTIONS.<ref>.result[0].session_id`.
+- `tracecat.workspace_id` is the workspace that ran the agent.
+- `tracecat.organization_id` is the organization that owns the telemetry configuration.
+- `tracecat.user_id` is the Tracecat user or service identity that started the run, when the run has one.
+
+Query on these attributes to join telemetry back to a run. Claude Code's built-in `session.id` and `user.id` attributes describe the Claude Code process and its local install, and Tracecat cannot override them.
 
 ## Related pages
 

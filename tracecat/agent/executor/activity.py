@@ -67,6 +67,7 @@ from tracecat.agent.mcp.stdio_probe_types import (
 )
 from tracecat.agent.otel_config import (
     AgentOtelConfig,
+    AgentRunIdentity,
     ResolvedAgentOtelConfig,
     resolve_agent_otel_config,
 )
@@ -472,6 +473,12 @@ class SandboxedAgentExecutor:
             return resolve_agent_otel_config(
                 org_config=org_inputs.config,
                 org_headers=org_inputs.headers,
+                run_identity=AgentRunIdentity(
+                    session_id=self.input.session_id,
+                    workspace_id=self.input.workspace_id,
+                    organization_id=self.input.role.organization_id,
+                    user_id=self.input.role.user_id,
+                ),
             )
         except Exception as exc:
             # No error text: a validation error echoes the input, which can
