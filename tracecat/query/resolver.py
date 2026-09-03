@@ -32,6 +32,7 @@ type PredicateFactory = Callable[
 type FilterExpression = (
     ColumnElement[Any] | InstrumentedAttribute[Any] | PredicateFactory
 )
+type AggregationExpression = ColumnElement[Any] | InstrumentedAttribute[Any]
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +49,21 @@ class ResolvedField:
     kind: FieldKind
     allowed_ops: frozenset[FilterOp]
     value_type: TypeEngine[Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedAggregationField:
+    """A trusted expression available to the aggregation compiler.
+
+    Entity-specific resolvers validate whether a field is groupable or can be
+    used as an aggregate target before constructing this value. The shared
+    compiler uses ``kind`` and the SQL expression type for the generic type
+    matrix, bucketing, and output casts.
+    """
+
+    expr: AggregationExpression
+    kind: FieldKind
+    is_multi_valued: bool = False
 
 
 class FieldResolver(Protocol):

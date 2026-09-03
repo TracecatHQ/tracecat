@@ -19,9 +19,6 @@ from temporalio.exceptions import (
 from temporalio.exceptions import TimeoutError as TemporalTimeoutError
 
 with workflow.unsafe.imports_passed_through():
-    from pydantic_ai.messages import ToolCallPart
-    from pydantic_ai.tools import ToolApproved, ToolDenied
-
     from tracecat import config
     from tracecat.agent.common.stream_types import HarnessType
     from tracecat.agent.common.types import (
@@ -100,7 +97,12 @@ with workflow.unsafe.imports_passed_through():
         mint_llm_token,
         mint_mcp_token,
     )
-    from tracecat.agent.types import AgentConfig, clamp_agent_timeout_seconds
+    from tracecat.agent.types import (
+        AgentConfig,
+        ToolApproved,
+        ToolDenied,
+        clamp_agent_timeout_seconds,
+    )
     from tracecat.agent.workflow_config import agent_config_from_payload
     from tracecat.auth.types import Role
     from tracecat.chat.schemas import ChatMessage
@@ -969,14 +971,15 @@ class DurableAgentWorkflow:
         try:
             if workflow.patched(UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH):
                 self._upsert_tracecat_search_attributes()
-            logger.debug(
-                "DurableAgentWorkflow run", args=args, harness_type=self.harness_type
-            )
+            logger.debug("DurableAgentWorkflow run", harness_type=self.harness_type)
             logger.debug("AGENT CONTEXT", agent_context=AgentContext.get())
             if workflow.unsafe.is_replaying():
                 logger.debug("Workflow is replaying")
             else:
-                logger.debug("Starting agent", prompt=args.agent_args.user_prompt)
+                logger.debug(
+                    "Starting agent",
+                    prompt_length=len(args.agent_args.user_prompt),
+                )
 
             cfg = await self._build_config(args)
             # Success needs no write: last_error was already cleared at turn
@@ -1358,7 +1361,11 @@ class DurableAgentWorkflow:
                 agents_binding=agents_result.to_agents_binding(),
                 harness_type=HarnessType(self.harness_type),
                 curr_run_id=curr_run_id,
-                initial_user_prompt=args.agent_args.user_prompt,
+                initial_user_prompt=(
+                    args.agent_args.user_prompt
+                    if isinstance(args.agent_args.user_prompt, str)
+                    else None
+                ),
             ),
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=RETRY_POLICIES["activity:fail_fast"],
@@ -1438,7 +1445,6 @@ class DurableAgentWorkflow:
             organization_id=self.organization_id,
             session_id=self.session_id,
         )
-
         # Prepare executor input
         executor_input = AgentExecutorInput(
             session_id=self.session_id,
@@ -1561,16 +1567,7 @@ class DurableAgentWorkflow:
 
             if result.approval_requested:
                 logger.info("Agent waiting for approval", session_id=self.session_id)
-                # Convert ToolCallContent to ToolCallPart for ApprovalManager
                 if result.approval_items:
-                    tool_call_parts = [
-                        ToolCallPart(
-                            tool_call_id=item.id,
-                            tool_name=item.name,
-                            args=item.input,
-                        )
-                        for item in result.approval_items
-                    ]
                     request_metadata = {
                         item.id: item.metadata
                         for item in result.approval_items
@@ -1578,7 +1575,7 @@ class DurableAgentWorkflow:
                     }
                     # Persist approval requests to DB (atomic with chat messages)
                     await self.approvals.prepare(
-                        tool_call_parts,
+                        result.approval_items,
                         request_metadata=request_metadata,
                     )
                 await self._emit_approval_pause_done()

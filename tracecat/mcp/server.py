@@ -2408,9 +2408,11 @@ allowlisted CIDRs are CIDR strings.
 `{_CASE_EVENT_TYPE_VALUES_JSON}`.
 - `create_table.columns`: list of column objects with schema \
 `{"name": str, "type": SqlType, "nullable": bool?, "default": any?, "options": list[str]?}`. \
-`options` are only valid for `SELECT` and `MULTI_SELECT`. `create_table` does \
-not create unique indexes; call `get_table`, then `create_column_index` with \
-the table UUID and column UUID.
+`options` only apply to `SELECT`/`MULTI_SELECT`. `create_table` creates no \
+unique indexes; use `create_column_index` (UUIDs from `get_table`).
+- `create_column.column` adds one column (same schema) to an existing table. \
+Confirm the table and column with the user first; on a populated table keep \
+`nullable` true or set a `default`.
 - Keep table names, column names, and case field names under 63 characters.
 - `update_workflow` accepts metadata plus optional `definition_yaml` and \
 `update_mode`; do not pass `patch_ops` to it. Use `edit_workflow` for RFC 6902 \
@@ -2686,8 +2688,7 @@ Cases: `core.cases.add_case_tag`, `core.cases.assign_user`,
 
 Require/Python: `core.require`, `core.script.run_python`
 
-AI: `ai.action`, `ai.agent`, `ai.preset_agent`, `ai.rank_documents`,
-`ai.select_field`, `ai.select_fields`, `ai.agent.create_preset`,
+AI: `ai.action`, `ai.agent`, `ai.preset_agent`, `ai.agent.create_preset`,
 `ai.agent.delete_preset`, `ai.agent.get_preset`, `ai.agent.list_presets`,
 `ai.agent.update_preset`, `ai.skill.archive_skill`, `ai.skill.create_skill`,
 `ai.skill.get_skill`, `ai.skill.get_skill_version`,
@@ -7274,6 +7275,58 @@ async def update_table(
     except Exception as e:
         logger.error("Failed to update table", error=str(e))
         raise ToolError(f"Failed to update table: {e}") from None
+
+
+@mcp.tool()
+async def create_column(
+    workspace_id: uuid.UUID,
+    table_id: uuid.UUID,
+    column: TableColumnCreate,
+) -> TableColumnResponse:
+    """Add a column to an existing table. This alters the table schema, so tell
+    the user which table and column you are about to change and get their
+    confirmation before calling this tool.
+
+    Args:
+        workspace_id: The workspace ID.
+        table_id: The table ID.
+        column: Column definition with schema
+            `{"name": str, "type": SqlType, "nullable": bool?, "default": any?,`
+            ` "options": list[str]?}`.
+            Column type must be UPPERCASE — one of: TEXT, INTEGER, NUMERIC,
+            DATE, BOOLEAN, TIMESTAMPTZ, JSONB, SELECT, MULTI_SELECT.
+            `options` are only valid for SELECT or MULTI_SELECT.
+            On a table that already has rows, keep `nullable` true or set a
+            `default`; a non-nullable column without a default fails.
+
+    Returns JSON with the new column's id, name, type, nullability, default,
+    and options.
+    """
+
+    try:
+        table_id = _coerce_uuid_arg(table_id, "table_id")
+        _, role = await _resolve_workspace_role(workspace_id)
+        async with TablesService.with_session(role=role) as svc:
+            table = await svc.get_table(table_id)
+            created = await svc.create_column(table, column)
+            return TableColumnResponse(
+                id=created.id,
+                name=created.name,
+                type=SqlType(created.type).value,
+                nullable=created.nullable,
+                default=created.default,
+                is_index=False,
+                options=created.options,
+            )
+    except ToolError:
+        raise
+    except TracecatNotFoundError as e:
+        raise ToolError(str(e)) from e
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to create table column", error=str(e))
+        raise ToolError(f"Failed to create table column: {e}") from None
 
 
 @mcp.tool()

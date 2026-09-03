@@ -19,7 +19,6 @@ from pydantic_core import to_jsonable_python
 
 from tracecat.agent.common.stream_types import parse_vercel_frame_cursor
 from tracecat.agent.stream.events import (
-    AgentStreamEventTA,
     StreamConnected,
     StreamDelta,
     StreamEnd,
@@ -27,10 +26,9 @@ from tracecat.agent.stream.events import (
     StreamEvent,
     StreamFormat,
     StreamKeepAlive,
-    StreamMessage,
     UnifiedStreamEventTA,
 )
-from tracecat.agent.types import ModelMessageTA, StreamKey
+from tracecat.agent.types import StreamKey
 from tracecat.chat import tokens
 from tracecat.logger import logger
 from tracecat.redis.client import RedisClient, get_redis_client
@@ -233,7 +231,7 @@ class AgentStream:
                 frames; the adapter then drops frames already seen by the client.
 
         Yields:
-            StreamEvent: StreamDelta, StreamMessage, StreamError, or StreamEnd.
+            StreamEvent: StreamDelta, StreamError, or StreamEnd.
 
         Note:
             - Read-only: never writes last_stream_id (browser owns the cursor).
@@ -264,9 +262,6 @@ class AgentStream:
                         # newly rotated suffix from the closed approval-pause
                         # stream while approval decisions are still committing.
                         yield StreamKeepAlive()
-                    case {"event_kind": _}:
-                        legacy_event = AgentStreamEventTA.validate_python(data)
-                        yield StreamDelta(id=msg_id, event=legacy_event)
                     case {"type": _}:
                         unified_event = UnifiedStreamEventTA.validate_python(data)
                         yield StreamDelta(id=msg_id, event=unified_event)
@@ -277,9 +272,6 @@ class AgentStream:
                             message_id=msg_id,
                         )
                         yield StreamError(error=error_message)
-                    case {"kind": _}:
-                        message = ModelMessageTA.validate_python(data)
-                        yield StreamMessage(id=msg_id, message=message)
                     case _:
                         logger.warning(
                             "Invalid stream message",
@@ -457,8 +449,6 @@ class AgentStream:
                         yield event.sse()
                         break
                     case StreamDelta():
-                        yield event.sse()
-                    case StreamMessage():
                         yield event.sse()
                     case _:
                         logger.warning(
