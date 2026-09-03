@@ -2257,8 +2257,11 @@ add an edge only when the action must wait. Fewer edges is better.
 - Default to one linear chain. Branch only for work that is genuinely independent,
   and rejoin only when a later step needs both.
 - A skipped or failed parent already stops dependents on the default success edge,
-  so do not re-assert an upstream condition in `run_if`. At a join a child still
-  runs when any parent was not skipped, so a guard there is real.
+  so do not re-assert an upstream condition in `run_if`.
+- A join is different. Default `join_strategy: all` needs every parent visited, so
+  one skipped branch makes the join unreachable and fails the workflow. Give a join
+  over a conditional branch `join_strategy: any`, or repeat the branch's `run_if`
+  on the join so it self-skips first.
 - One parent is the norm. Multiple parents mean a deliberate join.
 
 ## Key DSL fields (inside each action under `actions:`)
@@ -2802,9 +2805,13 @@ changing what runs.
 - A skipped parent already skips its dependents, and a failed parent prunes its
   success edges, so a dependent on the default success edge never runs after
   either. Do not re-assert an upstream condition in a downstream `run_if`.
-- The exception is a join. When an action has several parents, it still runs if
-  any one of them was not skipped, so a `run_if` guard at a join is doing real
-  work rather than restating the parent's condition.
+- A join is the exception, and the trap. A task with several parents is not
+  force-skipped while one parent survives, but reachability is checked next and
+  the default `join_strategy: all` requires *every* parent to have been visited.
+  One skipped branch therefore makes the join unreachable, which fails the
+  workflow rather than skipping it. Either set `join_strategy: any`, or repeat
+  the branch's condition in the join's own `run_if` so it self-skips before the
+  reachability check.
 - One parent is the norm. Multiple parents should mean a deliberate join.
 
 ### Worked example
