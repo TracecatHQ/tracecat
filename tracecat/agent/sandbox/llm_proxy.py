@@ -71,6 +71,27 @@ DELETE/PUT/PATCH/CONNECT/etc. prevents in-jail code from exercising gateway
 administration or destructive endpoints with the host-attached credentials.
 """
 
+_POST_PATH_ALLOWLIST = frozenset(
+    {
+        "/v1/messages",
+        "/v1/messages/count_tokens",
+        "/v1/chat/completions",
+        "/v1/completions",
+        "/v1/embeddings",
+        "/api/event_logging/batch",
+    }
+)
+"""POST paths the jailed Claude runtime may send through the proxy.
+
+Covers inference, token counting, OpenAI-compatible passthrough routes, and
+the CLI's event-log batching. Every other POST path is rejected before the
+gateway so jailed code cannot reach administrative or billing endpoints
+with the host-attached credentials.
+"""
+
+_GET_PATH_ALLOWLIST = frozenset({"/v1/models", "/models"})
+"""GET paths the jailed runtime may use: provider/model discovery only."""
+
 _ERROR_MESSAGES = {
     400: "Invalid request to LLM provider",
     401: "Authentication failed - check your API credentials",
@@ -871,6 +892,19 @@ class LLMSocketProxy:
                 return
 
             path_without_query = request["path"].split("?", 1)[0]
+            allowed_paths = (
+                _GET_PATH_ALLOWLIST if method == "GET" else _POST_PATH_ALLOWLIST
+            )
+            if path_without_query not in allowed_paths:
+                await self._write_error_response(
+                    writer,
+                    status_code=404,
+                    detail="Path not allowed by the LLM socket proxy",
+                    request_counter=request_counter,
+                    trace_request_id=trace_request_id,
+                )
+                return
+
             if path_without_query == "/api/event_logging/batch":
                 await self._write_response(
                     writer,
