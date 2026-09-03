@@ -12,15 +12,6 @@ from tracecat.config import bound_env, env_bool, env_networks, env_ports
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = REPO_ROOT / "tracecat" / "config.py"
-FARGATE_ECS_LOCALS_PATH = (
-    REPO_ROOT / "deployments" / "fargate" / "modules" / "ecs" / "locals.tf"
-)
-FARGATE_AGENT_WORKER_PATH = (
-    REPO_ROOT / "deployments" / "fargate" / "modules" / "ecs" / "ecs-agent-worker.tf"
-)
-FARGATE_ECS_IAM_PATH = (
-    REPO_ROOT / "deployments" / "fargate" / "modules" / "ecs" / "iam.tf"
-)
 SANDBOX_POLICY_COMPOSE_ENV_FILES = (
     REPO_ROOT / "docker-compose.yml",
     REPO_ROOT / "docker-compose.dev.yml",
@@ -382,46 +373,6 @@ def test_sentry_dsn_is_forwarded_to_workflow_compose_services(
     assert service_match is not None
 
     assert "SENTRY_DSN: ${SENTRY_DSN:-}" in service_match.group("body")
-
-
-@pytest.mark.parametrize("local_name", ["agent_worker_env", "agent_executor_env"])
-def test_platform_otel_env_is_forwarded_to_fargate_agent_services(
-    local_name: str,
-) -> None:
-    source = FARGATE_ECS_LOCALS_PATH.read_text()
-    local_match = re.search(
-        rf"(?ms)^  {re.escape(local_name)} = \[\n(?P<body>.*?)(?=^  [a-z][a-z0-9_]+ = |^\}})",
-        source,
-    )
-    assert local_match is not None
-    expected_env = (
-        "local.tracecat_executor_platform_otel_env,"
-        if local_name == "agent_executor_env"
-        else "local.tracecat_platform_otel_env,"
-    )
-    assert expected_env in local_match.group("body")
-
-
-def test_fargate_agent_worker_receives_platform_otel_header_secret() -> None:
-    source = FARGATE_AGENT_WORKER_PATH.read_text()
-    assert "secrets     = local.agent_worker_secrets" in source
-
-
-def test_fargate_executors_use_credential_free_platform_gateway() -> None:
-    source = FARGATE_ECS_LOCALS_PATH.read_text()
-    for local_name in ("executor_env", "agent_executor_env"):
-        local_match = re.search(
-            rf"(?ms)^  {local_name} = \[\n(?P<body>.*?)(?=^  [a-z][a-z0-9_]+ = |^\}})",
-            source,
-        )
-        assert local_match is not None
-        assert "local.tracecat_executor_platform_otel_env" in local_match.group("body")
-
-    iam_source = FARGATE_ECS_IAM_PATH.read_text()
-    assert (
-        'resource "aws_iam_role_policy_attachment" "executor_task_platform_otel_headers"'
-        not in iam_source
-    )
 
 
 def test_platform_otel_operator_settings_are_not_advertised_in_env_example() -> None:
