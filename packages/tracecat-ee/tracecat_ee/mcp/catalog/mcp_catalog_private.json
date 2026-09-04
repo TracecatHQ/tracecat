@@ -411,35 +411,22 @@
     },
     {
       "slug": "datadog-mcp",
-      "docs": "https://docs.datadoghq.com/mcp_server/setup/",
+      "docs": "https://docs.datadoghq.com/bits_ai/mcp_server/",
       "connection_spec": {
         "server_type": "http",
         "auth_type": "OAUTH2",
-        "server_uri": "https://mcp.datadoghq.com/v1/mcp",
+        "server_uri": "https://mcp.datadoghq.com/api/unstable/mcp-server/mcp",
         "scopes": [],
         "oauth_authorization_endpoint": null,
         "oauth_token_endpoint": null,
-        "credentials": [
-          {
-            "key": "server_url",
-            "label": "Datadog MCP Region Endpoint",
-            "description": "The regional Datadog MCP endpoint matching your Datadog site. US1: https://mcp.datadoghq.com/v1/mcp , US3: https://mcp.us3.datadoghq.com/v1/mcp , US5: https://mcp.us5.datadoghq.com/v1/mcp , EU: https://mcp.datadoghq.eu/v1/mcp , AP1: https://mcp.ap1.datadoghq.com/v1/mcp , AP2: https://mcp.ap2.datadoghq.com/v1/mcp , UK1: https://mcp.uk1.datadoghq.com/v1/mcp . The US1-FED / GovCloud site (app.ddog-gov.com) is NOT supported. An optional ?toolsets= query parameter may be appended to select tools, e.g. ?toolsets=core (default), ?toolsets=all, or a comma-separated list such as ?toolsets=apm,llmobs. Authentication is handled via OAuth browser sign-in; no token is pasted by the user.",
-            "required": true,
-            "secret": false,
-            "default_value": "https://mcp.datadoghq.com/v1/mcp",
-            "placeholder": "https://mcp.datadoghq.com/v1/mcp",
-            "type": "url",
-            "target": "server_uri"
-          }
-        ],
+        "credentials": [],
         "_research": {
           "confidence": "high",
           "docker_only": false,
-          "notes": "Official Datadog MCP Server (Bits AI). Verified first-party from docs.datadoghq.com. Transport: Streamable HTTP (remote). The current documented endpoint path is /v1/mcp; the older /api/unstable/mcp-server/mcp path is deprecated but still routed as of 2026-08. Hostname is site-specific, one host per Datadog site: US1=mcp.datadoghq.com, US3=mcp.us3.datadoghq.com, US5=mcp.us5.datadoghq.com, EU=mcp.datadoghq.eu, AP1=mcp.ap1.datadoghq.com, AP2=mcp.ap2.datadoghq.com, UK1=mcp.uk1.datadoghq.com — all sharing the same /v1/mcp path. The US1-FED / GovCloud site (app.ddog-gov.com) is NOT supported. Because the host varies per site, the server URI is user-supplied: a non-secret required credential with target 'server_uri' (default_value US1) lets the user pick their regional endpoint, and the resolver's server_uri_is_user_supplied() therefore accepts any user-chosen host instead of pinning the US1 URL exactly. Verified live: an unauthenticated MCP initialize POST to /v1/mcp returns 401 auth-required on both mcp.datadoghq.com and mcp.datadoghq.eu, while non-existent paths return 404, confirming the path is routed on both commercial and EU sites. Per-site host map cross-checked against the mcp_server_endpoint entries in regions.config.js in the DataDog/documentation repo. Primary auth is OAuth 2.0 with a browser-based sign-in/redirect (\"You are prompted to login through OAuth\"). The docs do not state whether DCR or discovery metadata is used; as a modern remote MCP server it almost certainly advertises authorization/token endpoints via OAuth discovery (.well-known), so oauth_authorization_endpoint/token_endpoint are left null and OAuth endpoints are discovered from the MCP metadata chain. Verified live 2026-08-31: GET /.well-known/oauth-authorization-server/v1/mcp returns complete RFC 8414 metadata on all seven sites, and each site advertises authorization, token, and DCR registration endpoints on a sibling host rather than on mcp.* itself. OAuth endpoints reached through the discovery chain may use a different host from the MCP server; they must still use HTTPS and pass SSRF validation. No specific OAuth scopes are documented (metadata advertises a single supported scope, mcp_all). An optional toolsets query param controls available tools (?toolsets=all, default core, or comma-separated e.g. apm,llmobs,monitors,logs) and may be appended to any regional URL. ALTERNATIVE auth (not chosen here, since intended transport is HTTP+OAuth) for headless/server environments: pass two HTTP headers DD_API_KEY and DD_APPLICATION_KEY (Datadog recommends a scoped service-account API key + application key). If the catalog instead wants the API-key path, switch auth_type to CUSTOM with two required secret credentials keyed DD_API_KEY and DD_APPLICATION_KEY plus an optional non-secret site/host field for region selection. No npx/uvx/pip package — it is a hosted remote server, so packages[] is empty.",
+          "notes": "Official Datadog MCP Server (Bits AI). Verified first-party from docs.datadoghq.com. Transport: Streamable HTTP (remote). Endpoint path is /api/unstable/mcp-server/mcp; hostname is site-specific. US1 host is mcp.datadoghq.com (full URL: https://mcp.datadoghq.com/api/unstable/mcp-server/mcp). Other sites replace the host: EU=mcp.datadoghq.eu, US3=mcp.us3.datadoghq.com, US5=mcp.us5.datadoghq.com, AP1/AP2 analogous; same path. app.ddog-gov.com (GovCloud) is NOT supported. Primary auth is OAuth 2.0 with a browser-based sign-in/redirect (\"You are prompted to login through OAuth\"). The docs do not state whether DCR or discovery metadata is used; as a modern remote MCP server it almost certainly advertises authorization/token endpoints via OAuth discovery (.well-known), so oauth_authorization_endpoint/token_endpoint are left null and OAuth endpoints are discovered from the MCP metadata chain. No specific OAuth scopes are documented. ALTERNATIVE auth (not chosen here, since intended transport is HTTP+OAuth) for headless/server environments: pass two HTTP headers DD_API_KEY and DD_APPLICATION_KEY (Datadog recommends a scoped service-account API key + application key). If the catalog instead wants the API-key path, switch auth_type to CUSTOM with two required secret credentials keyed DD_API_KEY and DD_APPLICATION_KEY plus an optional non-secret site/host field for region selection. A toolsets query param controls available tools (?toolsets=all, default core, or comma-separated e.g. apm,llmobs,monitors,logs). No npx/uvx/pip package — it is a hosted remote server, so packages[] is empty.",
           "sources": [
-            "https://docs.datadoghq.com/mcp_server/setup/",
-            "https://docs.datadoghq.com/mcp_server/",
-            "https://github.com/DataDog/documentation/blob/master/hugo/assets/scripts/config/regions.config.js",
+            "https://docs.datadoghq.com/bits_ai/mcp_server/",
+            "https://docs.datadoghq.com/bits_ai/mcp_server/setup/",
             "https://www.datadoghq.com/blog/datadog-remote-mcp-server/",
             "https://www.datadoghq.com/knowledge-center/mcp-server/"
           ]
