@@ -337,9 +337,9 @@ def test_headerless_workflow_run_spans_share_one_deterministic_trace(
 ) -> None:
     """A Temporal-started run has no trace header, yet forms a single trace.
 
-    Every command span of the run hangs off the same never-exported parent that
-    is derived from the run ID, so the trace stays intact across replays, and a
-    different run gets a different trace.
+    Every command span of the run hangs off the same parent that is derived
+    from the run ID, so the trace stays intact across replays, and a different
+    run gets a different trace.
     """
     monkeypatch.setattr(config, "TRACECAT__PLATFORM_OTEL_ENABLED", True)
     exporter = InMemorySpanExporter()
@@ -361,14 +361,13 @@ def test_headerless_workflow_run_spans_share_one_deterministic_trace(
         assert isinstance(run_id, str)
         spans_by_run.setdefault(run_id, []).append(span)
     run_1 = spans_by_run["run-1"]
-    assert len(run_1) == 3
+    children = [span for span in run_1 if span.parent is not None]
+    assert len(children) == 3
     trace_ids = {span.context.trace_id for span in run_1}
     assert len(trace_ids) == 1
-    parent_ids = {span.parent.span_id for span in run_1 if span.parent is not None}
+    parent_ids = {span.parent.span_id for span in children}
     assert len(parent_ids) == 1
     assert parent_ids != {0}
-    # The synthetic parent is never exported.
-    assert parent_ids.isdisjoint({span.context.span_id for span in run_1})
     assert spans_by_run["run-2"][0].context.trace_id not in trace_ids
 
     # Replaying the run reproduces the same trace.
@@ -429,3 +428,124 @@ def test_headerless_workflow_run_sampling_ignores_ambient_span(
 
     assert traceparent.endswith("-00")
     assert [span.name for span in exporter.get_finished_spans()] == ["ambient"]
+
+
+def test_headerless_run_root_span_is_the_synthetic_parent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The exported root must *be* the parent the children point at.
+
+    A schedule-started run reaches the backend as an orphan unless the
+    deterministic parent is materialized. If the root's identifiers ever drift
+    from the ones ``_headerless_run_context`` derives, the emitted span becomes
+    a sibling of the parent instead of the parent, and the trace goes back to
+    showing no root while gaining a stray span. Comparing raw identifiers,
+    rather than merely asserting a root exists, is what catches that drift.
+    """
+    monkeypatch.setattr(config, "TRACECAT__PLATFORM_OTEL_ENABLED", True)
+    exporter = InMemorySpanExporter()
+    initialize_platform_tracing("tracecat-worker", exporter=exporter)
+    interceptor = _headerless_interceptor()
+
+    for name in ("RunWorkflow:Traced", "StartActivity:probe"):
+        _complete_headerless_span(interceptor, name, "run-1")
+
+    expected = platform_otel._deterministic_run_ids("run-1")
+    spans = exporter.get_finished_spans()
+    roots = [span for span in spans if span.name == "ScheduledRun:Traced"]
+    assert len(roots) == 1
+    root = roots[0]
+    assert root.kind is SpanKind.SERVER
+    assert root.parent is None
+    assert root.context is not None
+    assert root.context.trace_id == expected.trace_id
+    assert root.context.span_id == expected.span_id
+    assert root.attributes is not None
+    assert root.attributes["temporalRunID"] == "run-1"
+    assert root.attributes["temporalWorkflowID"] == "synthetic-wf"
+
+    children = [span for span in spans if span is not root]
+    assert children
+    for child in children:
+        assert child.parent is not None
+        assert child.parent.span_id == root.context.span_id
+        assert child.context is not None
+        assert child.context.trace_id == root.context.trace_id
+
+
+def test_headerless_run_root_span_is_emitted_once_per_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only the ``RunWorkflow:`` command stands in for the whole run.
+
+    Signals, queries and updates are headerless too and go through the same
+    completion path, so emitting on every headerless span would give one run as
+    many competing roots as it has inbound commands.
+    """
+    monkeypatch.setattr(config, "TRACECAT__PLATFORM_OTEL_ENABLED", True)
+    exporter = InMemorySpanExporter()
+    initialize_platform_tracing("tracecat-worker", exporter=exporter)
+    interceptor = _headerless_interceptor()
+
+    for name in (
+        "RunWorkflow:Traced",
+        "SignalWorkflow:nudge",
+        "QueryWorkflow:status",
+        "HandleUpdate:patch",
+        "CompleteWorkflow:Traced",
+    ):
+        _complete_headerless_span(interceptor, name, "run-1")
+
+    root_names = [
+        span.name
+        for span in exporter.get_finished_spans()
+        if span.name.startswith("ScheduledRun:")
+    ]
+    assert root_names == ["ScheduledRun:Traced"]
+
+
+def test_headerless_run_root_span_follows_the_configured_sampler(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The root must not smuggle a dropped run past the sampler.
+
+    It carries the run's trace ID, so it has to inherit the same single root
+    decision the children get; otherwise an operator who samples traces down
+    still pays for one exported span per scheduled run.
+    """
+    monkeypatch.setattr(config, "TRACECAT__PLATFORM_OTEL_ENABLED", True)
+    monkeypatch.setenv("OTEL_TRACES_SAMPLER", "always_off")
+    exporter = InMemorySpanExporter()
+    initialize_platform_tracing("tracecat-worker", exporter=exporter)
+    interceptor = _headerless_interceptor()
+
+    _complete_headerless_span(interceptor, "RunWorkflow:Traced", "run-1")
+
+    assert exporter.get_finished_spans() == ()
+
+
+def test_pinned_run_ids_do_not_leak_to_later_spans(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The identifier pin must live only for the root span it was set for.
+
+    The pin overrides the provider's ID generator, so a pin that outlived its
+    span would stamp unrelated work with the run's trace and span IDs and merge
+    independent traces into one.
+    """
+    monkeypatch.setattr(config, "TRACECAT__PLATFORM_OTEL_ENABLED", True)
+    exporter = InMemorySpanExporter()
+    runtime = initialize_platform_tracing("tracecat-worker", exporter=exporter)
+    assert runtime is not None
+    interceptor = _headerless_interceptor()
+
+    _complete_headerless_span(interceptor, "RunWorkflow:Traced", "run-1")
+    assert platform_otel._pinned_span_ids.get() is None
+
+    with runtime.tracer("test.unrelated").start_as_current_span("unrelated") as span:
+        span_context = span.get_span_context()
+
+    pinned = platform_otel._deterministic_run_ids("run-1")
+    assert span_context.trace_id != pinned.trace_id
+    assert span_context.span_id != pinned.span_id
+    assert span_context.trace_flags.random_trace_id

@@ -11,6 +11,7 @@ import logging
 import os
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from enum import StrEnum
 from threading import Lock
@@ -29,6 +30,7 @@ from opentelemetry.sdk.trace.export import (
     SimpleSpanProcessor,
     SpanExporter,
 )
+from opentelemetry.sdk.trace.id_generator import RandomIdGenerator
 from opentelemetry.sdk.trace.sampling import Sampler
 from opentelemetry.trace import Link, Span, SpanKind, Status, StatusCode, TraceFlags
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
@@ -53,8 +55,17 @@ logger = logging.getLogger(__name__)
 TRACE_ID_HEADER: Final = "X-Trace-ID"
 # Set by the Temporal SDK on every workflow command span.
 _TEMPORAL_RUN_ID_ATTRIBUTE: Final = "temporalRunID"
+_TEMPORAL_WORKFLOW_ID_ATTRIBUTE: Final = "temporalWorkflowID"
 # Name the sampler sees for the per-run root decision of a headerless run.
 _HEADERLESS_RUN_SPAN_NAME: Final = "RunWorkflow"
+# The one Temporal command span per run that stands in for the whole run.
+_RUN_WORKFLOW_SPAN_PREFIX: Final = f"{_HEADERLESS_RUN_SPAN_NAME}:"
+# Name the exported root of a headerless run carries in the trace backend.
+_SCHEDULED_RUN_SPAN_PREFIX: Final = "ScheduledRun:"
+# Identifiers only; never messages, stack traces, or workflow inputs.
+_RUN_ROOT_SPAN_ATTRIBUTES: Final = frozenset(
+    (_TEMPORAL_WORKFLOW_ID_ATTRIBUTE, _TEMPORAL_RUN_ID_ATTRIBUTE)
+)
 TRACE_SAMPLED_HEADER: Final = "X-Trace-Sampled"
 
 _EXCLUDED_FASTAPI_URLS: Final = ",".join(
@@ -111,6 +122,81 @@ class _CompletedWorkflowSpanInput(Protocol):
 
     @property
     def parent_missing(self) -> bool: ...
+
+
+@dataclass(frozen=True, slots=True)
+class _RunSpanIds:
+    """The deterministic identifiers one headerless Temporal run resolves to."""
+
+    trace_id: int
+    span_id: int
+
+
+# Set only while the interceptor starts the single root span of a headerless
+# run. A context variable rather than a module global so a concurrent worker
+# thread starting an unrelated span never picks up these identifiers.
+_pinned_span_ids: ContextVar[_RunSpanIds | None] = ContextVar(
+    "tracecat_pinned_span_ids", default=None
+)
+
+
+def _deterministic_run_ids(run_id: str) -> _RunSpanIds:
+    """Derive one run's trace and span identifiers from its Temporal run ID.
+
+    Both the exported root span and the parent that every child span of the run
+    points at come from here, so the two can never drift apart.
+    """
+    digest = hashlib.sha256(f"tracecat.temporal.run:{run_id}".encode()).digest()
+    return _RunSpanIds(
+        trace_id=int.from_bytes(digest[:16], "big") or 1,
+        span_id=int.from_bytes(digest[16:24], "big") or 1,
+    )
+
+
+def _headerless_run_id(params: _CompletedWorkflowSpanInput) -> str | None:
+    """Return the Temporal run ID a headerless span belongs to, if it has one."""
+    run_id = (params.attributes or {}).get(_TEMPORAL_RUN_ID_ATTRIBUTE)
+    if not isinstance(run_id, str) or not run_id:
+        return None
+    return run_id
+
+
+class _PinnedIdGenerator(RandomIdGenerator):
+    """Hand out pinned identifiers to the span started inside a pin.
+
+    Starting the root of a headerless run through the tracer is what puts it
+    through the configured sampler and span processors, but the tracer always
+    mints its own identifiers. Pinning them makes the span the SDK creates *be*
+    the synthetic per-run parent instead of a sibling of it.
+    """
+
+    def generate_trace_id(self) -> int:
+        pinned = _pinned_span_ids.get()
+        if pinned is not None:
+            return pinned.trace_id
+        return super().generate_trace_id()
+
+    def generate_span_id(self) -> int:
+        pinned = _pinned_span_ids.get()
+        if pinned is not None:
+            return pinned.span_id
+        return super().generate_span_id()
+
+    def is_trace_id_random(self) -> bool:
+        # A pinned trace ID is derived, not sampled from a random source, so it
+        # must not claim the W3C random-trace-id flag that the run's children
+        # (parented to a plain synthetic context) do not carry either.
+        return _pinned_span_ids.get() is None and super().is_trace_id_random()
+
+
+@contextmanager
+def _pin_span_ids(ids: _RunSpanIds) -> Iterator[None]:
+    """Pin the identifiers the next span started on this context receives."""
+    token = _pinned_span_ids.set(ids)
+    try:
+        yield None
+    finally:
+        _pinned_span_ids.reset(token)
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,7 +266,8 @@ def initialize_platform_tracing(
                         "service.version": __version__,
                         "deployment.environment.name": config.TRACECAT__APP_ENV,
                     }
-                )
+                ),
+                id_generator=_PinnedIdGenerator(),
             )
             if exporter is None:
                 provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
@@ -314,6 +401,7 @@ class _TraceContextOnlyTracingInterceptor(TracingInterceptor):
             if not self._always_create_workflow_spans:
                 return None
             span_context = self._headerless_run_context(params)
+            self._emit_headerless_run_root(params)
         else:
             span_context = self.text_map_propagator.extract(params.context)
         links: Sequence[Link] = []
@@ -350,30 +438,29 @@ class _TraceContextOnlyTracingInterceptor(TracingInterceptor):
         Runs started by Temporal itself (schedules) carry no trace header, so
         the SDK would make each workflow command span its own root and one run
         would fragment into many traces. The parent is derived from the run ID,
-        so it is identical across replays and cache evictions, and it is never
-        exported: the run shows as one trace whose root is deliberately absent.
-        The configured sampler makes a single root decision per run so the whole
-        run is kept or dropped together.
+        so it is identical across replays and cache evictions. The configured
+        sampler makes a single root decision per run, so the whole run is kept
+        or dropped together, and ``_emit_headerless_run_root`` exports one span
+        carrying exactly these identifiers, which is what gives the trace a root
+        that can be searched by name.
         """
-        run_id = (params.attributes or {}).get(_TEMPORAL_RUN_ID_ATTRIBUTE)
-        if not isinstance(run_id, str) or not run_id:
+        run_id = _headerless_run_id(params)
+        if run_id is None:
             return self.text_map_propagator.extract(params.context)
-        digest = hashlib.sha256(f"tracecat.temporal.run:{run_id}".encode()).digest()
-        trace_id = int.from_bytes(digest[:16], "big") or 1
-        span_id = int.from_bytes(digest[16:24], "big") or 1
+        ids = _deterministic_run_ids(run_id)
         # An explicit empty parent context forces a root decision; ``None``
         # would let the parent-based sampler inherit whatever span happens to
         # be current on the worker thread.
         sampling = self._sampler.should_sample(
             otel_context.Context(),
-            trace_id,
+            ids.trace_id,
             _HEADERLESS_RUN_SPAN_NAME,
             kind=SpanKind.SERVER,
         )
         parent = trace.NonRecordingSpan(
             trace.SpanContext(
-                trace_id=trace_id,
-                span_id=span_id,
+                trace_id=ids.trace_id,
+                span_id=ids.span_id,
                 is_remote=True,
                 trace_flags=TraceFlags(
                     TraceFlags.SAMPLED
@@ -384,6 +471,42 @@ class _TraceContextOnlyTracingInterceptor(TracingInterceptor):
             )
         )
         return trace.set_span_in_context(parent, otel_context.Context())
+
+    def _emit_headerless_run_root(self, params: _CompletedWorkflowSpanInput) -> None:
+        """Materialize the synthetic per-run parent as one searchable root span.
+
+        Without it a schedule-started run reaches the trace backend as an
+        orphan: complete children hanging off a parent that was never exported,
+        so the trace has no service and no name to search by. The span is
+        started through the tracer with the run's own identifiers pinned, which
+        keeps every child's parent intact while routing the root through the
+        configured sampler and span processors.
+
+        Only the ``RunWorkflow:`` command span emits it, so signals, queries and
+        updates on the same run do not each produce their own root.
+        """
+        if not params.name.startswith(_RUN_WORKFLOW_SPAN_PREFIX):
+            return
+        run_id = _headerless_run_id(params)
+        if run_id is None:
+            return
+        attributes = {
+            key: value
+            for key, value in (params.attributes or {}).items()
+            if key in _RUN_ROOT_SPAN_ATTRIBUTES
+        }
+        workflow_type = params.name.removeprefix(_RUN_WORKFLOW_SPAN_PREFIX)
+        with _pin_span_ids(_deterministic_run_ids(run_id)):
+            root = self.tracer.start_span(
+                f"{_SCHEDULED_RUN_SPAN_PREFIX}{workflow_type}",
+                context=otel_context.Context(),
+                attributes=attributes,
+                start_time=params.time_ns,
+                kind=SpanKind.SERVER,
+                record_exception=False,
+                set_status_on_exception=False,
+            )
+        root.end(end_time=params.time_ns)
 
     def workflow_interceptor_class(
         self, input: WorkflowInterceptorClassInput
