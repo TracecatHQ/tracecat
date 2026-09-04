@@ -113,6 +113,7 @@ import {
 import {
   mapImageUploadPosition,
   sanitizeMarkdownImageAlt,
+  transactionTouchesImageReplacement,
 } from "@/lib/tiptap-image-upload-position"
 import { MarkdownHardBreak } from "@/lib/tiptap-markdown-hard-break"
 import {
@@ -134,6 +135,12 @@ async function uploadAndInsertImages(
   let insertPos = startPos
   let replaceTo = endPos !== undefined && endPos > startPos ? endPos : null
   const handleTransaction = ({ transaction }: { transaction: Transaction }) => {
+    if (
+      replaceTo !== null &&
+      transactionTouchesImageReplacement(insertPos, replaceTo, transaction)
+    ) {
+      replaceTo = null
+    }
     insertPos = mapImageUploadPosition(insertPos, transaction)
     if (replaceTo !== null) {
       replaceTo = mapImageUploadPosition(replaceTo, transaction, -1)
