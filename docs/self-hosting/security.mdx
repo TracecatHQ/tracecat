@@ -150,7 +150,9 @@ The memory cap is `rlimit_as`: it bounds the virtual address space a process may
 
 The cap applies per process inside the sandbox. The executor pod's container memory limit still applies on top and covers every concurrent sandbox, so raising a sandbox cap without raising the pod limit trades a sandbox failure for an OOM kill of the executor.
 
-Tracecat reports an action or agent run that exceeds any of these limits as `sandbox.resource_limit_exceeded`. The failure is attributed to the workload, is not retried, and the error names the env var that controls the cap. Dependency installation is the exception: an install that hits a limit is reported as a package installation failure.
+Tracecat reports an action or agent run that exceeds the memory, CPU time, or file size limit as `sandbox.resource_limit_exceeded`. The failure is attributed to the workload, is not retried, and the error names the env var that controls the cap.
+
+Two limits fall outside that guarantee. Exceeding the process count fails process creation inside the sandbox with an ordinary error instead of killing the workload, so it surfaces as whatever the script or agent does with that error. Dependency installation is reported as a package installation failure whichever limit it hits.
 
 These limits apply only when nsjail is enabled. Without it Tracecat installs no rlimits, so a failure of the same shape is reported as an ordinary workload or platform failure.
 

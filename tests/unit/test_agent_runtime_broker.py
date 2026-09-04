@@ -11,7 +11,7 @@ from uuid import uuid4
 import orjson
 import pytest
 from claude_agent_sdk import ClaudeAgentOptions
-from claude_agent_sdk._errors import ProcessError
+from claude_agent_sdk._errors import CLIConnectionError, ProcessError
 from claude_agent_sdk.types import (
     AgentDefinition,
     McpHttpServerConfig,
@@ -636,3 +636,30 @@ async def test_transport_records_shim_exit_code_when_stream_ends(
 
     assert excinfo.value.exit_code == 134
     assert transport.exit_code == 134
+
+
+@pytest.mark.anyio
+async def test_transport_records_shim_exit_code_observed_on_write(
+    tmp_path: Path,
+) -> None:
+    """Invariant: a shim death seen at write time is still attributable.
+
+    The SDK cancels its reader task when a write fails, so ``read_messages``
+    may never reach its own recording point. A resource-limit death observed
+    while writing a prompt must not degrade to retryable executor
+    unavailability for want of the exit code.
+    """
+    transport = _make_transport(tmp_path, use_jailed_paths=False)
+
+    class _ExitedProcess:
+        returncode = 137
+        stdin = SimpleNamespace()
+        stdout = SimpleNamespace()
+
+    transport._process = cast(Any, _ExitedProcess())
+    transport._ready = True
+
+    with pytest.raises(CLIConnectionError):
+        await transport.write('{"type":"user"}\n')
+
+    assert transport.exit_code == 137

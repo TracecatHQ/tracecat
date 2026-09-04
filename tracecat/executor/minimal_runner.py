@@ -518,7 +518,7 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
         # report a structured code so the host classifies the failure
         # without inspecting error text.
         return _resource_limit_envelope(
-            "Action exceeded the sandbox memory limit",
+            "Action ran out of memory",
             action_name=_action_display_name(action_impl),
         )
 
@@ -559,8 +559,7 @@ def serialize_result(result: dict[str, Any], input_data: dict[str, Any]) -> byte
         result.clear()
         return json_dumps(
             _resource_limit_envelope(
-                "Action result exceeded the sandbox memory limit "
-                "while being serialized",
+                "Action ran out of memory while serializing its result",
                 action_name=_action_display_name(
                     input_data.get("resolved_context", {}).get("action_impl")
                 ),
@@ -573,6 +572,12 @@ def _resource_limit_envelope(message: str, *, action_name: str) -> dict[str, Any
 
     Allocates only small, fixed-size values so it stays usable in a process
     that has already exhausted its address space.
+
+    The message stays neutral about where the memory ran out. This runner also
+    executes unjailed, under the default direct backend, where no address-space
+    rlimit exists; the host names the cap only on the sandboxed path, from
+    ``sandbox_resource_limit_message()``, and the direct path drops
+    ``error_code`` and surfaces this message as an ordinary action failure.
     """
     return {
         "success": False,

@@ -3709,6 +3709,45 @@ async def test_run_does_not_attribute_process_exit_when_nsjail_is_disabled(
 
 
 @pytest.mark.anyio
+async def test_run_keeps_original_error_for_non_resource_limit_exit_code(
+    mock_socket_writer: MagicMock,
+    mock_claude_sdk_client: MagicMock,
+    sample_init_payload: RuntimeInitPayload,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Invariant: only a resource-limit exit code may replace the raised error.
+
+    Rebuilding the typed exit error for any other code would change nothing
+    about the classification while destroying the original exception's type,
+    so a failure that carries its own attribution would reach the activity as
+    a process exit and lose it.
+    """
+    monkeypatch.setattr(runtime_module, "TRACECAT__DISABLE_NSJAIL", False)
+    mock_claude_sdk_client.query = AsyncMock(
+        side_effect=AgentSandboxValidationError("Bad agent config")
+    )
+    transport = MagicMock(spec=SandboxedCLITransport)
+    transport.exit_code = 1
+
+    with (
+        patch(
+            "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+            return_value=mock_claude_sdk_client,
+        ),
+        pytest.raises(AgentSandboxValidationError, match="Bad agent config"),
+    ):
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: transport
+        )
+        await runtime.run(sample_init_payload)
+
+    await_args = mock_socket_writer.send_error.await_args
+    assert await_args is not None
+    classification = await_args.kwargs["classification"]
+    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+
+
+@pytest.mark.anyio
 async def test_run_keeps_original_error_when_sandbox_process_did_not_exit(
     mock_socket_writer: MagicMock,
     mock_claude_sdk_client: MagicMock,

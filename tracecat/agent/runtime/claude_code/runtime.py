@@ -77,7 +77,10 @@ from tracecat.agent.common.types import (
     MCPToolDefinition,
     requires_sandbox_internet_access,
 )
-from tracecat.agent.error_policy import agent_runtime_failure
+from tracecat.agent.error_policy import (
+    AGENT_SANDBOX_RESOURCE_LIMIT_EXIT_CODES,
+    agent_runtime_failure,
+)
 from tracecat.agent.llm_routing import get_litellm_route_model
 from tracecat.agent.mcp.metadata import (
     PROXY_TOOL_CALL_ID_KEY,
@@ -185,9 +188,11 @@ def _sandbox_process_exit_error(
 ) -> AgentSandboxProcessExitError | None:
     """Rebuild the typed process failure the SDK erased from its exception.
 
-    Only a positive exit code counts: ``0`` means the process did not fail, and
-    a negative code means the host itself terminated the process during
-    transport teardown rather than the jailed runtime dying.
+    Only a resource-limit exit code counts. Rebuilding for any other code would
+    replace the propagating exception's type without changing its
+    classification, so a genuinely typed failure raised late in the turn --
+    ``AgentSandboxValidationError``, say -- would reach the activity as a
+    process exit and lose its own attribution.
     """
     if TRACECAT__DISABLE_NSJAIL:
         # Without a jail no rlimit was installed, so the exit code carries no
@@ -198,7 +203,7 @@ def _sandbox_process_exit_error(
     if not isinstance(transport, SandboxedCLITransport):
         return None
     exit_code = transport.exit_code
-    if exit_code is None or exit_code <= 0:
+    if exit_code is None or exit_code not in AGENT_SANDBOX_RESOURCE_LIMIT_EXIT_CODES:
         return None
     return AgentSandboxProcessExitError(exit_code)
 
