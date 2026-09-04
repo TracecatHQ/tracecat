@@ -15,14 +15,14 @@ import {
 describe("TipTap comment mention serialization", () => {
   const workflowId = "11111111-1111-4111-8111-111111111111"
   function workflowMention(text: string) {
-    return { href: buildWorkflowMentionHref(workflowId), text }
+    return [{ href: buildWorkflowMentionHref(workflowId), text }]
   }
 
   it("keeps the existing agent mention wire format intact", () => {
     const agentId = "22222222-2222-4222-8222-222222222222"
     const markdown = `Ask [@Response agent](${buildAgentMentionHref(agentId)}) for help`
 
-    expect(serializeTiptapComment(markdown, null)).toEqual({
+    expect(serializeTiptapComment(markdown, [])).toEqual({
       content: markdown,
       workflowId: null,
     })
@@ -119,9 +119,27 @@ describe("TipTap comment mention serialization", () => {
     ).toEqual({ content: "Before after", workflowId })
   })
 
+  it("removes every pasted workflow marker and selects the first", () => {
+    const secondWorkflowId = "33333333-3333-4333-8333-333333333333"
+    const first = {
+      href: buildWorkflowMentionHref(workflowId),
+      text: "/Enrich case",
+    }
+    const second = {
+      href: buildWorkflowMentionHref(secondWorkflowId),
+      text: "/Review alert",
+    }
+    const markdown = `[${first.text}](${first.href}) investigate\n[${second.text}](${second.href})`
+
+    expect(serializeTiptapComment(markdown, [first, second])).toEqual({
+      content: "investigate",
+      workflowId,
+    })
+  })
+
   it("does not change ordinary links or text containing slash commands", () => {
     const markdown = "Run /Enrich or read [the docs](https://example.com)"
-    expect(serializeTiptapComment(markdown, null)).toEqual({
+    expect(serializeTiptapComment(markdown, [])).toEqual({
       content: markdown,
       workflowId: null,
     })

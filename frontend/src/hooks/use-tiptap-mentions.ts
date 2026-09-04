@@ -292,12 +292,12 @@ export function useTiptapMentions({
 
   const serialize = useCallback(
     (markdown: string) => {
-      const workflowMention = editor
-        ? (findCommentMentionLinkRanges(editor.state.doc).find((range) =>
+      const workflowMentions = editor
+        ? findCommentMentionLinkRanges(editor.state.doc).filter((range) =>
             range.href.startsWith(WORKFLOW_MENTION_URI_SCHEME)
-          ) ?? null)
-        : null
-      return serializeTiptapComment(markdown, workflowMention)
+          )
+        : []
+      return serializeTiptapComment(markdown, workflowMentions)
     },
     [editor]
   )

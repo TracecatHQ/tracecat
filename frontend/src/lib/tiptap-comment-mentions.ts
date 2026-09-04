@@ -198,27 +198,35 @@ const EMPTY_MARKDOWN_CONTAINER_PATTERN =
  */
 export function serializeTiptapComment(
   markdown: string,
-  workflowMention: Pick<CommentMentionLinkSnapshot, "href" | "text"> | null
+  workflowMentions: Array<Pick<CommentMentionLinkSnapshot, "href" | "text">>
 ): SerializedTiptapComment {
   let workflowId: string | null = null
   const workflowMentionLines = new Set<number>()
-  let withoutWorkflowMention = markdown
-  if (workflowMention?.href.startsWith(WORKFLOW_MENTION_URI_SCHEME)) {
-    const targetId = workflowMention.href.slice(
-      WORKFLOW_MENTION_URI_SCHEME.length
-    )
-    const marker = `[${workflowMention.text}](${workflowMention.href})`
-    const offset = markdown.indexOf(marker)
+  const removalRanges: Array<{ from: number; to: number }> = []
+  let searchFrom = 0
+  for (const mention of workflowMentions) {
+    if (!mention.href.startsWith(WORKFLOW_MENTION_URI_SCHEME)) {
+      continue
+    }
+    const targetId = mention.href.slice(WORKFLOW_MENTION_URI_SCHEME.length)
+    const marker = `[${mention.text}](${mention.href})`
+    const offset = markdown.indexOf(marker, searchFrom)
     if (targetId && offset !== -1) {
-      workflowId = targetId
+      workflowId ??= targetId
       workflowMentionLines.add(markdown.slice(0, offset).split("\n").length - 1)
       let markerEnd = offset + marker.length
       if (markdown[markerEnd] === " " || markdown[markerEnd] === "\t") {
         markerEnd += 1
       }
-      withoutWorkflowMention =
-        markdown.slice(0, offset) + markdown.slice(markerEnd)
+      removalRanges.push({ from: offset, to: markerEnd })
+      searchFrom = markerEnd
     }
+  }
+  let withoutWorkflowMention = markdown
+  for (const range of removalRanges.reverse()) {
+    withoutWorkflowMention =
+      withoutWorkflowMention.slice(0, range.from) +
+      withoutWorkflowMention.slice(range.to)
   }
   const content = withoutWorkflowMention
     .split("\n")
