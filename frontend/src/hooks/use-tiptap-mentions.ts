@@ -19,6 +19,7 @@ import type { CaretCoordinates } from "@/lib/textarea-caret"
 import {
   buildAgentMentionHref,
   buildWorkflowMentionHref,
+  commentMentionLeafText,
   isCommentMentionHref,
   serializeTiptapComment,
   WORKFLOW_MENTION_URI_SCHEME,
@@ -168,7 +169,12 @@ export function useTiptapMentions({
       setSession(undefined)
       return
     }
-    const text = $from.parent.textBetween(0, $from.parentOffset, "\n", "\ufffc")
+    const text = $from.parent.textBetween(
+      0,
+      $from.parentOffset,
+      "\n",
+      commentMentionLeafText
+    )
     const token = getMentionToken(text, text.length)
     if (!token) {
       setSession(undefined)

@@ -1,3 +1,5 @@
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model"
+
 /** URI prefix used only while a workflow command is visible in TipTap. */
 export const WORKFLOW_MENTION_URI_SCHEME = "workflow-mention://"
 
@@ -36,6 +38,11 @@ export function preventCommentMentionNavigation(event: MouseEvent): boolean {
   return true
 }
 
+/** Convert hard breaks to whitespace while scanning for a mention token. */
+export function commentMentionLeafText(node: ProseMirrorNode): string {
+  return node.type.name === "hardBreak" ? "\n" : "\ufffc"
+}
+
 /** Content and workflow metadata ready for the existing comments API. */
 export interface SerializedTiptapComment {
   content: string
@@ -49,6 +56,9 @@ const WORKFLOW_MENTION_PATTERN = new RegExp(
   "g"
 )
 
+const EMPTY_MARKDOWN_CONTAINER_PATTERN =
+  /^\s*(?:>\s*)*(?:(?:#{1,6}|[-+*]|\d+[.)])\s*(?:\[[ xX]\]\s*)?)?[*_~`]*\s*$/
+
 /**
  * Remove TipTap-only workflow links and return the selected workflow id.
  *
@@ -60,12 +70,22 @@ export function serializeTiptapComment(
   markdown: string
 ): SerializedTiptapComment {
   let workflowId: string | null = null
-  const content = markdown.replace(
+  const workflowMentionLines = new Set<number>()
+  const withoutWorkflowMention = markdown.replace(
     WORKFLOW_MENTION_PATTERN,
-    (_match, targetId: string) => {
+    (_match, targetId: string, offset: number) => {
       workflowId ??= targetId
+      workflowMentionLines.add(markdown.slice(0, offset).split("\n").length - 1)
       return ""
     }
   )
+  const content = withoutWorkflowMention
+    .split("\n")
+    .filter(
+      (line, index) =>
+        !workflowMentionLines.has(index) ||
+        !EMPTY_MARKDOWN_CONTAINER_PATTERN.test(line)
+    )
+    .join("\n")
   return { content, workflowId }
 }

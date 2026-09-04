@@ -1,7 +1,9 @@
+import { Schema } from "@tiptap/pm/model"
 import {
   AGENT_MENTION_URI_SCHEME,
   buildAgentMentionHref,
   buildWorkflowMentionHref,
+  commentMentionLeafText,
   isCommentMentionHref,
   preventCommentMentionNavigation,
   serializeTiptapComment,
@@ -40,6 +42,30 @@ describe("TipTap comment mention serialization", () => {
         `[/Enrich case](${buildWorkflowMentionHref(workflowId)})`
       )
     ).toEqual({ content: "", workflowId })
+  })
+
+  it.each([
+    ["bullet item", "- %s"],
+    ["task item", "- [ ] %s"],
+    ["block quote", "> %s"],
+    ["heading", "### %s"],
+    ["strong text", "**%s**"],
+  ])("removes an empty %s around a workflow marker", (_label, template) => {
+    const marker = `[/Enrich case](${buildWorkflowMentionHref(workflowId)})`
+
+    expect(serializeTiptapComment(template.replace("%s", marker))).toEqual({
+      content: "",
+      workflowId,
+    })
+  })
+
+  it("preserves a rich-text container when it has other content", () => {
+    const marker = `[/Enrich case](${buildWorkflowMentionHref(workflowId)})`
+
+    expect(serializeTiptapComment(`- ${marker} investigate this`)).toEqual({
+      content: "- investigate this",
+      workflowId,
+    })
   })
 
   it("handles escaped closing brackets in workflow labels", () => {
@@ -97,5 +123,30 @@ describe("TipTap comment mention serialization", () => {
       } as unknown as MouseEvent)
     ).toBe(false)
     expect(preventDefault).not.toHaveBeenCalled()
+  })
+
+  it("treats a hard break as whitespace when scanning for mentions", () => {
+    const schema = new Schema({
+      nodes: {
+        doc: { content: "block+" },
+        paragraph: { content: "inline*", group: "block" },
+        text: { group: "inline" },
+        hardBreak: { inline: true, group: "inline" },
+      },
+    })
+    const paragraph = schema.node("paragraph", null, [
+      schema.text("First line"),
+      schema.node("hardBreak"),
+      schema.text("@triage"),
+    ])
+
+    expect(
+      paragraph.textBetween(
+        0,
+        paragraph.content.size,
+        "\n",
+        commentMentionLeafText
+      )
+    ).toBe("First line\n@triage")
   })
 })
