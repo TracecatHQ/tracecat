@@ -37,9 +37,12 @@ describe("TipTap image upload position", () => {
         schema.node("paragraph", null, schema.text("before selected after")),
       ]),
     })
-    const transaction = state.tr.insertText("new ", 1)
+    const startTransaction = state.tr.insertText("new ", 8)
+    const endTransaction = state.tr.insertText("new ", 16)
 
-    expect(mapImageUploadPosition(8, transaction, 1)).toBe(12)
-    expect(mapImageUploadPosition(16, transaction, -1)).toBe(20)
+    expect(mapImageUploadPosition(8, startTransaction, 1)).toBe(12)
+    expect(mapImageUploadPosition(8, startTransaction, -1)).toBe(8)
+    expect(mapImageUploadPosition(16, endTransaction, -1)).toBe(16)
+    expect(mapImageUploadPosition(16, endTransaction, 1)).toBe(20)
   })
 })
