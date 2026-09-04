@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections import Counter
-from collections.abc import Collection, Sequence
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
 
@@ -443,9 +443,6 @@ class AgentPresetService(BaseWorkspaceService):
         locked_specs = await self._current_skill_binding_specs(
             sorted(observed_skill_ids | requested_skill_ids, key=str),
             for_update=True,
-            # Already-bound skills survive archiving, so an unrelated edit must
-            # not fail on them; newly requested skills still have to be live.
-            retained_skill_ids=observed_skill_ids,
         )
         locked_specs_by_id = {binding.skill_id: binding for binding in locked_specs}
 
@@ -593,13 +590,62 @@ class AgentPresetService(BaseWorkspaceService):
     async def delete_preset(
         self,
         preset: AgentPreset,
+        *,
+        hard_delete: bool = False,
     ) -> None:
-        """Soft-delete a preset without rewriting existing parent references."""
+        """Delete a preset and permanently unlink it from heads and history."""
+        # Saves lock parents and children in UUID order. Take the same order
+        # before changing parent JSONB, including parents in the recycle bin.
+        await self.session.execute(
+            with_deleted(
+                select(AgentPreset.id)
+                .where(AgentPreset.workspace_id == self.workspace_id)
+                .order_by(AgentPreset.id)
+                .with_for_update()
+            )
+        )
         await self._lock_preset_row(preset.id)
         channel_service = AgentChannelService(self.session, role=self.role)
         await channel_service.deactivate_tokens_for_preset(preset.id)
-        preset.deleted_at = datetime.now(UTC)
-        self.session.add(preset)
+        for model in (AgentPreset, AgentPresetVersion):
+            # Version configuration is otherwise immutable. Deletion is the
+            # deliberate exception: restoring a version cannot restore a link.
+            remaining = sa.text(
+                "(SELECT COALESCE(jsonb_agg(ref ORDER BY ordinal), '[]'::jsonb) "
+                "FROM jsonb_array_elements(agents->'subagents') "
+                "WITH ORDINALITY AS refs(ref, ordinal) "
+                "WHERE ref->>'preset_id' IS DISTINCT FROM :deleted_preset_id)"
+            )
+            stmt = (
+                sa.update(model)
+                .where(
+                    model.workspace_id == self.workspace_id,
+                    model.agents.contains(
+                        {"subagents": [{"preset_id": str(preset.id)}]}
+                    ),
+                )
+                .values(
+                    agents=func.jsonb_set(
+                        model.agents,
+                        sa.cast(["subagents"], sa.ARRAY(sa.Text)),
+                        remaining,
+                    )
+                )
+                .returning(model)
+            )
+            # Refresh loaded snapshots as well as the database rows.
+            result = await self.session.scalars(
+                sa.select(model)
+                .from_statement(stmt)
+                .execution_options(populate_existing=True),
+                {"deleted_preset_id": str(preset.id)},
+            )
+            result.all()
+        if hard_delete:
+            await self.session.delete(preset)
+        else:
+            preset.deleted_at = datetime.now(UTC)
+            self.session.add(preset)
         await self.session.commit()
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
@@ -1566,7 +1612,6 @@ class AgentPresetService(BaseWorkspaceService):
         *,
         for_update: bool = False,
         include_deleted: bool = False,
-        retained_skill_ids: Collection[uuid.UUID] = (),
     ) -> list[SkillBindingSpec]:
         """Return bindable Skill head IDs with their current versions.
 
@@ -1574,10 +1619,6 @@ class AgentPresetService(BaseWorkspaceService):
             skill_ids: Skill head IDs to resolve.
             for_update: Lock the Skill rows in ID order.
             include_deleted: Resolve every skill, archived or not.
-            retained_skill_ids: Subset of ``skill_ids`` that is already bound to
-                the caller's preset. `archive_skill` keeps existing bindings, so
-                these stay resolvable after archiving; every other skill must
-                still be live to be attachable.
         """
 
         if not skill_ids:
@@ -1585,18 +1626,15 @@ class AgentPresetService(BaseWorkspaceService):
         validate_no_duplicate_skill_ids(skill_ids)
 
         normalized_ids = sorted(set(skill_ids), key=str)
-        retained = sorted(set(retained_skill_ids), key=str)
         predicates = [
             Skill.workspace_id == self.workspace_id,
             Skill.id.in_(normalized_ids),
         ]
         if not include_deleted:
             is_live = sa.and_(Skill.deleted_at.is_(None), Skill.archived_at.is_(None))
-            predicates.append(
-                sa.or_(Skill.id.in_(retained), is_live) if retained else is_live
-            )
+            predicates.append(is_live)
         stmt = select(Skill).where(*predicates)
-        if include_deleted or retained:
+        if include_deleted:
             stmt = with_deleted(stmt)
         if for_update:
             stmt = stmt.order_by(Skill.id).with_for_update()
@@ -1761,7 +1799,7 @@ class AgentPresetService(BaseWorkspaceService):
         return await self._current_skill_binding_specs(
             skill_ids,
             for_update=for_update,
-            include_deleted=True,
+            include_deleted=not for_update,
         )
 
     async def _compare_version_skill_bindings(
@@ -1904,6 +1942,10 @@ class AgentPresetService(BaseWorkspaceService):
             raise TracecatValidationError(
                 "Preset version does not belong to the selected preset"
             )
+
+        # A deletion may have removed dependencies since this snapshot was
+        # loaded by the caller. Restore the stored membership, never that cache.
+        await self.session.refresh(version)
 
         restored_bindings = await self._current_skill_bindings_for_version(
             version.id,

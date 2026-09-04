@@ -58,6 +58,8 @@ from tracecat.agent.skill.schemas import (
 from tracecat.agent.skill.types import ResolvedSkillRef
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import (
+    AgentPresetSkill,
+    AgentPresetVersionSkill,
     Skill,
     SkillBlob,
     SkillDraftFile,
@@ -3177,16 +3179,30 @@ class SkillService(SkillBindingService):
     async def archive_skill(
         self,
         skill_id: uuid.UUID,
+        *,
+        hard_delete: bool = False,
     ) -> None:
-        """Soft-delete a skill without rewriting existing preset references."""
+        """Delete a skill and permanently unlink it from heads and history."""
 
         skill = await self._get_skill_for_update(skill_id)
         if skill is None:
             raise TracecatNotFoundError(f"Skill '{skill_id}' not found")
-        archived_at = datetime.now(UTC)
-        skill.archived_at = archived_at
-        skill.deleted_at = archived_at
-        self.session.add(skill)
+        # Binding writers lock the Skill first too, so no concurrent save can
+        # reattach it after this cleanup. Include soft-deleted parents/history.
+        for model in (AgentPresetSkill, AgentPresetVersionSkill):
+            await self.session.execute(
+                sa.delete(model).where(
+                    model.workspace_id == self.workspace_id,
+                    model.skill_id == skill_id,
+                )
+            )
+        if hard_delete:
+            await self.session.delete(skill)
+        else:
+            archived_at = datetime.now(UTC)
+            skill.archived_at = archived_at
+            skill.deleted_at = archived_at
+            self.session.add(skill)
         await self.session.commit()
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)

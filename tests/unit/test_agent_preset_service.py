@@ -1379,7 +1379,7 @@ class TestAgentPresetService:
                             refreshed_parent.agents
                         ).subagents
                     )
-                    == 1
+                    == 0
                 )
         finally:
             await concurrent_engine.dispose()
@@ -1829,7 +1829,7 @@ class TestAgentPresetService:
         assert resolved_skill.skill_name == "latest-skill-v2"
 
     @pytest.mark.parametrize("resolve_dependencies_from_heads", [True, False])
-    async def test_resolve_config_preserves_archived_skill(
+    async def test_resolve_config_omits_deleted_skill(
         self,
         configure_minio_for_skills,
         session: AsyncSession,
@@ -1837,17 +1837,12 @@ class TestAgentPresetService:
         agent_preset_service: AgentPresetService,
         resolve_dependencies_from_heads: bool,
     ) -> None:
-        """Historical memberships keep resolving after the skill is archived.
-
-        Both head resolution and exact snapshot reconstruction read the version
-        membership with soft-deleted skills included, so archiving a skill never
-        breaks a version that already references it.
-        """
+        """Deleted Skills are removed from both current and historical reads."""
         skill_service = SkillService(session=session, role=svc_role)
         created_skill = await skill_service.create_skill(
             SkillCreate(name="archived-membership-skill")
         )
-        skill_version = await skill_service.publish_skill(created_skill.id)
+        await skill_service.publish_skill(created_skill.id)
         created_preset = await agent_preset_service.create_preset(
             AgentPresetCreate(
                 name="Archived skill preset",
@@ -1878,29 +1873,22 @@ class TestAgentPresetService:
         )
 
         assert config.resolved_skills is not None
-        assert [ref.skill_version_id for ref in config.resolved_skills] == [
-            skill_version.id
-        ]
+        assert config.resolved_skills == []
 
-    async def test_update_preset_unrelated_field_keeps_archived_skill_binding(
+    async def test_update_preset_unrelated_field_keeps_deleted_skill_unlinked(
         self,
         configure_minio_for_skills,
         session: AsyncSession,
         svc_role: Role,
         agent_preset_service: AgentPresetService,
     ) -> None:
-        """Archiving a bound skill must not block unrelated preset edits.
-
-        `archive_skill` deliberately leaves the `AgentPresetSkill` head rows in
-        place, so an edit that never touches `skills` has to keep resolving the
-        already-bound archived skill instead of failing with `skill_not_found`.
-        """
+        """Deletion removes bindings without blocking subsequent edits."""
 
         skill_service = SkillService(session=session, role=svc_role)
         created_skill = await skill_service.create_skill(
             SkillCreate(name="archived-bound-skill")
         )
-        skill_version = await skill_service.publish_skill(created_skill.id)
+        await skill_service.publish_skill(created_skill.id)
         created_preset = await agent_preset_service.create_preset(
             AgentPresetCreate(
                 name="Archived bound skill preset",
@@ -1931,7 +1919,7 @@ class TestAgentPresetService:
             .tuples()
             .all()
         )
-        assert head_bindings == [(created_skill.id, skill_version.id)]
+        assert head_bindings == []
 
     async def test_update_preset_rejects_newly_attached_archived_skill(
         self,
@@ -1940,7 +1928,7 @@ class TestAgentPresetService:
         svc_role: Role,
         agent_preset_service: AgentPresetService,
     ) -> None:
-        """An archived skill can stay bound but can never be newly attached."""
+        """Deleted Skills cannot be attached."""
 
         skill_service = SkillService(session=session, role=svc_role)
         created_skill = await skill_service.create_skill(
@@ -2195,18 +2183,18 @@ class TestAgentPresetService:
         assert head_bindings[0].skill_version_id == skill_version_two.id
         assert head_bindings[0].skill_name == "version-two"
 
-    async def test_build_version_read_resolves_soft_deleted_skill(
+    async def test_build_version_read_omits_deleted_skill(
         self,
         configure_minio_for_skills,
         session: AsyncSession,
         svc_role: Role,
         agent_preset_service: AgentPresetService,
     ) -> None:
-        """Existing version references remain readable after Skill soft deletion."""
+        """Saved versions no longer include deleted Skill references."""
 
         skill_service = SkillService(session=session, role=svc_role)
         skill = await skill_service.create_skill(SkillCreate(name="archived-reference"))
-        skill_version = await skill_service.publish_skill(skill.id)
+        await skill_service.publish_skill(skill.id)
         preset = await agent_preset_service.create_preset(
             AgentPresetCreate(
                 name="Archived Skill reference",
@@ -2223,8 +2211,8 @@ class TestAgentPresetService:
         await skill_service.archive_skill(skill.id)
 
         version_read = await agent_preset_service.build_version_read(preset_version)
-        assert version_read.skills[0].skill_version_id == skill_version.id
-        assert version_read.restore_skills[0].skill_version_id == skill_version.id
+        assert version_read.skills == []
+        assert version_read.restore_skills == []
 
     async def test_non_skill_update_refreshes_head_and_version_skill_bindings(
         self,
@@ -2978,7 +2966,7 @@ class TestAgentPresetService:
         with pytest.raises(TracecatValidationError, match="not found"):
             await agent_preset_service.restore_version(created_preset, version_1)
 
-    async def test_restore_version_rejects_soft_deleted_subagent_bindings(
+    async def test_restore_version_keeps_deleted_subagents_unlinked_after_slug_reuse(
         self,
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
@@ -3015,14 +3003,16 @@ class TestAgentPresetService:
 
         await agent_preset_service.delete_preset(child)
 
-        with pytest.raises(
-            TracecatValidationError,
-            match="soft-deleted or missing subagent",
-        ):
-            await agent_preset_service.restore_version(parent, version_with_child)
+        replacement = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Replacement Child", "slug": child.slug}
+            )
+        )
+        assert replacement.id != child.id
+        await agent_preset_service.restore_version(parent, version_with_child)
 
         await agent_preset_service.session.refresh(parent)
-        assert parent.current_version_id == version_without_child.id
+        assert parent.current_version_id != version_without_child.id
         assert parent.agents == {"subagents": []}
 
     async def test_restore_version_locks_skill_bindings_during_validation(
@@ -3432,12 +3422,14 @@ class TestAgentPresetService:
 
         assert call_order == ["lock_target"]
 
-    async def test_delete_preset_preserves_parent_reference_and_version(
+    @pytest.mark.parametrize("hard_delete", [False, True])
+    async def test_delete_preset_unlinks_parent_and_saved_versions(
         self,
+        hard_delete: bool,
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
     ) -> None:
-        """Soft deletion does not rewrite a referencing parent preset."""
+        """Deletion removes dependencies from current and historical versions."""
         child = await agent_preset_service.create_preset(
             agent_preset_create_params.model_copy(
                 update={"name": "Child Agent", "slug": "child-agent"}
@@ -3459,29 +3451,71 @@ class TestAgentPresetService:
 
         original_parent_version_id = parent.current_version_id
 
-        await agent_preset_service.delete_preset(child)
+        await agent_preset_service.delete_preset(child, hard_delete=hard_delete)
 
         refreshed_parent = await agent_preset_service.get_preset(parent.id)
         assert refreshed_parent is not None
         assert refreshed_parent.current_version_id == original_parent_version_id
         refs = AgentSubagentsConfig.model_validate(refreshed_parent.agents).subagents
-        assert len(refs) == 1
-        assert refs[0].preset == child.slug
+        assert refs == []
         assert await agent_preset_service.get_preset(child.id) is None
         config = await agent_preset_service.resolve_agent_preset_config(
             preset_id=parent.id
         )
-        assert len(config.agents.subagents) == 1
-        resolved_ref = config.agents.subagents[0]
-        assert isinstance(resolved_ref, ResolvedAttachedSubagentRef)
-        assert resolved_ref.preset_id == child.id
+        assert config.agents.subagents == []
+
+    async def test_delete_subagent_cleans_deleted_parents_and_all_versions(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Removed child", "slug": "removed-child"}
+            )
+        )
+        kept = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Kept child", "slug": "kept-child"}
+            )
+        )
+        parent = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={
+                    "name": "Deleted parent",
+                    "slug": "deleted-parent",
+                    "agents": AgentSubagentsConfig.model_validate(
+                        {"subagents": [{"preset": kept.slug}, {"preset": child.slug}]}
+                    ),
+                }
+            )
+        )
+        first = await agent_preset_service.get_current_version_for_preset(parent)
+        await agent_preset_service.update_preset(
+            parent, AgentPresetUpdate(instructions="Second version")
+        )
+        second = await agent_preset_service.get_current_version_for_preset(parent)
+        await agent_preset_service.delete_preset(parent)
+        await agent_preset_service.delete_preset(child)
+        deleted_parent = await agent_preset_service.get_preset(
+            parent.id, include_deleted=True
+        )
+        assert deleted_parent is not None
+        for snapshot in (deleted_parent, first, second):
+            await agent_preset_service.session.refresh(snapshot)
+            refs = AgentSubagentsConfig.model_validate(snapshot.agents).subagents
+            assert len(refs) == 1
+            assert isinstance(refs[0], ResolvedAttachedSubagentRef)
+            assert refs[0].preset_id == kept.id
+        assert first.instructions == agent_preset_create_params.instructions
+        assert second.instructions == "Second version"
 
     async def test_delete_preset_soft_deletes_when_only_referenced_as_subagent_in_history(
         self,
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
     ) -> None:
-        """Historical subagent references remain runnable after soft deletion."""
+        """Deletion removes links even when only historical versions use them."""
         child = await agent_preset_service.create_preset(
             agent_preset_create_params.model_copy(
                 update={"name": "Historical Child", "slug": "historical-child"}
@@ -3515,7 +3549,7 @@ class TestAgentPresetService:
             parent_slug=parent.slug,
             include_runtime_config=True,
         )
-        assert resolved.subagents[0].binding.preset_id == child.id
+        assert resolved.subagents == []
 
         with pytest.raises(TracecatNotFoundError):
             await agent_preset_service.create_preset(

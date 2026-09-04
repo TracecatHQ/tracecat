@@ -3893,13 +3893,15 @@ class TestSkillService:
 
         assert lock_calls == 1
 
-    async def test_archive_preserves_preset_bindings_and_version(
+    @pytest.mark.parametrize("hard_delete", [False, True])
+    async def test_archive_unlinks_current_and_saved_preset_bindings(
         self,
+        hard_delete: bool,
         session: AsyncSession,
         svc_role: Role,
         skill_service: SkillService,
     ) -> None:
-        """Soft deletion preserves existing preset references and execution."""
+        """Deletion removes dependency membership from heads and saved versions."""
 
         created = await skill_service.create_skill(SkillCreate(name="bound-skill"))
         await skill_service.publish_skill(created.id)
@@ -3922,21 +3924,27 @@ class TestSkillService:
 
         original_version_id = preset.current_version_id
 
-        await skill_service.archive_skill(created.id)
+        await skill_service.archive_skill(created.id, hard_delete=hard_delete)
 
         refreshed = await preset_service.get_preset(preset.id)
         assert refreshed is not None
         assert refreshed.current_version_id == original_version_id
         head_bindings = await preset_service._list_head_skill_bindings(preset.id)
-        assert [binding.skill_id for binding in head_bindings] == [created.id]
+        assert head_bindings == []
         assert original_version_id is not None
         for use_latest_versions in (False, True):
             resolved = await skill_service.get_resolved_skill_refs_for_preset_version(
                 original_version_id,
                 use_latest_versions=use_latest_versions,
             )
-            assert [skill.skill_id for skill in resolved] == [created.id]
+            assert resolved == []
         assert await skill_service.get_skill(created.id) is None
+        saved = await preset_service.get_version(original_version_id)
+        assert saved is not None
+        replacement = await skill_service.create_skill(SkillCreate(name="bound-skill"))
+        await skill_service.publish_skill(replacement.id)
+        await preset_service.restore_version(refreshed, saved)
+        assert await preset_service._list_head_skill_bindings(preset.id) == []
 
     async def test_archive_allows_when_only_preset_history_references_skill(
         self,
