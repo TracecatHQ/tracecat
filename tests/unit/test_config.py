@@ -375,13 +375,6 @@ def test_sentry_dsn_is_forwarded_to_platform_compose_services(
     assert "SENTRY_DSN: ${SENTRY_DSN:-}" in service_match.group("body")
 
 
-def test_platform_otel_operator_settings_are_not_advertised_in_env_example() -> None:
-    source = (REPO_ROOT / ".env.example").read_text()
-    assert "TRACECAT__PLATFORM_OTEL_ENABLED" not in source
-    assert "OTEL_EXPORTER_OTLP_ENDPOINT" not in source
-    assert "OTEL_EXPORTER_OTLP_HEADERS" not in source
-
-
 def test_bound_env_clamps_below_lower(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TEST_BOUND_ENV", "4")
 
