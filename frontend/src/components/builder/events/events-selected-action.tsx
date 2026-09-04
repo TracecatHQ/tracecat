@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
 import {
+  getSyntheticPinnedEventMeta,
   groupEventsByActionRef,
   refToLabel,
   type WorkflowExecutionEventCompact,
@@ -46,11 +47,6 @@ export function ActionEventPane({
   const [isSavingPins, setIsSavingPins] = useState(false)
   const draftPins = getWorkflowDraftPins(workflow)
   const isResultTab = type === "result"
-  const selectedRefIsPinned =
-    isResultTab &&
-    selectedActionEventRef !== undefined &&
-    draftPins?.source_execution_id === execution.id &&
-    draftPins.action_refs.includes(selectedActionEventRef)
 
   if (!workflowId)
     return <AlertNotification level="error" message="No workflow in context" />
@@ -66,6 +62,22 @@ export function ActionEventPane({
     )
   }
   const groupedEvents = groupEventsByActionRef(events)
+  const selectedEvents = selectedActionEventRef
+    ? groupedEvents[selectedActionEventRef]
+    : undefined
+  const selectedRefMatchesPinSource =
+    draftPins !== null &&
+    (draftPins.source_execution_id === execution.id ||
+      selectedEvents?.some(
+        (event) =>
+          getSyntheticPinnedEventMeta(event)?.source_execution_id ===
+          draftPins.source_execution_id
+      ) === true)
+  const selectedRefIsPinned =
+    isResultTab &&
+    selectedActionEventRef !== undefined &&
+    selectedRefMatchesPinSource &&
+    draftPins?.action_refs.includes(selectedActionEventRef)
   const canPinSelected = isPinnableActionEvent(
     selectedActionEventRef,
     groupedEvents,
@@ -110,10 +122,7 @@ export function ActionEventPane({
   }
 
   const handleUnpinSelected = async () => {
-    if (
-      !selectedActionEventRef ||
-      draftPins?.source_execution_id !== execution.id
-    ) {
+    if (!selectedActionEventRef || !selectedRefIsPinned || !draftPins) {
       return
     }
     const nextRefs = draftPins.action_refs.filter(
@@ -122,7 +131,7 @@ export function ActionEventPane({
     const saved = await saveDraftPins(
       nextRefs.length > 0
         ? {
-            source_execution_id: execution.id,
+            source_execution_id: draftPins.source_execution_id,
             action_refs: nextRefs,
           }
         : null

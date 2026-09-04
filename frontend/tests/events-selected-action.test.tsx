@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 
-import { render, screen } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import type React from "react"
 import { ActionEventPane } from "@/components/builder/events/events-selected-action"
 import { SuccessEvent } from "@/components/executions/action-event-details"
@@ -12,6 +12,7 @@ import {
 } from "@/lib/event-history"
 import { isCollectionStoredObject } from "@/lib/stored-object"
 import { useWorkflowBuilder } from "@/providers/builder"
+import { useWorkflow } from "@/providers/workflow"
 
 jest.mock("@ai-sdk/react", () => ({
   useChat: jest.fn(() => ({
@@ -100,8 +101,18 @@ jest.mock("@/components/ui/badge", () => ({
 }))
 
 jest.mock("@/components/ui/button", () => ({
-  Button: ({ children }: { children: React.ReactNode }) => (
-    <button type="button">{children}</button>
+  Button: ({
+    children,
+    disabled,
+    onClick,
+  }: {
+    children: React.ReactNode
+    disabled?: boolean
+    onClick?: React.MouseEventHandler<HTMLButtonElement>
+  }) => (
+    <button type="button" disabled={disabled} onClick={onClick}>
+      {children}
+    </button>
   ),
 }))
 
@@ -180,10 +191,10 @@ jest.mock("@/providers/builder", () => ({
 }))
 
 jest.mock("@/providers/workflow", () => ({
-  useWorkflow: () => ({
+  useWorkflow: jest.fn(() => ({
     workflow: null,
     updateWorkflow: jest.fn(),
-  }),
+  })),
 }))
 
 const mockIsCollectionStoredObject =
@@ -193,6 +204,7 @@ const mockIsCollectionStoredObject =
 const mockUseWorkflowBuilder = useWorkflowBuilder as jest.MockedFunction<
   typeof useWorkflowBuilder
 >
+const mockUseWorkflow = useWorkflow as jest.MockedFunction<typeof useWorkflow>
 
 function createEvent(
   overrides: Partial<WorkflowExecutionEventCompact> = {}
@@ -388,6 +400,73 @@ describe("SuccessEvent", () => {
     expect(screen.getByTestId("json-view")).toHaveAttribute(
       "data-copy-prefix",
       "ACTIONS.reshape"
+    )
+  })
+})
+
+describe("ActionEventPane draft pins", () => {
+  it("unpins a stitched result without changing its source or other refs", async () => {
+    const updateWorkflow = jest.fn().mockResolvedValue(undefined)
+    mockUseWorkflowBuilder.mockReturnValue({
+      workspaceId: "workspace-1",
+      workflowId: "workflow-1",
+      selectedActionEventRef: "reshape",
+      setSelectedActionEventRef: jest.fn(),
+    } as never)
+    mockUseWorkflow.mockReturnValue({
+      workflow: {
+        draft_pins: {
+          source_execution_id: "exec-source",
+          action_refs: ["reshape", "other"],
+        },
+        actions: {
+          "action-reshape": {
+            id: "action-reshape",
+            type: "core.noop",
+            title: "reshape",
+            description: "",
+            status: "online",
+            inputs: "",
+            upstream_edges: [],
+          },
+        },
+      },
+      updateWorkflow,
+    } as never)
+
+    render(
+      <ActionEventPane
+        execution={
+          {
+            id: "exec-current",
+            status: "COMPLETED",
+            events: [
+              createEvent({
+                source_event_id: 99,
+                action_ref: "reshape",
+                action_name: "Reshape",
+                curr_event_type: "ACTIVITY_TASK_COMPLETED",
+                stream_id: "<root>:0",
+                synthetic_kind: "pinned",
+                pinned_source_execution_id: "exec-source",
+                pinned_source_event_id: 42,
+              }),
+            ],
+          } as never
+        }
+        type="result"
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Unpin selected" }))
+
+    await waitFor(() =>
+      expect(updateWorkflow).toHaveBeenCalledWith({
+        draft_pins: {
+          source_execution_id: "exec-source",
+          action_refs: ["other"],
+        },
+      })
     )
   })
 })
