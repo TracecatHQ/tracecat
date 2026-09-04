@@ -17,12 +17,20 @@ import uuid
 from typing import TYPE_CHECKING
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
+from tracecat.authz.membership import mirror_assignment_grant, mirror_assignment_revoke
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_engine, get_async_session
+from tracecat.db.models import (
+    LegacyMembership,
+    LegacyOrganizationMembership,
+    Organization,
+    User,
+    Workspace,
+)
 from tracecat.db.rls import (
     RLS_BYPASS_OFF,
     RLS_BYPASS_ON,
@@ -31,6 +39,7 @@ from tracecat.db.rls import (
     RLS_VAR_ORG_ID,
     RLS_VAR_WORKSPACE_ID,
     is_rls_enabled,
+    is_rls_mode_enforce,
     set_rls_context,
 )
 
@@ -169,6 +178,128 @@ class TestRlsContextVariables:
             text(f"SELECT current_setting('{RLS_VAR_WORKSPACE_ID}', true)")
         )
         assert result.scalar() == str(workspace_id_a)
+
+    @pytest.mark.skipif(
+        not is_rls_mode_enforce(),
+        reason="Legacy mirror bypass is required only in RLS enforce mode",
+    )
+    @pytest.mark.anyio
+    async def test_legacy_membership_mirror_bypasses_and_restores_context(
+        self,
+        rls_session: AsyncSession,
+    ):
+        """Org-scoped mirrors can write workspace rows without leaking bypass."""
+        organization = Organization(
+            id=uuid.uuid4(),
+            name="RLS mirror organization",
+            slug=f"rls-mirror-{uuid.uuid4().hex[:8]}",
+        )
+        workspace = Workspace(
+            id=uuid.uuid4(),
+            name="RLS mirror workspace",
+            organization_id=organization.id,
+        )
+        user = User(
+            id=uuid.uuid4(),
+            email=f"rls-mirror-{uuid.uuid4().hex[:8]}@example.com",
+            hashed_password="test",
+        )
+        await set_rls_context(
+            rls_session,
+            org_id=None,
+            workspace_id=None,
+            bypass=True,
+        )
+        rls_session.add_all([organization, workspace, user])
+        await rls_session.flush()
+
+        await set_rls_context(
+            rls_session,
+            org_id=organization.id,
+            workspace_id=None,
+            bypass=False,
+        )
+        await mirror_assignment_grant(
+            rls_session,
+            user_id=user.id,
+            organization_id=organization.id,
+            workspace_id=workspace.id,
+        )
+        assert (
+            await rls_session.scalar(
+                text(f"SELECT current_setting('{RLS_VAR_BYPASS}', true)")
+            )
+            == RLS_BYPASS_OFF
+        )
+
+        await set_rls_context(
+            rls_session,
+            org_id=None,
+            workspace_id=None,
+            bypass=True,
+        )
+        assert (
+            await rls_session.scalar(
+                select(LegacyMembership).where(
+                    LegacyMembership.user_id == user.id,
+                    LegacyMembership.workspace_id == workspace.id,
+                )
+            )
+            is not None
+        )
+        assert (
+            await rls_session.scalar(
+                select(LegacyOrganizationMembership).where(
+                    LegacyOrganizationMembership.user_id == user.id,
+                    LegacyOrganizationMembership.organization_id == organization.id,
+                )
+            )
+            is not None
+        )
+
+        await set_rls_context(
+            rls_session,
+            org_id=organization.id,
+            workspace_id=None,
+            bypass=False,
+        )
+        await mirror_assignment_revoke(
+            rls_session,
+            user_id=user.id,
+            organization_id=organization.id,
+            workspace_id=workspace.id,
+        )
+        assert (
+            await rls_session.scalar(
+                text(f"SELECT current_setting('{RLS_VAR_BYPASS}', true)")
+            )
+            == RLS_BYPASS_OFF
+        )
+
+        await set_rls_context(
+            rls_session,
+            org_id=None,
+            workspace_id=None,
+            bypass=True,
+        )
+        assert (
+            await rls_session.scalar(
+                select(LegacyMembership).where(
+                    LegacyMembership.user_id == user.id,
+                    LegacyMembership.workspace_id == workspace.id,
+                )
+            )
+            is None
+        )
+        assert (
+            await rls_session.scalar(
+                select(LegacyOrganizationMembership).where(
+                    LegacyOrganizationMembership.user_id == user.id,
+                    LegacyOrganizationMembership.organization_id == organization.id,
+                )
+            )
+            is None
+        )
 
 
 class TestRlsPolicyEnforcement:

@@ -19,6 +19,9 @@ from tracecat.authz.enums import ScopeSource
 from tracecat.authz.membership import (
     mirror_assignment_grant,
     mirror_assignment_revoke,
+    mirror_group_assignment_grant,
+    mirror_group_member_grant,
+    mirror_group_revoke,
     org_membership_predicate,
 )
 from tracecat.authz.scopes import PRESET_ROLE_SCOPES
@@ -462,6 +465,13 @@ class RBACService(BaseOrgService):
 
         member = GroupMember(group_id=group_id, user_id=user_id)
         self.session.add(member)
+        await self.session.flush()
+        await mirror_group_member_grant(
+            self.session,
+            group_id=group_id,
+            user_id=user_id,
+            organization_id=self.organization_id,
+        )
         await self.session.commit()
 
     @require_scope("org:rbac:update")
@@ -484,7 +494,26 @@ class RBACService(BaseOrgService):
         if member is None:
             raise TracecatNotFoundError("Group member not found")
 
+        affected_workspace_ids = (
+            await self.session.scalars(
+                select(GroupRoleAssignment.workspace_id).where(
+                    GroupRoleAssignment.group_id == group_id,
+                    GroupRoleAssignment.organization_id == self.organization_id,
+                )
+            )
+        ).all()
         await self.session.delete(member)
+        await self.session.flush()
+        await mirror_group_revoke(
+            self.session,
+            user_ids=[user_id],
+            organization_id=self.organization_id,
+            workspace_ids=[
+                workspace_id
+                for workspace_id in affected_workspace_ids
+                if workspace_id is not None
+            ],
+        )
         await self.session.commit()
 
     async def list_group_members(
@@ -596,6 +625,13 @@ class RBACService(BaseOrgService):
             assigned_by=self.role.user_id,
         )
         self.session.add(assignment)
+        await self.session.flush()
+        await mirror_group_assignment_grant(
+            self.session,
+            group_id=group_id,
+            organization_id=self.organization_id,
+            workspace_id=workspace_id,
+        )
         await self.session.commit()
         await self.session.refresh(assignment, ["group", "role", "workspace"])
         return assignment
@@ -632,7 +668,23 @@ class RBACService(BaseOrgService):
     async def delete_group_role_assignment(self, assignment_id: UUID) -> None:
         """Delete a group assignment."""
         assignment = await self.get_group_role_assignment(assignment_id)
+        user_ids = (
+            await self.session.scalars(
+                select(GroupMember.user_id).where(
+                    GroupMember.group_id == assignment.group_id
+                )
+            )
+        ).all()
+        organization_id = assignment.organization_id
+        workspace_id = assignment.workspace_id
         await self.session.delete(assignment)
+        await self.session.flush()
+        await mirror_group_revoke(
+            self.session,
+            user_ids=user_ids,
+            organization_id=organization_id,
+            workspace_ids=[workspace_id] if workspace_id is not None else [],
+        )
         await self.session.commit()
 
     # =========================================================================

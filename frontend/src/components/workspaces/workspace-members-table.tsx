@@ -266,6 +266,8 @@ export function WorkspaceMembersTable({
               enableHiding: false,
               cell: ({ row }) => {
                 const isGroupDerived = row.original.source.kind === "group"
+                const hasGroupGrant =
+                  (row.original.source.group_names?.length ?? 0) > 0
                 return (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
@@ -283,21 +285,38 @@ export function WorkspaceMembersTable({
                         Copy user ID
                       </DropdownMenuItem>
 
-                      {canUpdateMembers && (
-                        <DialogTrigger asChild>
-                          <DropdownMenuItem
-                            onClick={() => {
-                              setSelectedUser(row.original)
-                              setIsChangeRoleOpen(true)
-                            }}
-                          >
-                            Change role
-                          </DropdownMenuItem>
-                        </DialogTrigger>
-                      )}
+                      {canUpdateMembers &&
+                        (isGroupDerived ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="block" tabIndex={0}>
+                                <DropdownMenuItem
+                                  disabled
+                                  onSelect={(event) => event.preventDefault()}
+                                >
+                                  Change role
+                                </DropdownMenuItem>
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              Change the role on the granting group instead.
+                            </TooltipContent>
+                          </Tooltip>
+                        ) : (
+                          <DialogTrigger asChild>
+                            <DropdownMenuItem
+                              onClick={() => {
+                                setSelectedUser(row.original)
+                                setIsChangeRoleOpen(true)
+                              }}
+                            >
+                              Change role
+                            </DropdownMenuItem>
+                          </DialogTrigger>
+                        ))}
 
                       {canRemoveMembers &&
-                        (isGroupDerived ? (
+                        (hasGroupGrant ? (
                           <Tooltip>
                             <TooltipTrigger asChild>
                               {/* A focusable span keeps the tooltip reachable by

@@ -102,9 +102,12 @@ def test_tenant_rls_registry_contains_only_mapped_tables() -> None:
     )
 
 
-def test_membership_selectable_is_not_registered_for_tenant_rls() -> None:
-    assert "membership" not in ALL_TENANT_RLS_TABLES
+def test_legacy_membership_tables_stay_registered_for_tenant_rls() -> None:
+    # The derived selectable is not a table; the legacy tables it mirrors keep
+    # their policies until the contract release drops them.
     assert not isinstance(Membership.__table__, Table)
+    assert "membership" in WORKSPACE_POLICY_TABLES
+    assert "organization_membership" in ORG_POLICY_TABLES
 
 
 def test_assignment_tables_use_split_policy() -> None:

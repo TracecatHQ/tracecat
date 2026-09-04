@@ -18,6 +18,8 @@ from tracecat.db.models import (
     Group,
     GroupMember,
     GroupRoleAssignment,
+    LegacyMembership,
+    LegacyOrganizationMembership,
     Organization,
     RoleScope,
     Scope,
@@ -645,6 +647,157 @@ class TestRBACServiceAssignments:
         )
 
         assert assignment.workspace_id == workspace.id
+
+    async def test_add_and_remove_member_mirrors_workspace_grant(
+        self,
+        session: AsyncSession,
+        role: Role,
+        user: User,
+        workspace: Workspace,
+    ):
+        """Group membership changes mirror workspace grants for old pods."""
+        service = RBACService(session, role=role)
+        custom_role = await service.create_role(name="Workspace Mirror Role")
+        group = await service.create_group(name="Workspace Mirror Group")
+        await service.create_group_role_assignment(
+            group_id=group.id,
+            role_id=custom_role.id,
+            workspace_id=workspace.id,
+        )
+
+        await service.add_group_member(group.id, user.id)
+
+        legacy_workspace = await session.scalar(
+            select(LegacyMembership).where(
+                LegacyMembership.user_id == user.id,
+                LegacyMembership.workspace_id == workspace.id,
+            )
+        )
+        assert legacy_workspace is not None
+
+        await service.remove_group_member(group.id, user.id)
+
+        legacy_workspace = await session.scalar(
+            select(LegacyMembership).where(
+                LegacyMembership.user_id == user.id,
+                LegacyMembership.workspace_id == workspace.id,
+            )
+        )
+        assert legacy_workspace is None
+
+    async def test_create_and_delete_assignment_mirrors_org_grant(
+        self,
+        session: AsyncSession,
+        role: Role,
+        org: Organization,
+        user: User,
+    ):
+        """Group assignment changes mirror org-wide grants for old pods."""
+        service = RBACService(session, role=role)
+        custom_role = await service.create_role(name="Org Mirror Role")
+        group = await service.create_group(name="Org Mirror Group")
+        await service.add_group_member(group.id, user.id)
+
+        direct_assignment = await session.scalar(
+            select(UserRoleAssignment).where(
+                UserRoleAssignment.user_id == user.id,
+                UserRoleAssignment.organization_id == org.id,
+            )
+        )
+        assert direct_assignment is not None
+        await service.delete_user_assignment(direct_assignment.id)
+        assert (
+            await session.scalar(
+                select(LegacyOrganizationMembership).where(
+                    LegacyOrganizationMembership.user_id == user.id,
+                    LegacyOrganizationMembership.organization_id == org.id,
+                )
+            )
+        ) is None
+
+        assignment = await service.create_group_role_assignment(
+            group_id=group.id,
+            role_id=custom_role.id,
+            workspace_id=None,
+        )
+        assert (
+            await session.scalar(
+                select(LegacyOrganizationMembership).where(
+                    LegacyOrganizationMembership.user_id == user.id,
+                    LegacyOrganizationMembership.organization_id == org.id,
+                )
+            )
+        ) is not None
+
+        await service.delete_group_role_assignment(assignment.id)
+        assert (
+            await session.scalar(
+                select(LegacyOrganizationMembership).where(
+                    LegacyOrganizationMembership.user_id == user.id,
+                    LegacyOrganizationMembership.organization_id == org.id,
+                )
+            )
+        ) is None
+
+    async def test_group_revoke_keeps_workspace_row_for_another_path(
+        self,
+        session: AsyncSession,
+        role: Role,
+        user: User,
+        workspace: Workspace,
+    ):
+        """Either group mutation retains a legacy row backed by another group."""
+        service = RBACService(session, role=role)
+        custom_role = await service.create_role(name="Shared Mirror Role")
+        first_group = await service.create_group(name="First Mirror Group")
+        second_group = await service.create_group(name="Second Mirror Group")
+        first_assignment = await service.create_group_role_assignment(
+            group_id=first_group.id,
+            role_id=custom_role.id,
+            workspace_id=workspace.id,
+        )
+        await service.create_group_role_assignment(
+            group_id=second_group.id,
+            role_id=custom_role.id,
+            workspace_id=workspace.id,
+        )
+        await service.add_group_member(first_group.id, user.id)
+        await service.add_group_member(second_group.id, user.id)
+
+        await service.delete_group_role_assignment(first_assignment.id)
+        assert (
+            await session.scalar(
+                select(LegacyMembership).where(
+                    LegacyMembership.user_id == user.id,
+                    LegacyMembership.workspace_id == workspace.id,
+                )
+            )
+        ) is not None
+
+        replacement_assignment = await service.create_group_role_assignment(
+            group_id=first_group.id,
+            role_id=custom_role.id,
+            workspace_id=workspace.id,
+        )
+        await service.remove_group_member(second_group.id, user.id)
+        assert (
+            await session.scalar(
+                select(LegacyMembership).where(
+                    LegacyMembership.user_id == user.id,
+                    LegacyMembership.workspace_id == workspace.id,
+                )
+            )
+        ) is not None
+
+        await service.delete_group_role_assignment(replacement_assignment.id)
+        assert (
+            await session.scalar(
+                select(LegacyMembership).where(
+                    LegacyMembership.user_id == user.id,
+                    LegacyMembership.workspace_id == workspace.id,
+                )
+            )
+        ) is None
 
     async def test_update_assignment(
         self,

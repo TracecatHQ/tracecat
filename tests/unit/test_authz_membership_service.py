@@ -179,7 +179,22 @@ async def test_delete_membership_removes_membership_and_assignment(
             assigned_by=actor_user.id,
         )
     )
+    await session.flush()
+    await mirror_assignment_grant(
+        session,
+        user_id=member_user.id,
+        organization_id=organization.id,
+        workspace_id=workspace.id,
+    )
     await session.commit()
+    assert (
+        await session.scalar(
+            select(LegacyMembership).where(
+                LegacyMembership.workspace_id == workspace.id,
+                LegacyMembership.user_id == member_user.id,
+            )
+        )
+    ) is not None
 
     await membership_service.delete_membership(
         workspace_id=workspace.id,
@@ -916,3 +931,67 @@ async def test_mirror_revoke_keeps_org_row_while_an_assignment_remains(
             )
         )
     ) is None
+
+
+async def test_mirror_revoke_keeps_org_row_for_group_grant(
+    session: AsyncSession,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    workspace_editor_role: DBRole,
+    org_member_role: DBRole,
+) -> None:
+    """A group role path keeps the legacy org row after direct revocation."""
+    group = Group(
+        name="Org mirror group",
+        organization_id=organization.id,
+    )
+    session.add(group)
+    await session.flush()
+    session.add_all(
+        [
+            GroupMember(group_id=group.id, user_id=member_user.id),
+            GroupRoleAssignment(
+                organization_id=organization.id,
+                group_id=group.id,
+                workspace_id=None,
+                role_id=org_member_role.id,
+            ),
+            UserRoleAssignment(
+                organization_id=organization.id,
+                user_id=member_user.id,
+                workspace_id=workspace.id,
+                role_id=workspace_editor_role.id,
+            ),
+        ]
+    )
+    await session.flush()
+    await mirror_assignment_grant(
+        session,
+        user_id=member_user.id,
+        organization_id=organization.id,
+        workspace_id=workspace.id,
+    )
+    await session.commit()
+
+    await session.execute(
+        delete(UserRoleAssignment).where(
+            UserRoleAssignment.user_id == member_user.id,
+            UserRoleAssignment.workspace_id == workspace.id,
+        )
+    )
+    await mirror_assignment_revoke(
+        session,
+        user_id=member_user.id,
+        organization_id=organization.id,
+        workspace_id=workspace.id,
+    )
+    await session.commit()
+
+    legacy_org = await session.scalar(
+        select(LegacyOrganizationMembership).where(
+            LegacyOrganizationMembership.organization_id == organization.id,
+            LegacyOrganizationMembership.user_id == member_user.id,
+        )
+    )
+    assert legacy_org is not None
