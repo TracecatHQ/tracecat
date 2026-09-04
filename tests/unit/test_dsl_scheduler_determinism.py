@@ -567,13 +567,6 @@ async def test_force_skipped_unavailable_guard_keeps_pinned_child_reachable() ->
     pinned = TaskResult.from_result({"value": "pinned-c"})
     scheduler = _make_pinned_scheduler(dsl, {"c": pinned}, executed_refs)
 
-    async def unavailable_upstream(
-        _expression: str, _context: ExecutionContext
-    ) -> bool:
-        raise ApplicationError("ACTIONS.a.result is unavailable")
-
-    scheduler.resolve_expression = unavailable_upstream  # type: ignore[method-assign]
-
     task_exceptions = await scheduler.start()
 
     assert task_exceptions is None
@@ -582,6 +575,40 @@ async def test_force_skipped_unavailable_guard_keeps_pinned_child_reachable() ->
         "value": "pinned-c"
     }
     assert scheduler.skipped_pinned_refs == []
+
+
+@pytest.mark.anyio
+async def test_force_skipped_guard_propagates_unrelated_error() -> None:
+    """A real ancestor guard failure must not count as a successful bypass."""
+    executed_refs: list[str] = []
+    dsl = DSLInput(
+        title="pin-after-force-skipped-guard-error",
+        description="pin-after-force-skipped-guard-error",
+        entrypoint=DSLEntrypoint(ref="a"),
+        actions=[
+            ActionStatement(ref="a", action="core.noop"),
+            ActionStatement(
+                ref="b",
+                action="core.noop",
+                depends_on=["a"],
+                run_if="${{ SECRETS.missing.VALUE }}",
+            ),
+            ActionStatement(ref="c", action="core.noop", depends_on=["b"]),
+        ],
+    )
+    pinned = TaskResult.from_result({"value": "pinned-c"})
+    scheduler = _make_pinned_scheduler(dsl, {"c": pinned}, executed_refs)
+
+    async def guard_error(_expression: str, _context: ExecutionContext) -> bool:
+        raise ApplicationError("Secret lookup failed")
+
+    scheduler.resolve_expression = guard_error  # type: ignore[method-assign]
+
+    task_exceptions = await scheduler.start()
+
+    assert task_exceptions is not None
+    assert "b" in task_exceptions
+    assert executed_refs == []
 
 
 @pytest.mark.anyio

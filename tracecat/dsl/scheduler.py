@@ -943,11 +943,11 @@ class DSLScheduler:
                                     "Force-skipped task guard is false; not a pin bypass",
                                     task=task,
                                 )
-                        except ApplicationError as e:
+                        except _ForceSkippedDependencyUnavailableError as e:
                             self.logger.debug(
-                                "Force-skipped task guard could not be evaluated; assuming pin bypass",
+                                "Force-skipped task guard depends on unavailable skipped results; assuming pin bypass",
                                 task=task,
-                                error=e,
+                                unavailable_refs=sorted(e.refs),
                             )
                     if should_record_bypass:
                         self.pin_bypassed.add(task)
