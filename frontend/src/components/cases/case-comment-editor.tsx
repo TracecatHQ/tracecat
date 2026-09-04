@@ -97,6 +97,7 @@ export function CaseCommentEditor({
         imageWorkspaceId={workspaceId}
         onImageUpload={handleImageUpload}
         onEditorReady={onEditorReady}
+        allowCommentMentionUris
       />
     </div>
   )

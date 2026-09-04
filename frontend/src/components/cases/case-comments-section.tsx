@@ -17,7 +17,7 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import type React from "react"
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import type { CaseCommentRead, CaseCommentThreadRead } from "@/client"
@@ -631,13 +631,17 @@ function CommentComposer({
     ]
   )
 
-  const handleMentionKeyDown = mentions.handleKeyDown
+  const handleMentionKeyDownRef = useRef(mentions.handleKeyDown)
+  useEffect(() => {
+    handleMentionKeyDownRef.current = mentions.handleKeyDown
+  }, [mentions.handleKeyDown])
+
   useEffect(() => {
     if (!editor) {
       return
     }
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (handleMentionKeyDown(event)) {
+      if (handleMentionKeyDownRef.current(event)) {
         event.stopPropagation()
         return
       }
@@ -659,14 +663,7 @@ function CommentComposer({
     return () => {
       editorElement.removeEventListener("keydown", handleKeyDown, true)
     }
-  }, [
-    createCommentIsPending,
-    editor,
-    form,
-    handleMentionKeyDown,
-    handleSubmit,
-    imageUploading,
-  ])
+  }, [createCommentIsPending, editor, form, handleSubmit, imageUploading])
 
   return (
     <div

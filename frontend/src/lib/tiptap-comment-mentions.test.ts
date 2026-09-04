@@ -4,7 +4,9 @@ import {
   buildAgentMentionHref,
   buildWorkflowMentionHref,
   commentMentionLeafText,
+  findEditedCommentMentionIndexes,
   isCommentMentionHref,
+  nodeAllowsCommentMention,
   preventCommentMentionNavigation,
   serializeTiptapComment,
 } from "@/lib/tiptap-comment-mentions"
@@ -148,5 +150,53 @@ describe("TipTap comment mention serialization", () => {
         commentMentionLeafText
       )
     ).toBe("First line\n@triage")
+  })
+
+  it("recognizes text blocks that can carry mention links", () => {
+    const schema = new Schema({
+      nodes: {
+        doc: { content: "block+" },
+        paragraph: { content: "inline*", group: "block" },
+        codeBlock: {
+          content: "text*",
+          group: "block",
+          marks: "",
+          code: true,
+        },
+        text: { group: "inline" },
+      },
+      marks: { link: { attrs: { href: {} } } },
+    })
+
+    expect(
+      nodeAllowsCommentMention(schema.node("paragraph"), schema.marks.link)
+    ).toBe(true)
+    expect(
+      nodeAllowsCommentMention(schema.node("codeBlock"), schema.marks.link)
+    ).toBe(false)
+  })
+
+  it("detects a selected mention whose visible label was edited", () => {
+    expect(
+      findEditedCommentMentionIndexes(
+        [{ href: buildAgentMentionHref("agent-id"), text: "@Triage agent" }],
+        [{ href: buildAgentMentionHref("agent-id"), text: "@Triage agnt" }]
+      )
+    ).toEqual([0])
+  })
+
+  it("does not treat inserted or replaced mentions as label edits", () => {
+    expect(
+      findEditedCommentMentionIndexes(
+        [],
+        [{ href: buildAgentMentionHref("agent-id"), text: "@Triage agent" }]
+      )
+    ).toEqual([])
+    expect(
+      findEditedCommentMentionIndexes(
+        [{ href: buildAgentMentionHref("old-agent"), text: "@Old agent" }],
+        [{ href: buildAgentMentionHref("new-agent"), text: "@New agent" }]
+      )
+    ).toEqual([])
   })
 })

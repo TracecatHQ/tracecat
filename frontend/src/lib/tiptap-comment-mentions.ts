@@ -1,4 +1,4 @@
-import type { Node as ProseMirrorNode } from "@tiptap/pm/model"
+import type { MarkType, Node as ProseMirrorNode } from "@tiptap/pm/model"
 
 /** URI prefix used only while a workflow command is visible in TipTap. */
 export const WORKFLOW_MENTION_URI_SCHEME = "workflow-mention://"
@@ -41,6 +41,37 @@ export function preventCommentMentionNavigation(event: MouseEvent): boolean {
 /** Convert hard breaks to whitespace while scanning for a mention token. */
 export function commentMentionLeafText(node: ProseMirrorNode): string {
   return node.type.name === "hardBreak" ? "\n" : "\ufffc"
+}
+
+/** Return whether a text block can represent a comment mention link. */
+export function nodeAllowsCommentMention(
+  node: ProseMirrorNode,
+  linkMark: MarkType | undefined
+): boolean {
+  return Boolean(linkMark && node.type.allowsMarkType(linkMark))
+}
+
+/** A comment mention's stable identity and visible label. */
+export interface CommentMentionLinkSnapshot {
+  href: string
+  text: string
+}
+
+/** Find mention links whose visible label was edited in place. */
+export function findEditedCommentMentionIndexes(
+  previous: CommentMentionLinkSnapshot[],
+  current: CommentMentionLinkSnapshot[]
+): number[] {
+  if (previous.length !== current.length) {
+    return []
+  }
+  return current.flatMap((mention, index) => {
+    const oldMention = previous[index]
+    if (oldMention?.href === mention.href && oldMention.text !== mention.text) {
+      return [index]
+    }
+    return []
+  })
 }
 
 /** Content and workflow metadata ready for the existing comments API. */

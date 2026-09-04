@@ -3,7 +3,7 @@
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model"
 import { TextSelection } from "@tiptap/pm/state"
 import type { Editor } from "@tiptap/react"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   type MentionSourceConfig,
   type MentionSourceState,
@@ -19,8 +19,11 @@ import type { CaretCoordinates } from "@/lib/textarea-caret"
 import {
   buildAgentMentionHref,
   buildWorkflowMentionHref,
+  type CommentMentionLinkSnapshot,
   commentMentionLeafText,
+  findEditedCommentMentionIndexes,
   isCommentMentionHref,
+  nodeAllowsCommentMention,
   serializeTiptapComment,
   WORKFLOW_MENTION_URI_SCHEME,
 } from "@/lib/tiptap-comment-mentions"
@@ -38,6 +41,7 @@ interface MentionLinkRange {
   from: number
   to: number
   href: string
+  text: string
 }
 
 interface UseTiptapMentionsOptions {
@@ -82,9 +86,15 @@ function findMentionLinkRanges(doc: ProseMirrorNode): MentionLinkRange[] {
     const previous = ranges.at(-1)
     if (previous && previous.href === href && previous.to === pos) {
       previous.to = pos + node.nodeSize
+      previous.text += node.text ?? ""
       return
     }
-    ranges.push({ from: pos, to: pos + node.nodeSize, href })
+    ranges.push({
+      from: pos,
+      to: pos + node.nodeSize,
+      href,
+      text: node.text ?? "",
+    })
   })
   return ranges
 }
@@ -134,6 +144,7 @@ export function useTiptapMentions({
   workflows: workflowsConfig,
 }: UseTiptapMentionsOptions): TiptapMentions {
   const [session, setSession] = useState<TiptapMentionSession | undefined>()
+  const mentionLinksRef = useRef<CommentMentionLinkSnapshot[]>([])
   const { agents, workflows, sections, locked, isLoading, hasError } =
     useMentionSuggestions({
       workspaceId,
@@ -165,7 +176,11 @@ export function useTiptapMentions({
       return
     }
     const { $from } = editor.state.selection
-    if (!$from.parent.isTextblock) {
+    const linkMark = editor.state.schema.marks.link
+    if (
+      !$from.parent.isTextblock ||
+      !nodeAllowsCommentMention($from.parent, linkMark)
+    ) {
       setSession(undefined)
       return
     }
@@ -206,7 +221,34 @@ export function useTiptapMentions({
       setSession(undefined)
       return
     }
-    const handleChange = () => syncSession()
+    mentionLinksRef.current = findMentionLinkRanges(editor.state.doc)
+    const handleChange = () => {
+      const ranges = findMentionLinkRanges(editor.state.doc)
+      const editedIndexes = findEditedCommentMentionIndexes(
+        mentionLinksRef.current,
+        ranges
+      )
+      mentionLinksRef.current = ranges
+      if (editedIndexes.length > 0) {
+        const linkMark = editor.state.schema.marks.link
+        if (linkMark) {
+          let transaction = editor.state.tr
+          for (const index of editedIndexes) {
+            const range = ranges[index]
+            if (range) {
+              transaction = transaction.removeMark(
+                range.from,
+                range.to,
+                linkMark
+              )
+            }
+          }
+          editor.view.dispatch(transaction)
+          return
+        }
+      }
+      syncSession()
+    }
     const handleBlur = () => setSession(undefined)
     editor.on("update", handleChange)
     editor.on("selectionUpdate", handleChange)

@@ -573,6 +573,8 @@ export interface SimpleEditorProps {
   onImageUpload?: (file: File) => Promise<string>
   /** Called when the TipTap editor instance becomes available or is removed. */
   onEditorReady?: (editor: Editor | null) => void
+  /** Allow the internal URI schemes used by case comment mentions. */
+  allowCommentMentionUris?: boolean
 }
 
 export function SimpleEditor({
@@ -595,6 +597,7 @@ export function SimpleEditor({
   imageWorkspaceId = null,
   onImageUpload,
   onEditorReady,
+  allowCommentMentionUris = false,
 }: SimpleEditorProps) {
   const isMobile = useIsMobile()
   const { height } = useWindowSize()
@@ -619,8 +622,9 @@ export function SimpleEditor({
           openOnClick: false,
           enableClickSelection: true,
           isAllowedUri: (url, { defaultValidate }) =>
-            url.startsWith(AGENT_MENTION_URI_SCHEME) ||
-            url.startsWith(WORKFLOW_MENTION_URI_SCHEME) ||
+            (allowCommentMentionUris &&
+              (url.startsWith(AGENT_MENTION_URI_SCHEME) ||
+                url.startsWith(WORKFLOW_MENTION_URI_SCHEME))) ||
             defaultValidate(url),
         },
       }),
@@ -666,7 +670,12 @@ export function SimpleEditor({
         },
       }),
     ],
-    [renderMermaidWhenBlurred, enableImages, imageWorkspaceId]
+    [
+      allowCommentMentionUris,
+      renderMermaidWhenBlurred,
+      enableImages,
+      imageWorkspaceId,
+    ]
   )
 
   const editor = useEditor({
@@ -684,7 +693,9 @@ export function SimpleEditor({
         ...(placeholder ? { "data-placeholder": placeholder } : {}),
       },
       handleClick: (_view, _pos, event) => {
-        if (preventCommentMentionNavigation(event)) return true
+        if (allowCommentMentionUris && preventCommentMentionNavigation(event)) {
+          return true
+        }
         if (!event.metaKey && !event.ctrlKey) return false
         const href = (event.target as HTMLElement | null)
           ?.closest("a")
