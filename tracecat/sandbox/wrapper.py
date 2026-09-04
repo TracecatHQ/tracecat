@@ -196,26 +196,55 @@ def _release_exception_chain(error):
     against a cap that is still fully consumed.
     """
     seen = set()
-    current = error
-    while current is not None and id(current) not in seen:
+    pending = [error]
+    while pending:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
         seen.add(id(current))
         current.__traceback__ = None
-        following = current.__cause__ or current.__context__
+        # Both links, not the first one that happens to be set: an exception
+        # can carry a distinct cause and context, and either frame can be the
+        # one holding what exhausted the cap.
+        for following in (current.__cause__, current.__context__):
+            if following is not None:
+                pending.append(following)
         current.__cause__ = None
         current.__context__ = None
-        current = following
 
 
 def main():
     """Execute user script and capture results."""
     _enforce_nproc_limit()
 
-    # Read inputs from file
+    # Read inputs from file. A large enough inputs.json can exhaust the cap
+    # here, before any handler below exists, so guard it too: dying at this
+    # point would leave no result.json and report a generic workload failure
+    # for what really was the memory limit.
     inputs_path = Path("/work/inputs.json")
-    if inputs_path.exists():
-        inputs = json.loads(inputs_path.read_text())
-    else:
-        inputs = {}
+    try:
+        if inputs_path.exists():
+            inputs = json.loads(inputs_path.read_text())
+        else:
+            inputs = {}
+    except (MemoryError, OSError) as exc:
+        if not _is_memory_exhaustion(exc):
+            raise
+        _release_exception_chain(exc)
+        Path("/work/result.json").write_text(
+            json.dumps(
+                {
+                    "success": False,
+                    "output": None,
+                    "error": "Script inputs exceeded the sandbox memory limit",
+                    "traceback": None,
+                    "stdout": "",
+                    "stderr": "",
+                    "error_code": "resource_limit_exceeded",
+                }
+            )
+        )
+        sys.exit(1)
 
     result = {
         "success": False,
@@ -292,6 +321,13 @@ def main():
             if not _is_memory_exhaustion(exc):
                 raise
             _release_exception_chain(exc)
+            # Restore the real streams first. That drops the capture buffers,
+            # which are the very thing that exhausted the cap, so the envelope
+            # below is allocated against memory that has actually been freed.
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
+            output = None
+            call = None
             result.clear()
             result["success"] = False
             result["output"] = None

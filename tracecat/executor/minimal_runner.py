@@ -590,14 +590,21 @@ def release_exception_chain(error: BaseException) -> None:
     ``__cause__`` rather than off the exception that was caught.
     """
     seen: set[int] = set()
-    current: BaseException | None = error
-    while current is not None and id(current) not in seen:
+    pending: list[BaseException] = [error]
+    while pending:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
         seen.add(id(current))
         current.__traceback__ = None
-        following = current.__cause__ or current.__context__
+        # Both links, not the first one that happens to be set: an exception
+        # can carry a distinct cause and context, and either frame can be the
+        # one holding what exhausted the cap.
+        for following in (current.__cause__, current.__context__):
+            if following is not None:
+                pending.append(following)
         current.__cause__ = None
         current.__context__ = None
-        current = following
 
 
 def serialize_result(result: dict[str, Any], input_data: dict[str, Any]) -> bytes:
@@ -715,13 +722,34 @@ if __name__ == "__main__":
     input_path = Path("/work/input.json")
     output_path = Path("/work/result.json")
 
-    if input_path.exists():
-        input_data = json_loads(input_path.read_bytes())
-        use_file_io = True
-    else:
-        input_bytes = sys.stdin.buffer.read()
-        input_data = json_loads(input_bytes)
-        use_file_io = False
+    # A large enough payload can exhaust the cap while it is being read or
+    # decoded, before main_minimal's handlers exist. Dying here would leave no
+    # result.json and report a generic workload failure for what really was
+    # the memory limit.
+    try:
+        if input_path.exists():
+            input_data = json_loads(input_path.read_bytes())
+            use_file_io = True
+        else:
+            input_bytes = sys.stdin.buffer.read()
+            input_data = json_loads(input_bytes)
+            use_file_io = False
+    except Exception as exc:
+        if not caused_by_memory_exhaustion(exc):
+            raise
+        release_exception_chain(exc)
+        envelope = json_dumps(
+            _resource_limit_envelope(
+                "Action inputs ran out of memory while being decoded",
+                action_name="<unknown>",
+            )
+        )
+        if input_path.exists():
+            output_path.write_bytes(envelope)
+        else:
+            sys.stdout.buffer.write(envelope)
+            sys.stdout.buffer.flush()
+        raise SystemExit(1) from None
 
     # Run the action
     result = main_minimal(input_data)
