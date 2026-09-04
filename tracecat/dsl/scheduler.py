@@ -344,9 +344,10 @@ class DSLScheduler:
     def _compute_force_skip_refs(self, pinned_refs: frozenset[str]) -> frozenset[str]:
         """Compute upstream refs that are made redundant by pinned descendants.
 
-        A ref is force-skipped when all of its immediate downstream refs are in the
-        pinned/force-skipped domain. This captures the convention that the most
-        downstream pin dominates upstream computation.
+        A ref is force-skipped when all outgoing edges are successful and all of its
+        immediate downstream refs are in the pinned/force-skipped domain. This
+        captures the convention that the most downstream pin dominates upstream
+        computation.
         """
         if not pinned_refs:
             return frozenset()
@@ -361,7 +362,9 @@ class DSLScheduler:
                 next_refs = {next_ref for next_ref, _edge_type in next_items}
                 if not next_refs:
                     continue
-                if next_refs.issubset(skip_domain):
+                if all(
+                    edge_type == EdgeType.SUCCESS for _next_ref, edge_type in next_items
+                ) and next_refs.issubset(skip_domain):
                     skip_domain.add(ref)
                     changed = True
 
@@ -912,7 +915,25 @@ class DSLScheduler:
                     "Task should be force-skipped, propagating", task=task
                 )
                 if task.ref in self.force_skip_refs and self._pin_reachable(task, stmt):
-                    self.pin_bypassed.add(task)
+                    should_record_bypass = True
+                    if stmt.run_if is not None:
+                        try:
+                            should_record_bypass = not await self._task_should_skip(
+                                task, stmt
+                            )
+                            if not should_record_bypass:
+                                self.logger.debug(
+                                    "Force-skipped task guard is false; not a pin bypass",
+                                    task=task,
+                                )
+                        except ApplicationError as e:
+                            self.logger.debug(
+                                "Force-skipped task guard could not be evaluated; assuming pin bypass",
+                                task=task,
+                                error=e,
+                            )
+                    if should_record_bypass:
+                        self.pin_bypassed.add(task)
                 return await self._handle_skip_path(task, stmt)
 
             # 3) Evaluate `run_if` early when possible so branch-local guards can

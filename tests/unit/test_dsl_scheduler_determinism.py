@@ -207,9 +207,13 @@ def _make_pinned_scheduler(
     dsl: DSLInput,
     pinned_action_results: dict[str, TaskResult],
     executed_refs: list[str],
+    *,
+    raise_for_refs: set[str] | None = None,
 ) -> DSLScheduler:
     async def executor(stmt: ActionStatement) -> None:
         executed_refs.append(stmt.ref)
+        if raise_for_refs is not None and stmt.ref in raise_for_refs:
+            raise Exception(f"Failed {stmt.ref}")
 
     wf_id = WorkflowUUID.new_uuid4()
     role = Role(
@@ -243,6 +247,63 @@ def _make_pinned_scheduler(
         run_context=run_context,
         pinned_action_results=pinned_action_results,
     )
+
+
+@pytest.mark.anyio
+async def test_error_edge_parent_runs_when_pinned_handler_is_inactive() -> None:
+    """Invariant: a conditional-edge predecessor stays live to select its branch."""
+    executed_refs: list[str] = []
+    dsl = DSLInput(
+        title="pin-inactive-only-error-branch",
+        description="pin-inactive-only-error-branch",
+        entrypoint=DSLEntrypoint(ref="a"),
+        actions=[
+            ActionStatement(ref="a", action="core.noop"),
+            ActionStatement(ref="handler", action="core.noop", depends_on=["a.error"]),
+        ],
+    )
+    pinned = TaskResult.from_result({"value": "pinned-handler"})
+    scheduler = _make_pinned_scheduler(dsl, {"handler": pinned}, executed_refs)
+
+    task_exceptions = await scheduler.start()
+
+    assert task_exceptions is None
+    assert "a" not in scheduler.force_skip_refs
+    assert executed_refs == ["a"]
+    assert "handler" not in scheduler.get_context(ROOT_STREAM)["ACTIONS"]
+    assert scheduler.skipped_pinned_refs == ["handler"]
+
+
+@pytest.mark.anyio
+async def test_error_edge_parent_runs_when_pinned_handler_is_active() -> None:
+    """Invariant: a live failing predecessor activates its pinned error handler."""
+    executed_refs: list[str] = []
+    dsl = DSLInput(
+        title="pin-active-only-error-branch",
+        description="pin-active-only-error-branch",
+        entrypoint=DSLEntrypoint(ref="a"),
+        actions=[
+            ActionStatement(ref="a", action="core.noop"),
+            ActionStatement(ref="handler", action="core.noop", depends_on=["a.error"]),
+        ],
+    )
+    pinned = TaskResult.from_result({"value": "pinned-handler"})
+    scheduler = _make_pinned_scheduler(
+        dsl,
+        {"handler": pinned},
+        executed_refs,
+        raise_for_refs={"a"},
+    )
+
+    task_exceptions = await scheduler.start()
+
+    assert task_exceptions is None
+    assert "a" not in scheduler.force_skip_refs
+    assert executed_refs == ["a"]
+    assert scheduler.get_context(ROOT_STREAM)["ACTIONS"]["handler"].get_data() == {
+        "value": "pinned-handler"
+    }
+    assert scheduler.skipped_pinned_refs == []
 
 
 @pytest.mark.anyio
@@ -393,6 +454,80 @@ async def test_pinned_task_with_false_run_if_self_skips_and_drops_result() -> No
     assert executed_refs == []
     assert scheduler.skipped_pinned_refs == ["c"]
     assert "c" not in scheduler.get_context(ROOT_STREAM)["ACTIONS"]
+
+
+@pytest.mark.anyio
+async def test_force_skipped_false_guard_does_not_bypass_pinned_child() -> None:
+    """Invariant: a guarded ancestor that self-skips cannot enable pin reuse."""
+    executed_refs: list[str] = []
+    dsl = DSLInput(
+        title="pin-after-force-skipped-false-guard",
+        description="pin-after-force-skipped-false-guard",
+        entrypoint=DSLEntrypoint(ref="a"),
+        actions=[
+            ActionStatement(ref="a", action="core.noop"),
+            ActionStatement(
+                ref="b",
+                action="core.noop",
+                depends_on=["a"],
+                run_if="${{ False }}",
+            ),
+            ActionStatement(ref="c", action="core.noop", depends_on=["b"]),
+        ],
+    )
+    pinned = TaskResult.from_result({"value": "pinned-c"})
+    scheduler = _make_pinned_scheduler(dsl, {"c": pinned}, executed_refs)
+
+    async def always_false(_expression: str, _context: ExecutionContext) -> bool:
+        return False
+
+    scheduler.resolve_expression = always_false  # type: ignore[method-assign]
+
+    task_exceptions = await scheduler.start()
+
+    assert task_exceptions is None
+    assert executed_refs == []
+    assert "c" not in scheduler.get_context(ROOT_STREAM)["ACTIONS"]
+    assert scheduler.skipped_pinned_refs == ["c"]
+
+
+@pytest.mark.anyio
+async def test_force_skipped_unavailable_guard_keeps_pinned_child_reachable() -> None:
+    """Invariant: an unavailable force-skipped guard fails open for pin reuse."""
+    executed_refs: list[str] = []
+    dsl = DSLInput(
+        title="pin-after-force-skipped-unavailable-guard",
+        description="pin-after-force-skipped-unavailable-guard",
+        entrypoint=DSLEntrypoint(ref="a"),
+        actions=[
+            ActionStatement(ref="a", action="core.noop"),
+            ActionStatement(
+                ref="b",
+                action="core.noop",
+                depends_on=["a"],
+                run_if="${{ ACTIONS.a.result }}",
+            ),
+            ActionStatement(ref="c", action="core.noop", depends_on=["b"]),
+        ],
+    )
+    pinned = TaskResult.from_result({"value": "pinned-c"})
+    scheduler = _make_pinned_scheduler(dsl, {"c": pinned}, executed_refs)
+
+    async def unavailable_upstream(
+        _expression: str, _context: ExecutionContext
+    ) -> bool:
+        raise ApplicationError("ACTIONS.a.result is unavailable")
+
+    scheduler.resolve_expression = unavailable_upstream  # type: ignore[method-assign]
+
+    task_exceptions = await scheduler.start()
+
+    assert task_exceptions is None
+    assert executed_refs == []
+    assert scheduler.get_context(ROOT_STREAM)["ACTIONS"]["c"].get_data() == {
+        "value": "pinned-c"
+    }
+    assert scheduler.skipped_pinned_refs == []
 
 
 @pytest.mark.anyio
