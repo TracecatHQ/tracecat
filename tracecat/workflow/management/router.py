@@ -72,6 +72,7 @@ from tracecat.workflow.case_triggers.schemas import (
     is_case_trigger_configured,
 )
 from tracecat.workflow.case_triggers.service import CaseTriggersService
+from tracecat.workflow.executions.service import WorkflowExecutionsService
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.folders.service import WorkflowFolderService
 from tracecat.workflow.management.management import WorkflowsManagementService
@@ -81,7 +82,6 @@ from tracecat.workflow.management.schemas import (
     WorkflowCreate,
     WorkflowDefinitionRead,
     WorkflowDefinitionReadMinimal,
-    WorkflowDraftPins,
     WorkflowEntrypointValidationRequest,
     WorkflowEntrypointValidationResponse,
     WorkflowLayout,
@@ -389,9 +389,7 @@ async def get_workflow(
         trigger_position_x=workflow.trigger_position_x,
         trigger_position_y=workflow.trigger_position_y,
         graph_version=workflow.graph_version,
-        draft_pins=WorkflowDraftPins.model_validate(workflow.draft_pins)
-        if workflow.draft_pins
-        else None,
+        draft_pins=WorkflowExecutionsService.parse_draft_pins(workflow.draft_pins),
     )
 
 
