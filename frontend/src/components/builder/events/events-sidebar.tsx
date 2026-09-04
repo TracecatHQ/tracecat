@@ -9,7 +9,7 @@ import {
   GitBranchIcon,
   TimerResetIcon,
 } from "lucide-react"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import type { ImperativePanelHandle } from "react-resizable-panels"
 import {
   $TriggerType,
@@ -210,8 +210,12 @@ export function BuilderSidebarEvents() {
     workflowExecutionsIsLoading,
     workflowExecutionsError,
   } = useWorkflowExecutions(workflowId)
-  const filteredExecutions = (workflowExecutions ?? []).filter((execution) =>
-    selectedTriggerTypes.includes(execution.trigger_type)
+  const filteredExecutions = useMemo(
+    () =>
+      (workflowExecutions ?? []).filter((execution) =>
+        selectedTriggerTypes.includes(execution.trigger_type)
+      ),
+    [workflowExecutions, selectedTriggerTypes]
   )
   const currentExecutionInFilteredList = Boolean(
     currentExecutionId &&
