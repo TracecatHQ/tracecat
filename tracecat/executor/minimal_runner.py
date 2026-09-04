@@ -512,6 +512,25 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
 
         return {"success": True, "result": result}
 
+    except MemoryError:
+        # The sandbox address-space cap surfaces as MemoryError. Skip the
+        # traceback walk, which needs memory the process may not have, and
+        # report a structured code so the host classifies the failure
+        # without inspecting error text.
+        return {
+            "success": False,
+            "result": None,
+            "error": {
+                "type": "MemoryError",
+                "message": "Action exceeded the sandbox memory limit",
+                "action_name": _action_display_name(action_impl),
+                "filename": "<sandbox>",
+                "function": "run_action_minimal",
+                "lineno": None,
+            },
+            "error_code": "resource_limit_exceeded",
+        }
+
     except Exception as e:
         import traceback
 
@@ -519,28 +538,31 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
         tb = traceback.extract_tb(e.__traceback__)
         last_frame = tb[-1] if tb else None
 
-        # Build action name from impl if available
-        action_name = "<unknown>"
-        if action_impl:
-            module = action_impl.get("module", "")
-            name = action_impl.get("name", "")
-            if module and name:
-                action_name = f"{module}.{name}"
-            elif name:
-                action_name = name
-
         return {
             "success": False,
             "result": None,
             "error": {
                 "type": type(e).__name__,
                 "message": str(e),
-                "action_name": action_name,
+                "action_name": _action_display_name(action_impl),
                 "filename": last_frame.filename if last_frame else "<unknown>",
                 "function": last_frame.name if last_frame else "<unknown>",
                 "lineno": last_frame.lineno if last_frame else None,
             },
         }
+
+
+def _action_display_name(action_impl: dict[str, Any] | None) -> str:
+    """Build the action name reported in a structured runner error."""
+    if not action_impl:
+        return "<unknown>"
+    module = action_impl.get("module", "")
+    name = action_impl.get("name", "")
+    if module and name:
+        return f"{module}.{name}"
+    if name:
+        return name
+    return "<unknown>"
 
 
 def _enforce_nproc_limit() -> None:

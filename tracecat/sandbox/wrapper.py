@@ -235,6 +235,14 @@ def main():
         result["success"] = True
         result["output"] = output
 
+    except MemoryError:
+        # The sandbox address-space cap surfaces as MemoryError. Skip the
+        # traceback: formatting it needs memory the process may not have.
+        # Report a structured code so the host classifies the failure
+        # without inspecting error text.
+        result["error"] = "MemoryError: script exceeded the sandbox memory limit"
+        result["error_code"] = "resource_limit_exceeded"
+
     except Exception as e:
         result["error"] = f"{type(e).__name__}: {e}"
         result["traceback"] = traceback.format_exc()

@@ -685,3 +685,44 @@ def test_json_dumps_rejects_broken_model_dump():
     result = {"success": True, "result": _FakeModel()}
     with pytest.raises(TypeError, match="Type is not JSON serializable"):
         minimal_runner.json_dumps(result)
+
+
+def test_main_minimal_reports_memory_error_as_resource_limit(
+    monkeypatch,
+) -> None:
+    """Invariant: an action's MemoryError carries the resource-limit envelope code.
+
+    The action path raises the typed sandbox exception from this code before
+    it ever parses the structured error, so the code is what the host reads.
+    """
+    test_module: Any = types.ModuleType("test_module")
+
+    def hungry_action() -> None:
+        raise MemoryError()
+
+    test_module.hungry_action = hungry_action
+
+    monkeypatch.setattr(
+        minimal_runner.importlib,
+        "import_module",
+        lambda _p, *args, **kwargs: test_module,
+    )
+
+    result = minimal_runner.main_minimal(
+        {
+            "resolved_context": {
+                "action_impl": {
+                    "type": "udf",
+                    "module": "test_module",
+                    "name": "hungry_action",
+                },
+                "evaluated_args": {},
+            },
+            "secret_env": {},
+        }
+    )
+
+    assert result["success"] is False
+    assert result["error_code"] == "resource_limit_exceeded"
+    assert result["error"]["type"] == "MemoryError"
+    assert result["error"]["action_name"] == "test_module.hungry_action"

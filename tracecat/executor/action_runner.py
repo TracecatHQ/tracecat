@@ -43,7 +43,10 @@ from tracecat.executor.secret_preprocessors import (
     project_secret_env,
 )
 from tracecat.logger import logger
-from tracecat.sandbox.exceptions import raise_for_sandbox_error_code
+from tracecat.sandbox.exceptions import (
+    raise_for_sandbox_error_code,
+    sandbox_resource_limit_message,
+)
 from tracecat.sandbox.executor import ActionSandboxConfig, NsjailExecutor
 from tracecat.sandbox.types import ResourceLimits, SandboxErrorCode
 from tracecat.sandbox.utils import (
@@ -110,6 +113,20 @@ def _is_sandbox_available() -> bool:
         return False
 
     return True
+
+
+def _sandbox_failure_message(error_code: SandboxErrorCode | None) -> str:
+    """Return the message carried by the typed exception a sandbox code selects."""
+    match error_code:
+        case SandboxErrorCode.INFRASTRUCTURE_FAILURE:
+            return "Action sandbox infrastructure failed before producing a result"
+        case SandboxErrorCode.RESOURCE_LIMIT_EXCEEDED:
+            return sandbox_resource_limit_message(
+                memory_mb=config.TRACECAT__SANDBOX_DEFAULT_MEMORY_MB,
+                memory_env_var="TRACECAT__SANDBOX_DEFAULT_MEMORY_MB",
+            )
+        case _:
+            return "Action sandbox workload stopped before producing a result"
 
 
 def _direct_subprocess_command(minimal_runner_path: Path) -> list[str]:
@@ -344,9 +361,7 @@ class ActionRunner:
 
             raise_for_sandbox_error_code(
                 result.error_code,
-                "Action sandbox infrastructure failed before producing a result"
-                if result.error_code is SandboxErrorCode.INFRASTRUCTURE_FAILURE
-                else "Action sandbox workload stopped before producing a result",
+                _sandbox_failure_message(result.error_code),
             )
 
             # Handle error from sandbox

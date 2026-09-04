@@ -35,6 +35,21 @@ class SandboxValidationError(SandboxError):
     """Input validation failed for sandbox configuration."""
 
 
+def sandbox_resource_limit_message(*, memory_mb: int, memory_env_var: str) -> str:
+    """Return the user-facing explanation for a sandbox resource-limit failure.
+
+    The message names every limit the sandbox enforces and the memory cap the
+    deployment configured, because the address-space cap is the limit a
+    workload most often hits. It deliberately carries no host paths or
+    sandbox-controlled text.
+    """
+    return (
+        "The sandbox exceeded a resource limit (memory, CPU time, file size, "
+        f"or process count). Memory is capped at {memory_mb} MB of address "
+        f"space by {memory_env_var}."
+    )
+
+
 def raise_for_sandbox_error_code(
     error_code: SandboxErrorCode | None,
     message: str,

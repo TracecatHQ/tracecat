@@ -1509,3 +1509,27 @@ if __name__ == "__main__":
             "Usage: python -m tests.unit.executor.test_run_python_sdk_context "
             "[--run-nsjail-sdk-context-smoke|--run-nsjail-sdk-gateway-smoke]"
         )
+
+
+def test_nsjail_wrapper_reports_memory_error_as_resource_limit(
+    tmp_path: Path,
+) -> None:
+    """Invariant: MemoryError inside the jail becomes a structured envelope code.
+
+    The host must classify the address-space cap without inspecting error
+    text, so the wrapper emits ``error_code: resource_limit_exceeded`` and
+    skips traceback formatting that could need memory it no longer has.
+    """
+    result = _run_wrapper_source(
+        WRAPPER_SCRIPT,
+        tmp_path,
+        """
+def main():
+    raise MemoryError()
+""",
+    )
+
+    assert result["success"] is False
+    assert result["error_code"] == "resource_limit_exceeded"
+    assert result["error"].startswith("MemoryError")
+    assert result["traceback"] is None
