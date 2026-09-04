@@ -123,7 +123,7 @@ locals {
         TRACECAT__SMTP_HOST                        = var.smtp_host
         TRACECAT__SMTP_PORT                        = tostring(var.smtp_port)
         TRACECAT__SMTP_USER                        = var.smtp_user
-        TRACECAT__EMAIL_DOMAIN                     = var.email_domain
+        TRACECAT__EMAIL_FROM                       = var.email_from
         TRACECAT__DB_ENDPOINT                      = local.core_db_hostname
         TRACECAT__SERVICE_NAME                     = "api"
         SENTRY_DSN                                 = var.sentry_dsn

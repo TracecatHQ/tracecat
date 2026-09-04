@@ -114,9 +114,7 @@ TRACECAT__SMTP_USER = (os.environ.get("TRACECAT__SMTP_USER") or "").strip() or N
 # Whitespace is preserved: a stripped password is a different credential.
 _smtp_password = os.environ.get("TRACECAT__SMTP_PASSWORD") or ""
 TRACECAT__SMTP_PASSWORD = _smtp_password if _smtp_password.strip() else None
-TRACECAT__EMAIL_DOMAIN = (
-    os.environ.get("TRACECAT__EMAIL_DOMAIN") or ""
-).strip() or None
+TRACECAT__EMAIL_FROM = (os.environ.get("TRACECAT__EMAIL_FROM") or "").strip() or None
 
 TRACECAT__PLATFORM_OTEL_ENABLED = env_bool(
     "TRACECAT__PLATFORM_OTEL_ENABLED", default=False

@@ -493,9 +493,11 @@ async def create_invitation(
 ) -> OrgInvitationRead:
     """Create an invitation to join the organization."""
     service = OrgService(session, role=role)
-    organization_name = await session.scalar(
-        select(Organization.name).where(Organization.id == service.organization_id)
-    )
+    organization_name = (
+        await session.execute(
+            select(Organization.name).where(Organization.id == service.organization_id)
+        )
+    ).scalar_one()
     try:
         invitation = await service.create_invitation(
             email=params.email,
@@ -514,14 +516,13 @@ async def create_invitation(
             detail="An invitation already exists for this email",
         ) from e
 
-    if organization_name is not None:
-        mailer.deliver(
-            invitation_email(
-                to=invitation.email,
-                organization_name=organization_name,
-                token=invitation.token,
-            )
+    mailer.deliver(
+        invitation_email(
+            to=invitation.email,
+            organization_name=organization_name,
+            token=invitation.token,
         )
+    )
 
     return OrgInvitationRead(
         id=invitation.id,

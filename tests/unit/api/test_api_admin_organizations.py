@@ -17,9 +17,7 @@ from tracecat_ee.admin.organizations.schemas import (
 )
 
 from tracecat import config
-from tracecat.api.app import app
 from tracecat.auth.types import Role
-from tracecat.db.engine import get_async_session_bypass_rls
 from tracecat.email.client import Mailer, OutboundEmail
 from tracecat.exceptions import TracecatValidationError
 from tracecat.invitations.enums import InvitationStatus
@@ -237,6 +235,7 @@ async def test_create_organization_invitation_success(
 
     with patch.object(organizations_router, "AdminOrgService") as MockService:
         mock_svc = AsyncMock()
+        mock_svc.get_organization_name.return_value = "Acme"
         mock_svc.create_organization_invitation.return_value = invitation
         MockService.return_value = mock_svc
 
@@ -262,15 +261,16 @@ async def test_admin_org_invitation_schedules_configured_email(
     org_id = uuid.uuid4()
     invitation = _org_invitation_read(org_id, token="raw-token")
     assert isinstance(invitation, AdminOrgInvitationCreateResponse)
-    mock_session = await app.dependency_overrides[get_async_session_bypass_rls]()
-    mock_session.scalar = AsyncMock(return_value="Acme")
 
     with (
         patch.object(organizations_router, "AdminOrgService") as mock_service_class,
-        patch.object(config, "TRACECAT__EMAIL_DOMAIN", "mail.example.com"),
+        patch.object(
+            config, "TRACECAT__EMAIL_FROM", "Tracecat <no-reply@mail.example.com>"
+        ),
         patch.object(Mailer, "deliver") as mock_deliver,
     ):
         mock_service = AsyncMock()
+        mock_service.get_organization_name.return_value = "Acme"
         mock_service.create_organization_invitation.return_value = invitation
         mock_service_class.return_value = mock_service
 
@@ -301,6 +301,7 @@ async def test_create_organization_invitation_allowed_without_multi_tenant(
 
     with patch.object(organizations_router, "AdminOrgService") as MockService:
         mock_svc = AsyncMock()
+        mock_svc.get_organization_name.return_value = "Acme"
         mock_svc.create_organization_invitation.return_value = invitation
         MockService.return_value = mock_svc
 

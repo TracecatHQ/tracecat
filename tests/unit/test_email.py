@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from email.message import EmailMessage
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import BackgroundTasks
@@ -34,22 +34,28 @@ def _set_smtp_config(
     host: str | None = None,
     user: str | None = None,
     password: str | None = None,
-    domain: str | None = None,
+    from_addr: str | None = None,
 ) -> None:
     monkeypatch.setattr(config, "TRACECAT__SMTP_HOST", host)
     monkeypatch.setattr(config, "TRACECAT__SMTP_PORT", 587)
     monkeypatch.setattr(config, "TRACECAT__SMTP_USER", user)
     monkeypatch.setattr(config, "TRACECAT__SMTP_PASSWORD", password)
-    monkeypatch.setattr(config, "TRACECAT__EMAIL_DOMAIN", domain)
+    monkeypatch.setattr(config, "TRACECAT__EMAIL_FROM", from_addr)
 
 
 @pytest.mark.parametrize(
-    ("host", "user", "password", "domain", "expected"),
+    ("host", "user", "password", "from_addr", "expected"),
     [
         (None, None, None, None, False),
         ("smtp.example.com", None, None, None, False),
         ("smtp.example.com", "relay", "secret", None, False),
-        ("smtp.example.com", "relay", "secret", "example.com", True),
+        (
+            "smtp.example.com",
+            "relay",
+            "secret",
+            "Tracecat <no-reply@example.com>",
+            True,
+        ),
     ],
 )
 def test_email_configuration_requires_every_setting(
@@ -57,11 +63,11 @@ def test_email_configuration_requires_every_setting(
     host: str | None,
     user: str | None,
     password: str | None,
-    domain: str | None,
+    from_addr: str | None,
     expected: bool,
 ) -> None:
     _set_smtp_config(
-        monkeypatch, host=host, user=user, password=password, domain=domain
+        monkeypatch, host=host, user=user, password=password, from_addr=from_addr
     )
 
     assert is_email_configured() is expected
@@ -70,7 +76,7 @@ def test_email_configuration_requires_every_setting(
 def test_invitation_template_escapes_html_and_subject_controls() -> None:
     subject, html, text = render_invitation_email(
         accept_url='https://app.example.com/invitations/accept?token=a&b="x',
-        context_name="Acme\r\nBcc: attacker@example.com<script>",
+        organization_name="Acme\r\nBcc: attacker@example.com<script>",
     )
 
     assert "\r" not in subject
@@ -98,7 +104,7 @@ def test_invitation_logo_url_handles_trailing_slash(
 
     _, html, _ = render_invitation_email(
         accept_url="https://app.example.com/invitations/accept?token=t",
-        context_name="Acme",
+        organization_name="Acme",
     )
 
     assert 'src="https://app.example.com/icon.png"' in html
@@ -111,7 +117,6 @@ def _outbound(to: str = "invitee@example.com") -> OutboundEmail:
         html="<p>Join</p>",
         text="Join",
         from_addr="Tracecat <no-reply@example.com>",
-        headers={"In-Reply-To": "<message@example.com>"},
     )
 
 
@@ -147,13 +152,14 @@ async def test_smtp_transport_send_builds_mime_and_selects_tls(
     assert mime["From"] == "Tracecat <no-reply@example.com>"
     assert mime["To"] == "invitee@example.com"
     assert mime["Subject"] == "Invitation"
-    assert mime["In-Reply-To"] == "<message@example.com>"
 
 
 def test_invitation_email_uses_platform_sender(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(config, "TRACECAT__EMAIL_DOMAIN", "mail.example.com")
+    monkeypatch.setattr(
+        config, "TRACECAT__EMAIL_FROM", "Tracecat <no-reply@mail.example.com>"
+    )
     monkeypatch.setattr(config, "TRACECAT__PUBLIC_APP_URL", "https://app.example.com")
 
     message = invitation_email(
@@ -175,7 +181,7 @@ async def test_mailer_queues_send_as_background_task(
         host="smtp.example.com",
         user="relay",
         password="secret",
-        domain="example.com",
+        from_addr="Tracecat <no-reply@example.com>",
     )
     send = AsyncMock()
     monkeypatch.setattr(SMTPTransport, "send", send)
@@ -189,48 +195,34 @@ async def test_mailer_queues_send_as_background_task(
 
 
 @pytest.mark.anyio
-async def test_mailer_task_logs_then_raises_generic_error(
+async def test_mailer_task_raises_error_without_host_or_recipient(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _set_smtp_config(
         monkeypatch,
-        host="smtp.example.com",
+        host="smtp.customer.internal",
         user="relay",
         password="secret",
-        domain="example.com",
+        from_addr="Tracecat <no-reply@example.com>",
     )
     monkeypatch.setattr(
-        SMTPTransport, "send", AsyncMock(side_effect=RuntimeError("relay down"))
+        SMTPTransport,
+        "send",
+        AsyncMock(side_effect=RuntimeError("550 invitee@example.com rejected")),
     )
-    log_error = Mock()
-    monkeypatch.setattr(client.logger, "error", log_error)
     tasks = BackgroundTasks()
 
     Mailer(tasks).deliver(_outbound())
     with pytest.raises(EmailDeliveryError) as exc_info:
         await tasks()
 
-    log_error.assert_called_once()
-    assert log_error.call_args.kwargs["error_type"] == "RuntimeError"
-    assert "invitee@example.com" not in repr(log_error.call_args)
-    assert "RuntimeError" in str(exc_info.value)
-    assert "invitee@example.com" not in str(exc_info.value)
+    message = str(exc_info.value)
+    assert "RuntimeError" in message
+    assert "587" in message
+    assert "smtp.customer.internal" not in message
+    assert "invitee@example.com" not in message
     assert exc_info.value.__cause__ is None
-
-
-def test_outbound_email_copies_headers() -> None:
-    headers = {"X-Invite-Id": "first"}
-    message = OutboundEmail(
-        to=("invitee@example.com",),
-        subject="Invitation",
-        html="<p>Join</p>",
-        text="Join",
-        from_addr="Tracecat <no-reply@example.com>",
-        headers=headers,
-    )
-    headers["X-Invite-Id"] = "second"
-
-    assert message.headers["X-Invite-Id"] == "first"
+    assert exc_info.value.__suppress_context__
 
 
 def test_mailer_is_a_noop_when_email_is_unconfigured(

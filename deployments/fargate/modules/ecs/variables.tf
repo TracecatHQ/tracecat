@@ -521,9 +521,9 @@ variable "smtp_user" {
   default     = ""
 }
 
-variable "email_domain" {
+variable "email_from" {
   type        = string
-  description = "The verified sending domain for invitation emails"
+  description = "The sender address for invitation emails, e.g. Tracecat <no-reply@example.com>"
   default     = ""
 }
 
