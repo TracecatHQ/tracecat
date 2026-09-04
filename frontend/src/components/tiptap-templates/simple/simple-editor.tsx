@@ -111,6 +111,7 @@ import {
   WORKFLOW_MENTION_URI_SCHEME,
 } from "@/lib/tiptap-comment-mentions"
 import { mapImageUploadPosition } from "@/lib/tiptap-image-upload-position"
+import { MarkdownHardBreak } from "@/lib/tiptap-markdown-hard-break"
 import {
   handleImageUpload,
   MAX_FILE_SIZE,
@@ -630,6 +631,7 @@ export function SimpleEditor({
   const extensions = React.useMemo(
     () => [
       StarterKit.configure({
+        hardBreak: false,
         horizontalRule: false,
         codeBlock: false,
         link: {
@@ -642,6 +644,7 @@ export function SimpleEditor({
             defaultValidate(url),
         },
       }),
+      MarkdownHardBreak,
       HorizontalRule,
       MermaidCodeBlock.configure({
         renderWhenBlurred: renderMermaidWhenBlurred,
@@ -708,7 +711,7 @@ export function SimpleEditor({
       },
       handleClick: (_view, _pos, event) => {
         if (allowCommentMentionUris && preventCommentMentionNavigation(event)) {
-          return true
+          return false
         }
         if (!event.metaKey && !event.ctrlKey) return false
         const href = (event.target as HTMLElement | null)

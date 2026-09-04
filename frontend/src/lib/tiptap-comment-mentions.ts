@@ -55,6 +55,7 @@ export function nodeAllowsCommentMention(
 export interface CommentMentionLinkSnapshot {
   href: string
   text: string
+  hasFormatting: boolean
 }
 
 /** A comment mention link and its current document range. */
@@ -79,9 +80,11 @@ export function findCommentMentionLinkRanges(
       return
     }
     const previous = ranges.at(-1)
+    const hasFormatting = node.marks.some((mark) => mark.type.name !== "link")
     if (previous && previous.href === href && previous.to === pos) {
       previous.to = pos + node.nodeSize
       previous.text += node.text ?? ""
+      previous.hasFormatting ||= hasFormatting
       return
     }
     ranges.push({
@@ -89,6 +92,7 @@ export function findCommentMentionLinkRanges(
       to: pos + node.nodeSize,
       href,
       text: node.text ?? "",
+      hasFormatting,
     })
   })
   return ranges
@@ -104,7 +108,10 @@ export function findEditedCommentMentionIndexes(
   }
   return current.flatMap((mention, index) => {
     const oldMention = previous[index]
-    if (oldMention?.href === mention.href && oldMention.text !== mention.text) {
+    if (
+      oldMention?.href === mention.href &&
+      (oldMention.text !== mention.text || mention.hasFormatting)
+    ) {
       return [index]
     }
     return []

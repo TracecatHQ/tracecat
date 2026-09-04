@@ -71,6 +71,7 @@
     "@tanstack/react-table": "8.21.3",
     "@tanstack/react-virtual": "3.13.12",
     "@tiptap/extension-code-block": "3.7.1",
+    "@tiptap/extension-hard-break": "3.7.1",
     "@tiptap/extension-highlight": "3.7.1",
     "@tiptap/extension-horizontal-rule": "3.7.1",
     "@tiptap/extension-image": "3.7.1",
