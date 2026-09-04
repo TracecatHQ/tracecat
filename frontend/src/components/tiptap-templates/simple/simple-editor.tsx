@@ -855,6 +855,8 @@ export function SimpleEditor({
           transaction = transaction.removeMark(range.from, range.to, linkMark)
         }
       }
+      // Undo the user's edit directly; never restore a hidden internal link first.
+      transaction = transaction.setMeta("addToHistory", false)
       editor.view.dispatch(transaction)
     }
     editor.on("update", handleUpdate)
