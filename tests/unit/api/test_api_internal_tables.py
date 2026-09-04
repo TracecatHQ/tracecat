@@ -399,7 +399,18 @@ async def test_internal_aggregate_rows_returns_serialized_response(
         mock_svc = AsyncMock()
         mock_svc.aggregate_rows.return_value = AggregateResponse.model_validate(
             {
-                "groups": [{"category": "alpha", "sum_amount": Decimal("3.5")}],
+                "groups": [
+                    {
+                        "category": "alpha",
+                        "numeric_key": Decimal("9007199254740992.1"),
+                        "sum_amount": 3.5,
+                    },
+                    {
+                        "category": "beta",
+                        "numeric_key": Decimal("9007199254740992.2"),
+                        "sum_amount": 4.5,
+                    },
+                ],
                 "truncated": False,
             }
         )
@@ -416,7 +427,18 @@ async def test_internal_aggregate_rows_returns_serialized_response(
 
     assert response.status_code == status.HTTP_200_OK
     assert response.json() == {
-        "groups": [{"category": "alpha", "sum_amount": 3.5}],
+        "groups": [
+            {
+                "category": "alpha",
+                "numeric_key": "9007199254740992.1",
+                "sum_amount": 3.5,
+            },
+            {
+                "category": "beta",
+                "numeric_key": "9007199254740992.2",
+                "sum_amount": 4.5,
+            },
+        ],
         "truncated": False,
     }
     mock_svc.aggregate_rows.assert_awaited_once()
@@ -484,3 +506,26 @@ async def test_internal_aggregate_rows_maps_errors(
         )
 
     assert response.status_code == expected_status
+
+
+@pytest.mark.anyio
+async def test_internal_aggregate_rows_sanitizes_unexpected_programming_error(
+    action_gateway_client: TestClient,
+    test_admin_role: Role,
+    mock_table: Table,
+) -> None:
+    with patch.object(internal_tables_router, "TablesService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.aggregate_rows.side_effect = _programming_error(
+            ValueError("sensitive database detail")
+        )
+        MockService.return_value = mock_svc
+
+        response = action_gateway_client.post(
+            f"/internal/tables/{mock_table.name}/aggregate",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"group_by": []},
+        )
+
+    assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+    assert "sensitive database detail" not in response.text

@@ -1222,7 +1222,7 @@ class BaseTablesService(BaseWorkspaceService):
                     raise TracecatNotFoundError(
                         f"Table '{table_name}' does not exist"
                     ) from exc
-                raise ValueError(str(root)) from exc
+                raise
 
         truncated = len(rows) > request.limit
         return AggregateResponse(

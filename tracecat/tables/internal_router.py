@@ -406,7 +406,8 @@ async def lookup_rows(
         "Filter and aggregate rows in one PostgreSQL query. sum over INTEGER or "
         "NUMERIC, every mean and median, and min/max over NUMERIC are widened to "
         "float8 JSON numbers. TEXT and SELECT group keys use their first 256 "
-        "characters, so longer values with the same prefix collapse into one group."
+        "characters, so longer values with the same prefix collapse into one group. "
+        "NUMERIC group keys are returned as lossless decimal strings."
     ),
 )
 @require_scope("table:read")

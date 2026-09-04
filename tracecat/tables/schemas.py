@@ -1,5 +1,6 @@
 import re
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
@@ -193,7 +194,7 @@ class TableRowBatchUpdateResponse(BaseModel):
     rows_updated: int
 
 
-type TableAggregateValue = str | bool | int | float | datetime | date | None
+type TableAggregateValue = str | bool | int | float | Decimal | datetime | date | None
 
 
 class TableAggregateRequest(AggregationSpec):
@@ -202,7 +203,8 @@ class TableAggregateRequest(AggregationSpec):
     ``sum`` over INTEGER or NUMERIC, every ``mean`` and ``median``, and
     ``min``/``max`` over NUMERIC are widened to float8 JSON numbers. TEXT and
     SELECT group keys use their first 256 characters, so longer values with the
-    same prefix collapse into one group.
+    same prefix collapse into one group. NUMERIC group keys serialize as decimal
+    strings so distinct values retain their exact identities.
     """
 
     filters: Filter | None = Field(default=None)

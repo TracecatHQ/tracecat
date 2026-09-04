@@ -2491,6 +2491,32 @@ class TestTableAggregations:
             },
         ]
 
+    async def test_numeric_group_keys_preserve_decimal_precision(
+        self,
+        tables_service: TablesService,
+    ) -> None:
+        table = await tables_service.create_table(
+            TableCreate(
+                name="precise_numeric_groups",
+                columns=[TableColumnCreate(name="value", type=SqlType.NUMERIC)],
+            )
+        )
+        first = Decimal("9007199254740992.1")
+        second = Decimal("9007199254740992.2")
+        await tables_service.batch_insert_rows(
+            table,
+            [{"value": first}, {"value": second}],
+        )
+
+        response = await tables_service.aggregate_rows(
+            table.name,
+            TableAggregateRequest(group_by=[GroupBySpec(field="value")]),
+        )
+
+        assert len(response.groups) == 2
+        assert {group["value"] for group in response.groups} == {first, second}
+        assert all(group["count"] == 1 for group in response.groups)
+
     async def test_text_groups_collapse_at_256_character_prefix(
         self,
         tables_service: TablesService,
