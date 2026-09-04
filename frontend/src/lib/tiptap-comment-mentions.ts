@@ -64,6 +64,11 @@ export interface CommentMentionLinkRange extends CommentMentionLinkSnapshot {
   to: number
 }
 
+export type MapCommentMentionPosition = (
+  position: number,
+  association: -1 | 1
+) => number
+
 /** Find all internal mention-link ranges in a ProseMirror document. */
 export function findCommentMentionLinkRanges(
   doc: ProseMirrorNode
@@ -104,88 +109,46 @@ export function findCommentMentionLinkRanges(
 
 /** Find mention links whose label, formatting, or range shape was edited. */
 export function findEditedCommentMentionIndexes(
-  previous: CommentMentionLinkSnapshot[],
-  current: CommentMentionLinkSnapshot[]
+  previous: CommentMentionLinkRange[],
+  current: CommentMentionLinkRange[],
+  mapPosition: MapCommentMentionPosition = (position) => position
 ): number[] {
   const editedIndexes = new Set<number>()
-  const previousByHref = new Map<string, CommentMentionLinkSnapshot[]>()
-  for (const mention of previous) {
-    const mentions = previousByHref.get(mention.href) ?? []
-    mentions.push(mention)
-    previousByHref.set(mention.href, mentions)
-  }
-  const currentByHref = new Map<
-    string,
-    Array<CommentMentionLinkSnapshot & { index: number }>
-  >()
-  current.forEach((mention, index) => {
-    const mentions = currentByHref.get(mention.href) ?? []
-    mentions.push({ ...mention, index })
-    currentByHref.set(mention.href, mentions)
-  })
+  const claimedCurrentIndexes = new Set<number>()
 
-  for (const [href, oldMentions] of previousByHref) {
-    const nextMentions = currentByHref.get(href) ?? []
-    const matchedOldIndexes = new Set<number>()
-    const unmatchedNextMentions = nextMentions.filter((mention) => {
-      let matchingIndex = oldMentions.findIndex(
-        (oldMention, index) =>
-          !matchedOldIndexes.has(index) &&
-          oldMention.text === mention.text &&
-          oldMention.formatting === mention.formatting
-      )
-      if (matchingIndex === -1) {
-        matchingIndex = oldMentions.findIndex(
-          (oldMention, index) =>
-            !matchedOldIndexes.has(index) && oldMention.text === mention.text
-        )
-      }
-      if (matchingIndex === -1) {
-        return true
-      }
-      matchedOldIndexes.add(matchingIndex)
-      if (oldMentions[matchingIndex]?.formatting !== mention.formatting) {
-        editedIndexes.add(mention.index)
-      }
-      return false
-    })
-    const unmatchedOldMentions = oldMentions.filter(
-      (_mention, index) => !matchedOldIndexes.has(index)
-    )
-    const pairedCount = Math.min(
-      unmatchedOldMentions.length,
-      unmatchedNextMentions.length
-    )
-    for (let index = 0; index < pairedCount; index += 1) {
-      const mention = unmatchedNextMentions[index]
-      if (mention) {
-        editedIndexes.add(mention.index)
-      }
+  for (const oldMention of previous) {
+    let mappedFrom = mapPosition(oldMention.from, 1)
+    let mappedTo = mapPosition(oldMention.to, -1)
+    if (mappedFrom >= mappedTo) {
+      mappedFrom = mapPosition(oldMention.from, -1)
+      mappedTo = mapPosition(oldMention.to, 1)
     }
-    if (unmatchedNextMentions.length <= unmatchedOldMentions.length) {
+    const candidates = current
+      .map((mention, index) => ({ mention, index }))
+      .filter(
+        ({ mention, index }) =>
+          !claimedCurrentIndexes.has(index) &&
+          mention.href === oldMention.href &&
+          mention.from < mappedTo &&
+          mention.to > mappedFrom
+      )
+
+    for (const { index } of candidates) {
+      claimedCurrentIndexes.add(index)
+    }
+    if (candidates.length !== 1) {
+      for (const { index } of candidates) {
+        editedIndexes.add(index)
+      }
       continue
     }
-    let nextIndex = 0
-    for (const oldMention of unmatchedOldMentions) {
-      let combinedText = ""
-      const consumedIndexes: number[] = []
-      while (
-        nextIndex < unmatchedNextMentions.length &&
-        combinedText.length < oldMention.text.length
-      ) {
-        const nextMention = unmatchedNextMentions[nextIndex]
-        if (!nextMention) {
-          break
-        }
-        combinedText += nextMention.text
-        consumedIndexes.push(nextMention.index)
-        nextIndex += 1
-      }
-      if (combinedText === oldMention.text && consumedIndexes.length > 1) {
-        for (const index of consumedIndexes) {
-          editedIndexes.add(index)
-        }
-      }
+    const candidate = candidates[0]
+    if (
+      candidate &&
+      (candidate.mention.text !== oldMention.text ||
+        candidate.mention.formatting !== oldMention.formatting)
+    ) {
+      editedIndexes.add(candidate.index)
     }
   }
 

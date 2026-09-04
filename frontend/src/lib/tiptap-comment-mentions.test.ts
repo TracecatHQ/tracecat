@@ -14,6 +14,13 @@ import {
 
 describe("TipTap comment mention serialization", () => {
   const workflowId = "11111111-1111-4111-8111-111111111111"
+  function mentionRange(
+    mention: { href: string; text: string; formatting: string },
+    from = 1
+  ) {
+    return { ...mention, from, to: from + mention.text.length }
+  }
+
   function workflowMention(text: string) {
     return [{ href: buildWorkflowMentionHref(workflowId), text }]
   }
@@ -286,18 +293,18 @@ describe("TipTap comment mention serialization", () => {
     expect(
       findEditedCommentMentionIndexes(
         [
-          {
+          mentionRange({
             href: buildAgentMentionHref("agent-id"),
             text: "@Triage agent",
             formatting: "",
-          },
+          }),
         ],
         [
-          {
+          mentionRange({
             href: buildAgentMentionHref("agent-id"),
             text: "@Triage agnt",
             formatting: "",
-          },
+          }),
         ]
       )
     ).toEqual([0])
@@ -311,8 +318,8 @@ describe("TipTap comment mention serialization", () => {
 
     expect(
       findEditedCommentMentionIndexes(
-        [{ ...mention, formatting: "" }],
-        [{ ...mention, formatting: "bold" }]
+        [mentionRange({ ...mention, formatting: "" })],
+        [mentionRange({ ...mention, formatting: "bold" })]
       )
     ).toEqual([0])
   })
@@ -324,7 +331,12 @@ describe("TipTap comment mention serialization", () => {
       formatting: "bold",
     }
 
-    expect(findEditedCommentMentionIndexes([mention], [mention])).toEqual([])
+    expect(
+      findEditedCommentMentionIndexes(
+        [mentionRange(mention)],
+        [mentionRange(mention)]
+      )
+    ).toEqual([])
   })
 
   it("detects every range when a line break splits a mention link", () => {
@@ -332,10 +344,10 @@ describe("TipTap comment mention serialization", () => {
 
     expect(
       findEditedCommentMentionIndexes(
-        [{ href, text: "@Triage agent", formatting: "" }],
+        [mentionRange({ href, text: "@Triage agent", formatting: "" }, 1)],
         [
-          { href, text: "@Triage", formatting: "" },
-          { href, text: " agent", formatting: "" },
+          mentionRange({ href, text: "@Triage", formatting: "" }, 1),
+          mentionRange({ href, text: " agent", formatting: "" }, 9),
         ]
       )
     ).toEqual([0, 1])
@@ -349,7 +361,10 @@ describe("TipTap comment mention serialization", () => {
     }
 
     expect(
-      findEditedCommentMentionIndexes([mention], [mention, mention])
+      findEditedCommentMentionIndexes(
+        [mentionRange(mention, 1)],
+        [mentionRange(mention, 1), mentionRange(mention, 14)]
+      )
     ).toEqual([])
   })
 
@@ -367,8 +382,9 @@ describe("TipTap comment mention serialization", () => {
 
     expect(
       findEditedCommentMentionIndexes(
-        [agentMention, workflowMention],
-        [{ ...workflowMention, text: "/Enrich" }]
+        [mentionRange(agentMention, 1), mentionRange(workflowMention, 20)],
+        [mentionRange({ ...workflowMention, text: "/Enrich" }, 1)],
+        (position) => (position >= 20 ? position - 19 : position)
       )
     ).toEqual([0])
   })
@@ -384,12 +400,38 @@ describe("TipTap comment mention serialization", () => {
     expect(
       findEditedCommentMentionIndexes(
         [
-          { href, text: "@Historical agent name", formatting: "" },
-          currentMention,
+          mentionRange(
+            { href, text: "@Historical agent name", formatting: "" },
+            1
+          ),
+          mentionRange(currentMention, 30),
         ],
-        [currentMention]
+        [mentionRange(currentMention, 1)],
+        (position) => (position < 30 ? 1 : position - 29)
       )
     ).toEqual([])
+  })
+
+  it("keeps duplicate targets paired to their document positions", () => {
+    const href = buildAgentMentionHref("agent-id")
+    const currentMention = {
+      href,
+      text: "@Current agent name",
+      formatting: "",
+    }
+
+    expect(
+      findEditedCommentMentionIndexes(
+        [
+          mentionRange(
+            { href, text: "@Historical agent name", formatting: "" },
+            1
+          ),
+          mentionRange(currentMention, 30),
+        ],
+        [mentionRange(currentMention, 1), mentionRange(currentMention, 30)]
+      )
+    ).toEqual([0])
   })
 
   it("does not treat inserted or replaced mentions as label edits", () => {
@@ -397,29 +439,29 @@ describe("TipTap comment mention serialization", () => {
       findEditedCommentMentionIndexes(
         [],
         [
-          {
+          mentionRange({
             href: buildAgentMentionHref("agent-id"),
             text: "@Triage agent",
             formatting: "",
-          },
+          }),
         ]
       )
     ).toEqual([])
     expect(
       findEditedCommentMentionIndexes(
         [
-          {
+          mentionRange({
             href: buildAgentMentionHref("old-agent"),
             text: "@Old agent",
             formatting: "",
-          },
+          }),
         ],
         [
-          {
+          mentionRange({
             href: buildAgentMentionHref("new-agent"),
             text: "@New agent",
             formatting: "",
-          },
+          }),
         ]
       )
     ).toEqual([])

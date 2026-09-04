@@ -104,7 +104,7 @@ import {
 } from "@/lib/cases/use-case-image-upload"
 import {
   AGENT_MENTION_URI_SCHEME,
-  type CommentMentionLinkSnapshot,
+  type CommentMentionLinkRange,
   findCommentMentionLinkRanges,
   findEditedCommentMentionIndexes,
   preventCommentMentionNavigation,
@@ -640,7 +640,7 @@ export function SimpleEditor({
   const previousEditableRef = React.useRef(editable)
   const imageUploadRef = React.useRef(onImageUpload)
   const editorRef = React.useRef<Editor | null>(null)
-  const commentMentionLinksRef = React.useRef<CommentMentionLinkSnapshot[]>([])
+  const commentMentionLinksRef = React.useRef<CommentMentionLinkRange[]>([])
 
   React.useEffect(() => {
     imageUploadRef.current = onImageUpload
@@ -831,11 +831,17 @@ export function SimpleEditor({
     commentMentionLinksRef.current = findCommentMentionLinkRanges(
       editor.state.doc
     )
-    const handleUpdate = () => {
+    const handleUpdate = ({
+      transaction: updateTransaction,
+    }: {
+      transaction: Transaction
+    }) => {
       const ranges = findCommentMentionLinkRanges(editor.state.doc)
       const editedIndexes = findEditedCommentMentionIndexes(
         commentMentionLinksRef.current,
-        ranges
+        ranges,
+        (position, association) =>
+          updateTransaction.mapping.map(position, association)
       )
       commentMentionLinksRef.current = ranges
       const linkMark = editor.state.schema.marks.link
