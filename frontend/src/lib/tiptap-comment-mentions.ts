@@ -103,18 +103,7 @@ export function findEditedCommentMentionIndexes(
   previous: CommentMentionLinkSnapshot[],
   current: CommentMentionLinkSnapshot[]
 ): number[] {
-  const editedIndexes = new Set(
-    current.flatMap((mention, index) => {
-      const oldMention = previous[index]
-      if (
-        oldMention?.href === mention.href &&
-        (oldMention.text !== mention.text || mention.hasFormatting)
-      ) {
-        return [index]
-      }
-      return []
-    })
-  )
+  const editedIndexes = new Set<number>()
   const previousByHref = new Map<string, CommentMentionLinkSnapshot[]>()
   for (const mention of previous) {
     const mentions = previousByHref.get(mention.href) ?? []
@@ -133,6 +122,15 @@ export function findEditedCommentMentionIndexes(
 
   for (const [href, oldMentions] of previousByHref) {
     const nextMentions = currentByHref.get(href) ?? []
+    nextMentions.forEach((mention, occurrenceIndex) => {
+      const oldMention = oldMentions[occurrenceIndex]
+      if (
+        oldMention &&
+        (oldMention.text !== mention.text || mention.hasFormatting)
+      ) {
+        editedIndexes.add(mention.index)
+      }
+    })
     if (nextMentions.length <= oldMentions.length) {
       continue
     }

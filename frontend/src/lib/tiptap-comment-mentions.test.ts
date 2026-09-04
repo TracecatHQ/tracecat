@@ -270,6 +270,26 @@ describe("TipTap comment mention serialization", () => {
     ).toEqual([])
   })
 
+  it("matches an edited mention after a different mention is removed", () => {
+    const agentMention = {
+      href: buildAgentMentionHref("agent-id"),
+      text: "@Triage agent",
+      hasFormatting: false,
+    }
+    const workflowMention = {
+      href: buildWorkflowMentionHref("workflow-id"),
+      text: "/Enrich case",
+      hasFormatting: false,
+    }
+
+    expect(
+      findEditedCommentMentionIndexes(
+        [agentMention, workflowMention],
+        [{ ...workflowMention, text: "/Enrich" }]
+      )
+    ).toEqual([0])
+  })
+
   it("does not treat inserted or replaced mentions as label edits", () => {
     expect(
       findEditedCommentMentionIndexes(
