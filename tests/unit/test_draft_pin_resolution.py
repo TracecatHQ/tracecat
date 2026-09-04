@@ -122,6 +122,35 @@ async def test_scatter_body_ref_is_rejected(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 @pytest.mark.anyio
+async def test_loop_body_ref_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Invariant: actions inside loop scopes cannot supply draft pins."""
+    wf_id = WorkflowUUID.new_uuid4()
+    source_execution_id = generate_exec_id(wf_id)
+    service = _service()
+    monkeypatch.setattr(service, "get_execution", AsyncMock(return_value=MagicMock()))
+    list_events = AsyncMock(return_value=[_event("body")])
+    monkeypatch.setattr(service, "list_workflow_execution_events_compact", list_events)
+
+    result = await service.resolve_draft_pinned_action_results(
+        wf_id=wf_id,
+        dsl=_dsl(
+            ActionStatement(ref="loop_start", action=PlatformAction.LOOP_START),
+            ActionStatement(ref="body", action="core.noop", depends_on=["loop_start"]),
+            ActionStatement(
+                ref="loop_end",
+                action=PlatformAction.LOOP_END,
+                args={"condition": "${{ False }}"},
+                depends_on=["body"],
+            ),
+        ),
+        draft_pins=_pins(source_execution_id, "body"),
+    )
+
+    assert result == {}
+    list_events.assert_not_awaited()
+
+
+@pytest.mark.anyio
 async def test_masked_result_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     """Invariant: actions with masked output cannot supply draft pin results."""
     wf_id = WorkflowUUID.new_uuid4()
