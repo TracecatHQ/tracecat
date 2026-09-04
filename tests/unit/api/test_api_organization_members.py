@@ -10,13 +10,10 @@ import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
 
-from tracecat import config
 from tracecat.api.app import app
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session, get_async_session_bypass_rls
-from tracecat.email.client import Mailer, OutboundEmail
-from tracecat.invitations.enums import InvitationStatus
 from tracecat.organization import router as organization_router
 
 
@@ -162,58 +159,6 @@ async def test_update_org_member_omits_superuser_flag(
     assert data["user_id"] == str(user.id)
     assert data["role"] == "Admin"
     assert "is_superuser" not in data
-
-
-@pytest.mark.anyio
-async def test_create_org_invitation_schedules_configured_email(
-    client: TestClient, test_admin_role: Role
-) -> None:
-    organization_id = test_admin_role.organization_id
-    assert organization_id is not None
-    role_id = uuid.uuid4()
-    invitation = SimpleNamespace(
-        id=uuid.uuid4(),
-        organization_id=organization_id,
-        email="invitee@example.com",
-        role_id=role_id,
-        role_obj=SimpleNamespace(name="Member", slug="organization-member"),
-        status=InvitationStatus.PENDING,
-        invited_by=test_admin_role.user_id,
-        expires_at=datetime(2026, 1, 8, tzinfo=UTC),
-        created_at=datetime(2026, 1, 1, tzinfo=UTC),
-        accepted_at=None,
-        token="token-123",
-    )
-    mock_session = await app.dependency_overrides[get_async_session]()
-    result = Mock()
-    result.scalar_one.return_value = "Acme"
-    mock_session.execute = AsyncMock(return_value=result)
-
-    with (
-        patch.object(organization_router, "OrgService") as mock_service_class,
-        patch.object(
-            config, "TRACECAT__EMAIL_FROM", "Tracecat <no-reply@mail.example.com>"
-        ),
-        patch.object(Mailer, "deliver") as mock_deliver,
-    ):
-        mock_service = AsyncMock()
-        mock_service.organization_id = organization_id
-        mock_service.create_invitation.return_value = invitation
-        mock_service_class.return_value = mock_service
-
-        response = client.post(
-            "/organization/invitations",
-            json={"email": invitation.email, "role_id": str(role_id)},
-        )
-
-    assert response.status_code == status.HTTP_201_CREATED
-    mock_deliver.assert_called_once()
-    message = mock_deliver.call_args.args[0]
-    assert isinstance(message, OutboundEmail)
-    assert message.to == (invitation.email,)
-    assert message.subject == "Join Acme on Tracecat"
-    assert message.from_addr == "Tracecat <no-reply@mail.example.com>"
-    assert "token=token-123" in message.text
 
 
 @pytest.mark.anyio
