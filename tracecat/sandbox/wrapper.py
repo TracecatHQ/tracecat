@@ -15,6 +15,7 @@ import dataclasses
 import datetime
 import decimal
 import enum
+import errno
 import importlib
 import inspect
 import json
@@ -235,17 +236,22 @@ def main():
         result["success"] = True
         result["output"] = output
 
-    except MemoryError:
-        # The sandbox address-space cap surfaces as MemoryError. Skip the
-        # traceback: formatting it needs memory the process may not have.
-        # Report a structured code so the host classifies the failure
-        # without inspecting error text.
-        result["error"] = "MemoryError: script exceeded the sandbox memory limit"
-        result["error_code"] = "resource_limit_exceeded"
-
     except Exception as e:
-        result["error"] = f"{type(e).__name__}: {e}"
-        result["traceback"] = traceback.format_exc()
+        # The address-space cap surfaces as MemoryError from Python's own
+        # allocator, and as OSError with errno.ENOMEM from a syscall such as
+        # mmap. Both mean the same cap, matched on a machine-readable
+        # attribute rather than on message text.
+        if isinstance(e, MemoryError) or (
+            isinstance(e, OSError) and e.errno == errno.ENOMEM
+        ):
+            # Skip the traceback: formatting it needs memory the process may
+            # not have. Report a structured code so the host classifies the
+            # failure without inspecting error text.
+            result["error"] = "Script exceeded the sandbox memory limit"
+            result["error_code"] = "resource_limit_exceeded"
+        else:
+            result["error"] = f"{type(e).__name__}: {e}"
+            result["traceback"] = traceback.format_exc()
 
     finally:
         # Capture stdout/stderr

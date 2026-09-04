@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import errno
 import importlib
 import os
 import resource
@@ -512,17 +513,16 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
 
         return {"success": True, "result": result}
 
-    except MemoryError:
-        # The sandbox address-space cap surfaces as MemoryError. Skip the
-        # traceback walk, which needs memory the process may not have, and
-        # report a structured code so the host classifies the failure
-        # without inspecting error text.
-        return _resource_limit_envelope(
-            "Action ran out of memory",
-            action_name=_action_display_name(action_impl),
-        )
-
     except Exception as e:
+        if is_memory_exhaustion(e):
+            # Skip the traceback walk, which needs memory the process may not
+            # have, and report a structured code so the host classifies the
+            # failure without inspecting error text.
+            return _resource_limit_envelope(
+                "Action ran out of memory",
+                action_name=_action_display_name(action_impl),
+            )
+
         import traceback
 
         # Extract traceback info for ExecutorActionErrorInfo compatibility
@@ -541,6 +541,19 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
                 "lineno": last_frame.lineno if last_frame else None,
             },
         }
+
+
+def is_memory_exhaustion(error: BaseException) -> bool:
+    """Report whether an exception means the address-space cap was reached.
+
+    Python's own allocator raises ``MemoryError``, but a syscall that fails
+    under ``rlimit_as`` -- ``mmap`` most commonly -- surfaces as ``OSError``
+    with ``errno.ENOMEM`` instead. Both mean the same cap, and both are matched
+    on a machine-readable attribute rather than on message text.
+    """
+    if isinstance(error, MemoryError):
+        return True
+    return isinstance(error, OSError) and error.errno == errno.ENOMEM
 
 
 def serialize_result(result: dict[str, Any], input_data: dict[str, Any]) -> bytes:
