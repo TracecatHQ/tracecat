@@ -865,13 +865,23 @@ class DSLScheduler:
         if original_delay > 0:
             task = replace(task, delay=0.0)
         try:
-            # 1) Pinned root action short-circuit (run_if still respected).
+            # 1) Pinned root action short-circuit (run_if is respected when its
+            # inputs are available, otherwise the pinned result is reused).
             # This runs before skip propagation on purpose: a pin's upstream is
             # force-skipped by design, so every incoming edge of a pinned task is
             # marked SKIPPED. Checking propagation first would skip the pin
             # itself and make any fan-in downstream of it unreachable.
             if task.stream_id == ROOT_STREAM and ref in self.pinned_action_refs:
-                if await self._task_should_skip(task, stmt):
+                try:
+                    should_skip = await self._task_should_skip(task, stmt)
+                except ApplicationError as e:
+                    self.logger.warning(
+                        "Pinned task run_if could not be evaluated; using pinned result",
+                        task=task,
+                        error=e,
+                    )
+                    should_skip = False
+                if should_skip:
                     self.logger.debug("Pinned task should self-skip", task=task)
                     # Drop the pre-seeded pinned result so downstream sees the
                     # same context it would for any other skipped task.

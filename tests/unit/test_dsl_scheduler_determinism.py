@@ -5,6 +5,7 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
+from temporalio.exceptions import ApplicationError
 
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
@@ -329,3 +330,42 @@ async def test_pinned_task_with_false_run_if_self_skips_and_drops_result() -> No
     assert executed_refs == []
     assert scheduler.skipped_pinned_refs == ["c"]
     assert "c" not in scheduler.get_context(ROOT_STREAM)["ACTIONS"]
+
+
+@pytest.mark.anyio
+async def test_pinned_task_with_unavailable_upstream_guard_reuses_result() -> None:
+    """Invariant: a pinned task whose guard references an unavailable
+    force-skipped upstream reuses the pin instead of failing."""
+    executed_refs: list[str] = []
+    dsl = DSLInput(
+        title="pin-run-if-unavailable-upstream",
+        description="pin-run-if-unavailable-upstream",
+        entrypoint=DSLEntrypoint(ref="a"),
+        actions=[
+            ActionStatement(ref="a", action="core.noop"),
+            ActionStatement(ref="b", action="core.noop", depends_on=["a"]),
+            ActionStatement(
+                ref="c",
+                action="core.noop",
+                depends_on=["b"],
+                run_if="${{ ACTIONS.b.result }}",
+            ),
+        ],
+    )
+    pinned = TaskResult.from_result({"value": "pinned-c"})
+    scheduler = _make_pinned_scheduler(dsl, {"c": pinned}, executed_refs)
+
+    async def unavailable_upstream(
+        _expression: str, _context: ExecutionContext
+    ) -> bool:
+        raise ApplicationError("ACTIONS.b.result is unavailable")
+
+    scheduler.resolve_expression = unavailable_upstream  # type: ignore[method-assign]
+
+    task_exceptions = await scheduler.start()
+
+    assert task_exceptions is None
+    assert "b" not in executed_refs
+    assert scheduler.get_context(ROOT_STREAM)["ACTIONS"]["c"].get_data() == {
+        "value": "pinned-c"
+    }
