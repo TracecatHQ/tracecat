@@ -17,6 +17,7 @@ from tracecat.registry.lock.types import RegistryLock
 from tracecat.workflow.management import management
 from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.management.schemas import WorkflowDraftPins
+from tracecat.workflow.management.types import WorkflowDraftPinsData
 
 
 class _ScalarResult:
@@ -1167,7 +1168,7 @@ class _FakeExecService:
         return self.pinned_action_results
 
     def parse_draft_pins(
-        self, draft_pins: dict[str, Any] | None
+        self, draft_pins: WorkflowDraftPinsData | None
     ) -> WorkflowDraftPins | None:
         return self.parsed_draft_pins
 

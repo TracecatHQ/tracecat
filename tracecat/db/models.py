@@ -76,6 +76,7 @@ from tracecat.interactions.enums import InteractionStatus, InteractionType
 from tracecat.invitations.enums import InvitationStatus
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.tiers.types import EntitlementsDict
+from tracecat.workflow.management.types import WorkflowDraftPinsData
 from tracecat.workspaces.schemas import WorkspaceSettings
 
 _UNSET = object()
@@ -982,7 +983,7 @@ class Workflow(WorkspaceModel):
             "Example: {'tracecat_registry': '1.2.3', 'git+ssh://...': '0.5.0'}"
         ),
     )
-    draft_pins: Mapped[dict[str, Any] | None] = mapped_column(
+    draft_pins: Mapped[WorkflowDraftPinsData | None] = mapped_column(
         JSONB,
         nullable=True,
         doc=(

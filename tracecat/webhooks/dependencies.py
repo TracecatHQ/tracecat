@@ -31,6 +31,7 @@ from tracecat.identifiers.workflow import AnyWorkflowIDPath
 from tracecat.logger import logger
 from tracecat.webhooks.schemas import NDJSON_CONTENT_TYPES
 from tracecat.workflow.management.management import WorkflowsManagementService
+from tracecat.workflow.management.types import WorkflowDraftPinsData
 
 if TYPE_CHECKING:
     from tracecat.dsl.common import DSLInput
@@ -351,7 +352,7 @@ class DraftWorkflowContext:
 
     dsl: DSLInput
     registry_lock: dict[str, str] | None
-    draft_pins: dict[str, Any] | None
+    draft_pins: WorkflowDraftPinsData | None
 
 
 async def validate_draft_workflow(

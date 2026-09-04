@@ -110,6 +110,7 @@ from tracecat.workflow.executions.schemas import (
     WorkflowExecutionStatusLiteral,
 )
 from tracecat.workflow.management.schemas import WorkflowDraftPins
+from tracecat.workflow.management.types import WorkflowDraftPinsData
 from tracecat.workspaces.service import WorkspaceService
 
 
@@ -271,31 +272,25 @@ class WorkflowExecutionsService:
     def _coerce_pinned_task_result(result: Any) -> TaskResult:
         if isinstance(result, TaskResult):
             return result
-        try:
-            return TaskResult.model_validate(result)
-        except ValidationError:
-            pass
-        try:
-            stored = StoredObjectValidator.validate_python(result)
-        except ValidationError:
+        if not isinstance(result, InlineObject | ExternalObject | CollectionObject):
             return TaskResult.from_result(result)
 
-        match stored:
+        match result:
             case InlineObject(data=data):
-                result_typename = stored.typename or type(data).__name__
+                result_typename = result.typename or type(data).__name__
             case CollectionObject():
-                result_typename = stored.typename or "list"
+                result_typename = result.typename or "list"
             case ExternalObject():
-                result_typename = stored.typename or "external"
+                result_typename = result.typename or "external"
 
         return TaskResult(
-            result=stored,
+            result=result,
             result_typename=result_typename,
         )
 
     @staticmethod
     def parse_draft_pins(
-        draft_pins: dict[str, Any] | None,
+        draft_pins: WorkflowDraftPinsData | None,
     ) -> WorkflowDraftPins | None:
         if not draft_pins:
             return None
@@ -501,8 +496,20 @@ class WorkflowExecutionsService:
                 continue
             stitched_event = source_event.model_copy(deep=True)
             stitched_event.synthetic_kind = "pinned"
-            stitched_event.pinned_source_execution_id = source_execution_id
-            stitched_event.pinned_source_event_id = source_event.source_event_id
+            if source_event.synthetic_kind == "pinned":
+                stitched_event.pinned_source_execution_id = (
+                    source_event.pinned_source_execution_id
+                    if source_event.pinned_source_execution_id is not None
+                    else source_execution_id
+                )
+                stitched_event.pinned_source_event_id = (
+                    source_event.pinned_source_event_id
+                    if source_event.pinned_source_event_id is not None
+                    else source_event.source_event_id
+                )
+            else:
+                stitched_event.pinned_source_execution_id = source_execution_id
+                stitched_event.pinned_source_event_id = source_event.source_event_id
             stitched_event.schedule_time = run_started_at
             stitched_event.start_time = run_started_at
             stitched_event.close_time = run_started_at
@@ -524,7 +531,7 @@ class WorkflowExecutionsService:
         *,
         wf_id: WorkflowID,
         dsl: DSLInput,
-        draft_pins: dict[str, Any] | None,
+        draft_pins: WorkflowDraftPinsData | None,
     ) -> dict[str, TaskResult]:
         """Best-effort resolve draft pin config to action TaskResults.
 
@@ -581,6 +588,7 @@ class WorkflowExecutionsService:
 
         dsl_actions = {task.ref: task for task in dsl.actions}
         dsl_refs = set(dsl_actions)
+        scoped_refs = dsl.scoped_action_refs()
         rejected_refs = sorted(
             ref
             for ref in pins.action_refs
@@ -593,11 +601,33 @@ class WorkflowExecutionsService:
                 rejected_refs=rejected_refs,
                 source_execution_id=pins.source_execution_id,
             )
+        rejected_scoped_refs = sorted(
+            (set(pins.action_refs) & scoped_refs) - set(rejected_refs)
+        )
+        if rejected_scoped_refs:
+            self.logger.warning(
+                "Draft pins inside scatter or loop scopes are not supported; ignoring",
+                rejected_refs=rejected_scoped_refs,
+                source_execution_id=pins.source_execution_id,
+            )
+        current_masked_refs = sorted(
+            ref
+            for ref in pins.action_refs
+            if (task := dsl_actions.get(ref)) is not None and task.mask_output
+        )
+        if current_masked_refs:
+            self.logger.warning(
+                "Draft pins on actions with mask_output are not supported; ignoring",
+                masked_refs=current_masked_refs,
+                source_execution_id=pins.source_execution_id,
+            )
         target_refs = [
             ref
             for ref in pins.action_refs
             if (task := dsl_actions.get(ref)) is not None
             and task.action not in UNSUPPORTED_DRAFT_PIN_ACTIONS
+            and ref not in scoped_refs
+            and not task.mask_output
         ]
         missing_refs = sorted(set(pins.action_refs) - dsl_refs)
         if missing_refs:
@@ -641,7 +671,7 @@ class WorkflowExecutionsService:
 
         if masked_refs:
             self.logger.warning(
-                "Draft pins on actions with mask_output are not supported; ignoring",
+                "Draft pins on source events with masked output; ignoring",
                 masked_refs=masked_refs,
                 source_execution_id=pins.source_execution_id,
             )

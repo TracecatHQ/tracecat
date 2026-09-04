@@ -94,6 +94,7 @@ from tracecat.workflow.executions.service import (
 )
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
+from tracecat.workflow.management.types import WorkflowDraftPinsData
 
 router = APIRouter(prefix="/workflow-executions", tags=["workflow-executions"])
 workflow_router = APIRouter(prefix="/workflows", tags=["workflow-executions"])
@@ -1073,7 +1074,7 @@ async def create_draft_workflow_execution(
     wf_id = WorkflowUUID.new(params.workflow_id)
 
     # Build DSL from the draft workflow, not from committed definition
-    draft_pins: dict[str, Any] | None = None
+    draft_pins: WorkflowDraftPinsData | None = None
     async with WorkflowsManagementService.with_session(role=role) as mgmt_service:
         workflow = await mgmt_service.get_workflow(wf_id)
         if not workflow:

@@ -95,6 +95,7 @@ from tracecat.workflow.management.schemas import (
 )
 from tracecat.workflow.management.types import (
     WorkflowDefinitionMinimal,
+    WorkflowDraftPinsData,
     WorkflowTriggerSummaryMinimal,
     build_workflow_trigger_summary,
 )
@@ -1101,7 +1102,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
                 workflow's input schema.
         """
         wf_id = WorkflowUUID.new(workflow_id)
-        draft_pins: dict[str, Any] | None = None
+        draft_pins: WorkflowDraftPinsData | None = None
 
         if use_draft:
             workflow = await self.get_workflow(wf_id)

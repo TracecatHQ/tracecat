@@ -2,7 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Final
+from typing import Final, TypedDict
+
+
+class WorkflowDraftPinsData(TypedDict):
+    """Raw JSONB shape of `Workflow.draft_pins`. Validated form is `WorkflowDraftPins`."""
+
+    source_execution_id: str
+    action_refs: list[str]
 
 
 @dataclass
