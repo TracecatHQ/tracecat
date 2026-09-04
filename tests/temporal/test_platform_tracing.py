@@ -9,12 +9,13 @@ import httpx
 import pytest
 from fastapi import FastAPI
 from opentelemetry import baggage, context
+from opentelemetry.sdk.trace import ReadableSpan
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
     InMemorySpanExporter,
 )
 from opentelemetry.trace import StatusCode
 from temporalio import activity, workflow
-from temporalio.client import WorkflowFailureError
+from temporalio.client import Client, WorkflowFailureError
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
@@ -341,6 +342,72 @@ async def test_unparented_workflow_still_emits_one_complete_trace(
     assert len(trace_ids) == 1
     assert any("RunWorkflow" in span.name for span in spans)
     assert any("RunActivity" in span.name for span in spans)
+
+
+@pytest.mark.anyio
+async def test_headerless_workflow_start_emits_one_trace_per_run(
+    traced_env: tuple[WorkflowEnvironment, InMemorySpanExporter],
+) -> None:
+    """A run started without a trace header still forms one complete trace.
+
+    Schedules and other Temporal-originated starts carry no carrier. Each run
+    must resolve to a single trace whose only unexported span is the synthetic
+    per-run parent, and separate runs must not share a trace.
+    """
+    env, exporter = traced_env
+    headerless_config = env.client.config()
+    headerless_config["interceptors"] = []
+    headerless_client = Client(**headerless_config)
+    task_queue = "platform-tracing-headerless-test"
+
+    async with Worker(
+        env.client,
+        task_queue=task_queue,
+        workflows=[TracedWorkflow],
+        activities=[traced_executor_activity],
+        max_cached_workflows=0,
+    ):
+        for workflow_id in ("synthetic-headerless-1", "synthetic-headerless-2"):
+            assert (
+                await headerless_client.execute_workflow(
+                    TracedWorkflow.run,
+                    id=workflow_id,
+                    task_queue=task_queue,
+                )
+                == "ok"
+            )
+
+    spans = exporter.get_finished_spans()
+    spans_by_run: dict[str, list[ReadableSpan]] = {}
+    for span in spans:
+        assert span.attributes is not None
+        run_id = span.attributes["temporalRunID"]
+        assert isinstance(run_id, str)
+        spans_by_run.setdefault(run_id, []).append(span)
+    assert len(spans_by_run) == 2
+
+    run_trace_ids: list[int] = []
+    for run_spans in spans_by_run.values():
+        names = {span.name.split(":")[0] for span in run_spans}
+        assert {
+            "RunWorkflow",
+            "StartActivity",
+            "RunActivity",
+            "CompleteWorkflow",
+        } <= names
+        contexts = [span.context for span in run_spans if span.context is not None]
+        assert len(contexts) == len(run_spans)
+        trace_ids = {context.trace_id for context in contexts}
+        assert len(trace_ids) == 1
+        run_trace_ids.append(trace_ids.pop())
+        exported_ids = {context.span_id for context in contexts}
+        unexported_parents = {
+            span.parent.span_id
+            for span in run_spans
+            if span.parent is not None and span.parent.span_id not in exported_ids
+        }
+        assert len(unexported_parents) == 1
+    assert len(set(run_trace_ids)) == 2
 
 
 @pytest.mark.anyio

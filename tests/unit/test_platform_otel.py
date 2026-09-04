@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass, field
 from typing import Any
 
 import pytest
@@ -11,6 +12,7 @@ from opentelemetry.sdk.trace.export import SpanExporter, SpanExportResult
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
     InMemorySpanExporter,
 )
+from opentelemetry.trace import SpanKind
 from temporalio.contrib.opentelemetry import TracingInterceptor
 
 from tracecat import config
@@ -290,3 +292,101 @@ def test_exporter_exception_does_not_change_fastapi_response(
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
     assert len(response.headers[TRACE_ID_HEADER]) == 32
+
+
+@dataclass(frozen=True, slots=True)
+class _HeaderlessSpanParams:
+    """Workflow command span input as the SDK hands it to the worker side."""
+
+    name: str
+    attributes: dict[str, str]
+    kind: SpanKind = SpanKind.INTERNAL
+    context: dict[str, str] = field(default_factory=dict)
+    time_ns: int = 1
+    link_context: None = None
+    exception: Exception | None = None
+    parent_missing: bool = True
+
+
+def _headerless_interceptor() -> platform_otel._TraceContextOnlyTracingInterceptor:
+    interceptor = temporal_tracing_interceptor()
+    assert isinstance(interceptor, platform_otel._TraceContextOnlyTracingInterceptor)
+    return interceptor
+
+
+def _complete_headerless_span(
+    interceptor: platform_otel._TraceContextOnlyTracingInterceptor,
+    name: str,
+    run_id: str,
+) -> str:
+    carrier = interceptor._completed_workflow_span(
+        _HeaderlessSpanParams(
+            name=name,
+            attributes={"temporalWorkflowID": "synthetic-wf", "temporalRunID": run_id},
+        )
+    )
+    assert carrier is not None
+    traceparent = carrier["traceparent"]
+    assert isinstance(traceparent, str)
+    return traceparent
+
+
+def test_headerless_workflow_run_spans_share_one_deterministic_trace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A Temporal-started run has no trace header, yet forms a single trace.
+
+    Every command span of the run hangs off the same never-exported parent that
+    is derived from the run ID, so the trace stays intact across replays, and a
+    different run gets a different trace.
+    """
+    monkeypatch.setattr(config, "TRACECAT__PLATFORM_OTEL_ENABLED", True)
+    exporter = InMemorySpanExporter()
+    initialize_platform_tracing("tracecat-worker", exporter=exporter)
+    interceptor = _headerless_interceptor()
+
+    for name in (
+        "RunWorkflow:Traced",
+        "StartActivity:probe",
+        "CompleteWorkflow:Traced",
+    ):
+        _complete_headerless_span(interceptor, name, "run-1")
+    _complete_headerless_span(interceptor, "RunWorkflow:Traced", "run-2")
+
+    spans_by_run: dict[str, list[Any]] = {}
+    for span in exporter.get_finished_spans():
+        assert span.attributes is not None
+        run_id = span.attributes["temporalRunID"]
+        assert isinstance(run_id, str)
+        spans_by_run.setdefault(run_id, []).append(span)
+    run_1 = spans_by_run["run-1"]
+    assert len(run_1) == 3
+    trace_ids = {span.context.trace_id for span in run_1}
+    assert len(trace_ids) == 1
+    parent_ids = {span.parent.span_id for span in run_1 if span.parent is not None}
+    assert len(parent_ids) == 1
+    assert parent_ids != {0}
+    # The synthetic parent is never exported.
+    assert parent_ids.isdisjoint({span.context.span_id for span in run_1})
+    assert spans_by_run["run-2"][0].context.trace_id not in trace_ids
+
+    # Replaying the run reproduces the same trace.
+    replayed = _complete_headerless_span(interceptor, "RunWorkflow:Traced", "run-1")
+    assert format(next(iter(trace_ids)), "032x") in replayed
+
+
+def test_headerless_workflow_run_follows_the_configured_sampler(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The sampler decides once per run, so an unsampled run exports nothing."""
+    monkeypatch.setattr(config, "TRACECAT__PLATFORM_OTEL_ENABLED", True)
+    monkeypatch.setenv("OTEL_TRACES_SAMPLER", "always_off")
+    exporter = InMemorySpanExporter()
+    initialize_platform_tracing("tracecat-worker", exporter=exporter)
+    interceptor = _headerless_interceptor()
+
+    traceparent = _complete_headerless_span(interceptor, "RunWorkflow:Traced", "run-1")
+    _complete_headerless_span(interceptor, "StartActivity:probe", "run-1")
+
+    assert traceparent.endswith("-00")
+    assert exporter.get_finished_spans() == ()

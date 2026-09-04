@@ -6,6 +6,7 @@ settings. Platform services export to the operator-controlled OTLP endpoint.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 from collections.abc import Iterator, Mapping, Sequence
@@ -28,6 +29,7 @@ from opentelemetry.sdk.trace.export import (
     SimpleSpanProcessor,
     SpanExporter,
 )
+from opentelemetry.sdk.trace.sampling import Sampler
 from opentelemetry.trace import Link, Span, SpanKind, Status, StatusCode, TraceFlags
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 from opentelemetry.util.types import Attributes
@@ -49,6 +51,10 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 TRACE_ID_HEADER: Final = "X-Trace-ID"
+# Set by the Temporal SDK on every workflow command span.
+_TEMPORAL_RUN_ID_ATTRIBUTE: Final = "temporalRunID"
+# Name the sampler sees for the per-run root decision of a headerless run.
+_HEADERLESS_RUN_SPAN_NAME: Final = "RunWorkflow"
 TRACE_SAMPLED_HEADER: Final = "X-Trace-Sampled"
 
 _EXCLUDED_FASTAPI_URLS: Final = ",".join(
@@ -233,6 +239,7 @@ def temporal_tracing_interceptor() -> TracingInterceptor | None:
         return None
     return _TraceContextOnlyTracingInterceptor(
         tracer=runtime.tracer("tracecat.temporal"),
+        sampler=runtime.tracer_provider.sampler,
         always_create_workflow_spans=True,
     )
 
@@ -252,12 +259,14 @@ class _TraceContextOnlyTracingInterceptor(TracingInterceptor):
         self,
         *,
         tracer: trace.Tracer,
+        sampler: Sampler,
         always_create_workflow_spans: bool,
     ) -> None:
         super().__init__(
             tracer=tracer,
             always_create_workflow_spans=always_create_workflow_spans,
         )
+        self._sampler = sampler
         self.text_map_propagator = _TRACE_CONTEXT_PROPAGATOR
 
     @contextmanager
@@ -301,10 +310,12 @@ class _TraceContextOnlyTracingInterceptor(TracingInterceptor):
         self, params: _CompletedWorkflowSpanInput
     ) -> _TraceCarrier | None:
         """Export workflow failures without messages or stack traces."""
-        if params.parent_missing and not self._always_create_workflow_spans:
-            return None
-
-        span_context = self.text_map_propagator.extract(params.context)
+        if params.parent_missing:
+            if not self._always_create_workflow_spans:
+                return None
+            span_context = self._headerless_run_context(params)
+        else:
+            span_context = self.text_map_propagator.extract(params.context)
         links: Sequence[Link] = []
         if params.link_context:
             link_span = trace.get_current_span(
@@ -330,6 +341,43 @@ class _TraceContextOnlyTracingInterceptor(TracingInterceptor):
         carrier: _TraceCarrier = {}
         self.text_map_propagator.inject(carrier, span_context)
         return carrier
+
+    def _headerless_run_context(
+        self, params: _CompletedWorkflowSpanInput
+    ) -> otel_context.Context:
+        """Parent every span of a headerless run under one synthetic context.
+
+        Runs started by Temporal itself (schedules) carry no trace header, so
+        the SDK would make each workflow command span its own root and one run
+        would fragment into many traces. The parent is derived from the run ID,
+        so it is identical across replays and cache evictions, and it is never
+        exported: the run shows as one trace whose root is deliberately absent.
+        The configured sampler makes a single root decision per run so the whole
+        run is kept or dropped together.
+        """
+        run_id = (params.attributes or {}).get(_TEMPORAL_RUN_ID_ATTRIBUTE)
+        if not isinstance(run_id, str) or not run_id:
+            return self.text_map_propagator.extract(params.context)
+        digest = hashlib.sha256(f"tracecat.temporal.run:{run_id}".encode()).digest()
+        trace_id = int.from_bytes(digest[:16], "big") or 1
+        span_id = int.from_bytes(digest[16:24], "big") or 1
+        sampling = self._sampler.should_sample(
+            None, trace_id, _HEADERLESS_RUN_SPAN_NAME, kind=SpanKind.SERVER
+        )
+        parent = trace.NonRecordingSpan(
+            trace.SpanContext(
+                trace_id=trace_id,
+                span_id=span_id,
+                is_remote=True,
+                trace_flags=TraceFlags(
+                    TraceFlags.SAMPLED
+                    if sampling.decision.is_sampled()
+                    else TraceFlags.DEFAULT
+                ),
+                trace_state=sampling.trace_state,
+            )
+        )
+        return trace.set_span_in_context(parent, otel_context.Context())
 
     def workflow_interceptor_class(
         self, input: WorkflowInterceptorClassInput
