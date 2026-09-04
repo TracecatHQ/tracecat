@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from email.message import EmailMessage
-from email.utils import formataddr
-from types import MappingProxyType
-from typing import Annotated, Protocol
+from typing import Annotated
 
 import aiosmtplib
 from fastapi import BackgroundTasks, Depends
@@ -27,51 +24,38 @@ class OutboundEmail:
     html: str
     text: str
     from_addr: str
-    headers: Mapping[str, str] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        # Sends run after the response; detach from the caller's mapping.
-        object.__setattr__(self, "headers", MappingProxyType(dict(self.headers)))
 
 
 class EmailDeliveryError(TracecatException):
-    """A send failed. Carries the error type only, never recipients or content."""
+    """A send failed. Carries port and error type only, never host or recipients."""
 
 
-class EmailTransport(Protocol):
-    """Provider-neutral delivery interface."""
-
-    async def send(self, message: OutboundEmail) -> None: ...
-
-
+@dataclass(frozen=True, slots=True)
 class SMTPTransport:
     """SMTP transport that opens one connection per message."""
 
-    def __init__(self, host: str, port: int, username: str, password: str) -> None:
-        self._host = host
-        self._port = port
-        self._username = username
-        self._password = password
+    host: str
+    port: int
+    username: str
+    password: str
 
     async def send(self, message: OutboundEmail) -> None:
         mime = EmailMessage()
         mime["From"] = message.from_addr
         mime["To"] = ", ".join(message.to)
         mime["Subject"] = message.subject
-        for key, value in message.headers.items():
-            mime[key] = value
         mime.set_content(message.text)
         mime.add_alternative(message.html, subtype="html")
 
         # Port 465 is implicit TLS; everything else upgrades via STARTTLS.
         await aiosmtplib.send(
             mime,
-            hostname=self._host,
-            port=self._port,
-            username=self._username,
-            password=self._password,
-            use_tls=self._port == 465,
-            start_tls=self._port != 465,
+            hostname=self.host,
+            port=self.port,
+            username=self.username,
+            password=self.password,
+            use_tls=self.port == 465,
+            start_tls=self.port != 465,
         )
 
 
@@ -81,13 +65,8 @@ def is_email_configured() -> bool:
         config.TRACECAT__SMTP_HOST
         and config.TRACECAT__SMTP_USER
         and config.TRACECAT__SMTP_PASSWORD
-        and config.TRACECAT__EMAIL_DOMAIN
+        and config.TRACECAT__EMAIL_FROM
     )
-
-
-def platform_from_addr() -> str:
-    """Build the platform sender address from the verified sending domain."""
-    return formataddr(("Tracecat", f"no-reply@{config.TRACECAT__EMAIL_DOMAIN}"))
 
 
 def build_accept_url(token: str) -> str:
@@ -102,14 +81,15 @@ def invitation_email(*, to: str, organization_name: str, token: str) -> Outbound
     """Render an organization invitation into a deliverable message."""
     subject, html, text = render_invitation_email(
         accept_url=build_accept_url(token),
-        context_name=organization_name,
+        organization_name=organization_name,
     )
     return OutboundEmail(
         to=(to,),
         subject=subject,
         html=html,
         text=text,
-        from_addr=platform_from_addr(),
+        # Empty only when unconfigured; Mailer.deliver drops those.
+        from_addr=config.TRACECAT__EMAIL_FROM or "",
     )
 
 
@@ -123,14 +103,11 @@ async def _send(message: OutboundEmail) -> None:
     try:
         await transport.send(message)
     except Exception as error:
-        logger.error(
-            "Failed to send email",
-            host=config.TRACECAT__SMTP_HOST,
-            port=config.TRACECAT__SMTP_PORT,
-            error_type=type(error).__name__,
-        )
+        # Surfaces via Sentry/uvicorn. No host, recipients, or cause: relay
+        # responses may echo customer infrastructure or addresses.
         raise EmailDeliveryError(
-            f"SMTP delivery failed: {type(error).__name__}"
+            f"SMTP delivery failed on port {config.TRACECAT__SMTP_PORT}: "
+            f"{type(error).__name__}"
         ) from None
 
 
@@ -141,7 +118,7 @@ class Mailer:
         self._tasks = tasks
 
     def deliver(self, message: OutboundEmail) -> None:
-        # ponytail: in-process send, swap for a Temporal activity when agent mail needs retries.
+        # In-process send; swap for a Temporal activity when agent mail needs retries.
         if not is_email_configured():
             logger.debug("Email is not configured; dropping message")
             return
