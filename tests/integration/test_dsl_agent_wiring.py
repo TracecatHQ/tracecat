@@ -109,9 +109,15 @@ def create_mock_create_session_activity(
     return mock_create_session_activity
 
 
-def create_mock_load_session_activity() -> Callable[..., Any]:
+def create_mock_load_session_activity(
+    load: Callable[[LoadSessionInput], LoadSessionResult] | None = None,
+) -> Callable[..., Any]:
     @activity.defn(name="load_session_activity")
-    async def mock_load_session_activity(_: LoadSessionInput) -> LoadSessionResult:
+    async def mock_load_session_activity(
+        input: LoadSessionInput,
+    ) -> LoadSessionResult:
+        if load is not None:
+            return load(input)
         return LoadSessionResult(
             found=False,
             sdk_session_id=None,
@@ -391,17 +397,34 @@ class TestDSLAgentWiring:
     ) -> None:
         parent_session_id = uuid.uuid4()
         captured_inputs: list[CreateSessionInput] = []
+        load_inputs: list[LoadSessionInput] = []
+        executor_inputs: list[AgentExecutorInput] = []
+
+        def load_visible_after_create(input: LoadSessionInput) -> LoadSessionResult:
+            """Model the database: the fork row only exists once create ran."""
+            load_inputs.append(input)
+            if not any(c.session_id == input.session_id for c in captured_inputs):
+                return LoadSessionResult(found=False)
+            return LoadSessionResult(
+                found=True,
+                sdk_session_id="parent-sdk",
+                is_fork=True,
+                has_resume_state=True,
+            )
 
         agent_activities = list(get_agent_worker_activities())
         for replacement in (
             create_mock_create_session_activity(captured_inputs),
-            create_mock_load_session_activity(),
+            create_mock_load_session_activity(load_visible_after_create),
             create_mock_load_session_messages_activity(),
             create_mock_build_tool_definitions_activity(),
         ):
             agent_activities = _replace_activity(agent_activities, replacement)
         agent_activities.append(
-            create_mock_run_agent_activity(output="dsl-agent-existing-session")
+            create_mock_run_agent_activity(
+                output="dsl-agent-existing-session",
+                captured_inputs=executor_inputs,
+            )
         )
 
         dsl = DSLInput(
@@ -454,3 +477,9 @@ class TestDSLAgentWiring:
         assert create_input.session_id != parent_session_id
         assert create_input.parent_session_id == parent_session_id
         assert create_input.require_existing is False
+        # The fork is loaded before and again after creation, so the executor
+        # resumes the parent's transcript on the first turn.
+        assert [i.session_id for i in load_inputs] == [create_input.session_id] * 2
+        assert len(executor_inputs) == 1
+        assert executor_inputs[0].sdk_session_id == "parent-sdk"
+        assert executor_inputs[0].is_fork is True

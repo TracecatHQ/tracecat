@@ -1409,15 +1409,29 @@ class DurableAgentWorkflow:
             registry_lock_origins=list(root_registry_lock.origins.keys()),
         )
 
-        if load_result is None:
+        if load_result is None or args.parent_session_id is not None:
             # Legacy command order for histories without the binding-preservation
-            # patch marker. sdk_session_data is replay compatibility only; new
-            # activity executions leave it unset.
+            # patch marker. Forked children are also loaded here: the child row
+            # is created above, so its parent's resume metadata is only visible
+            # after creation. sdk_session_data is replay compatibility only;
+            # new activity executions leave it unset.
             load_result = await workflow.execute_activity(
                 load_session_activity,
                 LoadSessionInput(role=self.role, session_id=self.session_id),
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+        if args.parent_session_id is not None and not load_result.found:
+            # A fork that cannot see its own row would silently start from a
+            # blank transcript; fail the turn instead so it retries.
+            logger.error(
+                "Forked agent session not found after creation",
+                session_id=self.session_id,
+                parent_session_id=args.parent_session_id,
+                error=load_result.error,
+            )
+            raise_application_error_from_classification(
+                agent_session_initialization_failed(retryable=True)
             )
 
         if load_result.found and load_result.sdk_session_id:
