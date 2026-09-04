@@ -57,7 +57,7 @@ export interface TiptapMentions {
   selectSuggestion: (suggestion: MentionSuggestion) => void
   dismiss: () => void
   handleKeyDown: (event: KeyboardEvent) => boolean
-  serialize: typeof serializeTiptapComment
+  serialize: (markdown: string) => ReturnType<typeof serializeTiptapComment>
   reset: () => void
 }
 
@@ -290,6 +290,18 @@ export function useTiptapMentions({
     [activeIndex, editor, isOpen, items, selectSuggestion]
   )
 
+  const serialize = useCallback(
+    (markdown: string) => {
+      const workflowMention = editor
+        ? (findCommentMentionLinkRanges(editor.state.doc).find((range) =>
+            range.href.startsWith(WORKFLOW_MENTION_URI_SCHEME)
+          ) ?? null)
+        : null
+      return serializeTiptapComment(markdown, workflowMention)
+    },
+    [editor]
+  )
+
   return {
     agents,
     workflows,
@@ -305,7 +317,7 @@ export function useTiptapMentions({
     selectSuggestion,
     dismiss,
     handleKeyDown,
-    serialize: serializeTiptapComment,
+    serialize,
     reset: dismiss,
   }
 }

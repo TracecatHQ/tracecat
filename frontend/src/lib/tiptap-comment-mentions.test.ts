@@ -14,12 +14,15 @@ import {
 
 describe("TipTap comment mention serialization", () => {
   const workflowId = "11111111-1111-4111-8111-111111111111"
+  function workflowMention(text: string) {
+    return { href: buildWorkflowMentionHref(workflowId), text }
+  }
 
   it("keeps the existing agent mention wire format intact", () => {
     const agentId = "22222222-2222-4222-8222-222222222222"
     const markdown = `Ask [@Response agent](${buildAgentMentionHref(agentId)}) for help`
 
-    expect(serializeTiptapComment(markdown)).toEqual({
+    expect(serializeTiptapComment(markdown, null)).toEqual({
       content: markdown,
       workflowId: null,
     })
@@ -31,7 +34,8 @@ describe("TipTap comment mention serialization", () => {
   it("removes a workflow marker and returns its request id", () => {
     expect(
       serializeTiptapComment(
-        `[/Enrich case](${buildWorkflowMentionHref(workflowId)}) investigate this`
+        `[/Enrich case](${buildWorkflowMentionHref(workflowId)}) investigate this`,
+        workflowMention("/Enrich case")
       )
     ).toEqual({
       content: "investigate this",
@@ -42,7 +46,8 @@ describe("TipTap comment mention serialization", () => {
   it("allows a bare workflow command to produce an empty body", () => {
     expect(
       serializeTiptapComment(
-        `[/Enrich case](${buildWorkflowMentionHref(workflowId)})`
+        `[/Enrich case](${buildWorkflowMentionHref(workflowId)})`,
+        workflowMention("/Enrich case")
       )
     ).toEqual({ content: "", workflowId })
   })
@@ -56,7 +61,12 @@ describe("TipTap comment mention serialization", () => {
   ])("removes an empty %s around a workflow marker", (_label, template) => {
     const marker = `[/Enrich case](${buildWorkflowMentionHref(workflowId)})`
 
-    expect(serializeTiptapComment(template.replace("%s", marker))).toEqual({
+    expect(
+      serializeTiptapComment(
+        template.replace("%s", marker),
+        workflowMention("/Enrich case")
+      )
+    ).toEqual({
       content: "",
       workflowId,
     })
@@ -65,16 +75,19 @@ describe("TipTap comment mention serialization", () => {
   it("preserves a rich-text container when it has other content", () => {
     const marker = `[/Enrich case](${buildWorkflowMentionHref(workflowId)})`
 
-    expect(serializeTiptapComment(`- ${marker} investigate this`)).toEqual({
-      content: "- investigate this",
-      workflowId,
-    })
+    expect(
+      serializeTiptapComment(
+        `- ${marker} investigate this`,
+        workflowMention("/Enrich case")
+      )
+    ).toEqual({ content: "- investigate this", workflowId })
   })
 
   it("handles escaped closing brackets in workflow labels", () => {
     expect(
       serializeTiptapComment(
-        `Before [/Enrich \\] case](${buildWorkflowMentionHref(workflowId)}) after`
+        `Before [/Enrich \\] case](${buildWorkflowMentionHref(workflowId)}) after`,
+        workflowMention("/Enrich \\] case")
       )
     ).toEqual({ content: "Before after", workflowId })
   })
@@ -82,7 +95,8 @@ describe("TipTap comment mention serialization", () => {
   it("handles raw closing brackets in TipTap workflow labels", () => {
     expect(
       serializeTiptapComment(
-        `Before [/Review ] alert](${buildWorkflowMentionHref(workflowId)}) after`
+        `Before [/Review ] alert](${buildWorkflowMentionHref(workflowId)}) after`,
+        workflowMention("/Review ] alert")
       )
     ).toEqual({ content: "Before after", workflowId })
   })
@@ -90,14 +104,24 @@ describe("TipTap comment mention serialization", () => {
   it("does not consume an earlier bracketed slash literal", () => {
     expect(
       serializeTiptapComment(
-        `Keep [/literal] before [/Review ] alert](${buildWorkflowMentionHref(workflowId)}) after`
+        `Keep [/literal] before [/Review ] alert](${buildWorkflowMentionHref(workflowId)}) after`,
+        workflowMention("/Review ] alert")
       )
     ).toEqual({ content: "Keep [/literal] before after", workflowId })
   })
 
+  it("handles nested slash brackets in a workflow title", () => {
+    expect(
+      serializeTiptapComment(
+        `Before [/Review [/ alert](${buildWorkflowMentionHref(workflowId)}) after`,
+        workflowMention("/Review [/ alert")
+      )
+    ).toEqual({ content: "Before after", workflowId })
+  })
+
   it("does not change ordinary links or text containing slash commands", () => {
     const markdown = "Run /Enrich or read [the docs](https://example.com)"
-    expect(serializeTiptapComment(markdown)).toEqual({
+    expect(serializeTiptapComment(markdown, null)).toEqual({
       content: markdown,
       workflowId: null,
     })

@@ -186,13 +186,6 @@ export interface SerializedTiptapComment {
   workflowId: string | null
 }
 
-// TipTap may leave `]` raw inside link text. Treat it as label content unless
-// it opens this workflow target, and stop before another workflow label start.
-const WORKFLOW_MENTION_PATTERN = new RegExp(
-  `\\[\\/(?:\\\\.|\\](?!\\(${WORKFLOW_MENTION_URI_SCHEME})|(?!\\[\\/)[^\\]])*\\]\\(${WORKFLOW_MENTION_URI_SCHEME}([^\\s)]+)\\)[ \\t]?`,
-  "g"
-)
-
 const EMPTY_MARKDOWN_CONTAINER_PATTERN =
   /^\s*(?:>\s*)*(?:(?:#{1,6}|[-+*]|\d+[.)])\s*(?:\[[ xX]\]\s*)?)?[*_~`]*\s*$/
 
@@ -204,18 +197,29 @@ const EMPTY_MARKDOWN_CONTAINER_PATTERN =
  * separate request field, so their editor marker must never reach storage.
  */
 export function serializeTiptapComment(
-  markdown: string
+  markdown: string,
+  workflowMention: Pick<CommentMentionLinkSnapshot, "href" | "text"> | null
 ): SerializedTiptapComment {
   let workflowId: string | null = null
   const workflowMentionLines = new Set<number>()
-  const withoutWorkflowMention = markdown.replace(
-    WORKFLOW_MENTION_PATTERN,
-    (_match, targetId: string, offset: number) => {
-      workflowId ??= targetId
+  let withoutWorkflowMention = markdown
+  if (workflowMention?.href.startsWith(WORKFLOW_MENTION_URI_SCHEME)) {
+    const targetId = workflowMention.href.slice(
+      WORKFLOW_MENTION_URI_SCHEME.length
+    )
+    const marker = `[${workflowMention.text}](${workflowMention.href})`
+    const offset = markdown.indexOf(marker)
+    if (targetId && offset !== -1) {
+      workflowId = targetId
       workflowMentionLines.add(markdown.slice(0, offset).split("\n").length - 1)
-      return ""
+      let markerEnd = offset + marker.length
+      if (markdown[markerEnd] === " " || markdown[markerEnd] === "\t") {
+        markerEnd += 1
+      }
+      withoutWorkflowMention =
+        markdown.slice(0, offset) + markdown.slice(markerEnd)
     }
-  )
+  }
   const content = withoutWorkflowMention
     .split("\n")
     .filter(
