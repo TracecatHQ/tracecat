@@ -57,6 +57,43 @@ export interface CommentMentionLinkSnapshot {
   text: string
 }
 
+/** A comment mention link and its current document range. */
+export interface CommentMentionLinkRange extends CommentMentionLinkSnapshot {
+  from: number
+  to: number
+}
+
+/** Find all internal mention-link ranges in a ProseMirror document. */
+export function findCommentMentionLinkRanges(
+  doc: ProseMirrorNode
+): CommentMentionLinkRange[] {
+  const ranges: CommentMentionLinkRange[] = []
+  doc.descendants((node, pos) => {
+    if (!node.isText) {
+      return
+    }
+    const href = node.marks
+      .find((mark) => mark.type.name === "link")
+      ?.attrs.href?.toString()
+    if (!isCommentMentionHref(href)) {
+      return
+    }
+    const previous = ranges.at(-1)
+    if (previous && previous.href === href && previous.to === pos) {
+      previous.to = pos + node.nodeSize
+      previous.text += node.text ?? ""
+      return
+    }
+    ranges.push({
+      from: pos,
+      to: pos + node.nodeSize,
+      href,
+      text: node.text ?? "",
+    })
+  })
+  return ranges
+}
+
 /** Find mention links whose visible label was edited in place. */
 export function findEditedCommentMentionIndexes(
   previous: CommentMentionLinkSnapshot[],

@@ -12,6 +12,7 @@ import { TextAlign } from "@tiptap/extension-text-align"
 import { Typography } from "@tiptap/extension-typography"
 import { Selection } from "@tiptap/extensions"
 import { Markdown } from "@tiptap/markdown"
+import type { Transaction } from "@tiptap/pm/state"
 import type { EditorView } from "@tiptap/pm/view"
 import {
   type Editor,
@@ -103,9 +104,13 @@ import {
 } from "@/lib/cases/use-case-image-upload"
 import {
   AGENT_MENTION_URI_SCHEME,
+  type CommentMentionLinkSnapshot,
+  findCommentMentionLinkRanges,
+  findEditedCommentMentionIndexes,
   preventCommentMentionNavigation,
   WORKFLOW_MENTION_URI_SCHEME,
 } from "@/lib/tiptap-comment-mentions"
+import { mapImageUploadPosition } from "@/lib/tiptap-image-upload-position"
 import {
   handleImageUpload,
   MAX_FILE_SIZE,
@@ -115,26 +120,33 @@ import { cn } from "@/lib/utils"
 
 /** Upload images then insert image nodes at the drop position or selection. */
 async function uploadAndInsertImages(
+  editor: Editor,
   view: EditorView,
   files: File[],
   upload: (file: File) => Promise<string>,
-  startPos?: number
+  startPos: number
 ): Promise<void> {
   let insertPos = startPos
-  for (const file of files) {
-    try {
-      const src = await upload(file)
-      const imageType = view.state.schema.nodes.image
-      if (!imageType) {
-        continue
+  const handleTransaction = ({ transaction }: { transaction: Transaction }) => {
+    insertPos = mapImageUploadPosition(insertPos, transaction)
+  }
+  editor.on("transaction", handleTransaction)
+  try {
+    for (const file of files) {
+      try {
+        const src = await upload(file)
+        const imageType = view.state.schema.nodes.image
+        if (!imageType) {
+          continue
+        }
+        const node = imageType.create({ src, alt: file.name })
+        view.dispatch(view.state.tr.insert(insertPos, node))
+      } catch {
+        // Upload failures are surfaced by the upload function's own toast.
       }
-      const node = imageType.create({ src, alt: file.name })
-      const pos = insertPos ?? view.state.selection.to
-      view.dispatch(view.state.tr.insert(pos, node))
-      insertPos = pos + node.nodeSize
-    } catch {
-      // Upload failures are surfaced by the upload function's own toast.
     }
+  } finally {
+    editor.off("transaction", handleTransaction)
   }
 }
 
@@ -608,6 +620,8 @@ export function SimpleEditor({
   const markdownRef = React.useRef<string>(value ?? "")
   const previousEditableRef = React.useRef(editable)
   const imageUploadRef = React.useRef(onImageUpload)
+  const editorRef = React.useRef<Editor | null>(null)
+  const commentMentionLinksRef = React.useRef<CommentMentionLinkSnapshot[]>([])
 
   React.useEffect(() => {
     imageUploadRef.current = onImageUpload
@@ -709,7 +723,8 @@ export function SimpleEditor({
       },
       handlePaste: (view, event) => {
         const upload = imageUploadRef.current
-        if (!upload) {
+        const currentEditor = editorRef.current
+        if (!upload || !currentEditor) {
           return false
         }
         const files = extractImageFiles(event.clipboardData)
@@ -718,15 +733,18 @@ export function SimpleEditor({
         }
         event.preventDefault()
         void uploadAndInsertImages(
+          currentEditor,
           view,
           files.map(createPastedImageFile),
-          upload
+          upload,
+          view.state.selection.to
         )
         return true
       },
       handleDrop: (view, event) => {
         const upload = imageUploadRef.current
-        if (!upload) {
+        const currentEditor = editorRef.current
+        if (!upload || !currentEditor) {
           return false
         }
         const files = extractImageFiles(event.dataTransfer)
@@ -738,7 +756,13 @@ export function SimpleEditor({
           left: event.clientX,
           top: event.clientY,
         })
-        void uploadAndInsertImages(view, files, upload, coords?.pos)
+        void uploadAndInsertImages(
+          currentEditor,
+          view,
+          files,
+          upload,
+          coords?.pos ?? view.state.selection.to
+        )
         return true
       },
     },
@@ -768,6 +792,47 @@ export function SimpleEditor({
 
   const shouldShowToolbar = showToolbar && editable
   const canRenderToolbar = editable && (showToolbar || preserveToolbarSpace)
+
+  React.useEffect(() => {
+    editorRef.current = editor
+    return () => {
+      editorRef.current = null
+    }
+  }, [editor])
+
+  React.useEffect(() => {
+    if (!editor || !editable || !allowCommentMentionUris) {
+      commentMentionLinksRef.current = []
+      return
+    }
+    commentMentionLinksRef.current = findCommentMentionLinkRanges(
+      editor.state.doc
+    )
+    const handleUpdate = () => {
+      const ranges = findCommentMentionLinkRanges(editor.state.doc)
+      const editedIndexes = findEditedCommentMentionIndexes(
+        commentMentionLinksRef.current,
+        ranges
+      )
+      commentMentionLinksRef.current = ranges
+      const linkMark = editor.state.schema.marks.link
+      if (!linkMark || editedIndexes.length === 0) {
+        return
+      }
+      let transaction = editor.state.tr
+      for (const index of editedIndexes) {
+        const range = ranges[index]
+        if (range) {
+          transaction = transaction.removeMark(range.from, range.to, linkMark)
+        }
+      }
+      editor.view.dispatch(transaction)
+    }
+    editor.on("update", handleUpdate)
+    return () => {
+      editor.off("update", handleUpdate)
+    }
+  }, [allowCommentMentionUris, editable, editor])
 
   React.useEffect(() => {
     onEditorReady?.(editor)

@@ -1,9 +1,8 @@
 "use client"
 
-import type { Node as ProseMirrorNode } from "@tiptap/pm/model"
 import { TextSelection } from "@tiptap/pm/state"
 import type { Editor } from "@tiptap/react"
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import {
   type MentionSourceConfig,
   type MentionSourceState,
@@ -19,10 +18,8 @@ import type { CaretCoordinates } from "@/lib/textarea-caret"
 import {
   buildAgentMentionHref,
   buildWorkflowMentionHref,
-  type CommentMentionLinkSnapshot,
   commentMentionLeafText,
-  findEditedCommentMentionIndexes,
-  isCommentMentionHref,
+  findCommentMentionLinkRanges,
   nodeAllowsCommentMention,
   serializeTiptapComment,
   WORKFLOW_MENTION_URI_SCHEME,
@@ -35,13 +32,6 @@ interface TiptapMentionSession {
   kind: MentionKind
   activeIndex: number
   caret: CaretCoordinates
-}
-
-interface MentionLinkRange {
-  from: number
-  to: number
-  href: string
-  text: string
 }
 
 interface UseTiptapMentionsOptions {
@@ -71,34 +61,6 @@ export interface TiptapMentions {
   reset: () => void
 }
 
-function findMentionLinkRanges(doc: ProseMirrorNode): MentionLinkRange[] {
-  const ranges: MentionLinkRange[] = []
-  doc.descendants((node, pos) => {
-    if (!node.isText) {
-      return
-    }
-    const href = node.marks
-      .find((mark) => mark.type.name === "link")
-      ?.attrs.href?.toString()
-    if (!isCommentMentionHref(href)) {
-      return
-    }
-    const previous = ranges.at(-1)
-    if (previous && previous.href === href && previous.to === pos) {
-      previous.to = pos + node.nodeSize
-      previous.text += node.text ?? ""
-      return
-    }
-    ranges.push({
-      from: pos,
-      to: pos + node.nodeSize,
-      href,
-      text: node.text ?? "",
-    })
-  })
-  return ranges
-}
-
 function measureCaret(editor: Editor, pos: number): CaretCoordinates {
   const caret = editor.view.coordsAtPos(pos)
   const wrapper = editor.view.dom.closest(".simple-editor-wrapper")
@@ -115,7 +77,7 @@ function deleteMentionBeforeCaret(editor: Editor): boolean {
   if (!selection.empty) {
     return false
   }
-  const range = findMentionLinkRanges(doc).find(
+  const range = findCommentMentionLinkRanges(doc).find(
     (candidate) => candidate.to === selection.from
   )
   if (!range) {
@@ -144,7 +106,6 @@ export function useTiptapMentions({
   workflows: workflowsConfig,
 }: UseTiptapMentionsOptions): TiptapMentions {
   const [session, setSession] = useState<TiptapMentionSession | undefined>()
-  const mentionLinksRef = useRef<CommentMentionLinkSnapshot[]>([])
   const { agents, workflows, sections, locked, isLoading, hasError } =
     useMentionSuggestions({
       workspaceId,
@@ -197,9 +158,9 @@ export function useTiptapMentions({
     }
     const from = $from.start() + token.start
     const to = $from.start() + token.end
-    const isInsideBoundMention = findMentionLinkRanges(editor.state.doc).some(
-      (range) => from >= range.from && from < range.to
-    )
+    const isInsideBoundMention = findCommentMentionLinkRanges(
+      editor.state.doc
+    ).some((range) => from >= range.from && from < range.to)
     const sourceState = token.kind === "agent" ? agents : workflows
     if (isInsideBoundMention || sourceState === "unavailable") {
       setSession(undefined)
@@ -221,34 +182,7 @@ export function useTiptapMentions({
       setSession(undefined)
       return
     }
-    mentionLinksRef.current = findMentionLinkRanges(editor.state.doc)
-    const handleChange = () => {
-      const ranges = findMentionLinkRanges(editor.state.doc)
-      const editedIndexes = findEditedCommentMentionIndexes(
-        mentionLinksRef.current,
-        ranges
-      )
-      mentionLinksRef.current = ranges
-      if (editedIndexes.length > 0) {
-        const linkMark = editor.state.schema.marks.link
-        if (linkMark) {
-          let transaction = editor.state.tr
-          for (const index of editedIndexes) {
-            const range = ranges[index]
-            if (range) {
-              transaction = transaction.removeMark(
-                range.from,
-                range.to,
-                linkMark
-              )
-            }
-          }
-          editor.view.dispatch(transaction)
-          return
-        }
-      }
-      syncSession()
-    }
+    const handleChange = () => syncSession()
     const handleBlur = () => setSession(undefined)
     editor.on("update", handleChange)
     editor.on("selectionUpdate", handleChange)
@@ -274,7 +208,7 @@ export function useTiptapMentions({
       }
       let transaction = editor.state.tr
       if (suggestion.kind === "workflow") {
-        const existing = findMentionLinkRanges(editor.state.doc)
+        const existing = findCommentMentionLinkRanges(editor.state.doc)
           .filter((range) => range.href.startsWith(WORKFLOW_MENTION_URI_SCHEME))
           .reverse()
         for (const range of existing) {
