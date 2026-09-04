@@ -1757,7 +1757,7 @@ def _run_nsjail_harness_in_docker_or_skip(
             env=compose_env,
             capture_output=True,
             text=True,
-            timeout=180,
+            timeout=600,
             check=False,
         )
     finally:

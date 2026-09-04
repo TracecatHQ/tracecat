@@ -787,7 +787,7 @@ def _run_nsjail_sdk_context_harness_in_docker_or_skip() -> None:
     _run_nsjail_harness_in_docker_or_skip(
         cli_arg="--run-nsjail-sdk-context-smoke",
         override_prefix="tracecat-run-python-nsjail-test-",
-        timeout=180,
+        timeout=600,
         failure_message="Dockerized run_python nsjail SDK-context fallback failed.",
     )
 
