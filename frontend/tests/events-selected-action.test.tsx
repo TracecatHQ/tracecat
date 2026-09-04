@@ -176,6 +176,14 @@ jest.mock("@/lib/api", () => ({
   getBaseUrl: jest.fn(() => "http://localhost:3000"),
 }))
 
+jest.mock("@/lib/hooks", () => ({
+  useCreateDraftWorkflowExecutionFromAction: jest.fn(() => ({
+    createDraftExecutionFromAction: jest.fn(),
+    createDraftExecutionFromActionIsPending: false,
+    createDraftExecutionFromActionError: null,
+  })),
+}))
+
 jest.mock("@/lib/stored-object", () => ({
   isCollectionStoredObject: jest.fn(() => false),
   isExternalStoredObject: jest.fn(() => false),

@@ -24,6 +24,18 @@ export type PinDomains = {
   forceSkipRefs: Set<string>
 }
 
+/** Map action IDs to their slugified refs, skipping actions with empty refs. */
+function buildRefByActionId(actionList: ActionRead[]): Map<string, string> {
+  const refByActionId = new Map<string, string>()
+  for (const action of actionList) {
+    const actionRef = slugifyActionRef(action.title)
+    if (actionRef.length > 0) {
+      refByActionId.set(action.id, actionRef)
+    }
+  }
+  return refByActionId
+}
+
 const SCOPE_CLOSER_BY_OPENER = new Map([
   ["core.transform.scatter", "core.transform.gather"],
   ["core.loop.start", "core.loop.end"],
@@ -173,13 +185,7 @@ export function computePinDomains(
   const actionList = Object.values(actions)
   // Workflow reads describe the graph via `upstream_edges` keyed by action ID,
   // so resolve edges through an ID -> ref map rather than `depends_on`.
-  const refByActionId = new Map<string, string>()
-  for (const action of actionList) {
-    const actionRef = slugifyActionRef(action.title)
-    if (actionRef.length > 0) {
-      refByActionId.set(action.id, actionRef)
-    }
-  }
+  const refByActionId = buildRefByActionId(actionList)
   const allActionRefs = new Set<string>(refByActionId.values())
   const scopedRefs = computeScopedActionRefs(actions)
 
@@ -246,4 +252,75 @@ export function computePinDomains(
     Array.from(skipDomain).filter((actionRef) => !pinnedRefs.has(actionRef))
   )
   return { pinnedRefs, forceSkipRefs }
+}
+
+/** Why "Run from this action" is unavailable for `actionRef`, or null when it can run. */
+export function getRunFromActionBlocker(
+  actionRef: string | undefined,
+  groupedEvents: Record<string, WorkflowExecutionEventCompact[]>,
+  actions: Record<string, ActionRead> | null | undefined
+): string | null {
+  if (!actionRef || !actions) {
+    return "Select a workflow action"
+  }
+
+  const actionList = Object.values(actions)
+  const refByActionId = buildRefByActionId(actionList)
+  const action = actionList.find(
+    (candidate) => slugifyActionRef(candidate.title) === actionRef
+  )
+  if (!action) {
+    return "Select a workflow action"
+  }
+
+  if (
+    computeScopedActionRefs(actions).has(actionRef) ||
+    UNPINNABLE_ACTION_TYPES.has(action.type)
+  ) {
+    return "Cannot run from inside a scatter or loop"
+  }
+
+  const typeByRef = new Map<string, string>()
+  for (const candidate of actionList) {
+    const candidateRef = refByActionId.get(candidate.id)
+    if (candidateRef) {
+      typeByRef.set(candidateRef, candidate.type)
+    }
+  }
+
+  const parentRefs: string[] = []
+  for (const edge of action.upstream_edges ?? []) {
+    const sourceType = edge.source_type ?? "udf"
+    if (sourceType !== "udf") {
+      continue
+    }
+    const sourceRef = refByActionId.get(edge.source_id)
+    if (!sourceRef || sourceRef === actionRef) {
+      continue
+    }
+    if (edge.source_handle === "error") {
+      return "Cannot run from an error branch"
+    }
+    if (!parentRefs.includes(sourceRef)) {
+      parentRefs.push(sourceRef)
+    }
+  }
+
+  if (
+    parentRefs.some((parentRef) =>
+      UNPINNABLE_ACTION_TYPES.has(typeByRef.get(parentRef) ?? "")
+    )
+  ) {
+    return "Cannot run from directly after a gather or loop end"
+  }
+
+  if (
+    parentRefs.some(
+      (parentRef) => !isPinnableActionEvent(parentRef, groupedEvents, actions)
+    )
+  ) {
+    return "Every upstream action needs a completed result in this run"
+  }
+
+  return null
 }

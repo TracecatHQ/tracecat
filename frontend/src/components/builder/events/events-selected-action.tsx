@@ -1,6 +1,6 @@
 "use client"
 
-import { CircleDot, PinIcon } from "lucide-react"
+import { CircleDot, PinIcon, PlayIcon } from "lucide-react"
 import { useState } from "react"
 import type { InteractionRead } from "@/client"
 import { ActionEventDetails } from "@/components/executions/action-event-details"
@@ -24,7 +24,9 @@ import {
   type WorkflowExecutionEventCompact,
   type WorkflowExecutionReadCompact,
 } from "@/lib/event-history"
+import { useCreateDraftWorkflowExecutionFromAction } from "@/lib/hooks"
 import {
+  getRunFromActionBlocker,
   getWorkflowDraftPins,
   isPinnableActionEvent,
   type WorkflowDraftPins,
@@ -41,10 +43,19 @@ export function ActionEventPane({
   execution: WorkflowExecutionReadCompact
   type: TabType
 }) {
-  const { workflowId, selectedActionEventRef, setSelectedActionEventRef } =
-    useWorkflowBuilder()
+  const {
+    workflowId,
+    selectedActionEventRef,
+    setSelectedActionEventRef,
+    setCurrentExecutionId,
+    sidebarRef,
+  } = useWorkflowBuilder()
   const { workflow, updateWorkflow } = useWorkflow()
   const [isSavingPins, setIsSavingPins] = useState(false)
+  const {
+    createDraftExecutionFromAction,
+    createDraftExecutionFromActionIsPending,
+  } = useCreateDraftWorkflowExecutionFromAction(workflowId ?? "")
   const draftPins = getWorkflowDraftPins(workflow)
   const isResultTab = type === "result"
 
@@ -79,6 +90,11 @@ export function ActionEventPane({
     selectedRefMatchesPinSource &&
     draftPins?.action_refs.includes(selectedActionEventRef)
   const canPinSelected = isPinnableActionEvent(
+    selectedActionEventRef,
+    groupedEvents,
+    workflow?.actions
+  )
+  const runFromBlocker = getRunFromActionBlocker(
     selectedActionEventRef,
     groupedEvents,
     workflow?.actions
@@ -143,6 +159,23 @@ export function ActionEventPane({
       title: "Unpinned action result",
       description: `ACTIONS.${selectedActionEventRef}.result will be computed again.`,
     })
+  }
+
+  const handleRunFromAction = async () => {
+    if (!selectedActionEventRef || runFromBlocker !== null) {
+      return
+    }
+    try {
+      const result = await createDraftExecutionFromAction({
+        workflow_id: workflowId,
+        action_ref: selectedActionEventRef,
+        source_execution_id: execution.id,
+      })
+      setCurrentExecutionId(result.wf_exec_id)
+      sidebarRef.current?.setActiveTab("workflow-events")
+    } catch {
+      // The mutation's onError already surfaced the failure.
+    }
   }
 
   const handleClearPins = async () => {
@@ -214,6 +247,22 @@ export function ActionEventPane({
             className="h-7 text-xs"
           >
             {selectedRefIsPinned ? "Unpin selected" : "Pin selected"}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            disabled={
+              runFromBlocker !== null ||
+              createDraftExecutionFromActionIsPending ||
+              isSavingPins
+            }
+            title={runFromBlocker ?? undefined}
+            onClick={handleRunFromAction}
+            className="h-7 text-xs"
+          >
+            <PlayIcon className="mr-1 size-3" />
+            Run from this action
           </Button>
           <Button
             type="button"

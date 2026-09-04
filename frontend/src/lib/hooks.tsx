@@ -338,6 +338,7 @@ import {
   type WebhookUpdate,
   type WorkflowDirectoryItem,
   type WorkflowExecutionCreate,
+  type WorkflowExecutionCreateFromAction,
   type WorkflowExecutionRead,
   type WorkflowExecutionReadMinimal,
   type WorkflowFolderCreate,
@@ -353,6 +354,7 @@ import {
   type WorkspaceReadMinimal,
   type WorkspaceUpdate,
   workflowExecutionsCreateDraftWorkflowExecution,
+  workflowExecutionsCreateDraftWorkflowExecutionFromAction,
   workflowExecutionsCreateWorkflowExecution,
   workflowExecutionsGetWorkflowExecution,
   workflowExecutionsGetWorkflowExecutionCompact,
@@ -1334,6 +1336,65 @@ export function useCreateDraftWorkflowExecution(workflowId: string) {
     createDraftExecution,
     createDraftExecutionIsPending,
     createDraftExecutionError,
+  }
+}
+
+/**
+ * Start a draft run at a specific action, reusing the upstream results of a
+ * source execution.
+ */
+export function useCreateDraftWorkflowExecutionFromAction(workflowId: string) {
+  const queryClient = useQueryClient()
+  const workspaceId = useWorkspaceId()
+
+  const {
+    mutateAsync: createDraftExecutionFromAction,
+    isPending: createDraftExecutionFromActionIsPending,
+    error: createDraftExecutionFromActionError,
+  } = useMutation({
+    mutationFn: async (params: WorkflowExecutionCreateFromAction) => {
+      return await workflowExecutionsCreateDraftWorkflowExecutionFromAction({
+        workspaceId,
+        requestBody: params,
+      })
+    },
+    onSuccess: async ({ wf_exec_id, message }) => {
+      toast({
+        title: `Draft workflow run started`,
+        description: `${wf_exec_id} ${message}`,
+      })
+
+      await queryClient.refetchQueries({
+        queryKey: ["last-manual-execution"],
+      })
+      await queryClient.refetchQueries({
+        queryKey: ["last-manual-execution", workflowId],
+      })
+      await queryClient.refetchQueries({
+        queryKey: ["workflow-executions", workflowId],
+      })
+      await queryClient.refetchQueries({
+        queryKey: ["compact-workflow-execution"],
+      })
+      await queryClient.refetchQueries({
+        queryKey: ["compact-workflow-execution", wf_exec_id],
+      })
+    },
+    onError: (error: TracecatApiError<Record<string, string>>) => {
+      console.error("Could not run from this action", error)
+      toast({
+        title: "Could not run from this action",
+        description:
+          getApiErrorDetail(error) ??
+          "Please check the run logs for more information.",
+      })
+    },
+  })
+
+  return {
+    createDraftExecutionFromAction,
+    createDraftExecutionFromActionIsPending,
+    createDraftExecutionFromActionError,
   }
 }
 
