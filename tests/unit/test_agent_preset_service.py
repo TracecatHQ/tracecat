@@ -1183,17 +1183,14 @@ class TestAgentPresetService:
                     first_call = True
 
                     async def pause_after_membership_read(
-                        skill_ids: Sequence[uuid.UUID], *, for_update: bool = False
+                        skill_ids: Sequence[uuid.UUID], **kwargs: Any
                     ) -> list[SkillBindingSpec]:
                         nonlocal first_call
                         if first_call:
                             first_call = False
                             observed_stale_membership.set()
                             await replacement_committed.wait()
-                        return await original_resolve(
-                            skill_ids,
-                            for_update=for_update,
-                        )
+                        return await original_resolve(skill_ids, **kwargs)
 
                     monkeypatch.setattr(
                         service,
@@ -1884,6 +1881,93 @@ class TestAgentPresetService:
             skill_version.id
         ]
 
+    async def test_update_preset_unrelated_field_keeps_archived_skill_binding(
+        self,
+        configure_minio_for_skills,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+    ) -> None:
+        """Archiving a bound skill must not block unrelated preset edits.
+
+        `archive_skill` deliberately leaves the `AgentPresetSkill` head rows in
+        place, so an edit that never touches `skills` has to keep resolving the
+        already-bound archived skill instead of failing with `skill_not_found`.
+        """
+
+        skill_service = SkillService(session=session, role=svc_role)
+        created_skill = await skill_service.create_skill(
+            SkillCreate(name="archived-bound-skill")
+        )
+        skill_version = await skill_service.publish_skill(created_skill.id)
+        created_preset = await agent_preset_service.create_preset(
+            AgentPresetCreate(
+                name="Archived bound skill preset",
+                description="Preset that keeps a binding to an archived skill",
+                instructions="Use the selected skill",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                skills=[AgentPresetSkillBindingBase(skill_id=created_skill.id)],
+            )
+        )
+        await skill_service.archive_skill(created_skill.id)
+
+        updated = await agent_preset_service.update_preset(
+            created_preset,
+            AgentPresetUpdate(instructions="changed"),
+        )
+
+        assert updated.instructions == "changed"
+        head_bindings = (
+            (
+                await session.execute(
+                    select(
+                        AgentPresetSkill.skill_id,
+                        AgentPresetSkill.skill_version_id,
+                    ).where(AgentPresetSkill.preset_id == created_preset.id)
+                )
+            )
+            .tuples()
+            .all()
+        )
+        assert head_bindings == [(created_skill.id, skill_version.id)]
+
+    async def test_update_preset_rejects_newly_attached_archived_skill(
+        self,
+        configure_minio_for_skills,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+    ) -> None:
+        """An archived skill can stay bound but can never be newly attached."""
+
+        skill_service = SkillService(session=session, role=svc_role)
+        created_skill = await skill_service.create_skill(
+            SkillCreate(name="archived-attach-skill")
+        )
+        await skill_service.publish_skill(created_skill.id)
+        created_preset = await agent_preset_service.create_preset(
+            AgentPresetCreate(
+                name="Archived attach preset",
+                description="Preset with no skill bindings",
+                instructions="Use no skills",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+            )
+        )
+        await skill_service.archive_skill(created_skill.id)
+
+        with pytest.raises(TracecatValidationError) as exc_info:
+            await agent_preset_service.update_preset(
+                created_preset,
+                AgentPresetUpdate(
+                    skills=[AgentPresetSkillBindingBase(skill_id=created_skill.id)]
+                ),
+            )
+
+        assert exc_info.value.detail is not None
+        assert exc_info.value.detail["code"] == "skill_not_found"
+
     async def test_list_versions_returns_metadata_without_skill_lookups(
         self,
         configure_minio_for_skills,
@@ -2294,9 +2378,12 @@ class TestAgentPresetService:
         calls: list[tuple[str, object]] = []
 
         async def instrumented_resolve(
-            skill_ids: Sequence[uuid.UUID], *, for_update: bool = False
+            skill_ids: Sequence[uuid.UUID],
+            *,
+            for_update: bool = False,
+            **kwargs: Any,
         ) -> list[SkillBindingSpec]:
-            specs = await original_resolve(skill_ids, for_update=for_update)
+            specs = await original_resolve(skill_ids, for_update=for_update, **kwargs)
             calls.append(("resolve_locked" if for_update else "resolve", specs))
             return specs
 
@@ -2492,13 +2579,13 @@ class TestAgentPresetService:
             skill_ids: Sequence[uuid.UUID],
             *,
             for_update: bool = False,
-            include_deleted: bool = False,
+            **kwargs: Any,
         ) -> list[SkillBindingSpec]:
             captured_for_update.append(for_update)
             return await original_current_skill_binding_specs(
                 skill_ids,
                 for_update=for_update,
-                include_deleted=include_deleted,
+                **kwargs,
             )
 
         monkeypatch.setattr(
@@ -2605,13 +2692,13 @@ class TestAgentPresetService:
             skill_ids: Sequence[uuid.UUID],
             *,
             for_update: bool = False,
-            include_deleted: bool = False,
+            **kwargs: Any,
         ) -> list[SkillBindingSpec]:
             captured_for_update.append(for_update)
             return await original_current_skill_binding_specs(
                 skill_ids,
                 for_update=for_update,
-                include_deleted=include_deleted,
+                **kwargs,
             )
 
         monkeypatch.setattr(
@@ -2672,11 +2759,10 @@ class TestAgentPresetService:
 
         async def instrumented_skill_lock(
             skill_ids: Sequence[uuid.UUID],
-            *,
-            for_update: bool = False,
+            **kwargs: Any,
         ) -> list[SkillBindingSpec]:
             call_order.append("lock_skills")
-            return await original_skill_lock(skill_ids, for_update=for_update)
+            return await original_skill_lock(skill_ids, **kwargs)
 
         async def instrumented_get_specs(
             preset_id: uuid.UUID,
@@ -3002,13 +3088,13 @@ class TestAgentPresetService:
             skill_ids: Sequence[uuid.UUID],
             *,
             for_update: bool = False,
-            include_deleted: bool = False,
+            **kwargs: Any,
         ) -> list[SkillBindingSpec]:
             captured_for_update.append(for_update)
             return await original_current_skill_binding_specs(
                 skill_ids,
                 for_update=for_update,
-                include_deleted=include_deleted,
+                **kwargs,
             )
 
         monkeypatch.setattr(

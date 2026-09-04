@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
 
@@ -443,6 +443,9 @@ class AgentPresetService(BaseWorkspaceService):
         locked_specs = await self._current_skill_binding_specs(
             sorted(observed_skill_ids | requested_skill_ids, key=str),
             for_update=True,
+            # Already-bound skills survive archiving, so an unrelated edit must
+            # not fail on them; newly requested skills still have to be live.
+            retained_skill_ids=observed_skill_ids,
         )
         locked_specs_by_id = {binding.skill_id: binding for binding in locked_specs}
 
@@ -1563,22 +1566,37 @@ class AgentPresetService(BaseWorkspaceService):
         *,
         for_update: bool = False,
         include_deleted: bool = False,
+        retained_skill_ids: Collection[uuid.UUID] = (),
     ) -> list[SkillBindingSpec]:
-        """Return bindable Skill head IDs with their current versions."""
+        """Return bindable Skill head IDs with their current versions.
+
+        Args:
+            skill_ids: Skill head IDs to resolve.
+            for_update: Lock the Skill rows in ID order.
+            include_deleted: Resolve every skill, archived or not.
+            retained_skill_ids: Subset of ``skill_ids`` that is already bound to
+                the caller's preset. `archive_skill` keeps existing bindings, so
+                these stay resolvable after archiving; every other skill must
+                still be live to be attachable.
+        """
 
         if not skill_ids:
             return []
         validate_no_duplicate_skill_ids(skill_ids)
 
         normalized_ids = sorted(set(skill_ids), key=str)
+        retained = sorted(set(retained_skill_ids), key=str)
         predicates = [
             Skill.workspace_id == self.workspace_id,
             Skill.id.in_(normalized_ids),
         ]
         if not include_deleted:
-            predicates.extend((Skill.deleted_at.is_(None), Skill.archived_at.is_(None)))
+            is_live = sa.and_(Skill.deleted_at.is_(None), Skill.archived_at.is_(None))
+            predicates.append(
+                sa.or_(Skill.id.in_(retained), is_live) if retained else is_live
+            )
         stmt = select(Skill).where(*predicates)
-        if include_deleted:
+        if include_deleted or retained:
             stmt = with_deleted(stmt)
         if for_update:
             stmt = stmt.order_by(Skill.id).with_for_update()
