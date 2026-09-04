@@ -1,5 +1,6 @@
 import type { ActionRead } from "@/client"
-import { computePinDomains } from "@/lib/workflow-pins"
+import type { WorkflowExecutionEventCompact } from "@/lib/event-history"
+import { computePinDomains, isPinnableActionEvent } from "@/lib/workflow-pins"
 
 function action(
   id: string,
@@ -29,6 +30,37 @@ const actions: Record<string, ActionRead> = {
   "id-d": action("id-d", "d", ["id-a"]),
   "id-e": action("id-e", "e", ["id-c", "id-d"]),
 }
+
+function completedEvent(streamId: string): WorkflowExecutionEventCompact {
+  return {
+    source_event_id: 1,
+    schedule_time: "2026-09-04T00:00:00Z",
+    curr_event_type: "ACTIVITY_TASK_COMPLETED",
+    status: "COMPLETED",
+    action_name: "core.noop",
+    action_ref: "c",
+    action_error: null,
+    stream_id: streamId,
+  }
+}
+
+describe("isPinnableActionEvent", () => {
+  it("accepts completed root-stream events", () => {
+    expect(
+      isPinnableActionEvent("c", { c: [completedEvent("<root>:0")] }, actions)
+    ).toBe(true)
+  })
+
+  it("rejects completed events from scoped streams", () => {
+    expect(
+      isPinnableActionEvent(
+        "c",
+        { c: [completedEvent("<root>:0/scatter:0")] },
+        actions
+      )
+    ).toBe(false)
+  })
+})
 
 describe("computePinDomains", () => {
   it("force-skips only the exclusive upstream of a pinned action", () => {

@@ -8,6 +8,9 @@ import { slugifyActionRef } from "@/lib/utils"
 
 export type WorkflowDraftPins = Required<WorkflowDraftPinsRead>
 
+/** Stream id of root-level (non scatter/loop) events, mirroring the backend `ROOT_STREAM`. */
+const ROOT_STREAM_ID = "<root>:0"
+
 /** Action types whose orchestration results cannot be reused as draft pins. */
 export const UNPINNABLE_ACTION_TYPES = new Set([
   "core.transform.scatter",
@@ -60,7 +63,10 @@ export function isPinnableActionEvent(
   }
 
   return groupedEvents[actionRef].some(
-    (event) => event.status === "COMPLETED" && !event.action_error
+    (event) =>
+      event.status === "COMPLETED" &&
+      !event.action_error &&
+      event.stream_id === ROOT_STREAM_ID
   )
 }
 
