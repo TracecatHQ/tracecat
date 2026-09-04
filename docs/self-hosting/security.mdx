@@ -146,6 +146,8 @@ Each sandbox runs under nsjail rlimits. The memory cap is the one you tune; the 
 | Dependency installation for `core.script.run_python` | 2048 MB | Fixed | 300 s | 256 MB | 64 |
 | Agents | 4096 MB | `TRACECAT__AGENT_SANDBOX_MEMORY_MB` | Agent timeout ceiling | 256 MB | 128 |
 
+Both variables are read by the `executor` and `agent-executor` processes, so setting one in a `.env` file is not enough on its own: your deployment has to pass it through to those two services. On Docker Compose add it to their `environment` blocks, and on Kubernetes to the corresponding values.
+
 The memory cap is `rlimit_as`: it bounds the virtual address space a process may map, not its resident memory. A runtime that reserves large address ranges up front hits the cap before it uses that much RAM, so size it above the peak virtual size of your workload rather than its RSS. Python raises `MemoryError` at the cap; native runtimes such as the agent's Claude Code CLI abort.
 
 The cap applies per process inside the sandbox. The executor pod's container memory limit still applies on top and covers every concurrent sandbox, so raising a sandbox cap without raising the pod limit trades a sandbox failure for an OOM kill of the executor.
