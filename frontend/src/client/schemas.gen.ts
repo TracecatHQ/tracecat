@@ -2993,7 +2993,7 @@ export const $AgentPresetSubagentEligibility = {
 
 export const $AgentPresetSubagentEligibilityReason = {
   type: "string",
-  enum: ["agents_enabled", "tool_approvals"],
+  enum: ["subagents_attached", "tool_approvals"],
 } as const
 
 export const $AgentPresetTagCreate = {
@@ -3501,6 +3501,13 @@ export const $AgentPresetVersionRead = {
       type: "array",
       title: "Skills",
     },
+    restore_skills: {
+      items: {
+        $ref: "#/components/schemas/AgentPresetSkillBindingRead",
+      },
+      type: "array",
+      title: "Restore Skills",
+    },
     created_at: {
       type: "string",
       format: "date-time",
@@ -3520,6 +3527,7 @@ export const $AgentPresetVersionRead = {
     "preset_id",
     "workspace_id",
     "version",
+    "restore_skills",
     "created_at",
     "updated_at",
   ],
@@ -4597,11 +4605,6 @@ export const $AgentSettingsUpdate = {
 
 export const $AgentSubagentsConfig_Input = {
   properties: {
-    enabled: {
-      type: "boolean",
-      title: "Enabled",
-      default: false,
-    },
     subagents: {
       items: {
         $ref: "#/components/schemas/AnyAttachedSubagentRef",
@@ -4613,17 +4616,11 @@ export const $AgentSubagentsConfig_Input = {
   additionalProperties: false,
   type: "object",
   title: "AgentSubagentsConfig",
-  description:
-    "User-facing agents toggle and optional preset-backed subagents.",
+  description: "User-facing preset-backed subagents.",
 } as const
 
 export const $AgentSubagentsConfig_Output = {
   properties: {
-    enabled: {
-      type: "boolean",
-      title: "Enabled",
-      default: false,
-    },
     subagents: {
       items: {
         $ref: "#/components/schemas/AnyAttachedSubagentRef",
@@ -4635,8 +4632,7 @@ export const $AgentSubagentsConfig_Output = {
   additionalProperties: false,
   type: "object",
   title: "AgentSubagentsConfig",
-  description:
-    "User-facing agents toggle and optional preset-backed subagents.",
+  description: "User-facing preset-backed subagents.",
 } as const
 
 export const $AgentTagRead = {
@@ -4743,10 +4739,6 @@ export const $AppSettingsRead = {
       type: "boolean",
       title: "App Action Form Mode Enabled",
     },
-    app_versioned_resource_resolution_strategy: {
-      $ref: "#/components/schemas/VersionedResourceResolutionStrategy",
-      default: "latest",
-    },
   },
   type: "object",
   required: [
@@ -4801,12 +4793,6 @@ export const $AppSettingsUpdate = {
       description:
         "Whether to enable form mode for action inputs. When disabled, only YAML mode is available, preserving raw YAML formatting.",
       default: true,
-    },
-    app_versioned_resource_resolution_strategy: {
-      $ref: "#/components/schemas/VersionedResourceResolutionStrategy",
-      description:
-        "How versioned resource references are resolved when a feature supports both pinned and latest dependency resolution.",
-      default: "latest",
     },
   },
   type: "object",
@@ -9997,7 +9983,14 @@ export const $CatalogMappingAffectedPreset = {
       title: "Preset Name",
     },
     version: {
-      type: "integer",
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Version",
     },
     path: {
@@ -17957,7 +17950,14 @@ export const $McpIntegrationMappingAffectedPreset = {
       title: "Preset Name",
     },
     version: {
-      type: "integer",
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Version",
     },
     path: {
@@ -21960,11 +21960,6 @@ export const $RepositorySyncResult = {
 
 export const $ResolvedAgentsConfig = {
   properties: {
-    enabled: {
-      type: "boolean",
-      title: "Enabled",
-      default: false,
-    },
     subagents: {
       items: {
         $ref: "#/components/schemas/ResolvedAttachedSubagentRef",
@@ -21976,7 +21971,7 @@ export const $ResolvedAgentsConfig = {
   additionalProperties: false,
   type: "object",
   title: "ResolvedAgentsConfig",
-  description: "Persisted agents toggle with immutable resolved child refs.",
+  description: "Persisted immutable resolved child refs.",
 } as const
 
 export const $ResolvedAttachedSubagentRef = {
@@ -29382,12 +29377,6 @@ export const $VersionDiff = {
   ],
   title: "VersionDiff",
   description: "Result of comparing two registry versions.",
-} as const
-
-export const $VersionedResourceResolutionStrategy = {
-  type: "string",
-  enum: ["pinned", "latest"],
-  title: "VersionedResourceResolutionStrategy",
 } as const
 
 export const $VertexAICatalogCreate = {

@@ -3465,11 +3465,11 @@ class TestSkillService:
         finally:
             await concurrent_engine.dispose()
 
-    async def test_restore_version_updates_current_version_without_replacing_draft(
+    async def test_restore_version_publishes_copy_without_replacing_draft(
         self,
         skill_service: SkillService,
     ) -> None:
-        """Restoring a version should move the head pointer without rewriting draft files."""
+        """Restoring publishes a copy while leaving the working draft untouched."""
 
         created = await skill_service.create_skill(SkillCreate(name="snapshot-skill"))
         draft = await skill_service.get_draft(created.id)
@@ -3540,9 +3540,18 @@ class TestSkillService:
         )
 
         assert isinstance(restored, SkillReadMinimal)
-        assert restored.current_version_id == version_one.id
+        assert restored.current_version_id is not None
+        assert restored.current_version_id not in {version_one.id, version_two.id}
+        restored_published_file = await skill_service.get_version_file(
+            skill_id=created.id,
+            version_id=restored.current_version_id,
+            path="references/guide.md",
+        )
         assert restored.name == version_one.name
         assert restored.description == version_one.description
+        assert restored_published_file is not None
+        assert restored_published_file.kind == "inline"
+        assert restored_published_file.text_content == "Version one"
         assert restored_draft is not None
         assert restored_draft.draft_revision == current_draft.draft_revision
         assert restored_draft.name == "version-two"
@@ -3883,13 +3892,13 @@ class TestSkillService:
 
         assert lock_calls == 1
 
-    async def test_archive_blocks_when_preset_head_references_skill(
+    async def test_archive_preserves_preset_bindings_and_version(
         self,
         session: AsyncSession,
         svc_role: Role,
         skill_service: SkillService,
     ) -> None:
-        """Archiving is blocked while a preset head still binds the skill."""
+        """Soft deletion preserves existing preset references and execution."""
 
         created = await skill_service.create_skill(SkillCreate(name="bound-skill"))
         await skill_service.publish_skill(created.id)
@@ -3910,11 +3919,23 @@ class TestSkillService:
             )
         )
 
-        assert preset.current_version_id is not None
-        with pytest.raises(
-            TracecatValidationError, match="still referenced by a preset"
-        ):
-            await skill_service.archive_skill(created.id)
+        original_version_id = preset.current_version_id
+
+        await skill_service.archive_skill(created.id)
+
+        refreshed = await preset_service.get_preset(preset.id)
+        assert refreshed is not None
+        assert refreshed.current_version_id == original_version_id
+        head_bindings = await preset_service._list_head_skill_bindings(preset.id)
+        assert [binding.skill_id for binding in head_bindings] == [created.id]
+        assert original_version_id is not None
+        for use_latest_versions in (False, True):
+            resolved = await skill_service.get_resolved_skill_refs_for_preset_version(
+                original_version_id,
+                use_latest_versions=use_latest_versions,
+            )
+            assert [skill.skill_id for skill in resolved] == [created.id]
+        assert await skill_service.get_skill(created.id) is None
 
     async def test_archive_allows_when_only_preset_history_references_skill(
         self,
@@ -4023,13 +4044,13 @@ class TestSkillService:
         assert await skill_service.get_skill_by_identifier(created.slug) is None
         assert await skill_service.get_skill_read(created.id) is None
 
-    async def test_legacy_archived_skill_binding_and_resolution_treat_as_archived(
+    async def test_legacy_archived_skill_is_unbindable_but_existing_refs_resolve(
         self,
         session: AsyncSession,
         svc_role: Role,
         skill_service: SkillService,
     ) -> None:
-        """Legacy archived-only skills remain unbindable and resolve as archived."""
+        """Legacy archived-only skills remain unbindable but refs still resolve."""
 
         created = await skill_service.create_skill(
             SkillCreate(name="legacy-resolution")
@@ -4067,15 +4088,11 @@ class TestSkillService:
         assert bind_detail["code"] == "skill_not_found"
 
         for use_latest_versions in (False, True):
-            with pytest.raises(TracecatValidationError) as resolve_exc_info:
-                await skill_service.get_resolved_skill_refs_for_preset_version(
-                    preset.current_version_id,
-                    use_latest_versions=use_latest_versions,
-                )
-            resolve_detail = resolve_exc_info.value.detail
-            assert resolve_detail is not None
-            assert resolve_detail["code"] == "skill_archived"
-            assert str(created.id) in str(resolve_detail["skills"])
+            resolved = await skill_service.get_resolved_skill_refs_for_preset_version(
+                preset.current_version_id,
+                use_latest_versions=use_latest_versions,
+            )
+            assert [skill.skill_id for skill in resolved] == [created.id]
 
     async def test_legacy_archived_skill_api_projection_reports_deleted_at(
         self,
@@ -4098,29 +4115,31 @@ class TestSkillService:
         assert full_read.deleted_at == legacy_archived_at
         assert minimal_read.deleted_at == legacy_archived_at
 
-    async def test_archive_skill_locks_skill_row(
+    async def test_archive_skill_locks_only_target(
         self,
         skill_service: SkillService,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Archiving a skill locks the row before checking preset bindings."""
+        """Soft deletion locks only the target Skill row."""
 
         created = await skill_service.create_skill(SkillCreate(name="locked-archive"))
 
-        original_get_skill_for_update = SkillService._get_skill_for_update
+        original_lock = skill_service._get_skill_for_update
         lock_calls = 0
 
-        async def instrumented_get_skill_for_update(
-            self: SkillService, skill_id: uuid.UUID
-        ):
+        async def instrumented_lock(
+            skill_id: uuid.UUID,
+        ) -> Skill:
             nonlocal lock_calls
             lock_calls += 1
-            return await original_get_skill_for_update(self, skill_id)
+            skill = await original_lock(skill_id)
+            assert skill is not None
+            return skill
 
         monkeypatch.setattr(
-            SkillService,
+            skill_service,
             "_get_skill_for_update",
-            instrumented_get_skill_for_update,
+            instrumented_lock,
         )
 
         await skill_service.archive_skill(created.id)

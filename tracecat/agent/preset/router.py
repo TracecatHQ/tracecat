@@ -123,7 +123,13 @@ async def update_agent_preset(
     return await service.build_preset_read(preset)
 
 
-@router.delete("/{preset_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{preset_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={
+        status.HTTP_404_NOT_FOUND: {"description": "Agent preset not found"},
+    },
+)
 @require_scope("agent:delete")
 async def delete_agent_preset(
     *,

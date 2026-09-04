@@ -9129,7 +9129,16 @@ async def run_agent_preset(
     workspace_id: uuid.UUID,
     preset_slug: str,
     prompt: str,
-    preset_version: int | None = None,
+    preset_version: Annotated[
+        int | None,
+        Field(
+            description=(
+                "Deprecated compatibility input. Agent presets always resolve the "
+                "current head."
+            ),
+            deprecated=True,
+        ),
+    ] = None,
     timeout_seconds: int = 120,
 ) -> str | AgentAwaitingApprovalResponse:
     """Run an agent preset with a prompt and return text or approval status.
@@ -9141,7 +9150,8 @@ async def run_agent_preset(
         workspace_id: The workspace ID (from list_workspaces).
         preset_slug: Slug of the agent preset to run (from list_agent_presets).
         prompt: The user prompt to send to the agent.
-        preset_version: Optional preset version number to pin.
+        preset_version: Deprecated compatibility input. The server accepts but
+            ignores this value and always resolves the current preset head.
         timeout_seconds: Max seconds to wait for response (default 120, max 300).
 
     Returns:

@@ -88,7 +88,10 @@ from tracecat.agent.session.activities import (
 )
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.skill.types import ResolvedSkillRef
-from tracecat.agent.subagents import ResolvedAgentsConfig
+from tracecat.agent.subagents import (
+    ResolvedAgentsConfig,
+    ResolvedAttachedSubagentRef,
+)
 from tracecat.agent.tools import BuildToolsResult
 from tracecat.agent.types import AgentConfig, Tool, clamp_agent_timeout_seconds
 from tracecat.auth.types import Role
@@ -862,10 +865,10 @@ class TestCreateSessionActivity:
 
     @pytest.mark.anyio
     @patch("tracecat.agent.session.activities.AgentSessionService.with_session")
-    async def test_backfills_disabled_agents_binding_for_legacy_existing_session(
+    async def test_backfills_empty_agents_binding_for_existing_session(
         self, mock_with_session, mock_role: Role, mock_session_id: uuid.UUID
     ):
-        """Legacy NULL bindings are persisted as the disabled binding."""
+        """A missing binding is persisted as an empty resolved binding."""
         agents_binding = ResolvedAgentsConfig()
         input = CreateSessionInput(
             role=mock_role,
@@ -911,7 +914,7 @@ class TestCreateSessionActivity:
         ),
         [
             pytest.param(
-                ResolvedAgentsConfig.model_validate({"enabled": True, "subagents": []}),
+                ResolvedAgentsConfig.model_validate({"subagents": []}),
                 None,
                 None,
                 None,
@@ -920,26 +923,26 @@ class TestCreateSessionActivity:
                 id="fresh-null-backfills-resolved-agents",
             ),
             pytest.param(
-                ResolvedAgentsConfig.model_validate({"enabled": True, "subagents": []}),
+                ResolvedAgentsConfig.model_validate({"subagents": []}),
                 None,
                 "sdk-session-1",
                 None,
+                True,
                 False,
-                False,
-                id="resumable-null-cannot-enable-agents",
+                id="resumable-null-remains-unset",
             ),
             pytest.param(
-                ResolvedAgentsConfig.model_validate({"enabled": True, "subagents": []}),
+                ResolvedAgentsConfig.model_validate({"subagents": []}),
                 None,
                 None,
                 uuid.UUID("00000000-0000-0000-0000-000000000001"),
+                True,
                 False,
-                False,
-                id="fork-null-cannot-enable-agents",
+                id="fork-null-remains-unset",
             ),
             pytest.param(
                 ResolvedAgentsConfig(),
-                {"enabled": False},
+                {},
                 "sdk-session-1",
                 None,
                 True,
@@ -947,22 +950,41 @@ class TestCreateSessionActivity:
                 id="default-equivalent-jsonb",
             ),
             pytest.param(
-                ResolvedAgentsConfig.model_validate({"enabled": True, "subagents": []}),
-                {"enabled": False},
+                ResolvedAgentsConfig.model_validate({"subagents": []}),
+                {},
                 None,
                 None,
+                True,
                 False,
-                False,
-                id="different-explicit-binding",
+                id="empty-bindings-are-equivalent",
             ),
             pytest.param(
                 None,
-                {"enabled": True, "subagents": []},
+                {"subagents": []},
                 None,
+                None,
+                True,
+                False,
+                id="missing-incoming-matches-empty-binding",
+            ),
+            pytest.param(
+                ResolvedAgentsConfig(
+                    subagents=[
+                        ResolvedAttachedSubagentRef(
+                            preset="analyst",
+                            preset_id=uuid.UUID("00000000-0000-0000-0000-000000000010"),
+                            preset_version_id=uuid.UUID(
+                                "00000000-0000-0000-0000-000000000011"
+                            ),
+                        )
+                    ]
+                ),
+                {"subagents": []},
+                "sdk-session-1",
                 None,
                 False,
                 False,
-                id="missing-incoming-binding",
+                id="attached-subagent-binding-mismatch",
             ),
         ],
     )
@@ -1265,9 +1287,7 @@ class TestLoadSessionActivity:
         )
 
         mock_agent_session = MagicMock()
-        agents_binding = ResolvedAgentsConfig.model_validate(
-            {"enabled": True, "subagents": []}
-        )
+        agents_binding = ResolvedAgentsConfig.model_validate({"subagents": []})
         mock_agent_session.agents_binding = agents_binding.model_dump(mode="json")
         mock_agent_session.sdk_session_id = "sdk-session-123"
         mock_agent_session.parent_session_id = None

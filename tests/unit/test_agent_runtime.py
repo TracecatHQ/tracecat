@@ -305,7 +305,7 @@ class TestClaudeAgentRuntimeRun:
         assert "DuckDB CLI" in prompt
         assert "`json`, `httpfs`, `inet`, and `fts` extensions" in prompt
         assert "not a Tracecat action or MCP tool" in prompt
-        assert prompt.endswith("Preset instructions.")
+        assert "\n\nPreset instructions.\n\n" in prompt
 
     def test_system_prompt_prefers_attached_subagent_aliases(
         self, mock_socket_writer: MagicMock
@@ -313,12 +313,10 @@ class TestClaudeAgentRuntimeRun:
         runtime = ClaudeAgentRuntime(
             mock_socket_writer, transport_factory=lambda _: MagicMock()
         )
-        runtime._agents_enabled = True
-
         prompt = runtime._build_system_prompt(None)
 
         assert prompt.endswith(
-            "prefer the most specific attached alias; use `general-purpose` only "
+            "Prefer the most specific attached alias; use `general-purpose` only "
             "when none matches."
         )
 
@@ -984,6 +982,8 @@ class TestClaudeAgentRuntimeRun:
         assert set(options.allowed_tools) == {
             "mcp__tracecat-registry__core__http_request",
             "mcp__local-tools__*",
+            "Agent",
+            "Task",
         }
         assert options.setting_sources == ["user"]
 
@@ -1113,6 +1113,8 @@ class TestClaudeAgentRuntimeRun:
         assert set(options.allowed_tools) == {
             "mcp__tracecat-registry__core__http_request",
             "mcp__sentinel-one__list_alerts",
+            "Agent",
+            "Task",
         }
         assert "Verified stdio MCP tools configured for this agent" in (
             options.system_prompt
@@ -1183,6 +1185,8 @@ class TestClaudeAgentRuntimeRun:
         assert set(options.allowed_tools) == {
             "mcp__tracecat-registry__core__http_request",
             "mcp__sentinel-one__quarantine_host",
+            "Agent",
+            "Task",
         }
         assert runtime._stdio_approval_blocked_tools == {
             "mcp__sentinel-one__quarantine_host"
@@ -1360,7 +1364,7 @@ class TestClaudeAgentRuntimeRun:
         assert "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS" not in env
 
     @pytest.mark.anyio
-    async def test_agents_toggle_adds_agent_tool_without_custom_subagents(
+    async def test_general_purpose_agent_tool_is_always_available(
         self,
         mock_socket_writer: MagicMock,
         mock_claude_sdk_client: MagicMock,
@@ -1372,13 +1376,6 @@ class TestClaudeAgentRuntimeRun:
             captured_options.append(kwargs["options"])
             return mock_claude_sdk_client
 
-        payload = replace(
-            sample_init_payload,
-            config=sample_init_payload.config.model_copy(
-                update={"agents": AgentSubagentsConfig(enabled=True)}
-            ),
-        )
-
         with (
             patch(
                 "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
@@ -1388,7 +1385,7 @@ class TestClaudeAgentRuntimeRun:
             runtime = ClaudeAgentRuntime(
                 mock_socket_writer, transport_factory=lambda _: MagicMock()
             )
-            await runtime.run(payload)
+            await runtime.run(sample_init_payload)
 
         assert captured_options
         options = captured_options[0]
@@ -1458,7 +1455,6 @@ class TestClaudeAgentRuntimeRun:
                 update={
                     "agents": AgentSubagentsConfig.model_validate(
                         {
-                            "enabled": True,
                             "subagents": [{"preset": "analyst"}],
                         }
                     ),
@@ -1633,7 +1629,6 @@ class TestClaudeAgentRuntimeRun:
                     "enable_internet_access": False,
                     "agents": AgentSubagentsConfig.model_validate(
                         {
-                            "enabled": True,
                             "subagents": [{"preset": "web"}],
                         }
                     ),
@@ -1719,7 +1714,6 @@ class TestClaudeAgentRuntimeRun:
                     "enable_internet_access": True,
                     "agents": AgentSubagentsConfig.model_validate(
                         {
-                            "enabled": True,
                             "subagents": [{"preset": "web"}],
                         }
                     ),
@@ -2542,7 +2536,6 @@ class TestClaudeAgentRuntimePreToolUseHook:
         runtime = ClaudeAgentRuntime(
             mock_socket_writer, transport_factory=lambda _: MagicMock()
         )
-        runtime._agents_enabled = True
         runtime._explicit_subagent_aliases = {"analyst"}
 
         result = await runtime._pre_tool_use_hook(
@@ -2571,7 +2564,6 @@ class TestClaudeAgentRuntimePreToolUseHook:
         runtime = ClaudeAgentRuntime(
             mock_socket_writer, transport_factory=lambda _: MagicMock()
         )
-        runtime._agents_enabled = True
         runtime._explicit_subagent_aliases = {"analyst"}
 
         result = await runtime._pre_tool_use_hook(
@@ -2598,7 +2590,6 @@ class TestClaudeAgentRuntimePreToolUseHook:
         runtime = ClaudeAgentRuntime(
             mock_socket_writer, transport_factory=lambda _: MagicMock()
         )
-        runtime._agents_enabled = True
         runtime._explicit_subagent_aliases = {"analyst"}
         tool_input = {
             "subagent_type": "analyst",
@@ -2641,7 +2632,6 @@ class TestClaudeAgentRuntimePreToolUseHook:
         runtime = ClaudeAgentRuntime(
             mock_socket_writer, transport_factory=lambda _: MagicMock()
         )
-        runtime._agents_enabled = True
         runtime._explicit_subagent_aliases = {"analyst"}
         runtime._registry_mcp_server_names = {
             "tracecat-registry",

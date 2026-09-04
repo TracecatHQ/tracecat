@@ -22,6 +22,12 @@ LEGACY_MODEL_FIELD_DEPRECATION_MESSAGE = "Use `model` instead."
 LEGACY_MODEL_FIELD_SCHEMA_EXTRA: dict[str, Any] = {
     "x-tracecat-deprecation-message": LEGACY_MODEL_FIELD_DEPRECATION_MESSAGE
 }
+LEGACY_PRESET_VERSION_DEPRECATION_MESSAGE = (
+    "Preset agents always resolve the current head."
+)
+LEGACY_PRESET_VERSION_SCHEMA_EXTRA: dict[str, Any] = {
+    "x-tracecat-deprecation-message": LEGACY_PRESET_VERSION_DEPRECATION_MESSAGE
+}
 
 
 @registry.register(
@@ -126,7 +132,13 @@ async def preset_agent(
     ],
     preset_version: Annotated[
         int | None,
-        Doc("Optional preset version number to pin for this run."),
+        Doc(
+            "Deprecated compatibility input. Preset agents always resolve the current head."
+        ),
+        Field(
+            deprecated=True,
+            json_schema_extra=LEGACY_PRESET_VERSION_SCHEMA_EXTRA,
+        ),
     ] = None,
     actions: Annotated[
         list[str] | None,

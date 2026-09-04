@@ -166,7 +166,6 @@ async def test_backfill_reconstructs_mutations_safely_and_idempotently(
         entity_id=uuid.uuid4(),
         parent_session=root,
         agents_binding=ResolvedAgentsConfig(
-            enabled=True,
             subagents=[
                 ResolvedAttachedSubagentRef(
                     preset="analyst",

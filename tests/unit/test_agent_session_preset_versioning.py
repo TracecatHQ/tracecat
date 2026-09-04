@@ -483,7 +483,7 @@ async def test_create_session_derives_agents_binding_from_pinned_preset_version(
     service, session, _role = _build_service()
     preset_id = uuid.uuid4()
     pinned_version_id = uuid.uuid4()
-    agents_binding = {"enabled": True, "subagents": []}
+    agents_binding = {"subagents": []}
     validate_mock = AsyncMock(return_value=pinned_version_id)
     agents_binding_mock = AsyncMock(return_value=agents_binding)
     service._validate_preset_version_for_assignment = validate_mock
@@ -530,7 +530,6 @@ async def test_create_session_prefers_provided_agents_binding_for_pinned_preset(
     service._resolve_agents_binding_for_preset_version_id = agents_binding_mock
     agents_binding = ResolvedAgentsConfig.model_validate(
         {
-            "enabled": True,
             "subagents": [
                 {
                     "preset": "child",
@@ -574,9 +573,7 @@ async def test_create_session_persists_internal_agents_binding_without_preset() 
     agents_binding_mock = AsyncMock(return_value=None)
     service._validate_preset_version_for_assignment = validate_mock
     service._resolve_agents_binding_for_preset_version_id = agents_binding_mock
-    agents_binding = ResolvedAgentsConfig.model_validate(
-        {"enabled": True, "subagents": []}
-    )
+    agents_binding = ResolvedAgentsConfig.model_validate({"subagents": []})
 
     created = await service.create_session(
         AgentSessionCreate(
@@ -587,7 +584,7 @@ async def test_create_session_persists_internal_agents_binding_without_preset() 
         agents_binding=agents_binding,
     )
 
-    assert created.agents_binding == {"enabled": True, "subagents": []}
+    assert created.agents_binding == {"subagents": []}
     agents_binding_mock.assert_not_called()
     session.commit.assert_awaited_once()
     session.refresh.assert_awaited_once_with(created)
@@ -607,7 +604,7 @@ async def test_update_session_preserves_null_version_when_preset_changes() -> No
         entity_id=uuid.uuid4(),
         agent_preset_id=old_preset_id,
         agent_preset_version_id=old_version_id,
-        agents_binding={"enabled": True, "subagents": []},
+        agents_binding={"subagents": []},
     )
     validate_mock = AsyncMock(return_value=None)
     agents_binding_mock = AsyncMock(return_value=None)
@@ -646,7 +643,7 @@ async def test_update_session_clears_agents_binding_when_preset_removed() -> Non
         entity_id=uuid.uuid4(),
         agent_preset_id=old_preset_id,
         agent_preset_version_id=old_version_id,
-        agents_binding={"enabled": True, "subagents": []},
+        agents_binding={"subagents": []},
     )
 
     updated = await service.update_session(
@@ -705,7 +702,7 @@ async def test_update_session_allows_version_only_repin_for_preset_sessions() ->
         agent_preset_version_id=uuid.uuid4(),
     )
     validate_mock = AsyncMock(return_value=new_version_id)
-    agents_binding_mock = AsyncMock(return_value={"enabled": True, "subagents": []})
+    agents_binding_mock = AsyncMock(return_value={"subagents": []})
     service._validate_preset_version_for_assignment = validate_mock
     service._resolve_agents_binding_for_preset_version_id = agents_binding_mock
 
@@ -722,7 +719,7 @@ async def test_update_session_allows_version_only_repin_for_preset_sessions() ->
     )
     assert updated.agent_preset_id == preset_id
     assert updated.agent_preset_version_id == new_version_id
-    assert updated.agents_binding == {"enabled": True, "subagents": []}
+    assert updated.agents_binding == {"subagents": []}
     agents_binding_mock.assert_awaited_once_with(new_version_id)
     session.commit.assert_awaited_once()
     session.refresh.assert_awaited_once_with(agent_session)
@@ -740,7 +737,7 @@ async def test_update_session_clears_pinned_version_to_follow_current() -> None:
         entity_id=preset_id,
         agent_preset_id=preset_id,
         agent_preset_version_id=uuid.uuid4(),
-        agents_binding={"enabled": True, "subagents": []},
+        agents_binding={"subagents": []},
     )
     validate_mock = AsyncMock()
     agents_binding_mock = AsyncMock(return_value=None)
@@ -779,7 +776,7 @@ async def test_update_session_ignores_mismatched_preset_id_for_preset_sessions()
         agent_preset_version_id=uuid.uuid4(),
     )
     validate_mock = AsyncMock(return_value=new_version_id)
-    agents_binding_mock = AsyncMock(return_value={"enabled": True, "subagents": []})
+    agents_binding_mock = AsyncMock(return_value={"subagents": []})
     service._validate_preset_version_for_assignment = validate_mock
     service._resolve_agents_binding_for_preset_version_id = agents_binding_mock
 
@@ -799,7 +796,7 @@ async def test_update_session_ignores_mismatched_preset_id_for_preset_sessions()
     )
     assert updated.agent_preset_id == preset_id
     assert updated.agent_preset_version_id == new_version_id
-    assert updated.agents_binding == {"enabled": True, "subagents": []}
+    assert updated.agents_binding == {"subagents": []}
     agents_binding_mock.assert_awaited_once_with(new_version_id)
     session.commit.assert_awaited_once()
     session.refresh.assert_awaited_once_with(agent_session)

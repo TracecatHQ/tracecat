@@ -50,6 +50,7 @@ from tracecat_ee.agent.approvals.service import (
 from tracecat_ee.agent.types import AgentWorkflowID
 from tracecat_ee.agent.workflows.durable import (
     APPROVAL_STREAM_V2_PATCH,
+    PRESERVE_RESUMED_AGENT_BINDINGS_PATCH,
     AgentWorkflowArgs,
     DurableAgentWorkflow,
     WorkflowApprovalSubmission,
@@ -1288,12 +1289,13 @@ async def test_approval_wait_cancellation_defers_end_until_marker_and_finalize(
 
 @pytest.mark.anyio
 @pytest.mark.integration
-async def test_agent_workflow_preserves_stored_subagent_binding_on_resume(
+async def test_agent_workflow_replays_and_preserves_stored_subagent_binding_on_resume(
     svc_role: Role,
     temporal_client: Client,
     agent_worker_factory,
     mock_session_id: uuid.UUID,
 ) -> None:
+    """A resumed history keeps its exact subagent binding across replay."""
     queue = f"test-agent-queue-{mock_session_id}"
     child_preset_id = uuid.uuid4()
     stored_version_id = uuid.uuid4()
@@ -1310,8 +1312,8 @@ async def test_agent_workflow_preserves_stored_subagent_binding_on_resume(
         preset_id=child_preset_id,
         preset_version_id=latest_version_id,
     )
-    stored_binding = ResolvedAgentsConfig(enabled=True, subagents=[stored_ref])
-    latest_agents_config = AgentSubagentsConfig(enabled=True, subagents=[latest_ref])
+    stored_binding = ResolvedAgentsConfig(subagents=[stored_ref])
+    latest_agents_config = AgentSubagentsConfig(subagents=[latest_ref])
     resolve_inputs: list[ResolveAgentsConfigActivityInput] = []
     create_inputs: list[CreateSessionInput] = []
     agent_inputs: list[AgentExecutorInput] = []
@@ -1340,7 +1342,6 @@ async def test_agent_workflow_preserves_stored_subagent_binding_on_resume(
         assert resolved_ref.preset_version_id == stored_version_id
 
         return ResolvedAgentsRuntimeConfig(
-            enabled=True,
             subagents=[
                 ResolvedSubagentConfig(
                     binding=stored_ref,
@@ -1405,13 +1406,23 @@ async def test_agent_workflow_preserves_stored_subagent_binding_on_resume(
     async with agent_worker_factory(
         temporal_client, task_queue=queue, custom_activities=activities
     ):
-        result = await temporal_client.execute_workflow(
+        handle = await temporal_client.start_workflow(
             DurableAgentWorkflow.run,
             workflow_args,
             id=AgentWorkflowID(mock_session_id),
             task_queue=queue,
             retry_policy=RETRY_POLICIES["workflow:fail_fast"],
             execution_timeout=timedelta(seconds=30),
+        )
+        result = await handle.result()
+        completed_history = await handle.fetch_history()
+        assert PRESERVE_RESUMED_AGENT_BINDINGS_PATCH in await recorded_patch_ids(
+            temporal_client,
+            completed_history,
+        )
+        await replay_durable_agent_workflow_history(
+            temporal_client,
+            completed_history,
         )
 
     assert result.session_id == mock_session_id

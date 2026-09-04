@@ -154,7 +154,7 @@ async def test_update_preset_serializes_authoring_fields(
         "case-triage",
         instructions="Triage cases.",
         tool_approvals={"core.cases.update_case": True},
-        agents={"enabled": True, "subagents": []},
+        agents={"subagents": []},
         skills=[{"skill_id": "11111111-1111-1111-1111-111111111111"}],
     )
 
@@ -163,7 +163,7 @@ async def test_update_preset_serializes_authoring_fields(
         json={
             "instructions": "Triage cases.",
             "tool_approvals": {"core.cases.update_case": True},
-            "agents": {"enabled": True, "subagents": []},
+            "agents": {"subagents": []},
             "skills": [{"skill_id": "11111111-1111-1111-1111-111111111111"}],
         },
     )

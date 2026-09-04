@@ -114,11 +114,11 @@ class CatalogMappingCandidate:
 
 @dataclass(frozen=True)
 class CatalogMappingAffectedPreset:
-    """Preset version whose source catalog id needs the same target choice."""
+    """Preset head or version whose source catalog id needs a target choice."""
 
     preset_slug: str
     preset_name: str
-    version: int
+    version: int | None
     path: str
 
 
@@ -165,11 +165,11 @@ class McpIntegrationMappingCandidate:
 
 @dataclass(frozen=True)
 class McpIntegrationMappingAffectedPreset:
-    """Preset version whose source MCP integration id needs a target choice."""
+    """Preset head or version whose source MCP integration needs a target choice."""
 
     preset_slug: str
     preset_name: str
-    version: int
+    version: int | None
     path: str
 
 

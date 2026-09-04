@@ -285,7 +285,7 @@ Default: `15`.
 
 <ParamField path="preset_version" type="integer | null">
 
-Optional preset version number to pin for this run.
+Deprecated compatibility input. Preset agents always resolve the current head.
 
 Default: `null`.
 
@@ -308,7 +308,6 @@ Default: `null`.
   action: ai.preset_agent
   args:
     preset: security-analyst
-    preset_version: 3
     user_prompt: |
       Review the incident below and decide whether to escalate it:
 
