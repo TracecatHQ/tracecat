@@ -55,7 +55,7 @@ export function nodeAllowsCommentMention(
 export interface CommentMentionLinkSnapshot {
   href: string
   text: string
-  hasFormatting: boolean
+  formatting: string
 }
 
 /** A comment mention link and its current document range. */
@@ -80,11 +80,15 @@ export function findCommentMentionLinkRanges(
       return
     }
     const previous = ranges.at(-1)
-    const hasFormatting = node.marks.some((mark) => mark.type.name !== "link")
+    const formatting = `${node.nodeSize}:${JSON.stringify(
+      node.marks
+        .filter((mark) => mark.type.name !== "link")
+        .map((mark) => mark.toJSON())
+    )}`
     if (previous && previous.href === href && previous.to === pos) {
       previous.to = pos + node.nodeSize
       previous.text += node.text ?? ""
-      previous.hasFormatting ||= hasFormatting
+      previous.formatting += `|${formatting}`
       return
     }
     ranges.push({
@@ -92,7 +96,7 @@ export function findCommentMentionLinkRanges(
       to: pos + node.nodeSize,
       href,
       text: node.text ?? "",
-      hasFormatting,
+      formatting,
     })
   })
   return ranges
@@ -124,15 +128,23 @@ export function findEditedCommentMentionIndexes(
     const nextMentions = currentByHref.get(href) ?? []
     const matchedOldIndexes = new Set<number>()
     const unmatchedNextMentions = nextMentions.filter((mention) => {
-      const matchingIndex = oldMentions.findIndex(
+      let matchingIndex = oldMentions.findIndex(
         (oldMention, index) =>
-          !matchedOldIndexes.has(index) && oldMention.text === mention.text
+          !matchedOldIndexes.has(index) &&
+          oldMention.text === mention.text &&
+          oldMention.formatting === mention.formatting
       )
+      if (matchingIndex === -1) {
+        matchingIndex = oldMentions.findIndex(
+          (oldMention, index) =>
+            !matchedOldIndexes.has(index) && oldMention.text === mention.text
+        )
+      }
       if (matchingIndex === -1) {
         return true
       }
       matchedOldIndexes.add(matchingIndex)
-      if (mention.hasFormatting) {
+      if (oldMentions[matchingIndex]?.formatting !== mention.formatting) {
         editedIndexes.add(mention.index)
       }
       return false

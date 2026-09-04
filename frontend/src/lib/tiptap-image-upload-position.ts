@@ -8,3 +8,8 @@ export function mapImageUploadPosition(
 ): number {
   return transaction.mapping.map(position, association)
 }
+
+/** Replace characters that can break TipTap's unescaped Markdown image alt. */
+export function sanitizeMarkdownImageAlt(filename: string): string {
+  return filename.replace(/[\\[\]\r\n]/g, "_")
+}

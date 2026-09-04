@@ -110,7 +110,10 @@ import {
   preventCommentMentionNavigation,
   WORKFLOW_MENTION_URI_SCHEME,
 } from "@/lib/tiptap-comment-mentions"
-import { mapImageUploadPosition } from "@/lib/tiptap-image-upload-position"
+import {
+  mapImageUploadPosition,
+  sanitizeMarkdownImageAlt,
+} from "@/lib/tiptap-image-upload-position"
 import { MarkdownHardBreak } from "@/lib/tiptap-markdown-hard-break"
 import {
   handleImageUpload,
@@ -145,7 +148,10 @@ async function uploadAndInsertImages(
         if (!imageType) {
           continue
         }
-        const node = imageType.create({ src, alt: file.name })
+        const node = imageType.create({
+          src,
+          alt: sanitizeMarkdownImageAlt(file.name),
+        })
         const transaction = view.state.tr
         if (replaceTo !== null && replaceTo > insertPos) {
           transaction.replaceWith(insertPos, replaceTo, node)

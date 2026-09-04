@@ -1,6 +1,9 @@
 import { Schema } from "@tiptap/pm/model"
 import { EditorState } from "@tiptap/pm/state"
-import { mapImageUploadPosition } from "@/lib/tiptap-image-upload-position"
+import {
+  mapImageUploadPosition,
+  sanitizeMarkdownImageAlt,
+} from "@/lib/tiptap-image-upload-position"
 
 describe("TipTap image upload position", () => {
   it("maps a pending insertion point through intervening edits", () => {
@@ -44,5 +47,11 @@ describe("TipTap image upload position", () => {
     expect(mapImageUploadPosition(8, startTransaction, -1)).toBe(8)
     expect(mapImageUploadPosition(16, endTransaction, -1)).toBe(16)
     expect(mapImageUploadPosition(16, endTransaction, 1)).toBe(20)
+  })
+
+  it("sanitizes image filenames that would break Markdown alt syntax", () => {
+    expect(sanitizeMarkdownImageAlt("report[final]\\copy.png")).toBe(
+      "report_final__copy.png"
+    )
   })
 })

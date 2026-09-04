@@ -262,7 +262,7 @@ describe("TipTap comment mention serialization", () => {
         to: 14,
         href,
         text: "@Triage agent",
-        hasFormatting: true,
+        formatting: '13:[{"type":"strong"}]',
       },
     ])
   })
@@ -274,14 +274,14 @@ describe("TipTap comment mention serialization", () => {
           {
             href: buildAgentMentionHref("agent-id"),
             text: "@Triage agent",
-            hasFormatting: false,
+            formatting: "",
           },
         ],
         [
           {
             href: buildAgentMentionHref("agent-id"),
             text: "@Triage agnt",
-            hasFormatting: false,
+            formatting: "",
           },
         ]
       )
@@ -296,10 +296,20 @@ describe("TipTap comment mention serialization", () => {
 
     expect(
       findEditedCommentMentionIndexes(
-        [{ ...mention, hasFormatting: false }],
-        [{ ...mention, hasFormatting: true }]
+        [{ ...mention, formatting: "" }],
+        [{ ...mention, formatting: "bold" }]
       )
     ).toEqual([0])
+  })
+
+  it("preserves an already-formatted mention after an unrelated edit", () => {
+    const mention = {
+      href: buildAgentMentionHref("agent-id"),
+      text: "@Triage agent",
+      formatting: "bold",
+    }
+
+    expect(findEditedCommentMentionIndexes([mention], [mention])).toEqual([])
   })
 
   it("detects every range when a line break splits a mention link", () => {
@@ -307,10 +317,10 @@ describe("TipTap comment mention serialization", () => {
 
     expect(
       findEditedCommentMentionIndexes(
-        [{ href, text: "@Triage agent", hasFormatting: false }],
+        [{ href, text: "@Triage agent", formatting: "" }],
         [
-          { href, text: "@Triage", hasFormatting: false },
-          { href, text: " agent", hasFormatting: false },
+          { href, text: "@Triage", formatting: "" },
+          { href, text: " agent", formatting: "" },
         ]
       )
     ).toEqual([0, 1])
@@ -320,7 +330,7 @@ describe("TipTap comment mention serialization", () => {
     const mention = {
       href: buildAgentMentionHref("agent-id"),
       text: "@Triage agent",
-      hasFormatting: false,
+      formatting: "",
     }
 
     expect(
@@ -332,12 +342,12 @@ describe("TipTap comment mention serialization", () => {
     const agentMention = {
       href: buildAgentMentionHref("agent-id"),
       text: "@Triage agent",
-      hasFormatting: false,
+      formatting: "",
     }
     const workflowMention = {
       href: buildWorkflowMentionHref("workflow-id"),
       text: "/Enrich case",
-      hasFormatting: false,
+      formatting: "",
     }
 
     expect(
@@ -353,13 +363,13 @@ describe("TipTap comment mention serialization", () => {
     const currentMention = {
       href,
       text: "@Current agent name",
-      hasFormatting: false,
+      formatting: "",
     }
 
     expect(
       findEditedCommentMentionIndexes(
         [
-          { href, text: "@Historical agent name", hasFormatting: false },
+          { href, text: "@Historical agent name", formatting: "" },
           currentMention,
         ],
         [currentMention]
@@ -375,7 +385,7 @@ describe("TipTap comment mention serialization", () => {
           {
             href: buildAgentMentionHref("agent-id"),
             text: "@Triage agent",
-            hasFormatting: false,
+            formatting: "",
           },
         ]
       )
@@ -386,14 +396,14 @@ describe("TipTap comment mention serialization", () => {
           {
             href: buildAgentMentionHref("old-agent"),
             text: "@Old agent",
-            hasFormatting: false,
+            formatting: "",
           },
         ],
         [
           {
             href: buildAgentMentionHref("new-agent"),
             text: "@New agent",
-            hasFormatting: false,
+            formatting: "",
           },
         ]
       )
