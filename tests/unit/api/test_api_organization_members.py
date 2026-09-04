@@ -185,11 +185,15 @@ async def test_create_org_invitation_schedules_configured_email(
         token="token-123",
     )
     mock_session = await app.dependency_overrides[get_async_session]()
-    mock_session.scalar = AsyncMock(return_value="Acme")
+    result = Mock()
+    result.scalar_one.return_value = "Acme"
+    mock_session.execute = AsyncMock(return_value=result)
 
     with (
         patch.object(organization_router, "OrgService") as mock_service_class,
-        patch.object(config, "TRACECAT__EMAIL_DOMAIN", "mail.example.com"),
+        patch.object(
+            config, "TRACECAT__EMAIL_FROM", "Tracecat <no-reply@mail.example.com>"
+        ),
         patch.object(Mailer, "deliver") as mock_deliver,
     ):
         mock_service = AsyncMock()
