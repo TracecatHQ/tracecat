@@ -7,12 +7,13 @@ from typing import Any
 import pytest
 from fastapi import FastAPI, Response
 from fastapi.testclient import TestClient
+from opentelemetry import trace
 from opentelemetry.sdk.trace import ReadableSpan
 from opentelemetry.sdk.trace.export import SpanExporter, SpanExportResult
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
     InMemorySpanExporter,
 )
-from opentelemetry.trace import SpanKind
+from opentelemetry.trace import SpanKind, TraceFlags
 from temporalio.contrib.opentelemetry import TracingInterceptor
 
 from tracecat import config
@@ -390,3 +391,41 @@ def test_headerless_workflow_run_follows_the_configured_sampler(
 
     assert traceparent.endswith("-00")
     assert exporter.get_finished_spans() == ()
+
+
+def test_headerless_workflow_run_sampling_ignores_ambient_span(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The per-run decision is a root decision even while a span is current.
+
+    A parent-based sampler would otherwise inherit the sampled flag of whatever
+    span is active on the worker thread instead of deciding for the run.
+    """
+    monkeypatch.setattr(config, "TRACECAT__PLATFORM_OTEL_ENABLED", True)
+    monkeypatch.setenv("OTEL_TRACES_SAMPLER", "parentbased_always_off")
+    exporter = InMemorySpanExporter()
+    runtime = initialize_platform_tracing("tracecat-worker", exporter=exporter)
+    assert runtime is not None
+    interceptor = _headerless_interceptor()
+
+    sampled_remote_parent = trace.set_span_in_context(
+        trace.NonRecordingSpan(
+            trace.SpanContext(
+                trace_id=1,
+                span_id=1,
+                is_remote=True,
+                trace_flags=TraceFlags(TraceFlags.SAMPLED),
+            )
+        )
+    )
+    ambient = runtime.tracer("test").start_span(
+        "ambient", context=sampled_remote_parent
+    )
+    assert ambient.get_span_context().trace_flags.sampled
+    with trace.use_span(ambient, end_on_exit=True):
+        traceparent = _complete_headerless_span(
+            interceptor, "RunWorkflow:Traced", "run-1"
+        )
+
+    assert traceparent.endswith("-00")
+    assert [span.name for span in exporter.get_finished_spans()] == ["ambient"]

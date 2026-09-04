@@ -361,8 +361,14 @@ class _TraceContextOnlyTracingInterceptor(TracingInterceptor):
         digest = hashlib.sha256(f"tracecat.temporal.run:{run_id}".encode()).digest()
         trace_id = int.from_bytes(digest[:16], "big") or 1
         span_id = int.from_bytes(digest[16:24], "big") or 1
+        # An explicit empty parent context forces a root decision; ``None``
+        # would let the parent-based sampler inherit whatever span happens to
+        # be current on the worker thread.
         sampling = self._sampler.should_sample(
-            None, trace_id, _HEADERLESS_RUN_SPAN_NAME, kind=SpanKind.SERVER
+            otel_context.Context(),
+            trace_id,
+            _HEADERLESS_RUN_SPAN_NAME,
+            kind=SpanKind.SERVER,
         )
         parent = trace.NonRecordingSpan(
             trace.SpanContext(
