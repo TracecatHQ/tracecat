@@ -102,6 +102,10 @@ import {
   extractImageFiles,
 } from "@/lib/cases/use-case-image-upload"
 import {
+  AGENT_MENTION_URI_SCHEME,
+  WORKFLOW_MENTION_URI_SCHEME,
+} from "@/lib/tiptap-comment-mentions"
+import {
   handleImageUpload,
   MAX_FILE_SIZE,
   sanitizeUrl,
@@ -566,6 +570,8 @@ export interface SimpleEditorProps {
    * `attachment://<caseId>/<attachmentId>`). Required to enable paste/drop.
    */
   onImageUpload?: (file: File) => Promise<string>
+  /** Called when the TipTap editor instance becomes available or is removed. */
+  onEditorReady?: (editor: Editor | null) => void
 }
 
 export function SimpleEditor({
@@ -587,6 +593,7 @@ export function SimpleEditor({
   enableImages = false,
   imageWorkspaceId = null,
   onImageUpload,
+  onEditorReady,
 }: SimpleEditorProps) {
   const isMobile = useIsMobile()
   const { height } = useWindowSize()
@@ -610,6 +617,10 @@ export function SimpleEditor({
         link: {
           openOnClick: false,
           enableClickSelection: true,
+          isAllowedUri: (url, { defaultValidate }) =>
+            url.startsWith(AGENT_MENTION_URI_SCHEME) ||
+            url.startsWith(WORKFLOW_MENTION_URI_SCHEME) ||
+            defaultValidate(url),
         },
       }),
       HorizontalRule,
@@ -744,6 +755,11 @@ export function SimpleEditor({
 
   const shouldShowToolbar = showToolbar && editable
   const canRenderToolbar = editable && (showToolbar || preserveToolbarSpace)
+
+  React.useEffect(() => {
+    onEditorReady?.(editor)
+    return () => onEditorReady?.(null)
+  }, [editor, onEditorReady])
 
   const rect = useCursorVisibility({
     editor,

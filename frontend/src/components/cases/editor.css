@@ -173,6 +173,44 @@
   height: auto;
 }
 
+.case-comment-editor {
+  width: 100%;
+  min-width: 0;
+}
+
+.case-comment-editor .simple-editor-content .tiptap.ProseMirror.simple-editor {
+  min-height: 72px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.case-comment-editor--inline
+  .simple-editor-content
+  .tiptap.ProseMirror.simple-editor {
+  min-height: 36px;
+  padding-block: 0.25rem;
+}
+
+.case-comment-editor
+  .simple-editor-content
+  .tiptap.ProseMirror.simple-editor
+  a[href^="mention://agent/"],
+.case-comment-editor
+  .simple-editor-content
+  .tiptap.ProseMirror.simple-editor
+  a[href^="workflow-mention://"] {
+  border-radius: 0.125rem;
+  background: hsl(var(--primary) / 0.1);
+  color: hsl(var(--primary));
+  text-decoration: none;
+  box-shadow: 0 0 0 2px hsl(var(--primary) / 0.1);
+}
+
 .text-part-editor .simple-editor-content .simple-editor {
   white-space: inherit;
 }

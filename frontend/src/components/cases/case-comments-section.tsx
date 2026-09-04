@@ -1,6 +1,7 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
+import type { Editor } from "@tiptap/react"
 import {
   AlertCircle,
   ArrowUpIcon,
@@ -16,22 +17,21 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import type React from "react"
-import type { RefObject } from "react"
-import { useCallback, useLayoutEffect, useRef, useState } from "react"
-import { type UseFormReturn, useForm } from "react-hook-form"
+import { useCallback, useEffect, useState } from "react"
+import { useForm } from "react-hook-form"
 import { z } from "zod"
 import type { CaseCommentRead, CaseCommentThreadRead } from "@/client"
 import {
   CaseCommentAgentAttribution,
   CaseCommentAgentInvocationList,
 } from "@/components/cases/case-comment-agent"
+import { CaseCommentEditor } from "@/components/cases/case-comment-editor"
 import { CaseCommentViewer } from "@/components/cases/case-description-editor"
 import {
   CaseEventTimestamp,
   CaseUserAvatar,
 } from "@/components/cases/case-panel-common"
 import { MentionHint } from "@/components/mentions/mention-hint"
-import { MentionOverlay } from "@/components/mentions/mention-overlay"
 import { MentionPopover } from "@/components/mentions/mention-popover"
 import {
   AlertDialog,
@@ -51,26 +51,14 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormMessage,
-} from "@/components/ui/form"
+import { Form, FormField, FormItem, FormMessage } from "@/components/ui/form"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
 import { useAuth } from "@/hooks/use-auth"
 import { useEntitlements } from "@/hooks/use-entitlements"
-import { useMentions } from "@/hooks/use-mentions"
+import { useTiptapMentions } from "@/hooks/use-tiptap-mentions"
 import { SYSTEM_USER_READ, User } from "@/lib/auth"
-import {
-  createPastedImageFile,
-  extractImageFiles,
-  useCaseImageUpload,
-} from "@/lib/cases/use-case-image-upload"
 import { executionId, getWorkflowExecutionUrl } from "@/lib/event-history"
 import {
   useCaseComments,
@@ -80,7 +68,6 @@ import {
   useDeleteCaseComment,
   useUpdateCaseComment,
 } from "@/lib/hooks"
-import type { TextSplice } from "@/lib/mentions"
 import { cn, INSET_SURFACE } from "@/lib/utils"
 
 /**
@@ -559,84 +546,6 @@ function CommentThreadSkeleton() {
   )
 }
 
-/**
- * Enable pasting images into a plain comment `<Textarea>`.
- *
- * Pasted images are uploaded as case attachments and inserted as
- * `![name](attachment://...)` markdown at the cursor, preserving surrounding
- * text. Exposes an `isUploading` flag so callers can keep submit disabled.
- */
-function useCommentImagePaste({
-  caseId,
-  workspaceId,
-  form,
-  textareaRef,
-  adjustTextareaHeight,
-  onSplice,
-}: {
-  caseId: string
-  workspaceId: string
-  form: UseFormReturn<CommentFormSchema>
-  textareaRef: RefObject<HTMLTextAreaElement | null>
-  adjustTextareaHeight: () => void
-  /** Reports the edit so callers can keep mention offsets aligned. */
-  onSplice?: (splice: TextSplice) => void
-}) {
-  const { uploadImage } = useCaseImageUpload(caseId, workspaceId)
-  const [uploadingCount, setUploadingCount] = useState(0)
-
-  const insertAtCursor = useCallback(
-    (text: string) => {
-      const textarea = textareaRef.current
-      const current = form.getValues("content")
-      const start = textarea?.selectionStart ?? current.length
-      const end = textarea?.selectionEnd ?? current.length
-      const next = current.slice(0, start) + text + current.slice(end)
-      onSplice?.({ start, deleted: end - start, inserted: text.length })
-      form.setValue("content", next, {
-        shouldDirty: true,
-        shouldValidate: true,
-      })
-      const cursor = start + text.length
-      requestAnimationFrame(() => {
-        const node = textareaRef.current
-        if (node) {
-          node.focus()
-          node.setSelectionRange(cursor, cursor)
-        }
-        adjustTextareaHeight()
-      })
-    },
-    [adjustTextareaHeight, form, onSplice, textareaRef]
-  )
-
-  const handlePaste = useCallback(
-    async (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
-      const files = extractImageFiles(event.clipboardData)
-      if (files.length === 0) {
-        return
-      }
-      event.preventDefault()
-      setUploadingCount((count) => count + files.length)
-      for (const file of files) {
-        try {
-          const { src, fileName } = await uploadImage(
-            createPastedImageFile(file)
-          )
-          insertAtCursor(`![${fileName}](${src})`)
-        } catch {
-          // Error toast is surfaced by uploadImage.
-        } finally {
-          setUploadingCount((count) => Math.max(0, count - 1))
-        }
-      }
-    },
-    [insertAtCursor, uploadImage]
-  )
-
-  return { handlePaste, isUploading: uploadingCount > 0 }
-}
-
 function CommentComposer({
   caseId,
   workspaceId,
@@ -659,13 +568,9 @@ function CommentComposer({
     workspaceId,
   })
   const isInline = mode === "inline"
-  // Shared by the textarea and its highlight overlay. If these drift apart the
-  // two layers wrap differently and the caret stops matching the visible text.
-  const textMetricsClassName = isInline
-    ? "px-0 py-1 text-sm"
-    : "px-0 py-0 text-sm"
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const [editor, setEditor] = useState<Editor | null>(null)
   const [isFocused, setIsFocused] = useState(false)
+  const [imageUploading, setImageUploading] = useState(false)
   const form = useForm<CommentFormSchema>({
     resolver: zodResolver(commentFormSchema),
     defaultValues: {
@@ -673,97 +578,95 @@ function CommentComposer({
     },
     mode: "onSubmit",
   })
-
-  const adjustTextareaHeight = useCallback(() => {
-    const textarea = textareaRef.current
-    if (!textarea) return
-
-    textarea.style.height = "auto"
-    textarea.style.height = `${Math.max(textarea.scrollHeight, isInline ? 36 : 72)}px`
-    textarea.style.overflowY = "hidden"
-  }, [isInline])
-
-  // Mentions live as display text (`@Label`, `/Label`) in the textarea; the
-  // hook maps them back to the wire value on submit.
-  const getContent = useCallback(() => form.getValues("content"), [form])
-  const setContent = useCallback(
-    (next: string) => {
-      form.setValue("content", next, {
-        shouldDirty: true,
-        shouldValidate: true,
-      })
-    },
-    [form]
-  )
-  const mentions = useMentions({
+  const mentions = useTiptapMentions({
+    editor,
     workspaceId,
-    textareaRef,
-    getText: getContent,
-    setText: setContent,
     // A comment may invoke several agents, but runs at most one workflow.
     agents: { entitlements: ["agent_addons", "case_addons"] },
     workflows: { entitlements: ["case_addons"], single: true },
   })
 
-  const { handlePaste, isUploading: imageUploading } = useCommentImagePaste({
-    caseId,
-    workspaceId,
-    form,
-    textareaRef,
-    adjustTextareaHeight,
-    onSplice: mentions.applySplice,
-  })
-
   const content = form.watch("content")
   const trimmedContent = content.trim()
-
-  useLayoutEffect(() => {
-    adjustTextareaHeight()
-  }, [adjustTextareaHeight, content])
-
-  const handleSubmit = async (values: CommentFormSchema) => {
-    const workflowId = mentions.workflowId
-    const nextContent = mentions.serialize(values.content).trim()
-    // A bare `/Workflow` command still runs and saves with an empty body.
-    if (!nextContent && !workflowId) {
-      return
-    }
-    // The length limit applies to what the API receives, not the shorter
-    // display text, so check the serialized value.
-    const serialized = commentWireSchema.safeParse(nextContent)
-    if (!serialized.success) {
-      form.setError("content", {
-        message: serialized.error.issues[0]?.message,
-      })
-      return
-    }
-    try {
-      await createComment({
-        content: nextContent,
-        parent_id: parentId,
-        ...(workflowId ? { workflow_id: workflowId } : {}),
-      })
-      form.reset({ content: "" })
-      mentions.reset()
-      onSubmitted?.()
-    } catch (error) {
-      console.error("Error creating comment:", error)
-    }
-  }
-
-  const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    // The mention layer owns popover keys and atomic mention backspace.
-    if (mentions.handleKeyDown(event)) {
-      return
-    }
-    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-      event.preventDefault()
-      if (createCommentIsPending || imageUploading) {
+  const serializeMentions = mentions.serialize
+  const resetMentions = mentions.reset
+  const handleSubmit = useCallback(
+    async (values: CommentFormSchema) => {
+      const serializedComment = serializeMentions(values.content)
+      const nextContent = serializedComment.content.trim()
+      const workflowId = serializedComment.workflowId
+      // A bare `/Workflow` command still runs and saves with an empty body.
+      if (!nextContent && !workflowId) {
         return
       }
-      form.handleSubmit(handleSubmit)()
+      // Validate after removing the transient workflow marker so the limit
+      // applies to the exact Markdown sent over the wire.
+      const serialized = commentWireSchema.safeParse(nextContent)
+      if (!serialized.success) {
+        form.setError("content", {
+          message: serialized.error.issues[0]?.message,
+        })
+        return
+      }
+      try {
+        await createComment({
+          content: nextContent,
+          parent_id: parentId,
+          ...(workflowId ? { workflow_id: workflowId } : {}),
+        })
+        form.reset({ content: "" })
+        resetMentions()
+        onSubmitted?.()
+      } catch (error) {
+        console.error("Error creating comment:", error)
+      }
+    },
+    [
+      createComment,
+      form,
+      onSubmitted,
+      parentId,
+      resetMentions,
+      serializeMentions,
+    ]
+  )
+
+  const handleMentionKeyDown = mentions.handleKeyDown
+  useEffect(() => {
+    if (!editor) {
+      return
     }
-  }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (handleMentionKeyDown(event)) {
+        event.stopPropagation()
+        return
+      }
+      if (
+        event.key === "Enter" &&
+        (event.metaKey || event.ctrlKey) &&
+        !event.isComposing
+      ) {
+        event.preventDefault()
+        event.stopPropagation()
+        if (createCommentIsPending || imageUploading) {
+          return
+        }
+        void form.handleSubmit(handleSubmit)()
+      }
+    }
+    const editorElement = editor.view.dom
+    editorElement.addEventListener("keydown", handleKeyDown, true)
+    return () => {
+      editorElement.removeEventListener("keydown", handleKeyDown, true)
+    }
+  }, [
+    createCommentIsPending,
+    editor,
+    form,
+    handleMentionKeyDown,
+    handleSubmit,
+    imageUploading,
+  ])
 
   return (
     <div
@@ -795,48 +698,23 @@ function CommentComposer({
                   hasError={mentions.hasError}
                   onSelect={mentions.selectSuggestion}
                 >
-                  <MentionOverlay
-                    text={content}
-                    mentions={mentions.ranges}
-                    className={textMetricsClassName}
+                  <CaseCommentEditor
+                    value={field.value}
+                    onChange={field.onChange}
+                    caseId={caseId}
+                    workspaceId={workspaceId}
+                    placeholder={placeholder}
+                    mode={mode}
+                    autoFocus={autoFocus}
+                    onBlur={() => {
+                      field.onBlur()
+                      setIsFocused(false)
+                      mentions.dismiss()
+                    }}
+                    onFocus={() => setIsFocused(true)}
+                    onUploadingChange={setImageUploading}
+                    onEditorReady={setEditor}
                   />
-                  <FormControl>
-                    <Textarea
-                      autoFocus={autoFocus}
-                      ref={(node) => {
-                        field.ref(node)
-                        textareaRef.current = node
-                      }}
-                      // Text is painted by the overlay behind, so only the
-                      // caret stays visible here.
-                      className={cn(
-                        "relative resize-none border-none bg-transparent text-transparent caret-foreground shadow-none focus-visible:ring-0",
-                        textMetricsClassName,
-                        isInline ? "min-h-9" : "min-h-[72px]"
-                      )}
-                      name={field.name}
-                      onBlur={() => {
-                        field.onBlur()
-                        setIsFocused(false)
-                        mentions.dismiss()
-                      }}
-                      onFocus={() => setIsFocused(true)}
-                      onChange={(event) => {
-                        mentions.handleTextChange(
-                          event.target.value,
-                          event.target.selectionStart ??
-                            event.target.value.length
-                        )
-                        field.onChange(event)
-                        adjustTextareaHeight()
-                      }}
-                      onKeyDown={handleKeyDown}
-                      onSelect={mentions.handleSelectionChange}
-                      onPaste={(event) => void handlePaste(event)}
-                      placeholder={placeholder}
-                      value={field.value}
-                    />
-                  </FormControl>
                 </MentionPopover>
                 <FormMessage />
               </FormItem>
@@ -892,7 +770,8 @@ function InlineCommentEdit({
     workspaceId,
     commentId: comment.id,
   })
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const [editor, setEditor] = useState<Editor | null>(null)
+  const [imageUploading, setImageUploading] = useState(false)
   const form = useForm<CommentFormSchema>({
     resolver: zodResolver(commentEditFormSchema),
     defaultValues: {
@@ -900,53 +779,50 @@ function InlineCommentEdit({
     },
   })
 
-  const adjustTextareaHeight = useCallback(() => {
-    const textarea = textareaRef.current
-    if (!textarea) return
-
-    textarea.style.height = "auto"
-    textarea.style.height = `${Math.max(textarea.scrollHeight, 72)}px`
-    textarea.style.overflowY = "hidden"
-  }, [])
-
-  const { handlePaste, isUploading: imageUploading } = useCommentImagePaste({
-    caseId,
-    workspaceId,
-    form,
-    textareaRef,
-    adjustTextareaHeight,
-  })
-
   const content = form.watch("content")
+  const handleSubmit = useCallback(
+    async (values: CommentFormSchema) => {
+      try {
+        await updateComment({
+          content: values.content,
+        })
+        onStopEditing()
+        toast({
+          title: "Comment updated",
+          description: "Your comment has been updated successfully.",
+        })
+      } catch (error) {
+        console.error("Error updating comment:", error)
+      }
+    },
+    [onStopEditing, updateComment]
+  )
 
-  useLayoutEffect(() => {
-    adjustTextareaHeight()
-  }, [adjustTextareaHeight, content])
-
-  const handleSubmit = async (values: CommentFormSchema) => {
-    try {
-      await updateComment({
-        content: values.content,
-      })
-      onStopEditing()
-      toast({
-        title: "Comment updated",
-        description: "Your comment has been updated successfully.",
-      })
-    } catch (error) {
-      console.error("Error updating comment:", error)
+  useEffect(() => {
+    if (!editor) {
+      return
     }
-  }
-
-  const handleKeyDown = (event: React.KeyboardEvent) => {
-    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.key !== "Enter" ||
+        (!event.metaKey && !event.ctrlKey) ||
+        event.isComposing
+      ) {
+        return
+      }
       event.preventDefault()
+      event.stopPropagation()
       if (updateCommentIsPending || imageUploading) {
         return
       }
-      form.handleSubmit(handleSubmit)()
+      void form.handleSubmit(handleSubmit)()
     }
-  }
+    const editorElement = editor.view.dom
+    editorElement.addEventListener("keydown", handleKeyDown, true)
+    return () => {
+      editorElement.removeEventListener("keydown", handleKeyDown, true)
+    }
+  }, [editor, form, handleSubmit, imageUploading, updateCommentIsPending])
 
   return (
     <Form {...form}>
@@ -956,25 +832,17 @@ function InlineCommentEdit({
           name="content"
           render={({ field }) => (
             <FormItem>
-              <FormControl>
-                <Textarea
-                  autoFocus
-                  ref={(node) => {
-                    field.ref(node)
-                    textareaRef.current = node
-                  }}
-                  className="min-h-[72px] border-none px-0 py-0 text-sm shadow-none focus-visible:ring-0"
-                  name={field.name}
-                  onBlur={field.onBlur}
-                  onChange={(event) => {
-                    field.onChange(event)
-                    adjustTextareaHeight()
-                  }}
-                  onKeyDown={handleKeyDown}
-                  onPaste={(event) => void handlePaste(event)}
-                  value={field.value}
-                />
-              </FormControl>
+              <CaseCommentEditor
+                value={field.value}
+                onChange={field.onChange}
+                caseId={caseId}
+                workspaceId={workspaceId}
+                placeholder="Edit comment..."
+                autoFocus
+                onBlur={field.onBlur}
+                onUploadingChange={setImageUploading}
+                onEditorReady={setEditor}
+              />
               <FormMessage />
             </FormItem>
           )}
