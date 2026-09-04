@@ -1,9 +1,11 @@
 import { Schema } from "@tiptap/pm/model"
+import { EditorState } from "@tiptap/pm/state"
 import {
   AGENT_MENTION_URI_SCHEME,
   buildAgentMentionHref,
   buildWorkflowMentionHref,
   commentMentionLeafText,
+  expandCommentMentionDeletionRange,
   findCommentMentionLinkRanges,
   findEditedCommentMentionIndexes,
   isCommentMentionHref,
@@ -287,6 +289,43 @@ describe("TipTap comment mention serialization", () => {
         formatting: '13:[{"type":"strong"}]',
       },
     ])
+  })
+
+  it("expands a sole workflow mention deletion to its list item", () => {
+    const schema = new Schema({
+      nodes: {
+        doc: { content: "block+" },
+        paragraph: { group: "block", content: "inline*" },
+        bulletList: { group: "block", content: "listItem+" },
+        listItem: { content: "paragraph block*" },
+        text: { group: "inline" },
+      },
+      marks: { link: { attrs: { href: {} } } },
+    })
+    const href = buildWorkflowMentionHref("workflow-id")
+    const link = schema.mark("link", { href })
+    const doc = schema.node("doc", null, [
+      schema.node("bulletList", null, [
+        schema.node("listItem", null, [
+          schema.node("paragraph", null, [schema.text("Keep this item")]),
+        ]),
+        schema.node("listItem", null, [
+          schema.node("paragraph", null, [schema.text("/Replace me", [link])]),
+        ]),
+      ]),
+    ])
+    const mention = findCommentMentionLinkRanges(doc)[0]
+    if (!mention) {
+      throw new Error("Expected the workflow mention range")
+    }
+    const deletion = expandCommentMentionDeletionRange(doc, mention)
+    const nextDoc = EditorState.create({ doc }).tr.delete(
+      deletion.from,
+      deletion.to
+    ).doc
+
+    expect(nextDoc.textContent).toBe("Keep this item")
+    expect(nextDoc.firstChild?.childCount).toBe(1)
   })
 
   it("detects a selected mention whose visible label was edited", () => {

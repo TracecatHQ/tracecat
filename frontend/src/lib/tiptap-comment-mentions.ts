@@ -69,6 +69,20 @@ export type MapCommentMentionPosition = (
   association: -1 | 1
 ) => number
 
+export interface CommentMentionDeletionRange {
+  from: number
+  to: number
+}
+
+const REMOVABLE_EMPTY_MENTION_CONTAINERS = new Set([
+  "blockquote",
+  "bulletList",
+  "listItem",
+  "orderedList",
+  "taskItem",
+  "taskList",
+])
+
 /** Find all internal mention-link ranges in a ProseMirror document. */
 export function findCommentMentionLinkRanges(
   doc: ProseMirrorNode
@@ -105,6 +119,37 @@ export function findCommentMentionLinkRanges(
     })
   })
   return ranges
+}
+
+/** Expand a sole mention to the smallest rich container it would empty. */
+export function expandCommentMentionDeletionRange(
+  doc: ProseMirrorNode,
+  range: CommentMentionLinkRange
+): CommentMentionDeletionRange {
+  const $from = doc.resolve(range.from)
+  const $to = doc.resolve(range.to)
+  if (
+    $from.parent !== $to.parent ||
+    range.from !== $from.start() ||
+    range.to !== $from.end()
+  ) {
+    return range
+  }
+
+  let deletionDepth = $from.depth
+  while (
+    deletionDepth > 1 &&
+    $from.node(deletionDepth - 1).childCount === 1 &&
+    REMOVABLE_EMPTY_MENTION_CONTAINERS.has(
+      $from.node(deletionDepth - 1).type.name
+    )
+  ) {
+    deletionDepth -= 1
+  }
+  return {
+    from: $from.before(deletionDepth),
+    to: $from.after(deletionDepth),
+  }
 }
 
 /** Find mention links whose label, formatting, or range shape was edited. */

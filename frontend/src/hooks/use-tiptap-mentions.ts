@@ -20,6 +20,7 @@ import {
   buildWorkflowMentionHref,
   type CommentMentionLinkRange,
   commentMentionLeafText,
+  expandCommentMentionDeletionRange,
   findCommentMentionLinkRanges,
   nodeAllowsCommentMention,
   serializeTiptapComment,
@@ -246,6 +247,9 @@ export function useTiptapMentions({
       if (suggestion.kind === "workflow") {
         const existing = findCommentMentionLinkRanges(editor.state.doc)
           .filter((range) => range.href.startsWith(WORKFLOW_MENTION_URI_SCHEME))
+          .map((range) =>
+            expandCommentMentionDeletionRange(editor.state.doc, range)
+          )
           .reverse()
         for (const range of existing) {
           transaction = transaction.delete(range.from, range.to)
