@@ -148,6 +148,7 @@ async def test_downstream_pin_force_skips_exclusive_upstream() -> None:
 
 @pytest.mark.anyio
 async def test_downstream_pin_reuses_result_without_executing_upstream() -> None:
+    """Invariant: reachable force-skipped ancestors still permit pin reuse."""
     executed_refs: list[str] = []
 
     async def executor(stmt: ActionStatement) -> None:
@@ -242,6 +243,68 @@ def _make_pinned_scheduler(
         run_context=run_context,
         pinned_action_results=pinned_action_results,
     )
+
+
+@pytest.mark.anyio
+async def test_pinned_error_handler_is_not_reused_after_parent_success() -> None:
+    """Invariant: a pin on an inactive error branch is skipped, not reused."""
+    executed_refs: list[str] = []
+    dsl = DSLInput(
+        title="pin-inactive-error-branch",
+        description="pin-inactive-error-branch",
+        entrypoint=DSLEntrypoint(ref="a"),
+        actions=[
+            ActionStatement(ref="a", action="core.noop"),
+            ActionStatement(ref="handler", action="core.noop", depends_on=["a.error"]),
+            ActionStatement(ref="d", action="core.noop", depends_on=["a"]),
+        ],
+    )
+    pinned = TaskResult.from_result({"value": "pinned-handler"})
+    scheduler = _make_pinned_scheduler(dsl, {"handler": pinned}, executed_refs)
+
+    task_exceptions = await scheduler.start()
+
+    assert task_exceptions is None
+    assert executed_refs == ["a", "d"]
+    assert "handler" not in scheduler.get_context(ROOT_STREAM)["ACTIONS"]
+    assert scheduler.skipped_pinned_refs == ["handler"]
+
+
+@pytest.mark.anyio
+async def test_pinned_child_is_not_reused_after_parent_self_skips() -> None:
+    """Invariant: a pin downstream of a run_if-false parent is skipped."""
+    executed_refs: list[str] = []
+    dsl = DSLInput(
+        title="pin-after-self-skip",
+        description="pin-after-self-skip",
+        entrypoint=DSLEntrypoint(ref="a"),
+        actions=[
+            ActionStatement(ref="a", action="core.noop"),
+            ActionStatement(
+                ref="b",
+                action="core.noop",
+                depends_on=["a"],
+                run_if="${{ False }}",
+            ),
+            ActionStatement(ref="c", action="core.noop", depends_on=["b"]),
+            ActionStatement(ref="d", action="core.noop", depends_on=["b"]),
+        ],
+    )
+    pinned = TaskResult.from_result({"value": "pinned-c"})
+    scheduler = _make_pinned_scheduler(dsl, {"c": pinned}, executed_refs)
+
+    async def always_false(_expression: str, _context: ExecutionContext) -> bool:
+        return False
+
+    scheduler.resolve_expression = always_false  # type: ignore[method-assign]
+
+    task_exceptions = await scheduler.start()
+
+    assert task_exceptions is None
+    assert "b" not in scheduler.force_skip_refs
+    assert executed_refs == ["a"]
+    assert "c" not in scheduler.get_context(ROOT_STREAM)["ACTIONS"]
+    assert scheduler.skipped_pinned_refs == ["c"]
 
 
 def _fan_in_dsl() -> DSLInput:

@@ -30,6 +30,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.dsl.common import (
         RETRY_POLICIES,
+        ROOT_SCOPE,
         AdjDst,
         DSLInput,
         edge_components_from_dep,
@@ -247,7 +248,9 @@ class DSLScheduler:
         self.run_context = run_context
         self.pinned_action_results = pinned_action_results or {}
         self.skipped_pinned_refs: list[str] = []
-        """Pinned refs that self-skipped via `run_if`, in scheduling order."""
+        """Pinned refs that self-skipped or were unreachable, in scheduling order."""
+        self.pin_bypassed: set[Task] = set()
+        """Force-skipped tasks that would have been reachable had they run."""
         # Workflow-safe logger by default; callers can inject a pre-bound instance.
         self.logger = logger or workflow_logger
         self.tasks: dict[str, ActionStatement] = {}
@@ -288,11 +291,6 @@ class DSLScheduler:
             for ref in self.tasks
         }
         """Adjacency list of task dependencies (sorted for determinism)"""
-        self.pinned_action_refs: frozenset[str] = frozenset(
-            ref for ref in self.pinned_action_results if ref in self.tasks
-        )
-        self.force_skip_refs = self._compute_force_skip_refs(self.pinned_action_refs)
-        """Refs that should be force-skipped because all downstream paths are pinned."""
 
         control_adj = dsl._to_adjacency()
         (
@@ -300,6 +298,14 @@ class DSLScheduler:
             self.scope_hierarchy,
             _scope_openers,
         ) = dsl._assign_action_scopes(control_adj)
+        self.pinned_action_refs: frozenset[str] = frozenset(
+            ref
+            for ref in self.pinned_action_results
+            if ref in self.tasks and self.action_scopes.get(ref) == ROOT_SCOPE
+        )
+        self.force_skip_refs = self._compute_force_skip_refs(self.pinned_action_refs)
+        """Refs that should be force-skipped because all downstream paths are pinned."""
+
         self.loop_regions = self._build_loop_regions()
         self.loop_regions_by_end = {
             region.end_ref: region for region in self.loop_regions.values()
@@ -362,11 +368,11 @@ class DSLScheduler:
         return frozenset(skip_domain - set(pinned_refs))
 
     def _record_skipped_pinned_ref(self, ref: str) -> None:
-        """Publish pinned refs that self-skipped so read APIs do not stitch them.
+        """Publish pinned refs that self-skipped or were unreachable.
 
-        A pinned task that self-skips emits no Temporal event, so the compact
-        event reader cannot tell it apart from a pin that was reused. The memo
-        is the only durable signal it has.
+        These pinned tasks emit no Temporal event, so the compact event reader
+        cannot tell them apart from a pin that was reused. The memo is the only
+        durable signal it has.
         """
         if ref in self.skipped_pinned_refs:
             return
@@ -865,13 +871,18 @@ class DSLScheduler:
         if original_delay > 0:
             task = replace(task, delay=0.0)
         try:
-            # 1) Pinned root action short-circuit (run_if is respected when its
-            # inputs are available, otherwise the pinned result is reused).
-            # This runs before skip propagation on purpose: a pin's upstream is
-            # force-skipped by design, so every incoming edge of a pinned task is
-            # marked SKIPPED. Checking propagation first would skip the pin
-            # itself and make any fan-in downstream of it unreachable.
+            # 1) Pinned root action short-circuit. A pin is reused only when its
+            # active branch is reachable, treating reachable force-skipped
+            # upstream tasks as successful bypasses.
             if task.stream_id == ROOT_STREAM and ref in self.pinned_action_refs:
+                if not self._pin_reachable(task, stmt):
+                    self.logger.debug(
+                        "Pinned task is not reachable on this run; skipping",
+                        task=task,
+                    )
+                    self._get_action_context(task.stream_id).pop(ref, None)
+                    self._record_skipped_pinned_ref(ref)
+                    return await self._handle_skip_path(task, stmt)
                 try:
                     should_skip = await self._task_should_skip(task, stmt)
                 except ApplicationError as e:
@@ -900,6 +911,8 @@ class DSLScheduler:
                 self.logger.debug(
                     "Task should be force-skipped, propagating", task=task
                 )
+                if task.ref in self.force_skip_refs and self._pin_reachable(task, stmt):
+                    self.pin_bypassed.add(task)
                 return await self._handle_skip_path(task, stmt)
 
             # 3) Evaluate `run_if` early when possible so branch-local guards can
@@ -1124,6 +1137,32 @@ class DSLScheduler:
             if stmt.join_strategy == JoinStrategy.ALL:
                 return n_success_paths == n_deps
             raise ValueError(f"Invalid join strategy: {stmt.join_strategy}")
+
+    def _pin_reachable(self, task: Task, stmt: ActionStatement) -> bool:
+        """Check pin reachability while treating valid upstream bypasses as success."""
+
+        def dependency_succeeded(dep_ref: str) -> bool:
+            src_ref, edge_type = self._get_edge_components(dep_ref)
+            if Task(src_ref, task.stream_id) in self.pin_bypassed:
+                return edge_type == EdgeType.SUCCESS
+            return self._edge_has_marker(
+                dep_ref, task.ref, EdgeMarker.VISITED, task.stream_id
+            )
+
+        n_deps = len(stmt.depends_on)
+        if n_deps == 0:
+            return True
+        if n_deps == 1:
+            return dependency_succeeded(stmt.depends_on[0])
+
+        n_success_paths = sum(
+            dependency_succeeded(dep_ref) for dep_ref in stmt.depends_on
+        )
+        if stmt.join_strategy == JoinStrategy.ANY:
+            return n_success_paths > 0
+        if stmt.join_strategy == JoinStrategy.ALL:
+            return n_success_paths == n_deps
+        raise ValueError(f"Invalid join strategy: {stmt.join_strategy}")
 
     def _edge_has_marker(
         self,
