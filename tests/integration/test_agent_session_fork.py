@@ -59,6 +59,14 @@ async def test_workflow_fork_persists_independent_child_session(
     assert child.harness_type == parent.harness_type
     assert child.work_dir_snapshot == parent.work_dir_snapshot
     assert child.tools == ["core.http_request"]
+    # The child owns a copy: mutating it must not leak into the parent, whose
+    # in-memory row is still live because the session does not expire on commit.
+    assert child.work_dir_snapshot is not None
+    child.work_dir_snapshot["key"] = "child.tar.gz"
+    assert parent.work_dir_snapshot == {
+        "bucket": "agent-workspaces",
+        "key": "parent.tar.gz",
+    }
 
     persisted_child = await service.get_session(child_id)
     assert persisted_child is not None
