@@ -127,10 +127,6 @@ data "aws_secretsmanager_secret_version" "saml_idp_metadata_url" {
   secret_id = data.aws_secretsmanager_secret.saml_idp_metadata_url[0].id
 }
 
-data "aws_secretsmanager_secret_version" "smtp_password" {
-  count     = var.smtp_password_arn != null ? 1 : 0
-  secret_id = data.aws_secretsmanager_secret.smtp_password[0].id
-}
 
 # Temporal UI secrets
 
@@ -252,10 +248,11 @@ locals {
     }
   ] : []
 
+  # Secret ARN only; reading the version would copy the password into state.
   smtp_password_secret = var.smtp_password_arn != null ? [
     {
       name      = "TRACECAT__SMTP_PASSWORD"
-      valueFrom = data.aws_secretsmanager_secret_version.smtp_password[0].arn
+      valueFrom = data.aws_secretsmanager_secret.smtp_password[0].arn
     }
   ] : []
 
