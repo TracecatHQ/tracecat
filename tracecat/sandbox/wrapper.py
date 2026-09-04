@@ -265,9 +265,13 @@ def main():
         result_path.write_text(json.dumps(result))
     except MemoryError:
         # An output that fits under the address-space cap can still exhaust it
-        # while being serialized. Drop the oversized value and write a small
-        # fixed envelope, so the failure still reports the resource-limit code
+        # while being serialized. Release every reference to the oversized
+        # value before allocating anything else, then write a small fixed
+        # envelope, so the failure still reports the resource-limit code
         # instead of dying before result.json exists.
+        output = None
+        call = None
+        result.clear()
         result_path.write_text(
             json.dumps(
                 {
