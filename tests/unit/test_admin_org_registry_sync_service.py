@@ -103,7 +103,7 @@ async def test_admin_git_sync_forwards_configured_package_name(
             service_id="tracecat-api",
         ),
     )
-    mocker.patch.object(service, "get_organization_name", mocker.AsyncMock())
+    mocker.patch.object(service, "_require_organization", mocker.AsyncMock())
     raw_sync = cast(Any, AdminOrgService.sync_org_repository).__wrapped__
 
     response = await raw_sync(service, organization_id, repository_id, force=False)

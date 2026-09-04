@@ -151,7 +151,7 @@ async def create_organization_invitation(
     """Create a platform-scoped invitation for an organization."""
     service = AdminOrgService(session, role)
     try:
-        organization_name = await service.get_organization_name(org_id)
+        organization = await service.get_organization(org_id)
         invitation = await service.create_organization_invitation(org_id, params)
     except TracecatValidationError as e:
         raise HTTPException(
@@ -164,7 +164,7 @@ async def create_organization_invitation(
     mailer.deliver(
         invitation_email(
             to=invitation.email,
-            organization_name=organization_name,
+            organization_name=organization.name,
             token=invitation.token,
         )
     )

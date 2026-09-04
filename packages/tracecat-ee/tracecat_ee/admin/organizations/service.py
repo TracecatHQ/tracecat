@@ -102,12 +102,11 @@ class AdminOrgService(BasePlatformService):
             raise ValueError(f"Organization {org_id} not found")
         return OrgRead.model_validate(org)
 
-    async def get_organization_name(self, org_id: uuid.UUID) -> str:
-        """Return the organization's name, raising if it does not exist."""
-        stmt = select(Organization.name).where(Organization.id == org_id)
-        if (name := await self.session.scalar(stmt)) is None:
+    async def _require_organization(self, org_id: uuid.UUID) -> None:
+        """Ensure an organization exists."""
+        stmt = select(Organization.id).where(Organization.id == org_id)
+        if await self.session.scalar(stmt) is None:
             raise ValueError(f"Organization {org_id} not found")
-        return name
 
     @audit_log(resource_type="organization", action="update")
     async def update_organization(
@@ -166,7 +165,7 @@ class AdminOrgService(BasePlatformService):
         params: AdminOrgInvitationCreate,
     ) -> AdminOrgInvitationCreateResponse:
         """Create a platform-scoped invitation for an organization."""
-        await self.get_organization_name(org_id)
+        await self._require_organization(org_id)
         role_obj = await self._get_org_invitation_role(org_id, params.role_slug)
 
         existing_member_stmt = (
@@ -235,7 +234,7 @@ class AdminOrgService(BasePlatformService):
         pagination: CursorPaginationParams,
     ) -> CursorPaginatedResponse[AdminOrgInvitationRead]:
         """List platform-created invitations for an organization with pagination."""
-        await self.get_organization_name(org_id)
+        await self._require_organization(org_id)
         paginator = BaseCursorPaginator(self.session)
         stmt = (
             select(OrganizationInvitation)
@@ -382,7 +381,7 @@ class AdminOrgService(BasePlatformService):
         invitation_id: uuid.UUID,
     ) -> OrganizationInvitation:
         """Get a platform-created invitation by ID and organization."""
-        await self.get_organization_name(org_id)
+        await self._require_organization(org_id)
         stmt = (
             select(OrganizationInvitation)
             .where(
@@ -431,7 +430,7 @@ class AdminOrgService(BasePlatformService):
 
     async def list_org_domains(self, org_id: uuid.UUID) -> Sequence[OrgDomainRead]:
         """List assigned domains for an organization."""
-        await self.get_organization_name(org_id)
+        await self._require_organization(org_id)
         stmt = (
             select(OrganizationDomain)
             .where(OrganizationDomain.organization_id == org_id)
@@ -448,7 +447,7 @@ class AdminOrgService(BasePlatformService):
         self, org_id: uuid.UUID, params: OrgDomainCreate
     ) -> OrgDomainRead:
         """Create and assign a domain to an organization."""
-        await self.get_organization_name(org_id)
+        await self._require_organization(org_id)
         normalized = normalize_domain(params.domain)
         await self._audit_domain_event(action="create", status=AuditEventStatus.ATTEMPT)
 
@@ -698,7 +697,7 @@ class AdminOrgService(BasePlatformService):
     ) -> Sequence[OrgRegistryRepositoryRead]:
         """List registry repositories for an organization."""
         # Verify org exists
-        await self.get_organization_name(org_id)
+        await self._require_organization(org_id)
 
         stmt = select(RegistryRepository).where(
             RegistryRepository.organization_id == org_id
@@ -713,7 +712,7 @@ class AdminOrgService(BasePlatformService):
     ) -> Sequence[OrgRegistryVersionRead]:
         """List versions for a specific repository in an organization."""
         # Verify org exists
-        await self.get_organization_name(org_id)
+        await self._require_organization(org_id)
 
         # Verify repository exists and belongs to org
         repo_stmt = select(RegistryRepository).where(
@@ -758,7 +757,7 @@ class AdminOrgService(BasePlatformService):
         from tracecat.ssh import ssh_context
 
         # Verify org exists
-        await self.get_organization_name(org_id)
+        await self._require_organization(org_id)
 
         # Create a role for the org
         org_role = Role(
@@ -899,7 +898,7 @@ class AdminOrgService(BasePlatformService):
     ) -> OrgRegistryVersionPromoteResponse:
         """Promote a registry version to be the current version for an org repository."""
         # Verify org exists
-        await self.get_organization_name(org_id)
+        await self._require_organization(org_id)
 
         # Verify repository exists and belongs to org
         repo_stmt = select(RegistryRepository).where(

@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -235,7 +236,7 @@ async def test_create_organization_invitation_success(
 
     with patch.object(organizations_router, "AdminOrgService") as MockService:
         mock_svc = AsyncMock()
-        mock_svc.get_organization_name.return_value = "Acme"
+        mock_svc.get_organization.return_value = SimpleNamespace(name="Acme")
         mock_svc.create_organization_invitation.return_value = invitation
         MockService.return_value = mock_svc
 
@@ -270,7 +271,7 @@ async def test_admin_org_invitation_schedules_configured_email(
         patch.object(Mailer, "deliver") as mock_deliver,
     ):
         mock_service = AsyncMock()
-        mock_service.get_organization_name.return_value = "Acme"
+        mock_service.get_organization.return_value = SimpleNamespace(name="Acme")
         mock_service.create_organization_invitation.return_value = invitation
         mock_service_class.return_value = mock_service
 
@@ -301,7 +302,7 @@ async def test_create_organization_invitation_allowed_without_multi_tenant(
 
     with patch.object(organizations_router, "AdminOrgService") as MockService:
         mock_svc = AsyncMock()
-        mock_svc.get_organization_name.return_value = "Acme"
+        mock_svc.get_organization.return_value = SimpleNamespace(name="Acme")
         mock_svc.create_organization_invitation.return_value = invitation
         MockService.return_value = mock_svc
 
