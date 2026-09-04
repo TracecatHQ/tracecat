@@ -107,11 +107,13 @@ TRACECAT__PUBLIC_APP_URL = os.environ.get(
 # Email (SMTP relay). Invitation email delivery is enabled only when every
 # required value is configured.
 TRACECAT__SMTP_HOST = (os.environ.get("TRACECAT__SMTP_HOST") or "").strip() or None
-TRACECAT__SMTP_PORT = bound_env("TRACECAT__SMTP_PORT", 587, lower=1, upper=65535)
+TRACECAT__SMTP_PORT = int(os.environ.get("TRACECAT__SMTP_PORT") or 587)
+if not 1 <= TRACECAT__SMTP_PORT <= 65535:
+    raise ValueError(f"TRACECAT__SMTP_PORT is an invalid port: {TRACECAT__SMTP_PORT}")
 TRACECAT__SMTP_USER = (os.environ.get("TRACECAT__SMTP_USER") or "").strip() or None
-TRACECAT__SMTP_PASSWORD = (
-    os.environ.get("TRACECAT__SMTP_PASSWORD") or ""
-).strip() or None
+# Whitespace is preserved: a stripped password is a different credential.
+_smtp_password = os.environ.get("TRACECAT__SMTP_PASSWORD") or ""
+TRACECAT__SMTP_PASSWORD = _smtp_password if _smtp_password.strip() else None
 TRACECAT__EMAIL_DOMAIN = (
     os.environ.get("TRACECAT__EMAIL_DOMAIN") or ""
 ).strip() or None

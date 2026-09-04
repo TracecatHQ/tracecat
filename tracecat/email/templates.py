@@ -15,7 +15,9 @@ def render_invitation_email(
     """Render an invitation subject plus HTML and plain-text bodies."""
     safe_name = escape(context_name)
     safe_url = escape(accept_url, quote=True)
-    logo_url = escape(f"{config.TRACECAT__PUBLIC_APP_URL}/icon.png", quote=True)
+    logo_url = escape(
+        f"{config.TRACECAT__PUBLIC_APP_URL.rstrip('/')}/icon.png", quote=True
+    )
     header_safe_name = "".join(char for char in context_name if char.isprintable())
 
     label = "Organization"

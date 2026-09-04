@@ -11,6 +11,7 @@ from fastapi import BackgroundTasks
 from tracecat import config
 from tracecat.email import client
 from tracecat.email.client import (
+    EmailDeliveryError,
     Mailer,
     OutboundEmail,
     SMTPTransport,
@@ -88,6 +89,19 @@ def test_build_accept_url_handles_trailing_slash(
     assert build_accept_url("token-123") == (
         "https://app.example.com/invitations/accept?token=token-123"
     )
+
+
+def test_invitation_logo_url_handles_trailing_slash(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__PUBLIC_APP_URL", "https://app.example.com/")
+
+    _, html, _ = render_invitation_email(
+        accept_url="https://app.example.com/invitations/accept?token=t",
+        context_name="Acme",
+    )
+
+    assert 'src="https://app.example.com/icon.png"' in html
 
 
 def _outbound(to: str = "invitee@example.com") -> OutboundEmail:
@@ -175,7 +189,7 @@ async def test_mailer_queues_send_as_background_task(
 
 
 @pytest.mark.anyio
-async def test_mailer_task_logs_instead_of_raising(
+async def test_mailer_task_logs_then_raises_generic_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _set_smtp_config(
@@ -193,11 +207,30 @@ async def test_mailer_task_logs_instead_of_raising(
     tasks = BackgroundTasks()
 
     Mailer(tasks).deliver(_outbound())
-    await tasks()
+    with pytest.raises(EmailDeliveryError) as exc_info:
+        await tasks()
 
     log_error.assert_called_once()
     assert log_error.call_args.kwargs["error_type"] == "RuntimeError"
     assert "invitee@example.com" not in repr(log_error.call_args)
+    assert "RuntimeError" in str(exc_info.value)
+    assert "invitee@example.com" not in str(exc_info.value)
+    assert exc_info.value.__cause__ is None
+
+
+def test_outbound_email_copies_headers() -> None:
+    headers = {"X-Invite-Id": "first"}
+    message = OutboundEmail(
+        to=("invitee@example.com",),
+        subject="Invitation",
+        html="<p>Join</p>",
+        text="Join",
+        from_addr="Tracecat <no-reply@example.com>",
+        headers=headers,
+    )
+    headers["X-Invite-Id"] = "second"
+
+    assert message.headers["X-Invite-Id"] == "first"
 
 
 def test_mailer_is_a_noop_when_email_is_unconfigured(
