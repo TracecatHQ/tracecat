@@ -7,3 +7,12 @@ export function mapImageUploadPosition(
 ): number {
   return transaction.mapping.map(position, 1)
 }
+
+/** Delete selected text before an image paste, returning a dispatchable edit. */
+export function deleteImagePasteSelection(
+  transaction: Transaction,
+  from: number,
+  to: number
+): Transaction | null {
+  return from === to ? null : transaction.delete(from, to)
+}

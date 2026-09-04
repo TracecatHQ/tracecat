@@ -98,24 +98,69 @@ export function findCommentMentionLinkRanges(
   return ranges
 }
 
-/** Find mention links whose visible label was edited in place. */
+/** Find mention links whose label, formatting, or range shape was edited. */
 export function findEditedCommentMentionIndexes(
   previous: CommentMentionLinkSnapshot[],
   current: CommentMentionLinkSnapshot[]
 ): number[] {
-  if (previous.length !== current.length) {
-    return []
+  const editedIndexes = new Set(
+    current.flatMap((mention, index) => {
+      const oldMention = previous[index]
+      if (
+        oldMention?.href === mention.href &&
+        (oldMention.text !== mention.text || mention.hasFormatting)
+      ) {
+        return [index]
+      }
+      return []
+    })
+  )
+  const previousByHref = new Map<string, CommentMentionLinkSnapshot[]>()
+  for (const mention of previous) {
+    const mentions = previousByHref.get(mention.href) ?? []
+    mentions.push(mention)
+    previousByHref.set(mention.href, mentions)
   }
-  return current.flatMap((mention, index) => {
-    const oldMention = previous[index]
-    if (
-      oldMention?.href === mention.href &&
-      (oldMention.text !== mention.text || mention.hasFormatting)
-    ) {
-      return [index]
-    }
-    return []
+  const currentByHref = new Map<
+    string,
+    Array<CommentMentionLinkSnapshot & { index: number }>
+  >()
+  current.forEach((mention, index) => {
+    const mentions = currentByHref.get(mention.href) ?? []
+    mentions.push({ ...mention, index })
+    currentByHref.set(mention.href, mentions)
   })
+
+  for (const [href, oldMentions] of previousByHref) {
+    const nextMentions = currentByHref.get(href) ?? []
+    if (nextMentions.length <= oldMentions.length) {
+      continue
+    }
+    let nextIndex = 0
+    for (const oldMention of oldMentions) {
+      let combinedText = ""
+      const consumedIndexes: number[] = []
+      while (
+        nextIndex < nextMentions.length &&
+        combinedText.length < oldMention.text.length
+      ) {
+        const nextMention = nextMentions[nextIndex]
+        if (!nextMention) {
+          break
+        }
+        combinedText += nextMention.text
+        consumedIndexes.push(nextMention.index)
+        nextIndex += 1
+      }
+      if (combinedText === oldMention.text && consumedIndexes.length > 1) {
+        for (const index of consumedIndexes) {
+          editedIndexes.add(index)
+        }
+      }
+    }
+  }
+
+  return [...editedIndexes].sort((left, right) => left - right)
 }
 
 /** Content and workflow metadata ready for the existing comments API. */

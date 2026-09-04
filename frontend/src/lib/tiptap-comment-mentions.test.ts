@@ -244,6 +244,32 @@ describe("TipTap comment mention serialization", () => {
     ).toEqual([0])
   })
 
+  it("detects every range when a line break splits a mention link", () => {
+    const href = buildAgentMentionHref("agent-id")
+
+    expect(
+      findEditedCommentMentionIndexes(
+        [{ href, text: "@Triage agent", hasFormatting: false }],
+        [
+          { href, text: "@Triage", hasFormatting: false },
+          { href, text: " agent", hasFormatting: false },
+        ]
+      )
+    ).toEqual([0, 1])
+  })
+
+  it("does not treat an additional intact mention as a split", () => {
+    const mention = {
+      href: buildAgentMentionHref("agent-id"),
+      text: "@Triage agent",
+      hasFormatting: false,
+    }
+
+    expect(
+      findEditedCommentMentionIndexes([mention], [mention, mention])
+    ).toEqual([])
+  })
+
   it("does not treat inserted or replaced mentions as label edits", () => {
     expect(
       findEditedCommentMentionIndexes(

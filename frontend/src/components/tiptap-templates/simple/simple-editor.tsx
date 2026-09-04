@@ -110,7 +110,10 @@ import {
   preventCommentMentionNavigation,
   WORKFLOW_MENTION_URI_SCHEME,
 } from "@/lib/tiptap-comment-mentions"
-import { mapImageUploadPosition } from "@/lib/tiptap-image-upload-position"
+import {
+  deleteImagePasteSelection,
+  mapImageUploadPosition,
+} from "@/lib/tiptap-image-upload-position"
 import { MarkdownHardBreak } from "@/lib/tiptap-markdown-hard-break"
 import {
   handleImageUpload,
@@ -735,12 +738,21 @@ export function SimpleEditor({
           return false
         }
         event.preventDefault()
+        const { from, to } = view.state.selection
+        const deleteTransaction = deleteImagePasteSelection(
+          view.state.tr,
+          from,
+          to
+        )
+        if (deleteTransaction) {
+          view.dispatch(deleteTransaction)
+        }
         void uploadAndInsertImages(
           currentEditor,
           view,
           files.map(createPastedImageFile),
           upload,
-          view.state.selection.to
+          from
         )
         return true
       },
