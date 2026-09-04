@@ -16828,6 +16828,13 @@ export const $MCPHttpServerConfig = {
       type: "string",
       title: "Id",
     },
+    tools: {
+      items: {
+        $ref: "#/components/schemas/MCPServerToolSummary",
+      },
+      type: "array",
+      title: "Tools",
+    },
   },
   type: "object",
   required: ["name", "url"],

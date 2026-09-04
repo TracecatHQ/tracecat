@@ -3657,7 +3657,9 @@ class TestAgentPresetService:
         assert agent_config.instructions == preset.instructions
         assert agent_config.output_type == preset.output_type
         assert agent_config.actions == preset.actions
-        assert agent_config.namespaces == preset.namespaces
+        # Namespace filtering is compiled into the authored action list so that
+        # independently granted skill actions are not filtered a second time.
+        assert agent_config.namespaces is None
         assert agent_config.tool_approvals == preset.tool_approvals
         assert agent_config.retries == preset.retries
         assert agent_config.model_settings == {"parallel_tool_calls": False}
