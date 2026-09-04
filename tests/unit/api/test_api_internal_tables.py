@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import UTC, datetime
+from decimal import Decimal
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -12,7 +13,13 @@ from sqlalchemy.exc import ProgrammingError
 
 from tracecat.auth.types import Role
 from tracecat.db.models import Table, TableColumn, Workspace
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.query.errors import (
+    TracecatQueryOverflowError,
+    TracecatQueryTimeoutError,
+)
 from tracecat.tables import internal_router as internal_tables_router
+from tracecat.tables.schemas import AggregateResponse
 
 
 def _programming_error(cause: BaseException) -> ProgrammingError:
@@ -380,3 +387,100 @@ async def test_internal_lookup_table_error_returns_detail(
     assert response.json()["detail"] == (
         "Table lookup failed: database temporarily unavailable"
     )
+
+
+@pytest.mark.anyio
+async def test_internal_aggregate_rows_returns_serialized_response(
+    action_gateway_client: TestClient,
+    test_admin_role: Role,
+    mock_table: Table,
+) -> None:
+    with patch.object(internal_tables_router, "TablesService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.aggregate_rows.return_value = AggregateResponse.model_validate(
+            {
+                "groups": [{"category": "alpha", "sum_amount": Decimal("3.5")}],
+                "truncated": False,
+            }
+        )
+        MockService.return_value = mock_svc
+
+        response = action_gateway_client.post(
+            f"/internal/tables/{mock_table.name}/aggregate",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={
+                "group_by": ["category"],
+                "aggs": [{"function": "sum", "field": "amount"}],
+            },
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json() == {
+        "groups": [{"category": "alpha", "sum_amount": 3.5}],
+        "truncated": False,
+    }
+    mock_svc.aggregate_rows.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_internal_aggregate_rows_rejects_limit_above_maximum(
+    action_gateway_client: TestClient,
+    test_admin_role: Role,
+    mock_table: Table,
+) -> None:
+    with patch.object(internal_tables_router, "TablesService") as MockService:
+        response = action_gateway_client.post(
+            f"/internal/tables/{mock_table.name}/aggregate",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"group_by": [], "limit": 1001},
+        )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    MockService.assert_not_called()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("error", "expected_status"),
+    [
+        pytest.param(
+            TracecatValidationError("Unsupported aggregation"),
+            status.HTTP_400_BAD_REQUEST,
+            id="semantic-error",
+        ),
+        pytest.param(
+            TracecatNotFoundError("Table not found"),
+            status.HTTP_404_NOT_FOUND,
+            id="missing-table",
+        ),
+        pytest.param(
+            TracecatQueryTimeoutError(),
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            id="shared-timeout-contract",
+        ),
+        pytest.param(
+            TracecatQueryOverflowError(),
+            status.HTTP_400_BAD_REQUEST,
+            id="shared-overflow-contract",
+        ),
+    ],
+)
+async def test_internal_aggregate_rows_maps_errors(
+    action_gateway_client: TestClient,
+    test_admin_role: Role,
+    mock_table: Table,
+    error: Exception,
+    expected_status: int,
+) -> None:
+    with patch.object(internal_tables_router, "TablesService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.aggregate_rows.side_effect = error
+        MockService.return_value = mock_svc
+
+        response = action_gateway_client.post(
+            f"/internal/tables/{mock_table.name}/aggregate",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"group_by": []},
+        )
+
+    assert response.status_code == expected_status

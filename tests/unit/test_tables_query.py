@@ -109,6 +109,37 @@ def test_resolves_supported_column_types(
         assert resolved.expr.type.timezone is True
 
 
+@pytest.mark.parametrize(
+    ("sql_type", "expected_kind", "expected_sa_type"),
+    [
+        (SqlType.TEXT, FieldKind.TEXT, sa.String),
+        (SqlType.INTEGER, FieldKind.NUMBER, sa.BigInteger),
+        (SqlType.NUMERIC, FieldKind.NUMBER, sa.Numeric),
+        (SqlType.DATE, FieldKind.TEMPORAL, sa.Date),
+        (SqlType.BOOLEAN, FieldKind.BOOLEAN, sa.Boolean),
+        (SqlType.TIMESTAMPTZ, FieldKind.TEMPORAL, sa.TIMESTAMP),
+        (SqlType.SELECT, FieldKind.ENUM, sa.String),
+    ],
+)
+def test_resolves_supported_aggregation_column_types(
+    sql_type: SqlType,
+    expected_kind: FieldKind,
+    expected_sa_type: type[sa.types.TypeEngine[Any]],
+) -> None:
+    resolver = TableFieldResolver([_column("value", sql_type.value)])
+
+    resolved = resolver.resolve_aggregation("value")
+
+    assert resolved is not None
+    assert isinstance(resolved.expr, ColumnClause)
+    assert resolved.kind is expected_kind
+    assert resolved.is_multi_valued is False
+    assert isinstance(resolved.expr.type, expected_sa_type)
+    if sql_type is SqlType.TIMESTAMPTZ:
+        assert isinstance(resolved.expr.type, sa.TIMESTAMP)
+        assert resolved.expr.type.timezone is True
+
+
 @pytest.mark.parametrize("sql_type", [SqlType.JSONB, SqlType.MULTI_SELECT])
 def test_rejects_unsupported_column_types(sql_type: SqlType) -> None:
     resolver = TableFieldResolver([_column("tags", sql_type.value)])
@@ -118,6 +149,18 @@ def test_rejects_unsupported_column_types(sql_type: SqlType) -> None:
 
     assert "tags" in str(exc_info.value)
     assert sql_type.value in str(exc_info.value)
+
+
+@pytest.mark.parametrize("sql_type", [SqlType.JSONB, SqlType.MULTI_SELECT])
+def test_rejects_unsupported_aggregation_column_types(sql_type: SqlType) -> None:
+    resolver = TableFieldResolver([_column("payload", sql_type.value)])
+
+    with pytest.raises(TracecatValidationError) as exc_info:
+        resolver.resolve_aggregation("payload")
+
+    assert "payload" in str(exc_info.value)
+    assert sql_type.value in str(exc_info.value)
+    assert "aggregations" in str(exc_info.value)
 
 
 @pytest.mark.parametrize(
@@ -209,6 +252,27 @@ def test_system_columns_take_precedence_over_user_metadata() -> None:
 
     assert resolved is not None
     assert resolved.kind is FieldKind.TEMPORAL
+
+
+@pytest.mark.parametrize("field", ["created_at", "updated_at", "Created_At"])
+def test_resolves_system_columns_for_aggregation(field: str) -> None:
+    resolver = TableFieldResolver([])
+
+    resolved = resolver.resolve_aggregation(field)
+
+    assert resolved is not None
+    assert resolved.kind is FieldKind.TEMPORAL
+    assert resolved.is_multi_valued is False
+    assert isinstance(resolved.expr, ColumnClause)
+    assert isinstance(resolved.expr.type, sa.TIMESTAMP)
+    assert resolved.expr.type.timezone is True
+
+
+@pytest.mark.parametrize("field", ["id", "ID", "__tc_workspace_id", "missing"])
+def test_unresolvable_columns_are_not_available_for_aggregation(field: str) -> None:
+    resolver = TableFieldResolver([])
+
+    assert resolver.resolve_aggregation(field) is None
 
 
 def test_compiler_rejects_unknown_column_with_field_name() -> None:
