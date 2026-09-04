@@ -210,7 +210,11 @@ const EMPTY_MARKDOWN_CONTAINER_PATTERN =
  */
 export function serializeTiptapComment(
   markdown: string,
-  workflowMentions: Array<Pick<CommentMentionLinkSnapshot, "href" | "text">>
+  workflowMentions: Array<
+    Pick<CommentMentionLinkSnapshot, "href" | "text"> & {
+      markdownOffset?: number
+    }
+  >
 ): SerializedTiptapComment {
   let workflowId: string | null = null
   const workflowMentionLines = new Set<number>()
@@ -222,7 +226,12 @@ export function serializeTiptapComment(
     }
     const targetId = mention.href.slice(WORKFLOW_MENTION_URI_SCHEME.length)
     const marker = `[${mention.text}](${mention.href})`
-    const offset = markdown.indexOf(marker, searchFrom)
+    const offset =
+      mention.markdownOffset === undefined
+        ? markdown.indexOf(marker, searchFrom)
+        : markdown.startsWith(marker, mention.markdownOffset)
+          ? mention.markdownOffset
+          : -1
     if (targetId && offset !== -1) {
       workflowId ??= targetId
       workflowMentionLines.add(markdown.slice(0, offset).split("\n").length - 1)

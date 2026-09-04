@@ -110,6 +110,21 @@ describe("TipTap comment mention serialization", () => {
     ).toEqual({ content: "Keep [/literal] before after", workflowId })
   })
 
+  it("does not consume an identical marker inside a fenced code block", () => {
+    const marker = `[/Enrich case](${buildWorkflowMentionHref(workflowId)})`
+    const markdown = `\`\`\`md\n${marker}\n\`\`\`\n${marker} investigate this`
+    const mention = workflowMention("/Enrich case")[0]
+
+    expect(
+      serializeTiptapComment(markdown, [
+        { ...mention, markdownOffset: markdown.lastIndexOf(marker) },
+      ])
+    ).toEqual({
+      content: `\`\`\`md\n${marker}\n\`\`\`\ninvestigate this`,
+      workflowId,
+    })
+  })
+
   it("handles nested slash brackets in a workflow title", () => {
     expect(
       serializeTiptapComment(

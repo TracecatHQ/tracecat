@@ -18,6 +18,7 @@ import type { CaretCoordinates } from "@/lib/textarea-caret"
 import {
   buildAgentMentionHref,
   buildWorkflowMentionHref,
+  type CommentMentionLinkRange,
   commentMentionLeafText,
   findCommentMentionLinkRanges,
   nodeAllowsCommentMention,
@@ -70,6 +71,38 @@ function measureCaret(editor: Editor, pos: number): CaretCoordinates {
     left: caret.left - wrapperRect.left,
     height: Math.max(caret.bottom - caret.top, 1),
   }
+}
+
+/** Locate a document link in its Markdown serialization without matching literals. */
+function findMentionMarkdownOffset(
+  editor: Editor,
+  mention: CommentMentionLinkRange
+): number | undefined {
+  const linkMarkType = editor.schema.marks.link
+  const linkMark = editor.state.doc
+    .nodeAt(mention.from)
+    ?.marks.find((mark) => mark.type === linkMarkType)
+  if (!editor.markdown || !linkMarkType || !linkMark) {
+    return undefined
+  }
+
+  const sentinelHref = `https://tracecat.invalid/${crypto.randomUUID()}`
+  const transaction = editor.state.tr
+    .removeMark(mention.from, mention.to, linkMarkType)
+    .addMark(
+      mention.from,
+      mention.to,
+      linkMarkType.create({ ...linkMark.attrs, href: sentinelHref })
+    )
+  const sentinelMarkdown = editor.markdown.serialize(transaction.doc.toJSON())
+  const hrefOffset = sentinelMarkdown.indexOf(sentinelHref)
+  const prefix = `[${mention.text}](`
+  const markerOffset = hrefOffset - prefix.length
+  return hrefOffset !== -1 &&
+    markerOffset >= 0 &&
+    sentinelMarkdown.startsWith(prefix, markerOffset)
+    ? markerOffset
+    : undefined
 }
 
 function deleteMentionBeforeCaret(editor: Editor): boolean {
@@ -293,9 +326,14 @@ export function useTiptapMentions({
   const serialize = useCallback(
     (markdown: string) => {
       const workflowMentions = editor
-        ? findCommentMentionLinkRanges(editor.state.doc).filter((range) =>
-            range.href.startsWith(WORKFLOW_MENTION_URI_SCHEME)
-          )
+        ? findCommentMentionLinkRanges(editor.state.doc)
+            .filter((range) =>
+              range.href.startsWith(WORKFLOW_MENTION_URI_SCHEME)
+            )
+            .map((range) => ({
+              ...range,
+              markdownOffset: findMentionMarkdownOffset(editor, range),
+            }))
         : []
       return serializeTiptapComment(markdown, workflowMentions)
     },
