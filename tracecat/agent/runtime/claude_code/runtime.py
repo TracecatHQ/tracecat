@@ -2056,8 +2056,10 @@ class ClaudeAgentRuntime:
                 error_message=str(e),
             )
             if self._run_limit_error is not None:
+                # Limit wins over the later exception; name it so the
+                # swallowed failure is visible without the sandbox log.
                 await self._event_writer.send_error(
-                    self._run_limit_error,
+                    f"{self._run_limit_error}; runtime exited with {type(e).__name__}",
                     error_code=RuntimeErrorCode.RUN_LIMIT_EXCEEDED,
                 )
                 return

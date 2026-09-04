@@ -922,6 +922,47 @@ class TestClaudeAgentRuntimeRun:
         )
 
     @pytest.mark.anyio
+    async def test_limit_error_wins_over_later_exception(
+        self,
+        mock_socket_writer: MagicMock,
+        mock_claude_sdk_client: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+    ) -> None:
+        async def max_turns_then_crash() -> Any:
+            yield ResultMessage(
+                subtype="error_max_turns",
+                duration_ms=1,
+                duration_api_ms=1,
+                is_error=True,
+                num_turns=3,
+                session_id="test-sdk-session",
+                usage={"input_tokens": 10, "output_tokens": 5},
+                result=None,
+            )
+            raise ConnectionResetError("transport closed")
+
+        mock_claude_sdk_client.receive_response = max_turns_then_crash
+        payload = replace(sample_init_payload, max_requests=3)
+
+        with patch(
+            "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+            return_value=mock_claude_sdk_client,
+        ):
+            runtime = ClaudeAgentRuntime(
+                mock_socket_writer, transport_factory=lambda _: MagicMock()
+            )
+            # Limit already exceeded: the crash must not re-raise (retryable).
+            await runtime.run(payload)
+
+        mock_socket_writer.send_result.assert_awaited_once()
+        mock_socket_writer.send_error.assert_awaited_once_with(
+            "Agent exceeded max_requests limit (3); runtime exited with "
+            "ConnectionResetError",
+            error_code=RuntimeErrorCode.RUN_LIMIT_EXCEEDED,
+        )
+        mock_socket_writer.send_done.assert_awaited_once()
+
+    @pytest.mark.anyio
     async def test_tool_limit_hook_termination_sends_run_failure(
         self,
         mock_socket_writer: MagicMock,
