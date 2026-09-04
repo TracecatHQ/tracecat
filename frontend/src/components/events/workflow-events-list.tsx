@@ -59,8 +59,10 @@ export function WorkflowEventsList({
                 "group flex h-11 items-center px-3 text-xs transition-all",
                 isInteractive && "cursor-pointer hover:bg-muted/50",
                 row.selected && "bg-muted-foreground/10",
+                isPinnedRow && "border-l-2 border-l-zinc-300",
                 isPinnedRow &&
-                  "border-l-2 border-l-zinc-300 bg-zinc-50/50 hover:bg-zinc-100/60"
+                  !row.selected &&
+                  "bg-zinc-50/50 hover:bg-zinc-100/60"
               )}
               onClick={() => {
                 row.onSelect?.()
