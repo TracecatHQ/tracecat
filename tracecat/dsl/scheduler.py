@@ -359,6 +359,12 @@ class DSLScheduler:
             for ref, next_items in self.adj.items():
                 if ref in skip_domain:
                     continue
+                if self.tasks[ref].action == PlatformAction.TRANSFORM_SCATTER:
+                    # A scatter must run in its parent stream so its gather can
+                    # return control to that stream before a downstream root pin
+                    # is reused. Force-skipping the opener sends the whole scoped
+                    # chain through a skip stream instead.
+                    continue
                 next_refs = {next_ref for next_ref, _edge_type in next_items}
                 if not next_refs:
                     continue

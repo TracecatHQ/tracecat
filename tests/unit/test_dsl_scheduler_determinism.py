@@ -3,14 +3,16 @@ from __future__ import annotations
 import asyncio
 import uuid
 from datetime import UTC, datetime
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from temporalio.exceptions import ApplicationError
 
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
+from tracecat.dsl.action import DSLActivities, FinalizeGatherActivityResult
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
-from tracecat.dsl.enums import EdgeType
+from tracecat.dsl.enums import EdgeType, PlatformAction
 from tracecat.dsl.scheduler import DSLScheduler
 from tracecat.dsl.schemas import (
     ROOT_STREAM,
@@ -21,6 +23,7 @@ from tracecat.dsl.schemas import (
 )
 from tracecat.dsl.types import Task
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.storage.object import InlineObject
 
 
 class _ControlledPutQueue:
@@ -418,6 +421,57 @@ async def test_pinning_every_fan_in_parent_runs_only_the_join() -> None:
     assert task_exceptions is None
     assert scheduler.force_skip_refs == frozenset({"a", "b"})
     assert executed_refs == ["e"]
+
+
+@pytest.mark.anyio
+async def test_root_pin_after_scatter_returns_to_root_stream() -> None:
+    """A downstream root pin must not send a scatter through its skip stream."""
+    executed_refs: list[str] = []
+    dsl = DSLInput(
+        title="pin-after-scatter",
+        description="pin-after-scatter",
+        entrypoint=DSLEntrypoint(ref="scatter"),
+        actions=[
+            ActionStatement(
+                ref="scatter",
+                action=PlatformAction.TRANSFORM_SCATTER,
+                args={"collection": ["item"]},
+            ),
+            ActionStatement(ref="body", action="core.noop", depends_on=["scatter"]),
+            ActionStatement(
+                ref="gather",
+                action=PlatformAction.TRANSFORM_GATHER,
+                args={"items": "${{ ACTIONS.body.result }}"},
+                depends_on=["body"],
+            ),
+            ActionStatement(ref="pinned", action="core.noop", depends_on=["gather"]),
+            ActionStatement(ref="tail", action="core.noop", depends_on=["pinned"]),
+        ],
+    )
+    pinned = TaskResult.from_result({"value": "pinned"})
+    scheduler = _make_pinned_scheduler(dsl, {"pinned": pinned}, executed_refs)
+
+    async def execute_activity(activity: object, *_: object, **__: object) -> object:
+        if activity == DSLActivities.handle_scatter_input_activity:
+            return InlineObject(data=["item"], typename="list")
+        if activity == DSLActivities.finalize_gather_activity:
+            return FinalizeGatherActivityResult(
+                result=InlineObject(data=[], typename="list")
+            )
+        raise AssertionError(f"Unexpected activity: {activity}")
+
+    with patch(
+        "tracecat.dsl.scheduler.workflow.execute_activity",
+        new=AsyncMock(side_effect=execute_activity),
+    ):
+        task_exceptions = await scheduler.start()
+
+    assert task_exceptions is None
+    assert scheduler.force_skip_refs == frozenset({"body", "gather"})
+    assert executed_refs == ["gather", "tail"]
+    assert scheduler.get_context(ROOT_STREAM)["ACTIONS"]["pinned"].get_data() == {
+        "value": "pinned"
+    }
 
 
 @pytest.mark.anyio
