@@ -14,7 +14,8 @@ function action(
   id: string,
   title: string,
   upstreamEdges: UpstreamEdge[] = [],
-  type = "core.noop"
+  type = "core.noop",
+  omitSourceType = false
 ): ActionRead {
   return {
     id,
@@ -28,7 +29,7 @@ function action(
         typeof edge === "string" ? [edge, "success" as const] : edge
       return {
         source_id: sourceId,
-        source_type: "udf" as const,
+        ...(omitSourceType ? {} : { source_type: "udf" as const }),
         source_handle: sourceHandle,
       }
     }),
@@ -110,6 +111,20 @@ describe("computePinDomains", () => {
     expect(Array.from(domains.forceSkipRefs).sort()).toEqual(["a", "b"])
   })
 
+  it("includes legacy action edges without source_type", () => {
+    const legacyActions = {
+      "id-a": action("id-a", "a"),
+      "id-b": action("id-b", "b", ["id-a"], "core.noop", true),
+      "id-c": action("id-c", "c", ["id-b"], "core.noop", true),
+    }
+    const domains = computePinDomains(legacyActions, {
+      source_execution_id: "exec_1",
+      action_refs: ["c"],
+    })
+
+    expect(Array.from(domains.forceSkipRefs).sort()).toEqual(["a", "b"])
+  })
+
   it("ignores pins for refs that are not in the graph", () => {
     const domains = computePinDomains(actions, {
       source_execution_id: "exec_1",
@@ -152,6 +167,37 @@ describe("computeScopedActionRefs", () => {
     ).toBe(false)
     expect(
       computePinDomains(loopActions, {
+        source_execution_id: "exec_1",
+        action_refs: ["body"],
+      }).pinnedRefs.size
+    ).toBe(0)
+  })
+
+  it("marks legacy scatter bodies connected by untyped edges as scoped", () => {
+    const legacyScatterActions = {
+      "id-scatter": action(
+        "id-scatter",
+        "scatter",
+        [],
+        "core.transform.scatter"
+      ),
+      "id-body": action("id-body", "body", ["id-scatter"], "core.noop", true),
+      "id-gather": action(
+        "id-gather",
+        "gather",
+        ["id-body"],
+        "core.transform.gather",
+        true
+      ),
+      "id-after": action("id-after", "after", ["id-gather"], "core.noop", true),
+    }
+
+    const scopedRefs = computeScopedActionRefs(legacyScatterActions)
+
+    expect(scopedRefs.has("body")).toBe(true)
+    expect(scopedRefs.has("after")).toBe(false)
+    expect(
+      computePinDomains(legacyScatterActions, {
         source_execution_id: "exec_1",
         action_refs: ["body"],
       }).pinnedRefs.size

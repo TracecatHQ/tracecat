@@ -73,7 +73,8 @@ export function computeScopedActionRefs(
       continue
     }
     for (const edge of action.upstream_edges ?? []) {
-      if (edge.source_type !== "udf" || !refByActionId.has(edge.source_id)) {
+      const sourceType = edge.source_type ?? "udf"
+      if (sourceType !== "udf" || !refByActionId.has(edge.source_id)) {
         continue
       }
       adjacency.get(edge.source_id)?.add(action.id)
@@ -204,7 +205,8 @@ export function computePinDomains(
     }
 
     for (const edge of action.upstream_edges ?? []) {
-      if (edge.source_type !== "udf") {
+      const sourceType = edge.source_type ?? "udf"
+      if (sourceType !== "udf") {
         continue
       }
       const sourceRef = refByActionId.get(edge.source_id)
