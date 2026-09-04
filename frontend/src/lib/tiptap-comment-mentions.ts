@@ -189,12 +189,14 @@ export function serializeTiptapComment(
     }
     const targetId = mention.href.slice(WORKFLOW_MENTION_URI_SCHEME.length)
     const marker = `[${mention.text}](${mention.href})`
-    const offset =
-      mention.markdownOffset === undefined
-        ? markdown.indexOf(marker, searchFrom)
-        : markdown.startsWith(marker, mention.markdownOffset)
-          ? mention.markdownOffset
-          : -1
+    let offset: number
+    if (mention.markdownOffset === undefined) {
+      offset = markdown.indexOf(marker, searchFrom)
+    } else if (markdown.startsWith(marker, mention.markdownOffset)) {
+      offset = mention.markdownOffset
+    } else {
+      offset = -1
+    }
     if (targetId && offset !== -1) {
       workflowId ??= targetId
       workflowMentionLines.add(markdown.slice(0, offset).split("\n").length - 1)

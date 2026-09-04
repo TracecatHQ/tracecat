@@ -79,30 +79,33 @@ function findMentionMarkdownOffset(
   mention: CommentMentionLinkRange
 ): number | undefined {
   const linkMarkType = editor.schema.marks.link
-  const linkMark = editor.state.doc
-    .nodeAt(mention.from)
-    ?.marks.find((mark) => mark.type === linkMarkType)
-  if (!editor.markdown || !linkMarkType || !linkMark) {
+  const mentionNode = editor.state.doc.nodeAt(mention.from)
+  const linkMark = mentionNode?.marks.find((mark) => mark.type === linkMarkType)
+  if (!editor.markdown || !linkMarkType || !linkMark || !mentionNode?.isText) {
     return undefined
   }
 
-  const sentinelHref = `https://tracecat.invalid/${crypto.randomUUID()}`
-  const transaction = editor.state.tr
-    .removeMark(mention.from, mention.to, linkMarkType)
-    .addMark(
-      mention.from,
-      mention.to,
-      linkMarkType.create({ ...linkMark.attrs, href: sentinelHref })
-    )
+  const sentinelId = crypto.randomUUID()
+  const sentinelText = `tracecatworkflow${sentinelId.replaceAll("-", "")}`
+  const sentinelHref = `https://tracecat.invalid/${sentinelId}`
+  const sentinelMarks = mentionNode.marks.map((mark) =>
+    mark.type === linkMarkType
+      ? linkMarkType.create({ ...mark.attrs, href: sentinelHref })
+      : mark
+  )
+  const transaction = editor.state.tr.replaceWith(
+    mention.from,
+    mention.to,
+    editor.schema.text(sentinelText, sentinelMarks)
+  )
   const sentinelMarkdown = editor.markdown.serialize(transaction.doc.toJSON())
-  const hrefOffset = sentinelMarkdown.indexOf(sentinelHref)
-  const prefix = `[${mention.text}](`
-  const markerOffset = hrefOffset - prefix.length
-  return hrefOffset !== -1 &&
-    markerOffset >= 0 &&
-    sentinelMarkdown.startsWith(prefix, markerOffset)
-    ? markerOffset
-    : undefined
+  const markerOffset = sentinelMarkdown.indexOf(
+    `[${sentinelText}](${sentinelHref})`
+  )
+  if (markerOffset === -1) {
+    return undefined
+  }
+  return markerOffset
 }
 
 function deleteMentionBeforeCaret(editor: Editor): boolean {
