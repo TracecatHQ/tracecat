@@ -2,7 +2,6 @@
 
 import uuid
 from datetime import UTC, datetime
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -19,7 +18,6 @@ from tracecat_ee.admin.organizations.schemas import (
 
 from tracecat import config
 from tracecat.auth.types import Role
-from tracecat.email.client import Mailer, OutboundEmail
 from tracecat.exceptions import TracecatValidationError
 from tracecat.invitations.enums import InvitationStatus
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
@@ -236,7 +234,6 @@ async def test_create_organization_invitation_success(
 
     with patch.object(organizations_router, "AdminOrgService") as MockService:
         mock_svc = AsyncMock()
-        mock_svc.get_organization.return_value = SimpleNamespace(name="Acme")
         mock_svc.create_organization_invitation.return_value = invitation
         MockService.return_value = mock_svc
 
@@ -255,42 +252,6 @@ async def test_create_organization_invitation_success(
 
 
 @pytest.mark.anyio
-async def test_admin_org_invitation_schedules_configured_email(
-    client: TestClient,
-    test_admin_role: Role,
-) -> None:
-    org_id = uuid.uuid4()
-    invitation = _org_invitation_read(org_id, token="raw-token")
-    assert isinstance(invitation, AdminOrgInvitationCreateResponse)
-
-    with (
-        patch.object(organizations_router, "AdminOrgService") as mock_service_class,
-        patch.object(
-            config, "TRACECAT__EMAIL_FROM", "Tracecat <no-reply@mail.example.com>"
-        ),
-        patch.object(Mailer, "deliver") as mock_deliver,
-    ):
-        mock_service = AsyncMock()
-        mock_service.get_organization.return_value = SimpleNamespace(name="Acme")
-        mock_service.create_organization_invitation.return_value = invitation
-        mock_service_class.return_value = mock_service
-
-        response = client.post(
-            f"/admin/organizations/{org_id}/invitations",
-            json={"email": invitation.email},
-        )
-
-    assert response.status_code == status.HTTP_201_CREATED
-    mock_deliver.assert_called_once()
-    message = mock_deliver.call_args.args[0]
-    assert isinstance(message, OutboundEmail)
-    assert message.to == (invitation.email,)
-    assert message.subject == "Join Acme on Tracecat"
-    assert message.from_addr == "Tracecat <no-reply@mail.example.com>"
-    assert "token=raw-token" in message.text
-
-
-@pytest.mark.anyio
 async def test_create_organization_invitation_allowed_without_multi_tenant(
     client: TestClient,
     test_admin_role: Role,
@@ -302,7 +263,6 @@ async def test_create_organization_invitation_allowed_without_multi_tenant(
 
     with patch.object(organizations_router, "AdminOrgService") as MockService:
         mock_svc = AsyncMock()
-        mock_svc.get_organization.return_value = SimpleNamespace(name="Acme")
         mock_svc.create_organization_invitation.return_value = invitation
         MockService.return_value = mock_svc
 

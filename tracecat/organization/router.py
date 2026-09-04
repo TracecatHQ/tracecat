@@ -23,7 +23,6 @@ from tracecat.db.models import (
 from tracecat.db.models import (
     Role as DBRole,
 )
-from tracecat.email.client import MailerDep, invitation_email
 from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatNotFoundError,
@@ -489,15 +488,9 @@ async def create_invitation(
     role: OrgUserRole,
     session: AsyncDBSession,
     params: OrgInvitationCreate,
-    mailer: MailerDep,
 ) -> OrgInvitationRead:
     """Create an invitation to join the organization."""
     service = OrgService(session, role=role)
-    organization_name = (
-        await session.execute(
-            select(Organization.name).where(Organization.id == service.organization_id)
-        )
-    ).scalar_one()
     try:
         invitation = await service.create_invitation(
             email=params.email,
@@ -515,14 +508,6 @@ async def create_invitation(
             status_code=status.HTTP_409_CONFLICT,
             detail="An invitation already exists for this email",
         ) from e
-
-    mailer.deliver(
-        invitation_email(
-            to=invitation.email,
-            organization_name=organization_name,
-            token=invitation.token,
-        )
-    )
 
     return OrgInvitationRead(
         id=invitation.id,
