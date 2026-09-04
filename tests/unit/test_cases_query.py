@@ -23,7 +23,7 @@ from tracecat.cases.query import (
 from tracecat.db.models import Case
 from tracecat.exceptions import TracecatValidationError
 from tracecat.query.compiler import compile_filter
-from tracecat.query.filters import Condition, FilterOp
+from tracecat.query.filters import Condition, Filter, FilterOp, NotClause
 from tracecat.query.resolver import FieldKind, FieldResolver
 from tracecat.tables.enums import SqlType
 
@@ -42,7 +42,7 @@ def _resolver(**fields: str | Mapping[str, object]) -> CaseFieldResolver:
 
 
 def _compile(
-    condition: Condition,
+    condition: Filter,
     resolver: CaseFieldResolver,
     *,
     literal_binds: bool = False,
@@ -325,9 +325,31 @@ def test_custom_filter_compiles_to_correlated_exists() -> None:
         _resolver(region=SqlType.TEXT.value),
     )
 
-    assert "WHERE EXISTS (SELECT 1" in sql
+    assert "WHERE CASE WHEN (EXISTS (SELECT 1" in sql
     assert '.case_fields.case_id = "case".id' in sql
+    assert ".case_fields.region IS NOT NULL" in sql
     assert ".case_fields.region =" in sql
+    assert " END" in sql
+    assert "ELSE" not in sql
+    assert list(params.values()) == ["emea"]
+
+
+def test_negated_custom_filter_preserves_nullable_column_semantics() -> None:
+    sql, params = _compile(
+        NotClause.model_validate(
+            {
+                "not": {
+                    "field": "fields.region",
+                    "op": FilterOp.EQ,
+                    "value": "emea",
+                }
+            }
+        ),
+        _resolver(region=SqlType.TEXT.value),
+    )
+
+    assert "WHERE NOT CASE WHEN (EXISTS (SELECT 1" in sql
+    assert "ELSE" not in sql
     assert list(params.values()) == ["emea"]
 
 

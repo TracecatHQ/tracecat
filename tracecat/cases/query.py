@@ -437,7 +437,16 @@ def _custom_field_predicate_factory(
                     .correlate(Case)
                 )
             )
-        return sa.exists(
+        has_non_null_value = sa.exists(
+            sa.select(1)
+            .select_from(table)
+            .where(
+                table.c.case_id == Case.id,
+                expression.is_not(None),
+            )
+            .correlate(Case)
+        )
+        matches = sa.exists(
             sa.select(1)
             .select_from(table)
             .where(
@@ -446,6 +455,10 @@ def _custom_field_predicate_factory(
             )
             .correlate(Case)
         )
+        # EXISTS is always two-valued. Wrap it so a missing row or NULL custom
+        # value stays SQL NULL when a surrounding NOT negates the predicate,
+        # matching the semantics of filtering a nullable ordinary column.
+        return sa.case((has_non_null_value, matches), else_=None)
 
     return predicate
 
