@@ -1,14 +1,20 @@
-import type { ActionRead } from "@/client"
+import type {
+  ActionRead,
+  WorkflowDraftPins as WorkflowDraftPinsRead,
+  WorkflowRead,
+} from "@/client"
+import type { WorkflowExecutionEventCompact } from "@/lib/event-history"
 import { slugifyActionRef } from "@/lib/utils"
 
-export type WorkflowDraftPins = {
-  source_execution_id: string
-  action_refs: string[]
-}
+export type WorkflowDraftPins = Required<WorkflowDraftPinsRead>
 
-type WorkflowWithDraftPins = {
-  draft_pins?: WorkflowDraftPins | null
-}
+/** Action types whose orchestration results cannot be reused as draft pins. */
+export const UNPINNABLE_ACTION_TYPES = new Set([
+  "core.transform.scatter",
+  "core.transform.gather",
+  "core.loop.start",
+  "core.loop.end",
+])
 
 export type PinDomains = {
   pinnedRefs: Set<string>
@@ -16,24 +22,46 @@ export type PinDomains = {
 }
 
 export function getWorkflowDraftPins(
-  workflow: unknown
+  workflow: Pick<WorkflowRead, "draft_pins"> | null | undefined
 ): WorkflowDraftPins | null {
-  const pins = (workflow as WorkflowWithDraftPins | null)?.draft_pins
-  if (
-    !pins ||
-    typeof pins.source_execution_id !== "string" ||
-    !Array.isArray(pins.action_refs)
-  ) {
+  const pins = workflow?.draft_pins
+  if (!pins || typeof pins.source_execution_id !== "string") {
     return null
   }
 
-  const actionRefs = pins.action_refs.filter(
+  const actionRefs = (pins.action_refs ?? []).filter(
     (actionRef): actionRef is string => typeof actionRef === "string"
   )
   return {
     source_execution_id: pins.source_execution_id,
     action_refs: actionRefs,
   }
+}
+
+/** Return whether a selected execution event is eligible to become a draft pin. */
+export function isPinnableActionEvent(
+  actionRef: string | undefined,
+  groupedEvents: Record<string, WorkflowExecutionEventCompact[]>,
+  actions: Record<string, ActionRead> | null | undefined
+): boolean {
+  if (!actionRef || !groupedEvents[actionRef] || !actions) {
+    return false
+  }
+
+  const action = Object.values(actions).find(
+    (candidate) => slugifyActionRef(candidate.title) === actionRef
+  )
+  if (
+    !action ||
+    UNPINNABLE_ACTION_TYPES.has(action.type) ||
+    action.control_flow?.mask_output === true
+  ) {
+    return false
+  }
+
+  return groupedEvents[actionRef].some(
+    (event) => event.status === "COMPLETED" && !event.action_error
+  )
 }
 
 export function computePinDomains(

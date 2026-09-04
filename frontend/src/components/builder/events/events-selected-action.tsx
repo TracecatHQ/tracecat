@@ -25,6 +25,7 @@ import {
 } from "@/lib/event-history"
 import {
   getWorkflowDraftPins,
+  isPinnableActionEvent,
   type WorkflowDraftPins,
 } from "@/lib/workflow-pins"
 import { useWorkflowBuilder } from "@/providers/builder"
@@ -65,11 +66,21 @@ export function ActionEventPane({
     )
   }
   const groupedEvents = groupEventsByActionRef(events)
+  const canPinSelected = isPinnableActionEvent(
+    selectedActionEventRef,
+    groupedEvents,
+    workflow?.actions
+  )
 
-  const saveDraftPins = async (nextPins: WorkflowDraftPins | null) => {
+  const saveDraftPins = async (
+    nextPins: WorkflowDraftPins | null
+  ): Promise<boolean> => {
     setIsSavingPins(true)
     try {
       await updateWorkflow({ draft_pins: nextPins })
+      return true
+    } catch {
+      return false
     } finally {
       setIsSavingPins(false)
     }
@@ -85,10 +96,13 @@ export function ActionEventPane({
             new Set([...draftPins.action_refs, selectedActionEventRef])
           )
         : [selectedActionEventRef]
-    await saveDraftPins({
+    const saved = await saveDraftPins({
       source_execution_id: execution.id,
       action_refs: nextRefs,
     })
+    if (!saved) {
+      return
+    }
     toast({
       title: "Pinned action result",
       description: `ACTIONS.${selectedActionEventRef}.result is now pinned for draft runs.`,
@@ -105,7 +119,7 @@ export function ActionEventPane({
     const nextRefs = draftPins.action_refs.filter(
       (ref) => ref !== selectedActionEventRef
     )
-    await saveDraftPins(
+    const saved = await saveDraftPins(
       nextRefs.length > 0
         ? {
             source_execution_id: execution.id,
@@ -113,6 +127,9 @@ export function ActionEventPane({
           }
         : null
     )
+    if (!saved) {
+      return
+    }
     toast({
       title: "Unpinned action result",
       description: `ACTIONS.${selectedActionEventRef}.result will be computed again.`,
@@ -120,7 +137,10 @@ export function ActionEventPane({
   }
 
   const handleClearPins = async () => {
-    await saveDraftPins(null)
+    const saved = await saveDraftPins(null)
+    if (!saved) {
+      return
+    }
     toast({
       title: "Cleared draft pins",
       description: "All pinned draft action results were removed.",
@@ -174,7 +194,11 @@ export function ActionEventPane({
             type="button"
             size="sm"
             variant={selectedRefIsPinned ? "outline" : "secondary"}
-            disabled={!selectedActionEventRef || isSavingPins}
+            disabled={
+              selectedRefIsPinned
+                ? !selectedActionEventRef || isSavingPins
+                : !canPinSelected || isSavingPins
+            }
             onClick={
               selectedRefIsPinned ? handleUnpinSelected : handlePinSelected
             }
