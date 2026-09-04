@@ -607,13 +607,6 @@ async def test_pinned_task_with_unavailable_upstream_guard_reuses_result() -> No
     pinned = TaskResult.from_result({"value": "pinned-c"})
     scheduler = _make_pinned_scheduler(dsl, {"c": pinned}, executed_refs)
 
-    async def unavailable_upstream(
-        _expression: str, _context: ExecutionContext
-    ) -> bool:
-        raise ApplicationError("ACTIONS.b.result is unavailable")
-
-    scheduler.resolve_expression = unavailable_upstream  # type: ignore[method-assign]
-
     task_exceptions = await scheduler.start()
 
     assert task_exceptions is None
@@ -621,3 +614,37 @@ async def test_pinned_task_with_unavailable_upstream_guard_reuses_result() -> No
     assert scheduler.get_context(ROOT_STREAM)["ACTIONS"]["c"].get_data() == {
         "value": "pinned-c"
     }
+
+
+@pytest.mark.anyio
+async def test_pinned_task_propagates_unrelated_run_if_error() -> None:
+    """A real guard failure must not be converted into successful pin reuse."""
+    executed_refs: list[str] = []
+    dsl = DSLInput(
+        title="pin-run-if-error",
+        description="pin-run-if-error",
+        entrypoint=DSLEntrypoint(ref="a"),
+        actions=[
+            ActionStatement(ref="a", action="core.noop"),
+            ActionStatement(ref="b", action="core.noop", depends_on=["a"]),
+            ActionStatement(
+                ref="c",
+                action="core.noop",
+                depends_on=["b"],
+                run_if="${{ SECRETS.missing.VALUE }}",
+            ),
+        ],
+    )
+    pinned = TaskResult.from_result({"value": "pinned-c"})
+    scheduler = _make_pinned_scheduler(dsl, {"c": pinned}, executed_refs)
+
+    async def guard_error(_expression: str, _context: ExecutionContext) -> bool:
+        raise ApplicationError("Secret lookup failed")
+
+    scheduler.resolve_expression = guard_error  # type: ignore[method-assign]
+
+    task_exceptions = await scheduler.start()
+
+    assert task_exceptions is not None
+    assert "c" in task_exceptions
+    assert executed_refs == []

@@ -120,6 +120,17 @@ def _loop_limit_error(message: str) -> ApplicationError:
     )
 
 
+class _ForceSkippedDependencyUnavailableError(ApplicationError):
+    """A run_if dependency is absent because its action was force-skipped."""
+
+    def __init__(self, refs: frozenset[str]) -> None:
+        self.refs = refs
+        super().__init__(
+            "Force-skipped run_if dependencies are unavailable",
+            non_retryable=True,
+        )
+
+
 def _classified_action_error_info(
     error: ApplicationError,
     *,
@@ -894,11 +905,11 @@ class DSLScheduler:
                     return await self._handle_skip_path(task, stmt)
                 try:
                     should_skip = await self._task_should_skip(task, stmt)
-                except ApplicationError as e:
+                except _ForceSkippedDependencyUnavailableError as e:
                     self.logger.warning(
-                        "Pinned task run_if could not be evaluated; using pinned result",
+                        "Pinned task run_if depends on force-skipped results; using pinned result",
                         task=task,
-                        error=e,
+                        unavailable_refs=sorted(e.refs),
                     )
                     should_skip = False
                 if should_skip:
@@ -1253,10 +1264,24 @@ class DSLScheduler:
         """Check if a task should be skipped based on its `run_if` condition."""
         run_if = stmt.run_if
         if run_if is not None:
-            context = self.build_stream_aware_context(stmt, task.stream_id)
-            self.logger.debug("`run_if` condition", run_if=run_if)
             try:
+                run_if_action_refs = extract_expressions({"run_if": run_if})[
+                    ExprContext.ACTIONS
+                ]
+                unavailable_refs = frozenset(
+                    ref
+                    for ref in run_if_action_refs
+                    if ref in self.force_skip_refs
+                    and self.get_stream_aware_action_result(ref, task.stream_id) is None
+                )
+                if unavailable_refs:
+                    raise _ForceSkippedDependencyUnavailableError(unavailable_refs)
+
+                context = self.build_stream_aware_context(stmt, task.stream_id)
+                self.logger.debug("`run_if` condition", run_if=run_if)
                 expr_result = await self.resolve_expression(run_if, context)
+            except _ForceSkippedDependencyUnavailableError:
+                raise
             except Exception as e:
                 raise ApplicationError(
                     f"Error evaluating `run_if` condition: {e}",
