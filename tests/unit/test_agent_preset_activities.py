@@ -379,6 +379,7 @@ async def test_resolve_agents_config_classifies_missing_subagent_preset(
                 role=role,
                 agents=AgentSubagentsConfig.model_validate(
                     {
+                        "enabled": True,
                         "subagents": [{"preset": "missing-child"}],
                     }
                 ),
@@ -470,6 +471,7 @@ async def test_resolve_agents_config_classifies_malformed_persisted_agents_as_pl
                 role=role,
                 agents=AgentSubagentsConfig.model_validate(
                     {
+                        "enabled": True,
                         "subagents": [{"preset": "malformed-child"}],
                     }
                 ),

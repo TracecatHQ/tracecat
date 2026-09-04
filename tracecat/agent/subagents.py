@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Mapping
-from typing import Annotated
+from typing import Annotated, Any
 
 from pydantic import (
     BaseModel,
@@ -13,6 +13,7 @@ from pydantic import (
     StringConstraints,
     TypeAdapter,
     ValidationError,
+    model_validator,
 )
 
 AgentAlias = Annotated[
@@ -69,12 +70,29 @@ class ResolvedAttachedSubagentRef(AttachedSubagentRef):
 type AnyAttachedSubagentRef = ResolvedAttachedSubagentRef | AttachedSubagentRef
 
 
+def _drop_legacy_agents_config_keys(data: Any) -> Any:
+    """Strip the legacy ``enabled`` key from persisted agents config payloads.
+
+    ``enabled`` is a leftover from the removed agents toggle. A migration drops
+    it from every stored row, so this only has to cover rows written by an older
+    replica during a rolling deploy. Everything else still hits ``extra=forbid``.
+    """
+    if isinstance(data, Mapping) and "enabled" in data:
+        return {key: value for key, value in data.items() if key != "enabled"}
+    return data
+
+
 class AgentSubagentsConfig(BaseModel):
     """User-facing preset-backed subagents."""
 
     model_config = ConfigDict(extra="forbid")
 
     subagents: list[AnyAttachedSubagentRef] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def drop_legacy_keys(cls, data: Any) -> Any:
+        return _drop_legacy_agents_config_keys(data)
 
 
 class ResolvedAgentsConfig(BaseModel):
@@ -83,6 +101,11 @@ class ResolvedAgentsConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     subagents: list[ResolvedAttachedSubagentRef] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def drop_legacy_keys(cls, data: Any) -> Any:
+        return _drop_legacy_agents_config_keys(data)
 
 
 def validate_subagent_alias(alias: str) -> None:

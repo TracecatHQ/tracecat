@@ -3820,8 +3820,8 @@ class AgentPreset(SoftDeleteMixin, WorkspaceModel):
     )
     agents: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
-        default=lambda: {"enabled": False},
-        server_default=text("'{\"enabled\": false}'::jsonb"),
+        default=lambda: {"subagents": []},
+        server_default=text("'{\"subagents\": []}'::jsonb"),
         nullable=False,
         doc="Subagent configuration for this preset",
     )
@@ -3955,8 +3955,8 @@ class AgentPresetVersion(WorkspaceModel):
     )
     agents: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
-        default=lambda: {"enabled": False},
-        server_default=text("'{\"enabled\": false}'::jsonb"),
+        default=lambda: {"subagents": []},
+        server_default=text("'{\"subagents\": []}'::jsonb"),
         nullable=False,
         doc="Subagent configuration for this preset version",
     )
