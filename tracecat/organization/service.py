@@ -26,7 +26,6 @@ from tracecat.auth.users import (
 )
 from tracecat.authz.controls import require_scope
 from tracecat.authz.membership import (
-    mirror_assignment_grant,
     org_membership_predicate,
 )
 from tracecat.authz.service import resolve_grantable_role
@@ -34,8 +33,6 @@ from tracecat.db.models import (
     AccessToken,
     Group,
     GroupMember,
-    LegacyMembership,
-    LegacyOrganizationMembership,
     MCPPersonalAccessToken,
     MCPRefreshToken,
     Membership,
@@ -43,7 +40,6 @@ from tracecat.db.models import (
     OrganizationInvitation,
     User,
     UserRoleAssignment,
-    Workspace,
 )
 from tracecat.exceptions import (
     TracecatAuthorizationError,
@@ -177,12 +173,6 @@ async def accept_invitation_for_user(
             )
         )
         await session.execute(assignment_stmt)
-        await mirror_assignment_grant(
-            session,
-            user_id=user_id,
-            organization_id=invitation.organization_id,
-            workspace_id=None,
-        )
 
         await session.commit()
     except TracecatAuthorizationError:
@@ -325,25 +315,6 @@ class OrgService(BaseOrgService):
             delete(GroupMember).where(
                 GroupMember.user_id == user.id,
                 GroupMember.group_id.in_(group_ids),
-            )
-        )
-
-        # Mirror into the legacy tables: every workspace row in this org, plus
-        # the org row, matching what the pre-derivation code deleted here.
-        await self.session.execute(
-            delete(LegacyMembership).where(
-                LegacyMembership.user_id == user.id,
-                LegacyMembership.workspace_id.in_(
-                    select(Workspace.id).where(
-                        Workspace.organization_id == self.organization_id
-                    )
-                ),
-            )
-        )
-        await self.session.execute(
-            delete(LegacyOrganizationMembership).where(
-                LegacyOrganizationMembership.user_id == user.id,
-                LegacyOrganizationMembership.organization_id == self.organization_id,
             )
         )
 
@@ -697,12 +668,6 @@ class OrgService(BaseOrgService):
             )
             self.session.add(assignment)
             await self.session.flush()
-            await mirror_assignment_grant(
-                self.session,
-                user_id=self.role.user_id,
-                organization_id=invitation.organization_id,
-                workspace_id=None,
-            )
 
             await self.session.commit()
 

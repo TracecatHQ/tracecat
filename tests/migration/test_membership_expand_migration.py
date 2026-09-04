@@ -1,10 +1,9 @@
 """Tests for the expand-phase membership migration and assignment write RLS.
 
-The 2bf069003a77 migration keeps the ``membership`` and
-``organization_membership`` tables in place and reverse-backfills them, so N-1
-API pods keep reading and writing them until they roll. It also splits the
-assignment RLS policy so a workspace-scoped session cannot write org-wide
-assignments.
+The 2bf069003a77 migration leaves the ``membership`` and
+``organization_membership`` tables in place and unwritten; the contract
+revision drops them. It also splits the assignment RLS policy so a
+workspace-scoped session cannot write org-wide assignments.
 """
 
 from __future__ import annotations
@@ -89,29 +88,6 @@ def migration_db() -> Iterator[str]:
         with default_engine.connect() as conn:
             conn.execute(text(f'DROP DATABASE IF EXISTS "{db_name}" WITH (FORCE)'))
         default_engine.dispose()
-
-
-def test_upgrade_keeps_legacy_tables_writable(migration_db: str) -> None:
-    """Expand phase: both legacy names stay ordinary, writable tables."""
-    engine = create_engine(migration_db)
-    try:
-        with engine.connect() as conn:
-            for name in LEGACY_TABLES:
-                assert _relkind(conn, name) == "r", f"{name} should still be a table"
-                columns = set(
-                    conn.execute(text(f"SELECT * FROM {name} LIMIT 0")).keys()
-                )
-                if name == "membership":
-                    assert columns == {"user_id", "workspace_id"}
-                else:
-                    assert columns == {
-                        "user_id",
-                        "organization_id",
-                        "created_at",
-                        "updated_at",
-                    }
-    finally:
-        engine.dispose()
 
 
 def test_upgrade_creates_workspace_indexes(migration_db: str) -> None:

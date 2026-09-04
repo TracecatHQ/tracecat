@@ -14,8 +14,6 @@ from tracecat.auth.users import get_user_db_context, get_user_manager_context
 from tracecat.db.models import (
     AccessToken,
     Approval,
-    LegacyMembership,
-    LegacyOrganizationMembership,
     User,
     UserRoleAssignment,
 )
@@ -181,16 +179,6 @@ class AdminUserService(BasePlatformService):
         # removes the derived membership rows.
         await self.session.execute(
             delete(UserRoleAssignment).where(UserRoleAssignment.user_id == user_id)
-        )
-        # The user is going away entirely, so drop every legacy row they hold
-        # rather than mirroring org by org.
-        await self.session.execute(
-            delete(LegacyMembership).where(LegacyMembership.user_id == user_id)
-        )
-        await self.session.execute(
-            delete(LegacyOrganizationMembership).where(
-                LegacyOrganizationMembership.user_id == user_id
-            )
         )
         await self.session.execute(
             update(Approval)

@@ -25,6 +25,10 @@ from tracecat.db.tenant_rls import (
 )
 from tracecat.tables.service import TablesService
 
+# Present in the database and still RLS-governed, but no longer mapped: nothing
+# writes them, and the contract revision drops them.
+UNMAPPED_LEGACY_TABLES = frozenset({"membership", "organization_membership"})
+
 
 @pytest.fixture(scope="session", autouse=True)
 def workflow_bucket() -> Iterator[None]:
@@ -94,7 +98,9 @@ def test_all_org_keyed_models_are_registered_for_tenant_rls() -> None:
 
 def test_tenant_rls_registry_contains_only_mapped_tables() -> None:
     mapped_tables = _mapped_table_names()
-    stale_registry_entries = ALL_TENANT_RLS_TABLES - mapped_tables
+    stale_registry_entries = (
+        ALL_TENANT_RLS_TABLES - mapped_tables - UNMAPPED_LEGACY_TABLES
+    )
 
     assert not stale_registry_entries, (
         "Tenant RLS registry contains tables that are not mapped in SQLAlchemy: "
@@ -103,9 +109,10 @@ def test_tenant_rls_registry_contains_only_mapped_tables() -> None:
 
 
 def test_legacy_membership_tables_stay_registered_for_tenant_rls() -> None:
-    # The derived selectable is not a table; the legacy tables it mirrors keep
-    # their policies until the contract release drops them.
+    # The legacy tables are unmapped and unwritten but still present in the DB,
+    # so they keep their policies until the contract release drops them.
     assert not isinstance(Membership.__table__, Table)
+    assert not UNMAPPED_LEGACY_TABLES & _mapped_table_names()
     assert "membership" in WORKSPACE_POLICY_TABLES
     assert "organization_membership" in ORG_POLICY_TABLES
 

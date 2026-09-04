@@ -130,42 +130,6 @@ AND NOT EXISTS (
 )
 """
 
-# The legacy tables' rows, derived from the assignment graph. Used to reverse
-# backfill the legacy tables so both representations agree after upgrade.
-MEMBERSHIP_ROWS = """
-SELECT DISTINCT user_id, workspace_id
-FROM (
-  SELECT user_id, workspace_id
-  FROM   user_role_assignment WHERE workspace_id IS NOT NULL
-  UNION ALL
-  SELECT gm.user_id, gra.workspace_id
-  FROM   group_role_assignment gra JOIN group_member gm ON gm.group_id = gra.group_id
-  WHERE  gra.workspace_id IS NOT NULL
-) w
-"""
-
-ORG_MEMBERSHIP_ROWS = """
-SELECT user_id, organization_id, min(assigned_at) AS created_at,
-       max(assigned_at) AS updated_at
-FROM (
-  SELECT user_id, organization_id, assigned_at FROM user_role_assignment
-  UNION ALL
-  SELECT gm.user_id, gra.organization_id, gra.assigned_at
-  FROM   group_role_assignment gra JOIN group_member gm ON gm.group_id = gra.group_id
-) o
-GROUP BY user_id, organization_id
-"""
-
-REPOPULATE_WORKSPACE_MEMBERSHIP = (
-    f"INSERT INTO membership (user_id, workspace_id) {MEMBERSHIP_ROWS} "
-    "ON CONFLICT DO NOTHING"
-)
-REPOPULATE_ORG_MEMBERSHIP = (
-    "INSERT INTO organization_membership "
-    f"(user_id, organization_id, created_at, updated_at) {ORG_MEMBERSHIP_ROWS} "
-    "ON CONFLICT DO NOTHING"
-)
-
 # Workspace-leading indexes replace the dropped membership indexes; the existing
 # unique constraints lead with user_id / group_id, so listing a workspace's
 # members would otherwise scan the assignment tables.
@@ -222,18 +186,16 @@ def upgrade() -> None:
         op.execute(disable_org_optional_workspace_table_rls(table))
         op.execute(enable_assignment_split_table_rls(table))
 
-    # 3. Reverse backfill: legacy tables keep their rows so N-1 pods, which
-    # read and write them directly, keep working through the rolling upgrade.
-    op.execute(REPOPULATE_ORG_MEMBERSHIP)
-    op.execute(REPOPULATE_WORKSPACE_MEMBERSHIP)
+    # 3. The legacy membership tables are left in place and unwritten from here
+    # on; the contract revision re-runs the backfill and then drops them.
 
     for name, table, column in WORKSPACE_INDEXES:
         op.create_index(name, table, [column], unique=False)
 
 
 def downgrade() -> None:
-    # The legacy tables were never dropped, so only the indexes and the RLS
-    # swap are reversed. Backfilled assignments stay; they are valid grants.
+    # This revision drops nothing, so only the indexes and the RLS swap are
+    # reversed. Backfilled assignments stay; they are valid grants.
     for name, table, _ in WORKSPACE_INDEXES:
         op.drop_index(name, table_name=table)
 
