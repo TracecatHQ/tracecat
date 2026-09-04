@@ -43,7 +43,6 @@ from tracecat.auth.enums import AuthType
 from tracecat.auth.schemas import UserCreate, UserUpdate
 from tracecat.auth.secrets import get_user_auth_secret
 from tracecat.auth.types import PlatformRole, Role
-from tracecat.authz.membership import org_membership_predicate
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import (
     SupportsExecute,
@@ -53,9 +52,9 @@ from tracecat.db.engine import (
 )
 from tracecat.db.models import (
     AccessToken,
-    Membership,
     OAuthAccount,
     OrganizationDomain,
+    OrganizationMembership,
     User,
 )
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
@@ -192,8 +191,8 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         return not await self._any_org_saml_enforced(org_ids)
 
     async def _list_user_org_ids(self, user_id: uuid.UUID) -> set[OrganizationID]:
-        statement = select(Membership.organization_id).where(
-            org_membership_predicate(user_id),
+        statement = select(OrganizationMembership.organization_id).where(
+            OrganizationMembership.user_id == user_id
         )
         async with get_async_session_auth_context_manager() as session:
             result = await session.execute(statement)

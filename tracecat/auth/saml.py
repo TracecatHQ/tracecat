@@ -66,7 +66,6 @@ from tracecat.auth.users import (
     UserManagerDep,
     auth_backend,
 )
-from tracecat.authz.membership import org_membership_predicate
 from tracecat.config import (
     SAML_ACCEPTED_TIME_DIFF,
     SAML_ALLOW_UNSOLICITED,
@@ -84,9 +83,9 @@ from tracecat.config import (
 )
 from tracecat.db.dependencies import AsyncDBSession, AsyncDBSessionBypass
 from tracecat.db.models import (
-    Membership,
     OrganizationDomain,
     OrganizationInvitation,
+    OrganizationMembership,
     SAMLRequestData,
     User,
 )
@@ -955,8 +954,9 @@ async def sso_acs(
             )
 
     # Ensure user can access this organization.
-    membership_stmt = select(Membership).where(
-        org_membership_predicate(user.id, organization_id),
+    membership_stmt = select(OrganizationMembership).where(
+        OrganizationMembership.user_id == user.id,  # pyright: ignore[reportArgumentType]
+        OrganizationMembership.organization_id == organization_id,
     )
     existing_membership = (
         await db_session.execute(membership_stmt)

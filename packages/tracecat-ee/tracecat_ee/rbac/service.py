@@ -16,16 +16,13 @@ from tracecat.authz.controls import (
     validate_scope_string,
 )
 from tracecat.authz.enums import ScopeSource
-from tracecat.authz.membership import (
-    org_membership_predicate,
-)
 from tracecat.authz.scopes import PRESET_ROLE_SCOPES
 from tracecat.authz.service import resolve_grantable_role, resolve_granter_scopes
 from tracecat.db.models import (
     Group,
     GroupMember,
     GroupRoleAssignment,
-    Membership,
+    OrganizationMembership,
     RoleScope,
     Scope,
     User,
@@ -442,8 +439,9 @@ class RBACService(BaseOrgService):
         await self._ensure_group_membership_assignable(group_id)
 
         # Verify user belongs to this organization
-        stmt = select(Membership).where(
-            org_membership_predicate(user_id, self.organization_id),
+        stmt = select(OrganizationMembership).where(
+            OrganizationMembership.user_id == user_id,
+            OrganizationMembership.organization_id == self.organization_id,
         )
         result = await self.session.execute(stmt)
         if result.scalar_one_or_none() is None:
@@ -704,8 +702,9 @@ class RBACService(BaseOrgService):
             Created UserRoleAssignment
         """
         # Verify user belongs to this organization
-        stmt = select(Membership).where(
-            org_membership_predicate(user_id, self.organization_id),
+        stmt = select(OrganizationMembership).where(
+            OrganizationMembership.user_id == user_id,
+            OrganizationMembership.organization_id == self.organization_id,
         )
         result = await self.session.execute(stmt)
         if result.scalar_one_or_none() is None:

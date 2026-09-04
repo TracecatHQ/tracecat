@@ -14,8 +14,8 @@ from tracecat.auth.schemas import UserRole
 from tracecat.authz.seeding import seed_system_roles_for_org
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import (
-    Membership,
     Organization,
+    OrganizationMembership,
     User,
     UserRoleAssignment,
 )
@@ -130,10 +130,9 @@ async def test_single_tenant_defaults_for_session_resolves_default_org(
     assert result.changed is True
     membership = (
         await session.execute(
-            select(Membership).where(
-                Membership.user_id == user.id,
-                Membership.organization_id == result.organization_id,
-                Membership.workspace_id.is_(None),
+            select(OrganizationMembership).where(
+                OrganizationMembership.user_id == user.id,
+                OrganizationMembership.organization_id == result.organization_id,
             )
         )
     ).scalar_one_or_none()
@@ -158,10 +157,9 @@ async def test_single_tenant_defaults_assign_member_role(
 
     membership = (
         await session.execute(
-            select(Membership).where(
-                Membership.user_id == user.id,
-                Membership.organization_id == org.id,
-                Membership.workspace_id.is_(None),
+            select(OrganizationMembership).where(
+                OrganizationMembership.user_id == user.id,
+                OrganizationMembership.organization_id == org.id,
             )
         )
     ).scalar_one_or_none()
@@ -216,10 +214,9 @@ async def test_single_tenant_defaults_are_idempotent(
     await session.flush()
 
     membership_count = await session.scalar(
-        select(Membership).where(
-            Membership.user_id == user.id,
-            Membership.organization_id == org.id,
-            Membership.workspace_id.is_(None),
+        select(OrganizationMembership).where(
+            OrganizationMembership.user_id == user.id,
+            OrganizationMembership.organization_id == org.id,
         )
     )
     assignment_result = await session.execute(
@@ -280,11 +277,10 @@ async def test_single_tenant_defaults_handle_concurrent_repairs() -> None:
         async with get_async_session_bypass_rls_context_manager() as verify_session:
             membership_count = await verify_session.scalar(
                 select(func.count())
-                .select_from(Membership)
+                .select_from(OrganizationMembership)
                 .where(
-                    Membership.user_id == user_id,
-                    Membership.organization_id == org_id,
-                    Membership.workspace_id.is_(None),
+                    OrganizationMembership.user_id == user_id,
+                    OrganizationMembership.organization_id == org_id,
                 )
             )
             assignment_count = await verify_session.scalar(
@@ -397,10 +393,9 @@ async def test_single_tenant_defaults_keep_owner_role_for_regular_user(
 
     membership = (
         await session.execute(
-            select(Membership).where(
-                Membership.user_id == user.id,
-                Membership.organization_id == org.id,
-                Membership.workspace_id.is_(None),
+            select(OrganizationMembership).where(
+                OrganizationMembership.user_id == user.id,
+                OrganizationMembership.organization_id == org.id,
             )
         )
     ).scalar_one_or_none()

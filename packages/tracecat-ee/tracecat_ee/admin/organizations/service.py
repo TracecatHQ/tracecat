@@ -18,13 +18,12 @@ from tracecat.audit.logger import audit_log
 from tracecat.audit.service import AuditService
 from tracecat.audit.types import AuditAction
 from tracecat.auth.types import Role
-from tracecat.authz.membership import org_membership_predicate
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.models import (
-    Membership,
     Organization,
     OrganizationDomain,
     OrganizationInvitation,
+    OrganizationMembership,
     RegistryRepository,
     RegistryVersion,
     User,
@@ -170,10 +169,10 @@ class AdminOrgService(BasePlatformService):
         role_obj = await self._get_org_invitation_role(org_id, params.role_slug)
 
         existing_member_stmt = (
-            select(Membership)
-            .join(User, Membership.user_id == User.id)
+            select(OrganizationMembership)
+            .join(User, OrganizationMembership.user_id == User.id)
             .where(
-                org_membership_predicate(None, org_id),
+                OrganizationMembership.organization_id == org_id,
                 func.lower(User.email) == params.email.lower(),
             )
         )

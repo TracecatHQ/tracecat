@@ -25,9 +25,6 @@ from tracecat.auth.users import (
     get_user_manager_context,
 )
 from tracecat.authz.controls import require_scope
-from tracecat.authz.membership import (
-    org_membership_predicate,
-)
 from tracecat.authz.service import resolve_grantable_role
 from tracecat.db.models import (
     AccessToken,
@@ -35,9 +32,9 @@ from tracecat.db.models import (
     GroupMember,
     MCPPersonalAccessToken,
     MCPRefreshToken,
-    Membership,
     Organization,
     OrganizationInvitation,
+    OrganizationMembership,
     User,
     UserRoleAssignment,
 )
@@ -225,8 +222,11 @@ class OrgService(BaseOrgService):
             Sequence[User]: A sequence of User objects.
         """
         statement = select(User).join(
-            Membership,
-            org_membership_predicate(User.id, self.organization_id),
+            OrganizationMembership,
+            and_(
+                OrganizationMembership.user_id == User.id,
+                OrganizationMembership.organization_id == self.organization_id,
+            ),
         )
         result = await self.session.execute(statement)
         return result.scalars().all()
@@ -246,8 +246,11 @@ class OrgService(BaseOrgService):
         statement = (
             select(User)
             .join(
-                Membership,
-                org_membership_predicate(User.id, self.organization_id),
+                OrganizationMembership,
+                and_(
+                    OrganizationMembership.user_id == User.id,
+                    OrganizationMembership.organization_id == self.organization_id,
+                ),
             )
             .where(cast(User.id, UUID) == user_id)
         )
@@ -380,8 +383,11 @@ class OrgService(BaseOrgService):
             select(AccessToken)
             .join(User, cast(AccessToken.user_id, UUID) == User.id)
             .join(
-                Membership,
-                org_membership_predicate(User.id, self.organization_id),
+                OrganizationMembership,
+                and_(
+                    OrganizationMembership.user_id == User.id,
+                    OrganizationMembership.organization_id == self.organization_id,
+                ),
             )
             .options(contains_eager(AccessToken.user))
         )
@@ -404,8 +410,11 @@ class OrgService(BaseOrgService):
             select(AccessToken)
             .join(User, cast(AccessToken.user_id, UUID) == User.id)
             .join(
-                Membership,
-                org_membership_predicate(User.id, self.organization_id),
+                OrganizationMembership,
+                and_(
+                    OrganizationMembership.user_id == User.id,
+                    OrganizationMembership.organization_id == self.organization_id,
+                ),
             )
             .where(AccessToken.id == session_id)
         )
@@ -449,10 +458,10 @@ class OrgService(BaseOrgService):
 
         # Check if user with this email is already a member (case-insensitive)
         existing_member_stmt = (
-            select(Membership)
-            .join(User, Membership.user_id == User.id)
+            select(OrganizationMembership)
+            .join(User, OrganizationMembership.user_id == User.id)
             .where(
-                org_membership_predicate(None, self.organization_id),
+                OrganizationMembership.organization_id == self.organization_id,
                 func.lower(User.email) == email.lower(),
             )
         )
@@ -569,7 +578,7 @@ class OrgService(BaseOrgService):
             raise TracecatNotFoundError("Invitation not found")
         return invitation
 
-    async def accept_invitation(self, token: str) -> Membership:
+    async def accept_invitation(self, token: str) -> OrganizationMembership:
         """Accept an invitation and grant the org-member role assignment.
 
         This method validates the invitation token, checks expiry and status,
@@ -586,7 +595,7 @@ class OrgService(BaseOrgService):
             token: The unique invitation token.
 
         Returns:
-            Membership: The derived organization membership row.
+            OrganizationMembership: The derived organization membership row.
 
         Raises:
             TracecatNotFoundError: If the invitation doesn't exist.
@@ -673,11 +682,10 @@ class OrgService(BaseOrgService):
 
             membership = (
                 await self.session.execute(
-                    select(Membership).where(
-                        org_membership_predicate(
-                            self.role.user_id,
-                            invitation.organization_id,
-                        ),
+                    select(OrganizationMembership).where(
+                        OrganizationMembership.user_id == self.role.user_id,
+                        OrganizationMembership.organization_id
+                        == invitation.organization_id,
                     )
                 )
             ).scalar_one()

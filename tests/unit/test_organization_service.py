@@ -26,6 +26,7 @@ from tracecat.db.models import (
     Membership,
     Organization,
     OrganizationInvitation,
+    OrganizationMembership,
     RoleScope,
     Scope,
     ServiceAccount,
@@ -407,10 +408,9 @@ class TestOrganizationServiceDeleteMember:
         )
         assert (
             await session.scalar(
-                select(Membership).where(
-                    Membership.user_id == user_id,
-                    Membership.organization_id == org1.id,
-                    Membership.workspace_id.is_(None),
+                select(OrganizationMembership).where(
+                    OrganizationMembership.user_id == user_id,
+                    OrganizationMembership.organization_id == org1.id,
                 )
             )
             is None
@@ -532,20 +532,18 @@ class TestOrganizationServiceDeleteMember:
         )
         assert (
             await session.scalar(
-                select(Membership).where(
-                    Membership.user_id == user_id,
-                    Membership.organization_id == org1.id,
-                    Membership.workspace_id.is_(None),
+                select(OrganizationMembership).where(
+                    OrganizationMembership.user_id == user_id,
+                    OrganizationMembership.organization_id == org1.id,
                 )
             )
             is None
         )
         assert (
             await session.scalar(
-                select(Membership).where(
-                    Membership.user_id == user_id,
-                    Membership.organization_id == org2.id,
-                    Membership.workspace_id.is_(None),
+                select(OrganizationMembership).where(
+                    OrganizationMembership.user_id == user_id,
+                    OrganizationMembership.organization_id == org2.id,
                 )
             )
             is not None
@@ -705,9 +703,8 @@ class TestOrganizationServiceDeleteOrganization:
             select(Organization).where(Organization.id == org1.id)
         )
         membership_result = await session.execute(
-            select(Membership).where(
-                Membership.organization_id == org1.id,
-                Membership.workspace_id.is_(None),
+            select(OrganizationMembership).where(
+                OrganizationMembership.organization_id == org1.id,
             )
         )
         assert org_result.scalar_one_or_none() is None

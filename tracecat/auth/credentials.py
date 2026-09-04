@@ -44,15 +44,14 @@ from tracecat.auth.users import (
     optional_current_active_user,
 )
 from tracecat.authz.controls import has_scope
-from tracecat.authz.membership import org_membership_predicate
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.authz.service import MembershipService, MembershipWithOrg
 from tracecat.contexts import ctx_agent_session_id, ctx_role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import AuthSession, get_async_session_auth_context_manager
 from tracecat.db.models import (
-    Membership,
     Organization,
+    OrganizationMembership,
     ServiceAccount,
     ServiceAccountApiKey,
     User,
@@ -610,13 +609,14 @@ async def _resolve_org_for_regular_user(
             cookie_org_id = None
         if cookie_org_id is not None:
             membership_stmt = (
-                select(Membership.organization_id)
+                select(OrganizationMembership.organization_id)
                 .join(
                     Organization,
-                    Organization.id == Membership.organization_id,
+                    Organization.id == OrganizationMembership.organization_id,
                 )
                 .where(
-                    org_membership_predicate(user.id, cookie_org_id),
+                    OrganizationMembership.user_id == user.id,
+                    OrganizationMembership.organization_id == cookie_org_id,
                     Organization.is_active.is_(True),
                 )
             )
@@ -627,10 +627,10 @@ async def _resolve_org_for_regular_user(
                 return cookie_org_id
 
     org_mem_stmt = (
-        select(Membership.organization_id)
-        .join(Organization, Organization.id == Membership.organization_id)
+        select(OrganizationMembership.organization_id)
+        .join(Organization, Organization.id == OrganizationMembership.organization_id)
         .where(
-            org_membership_predicate(user.id),
+            OrganizationMembership.user_id == user.id,
             Organization.is_active.is_(True),
         )
         .order_by(Organization.created_at.asc(), Organization.id.asc())

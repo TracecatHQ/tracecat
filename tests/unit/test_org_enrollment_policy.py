@@ -18,8 +18,8 @@ from tracecat.auth.schemas import UserRole
 from tracecat.auth.users import UserManager
 from tracecat.authz.seeding import seed_system_roles_for_org
 from tracecat.db.models import (
-    Membership,
     Organization,
+    OrganizationMembership,
     User,
     UserRoleAssignment,
 )
@@ -82,10 +82,9 @@ async def _assert_not_enrolled(
 ) -> None:
     membership = (
         await session.execute(
-            select(Membership).where(
-                Membership.user_id == user_id,
-                Membership.organization_id == organization_id,
-                Membership.workspace_id.is_(None),
+            select(OrganizationMembership).where(
+                OrganizationMembership.user_id == user_id,
+                OrganizationMembership.organization_id == organization_id,
             )
         )
     ).scalar_one_or_none()
@@ -221,10 +220,9 @@ async def test_superuser_bootstrap_still_enrolls(
     assert result.organization_id == org.id
     membership = (
         await session.execute(
-            select(Membership).where(
-                Membership.user_id == user.id,
-                Membership.organization_id == org.id,
-                Membership.workspace_id.is_(None),
+            select(OrganizationMembership).where(
+                OrganizationMembership.user_id == user.id,
+                OrganizationMembership.organization_id == org.id,
             )
         )
     ).scalar_one_or_none()

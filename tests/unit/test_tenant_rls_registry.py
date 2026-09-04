@@ -9,7 +9,7 @@ from sqlalchemy import Table
 
 from tracecat.auth.types import Role
 from tracecat.cases.service import CaseFieldsService
-from tracecat.db.models import Base, Membership
+from tracecat.db.models import Base, Membership, OrganizationMembership
 from tracecat.db.tenant_rls import (
     ALL_TENANT_RLS_TABLES,
     ASSIGNMENT_SPLIT_POLICY_TABLES,
@@ -112,6 +112,7 @@ def test_legacy_membership_tables_stay_registered_for_tenant_rls() -> None:
     # The legacy tables are unmapped and unwritten but still present in the DB,
     # so they keep their policies until the contract release drops them.
     assert not isinstance(Membership.__table__, Table)
+    assert not isinstance(OrganizationMembership.__table__, Table)
     assert not UNMAPPED_LEGACY_TABLES & _mapped_table_names()
     assert "membership" in WORKSPACE_POLICY_TABLES
     assert "organization_membership" in ORG_POLICY_TABLES

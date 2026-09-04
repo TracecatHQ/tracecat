@@ -12,9 +12,8 @@ from enum import StrEnum, auto
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.authz.membership import org_membership_predicate
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
-from tracecat.db.models import Membership, User
+from tracecat.db.models import OrganizationMembership, User
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
 
@@ -81,8 +80,8 @@ async def _resolve_regular_user_org(
             membership.
     """
     result = await session.execute(
-        select(Membership.organization_id).where(
-            org_membership_predicate(user.id),
+        select(OrganizationMembership.organization_id).where(
+            OrganizationMembership.user_id == user.id
         )
     )
     org_ids = {row[0] for row in result.all()}

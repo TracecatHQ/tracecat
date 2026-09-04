@@ -23,6 +23,7 @@ from tracecat.db.models import (
     AccessToken,
     Membership,
     Organization,
+    OrganizationMembership,
     User,
     UserRoleAssignment,
     Workspace,
@@ -74,8 +75,8 @@ async def test_create_user_creates_platform_user_without_memberships(
 
     org_membership_result = await session.execute(
         select(func.count())
-        .select_from(Membership)
-        .where(Membership.user_id == created.id, Membership.workspace_id.is_(None))
+        .select_from(OrganizationMembership)
+        .where(OrganizationMembership.user_id == created.id)
     )
     org_membership_count = org_membership_result.scalar_one()
     assert org_membership_count == 0
@@ -184,8 +185,8 @@ async def test_create_user_provisions_default_org_in_single_tenant(
 
     membership_count = await session.scalar(
         select(func.count())
-        .select_from(Membership)
-        .where(Membership.user_id == created.id, Membership.workspace_id.is_(None))
+        .select_from(OrganizationMembership)
+        .where(OrganizationMembership.user_id == created.id)
     )
     role_slug = await session.scalar(
         select(DBRole.slug)
@@ -317,9 +318,8 @@ async def test_delete_user_clears_sessions_and_memberships(
     )
     assert (
         await session.scalar(
-            select(Membership).where(
-                Membership.user_id == user_id,
-                Membership.workspace_id.is_(None),
+            select(OrganizationMembership).where(
+                OrganizationMembership.user_id == user_id,
             )
         )
         is None

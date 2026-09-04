@@ -13,6 +13,7 @@ from tracecat.auth.types import Role
 from tracecat.db.models import (
     Membership,
     Organization,
+    OrganizationMembership,
     User,
 )
 
@@ -51,16 +52,14 @@ class TestOrganizationMembershipModel:
 
         # Verify membership was created
         result = await session.execute(
-            select(Membership).where(
-                Membership.user_id == user.id,
-                Membership.organization_id == org.id,
-                Membership.workspace_id.is_(None),
+            select(OrganizationMembership).where(
+                OrganizationMembership.user_id == user.id,
+                OrganizationMembership.organization_id == org.id,
             )
         )
         fetched = result.scalar_one()
         assert fetched.user_id == user.id
         assert fetched.organization_id == org.id
-        assert fetched.workspace_id is None
 
     @pytest.mark.anyio
     async def test_organization_membership_with_admin_user(self, session: AsyncSession):
@@ -89,9 +88,8 @@ class TestOrganizationMembershipModel:
         await session.commit()
 
         result = await session.execute(
-            select(Membership).where(
-                Membership.user_id == user.id,
-                Membership.workspace_id.is_(None),
+            select(OrganizationMembership).where(
+                OrganizationMembership.user_id == user.id,
             )
         )
         fetched = result.scalar_one()
@@ -215,9 +213,8 @@ class TestOrganizationMembershipModel:
 
         # Verify both memberships exist
         result = await session.execute(
-            select(Membership).where(
-                Membership.user_id == user.id,
-                Membership.workspace_id.is_(None),
+            select(OrganizationMembership).where(
+                OrganizationMembership.user_id == user.id,
             )
         )
         memberships = result.scalars().all()

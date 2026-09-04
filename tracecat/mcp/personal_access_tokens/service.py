@@ -17,11 +17,11 @@ from tracecat.auth.api_keys import (
     verify_api_key,
 )
 from tracecat.authz.controls import require_scope
-from tracecat.authz.membership import org_membership_predicate
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import (
     MCPPersonalAccessToken,
     Membership,
+    OrganizationMembership,
     User,
     Workspace,
 )
@@ -70,7 +70,8 @@ async def _user_can_access_workspace(
     org_membership_exists = (
         select(1)
         .where(
-            org_membership_predicate(user_id, organization_id),
+            OrganizationMembership.organization_id == organization_id,
+            OrganizationMembership.user_id == user_id,
         )
         .exists()
     )
@@ -308,8 +309,9 @@ async def verify_mcp_personal_access_token(raw_token: str) -> MCPPATIdentity | N
             return None
         if not user.is_superuser:
             result = await session.execute(
-                select(Membership.user_id).where(
-                    org_membership_predicate(user.id, record.organization_id),
+                select(OrganizationMembership.user_id).where(
+                    OrganizationMembership.user_id == user.id,
+                    OrganizationMembership.organization_id == record.organization_id,
                 )
             )
             if result.scalar_one_or_none() is None:

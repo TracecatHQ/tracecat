@@ -11,16 +11,13 @@ from tracecat.auth.dependencies import OrgActorRole, OrgUserRole
 from tracecat.auth.schemas import SessionRead, UserUpdate
 from tracecat.auth.users import current_active_user
 from tracecat.authz.controls import require_scope
-from tracecat.authz.membership import (
-    org_membership_predicate,
-    resolve_org_role_names,
-)
+from tracecat.authz.membership import resolve_org_role_names
 from tracecat.db.dependencies import AsyncDBSession, AsyncDBSessionBypass
 from tracecat.db.models import (
-    Membership,
     Organization,
     OrganizationDomain,
     OrganizationInvitation,
+    OrganizationMembership,
     User,
 )
 from tracecat.db.models import (
@@ -115,11 +112,11 @@ async def list_current_user_organization_memberships(
     stmt = (
         select(Organization.id, Organization.name)
         .join(
-            Membership,
-            Membership.organization_id == Organization.id,
+            OrganizationMembership,
+            OrganizationMembership.organization_id == Organization.id,
         )
         .where(
-            org_membership_predicate(role.user_id),
+            OrganizationMembership.user_id == role.user_id,
             Organization.is_active.is_(True),
         )
         .order_by(Organization.name.asc(), Organization.id.asc())
@@ -255,13 +252,13 @@ async def get_current_org_member(
     statement = (
         select(User)
         .join(
-            Membership,
-            Membership.user_id == User.id,  # pyright: ignore[reportArgumentType]
+            OrganizationMembership,
+            OrganizationMembership.user_id == User.id,  # pyright: ignore[reportArgumentType]
         )
         .where(
             and_(
                 User.id == role.user_id,  # pyright: ignore[reportArgumentType]
-                org_membership_predicate(None, role.organization_id),
+                OrganizationMembership.organization_id == role.organization_id,  # pyright: ignore[reportArgumentType]
             )
         )
     )

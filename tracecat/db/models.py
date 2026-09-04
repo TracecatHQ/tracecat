@@ -5567,3 +5567,27 @@ class Membership(Base):
             membership_select.c.workspace_id,
         ]
     }
+
+
+# Org-wide presence is the NULL-workspace slice of the derived membership.
+organization_membership_select = (
+    select(membership_select.c.user_id, membership_select.c.organization_id)
+    .where(membership_select.c.workspace_id.is_(None))
+    .subquery("organization_membership")
+)
+
+
+class OrganizationMembership(Base):
+    """Read-only org presence derived from RBAC assignments."""
+
+    __table__ = organization_membership_select
+
+    user_id: Mapped[uuid.UUID]
+    organization_id: Mapped[uuid.UUID]
+
+    __mapper_args__ = {
+        "primary_key": [
+            organization_membership_select.c.user_id,
+            organization_membership_select.c.organization_id,
+        ]
+    }

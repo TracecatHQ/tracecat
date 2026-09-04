@@ -12,7 +12,6 @@ from tracecat_ee.rbac.service import RBACService
 from tests.membership import grant_workspace_membership
 from tracecat.auth.types import Role
 from tracecat.authz.enums import ScopeSource
-from tracecat.authz.membership import org_membership_predicate
 from tracecat.authz.scopes import ORG_ADMIN_SCOPES
 from tracecat.authz.seeding import seed_system_scopes
 from tracecat.db.models import (
@@ -21,6 +20,7 @@ from tracecat.db.models import (
     GroupRoleAssignment,
     Membership,
     Organization,
+    OrganizationMembership,
     RoleScope,
     Scope,
     User,
@@ -708,7 +708,10 @@ class TestRBACServiceAssignments:
         await service.delete_user_assignment(direct_assignment.id)
         assert (
             await session.scalar(
-                select(Membership).where(org_membership_predicate(user.id, org.id))
+                select(OrganizationMembership).where(
+                    OrganizationMembership.user_id == user.id,
+                    OrganizationMembership.organization_id == org.id,
+                )
             )
         ) is None
 
@@ -719,14 +722,20 @@ class TestRBACServiceAssignments:
         )
         assert (
             await session.scalar(
-                select(Membership).where(org_membership_predicate(user.id, org.id))
+                select(OrganizationMembership).where(
+                    OrganizationMembership.user_id == user.id,
+                    OrganizationMembership.organization_id == org.id,
+                )
             )
         ) is not None
 
         await service.delete_group_role_assignment(assignment.id)
         assert (
             await session.scalar(
-                select(Membership).where(org_membership_predicate(user.id, org.id))
+                select(OrganizationMembership).where(
+                    OrganizationMembership.user_id == user.id,
+                    OrganizationMembership.organization_id == org.id,
+                )
             )
         ) is None
 
