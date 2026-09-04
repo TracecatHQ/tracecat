@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock
 import orjson
 import pytest
 from claude_agent_sdk.types import UserMessage
+from sqlalchemy import select
 
 from tracecat.agent.runtime.claude_code.session_lines import (
     MODEL_CONTEXT_PROMPT_PREFIX,
@@ -16,7 +17,7 @@ from tracecat.agent.session.history import prepare_session_history
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.auth.types import Role
 from tracecat.chat.enums import MessageKind
-from tracecat.db.models import AgentSession
+from tracecat.db.models import AgentSession, AgentSessionHistory
 
 
 def _mock_scalar_result(items: list[Any]) -> Mock:
@@ -216,12 +217,12 @@ async def test_load_session_history_forks_parent_only_until_child_has_sdk_sessio
         parent_id: [history_entry("parent-line-uuid", "Parent prompt.")],
         child_id: [history_entry("child-line-uuid", "Child prompt.")],
     }
-    loaded_session_ids: list[uuid.UUID] = []
+    expected_source_id = parent_id if expected_is_fork else child_id
+    executed_statements: list[Any] = []
 
     async def execute(stmt: Any) -> Mock:
-        loaded_session_id = next(iter(stmt.compile().params.values()))
-        loaded_session_ids.append(loaded_session_id)
-        return _mock_scalar_result(entries_by_session_id[loaded_session_id])
+        executed_statements.append(stmt)
+        return _mock_scalar_result(entries_by_session_id[expected_source_id])
 
     sessions = {child_id: child_session, parent_id: parent_session}
     service.get_session = AsyncMock(side_effect=sessions.__getitem__)
@@ -231,13 +232,18 @@ async def test_load_session_history_forks_parent_only_until_child_has_sdk_sessio
 
     assert history is not None
     assert history.is_fork is expected_is_fork
-    expected_source_id = parent_id if expected_is_fork else child_id
     expected_sdk_session_id = "parent-sdk" if expected_is_fork else "child-sdk"
     expected_line_uuid = "parent-line-uuid" if expected_is_fork else "child-line-uuid"
     expected_get_session_ids = [child_id, parent_id] if expected_is_fork else [child_id]
     assert history.sdk_session_id == expected_sdk_session_id
     assert orjson.loads(history.sdk_session_data)["uuid"] == expected_line_uuid
-    assert loaded_session_ids == [expected_source_id]
+    expected_statement = (
+        select(AgentSessionHistory)
+        .where(AgentSessionHistory.session_id == expected_source_id)
+        .order_by(AgentSessionHistory.surrogate_id)
+    )
+    assert len(executed_statements) == 1
+    assert executed_statements[0].compare(expected_statement)
     assert service.get_session.await_count == len(expected_get_session_ids)
     assert [call.args[0] for call in service.get_session.await_args_list] == (
         expected_get_session_ids
