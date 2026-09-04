@@ -268,7 +268,7 @@ class InternalRankItemsRequest(BaseModel):
     model_provider: str
     catalog_id: uuid.UUID | None = None
     model_settings: dict[str, Any] | None = None
-    max_requests: int = 5
+    max_requests: int = Field(default=5, ge=1, le=120)
     retries: int = 3
     base_url: str | None = None
     min_items: int | None = None

@@ -16,6 +16,7 @@ from tracecat.agent.internal_router import router
 from tracecat.agent.schemas import (
     AgentConfigSchema,
     AgentOutput,
+    InternalRankItemsRequest,
     InternalRunAgentRequest,
     RunAgentArgs,
     RunUsage,
@@ -315,6 +316,18 @@ def test_internal_run_agent_request_rejects_non_positive_max_requests(
                 model_name="test-model",
                 model_provider="test-provider",
             ),
+            max_requests=max_requests,
+        )
+
+
+@pytest.mark.parametrize("max_requests", [0, 121, 1_000_000])
+def test_internal_rank_items_request_bounds_max_requests(max_requests: int) -> None:
+    with pytest.raises(ValidationError):
+        InternalRankItemsRequest(
+            items=[{"id": "a", "text": "alpha"}],
+            criteria_prompt="most urgent",
+            model_name="test-model",
+            model_provider="test-provider",
             max_requests=max_requests,
         )
 
