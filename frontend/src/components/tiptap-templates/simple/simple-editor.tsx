@@ -110,10 +110,7 @@ import {
   preventCommentMentionNavigation,
   WORKFLOW_MENTION_URI_SCHEME,
 } from "@/lib/tiptap-comment-mentions"
-import {
-  deleteImagePasteSelection,
-  mapImageUploadPosition,
-} from "@/lib/tiptap-image-upload-position"
+import { mapImageUploadPosition } from "@/lib/tiptap-image-upload-position"
 import { MarkdownHardBreak } from "@/lib/tiptap-markdown-hard-break"
 import {
   handleImageUpload,
@@ -128,11 +125,16 @@ async function uploadAndInsertImages(
   view: EditorView,
   files: File[],
   upload: (file: File) => Promise<string>,
-  startPos: number
+  startPos: number,
+  endPos?: number
 ): Promise<void> {
   let insertPos = startPos
+  let replaceTo = endPos !== undefined && endPos > startPos ? endPos : null
   const handleTransaction = ({ transaction }: { transaction: Transaction }) => {
     insertPos = mapImageUploadPosition(insertPos, transaction)
+    if (replaceTo !== null) {
+      replaceTo = mapImageUploadPosition(replaceTo, transaction, -1)
+    }
   }
   editor.on("transaction", handleTransaction)
   try {
@@ -144,7 +146,14 @@ async function uploadAndInsertImages(
           continue
         }
         const node = imageType.create({ src, alt: file.name })
-        view.dispatch(view.state.tr.insert(insertPos, node))
+        const transaction = view.state.tr
+        if (replaceTo !== null && replaceTo > insertPos) {
+          transaction.replaceWith(insertPos, replaceTo, node)
+        } else {
+          transaction.insert(insertPos, node)
+        }
+        view.dispatch(transaction)
+        replaceTo = null
       } catch {
         // Upload failures are surfaced by the upload function's own toast.
       }
@@ -739,20 +748,13 @@ export function SimpleEditor({
         }
         event.preventDefault()
         const { from, to } = view.state.selection
-        const deleteTransaction = deleteImagePasteSelection(
-          view.state.tr,
-          from,
-          to
-        )
-        if (deleteTransaction) {
-          view.dispatch(deleteTransaction)
-        }
         void uploadAndInsertImages(
           currentEditor,
           view,
           files.map(createPastedImageFile),
           upload,
-          from
+          from,
+          to
         )
         return true
       },

@@ -122,27 +122,46 @@ export function findEditedCommentMentionIndexes(
 
   for (const [href, oldMentions] of previousByHref) {
     const nextMentions = currentByHref.get(href) ?? []
-    nextMentions.forEach((mention, occurrenceIndex) => {
-      const oldMention = oldMentions[occurrenceIndex]
-      if (
-        oldMention &&
-        (oldMention.text !== mention.text || mention.hasFormatting)
-      ) {
+    const matchedOldIndexes = new Set<number>()
+    const unmatchedNextMentions = nextMentions.filter((mention) => {
+      const matchingIndex = oldMentions.findIndex(
+        (oldMention, index) =>
+          !matchedOldIndexes.has(index) && oldMention.text === mention.text
+      )
+      if (matchingIndex === -1) {
+        return true
+      }
+      matchedOldIndexes.add(matchingIndex)
+      if (mention.hasFormatting) {
         editedIndexes.add(mention.index)
       }
+      return false
     })
-    if (nextMentions.length <= oldMentions.length) {
+    const unmatchedOldMentions = oldMentions.filter(
+      (_mention, index) => !matchedOldIndexes.has(index)
+    )
+    const pairedCount = Math.min(
+      unmatchedOldMentions.length,
+      unmatchedNextMentions.length
+    )
+    for (let index = 0; index < pairedCount; index += 1) {
+      const mention = unmatchedNextMentions[index]
+      if (mention) {
+        editedIndexes.add(mention.index)
+      }
+    }
+    if (unmatchedNextMentions.length <= unmatchedOldMentions.length) {
       continue
     }
     let nextIndex = 0
-    for (const oldMention of oldMentions) {
+    for (const oldMention of unmatchedOldMentions) {
       let combinedText = ""
       const consumedIndexes: number[] = []
       while (
-        nextIndex < nextMentions.length &&
+        nextIndex < unmatchedNextMentions.length &&
         combinedText.length < oldMention.text.length
       ) {
-        const nextMention = nextMentions[nextIndex]
+        const nextMention = unmatchedNextMentions[nextIndex]
         if (!nextMention) {
           break
         }
@@ -167,10 +186,10 @@ export interface SerializedTiptapComment {
   workflowId: string | null
 }
 
-// Labels may contain escaped Markdown characters. Match escaped characters as
-// one unit so an escaped `]` does not terminate the link text early.
+// TipTap may leave `]` raw inside link text. Treat it as label content unless
+// it opens this workflow target, and stop before another workflow label start.
 const WORKFLOW_MENTION_PATTERN = new RegExp(
-  `\\[(?:\\\\.|[^\\]])*\\]\\(${WORKFLOW_MENTION_URI_SCHEME}([^\\s)]+)\\)[ \\t]?`,
+  `\\[\\/(?:\\\\.|\\](?!\\(${WORKFLOW_MENTION_URI_SCHEME})|(?!\\[\\/)[^\\]])*\\]\\(${WORKFLOW_MENTION_URI_SCHEME}([^\\s)]+)\\)[ \\t]?`,
   "g"
 )
 

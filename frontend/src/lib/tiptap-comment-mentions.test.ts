@@ -79,6 +79,22 @@ describe("TipTap comment mention serialization", () => {
     ).toEqual({ content: "Before after", workflowId })
   })
 
+  it("handles raw closing brackets in TipTap workflow labels", () => {
+    expect(
+      serializeTiptapComment(
+        `Before [/Review ] alert](${buildWorkflowMentionHref(workflowId)}) after`
+      )
+    ).toEqual({ content: "Before after", workflowId })
+  })
+
+  it("does not consume an earlier bracketed slash literal", () => {
+    expect(
+      serializeTiptapComment(
+        `Keep [/literal] before [/Review ] alert](${buildWorkflowMentionHref(workflowId)}) after`
+      )
+    ).toEqual({ content: "Keep [/literal] before after", workflowId })
+  })
+
   it("does not change ordinary links or text containing slash commands", () => {
     const markdown = "Run /Enrich or read [the docs](https://example.com)"
     expect(serializeTiptapComment(markdown)).toEqual({
@@ -288,6 +304,25 @@ describe("TipTap comment mention serialization", () => {
         [{ ...workflowMention, text: "/Enrich" }]
       )
     ).toEqual([0])
+  })
+
+  it("preserves a duplicate target with an unchanged historical label", () => {
+    const href = buildAgentMentionHref("agent-id")
+    const currentMention = {
+      href,
+      text: "@Current agent name",
+      hasFormatting: false,
+    }
+
+    expect(
+      findEditedCommentMentionIndexes(
+        [
+          { href, text: "@Historical agent name", hasFormatting: false },
+          currentMention,
+        ],
+        [currentMention]
+      )
+    ).toEqual([])
   })
 
   it("does not treat inserted or replaced mentions as label edits", () => {
