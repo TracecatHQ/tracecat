@@ -51,6 +51,7 @@ from tracecat_ee.agent.types import AgentWorkflowID
 from tracecat_ee.agent.workflows.durable import (
     APPROVAL_STREAM_V2_PATCH,
     PRESERVE_RESUMED_AGENT_BINDINGS_PATCH,
+    RESOLVE_AGENTS_PER_TURN_PATCH,
     AgentWorkflowArgs,
     DurableAgentWorkflow,
     WorkflowApprovalSubmission,
@@ -97,6 +98,7 @@ from tracecat.agent.session.activities import (
 )
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.skill.types import ResolvedSkillRef
 from tracecat.agent.subagents import (
     AgentSubagentsConfig,
     ResolvedAgentsConfig,
@@ -1289,13 +1291,27 @@ async def test_approval_wait_cancellation_defers_end_until_marker_and_finalize(
 
 @pytest.mark.anyio
 @pytest.mark.integration
-async def test_agent_workflow_replays_and_preserves_stored_subagent_binding_on_resume(
+@pytest.mark.parametrize(
+    ("legacy", "stored_has_agents", "incoming_has_agents"),
+    [
+        (True, True, True),
+        (False, True, True),
+        (False, True, False),
+        (False, False, True),
+    ],
+    ids=["legacy-pinned", "new-version", "removed", "added"],
+)
+async def test_agent_workflow_resolves_turn_bindings_and_replays(
     svc_role: Role,
     temporal_client: Client,
     agent_worker_factory,
     mock_session_id: uuid.UUID,
+    monkeypatch: pytest.MonkeyPatch,
+    legacy: bool,
+    stored_has_agents: bool,
+    incoming_has_agents: bool,
 ) -> None:
-    """A resumed history keeps its exact subagent binding across replay."""
+    """New turns refresh dependencies; old histories keep session bindings."""
     queue = f"test-agent-queue-{mock_session_id}"
     child_preset_id = uuid.uuid4()
     stored_version_id = uuid.uuid4()
@@ -1312,11 +1328,26 @@ async def test_agent_workflow_replays_and_preserves_stored_subagent_binding_on_r
         preset_id=child_preset_id,
         preset_version_id=latest_version_id,
     )
-    stored_binding = ResolvedAgentsConfig(subagents=[stored_ref])
-    latest_agents_config = AgentSubagentsConfig(subagents=[latest_ref])
+    stored_binding = ResolvedAgentsConfig(
+        subagents=[stored_ref] if stored_has_agents else []
+    )
+    latest_agents_config = AgentSubagentsConfig(
+        subagents=[latest_ref] if incoming_has_agents else []
+    )
+    expected_refs = (
+        [stored_ref] if legacy else ([latest_ref] if incoming_has_agents else [])
+    )
     resolve_inputs: list[ResolveAgentsConfigActivityInput] = []
     create_inputs: list[CreateSessionInput] = []
     agent_inputs: list[AgentExecutorInput] = []
+    approval_done = asyncio.Event()
+    approval_continuation = not legacy and stored_has_agents and incoming_has_agents
+    skill_ref = ResolvedSkillRef(
+        skill_id=uuid.uuid4(),
+        skill_name="analysis",
+        skill_version_id=uuid.uuid4(),
+        manifest_sha256="a" * 64,
+    )
 
     @activity.defn(name="load_session_activity")
     async def mock_load_session_activity(
@@ -1335,17 +1366,17 @@ async def test_agent_workflow_replays_and_preserves_stored_subagent_binding_on_r
         input: ResolveAgentsConfigActivityInput,
     ) -> ResolvedAgentsRuntimeConfig:
         resolve_inputs.append(input)
-        assert input.follow_latest_versions is False
+        assert input.follow_latest_versions is (False if legacy else None)
         assert len(input.agents.subagents) == 1
         resolved_ref = input.agents.subagents[0]
         assert isinstance(resolved_ref, ResolvedAttachedSubagentRef)
-        assert resolved_ref.preset_version_id == stored_version_id
+        assert resolved_ref == expected_refs[0]
 
         return ResolvedAgentsRuntimeConfig(
             subagents=[
                 ResolvedSubagentConfig(
-                    binding=stored_ref,
-                    description="Stored analyst",
+                    binding=expected_refs[0],
+                    description="Resolved analyst",
                     prompt="Complete the delegated analysis.",
                     config=agent_config_to_payload(
                         AgentConfig(
@@ -1363,7 +1394,8 @@ async def test_agent_workflow_replays_and_preserves_stored_subagent_binding_on_r
         input: CreateSessionInput,
     ) -> CreateSessionResult:
         create_inputs.append(input)
-        assert input.agents_binding == stored_binding
+        assert input.agents_binding == ResolvedAgentsConfig(subagents=expected_refs)
+        assert input.enforce_session_agents_binding is legacy
         return CreateSessionResult(session_id=input.session_id, success=True)
 
     @activity.defn(name="run_agent_activity")
@@ -1371,7 +1403,31 @@ async def test_agent_workflow_replays_and_preserves_stored_subagent_binding_on_r
         input: AgentExecutorInput,
     ) -> AgentExecutorResult:
         agent_inputs.append(input)
+        if approval_continuation and len(agent_inputs) == 1:
+            return AgentExecutorResult(
+                success=True,
+                approval_requested=True,
+                approval_items=[
+                    ToolCallContent(
+                        id="call-frozen-turn",
+                        name="core__http_request",
+                        input={"url": "https://example.com", "method": "GET"},
+                    )
+                ],
+            )
         return AgentExecutorResult(success=True, output={"status": "ok"})
+
+    @activity.defn(name="record_approval_requests")
+    async def mock_record_approval_requests(
+        input: PersistApprovalsActivityInputs,
+    ) -> None:
+        del input
+
+    @activity.defn(name="apply_approval_decisions")
+    async def mock_apply_approval_decisions(
+        input: ApplyApprovalResultsActivityInputs,
+    ) -> None:
+        del input
 
     workflow_args = AgentWorkflowArgs(
         role=svc_role,
@@ -1383,6 +1439,7 @@ async def test_agent_workflow_replays_and_preserves_stored_subagent_binding_on_r
                 model_provider="anthropic",
                 actions=[],
                 agents=latest_agents_config,
+                resolved_skills=[skill_ref],
             ),
         ),
         entity_type=AgentSessionEntity.WORKFLOW,
@@ -1399,9 +1456,20 @@ async def test_agent_workflow_replays_and_preserves_stored_subagent_binding_on_r
         create_mock_execute_action_activity(),
         create_mock_reconcile_tool_results_activity(),
         create_mock_finalize_turn_activity(),
-        create_mock_emit_session_done_activity(),
-        *ApprovalManager.get_activities(),
+        create_mock_emit_session_done_activity(done_event=approval_done),
+        mock_record_approval_requests,
+        mock_apply_approval_decisions,
     ]
+
+    original_patched = temporal_workflow.patched
+
+    def legacy_patched(patch_id: str) -> bool:
+        if patch_id == RESOLVE_AGENTS_PER_TURN_PATCH:
+            return False
+        return original_patched(patch_id)
+
+    if legacy:
+        monkeypatch.setattr(temporal_workflow, "patched", legacy_patched)
 
     async with agent_worker_factory(
         temporal_client, task_queue=queue, custom_activities=activities
@@ -1414,12 +1482,26 @@ async def test_agent_workflow_replays_and_preserves_stored_subagent_binding_on_r
             retry_policy=RETRY_POLICIES["workflow:fail_fast"],
             execution_timeout=timedelta(seconds=30),
         )
+        if approval_continuation:
+            await asyncio.wait_for(approval_done.wait(), timeout=10)
+            await handle.execute_update(
+                DurableAgentWorkflow.set_approvals,
+                WorkflowApprovalSubmission(
+                    approvals={"call-frozen-turn": True},
+                    approved_by=svc_role.user_id,
+                ),
+            )
         result = await handle.result()
         completed_history = await handle.fetch_history()
-        assert PRESERVE_RESUMED_AGENT_BINDINGS_PATCH in await recorded_patch_ids(
-            temporal_client,
-            completed_history,
-        )
+        patch_ids = await recorded_patch_ids(temporal_client, completed_history)
+        assert (
+            PRESERVE_RESUMED_AGENT_BINDINGS_PATCH
+            if legacy
+            else RESOLVE_AGENTS_PER_TURN_PATCH
+        ) in patch_ids
+        # Replay old histories against the new worker code, without the test's
+        # simulation of the prior version.
+        monkeypatch.setattr(temporal_workflow, "patched", original_patched)
         await replay_durable_agent_workflow_history(
             temporal_client,
             completed_history,
@@ -1427,13 +1509,26 @@ async def test_agent_workflow_replays_and_preserves_stored_subagent_binding_on_r
 
     assert result.session_id == mock_session_id
     assert result.output == {"status": "ok"}
-    assert len(resolve_inputs) == 1
-    assert resolve_inputs[0].agents.subagents == [stored_ref]
+    assert len(resolve_inputs) == bool(expected_refs)
+    if expected_refs:
+        assert resolve_inputs[0].agents.subagents == expected_refs
     assert len(create_inputs) == 1
-    assert create_inputs[0].agents_binding == stored_binding
-    assert len(agent_inputs) == 1
+    assert create_inputs[0].agents_binding == ResolvedAgentsConfig(
+        subagents=expected_refs
+    )
+    assert len(agent_inputs) == (2 if approval_continuation else 1)
     assert agent_inputs[0].sdk_session_id == "sdk-session"
-    assert [subagent.alias for subagent in agent_inputs[0].subagents] == ["analyst"]
+    assert [subagent.alias for subagent in agent_inputs[0].subagents] == (
+        ["analyst"] if expected_refs else []
+    )
+    if approval_continuation:
+        # Approval may refresh credentials, but it must not resolve dependencies
+        # again or replace the recorded Skill version/configuration.
+        assert agent_inputs[0].config == agent_inputs[1].config
+        assert agent_inputs[0].config.resolved_skills == [skill_ref]
+        assert (
+            agent_inputs[0].subagents[0].config == agent_inputs[1].subagents[0].config
+        )
 
 
 @pytest.mark.anyio

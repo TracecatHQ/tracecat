@@ -990,6 +990,7 @@ class TestCreateSessionActivity:
     )
     @pytest.mark.anyio
     @patch("tracecat.agent.session.activities.AgentSessionService.with_session")
+    @pytest.mark.parametrize("enforce_session_agents_binding", [True, False])
     async def test_existing_session_agents_binding_must_match(
         self,
         mock_with_session,
@@ -1001,14 +1002,16 @@ class TestCreateSessionActivity:
         parent_session_id: uuid.UUID | None,
         expected_success: bool,
         expected_backfill: bool,
+        enforce_session_agents_binding: bool,
     ):
-        """Existing sessions reject binding changes once SDK/fork resume state exists."""
+        """Only legacy activity inputs enforce session-wide bindings."""
         input = CreateSessionInput(
             role=mock_role,
             session_id=mock_session_id,
             entity_type=AgentSessionEntity.AGENT_PRESET,
             entity_id=uuid.uuid4(),
             agents_binding=incoming_agents_binding,
+            enforce_session_agents_binding=enforce_session_agents_binding,
         )
 
         mock_agent_session = MagicMock()
@@ -1027,7 +1030,7 @@ class TestCreateSessionActivity:
         mock_ctx.__aenter__.return_value = mock_service
         mock_with_session.return_value = mock_ctx
 
-        if expected_success:
+        if expected_success or not enforce_session_agents_binding:
             result = await create_session_activity(input)
             assert result.success is True
             assert result.error is None
@@ -1041,7 +1044,7 @@ class TestCreateSessionActivity:
             assert exc_info.value.message == "Agent configuration is invalid"
             assert exc_info.value.non_retryable is True
 
-        if expected_backfill:
+        if expected_backfill and enforce_session_agents_binding:
             assert incoming_agents_binding is not None
             assert (
                 mock_agent_session.agents_binding
