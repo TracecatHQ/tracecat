@@ -3653,6 +3653,16 @@ async def test_run_rebuilds_sandbox_process_exit_from_transport_exit_code(
 
     assert excinfo.value.exit_code == 134
     assert str(excinfo.value.__cause__) == "Sandbox shim failed with exit code 134"
+
+    # The runtime log describes one exception at a time: the attributed error's
+    # type and message together, with the SDK's erased text kept as the cause.
+    log_args = mock_socket_writer.send_log.await_args
+    assert log_args is not None
+    assert log_args.kwargs["error_type"] == "AgentSandboxProcessExitError"
+    assert log_args.kwargs["error_message"] == str(excinfo.value)
+    assert log_args.kwargs["cause_type"] == "Exception"
+    assert log_args.kwargs["cause_message"] == "Sandbox shim failed with exit code 134"
+
     mock_socket_writer.send_error.assert_awaited_once()
     await_args = mock_socket_writer.send_error.await_args
     assert await_args is not None
@@ -3730,3 +3740,10 @@ async def test_run_keeps_original_error_when_sandbox_process_did_not_exit(
     assert await_args.args[0] == "Test error"
     classification = await_args.kwargs["classification"]
     assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+
+    # Nothing was re-attributed, so the log carries no cause fields.
+    log_args = mock_socket_writer.send_log.await_args
+    assert log_args is not None
+    assert log_args.kwargs["error_type"] == "ValueError"
+    assert log_args.kwargs["error_message"] == "Test error"
+    assert "cause_type" not in log_args.kwargs

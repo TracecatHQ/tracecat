@@ -1947,12 +1947,18 @@ class ClaudeAgentRuntime:
             # recover the exit code the transport recorded before attributing.
             error: Exception = _sandbox_process_exit_error(transport) or e
             failure = agent_runtime_failure(error, fallback_message=str(e))
-            await self._event_writer.send_log(
-                "error",
-                "Runtime error",
-                error_type=type(error).__name__,
-                error_message=str(e),
-            )
+            # Log the attributed error's own type and message together, so the
+            # two never describe different exceptions. When attribution
+            # replaced the SDK's exception, its text is kept alongside as the
+            # cause rather than being passed off as the attributed error's.
+            log_fields: dict[str, object] = {
+                "error_type": type(error).__name__,
+                "error_message": str(error),
+            }
+            if error is not e:
+                log_fields["cause_type"] = type(e).__name__
+                log_fields["cause_message"] = str(e)
+            await self._event_writer.send_log("error", "Runtime error", **log_fields)
             await self._event_writer.send_error(
                 failure.message,
                 classification=failure.classification,
