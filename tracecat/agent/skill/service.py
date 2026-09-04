@@ -3179,8 +3179,6 @@ class SkillService(SkillBindingService):
     async def archive_skill(
         self,
         skill_id: uuid.UUID,
-        *,
-        hard_delete: bool = False,
     ) -> None:
         """Delete a skill and permanently unlink it from heads and history."""
 
@@ -3196,13 +3194,10 @@ class SkillService(SkillBindingService):
                     model.skill_id == skill_id,
                 )
             )
-        if hard_delete:
-            await self.session.delete(skill)
-        else:
-            archived_at = datetime.now(UTC)
-            skill.archived_at = archived_at
-            skill.deleted_at = archived_at
-            self.session.add(skill)
+        archived_at = datetime.now(UTC)
+        skill.archived_at = archived_at
+        skill.deleted_at = archived_at
+        self.session.add(skill)
         await self.session.commit()
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)

@@ -3893,10 +3893,8 @@ class TestSkillService:
 
         assert lock_calls == 1
 
-    @pytest.mark.parametrize("hard_delete", [False, True])
     async def test_archive_unlinks_current_and_saved_preset_bindings(
         self,
-        hard_delete: bool,
         session: AsyncSession,
         svc_role: Role,
         skill_service: SkillService,
@@ -3924,7 +3922,7 @@ class TestSkillService:
 
         original_version_id = preset.current_version_id
 
-        await skill_service.archive_skill(created.id, hard_delete=hard_delete)
+        await skill_service.archive_skill(created.id)
 
         refreshed = await preset_service.get_preset(preset.id)
         assert refreshed is not None

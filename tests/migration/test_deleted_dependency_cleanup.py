@@ -16,7 +16,7 @@ from tests.database import TEST_DB_CONFIG
 def test_deleted_dependency_backfill_preserves_live_refs_and_order() -> None:
     migration_path = (
         Path(__file__).parents[2]
-        / "alembic/versions/9e32e2825c0b_unlink_deleted_agent_and_skill_.py"
+        / "alembic/versions/c3a17be4d902_default_agents_config_to_empty_subagents.py"
     )
     spec = importlib.util.spec_from_file_location("dependency_backfill", migration_path)
     assert spec is not None and spec.loader is not None
@@ -47,7 +47,9 @@ def test_deleted_dependency_backfill_preserves_live_refs_and_order() -> None:
                     {
                         "id": parent,
                         "workspace": workspace,
-                        "agents": orjson.dumps({"subagents": refs}).decode(),
+                        "agents": orjson.dumps(
+                            {"enabled": True, "subagents": refs}
+                        ).decode(),
                     },
                 )
             for child, is_deleted in ((deleted, True), (live, False), (other, False)):
@@ -83,13 +85,21 @@ def test_deleted_dependency_backfill_preserves_live_refs_and_order() -> None:
             with Operations.context(MigrationContext.configure(conn)):
                 migration.upgrade()
                 migration.upgrade()  # Safe if retried.
+                for table in ("agent_preset", "agent_preset_version"):
+                    assert conn.scalar(
+                        sa.text(f"INSERT INTO {table} DEFAULT VALUES RETURNING agents")
+                    ) == {"subagents": []}
                 migration.downgrade()  # Never recreates deleted links.
+                for table in ("agent_preset", "agent_preset_version"):
+                    assert conn.scalar(
+                        sa.text(f"INSERT INTO {table} DEFAULT VALUES RETURNING agents")
+                    ) == {"enabled": False}
             for table in ("agent_preset", "agent_preset_version"):
                 agents = conn.scalar(
                     sa.text(f"SELECT agents FROM {table} WHERE id = :parent"),
                     {"parent": parent},
                 )
-                assert agents == {"subagents": [refs[0], refs[2]]}
+                assert agents == {"enabled": True, "subagents": [refs[0], refs[2]]}
             for table in ("agent_preset_skill", "agent_preset_version_skill"):
                 assert conn.scalars(sa.text(f"SELECT skill_id FROM {table}")).all() == [
                     live

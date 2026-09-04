@@ -3422,10 +3422,8 @@ class TestAgentPresetService:
 
         assert call_order == ["lock_target"]
 
-    @pytest.mark.parametrize("hard_delete", [False, True])
     async def test_delete_preset_unlinks_parent_and_saved_versions(
         self,
-        hard_delete: bool,
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
     ) -> None:
@@ -3451,7 +3449,7 @@ class TestAgentPresetService:
 
         original_parent_version_id = parent.current_version_id
 
-        await agent_preset_service.delete_preset(child, hard_delete=hard_delete)
+        await agent_preset_service.delete_preset(child)
 
         refreshed_parent = await agent_preset_service.get_preset(parent.id)
         assert refreshed_parent is not None

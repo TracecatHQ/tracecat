@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any, cast
 import sqlalchemy as sa
 from slugify import slugify
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import JSONB, aggregate_order_by
 from sqlalchemy.orm import selectinload
 
 from tracecat.agent.access.service import AgentModelAccessService
@@ -590,8 +591,6 @@ class AgentPresetService(BaseWorkspaceService):
     async def delete_preset(
         self,
         preset: AgentPreset,
-        *,
-        hard_delete: bool = False,
     ) -> None:
         """Delete a preset and permanently unlink it from heads and history."""
         # Saves lock parents and children in UUID order. Take the same order
@@ -610,11 +609,21 @@ class AgentPresetService(BaseWorkspaceService):
         for model in (AgentPreset, AgentPresetVersion):
             # Version configuration is otherwise immutable. Deletion is the
             # deliberate exception: restoring a version cannot restore a link.
-            remaining = sa.text(
-                "(SELECT COALESCE(jsonb_agg(ref ORDER BY ordinal), '[]'::jsonb) "
-                "FROM jsonb_array_elements(agents->'subagents') "
-                "WITH ORDINALITY AS refs(ref, ordinal) "
-                "WHERE ref->>'preset_id' IS DISTINCT FROM :deleted_preset_id)"
+            refs = (
+                func.jsonb_array_elements(model.agents["subagents"])
+                .table_valued(sa.column("ref", JSONB), with_ordinality="ordinal")
+                .render_derived(name="refs")
+            )
+            remaining = (
+                select(
+                    func.coalesce(
+                        func.jsonb_agg(aggregate_order_by(refs.c.ref, refs.c.ordinal)),
+                        sa.cast([], JSONB),
+                    )
+                )
+                .where(refs.c.ref["preset_id"].astext.is_distinct_from(str(preset.id)))
+                .correlate(model.__table__)
+                .scalar_subquery()
             )
             stmt = (
                 sa.update(model)
@@ -637,15 +646,11 @@ class AgentPresetService(BaseWorkspaceService):
             result = await self.session.scalars(
                 sa.select(model)
                 .from_statement(stmt)
-                .execution_options(populate_existing=True),
-                {"deleted_preset_id": str(preset.id)},
+                .execution_options(populate_existing=True)
             )
             result.all()
-        if hard_delete:
-            await self.session.delete(preset)
-        else:
-            preset.deleted_at = datetime.now(UTC)
-            self.session.add(preset)
+        preset.deleted_at = datetime.now(UTC)
+        self.session.add(preset)
         await self.session.commit()
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
