@@ -177,13 +177,24 @@ class AgentPresetReadMinimal(Schema):
     updated_at: datetime
 
 
+def effective_subagents_enabled(subagents_enabled: bool, agents: object) -> bool:
+    """Return the fail-closed enabled bit during the dual-write window."""
+
+    if subagents_enabled:
+        return True
+    return isinstance(agents, dict) and agents.get("enabled") is True
+
+
 def build_agent_preset_read_minimal(
     preset: AgentPreset,
 ) -> AgentPresetReadMinimal:
     """Build a minimal preset response without exposing approval rule details."""
     read = AgentPresetReadMinimal.model_validate(preset)
-    agents_config = cast(
-        AgentSubagentsConfig | Mapping[str, object] | None, preset.agents
+    agents_config = AgentSubagentsConfig(
+        enabled=effective_subagents_enabled(
+            preset.subagents_enabled,
+            preset.agents,
+        )
     )
     tool_approvals = cast(Mapping[str, bool] | None, preset.tool_approvals)
     return read.model_copy(

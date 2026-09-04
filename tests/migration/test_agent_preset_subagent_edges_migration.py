@@ -1,0 +1,1114 @@
+"""Tests for normalized agent preset subagent edge backfill."""
+
+from __future__ import annotations
+
+import os
+import subprocess
+import uuid
+from collections.abc import Iterator
+
+import orjson
+import pytest
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import Connection
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.pool import NullPool
+
+from tests.database import TEST_DB_CONFIG
+
+MIGRATION_REVISION = "44320bf05445"
+PREVIOUS_REVISION = "c6a8d4f3b2e1"
+
+
+def _invoke_alembic(db_url: str, *args: str) -> subprocess.CompletedProcess[str]:
+    env = os.environ.copy()
+    env["TRACECAT__DB_URI"] = db_url
+    return subprocess.run(
+        ["uv", "run", "alembic", *args],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def _run_alembic(db_url: str, *args: str) -> None:
+    result = _invoke_alembic(db_url, *args)
+    if result.returncode != 0:
+        raise RuntimeError(
+            "Alembic command failed:\n"
+            f"stdout:\n{result.stdout}\n"
+            f"stderr:\n{result.stderr}"
+        )
+
+
+@pytest.fixture(scope="function")
+def migration_db_url() -> Iterator[str]:
+    default_engine = create_engine(
+        TEST_DB_CONFIG.sys_url_sync,
+        isolation_level="AUTOCOMMIT",
+        poolclass=NullPool,
+    )
+    db_name = f"test_preset_subagent_edges_{uuid.uuid4().hex[:8]}"
+    termination_query = text(
+        f"""
+        SELECT pg_terminate_backend(pg_stat_activity.pid)
+        FROM pg_stat_activity
+        WHERE pg_stat_activity.datname = '{db_name}'
+          AND pid <> pg_backend_pid();
+        """
+    )
+
+    try:
+        with default_engine.connect() as conn:
+            conn.execute(termination_query)
+            conn.execute(text(f'CREATE DATABASE "{db_name}"'))
+
+        db_url = TEST_DB_CONFIG.test_url_sync.replace(
+            TEST_DB_CONFIG.test_db_name, db_name
+        )
+        _run_alembic(db_url, "upgrade", PREVIOUS_REVISION)
+        yield db_url
+    finally:
+        with default_engine.connect() as conn:
+            conn.execute(termination_query)
+            conn.execute(text(f'DROP DATABASE IF EXISTS "{db_name}"'))
+        default_engine.dispose()
+
+
+def _insert_preset(
+    conn: Connection,
+    *,
+    preset_id: uuid.UUID,
+    workspace_id: uuid.UUID,
+    name: str,
+    slug: str,
+    agents: dict[str, object],
+    deleted: bool = False,
+) -> None:
+    conn.execute(
+        text(
+            """
+            INSERT INTO agent_preset (
+                id,
+                workspace_id,
+                name,
+                slug,
+                model_name,
+                model_provider,
+                retries,
+                agents,
+                deleted_at
+            )
+            VALUES (
+                :id,
+                :workspace_id,
+                :name,
+                :slug,
+                'test-model',
+                'test-provider',
+                3,
+                CAST(:agents AS jsonb),
+                CASE WHEN :deleted THEN now() ELSE NULL END
+            )
+            """
+        ),
+        {
+            "id": preset_id,
+            "workspace_id": workspace_id,
+            "name": name,
+            "slug": slug,
+            "agents": orjson.dumps(agents).decode(),
+            "deleted": deleted,
+        },
+    )
+
+
+def test_subagent_edge_migration_backfills_head_and_version_refs(
+    migration_db_url: str,
+) -> None:
+    organization_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    child_by_id = uuid.uuid4()
+    child_by_slug = uuid.uuid4()
+    parent_id = uuid.uuid4()
+    parent_version_id = uuid.uuid4()
+    agents: dict[str, object] = {
+        "enabled": True,
+        "subagents": [
+            {
+                "preset": "id-child-old-slug",
+                "preset_id": str(child_by_id),
+                "preset_version_id": str(uuid.uuid4()),
+                "preset_version": 1,
+                "name": "triage",
+                "description": "Triage alerts",
+                "max_turns": 4,
+            },
+            {"preset": "slug-child"},
+        ],
+    }
+
+    engine = create_engine(migration_db_url, poolclass=NullPool)
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO organization (id, name, slug, is_active)
+                    VALUES (:id, 'Subagent edge org', :slug, true)
+                    """
+                ),
+                {
+                    "id": organization_id,
+                    "slug": f"subagent-edge-org-{organization_id.hex[:8]}",
+                },
+            )
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO workspace (id, organization_id, name)
+                    VALUES (:id, :organization_id, 'Subagent edge workspace')
+                    """
+                ),
+                {"id": workspace_id, "organization_id": organization_id},
+            )
+            _insert_preset(
+                conn,
+                preset_id=child_by_id,
+                workspace_id=workspace_id,
+                name="ID child",
+                slug="id-child-current-slug",
+                agents={"enabled": False},
+            )
+            _insert_preset(
+                conn,
+                preset_id=child_by_slug,
+                workspace_id=workspace_id,
+                name="Slug child",
+                slug="slug-child",
+                agents={"enabled": False},
+            )
+            _insert_preset(
+                conn,
+                preset_id=parent_id,
+                workspace_id=workspace_id,
+                name="Parent",
+                slug="parent",
+                agents=agents,
+            )
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO agent_preset_version (
+                        id,
+                        preset_id,
+                        version,
+                        model_name,
+                        model_provider,
+                        retries,
+                        workspace_id,
+                        agents
+                    )
+                    VALUES (
+                        :id,
+                        :preset_id,
+                        1,
+                        'test-model',
+                        'test-provider',
+                        3,
+                        :workspace_id,
+                        CAST(:agents AS jsonb)
+                    )
+                    """
+                ),
+                {
+                    "id": parent_version_id,
+                    "preset_id": parent_id,
+                    "workspace_id": workspace_id,
+                    "agents": orjson.dumps(agents).decode(),
+                },
+            )
+
+        _run_alembic(migration_db_url, "upgrade", MIGRATION_REVISION)
+
+        with engine.begin() as conn:
+            head_enabled = conn.execute(
+                text("SELECT subagents_enabled FROM agent_preset WHERE id = :id"),
+                {"id": parent_id},
+            ).scalar_one()
+            version_enabled = conn.execute(
+                text(
+                    "SELECT subagents_enabled FROM agent_preset_version WHERE id = :id"
+                ),
+                {"id": parent_version_id},
+            ).scalar_one()
+            head_rows = (
+                conn.execute(
+                    text(
+                        """
+                        SELECT child_preset_id, alias, description, max_turns
+                        FROM agent_preset_subagent
+                        WHERE parent_preset_id = :parent_id
+                        ORDER BY alias
+                        """
+                    ),
+                    {"parent_id": parent_id},
+                )
+                .mappings()
+                .all()
+            )
+            version_rows = (
+                conn.execute(
+                    text(
+                        """
+                        SELECT child_preset_id, alias, description, max_turns
+                        FROM agent_preset_version_subagent
+                        WHERE parent_preset_version_id = :parent_version_id
+                        ORDER BY alias
+                        """
+                    ),
+                    {"parent_version_id": parent_version_id},
+                )
+                .mappings()
+                .all()
+            )
+
+        assert head_enabled is True
+        assert version_enabled is True
+        assert [row["child_preset_id"] for row in head_rows] == [
+            child_by_slug,
+            child_by_id,
+        ]
+        assert [row["alias"] for row in head_rows] == ["slug-child", "triage"]
+        assert head_rows[1]["description"] == "Triage alerts"
+        assert head_rows[1]["max_turns"] == 4
+        assert version_rows == head_rows
+    finally:
+        engine.dispose()
+
+
+def test_subagent_edge_migration_ignores_soft_deleted_presets(
+    migration_db_url: str,
+) -> None:
+    """Soft-deleted rows must not block or hijack the slug backfill.
+
+    Invariants:
+    - A slug shared by an active preset and a tombstone resolves to the
+      active preset (head and version backfills) instead of aborting on an
+      ambiguous match.
+    - A version ref whose only slug match is a tombstone keeps its edge;
+      historical snapshots may point at later-deleted children.
+    - Soft-deleted parents (and versions owned by them) are skipped even if
+      their refs no longer resolve.
+    """
+
+    organization_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    active_child = uuid.uuid4()
+    tombstone_child = uuid.uuid4()
+    deleted_only_child = uuid.uuid4()
+    parent_id = uuid.uuid4()
+    parent_version_id = uuid.uuid4()
+    deleted_parent_id = uuid.uuid4()
+    deleted_parent_version_id = uuid.uuid4()
+
+    head_agents: dict[str, object] = {
+        "enabled": True,
+        "subagents": [{"preset": "shared-slug"}],
+    }
+    version_agents: dict[str, object] = {
+        "enabled": True,
+        "subagents": [{"preset": "shared-slug"}, {"preset": "gone-child"}],
+    }
+    dangling_agents: dict[str, object] = {
+        "enabled": True,
+        "subagents": [{"preset": "nonexistent-slug"}],
+    }
+
+    engine = create_engine(migration_db_url, poolclass=NullPool)
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO organization (id, name, slug, is_active)
+                    VALUES (:id, 'Soft delete org', :slug, true)
+                    """
+                ),
+                {
+                    "id": organization_id,
+                    "slug": f"soft-delete-org-{organization_id.hex[:8]}",
+                },
+            )
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO workspace (id, organization_id, name)
+                    VALUES (:id, :organization_id, 'Soft delete workspace')
+                    """
+                ),
+                {"id": workspace_id, "organization_id": organization_id},
+            )
+            _insert_preset(
+                conn,
+                preset_id=active_child,
+                workspace_id=workspace_id,
+                name="Active child",
+                slug="shared-slug",
+                agents={"enabled": False},
+            )
+            _insert_preset(
+                conn,
+                preset_id=tombstone_child,
+                workspace_id=workspace_id,
+                name="Tombstone child",
+                slug="shared-slug",
+                agents={"enabled": False},
+                deleted=True,
+            )
+            _insert_preset(
+                conn,
+                preset_id=deleted_only_child,
+                workspace_id=workspace_id,
+                name="Deleted only child",
+                slug="gone-child",
+                agents={"enabled": False},
+                deleted=True,
+            )
+            _insert_preset(
+                conn,
+                preset_id=parent_id,
+                workspace_id=workspace_id,
+                name="Parent",
+                slug="soft-delete-parent",
+                agents=head_agents,
+            )
+            _insert_preset(
+                conn,
+                preset_id=deleted_parent_id,
+                workspace_id=workspace_id,
+                name="Deleted parent",
+                slug="deleted-parent",
+                agents=dangling_agents,
+                deleted=True,
+            )
+            for version_id, preset_id_, agents_ in (
+                (parent_version_id, parent_id, version_agents),
+                (deleted_parent_version_id, deleted_parent_id, dangling_agents),
+            ):
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO agent_preset_version (
+                            id,
+                            preset_id,
+                            version,
+                            model_name,
+                            model_provider,
+                            retries,
+                            workspace_id,
+                            agents
+                        )
+                        VALUES (
+                            :id,
+                            :preset_id,
+                            1,
+                            'test-model',
+                            'test-provider',
+                            3,
+                            :workspace_id,
+                            CAST(:agents AS jsonb)
+                        )
+                        """
+                    ),
+                    {
+                        "id": version_id,
+                        "preset_id": preset_id_,
+                        "workspace_id": workspace_id,
+                        "agents": orjson.dumps(agents_).decode(),
+                    },
+                )
+
+        _run_alembic(migration_db_url, "upgrade", MIGRATION_REVISION)
+
+        with engine.begin() as conn:
+            head_children = (
+                conn.execute(
+                    text(
+                        """
+                    SELECT child_preset_id
+                    FROM agent_preset_subagent
+                    WHERE parent_preset_id = :parent_id
+                    ORDER BY alias
+                    """
+                    ),
+                    {"parent_id": parent_id},
+                )
+                .scalars()
+                .all()
+            )
+            version_children = (
+                conn.execute(
+                    text(
+                        """
+                    SELECT child_preset_id
+                    FROM agent_preset_version_subagent
+                    WHERE parent_preset_version_id = :parent_version_id
+                    ORDER BY alias
+                    """
+                    ),
+                    {"parent_version_id": parent_version_id},
+                )
+                .scalars()
+                .all()
+            )
+            deleted_parent_edges = conn.execute(
+                text(
+                    """
+                    SELECT count(*) FROM agent_preset_subagent
+                    WHERE parent_preset_id = :parent_id
+                    """
+                ),
+                {"parent_id": deleted_parent_id},
+            ).scalar_one()
+            deleted_version_edges = conn.execute(
+                text(
+                    """
+                    SELECT count(*) FROM agent_preset_version_subagent
+                    WHERE parent_preset_version_id = :parent_version_id
+                    """
+                ),
+                {"parent_version_id": deleted_parent_version_id},
+            ).scalar_one()
+
+        assert head_children == [active_child]
+        assert version_children == [deleted_only_child, active_child]
+        assert deleted_parent_edges == 0
+        assert deleted_version_edges == 0
+    finally:
+        engine.dispose()
+
+
+def _setup_org_workspace(conn: Connection, *, label: str) -> uuid.UUID:
+    """Insert one org + workspace pair and return the workspace id."""
+
+    organization_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    conn.execute(
+        text(
+            """
+            INSERT INTO organization (id, name, slug, is_active)
+            VALUES (:id, :name, :slug, true)
+            """
+        ),
+        {
+            "id": organization_id,
+            "name": f"{label} org",
+            "slug": f"{label}-org-{organization_id.hex[:8]}",
+        },
+    )
+    conn.execute(
+        text(
+            """
+            INSERT INTO workspace (id, organization_id, name)
+            VALUES (:id, :organization_id, :name)
+            """
+        ),
+        {
+            "id": workspace_id,
+            "organization_id": organization_id,
+            "name": f"{label} workspace",
+        },
+    )
+    return workspace_id
+
+
+def _insert_preset_version(
+    conn: Connection,
+    *,
+    version_id: uuid.UUID,
+    preset_id: uuid.UUID,
+    workspace_id: uuid.UUID,
+    agents: dict[str, object],
+) -> None:
+    conn.execute(
+        text(
+            """
+            INSERT INTO agent_preset_version (
+                id,
+                preset_id,
+                version,
+                model_name,
+                model_provider,
+                retries,
+                workspace_id,
+                agents
+            )
+            VALUES (
+                :id,
+                :preset_id,
+                1,
+                'test-model',
+                'test-provider',
+                3,
+                :workspace_id,
+                CAST(:agents AS jsonb)
+            )
+            """
+        ),
+        {
+            "id": version_id,
+            "preset_id": preset_id,
+            "workspace_id": workspace_id,
+            "agents": orjson.dumps(agents).decode(),
+        },
+    )
+
+
+def test_subagent_edge_migration_rejects_duplicate_alias(
+    migration_db_url: str,
+) -> None:
+    """Invariant: two head refs sharing an alias abort the upgrade wholesale."""
+
+    child_a = uuid.uuid4()
+    child_b = uuid.uuid4()
+    engine = create_engine(migration_db_url, poolclass=NullPool)
+    try:
+        with engine.begin() as conn:
+            workspace_id = _setup_org_workspace(conn, label="dup-alias")
+            _insert_preset(
+                conn,
+                preset_id=child_a,
+                workspace_id=workspace_id,
+                name="Child A",
+                slug="dup-child-a",
+                agents={"enabled": False},
+            )
+            _insert_preset(
+                conn,
+                preset_id=child_b,
+                workspace_id=workspace_id,
+                name="Child B",
+                slug="dup-child-b",
+                agents={"enabled": False},
+            )
+            _insert_preset(
+                conn,
+                preset_id=uuid.uuid4(),
+                workspace_id=workspace_id,
+                name="Parent",
+                slug="dup-alias-parent",
+                agents={
+                    "enabled": True,
+                    "subagents": [
+                        {"preset": "dup-child-a", "name": "same"},
+                        {"preset": "dup-child-b", "name": "same"},
+                    ],
+                },
+            )
+
+        result = _invoke_alembic(migration_db_url, "upgrade", MIGRATION_REVISION)
+
+        assert result.returncode != 0
+        assert "duplicate alias on preset head" in result.stdout + result.stderr
+    finally:
+        engine.dispose()
+
+
+def test_subagent_edge_migration_rejects_unresolved_slug_ref(
+    migration_db_url: str,
+) -> None:
+    """Invariant: a slug ref with no live owner in its workspace aborts."""
+
+    engine = create_engine(migration_db_url, poolclass=NullPool)
+    try:
+        with engine.begin() as conn:
+            workspace_id = _setup_org_workspace(conn, label="unresolved-slug")
+            _insert_preset(
+                conn,
+                preset_id=uuid.uuid4(),
+                workspace_id=workspace_id,
+                name="Parent",
+                slug="unresolved-parent",
+                agents={
+                    "enabled": True,
+                    "subagents": [{"preset": "never-existed"}],
+                },
+            )
+
+        result = _invoke_alembic(migration_db_url, "upgrade", MIGRATION_REVISION)
+
+        assert result.returncode != 0
+        assert (
+            "unresolved or cross-workspace head reference"
+            in result.stdout + result.stderr
+        )
+    finally:
+        engine.dispose()
+
+
+def test_subagent_edge_migration_rejects_ambiguous_tombstone_slug(
+    migration_db_url: str,
+) -> None:
+    """Invariant: a version slug ref matching only multiple tombstones aborts.
+
+    A sole tombstone match keeps its edge (historical snapshots may reference
+    later-deleted children), but two tombstones sharing the slug leave no
+    deterministic owner and must fail loudly instead of picking one.
+    """
+
+    parent_id = uuid.uuid4()
+    engine = create_engine(migration_db_url, poolclass=NullPool)
+    try:
+        with engine.begin() as conn:
+            workspace_id = _setup_org_workspace(conn, label="ambiguous-tombstone")
+            for index in range(2):
+                _insert_preset(
+                    conn,
+                    preset_id=uuid.uuid4(),
+                    workspace_id=workspace_id,
+                    name=f"Tombstone {index}",
+                    slug="shared-tombstone-slug",
+                    agents={"enabled": False},
+                    deleted=True,
+                )
+            _insert_preset(
+                conn,
+                preset_id=parent_id,
+                workspace_id=workspace_id,
+                name="Parent",
+                slug="ambiguous-parent",
+                agents={"enabled": False},
+            )
+            _insert_preset_version(
+                conn,
+                version_id=uuid.uuid4(),
+                preset_id=parent_id,
+                workspace_id=workspace_id,
+                agents={
+                    "enabled": True,
+                    "subagents": [{"preset": "shared-tombstone-slug"}],
+                },
+            )
+
+        result = _invoke_alembic(migration_db_url, "upgrade", MIGRATION_REVISION)
+
+        assert result.returncode != 0
+        assert (
+            "unresolved or cross-workspace head reference"
+            in result.stdout + result.stderr
+        )
+    finally:
+        engine.dispose()
+
+
+def test_subagent_edge_migration_backfills_enabled_flags(
+    migration_db_url: str,
+) -> None:
+    """Invariant: subagents_enabled mirrors the legacy JSON bit, failing closed.
+
+    Boolean JSON values copy through; a missing or non-boolean value coerces
+    to false rather than enabling subagents by accident.
+    """
+
+    enabled_id = uuid.uuid4()
+    disabled_id = uuid.uuid4()
+    malformed_id = uuid.uuid4()
+    engine = create_engine(migration_db_url, poolclass=NullPool)
+    try:
+        with engine.begin() as conn:
+            workspace_id = _setup_org_workspace(conn, label="enabled-flags")
+            _insert_preset(
+                conn,
+                preset_id=enabled_id,
+                workspace_id=workspace_id,
+                name="Enabled",
+                slug="flag-enabled",
+                agents={"enabled": True, "subagents": []},
+            )
+            _insert_preset(
+                conn,
+                preset_id=disabled_id,
+                workspace_id=workspace_id,
+                name="Disabled",
+                slug="flag-disabled",
+                agents={"enabled": False},
+            )
+            _insert_preset(
+                conn,
+                preset_id=malformed_id,
+                workspace_id=workspace_id,
+                name="Malformed",
+                slug="flag-malformed",
+                agents={"enabled": "yes"},
+            )
+            _insert_preset_version(
+                conn,
+                version_id=uuid.uuid4(),
+                preset_id=enabled_id,
+                workspace_id=workspace_id,
+                agents={"enabled": True, "subagents": []},
+            )
+
+        _run_alembic(migration_db_url, "upgrade", MIGRATION_REVISION)
+
+        with engine.begin() as conn:
+            flags = {
+                row.id: row.subagents_enabled
+                for row in conn.execute(
+                    text(
+                        """
+                        SELECT id, subagents_enabled FROM agent_preset
+                        WHERE workspace_id = :workspace_id
+                        """
+                    ),
+                    {"workspace_id": workspace_id},
+                )
+            }
+            version_flag = conn.execute(
+                text(
+                    """
+                    SELECT subagents_enabled FROM agent_preset_version
+                    WHERE preset_id = :preset_id
+                    """
+                ),
+                {"preset_id": enabled_id},
+            ).scalar_one()
+
+        assert flags[enabled_id] is True
+        assert flags[disabled_id] is False
+        assert flags[malformed_id] is False
+        assert version_flag is True
+    finally:
+        engine.dispose()
+
+
+def test_subagent_edge_migration_downgrade_roundtrip(
+    migration_db_url: str,
+) -> None:
+    """Invariant: downgrade removes everything; re-upgrade rebuilds edges.
+
+    The legacy JSON stays authoritative through the expand window, so a
+    downgrade must lose no data and a second upgrade must reproduce the
+    same edge set from the untouched JSON.
+    """
+
+    child_id = uuid.uuid4()
+    parent_id = uuid.uuid4()
+    engine = create_engine(migration_db_url, poolclass=NullPool)
+    try:
+        with engine.begin() as conn:
+            workspace_id = _setup_org_workspace(conn, label="roundtrip")
+            _insert_preset(
+                conn,
+                preset_id=child_id,
+                workspace_id=workspace_id,
+                name="Roundtrip child",
+                slug="roundtrip-child",
+                agents={"enabled": False},
+            )
+            _insert_preset(
+                conn,
+                preset_id=parent_id,
+                workspace_id=workspace_id,
+                name="Roundtrip parent",
+                slug="roundtrip-parent",
+                agents={
+                    "enabled": True,
+                    "subagents": [{"preset": "roundtrip-child", "name": "helper"}],
+                },
+            )
+
+        _run_alembic(migration_db_url, "upgrade", MIGRATION_REVISION)
+        _run_alembic(migration_db_url, "downgrade", PREVIOUS_REVISION)
+
+        with engine.begin() as conn:
+            tables = {
+                row[0]
+                for row in conn.execute(
+                    text(
+                        """
+                        SELECT table_name FROM information_schema.tables
+                        WHERE table_name IN (
+                            'agent_preset_subagent',
+                            'agent_preset_version_subagent'
+                        )
+                        """
+                    )
+                ).all()
+            }
+            columns = conn.execute(
+                text(
+                    """
+                    SELECT count(*) FROM information_schema.columns
+                    WHERE table_name IN ('agent_preset', 'agent_preset_version')
+                        AND column_name = 'subagents_enabled'
+                    """
+                )
+            ).scalar_one()
+            legacy_agents = conn.execute(
+                text("SELECT agents FROM agent_preset WHERE id = :id"),
+                {"id": parent_id},
+            ).scalar_one()
+
+        assert tables == set()
+        assert columns == 0
+        assert legacy_agents["subagents"][0]["preset"] == "roundtrip-child"
+
+        _run_alembic(migration_db_url, "upgrade", MIGRATION_REVISION)
+
+        with engine.begin() as conn:
+            edges = conn.execute(
+                text(
+                    """
+                    SELECT child_preset_id, alias
+                    FROM agent_preset_subagent
+                    WHERE parent_preset_id = :parent_id
+                    """
+                ),
+                {"parent_id": parent_id},
+            ).all()
+            enabled = conn.execute(
+                text("SELECT subagents_enabled FROM agent_preset WHERE id = :id"),
+                {"id": parent_id},
+            ).scalar_one()
+
+        assert edges == [(child_id, "helper")]
+        assert enabled is True
+    finally:
+        engine.dispose()
+
+
+def test_subagent_edge_migration_rejects_cross_workspace_refs(
+    migration_db_url: str,
+) -> None:
+    organization_id = uuid.uuid4()
+    parent_workspace_id = uuid.uuid4()
+    child_workspace_id = uuid.uuid4()
+    parent_id = uuid.uuid4()
+    child_id = uuid.uuid4()
+
+    engine = create_engine(migration_db_url, poolclass=NullPool)
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO organization (id, name, slug, is_active)
+                    VALUES (:id, 'Cross workspace org', :slug, true)
+                    """
+                ),
+                {
+                    "id": organization_id,
+                    "slug": f"cross-workspace-org-{organization_id.hex[:8]}",
+                },
+            )
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO workspace (id, organization_id, name)
+                    VALUES
+                        (:parent_id, :organization_id, 'Parent workspace'),
+                        (:child_id, :organization_id, 'Child workspace')
+                    """
+                ),
+                {
+                    "parent_id": parent_workspace_id,
+                    "child_id": child_workspace_id,
+                    "organization_id": organization_id,
+                },
+            )
+            _insert_preset(
+                conn,
+                preset_id=child_id,
+                workspace_id=child_workspace_id,
+                name="Foreign child",
+                slug="foreign-child",
+                agents={"enabled": False},
+            )
+            _insert_preset(
+                conn,
+                preset_id=parent_id,
+                workspace_id=parent_workspace_id,
+                name="Parent",
+                slug="parent",
+                agents={
+                    "enabled": True,
+                    "subagents": [
+                        {
+                            "preset": "foreign-child",
+                            "preset_id": str(child_id),
+                            "preset_version_id": str(uuid.uuid4()),
+                            "preset_version": 1,
+                        }
+                    ],
+                },
+            )
+
+        result = _invoke_alembic(
+            migration_db_url,
+            "upgrade",
+            MIGRATION_REVISION,
+        )
+
+        assert result.returncode != 0
+        assert (
+            "unresolved or cross-workspace head reference"
+            in result.stdout + result.stderr
+        )
+    finally:
+        engine.dispose()
+
+
+def test_subagent_edge_tables_reject_new_cross_workspace_refs(
+    migration_db_url: str,
+) -> None:
+    """Composite foreign keys enforce tenant ownership after the backfill."""
+
+    organization_id = uuid.uuid4()
+    parent_workspace_id = uuid.uuid4()
+    child_workspace_id = uuid.uuid4()
+    parent_id = uuid.uuid4()
+    parent_version_id = uuid.uuid4()
+    child_id = uuid.uuid4()
+
+    engine = create_engine(migration_db_url, poolclass=NullPool)
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO organization (id, name, slug, is_active)
+                    VALUES (:id, 'Edge constraint org', :slug, true)
+                    """
+                ),
+                {
+                    "id": organization_id,
+                    "slug": f"edge-constraint-org-{organization_id.hex[:8]}",
+                },
+            )
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO workspace (id, organization_id, name)
+                    VALUES
+                        (:parent_id, :organization_id, 'Parent workspace'),
+                        (:child_id, :organization_id, 'Child workspace')
+                    """
+                ),
+                {
+                    "parent_id": parent_workspace_id,
+                    "child_id": child_workspace_id,
+                    "organization_id": organization_id,
+                },
+            )
+            _insert_preset(
+                conn,
+                preset_id=parent_id,
+                workspace_id=parent_workspace_id,
+                name="Parent",
+                slug="parent",
+                agents={"enabled": False},
+            )
+            _insert_preset(
+                conn,
+                preset_id=child_id,
+                workspace_id=child_workspace_id,
+                name="Foreign child",
+                slug="foreign-child",
+                agents={"enabled": False},
+            )
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO agent_preset_version (
+                        id,
+                        preset_id,
+                        version,
+                        model_name,
+                        model_provider,
+                        retries,
+                        workspace_id,
+                        agents
+                    )
+                    VALUES (
+                        :id,
+                        :preset_id,
+                        1,
+                        'test-model',
+                        'test-provider',
+                        3,
+                        :workspace_id,
+                        '{"enabled": false}'::jsonb
+                    )
+                    """
+                ),
+                {
+                    "id": parent_version_id,
+                    "preset_id": parent_id,
+                    "workspace_id": parent_workspace_id,
+                },
+            )
+
+        _run_alembic(migration_db_url, "upgrade", MIGRATION_REVISION)
+
+        with pytest.raises(IntegrityError):
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO agent_preset_subagent (
+                            id,
+                            parent_preset_id,
+                            child_preset_id,
+                            alias,
+                            workspace_id
+                        )
+                        VALUES (
+                            :id,
+                            :parent_id,
+                            :child_id,
+                            'foreign-child',
+                            :workspace_id
+                        )
+                        """
+                    ),
+                    {
+                        "id": uuid.uuid4(),
+                        "parent_id": parent_id,
+                        "child_id": child_id,
+                        "workspace_id": parent_workspace_id,
+                    },
+                )
+
+        with pytest.raises(IntegrityError):
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO agent_preset_version_subagent (
+                            id,
+                            parent_preset_version_id,
+                            child_preset_id,
+                            alias,
+                            workspace_id
+                        )
+                        VALUES (
+                            :id,
+                            :parent_version_id,
+                            :child_id,
+                            'foreign-child',
+                            :workspace_id
+                        )
+                        """
+                    ),
+                    {
+                        "id": uuid.uuid4(),
+                        "parent_version_id": parent_version_id,
+                        "child_id": child_id,
+                        "workspace_id": parent_workspace_id,
+                    },
+                )
+    finally:
+        engine.dispose()
