@@ -25,6 +25,22 @@ COMPOSE_ENV_FILES = (
 ENV_EXAMPLE_FILES = (REPO_ROOT / ".env.example",)
 DEPLOYMENT_ENV_FILES = (*COMPOSE_ENV_FILES, *ENV_EXAMPLE_FILES)
 TRACED_COMPOSE_ENV_FILES = SANDBOX_POLICY_COMPOSE_ENV_FILES
+TRACED_COMPOSE_SERVICES = (
+    "api",
+    "worker",
+    "executor",
+    "agent-worker",
+    "agent-executor",
+)
+PLATFORM_OTEL_COMPOSE_ENV = (
+    "TRACECAT__PLATFORM_OTEL_ENABLED: ${TRACECAT__PLATFORM_OTEL_ENABLED:-false}",
+    "OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4318}",
+    "OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_traceidratio}",
+    "OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1.0}",
+)
+PLATFORM_OTEL_HEADERS_COMPOSE_ENV = (
+    "OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}"
+)
 SANDBOX_POLICY_ENV_VARS = {
     "TRACECAT__SANDBOX_INSTALL_ALLOWED_EGRESS_CIDRS",
     "TRACECAT__SANDBOX_INSTALL_ALLOWED_EGRESS_TCP_PORTS",
@@ -43,15 +59,7 @@ REGISTRY_POLICY_ENV_VARS = {
     "TRACECAT__SANDBOX_REGISTRY_ALLOWED_EGRESS_CIDRS",
     "TRACECAT__SANDBOX_REGISTRY_ALLOWED_EGRESS_TCP_PORTS",
 }
-TRACED_COMPOSE_SERVICES = ("api", "worker", "executor")
 SENTRY_PLATFORM_COMPOSE_SERVICES = ("api", "worker", "agent-worker", "executor")
-PLATFORM_OTEL_COMPOSE_ENV = (
-    "TRACECAT__PLATFORM_OTEL_ENABLED: ${TRACECAT__PLATFORM_OTEL_ENABLED:-false}",
-    "OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4318}",
-)
-PLATFORM_OTEL_HEADERS_COMPOSE_ENV = (
-    "OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}"
-)
 
 
 def _config_bool_env_vars() -> set[str]:
@@ -345,7 +353,7 @@ def test_platform_otel_env_is_forwarded_to_traced_compose_services(
     service_body = service_match.group("body")
     for env_line in PLATFORM_OTEL_COMPOSE_ENV:
         assert env_line in service_body
-    if service == "executor":
+    if service in {"executor", "agent-executor"}:
         assert PLATFORM_OTEL_HEADERS_COMPOSE_ENV not in service_body
     else:
         assert PLATFORM_OTEL_HEADERS_COMPOSE_ENV in service_body

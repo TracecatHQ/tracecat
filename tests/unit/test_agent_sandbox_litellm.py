@@ -57,6 +57,7 @@ from tracecat.agent.executor.loopback import (
     LoopbackInput,
     LoopbackResult,
 )
+from tracecat.agent.otel_config import ResolvedAgentOtelConfig
 from tracecat.agent.runtime.claude_code.broker import (
     ClaudeRuntimeBroker,
     ClaudeTurnRequest,
@@ -3060,9 +3061,9 @@ async def _run_executor_through_route_materialization(
 
     async def fake_resolve_agent_otel_config(
         self: SandboxedAgentExecutor,
-    ) -> SimpleNamespace:
+    ) -> ResolvedAgentOtelConfig:
         del self
-        return SimpleNamespace(enabled=False)
+        return ResolvedAgentOtelConfig(enabled=False)
 
     async def fake_cleanup(self: SandboxedAgentExecutor) -> None:
         del self
