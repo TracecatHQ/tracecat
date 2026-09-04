@@ -122,6 +122,7 @@ class SandboxedCLITransport(Transport):
         self._stderr_buffer: list[str] = []
         self._connect_started_at: float | None = None
         self._logged_first_message = False
+        self._exit_code: int | None = None
 
     def _log_benchmark_phase(self, phase: str, **extra: object) -> None:
         """Emit a temporary structured benchmark log for transport phases."""
@@ -267,6 +268,9 @@ class SandboxedCLITransport(Transport):
             await self._process.wait()
 
         returncode = self._process.returncode or 0
+        # The SDK erases ProcessError into a plain Exception before the runtime
+        # sees it, so keep the exit code observable on the transport itself.
+        self._exit_code = returncode
         if returncode != 0:
             stderr_output = await self._collect_error_stderr()
             raise ProcessError(
@@ -301,6 +305,8 @@ class SandboxedCLITransport(Transport):
                     self._process.kill()
                     await self._process.wait()
 
+        if self._process is not None:
+            self._exit_code = self._process.returncode
         self._process = None
         if self._spawned_runtime is not None:
             cleanup_spawned_runtime(self._spawned_runtime)
@@ -309,6 +315,15 @@ class SandboxedCLITransport(Transport):
     def is_ready(self) -> bool:
         """Return whether the shim is ready for Claude SDK traffic."""
         return self._ready
+
+    @property
+    def exit_code(self) -> int | None:
+        """Exit code of the sandbox shim once it has exited, else ``None``.
+
+        The value survives ``close()`` so the runtime can attribute a process
+        death after the SDK has already torn the transport down.
+        """
+        return self._exit_code
 
     async def end_input(self) -> None:
         """Close the shim stdin to signal end-of-input."""

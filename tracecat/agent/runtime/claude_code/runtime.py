@@ -54,7 +54,10 @@ from tracecat.agent.common.config import (
     TRACECAT__AGENT_MCP_BRIDGE_PORT,
     TRACECAT__DISABLE_NSJAIL,
 )
-from tracecat.agent.common.exceptions import AgentSandboxValidationError
+from tracecat.agent.common.exceptions import (
+    AgentSandboxProcessExitError,
+    AgentSandboxValidationError,
+)
 from tracecat.agent.common.output_format import build_sdk_output_format
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.socket_io import MAX_PAYLOAD_SIZE
@@ -74,6 +77,7 @@ from tracecat.agent.common.types import (
     MCPToolDefinition,
     requires_sandbox_internet_access,
 )
+from tracecat.agent.error_policy import agent_runtime_failure
 from tracecat.agent.llm_routing import get_litellm_route_model
 from tracecat.agent.mcp.metadata import (
     PROXY_TOOL_CALL_ID_KEY,
@@ -94,8 +98,10 @@ from tracecat.agent.runtime.claude_code.session_lines import (
     is_model_context_session_line,
     is_synthetic_session_line,
 )
+from tracecat.agent.runtime.claude_code.transport import SandboxedCLITransport
 from tracecat.integrations.mcp_validation import sanitize_mcp_command_args
 from tracecat.logger import logger
+from tracecat.runtime.errors import RuntimeErrorClassification
 from tracecat.sandbox.exceptions import SandboxFileSafetyError
 from tracecat.sandbox.file_io import (
     atomic_write_file_beneath,
@@ -159,14 +165,36 @@ class RuntimeEventWriter(Protocol):
     ) -> None:
         """Send the final Claude result."""
 
-    async def send_error(self, error: str) -> None:
-        """Send a terminal runtime error."""
+    async def send_error(
+        self,
+        error: str,
+        *,
+        classification: RuntimeErrorClassification | None = None,
+    ) -> None:
+        """Send a terminal runtime error with optional trusted attribution."""
 
     async def send_done(self) -> None:
         """Signal that the runtime turn is complete."""
 
     async def send_log(self, level: str, message: str, **extra: object) -> None:
         """Send a structured runtime log event."""
+
+
+def _sandbox_process_exit_error(
+    transport: Transport | None,
+) -> AgentSandboxProcessExitError | None:
+    """Rebuild the typed process failure the SDK erased from its exception.
+
+    Only a positive exit code counts: ``0`` means the process did not fail, and
+    a negative code means the host itself terminated the process during
+    transport teardown rather than the jailed runtime dying.
+    """
+    if not isinstance(transport, SandboxedCLITransport):
+        return None
+    exit_code = transport.exit_code
+    if exit_code is None or exit_code <= 0:
+        return None
+    return AgentSandboxProcessExitError(exit_code)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1696,6 +1724,7 @@ class ClaudeAgentRuntime:
         )
 
         session_flush_task: asyncio.Task[None] | None = None
+        transport: Transport | None = None
 
         # Stable per-session working directory for the Claude Code CLI.
         # IMPORTANT: Must be deterministic per session_id. The CLI indexes
@@ -1908,14 +1937,23 @@ class ClaudeAgentRuntime:
             log_benchmark_phase("runtime_complete")
 
         except Exception as e:
+            # The SDK reports a dead sandbox process as a plain Exception, so
+            # recover the exit code the transport recorded before attributing.
+            error: Exception = _sandbox_process_exit_error(transport) or e
+            failure = agent_runtime_failure(error, fallback_message=str(e))
             await self._event_writer.send_log(
                 "error",
                 "Runtime error",
-                error_type=type(e).__name__,
+                error_type=type(error).__name__,
                 error_message=str(e),
             )
-            await self._event_writer.send_error(str(e))
-            raise
+            await self._event_writer.send_error(
+                failure.message,
+                classification=failure.classification,
+            )
+            if error is e:
+                raise
+            raise error from e
         finally:
             if session_flush_task is not None:
                 session_flush_task.cancel()

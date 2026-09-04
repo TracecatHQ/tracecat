@@ -271,8 +271,25 @@ def _rewrite_mcp_bridge_command_port(
     return [arg.replace(requested_url, actual_url) for arg in command]
 
 
-async def run_sandboxed_claude_shim() -> None:
-    """Read shim config, start the LLM bridge, and proxy Claude stdio."""
+def _forward_exit_code(return_code: int) -> int:
+    """Map the Claude child's termination onto the shim's own exit code.
+
+    asyncio reports a signal death as a negative return code. Forward it as
+    ``128 + signal`` so the host observes the same exit-code contract nsjail
+    applies to its direct child; a normal exit code passes through unchanged.
+    """
+    if return_code < 0:
+        return 128 - return_code
+    return return_code
+
+
+async def run_sandboxed_claude_shim() -> int:
+    """Read shim config, start the LLM bridge, and proxy Claude stdio.
+
+    Returns:
+        The exit code the shim must exit with, forwarding the Claude child's
+        termination so the host can attribute a signal death.
+    """
     llm_bridge: SandboxSocketBridge | None = None
     mcp_bridge: SandboxSocketBridge | None = None
     otel_bridge: SandboxSocketBridge | None = None
@@ -368,7 +385,8 @@ async def run_sandboxed_claude_shim() -> None:
         await stdout_task
         await stderr_task
         if return_code != 0:
-            raise RuntimeError(f"Claude subprocess exited with code {return_code}")
+            LOGGER.error("Claude subprocess exited with code %s", return_code)
+        return _forward_exit_code(return_code)
 
     finally:
         if stdout_task is not None and not stdout_task.done():
@@ -560,7 +578,7 @@ def main() -> None:
         level=os.environ.get("LOG_LEVEL", "INFO").upper(),
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
-    asyncio.run(run_sandboxed_claude_shim())
+    sys.exit(asyncio.run(run_sandboxed_claude_shim()))
 
 
 if __name__ == "__main__":

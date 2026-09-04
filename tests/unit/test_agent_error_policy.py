@@ -17,11 +17,14 @@ from tracecat_ee.agent.workflows.durable import (
     _executor_activity_classification,
 )
 
+from tracecat.agent.common.exceptions import AgentSandboxProcessExitError
 from tracecat.agent.error_policy import (
     agent_executor_protocol_failed,
     agent_executor_timed_out,
     agent_executor_unavailable,
     agent_preparation_failed,
+    agent_runtime_failure,
+    agent_sandbox_resource_limit_exceeded,
     agent_session_initialization_failed,
     agent_workflow_internal_error,
     invalid_agent_configuration,
@@ -113,6 +116,12 @@ def _activity_error(cause: BaseException) -> ActivityError:
             agent_workflow_internal_error,
             RuntimeErrorOwner.PLATFORM,
             RuntimeErrorKind.AGENT_WORKFLOW_INTERNAL_ERROR,
+            RetryDisposition.NON_RETRYABLE,
+        ),
+        (
+            agent_sandbox_resource_limit_exceeded,
+            RuntimeErrorOwner.USER,
+            RuntimeErrorKind.SANDBOX_RESOURCE_LIMIT_EXCEEDED,
             RetryDisposition.NON_RETRYABLE,
         ),
     ],
@@ -248,3 +257,90 @@ def test_loopback_classification_is_copied_to_executor_result() -> None:
     )
 
     assert result.classification == classification
+
+
+@pytest.mark.parametrize("exit_code", [134, 137], ids=["sigabrt", "sigkill"])
+def test_agent_runtime_failure_attributes_resource_limit_exit_to_user(
+    exit_code: int,
+) -> None:
+    """Invariant: a jailed runtime that died from an rlimit is user-owned.
+
+    ``ProcessError`` is erased by the SDK, so the typed exit error is what the
+    chain carries. Its exit code alone selects the dedicated kind, the failure
+    is non-retryable (the cap is deterministic), and the message names the
+    agent memory env var without echoing the SDK's raw text.
+    """
+    sdk_error = Exception("Sandbox shim failed with exit code raw stderr tail")
+    exit_error = AgentSandboxProcessExitError(exit_code)
+    exit_error.__cause__ = sdk_error
+
+    failure = agent_runtime_failure(exit_error, fallback_message=str(sdk_error))
+
+    assert failure.classification.owner is RuntimeErrorOwner.USER
+    assert (
+        failure.classification.kind is RuntimeErrorKind.SANDBOX_RESOURCE_LIMIT_EXCEEDED
+    )
+    assert failure.classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+    assert failure.classification.cause_type == "AgentSandboxProcessExitError"
+    assert failure.message == failure.classification.message
+    assert "TRACECAT__AGENT_SANDBOX_MEMORY_MB" in failure.message
+    assert "raw stderr tail" not in failure.message
+
+
+def test_agent_runtime_failure_finds_resource_limit_exit_in_chain() -> None:
+    """Invariant: the typed exit error is matched anywhere in the cause chain."""
+    wrapper = RuntimeError("broker turn failed")
+    wrapper.__cause__ = AgentSandboxProcessExitError(137)
+
+    failure = agent_runtime_failure(wrapper, fallback_message="fallback")
+
+    assert (
+        failure.classification.kind is RuntimeErrorKind.SANDBOX_RESOURCE_LIMIT_EXCEEDED
+    )
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        pytest.param(AgentSandboxProcessExitError(1), id="ordinary-nonzero-exit"),
+        pytest.param(RuntimeError("opaque crash"), id="untyped-crash"),
+    ],
+)
+def test_agent_runtime_failure_keeps_other_failures_platform_owned(
+    error: Exception,
+) -> None:
+    """Invariant: only resource-limit exit codes leave executor-unavailable.
+
+    Every other runtime failure keeps today's platform-owned retryable
+    attribution and surfaces the caller's fallback message unchanged.
+    """
+    failure = agent_runtime_failure(error, fallback_message="fallback text")
+
+    assert failure.message == "fallback text"
+    assert failure.classification.owner is RuntimeErrorOwner.PLATFORM
+    assert failure.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+    assert failure.classification.retry_disposition is RetryDisposition.RETRYABLE
+
+
+@pytest.mark.anyio
+async def test_loopback_send_error_keeps_trusted_runtime_classification() -> None:
+    """Invariant: a classification the runtime boundary supplies is not overwritten.
+
+    The loopback previously stamped every runtime error as executor-unavailable;
+    a resource-limit attribution from the runtime must survive into the result.
+    """
+    handler = LoopbackHandler(
+        input=LoopbackInput(
+            session_id=uuid.uuid4(),
+            workspace_id=uuid.uuid4(),
+        )
+    )
+    sink = _StreamSink()
+    handler._stream_sink = cast(LoopbackEventSink, sink)
+    classification = agent_sandbox_resource_limit_exceeded()
+
+    await handler.send_error(classification.message, classification=classification)
+    result = handler.build_result()
+
+    assert result.classification == classification
+    assert sink.errors == [classification.message]

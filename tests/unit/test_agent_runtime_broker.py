@@ -11,6 +11,7 @@ from uuid import uuid4
 import orjson
 import pytest
 from claude_agent_sdk import ClaudeAgentOptions
+from claude_agent_sdk._errors import ProcessError
 from claude_agent_sdk.types import (
     AgentDefinition,
     McpHttpServerConfig,
@@ -600,3 +601,38 @@ async def test_transport_close_preserves_caller_owned_job_directory(
     assert job_dir.is_dir()
     assert uv_file.is_file()
     assert transport._spawned_runtime is None
+
+
+@pytest.mark.anyio
+async def test_transport_records_shim_exit_code_when_stream_ends(
+    tmp_path: Path,
+) -> None:
+    """Invariant: the shim exit code survives the ProcessError the SDK erases.
+
+    ``read_messages`` still raises ``ProcessError`` for the SDK, and the same
+    exit code stays readable on the transport for the runtime to attribute.
+    """
+    transport = _make_transport(tmp_path, use_jailed_paths=False)
+
+    class _ExitedStdout:
+        @staticmethod
+        async def readline() -> bytes:
+            return b""
+
+    class _ExitedProcess:
+        returncode = 134
+        stdout = _ExitedStdout()
+        stderr = None
+
+        @staticmethod
+        async def wait() -> int:
+            return 134
+
+    transport._process = cast(Any, _ExitedProcess())
+
+    with pytest.raises(ProcessError) as excinfo:
+        async for _ in transport.read_messages():
+            pass
+
+    assert excinfo.value.exit_code == 134
+    assert transport.exit_code == 134

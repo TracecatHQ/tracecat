@@ -2,11 +2,41 @@
 
 from __future__ import annotations
 
+import signal
+from dataclasses import dataclass
+
+from tracecat.agent.common.config import TRACECAT__AGENT_SANDBOX_MEMORY_MB
+from tracecat.agent.common.exceptions import AgentSandboxProcessExitError
 from tracecat.runtime.errors import (
     RetryDisposition,
     RuntimeErrorClassification,
     RuntimeErrorKind,
 )
+from tracecat.sandbox.exceptions import sandbox_resource_limit_message
+from tracecat.temporal.errors import iter_error_chain
+
+# Exit codes (``128 + signal``) that mean the jailed agent runtime hit one of
+# its nsjail rlimits. SIGABRT is included here, unlike the core sandbox: the
+# jailed process is the trusted shim plus the Claude Code CLI, whose JavaScript
+# engine aborts on allocation failure and has no in-band channel comparable to
+# Python's MemoryError. SIGKILL covers the OOM killer and the wall-clock limit,
+# SIGXCPU the CPU-time limit, and SIGXFSZ the file-size limit.
+AGENT_SANDBOX_RESOURCE_LIMIT_EXIT_CODES = frozenset(
+    {
+        128 + signal.SIGABRT,
+        128 + signal.SIGKILL,
+        128 + signal.SIGXCPU,
+        128 + signal.SIGXFSZ,
+    }
+)
+
+
+@dataclass(frozen=True, slots=True)
+class AgentRuntimeFailure:
+    """Terminal attribution plus the message safe to surface for a runtime failure."""
+
+    message: str
+    classification: RuntimeErrorClassification
 
 
 def invalid_agent_configuration(
@@ -90,6 +120,52 @@ def agent_executor_unavailable(
         message="Tracecat agent executor is unavailable",
         retry_disposition=RetryDisposition.RETRYABLE,
         cause=error,
+    )
+
+
+def agent_sandbox_resource_limit_exceeded(
+    error: BaseException | None = None,
+) -> RuntimeErrorClassification:
+    """Classify a jailed agent runtime that died from one of its rlimits.
+
+    The cap is published deployment configuration the caller's workload
+    exceeded, and a retry hits the same cap deterministically.
+    """
+    return RuntimeErrorClassification.user(
+        kind=RuntimeErrorKind.SANDBOX_RESOURCE_LIMIT_EXCEEDED,
+        message=sandbox_resource_limit_message(
+            memory_mb=TRACECAT__AGENT_SANDBOX_MEMORY_MB,
+            memory_env_var="TRACECAT__AGENT_SANDBOX_MEMORY_MB",
+        ),
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        cause=error,
+    )
+
+
+def agent_runtime_failure(
+    error: BaseException,
+    *,
+    fallback_message: str,
+) -> AgentRuntimeFailure:
+    """Classify an exception raised out of a Claude runtime turn.
+
+    A jailed process that exited with a resource-limit code is attributed to
+    the caller and carries its own message. Every other failure remains
+    platform-owned executor unavailability, surfacing ``fallback_message``.
+    """
+    for cause in iter_error_chain(error):
+        if (
+            isinstance(cause, AgentSandboxProcessExitError)
+            and cause.exit_code in AGENT_SANDBOX_RESOURCE_LIMIT_EXIT_CODES
+        ):
+            classification = agent_sandbox_resource_limit_exceeded(cause)
+            return AgentRuntimeFailure(
+                message=classification.message,
+                classification=classification,
+            )
+    return AgentRuntimeFailure(
+        message=fallback_message,
+        classification=agent_executor_unavailable(error),
     )
 
 
