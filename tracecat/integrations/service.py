@@ -1064,6 +1064,10 @@ class IntegrationService(BaseWorkspaceService):
             if oauth_resource is None:
                 resource_uri = discovered_resource
             authorization_server_issuers = metadata.authorization_servers
+            if not authorization_server_issuers:
+                raise ValueError(
+                    "OAuth protected-resource metadata is missing authorization_servers"
+                )
             break
 
         if not authorization_server_issuers:
