@@ -59,6 +59,7 @@ from tracecat.db.models import (
     RegistryRepository,
     RegistryVersion,
     Skill,
+    SkillVersion,
     Workspace,
 )
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
@@ -2301,24 +2302,16 @@ class TestAgentPresetService:
         await skill_service.publish_skill(skill_a.id)
 
         skill_b = await skill_service.create_skill(SkillCreate(name="skill-b-current"))
-        await skill_service.publish_skill(skill_b.id)
+        skill_b_version = await skill_service.publish_skill(skill_b.id)
 
-        draft_b = await skill_service.get_draft(skill_b.id)
-        assert draft_b is not None
-        await skill_service.patch_draft(
-            skill_id=skill_b.id,
-            params=SkillDraftPatch(
-                base_revision=draft_b.draft_revision,
-                operations=[
-                    SkillDraftUpsertTextFileOp(
-                        path="SKILL.md",
-                        content="---\nname: shared-name\n---\n\n# shared-name\n",
-                        content_type="text/markdown; charset=utf-8",
-                    )
-                ],
-            ),
+        # Simulate duplicate published names left by an older release. New
+        # publications reject this state at the Skill service boundary.
+        await session.execute(
+            sa.update(SkillVersion)
+            .where(SkillVersion.id == skill_b_version.id)
+            .values(name="shared-name")
         )
-        await skill_service.publish_skill(skill_b.id)
+        await session.commit()
 
         with pytest.raises(
             TracecatValidationError,
@@ -2494,24 +2487,16 @@ class TestAgentPresetService:
         await skill_service.publish_skill(skill_a.id)
 
         skill_b = await skill_service.create_skill(SkillCreate(name="skill-b-current"))
-        await skill_service.publish_skill(skill_b.id)
+        skill_b_version = await skill_service.publish_skill(skill_b.id)
 
-        draft_b = await skill_service.get_draft(skill_b.id)
-        assert draft_b is not None
-        await skill_service.patch_draft(
-            skill_id=skill_b.id,
-            params=SkillDraftPatch(
-                base_revision=draft_b.draft_revision,
-                operations=[
-                    SkillDraftUpsertTextFileOp(
-                        path="SKILL.md",
-                        content="---\nname: shared-name\n---\n\n# shared-name\n",
-                        content_type="text/markdown; charset=utf-8",
-                    )
-                ],
-            ),
+        # Simulate duplicate published names left by an older release. New
+        # publications reject this state at the Skill service boundary.
+        await session.execute(
+            sa.update(SkillVersion)
+            .where(SkillVersion.id == skill_b_version.id)
+            .values(name="shared-name")
         )
-        skill_b_shared = await skill_service.publish_skill(skill_b.id)
+        await session.commit()
 
         preset = await agent_preset_service.create_preset(
             AgentPresetCreate(
@@ -2535,7 +2520,7 @@ class TestAgentPresetService:
                 workspace_id=agent_preset_service.workspace_id,
                 preset_version_id=preset_version.id,
                 skill_id=skill_b.id,
-                skill_version_id=skill_b_shared.id,
+                skill_version_id=skill_b_version.id,
             )
         )
         await session.commit()

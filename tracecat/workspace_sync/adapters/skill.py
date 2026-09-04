@@ -341,6 +341,10 @@ class SkillAdapter(DirectoryManifestAdapter):
         their file rows and recomputing manifest hashes) before pinning the
         declared current version.
         """
+        skill_service = SkillService(
+            session=workspace_service.session, role=workspace_service.role
+        )
+        await skill_service.lock_publications()
         skills = workspace_spec.skills
         # Skill identity lives on ``Skill.name`` but specs key off ``slug``; the
         # shorter temp prefix keeps placeholders within the slug length budget.
@@ -361,9 +365,7 @@ class SkillAdapter(DirectoryManifestAdapter):
             ),
         )
         imported: list[ImportedResource] = []
-        skill_service = SkillService(
-            session=workspace_service.session, role=workspace_service.role
-        )
+        prepared: list[tuple[str, SkillResourceSpec, Skill, SkillVersion | None]] = []
         # Sort by source id so imports apply in a deterministic order.
         for source_id, spec in sorted(skills.items()):
             # Stage 1: locate or create the skill row this spec maps to.
@@ -399,6 +401,17 @@ class SkillAdapter(DirectoryManifestAdapter):
                         SkillVersion.id == skill.current_version_id,
                     )
                 )
+            prepared.append((source_id, spec, skill, current))
+        await skill_service.validate_publication_names(
+            {skill.id: spec.name for _, spec, skill, _ in prepared}
+        )
+        # Release renamed packages inside this transaction so a valid batch
+        # swap does not conflict with the other resource's previous head.
+        for _, spec, skill, current in prepared:
+            if current is not None and current.name != spec.name:
+                skill.current_version_id = None
+        await workspace_service.session.flush()
+        for source_id, spec, skill, current in prepared:
             if current is None or not await self._version_matches_desired(
                 workspace_service,
                 current=current,

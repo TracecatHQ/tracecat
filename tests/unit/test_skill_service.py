@@ -43,6 +43,7 @@ from tracecat.agent.skill.schemas import (
     SkillUploadFile,
     SkillUploadSessionCreate,
     SkillVersionPublish,
+    SkillVersionRead,
     SkillVersionReadMinimal,
 )
 from tracecat.agent.skill.service import (
@@ -4149,3 +4150,139 @@ class TestSkillService:
         assert archived is not None
         assert archived.archived_at is not None
         assert archived.deleted_at == archived.archived_at
+
+
+async def _set_package_name(
+    service: SkillService, skill_id: uuid.UUID, name: str
+) -> None:
+    draft = await service.get_draft(skill_id)
+    assert draft is not None
+    await service.patch_draft(
+        skill_id=skill_id,
+        params=SkillDraftPatch(
+            base_revision=draft.draft_revision,
+            operations=[
+                SkillDraftUpsertTextFileOp(
+                    path="SKILL.md",
+                    content=f"---\nname: {name}\ndescription: Test package\n---\nInstructions\n",
+                )
+            ],
+        ),
+    )
+
+
+@pytest.mark.anyio
+class TestPublishedSkillNameUniqueness:
+    async def test_conflicting_publish_preserves_head_and_slug(
+        self, skill_service: SkillService
+    ) -> None:
+        first = await skill_service.create_skill(SkillCreate(name="search-package"))
+        second = await skill_service.create_skill(SkillCreate(name="summary-package"))
+        await skill_service.publish_skill(first.id)
+        previous = await skill_service.publish_skill(second.id)
+        await _set_package_name(skill_service, second.id, "search-package")
+
+        with pytest.raises(TracecatValidationError) as exc_info:
+            await skill_service.publish_skill(second.id)
+        assert exc_info.value.detail == {
+            "code": "skill_name_conflict",
+            "name": "search-package",
+        }
+        await skill_service.session.rollback()
+        current = await skill_service.get_skill_read(second.id)
+        assert current is not None
+        assert current.current_version_id == previous.id
+        assert current.slug == second.slug
+
+    async def test_restore_cannot_reclaim_another_skills_published_name(
+        self, skill_service: SkillService
+    ) -> None:
+        first = await skill_service.create_skill(SkillCreate(name="original-package"))
+        original = await skill_service.publish_skill(first.id)
+        await _set_package_name(skill_service, first.id, "renamed-package")
+        renamed = await skill_service.publish_skill(first.id)
+        second = await skill_service.create_skill(SkillCreate(name="original-package"))
+        await skill_service.publish_skill(second.id)
+
+        with pytest.raises(TracecatValidationError) as exc_info:
+            await skill_service.restore_version(
+                skill_id=first.id, version_id=original.id
+            )
+        assert exc_info.value.detail == {
+            "code": "skill_name_conflict",
+            "name": "original-package",
+        }
+        await skill_service.session.rollback()
+        current = await skill_service.get_skill_read(first.id)
+        assert current is not None
+        assert current.current_version_id == renamed.id
+
+    async def test_drafts_and_archived_skills_do_not_reserve_package_names(
+        self, skill_service: SkillService
+    ) -> None:
+        draft_only = await skill_service.create_skill(
+            SkillCreate(name="shared-package")
+        )
+        active = await skill_service.create_skill(SkillCreate(name="shared-package"))
+        await skill_service.publish_skill(active.id)
+        await skill_service.archive_skill(active.id)
+        published = await skill_service.publish_skill(draft_only.id)
+        assert published.name == "shared-package"
+        # Republishing the same resource does not conflict with itself.
+        republished = await skill_service.publish_skill(draft_only.id)
+        assert republished.version == published.version + 1
+
+    async def test_concurrent_publications_cannot_claim_same_package_name(
+        self, svc_role: Role
+    ) -> None:
+        role = svc_role.model_copy(update={"workspace_id": uuid.uuid4()}, deep=True)
+        engine = create_async_engine(TEST_DB_CONFIG.test_url)
+        factory = async_sessionmaker(bind=engine, expire_on_commit=False)
+        both_ready = asyncio.Event()
+        arrivals = 0
+        try:
+            async with factory() as session:
+                session.add(
+                    Workspace(
+                        id=role.workspace_id,
+                        name="publication-test",
+                        organization_id=role.organization_id,
+                    )
+                )
+                await session.commit()
+                service = SkillService(session=session, role=role)
+                first = await service.create_skill(SkillCreate(name="same-package"))
+                second = await service.create_skill(SkillCreate(name="same-package"))
+
+            async def publish(
+                skill_id: uuid.UUID,
+            ) -> SkillVersionRead | TracecatValidationError:
+                nonlocal arrivals
+                arrivals += 1
+                if arrivals == 2:
+                    both_ready.set()
+                await asyncio.wait_for(both_ready.wait(), timeout=10)
+                async with factory() as session:
+                    service = SkillService(session=session, role=role)
+                    try:
+                        return await service.publish_skill(skill_id)
+                    except TracecatValidationError as exc:
+                        await session.rollback()
+                        return exc
+
+            results = await asyncio.wait_for(
+                asyncio.gather(publish(first.id), publish(second.id)), timeout=20
+            )
+            assert sum(isinstance(result, SkillVersionRead) for result in results) == 1
+            errors = [
+                result
+                for result in results
+                if isinstance(result, TracecatValidationError)
+            ]
+            assert len(errors) == 1
+            assert errors[0].detail == {
+                "code": "skill_name_conflict",
+                "name": "same-package",
+            }
+        finally:
+            await engine.dispose()

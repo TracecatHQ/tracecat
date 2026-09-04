@@ -3227,9 +3227,11 @@ async def test_project_workspace_preserves_binary_skill_file(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("conflicting_names", [False, True])
 async def test_pull_skill_slug_swap_reuses_source_id_mappings(
     session: AsyncSession,
     svc_role: Role,
+    conflicting_names: bool,
 ) -> None:
     service = WorkspaceSyncService(session=session, role=svc_role)
     transport = AsyncMock()
@@ -3257,7 +3259,7 @@ async def test_pull_skill_slug_swap_reuses_source_id_mappings(
                 _skill_git_tree(
                     source_id="skill-a",
                     slug="beta-skill",
-                    name="Beta skill",
+                    name="Alpha skill" if conflicting_names else "Beta skill",
                 ),
                 _skill_git_tree(
                     source_id="skill-b",
@@ -3288,10 +3290,15 @@ async def test_pull_skill_slug_swap_reuses_source_id_mappings(
                 Skill.slug == "beta-skill",
             )
         )
+        previous_heads = dict(
+            (await session.execute(select(Skill.id, Skill.current_version_id)))
+            .tuples()
+            .all()
+        )
         second_result = await service.pull(options=PullOptions(commit_sha="t" * 40))
 
     assert first_result.success is True
-    assert second_result.success is True
+    assert second_result.success is not conflicting_names
     assert alpha_id is not None
     assert beta_id is not None
     skills = {
@@ -3302,7 +3309,18 @@ async def test_pull_skill_slug_swap_reuses_source_id_mappings(
             )
         ).all()
     }
-    assert skills == {"alpha-skill": beta_id, "beta-skill": alpha_id}
+    if conflicting_names:
+        assert skills == {"alpha-skill": alpha_id, "beta-skill": beta_id}
+        assert (
+            dict(
+                (await session.execute(select(Skill.id, Skill.current_version_id)))
+                .tuples()
+                .all()
+            )
+            == previous_heads
+        )
+    else:
+        assert skills == {"alpha-skill": beta_id, "beta-skill": alpha_id}
 
 
 @pytest.mark.anyio

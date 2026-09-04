@@ -7,7 +7,8 @@ import base64
 import hashlib
 import mimetypes
 import uuid
-from collections.abc import Awaitable, Callable, Iterator, Sequence
+from collections import Counter
+from collections.abc import Awaitable, Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import PurePosixPath
@@ -1482,6 +1483,50 @@ class SkillService(SkillBindingService):
             )
         return path_to_blob
 
+    async def lock_publications(self) -> None:
+        """Serialize workspace publications before acquiring Skill or blob locks.
+
+        Bulk import must acquire this lock before modifying any Skill rows.
+        """
+        await self.session.execute(
+            select(
+                sa.func.pg_advisory_xact_lock(
+                    sa.func.hashtextextended(
+                        f"skill-published-names:{self.workspace_id}", 0
+                    )
+                )
+            )
+        )
+
+    async def validate_publication_names(
+        self, names_by_skill_id: Mapping[uuid.UUID, str]
+    ) -> None:
+        """Validate final runtime names under the workspace publication lock.
+
+        Draft names do not reserve names. Batch imports validate their complete
+        desired state before releasing old names to support atomic name swaps.
+        """
+        names = Counter(names_by_skill_id.values())
+        conflict = next((name for name, count in names.items() if count > 1), None)
+        if conflict is None:
+            conflict = await self.session.scalar(
+                select(SkillVersion.name)
+                .join(Skill, Skill.current_version_id == SkillVersion.id)
+                .where(
+                    Skill.workspace_id == self.workspace_id,
+                    Skill.id.not_in(names_by_skill_id),
+                    Skill.deleted_at.is_(None),
+                    Skill.archived_at.is_(None),
+                    SkillVersion.name.in_(names),
+                )
+                .limit(1)
+            )
+        if conflict is not None:
+            raise TracecatValidationError(
+                f"Published Skill name '{conflict}' is already in use for this workspace",
+                detail={"code": "skill_name_conflict", "name": conflict},
+            )
+
     async def publish_version_from_blob_refs(
         self,
         *,
@@ -1493,6 +1538,7 @@ class SkillService(SkillBindingService):
     ) -> SkillVersion:
         """Publish validated blobs without committing the caller's transaction."""
 
+        await self.lock_publications()
         if not skill_locked:
             locked_skill = await self._get_skill_for_update(skill.id)
             if locked_skill is None:
@@ -1501,6 +1547,7 @@ class SkillService(SkillBindingService):
         if validation.name is None:
             self._raise_missing_draft_name(operation="publish")
         manifest_name = validation.name
+        await self.validate_publication_names({skill.id: manifest_name})
         sorted_file_refs = sorted(file_refs, key=lambda item: item[0])
         manifest_payload = [
             {
@@ -2829,6 +2876,7 @@ class SkillService(SkillBindingService):
     async def publish_skill(self, skill_id: uuid.UUID) -> SkillVersionRead:
         """Publish the current draft into a new immutable skill version."""
 
+        await self.lock_publications()
         skill = await self._get_skill_for_update(skill_id)
         if skill is None:
             raise TracecatNotFoundError(f"Skill '{skill_id}' not found")
@@ -2877,6 +2925,7 @@ class SkillService(SkillBindingService):
     ) -> SkillVersionRead:
         """Atomically publish a new immutable skill version from a file set."""
 
+        await self.lock_publications()
         skill = await self._get_skill_for_update(skill_id)
         if skill is None:
             raise TracecatNotFoundError(f"Skill '{skill_id}' not found")
@@ -3089,6 +3138,7 @@ class SkillService(SkillBindingService):
     ) -> SkillReadMinimal:
         """Restore a historical version as the current selected skill version."""
 
+        await self.lock_publications()
         skill = await self._get_skill_for_update(skill_id)
         if skill is None:
             raise TracecatNotFoundError(f"Skill '{skill_id}' not found")
