@@ -175,6 +175,37 @@ def _enforce_nproc_limit() -> None:
         ) from exc
 
 
+def _is_memory_exhaustion(error):
+    """Report whether an exception means the address-space cap was reached.
+
+    Python's own allocator raises MemoryError, but a syscall that fails under
+    rlimit_as -- mmap most commonly -- surfaces as OSError with errno.ENOMEM
+    instead. Both mean the same cap, matched on a machine-readable attribute
+    rather than on message text.
+    """
+    if isinstance(error, MemoryError):
+        return True
+    return isinstance(error, OSError) and error.errno == errno.ENOMEM
+
+
+def _release_exception_chain(error):
+    """Drop the tracebacks, and the chain itself, of an exception and its causes.
+
+    A traceback keeps its frames alive, and a frame's locals can be the very
+    object that exhausted memory, so the fallback envelope would allocate
+    against a cap that is still fully consumed.
+    """
+    seen = set()
+    current = error
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        current.__traceback__ = None
+        following = current.__cause__ or current.__context__
+        current.__cause__ = None
+        current.__context__ = None
+        current = following
+
+
 def main():
     """Execute user script and capture results."""
     _enforce_nproc_limit()
@@ -237,16 +268,12 @@ def main():
         result["output"] = output
 
     except Exception as e:
-        # The address-space cap surfaces as MemoryError from Python's own
-        # allocator, and as OSError with errno.ENOMEM from a syscall such as
-        # mmap. Both mean the same cap, matched on a machine-readable
-        # attribute rather than on message text.
-        if isinstance(e, MemoryError) or (
-            isinstance(e, OSError) and e.errno == errno.ENOMEM
-        ):
+        if _is_memory_exhaustion(e):
             # Skip the traceback: formatting it needs memory the process may
-            # not have. Report a structured code so the host classifies the
-            # failure without inspecting error text.
+            # not have, and its frames still hold what exhausted the cap.
+            # Report a structured code so the host classifies the failure
+            # without inspecting error text.
+            _release_exception_chain(e)
             result["error"] = "Script exceeded the sandbox memory limit"
             result["error_code"] = "resource_limit_exceeded"
         else:
@@ -261,8 +288,10 @@ def main():
         try:
             result["stdout"] = sys.stdout.getvalue()
             result["stderr"] = sys.stderr.getvalue()
-        except MemoryError as exc:
-            exc.__traceback__ = None
+        except (MemoryError, OSError) as exc:
+            if not _is_memory_exhaustion(exc):
+                raise
+            _release_exception_chain(exc)
             result.clear()
             result["success"] = False
             result["output"] = None
@@ -284,14 +313,17 @@ def main():
         result["success"] = False
         result["output"] = repr(result["output"])
         result_path.write_text(json.dumps(result))
-    except MemoryError as exc:
+    except (MemoryError, OSError) as exc:
+        if not _is_memory_exhaustion(exc):
+            # A write failure such as ENOSPC or EACCES is not the memory cap.
+            raise
         # An output that fits under the address-space cap can still exhaust it
         # while being serialized. Release every reference to the oversized
         # value before allocating anything else, then write a small fixed
         # envelope, so the failure still reports the resource-limit code
-        # instead of dying before result.json exists. The traceback counts:
-        # it pins to_json_safe's frame locals, which hold the value itself.
-        exc.__traceback__ = None
+        # instead of dying before result.json exists. The tracebacks count:
+        # they pin to_json_safe's frame locals, which hold the value itself.
+        _release_exception_chain(exc)
         output = None
         call = None
         result.clear()

@@ -521,7 +521,9 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
         if is_memory_exhaustion(e):
             # Skip the traceback walk, which needs memory the process may not
             # have, and report a structured code so the host classifies the
-            # failure without inspecting error text.
+            # failure without inspecting error text. Release the frames first:
+            # the action's own locals are what exhausted the cap.
+            release_exception_chain(e)
             return _resource_limit_envelope(
                 "Action ran out of memory",
                 action_name=_action_display_name(action_impl),
@@ -578,6 +580,26 @@ def caused_by_memory_exhaustion(error: BaseException) -> bool:
     return False
 
 
+def release_exception_chain(error: BaseException) -> None:
+    """Drop the tracebacks, and the chain itself, of ``error`` and its causes.
+
+    A traceback keeps its frames alive, and a frame's locals can be the very
+    object that exhausted memory. Clearing only the outermost one is not
+    enough: orjson reports a failure inside its ``default`` hook as its own
+    error, so the frame still holding the oversized object hangs off
+    ``__cause__`` rather than off the exception that was caught.
+    """
+    seen: set[int] = set()
+    current: BaseException | None = error
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        current.__traceback__ = None
+        following = current.__cause__ or current.__context__
+        current.__cause__ = None
+        current.__context__ = None
+        current = following
+
+
 def serialize_result(result: dict[str, Any], input_data: dict[str, Any]) -> bytes:
     """Serialize the runner result, degrading to a fixed envelope on MemoryError.
 
@@ -592,9 +614,9 @@ def serialize_result(result: dict[str, Any], input_data: dict[str, Any]) -> byte
     except Exception as exc:
         if not caused_by_memory_exhaustion(exc):
             raise
-        # Drop the oversized result, and the traceback pinning it through the
-        # serializer's frame locals, before allocating anything else.
-        exc.__traceback__ = None
+        # Drop the oversized result, and every frame still pinning it through
+        # the serializer's locals, before allocating anything else.
+        release_exception_chain(exc)
         result.clear()
         return json_dumps(
             _resource_limit_envelope(
