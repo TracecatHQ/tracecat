@@ -22,6 +22,20 @@ export function isCommentMentionHref(href: string | null | undefined): boolean {
   )
 }
 
+/** Prevent internal mention links from triggering native browser navigation. */
+export function preventCommentMentionNavigation(event: MouseEvent): boolean {
+  const target = event.target
+  if (!(target instanceof Element)) {
+    return false
+  }
+  const href = target.closest("a")?.getAttribute("href")
+  if (!isCommentMentionHref(href)) {
+    return false
+  }
+  event.preventDefault()
+  return true
+}
+
 /** Content and workflow metadata ready for the existing comments API. */
 export interface SerializedTiptapComment {
   content: string

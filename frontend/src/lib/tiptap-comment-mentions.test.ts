@@ -3,6 +3,7 @@ import {
   buildAgentMentionHref,
   buildWorkflowMentionHref,
   isCommentMentionHref,
+  preventCommentMentionNavigation,
   serializeTiptapComment,
 } from "@/lib/tiptap-comment-mentions"
 
@@ -63,5 +64,38 @@ describe("TipTap comment mention serialization", () => {
       true
     )
     expect(isCommentMentionHref("https://example.com")).toBe(false)
+  })
+
+  it.each([
+    buildAgentMentionHref("agent-id"),
+    buildWorkflowMentionHref("workflow-id"),
+  ])("prevents native navigation for %s links", (href) => {
+    const anchor = document.createElement("a")
+    const label = document.createElement("span")
+    anchor.href = href
+    anchor.append(label)
+    const preventDefault = jest.fn()
+
+    expect(
+      preventCommentMentionNavigation({
+        target: label,
+        preventDefault,
+      } as unknown as MouseEvent)
+    ).toBe(true)
+    expect(preventDefault).toHaveBeenCalledTimes(1)
+  })
+
+  it("does not intercept ordinary links", () => {
+    const anchor = document.createElement("a")
+    anchor.href = "https://example.com"
+    const preventDefault = jest.fn()
+
+    expect(
+      preventCommentMentionNavigation({
+        target: anchor,
+        preventDefault,
+      } as unknown as MouseEvent)
+    ).toBe(false)
+    expect(preventDefault).not.toHaveBeenCalled()
   })
 })

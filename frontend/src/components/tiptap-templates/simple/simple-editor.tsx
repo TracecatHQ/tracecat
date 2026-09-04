@@ -103,6 +103,7 @@ import {
 } from "@/lib/cases/use-case-image-upload"
 import {
   AGENT_MENTION_URI_SCHEME,
+  preventCommentMentionNavigation,
   WORKFLOW_MENTION_URI_SCHEME,
 } from "@/lib/tiptap-comment-mentions"
 import {
@@ -683,6 +684,7 @@ export function SimpleEditor({
         ...(placeholder ? { "data-placeholder": placeholder } : {}),
       },
       handleClick: (_view, _pos, event) => {
+        if (preventCommentMentionNavigation(event)) return true
         if (!event.metaKey && !event.ctrlKey) return false
         const href = (event.target as HTMLElement | null)
           ?.closest("a")
