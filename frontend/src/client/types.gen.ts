@@ -5487,6 +5487,13 @@ export type McpIntegrationMappingAffectedPreset = {
   path: string
 }
 
+export type McpIntegrationMappingAffectedSkill = {
+  skill_source_id: string
+  skill_name: string
+  path: string
+  tool_ids: Array<string>
+}
+
 export type McpIntegrationMappingAffectedWorkflow = {
   workflow_source_id: string
   workflow_path: string
@@ -5513,6 +5520,7 @@ export type McpIntegrationMappingRequirement = {
   candidates: Array<McpIntegrationMappingCandidate>
   affected_presets: Array<McpIntegrationMappingAffectedPreset>
   affected_workflows: Array<McpIntegrationMappingAffectedWorkflow>
+  affected_skills: Array<McpIntegrationMappingAffectedSkill>
 }
 
 export type McpIntegrationMappingRequirementReason =

@@ -17977,6 +17977,33 @@ export const $McpIntegrationMappingAffectedPreset = {
   title: "McpIntegrationMappingAffectedPreset",
 } as const
 
+export const $McpIntegrationMappingAffectedSkill = {
+  properties: {
+    skill_source_id: {
+      type: "string",
+      title: "Skill Source Id",
+    },
+    skill_name: {
+      type: "string",
+      title: "Skill Name",
+    },
+    path: {
+      type: "string",
+      title: "Path",
+    },
+    tool_ids: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Tool Ids",
+    },
+  },
+  type: "object",
+  required: ["skill_source_id", "skill_name", "path", "tool_ids"],
+  title: "McpIntegrationMappingAffectedSkill",
+} as const
+
 export const $McpIntegrationMappingAffectedWorkflow = {
   properties: {
     workflow_source_id: {
@@ -18114,6 +18141,13 @@ export const $McpIntegrationMappingRequirement = {
       type: "array",
       title: "Affected Workflows",
     },
+    affected_skills: {
+      items: {
+        $ref: "#/components/schemas/McpIntegrationMappingAffectedSkill",
+      },
+      type: "array",
+      title: "Affected Skills",
+    },
   },
   type: "object",
   required: [
@@ -18127,6 +18161,7 @@ export const $McpIntegrationMappingRequirement = {
     "candidates",
     "affected_presets",
     "affected_workflows",
+    "affected_skills",
   ],
   title: "McpIntegrationMappingRequirement",
 } as const

@@ -183,6 +183,16 @@ class McpIntegrationMappingAffectedWorkflow:
     action_ref: str
 
 
+@dataclass(frozen=True)
+class McpIntegrationMappingAffectedSkill:
+    """Skill head whose MCP declaration needs a target choice."""
+
+    skill_source_id: str
+    skill_name: str
+    path: str
+    tool_ids: list[str]
+
+
 type McpIntegrationMappingRequirementReason = Literal[
     "unresolved",
     "invalid_selection",
@@ -204,6 +214,7 @@ class McpIntegrationMappingRequirement:
     candidates: list[McpIntegrationMappingCandidate]
     affected_presets: list[McpIntegrationMappingAffectedPreset]
     affected_workflows: list[McpIntegrationMappingAffectedWorkflow]
+    affected_skills: list[McpIntegrationMappingAffectedSkill]
 
 
 def serializable_validation_errors(
