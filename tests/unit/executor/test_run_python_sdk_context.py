@@ -1511,27 +1511,43 @@ if __name__ == "__main__":
         )
 
 
+@pytest.mark.parametrize(
+    "raise_stmt",
+    [
+        pytest.param("raise MemoryError()", id="python-allocator"),
+        pytest.param(
+            "raise OSError(errno.ENOMEM, 'Cannot allocate memory')",
+            id="enomem-syscall",
+        ),
+    ],
+)
 def test_nsjail_wrapper_reports_memory_error_as_resource_limit(
     tmp_path: Path,
+    raise_stmt: str,
 ) -> None:
-    """Invariant: MemoryError inside the jail becomes a structured envelope code.
+    """Invariant: either shape of memory exhaustion becomes the envelope code.
 
     The host must classify the address-space cap without inspecting error
     text, so the wrapper emits ``error_code: resource_limit_exceeded`` and
-    skips traceback formatting that could need memory it no longer has.
+    skips traceback formatting that could need memory it no longer has. The
+    cap surfaces as ``MemoryError`` from Python's own allocator and as
+    ``OSError``/``ENOMEM`` from a syscall such as ``mmap``; both are matched
+    on a machine-readable attribute.
     """
     result = _run_wrapper_source(
         WRAPPER_SCRIPT,
         tmp_path,
-        """
+        f"""
+import errno
+
 def main():
-    raise MemoryError()
+    {raise_stmt}
 """,
     )
 
     assert result["success"] is False
     assert result["error_code"] == "resource_limit_exceeded"
-    assert result["error"].startswith("MemoryError")
+    assert result["error"] == "Script exceeded the sandbox memory limit"
     assert result["traceback"] is None
 
 
