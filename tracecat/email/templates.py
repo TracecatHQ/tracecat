@@ -10,20 +10,19 @@ from tracecat import config
 def render_invitation_email(
     *,
     accept_url: str,
-    context_name: str,
+    organization_name: str,
 ) -> tuple[str, str, str]:
     """Render an invitation subject plus HTML and plain-text bodies."""
-    safe_name = escape(context_name)
+    safe_name = escape(organization_name)
     safe_url = escape(accept_url, quote=True)
     logo_url = escape(
         f"{config.TRACECAT__PUBLIC_APP_URL.rstrip('/')}/icon.png", quote=True
     )
-    header_safe_name = "".join(char for char in context_name if char.isprintable())
+    header_safe_name = "".join(char for char in organization_name if char.isprintable())
 
-    label = "Organization"
     subject = f"Join {header_safe_name} on Tracecat"
     intro = f"You've been invited to join <strong>{safe_name}</strong> on Tracecat."
-    intro_text = f"You've been invited to join {context_name} on Tracecat."
+    intro_text = f"You've been invited to join {organization_name} on Tracecat."
 
     hint = "If you don't have an account yet, you'll be prompted to create one."
     html = f"""\
@@ -41,7 +40,7 @@ def render_invitation_email(
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e4e4e7;border-radius:8px;background:#fafafa;">
                 <tr><td style="padding:16px;font-size:14px;line-height:1.5;">
                   <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
-                    <td style="color:#737373;">{label}</td>
+                    <td style="color:#737373;">Organization</td>
                     <td align="right" style="font-weight:500;">{safe_name}</td>
                   </tr></table>
                 </td></tr>

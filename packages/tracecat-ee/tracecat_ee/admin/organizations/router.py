@@ -5,13 +5,11 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
 
 from tracecat import config
 from tracecat.auth.credentials import SuperuserRole
 from tracecat.db.dependencies import AsyncDBSessionBypass
-from tracecat.db.models import Organization
 from tracecat.email.client import MailerDep, invitation_email
 from tracecat.exceptions import TracecatValidationError
 from tracecat.invitations.enums import InvitationStatus
@@ -152,10 +150,8 @@ async def create_organization_invitation(
 ) -> AdminOrgInvitationCreateResponse:
     """Create a platform-scoped invitation for an organization."""
     service = AdminOrgService(session, role)
-    organization_name = await session.scalar(
-        select(Organization.name).where(Organization.id == org_id)
-    )
     try:
+        organization_name = await service.get_organization_name(org_id)
         invitation = await service.create_organization_invitation(org_id, params)
     except TracecatValidationError as e:
         raise HTTPException(
@@ -165,14 +161,13 @@ async def create_organization_invitation(
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
-    if organization_name is not None:
-        mailer.deliver(
-            invitation_email(
-                to=invitation.email,
-                organization_name=organization_name,
-                token=invitation.token,
-            )
+    mailer.deliver(
+        invitation_email(
+            to=invitation.email,
+            organization_name=organization_name,
+            token=invitation.token,
         )
+    )
 
     return invitation
 
