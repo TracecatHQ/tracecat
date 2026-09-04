@@ -181,6 +181,14 @@ def _extract_while_metadata(
 
 
 REDACTED_ACTION_RESULT = "[REDACTED]"
+UNSUPPORTED_DRAFT_PIN_ACTIONS = frozenset(
+    {
+        PlatformAction.TRANSFORM_SCATTER,
+        PlatformAction.TRANSFORM_GATHER,
+        PlatformAction.LOOP_START,
+        PlatformAction.LOOP_END,
+    }
+)
 
 
 def _redact_leaf_values(value: Any) -> Any:
@@ -467,7 +475,7 @@ class WorkflowExecutionsService:
         try:
             source_events = await self.list_workflow_execution_events_compact(
                 source_execution_id,
-                include_pinned_synthetic=False,
+                include_pinned_synthetic=True,
             )
         except Exception as e:
             self.logger.warning(
@@ -555,7 +563,15 @@ class WorkflowExecutionsService:
             )
             return {}
 
-        source_execution = await self.get_execution(pins.source_execution_id)
+        try:
+            source_execution = await self.get_execution(pins.source_execution_id)
+        except RPCError as e:
+            self.logger.warning(
+                "Failed to look up draft pin source execution; ignoring",
+                source_execution_id=pins.source_execution_id,
+                error=e,
+            )
+            return {}
         if source_execution is None:
             self.logger.warning(
                 "Draft pin source execution not found or inaccessible; ignoring",
@@ -563,8 +579,26 @@ class WorkflowExecutionsService:
             )
             return {}
 
-        dsl_refs = {task.ref for task in dsl.actions}
-        target_refs = [ref for ref in pins.action_refs if ref in dsl_refs]
+        dsl_actions = {task.ref: task for task in dsl.actions}
+        dsl_refs = set(dsl_actions)
+        rejected_refs = sorted(
+            ref
+            for ref in pins.action_refs
+            if (task := dsl_actions.get(ref)) is not None
+            and task.action in UNSUPPORTED_DRAFT_PIN_ACTIONS
+        )
+        if rejected_refs:
+            self.logger.warning(
+                "Draft pins on control-flow actions are not supported; ignoring",
+                rejected_refs=rejected_refs,
+                source_execution_id=pins.source_execution_id,
+            )
+        target_refs = [
+            ref
+            for ref in pins.action_refs
+            if (task := dsl_actions.get(ref)) is not None
+            and task.action not in UNSUPPORTED_DRAFT_PIN_ACTIONS
+        ]
         missing_refs = sorted(set(pins.action_refs) - dsl_refs)
         if missing_refs:
             self.logger.warning(
@@ -577,7 +611,8 @@ class WorkflowExecutionsService:
 
         try:
             events = await self.list_workflow_execution_events_compact(
-                pins.source_execution_id
+                pins.source_execution_id,
+                include_pinned_synthetic=True,
             )
         except Exception as e:
             self.logger.warning(
@@ -593,12 +628,23 @@ class WorkflowExecutionsService:
 
         pinned_results: dict[str, TaskResult] = {}
         unresolved_refs: list[str] = []
+        masked_refs: list[str] = []
         for ref in target_refs:
             event = selected_events.get(ref)
             if event is None:
                 unresolved_refs.append(ref)
                 continue
+            if event.should_mask_output:
+                masked_refs.append(ref)
+                continue
             pinned_results[ref] = self._coerce_pinned_task_result(event.action_result)
+
+        if masked_refs:
+            self.logger.warning(
+                "Draft pins on actions with mask_output are not supported; ignoring",
+                masked_refs=masked_refs,
+                source_execution_id=pins.source_execution_id,
+            )
 
         if unresolved_refs:
             self.logger.warning(
