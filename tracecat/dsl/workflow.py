@@ -4,7 +4,6 @@ import asyncio
 import re
 import uuid
 from collections.abc import Awaitable, Callable, Coroutine, Mapping
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Never
 
@@ -243,41 +242,6 @@ def _build_agent_child_search_attributes(
         ) from e
     alias = build_agent_alias(parent_wf_id, action_ref)
     return _inherit_search_attributes_with_alias(info.typed_search_attributes, alias)
-
-
-@dataclass(frozen=True, slots=True)
-class _AgentChildRun:
-    run_id: uuid.UUID
-    include_curr_run_id: bool
-
-
-def _agent_child_run(*, session_id: uuid.UUID, requested: bool) -> _AgentChildRun:
-    """Create replay-safe child identity and input-shape metadata.
-
-    A caller-supplied session keeps the session-scoped workflow ID, so Temporal
-    still rejects a concurrent run of the same session as it always has. Fresh
-    sessions get a per-run ID behind the patch marker.
-    """
-    if not requested and workflow.patched(WorkflowPatch.AGENT_CHILD_RUN_ID):
-        return _AgentChildRun(
-            run_id=workflow.uuid4(),
-            include_curr_run_id=True,
-        )
-    return _AgentChildRun(
-        run_id=session_id,
-        include_curr_run_id=False,
-    )
-
-
-def _with_agent_child_run_id(
-    args: RunAgentArgs,
-    *,
-    child_run: _AgentChildRun,
-) -> RunAgentArgs:
-    """Add the per-run input only for histories that recorded the new field."""
-    if not child_run.include_curr_run_id:
-        return args
-    return args.model_copy(update={"curr_run_id": child_run.run_id})
 
 
 @workflow.defn
@@ -1113,9 +1077,9 @@ class DSLWorkflow:
                         wf_info, task.ref
                     )
                     session_id = workflow.uuid4()
-                    child_run = _agent_child_run(session_id=session_id, requested=False)
-                    agent_args = _with_agent_child_run_id(
-                        RunAgentArgs(
+                    arg = AgentWorkflowArgs(
+                        role=self.role,
+                        agent_args=RunAgentArgs(
                             user_prompt=action_args.user_prompt,
                             session_id=session_id,
                             config=AgentConfig(
@@ -1139,11 +1103,6 @@ class DSLWorkflow:
                             max_tool_calls=0,
                             timeout_seconds=task.retry_policy.timeout,
                         ),
-                        child_run=child_run,
-                    )
-                    arg = AgentWorkflowArgs(
-                        role=self.role,
-                        agent_args=agent_args,
                         title=self.dsl.title,
                         entity_type=AgentSessionEntity.WORKFLOW,
                         entity_id=self.run_context.wf_id,
@@ -1151,7 +1110,7 @@ class DSLWorkflow:
                     action_result = await workflow.execute_child_workflow(
                         DurableAgentWorkflow.run,
                         arg=arg,
-                        id=AgentWorkflowID(child_run.run_id),
+                        id=AgentWorkflowID(session_id),
                         retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                         # Route to agent worker queue for session activities
                         task_queue=config.TRACECAT__AGENT_QUEUE,
@@ -1210,12 +1169,9 @@ class DSLWorkflow:
                         wf_info, task.ref
                     )
                     session_id = preset_action_args.session_id or workflow.uuid4()
-                    child_run = _agent_child_run(
-                        session_id=session_id,
-                        requested=preset_action_args.session_id is not None,
-                    )
-                    agent_args = _with_agent_child_run_id(
-                        RunAgentArgs(
+                    arg = AgentWorkflowArgs(
+                        role=self.role,
+                        agent_args=RunAgentArgs(
                             user_prompt=preset_action_args.user_prompt,
                             session_id=session_id,
                             preset_slug=preset_action_args.preset,
@@ -1225,11 +1181,6 @@ class DSLWorkflow:
                             max_tool_calls=preset_action_args.max_tool_calls,
                             timeout_seconds=task.retry_policy.timeout,
                         ),
-                        child_run=child_run,
-                    )
-                    arg = AgentWorkflowArgs(
-                        role=self.role,
-                        agent_args=agent_args,
                         title=self.dsl.title,
                         entity_type=AgentSessionEntity.WORKFLOW,
                         entity_id=self.run_context.wf_id,
@@ -1241,7 +1192,7 @@ class DSLWorkflow:
                     action_result = await workflow.execute_child_workflow(
                         DurableAgentWorkflow.run,
                         arg=arg,
-                        id=AgentWorkflowID(child_run.run_id),
+                        id=AgentWorkflowID(session_id),
                         retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                         # Route to agent worker queue for session activities
                         task_queue=config.TRACECAT__AGENT_QUEUE,
@@ -1876,12 +1827,9 @@ class DSLWorkflow:
             wf_info, task.ref
         )
         session_id = action_args.session_id or workflow.uuid4()
-        child_run = _agent_child_run(
-            session_id=session_id,
-            requested=action_args.session_id is not None,
-        )
-        agent_args = _with_agent_child_run_id(
-            RunAgentArgs(
+        arg = AgentWorkflowArgs(
+            role=self.role,
+            agent_args=RunAgentArgs(
                 user_prompt=action_args.user_prompt,
                 session_id=session_id,
                 config=AgentConfig(
@@ -1903,11 +1851,6 @@ class DSLWorkflow:
                 max_tool_calls=action_args.max_tool_calls,
                 timeout_seconds=task.retry_policy.timeout,
             ),
-            child_run=child_run,
-        )
-        arg = AgentWorkflowArgs(
-            role=self.role,
-            agent_args=agent_args,
             title=self.dsl.title,
             entity_type=AgentSessionEntity.WORKFLOW,
             entity_id=self.run_context.wf_id,
@@ -1916,7 +1859,7 @@ class DSLWorkflow:
         return await workflow.execute_child_workflow(
             DurableAgentWorkflow.run,
             arg=arg,
-            id=AgentWorkflowID(child_run.run_id),
+            id=AgentWorkflowID(session_id),
             retry_policy=RETRY_POLICIES["workflow:fail_fast"],
             # Route to agent worker queue for session activities
             task_queue=config.TRACECAT__AGENT_QUEUE,

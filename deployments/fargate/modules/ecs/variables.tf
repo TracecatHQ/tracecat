@@ -254,6 +254,24 @@ variable "tracecat_app_env" {
   default     = "production"
 }
 
+variable "platform_otel_enabled" {
+  type        = bool
+  description = "Enable platform-owned OpenTelemetry tracing for the API, worker, and executor services"
+  default     = false
+}
+
+variable "otel_exporter_otlp_endpoint" {
+  type        = string
+  description = "Base OTLP/HTTP collector endpoint for platform traces"
+  default     = null
+}
+
+variable "otel_exporter_otlp_headers_arn" {
+  type        = string
+  description = "Optional Secrets Manager ARN containing OTLP exporter headers for API and worker tracing"
+  default     = null
+}
+
 variable "audit_trusted_proxy_cidrs" {
   type        = string
   description = "Comma-separated CIDRs the API treats as its own proxy hops when resolving audit client IPs. Empty uses the built-in private-range default."
