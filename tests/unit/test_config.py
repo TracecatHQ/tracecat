@@ -552,3 +552,10 @@ def test_bound_env_rejects_invalid_bounds() -> None:
         ValueError, match="lower \\(10\\) cannot be greater than upper \\(8\\)"
     ):
         bound_env("TEST_BOUND_ENV", 16, lower=10, upper=8)
+
+
+def test_platform_otel_operator_settings_are_not_advertised_in_env_example() -> None:
+    source = (REPO_ROOT / ".env.example").read_text()
+    assert "TRACECAT__PLATFORM_OTEL_ENABLED" not in source
+    assert "OTEL_EXPORTER_OTLP_ENDPOINT" not in source
+    assert "OTEL_EXPORTER_OTLP_HEADERS" not in source
