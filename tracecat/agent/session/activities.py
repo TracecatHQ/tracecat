@@ -39,7 +39,6 @@ class CreateSessionInput(BaseModel):
     role: Role
     session_id: uuid.UUID
     require_existing: bool = False
-    parent_session_id: uuid.UUID | None = None
     # Entity context
     entity_type: AgentSessionEntity
     entity_id: uuid.UUID
@@ -163,7 +162,6 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
                         harness_type=input.harness_type,
                     ),
                     agents_binding=input.agents_binding,
-                    parent_session_id=input.parent_session_id,
                 )
 
             # Reconcile agents_binding for pre-existing sessions. Chat-created

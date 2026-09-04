@@ -7,11 +7,7 @@ import pytest
 
 from tracecat.agent.schemas import RunAgentArgs
 from tracecat.agent.types import AgentConfig
-from tracecat.dsl.workflow import (
-    _agent_child_run,
-    _agent_child_session,
-    _with_agent_child_run_id,
-)
+from tracecat.dsl.workflow import _agent_child_run, _with_agent_child_run_id
 from tracecat.temporal.patches import WorkflowPatch
 
 
@@ -39,7 +35,7 @@ def test_agent_child_run_id_is_replay_safe(
             return_value=fresh_run_id,
         ) as uuid4_mock,
     ):
-        child_run = _agent_child_run(session_id=session_id)
+        child_run = _agent_child_run(session_id=session_id, requested=False)
 
     expected_id = session_id if expected_source == "session" else fresh_run_id
     assert child_run.run_id == expected_id
@@ -61,48 +57,21 @@ def test_agent_child_run_id_is_replay_safe(
         assert serialized["curr_run_id"] == str(fresh_run_id)
 
 
-@pytest.mark.parametrize(
-    ("requested", "patched", "expected_session", "expected_parent"),
-    [
-        pytest.param(None, None, "fresh", None, id="fresh-session"),
-        pytest.param("parent", False, "parent", None, id="legacy-replay"),
-        pytest.param("parent", True, "fresh", "parent", id="fork-parent"),
-    ],
-)
-def test_agent_child_session_forks_explicit_parent(
-    requested: str | None,
-    patched: bool | None,
-    expected_session: str,
-    expected_parent: str | None,
-) -> None:
-    parent_session_id = uuid.uuid4()
-    fresh_session_id = uuid.uuid4()
+def test_agent_child_run_keeps_session_id_for_requested_session() -> None:
+    """A caller-supplied session keeps the session-scoped workflow ID.
+
+    That preserves Temporal's rejection of a concurrent run of the same
+    session, so no patch marker is consumed and no run UUID is generated.
+    """
+    session_id = uuid.uuid4()
 
     with (
-        patch(
-            "tracecat.dsl.workflow.workflow.patched",
-            return_value=patched,
-        ) as patched_mock,
-        patch(
-            "tracecat.dsl.workflow.workflow.uuid4",
-            return_value=fresh_session_id,
-        ) as uuid4_mock,
+        patch("tracecat.dsl.workflow.workflow.patched") as patched_mock,
+        patch("tracecat.dsl.workflow.workflow.uuid4") as uuid4_mock,
     ):
-        child_session = _agent_child_session(
-            requested_session_id=(parent_session_id if requested == "parent" else None)
-        )
+        child_run = _agent_child_run(session_id=session_id, requested=True)
 
-    expected_session_id = (
-        parent_session_id if expected_session == "parent" else fresh_session_id
-    )
-    expected_parent_session_id = (
-        parent_session_id if expected_parent == "parent" else None
-    )
-    assert child_session.session_id == expected_session_id
-    assert child_session.parent_session_id == expected_parent_session_id
-    assert uuid4_mock.call_count == int(expected_session == "fresh")
-
-    if requested is None:
-        patched_mock.assert_not_called()
-    else:
-        patched_mock.assert_called_once_with(WorkflowPatch.AGENT_SESSION_FORK)
+    assert child_run.run_id == session_id
+    assert child_run.include_curr_run_id is False
+    patched_mock.assert_not_called()
+    uuid4_mock.assert_not_called()

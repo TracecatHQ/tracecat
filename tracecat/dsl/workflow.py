@@ -251,37 +251,14 @@ class _AgentChildRun:
     include_curr_run_id: bool
 
 
-@dataclass(frozen=True, slots=True)
-class _AgentChildSession:
-    session_id: uuid.UUID
-    parent_session_id: uuid.UUID | None
+def _agent_child_run(*, session_id: uuid.UUID, requested: bool) -> _AgentChildRun:
+    """Create replay-safe child identity and input-shape metadata.
 
-
-def _agent_child_session(
-    *,
-    requested_session_id: uuid.UUID | None,
-) -> _AgentChildSession:
-    """Create a fresh session, forking an explicitly requested parent.
-
-    Pre-patch histories continued the requested session in place; they keep
-    that identity so replay stays deterministic.
+    A caller-supplied session keeps the session-scoped workflow ID, so Temporal
+    still rejects a concurrent run of the same session as it always has. Fresh
+    sessions get a per-run ID behind the patch marker.
     """
-    if requested_session_id is not None and workflow.patched(
-        WorkflowPatch.AGENT_SESSION_FORK
-    ):
-        return _AgentChildSession(
-            session_id=workflow.uuid4(),
-            parent_session_id=requested_session_id,
-        )
-    return _AgentChildSession(
-        session_id=requested_session_id or workflow.uuid4(),
-        parent_session_id=None,
-    )
-
-
-def _agent_child_run(*, session_id: uuid.UUID) -> _AgentChildRun:
-    """Create replay-safe child identity and input-shape metadata."""
-    if workflow.patched(WorkflowPatch.AGENT_CHILD_RUN_ID):
+    if not requested and workflow.patched(WorkflowPatch.AGENT_CHILD_RUN_ID):
         return _AgentChildRun(
             run_id=workflow.uuid4(),
             include_curr_run_id=True,
@@ -1136,7 +1113,7 @@ class DSLWorkflow:
                         wf_info, task.ref
                     )
                     session_id = workflow.uuid4()
-                    child_run = _agent_child_run(session_id=session_id)
+                    child_run = _agent_child_run(session_id=session_id, requested=False)
                     agent_args = _with_agent_child_run_id(
                         RunAgentArgs(
                             user_prompt=action_args.user_prompt,
@@ -1232,11 +1209,11 @@ class DSLWorkflow:
                     child_search_attributes = _build_agent_child_search_attributes(
                         wf_info, task.ref
                     )
-                    child_session = _agent_child_session(
-                        requested_session_id=preset_action_args.session_id
+                    session_id = preset_action_args.session_id or workflow.uuid4()
+                    child_run = _agent_child_run(
+                        session_id=session_id,
+                        requested=preset_action_args.session_id is not None,
                     )
-                    session_id = child_session.session_id
-                    child_run = _agent_child_run(session_id=session_id)
                     agent_args = _with_agent_child_run_id(
                         RunAgentArgs(
                             user_prompt=preset_action_args.user_prompt,
@@ -1258,10 +1235,8 @@ class DSLWorkflow:
                         entity_id=self.run_context.wf_id,
                         agent_preset_id=preset_ref.preset_id,
                         agent_preset_version_id=preset_ref.preset_version_id,
-                        # Only pre-patch histories reuse the caller's session ID.
-                        continue_existing_session=session_id
-                        == preset_action_args.session_id,
-                        parent_session_id=child_session.parent_session_id,
+                        continue_existing_session=preset_action_args.session_id
+                        is not None,
                     )
                     action_result = await workflow.execute_child_workflow(
                         DurableAgentWorkflow.run,
@@ -1900,11 +1875,11 @@ class DSLWorkflow:
         child_search_attributes = _build_agent_child_search_attributes(
             wf_info, task.ref
         )
-        child_session = _agent_child_session(
-            requested_session_id=action_args.session_id
+        session_id = action_args.session_id or workflow.uuid4()
+        child_run = _agent_child_run(
+            session_id=session_id,
+            requested=action_args.session_id is not None,
         )
-        session_id = child_session.session_id
-        child_run = _agent_child_run(session_id=session_id)
         agent_args = _with_agent_child_run_id(
             RunAgentArgs(
                 user_prompt=action_args.user_prompt,
@@ -1936,9 +1911,7 @@ class DSLWorkflow:
             title=self.dsl.title,
             entity_type=AgentSessionEntity.WORKFLOW,
             entity_id=self.run_context.wf_id,
-            # Only pre-patch histories reuse the caller's session ID.
-            continue_existing_session=session_id == action_args.session_id,
-            parent_session_id=child_session.parent_session_id,
+            continue_existing_session=action_args.session_id is not None,
         )
         return await workflow.execute_child_workflow(
             DurableAgentWorkflow.run,

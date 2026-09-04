@@ -571,7 +571,6 @@ class AgentSessionService(BaseWorkspaceService):
         *,
         channel_context: dict[str, Any] | None = None,
         agents_binding: ResolvedAgentsConfig | None = None,
-        parent_session_id: uuid.UUID | None = None,
     ) -> AgentSession:
         """Create a new agent session.
 
@@ -580,22 +579,10 @@ class AgentSessionService(BaseWorkspaceService):
             channel_context: Trusted external channel metadata to bind to session.
             agents_binding: Already-resolved internal subagent binding from the
                 workflow.
-            parent_session_id: Session whose SDK history and work dir the new
-                session forks.
 
         Returns:
             The created AgentSession model.
-
-        Raises:
-            TracecatNotFoundError: If ``parent_session_id`` does not exist.
         """
-        parent: AgentSession | None = None
-        if parent_session_id is not None:
-            parent = await self.get_session(parent_session_id)
-            if parent is None:
-                raise TracecatNotFoundError(
-                    f"Parent session with ID {parent_session_id} not found"
-                )
         # Apply default tools based on entity type if tools not provided.
         # Workspace chat merges its always-on defaults at runtime instead, so
         # ``tools`` stores only the extras the user added (never the defaults).
@@ -640,16 +627,8 @@ class AgentSessionService(BaseWorkspaceService):
             agent_preset_id=logical_preset_id,
             agent_preset_version_id=pinned_preset_version_id,
             agents_binding=resolved_agents_binding,
-            # Harness and work dir - inherit from the fork parent when present
-            harness_type=(
-                parent.harness_type
-                if parent is not None and parent.harness_type is not None
-                else args.harness_type
-            ),
-            work_dir_snapshot=(
-                copy.deepcopy(parent.work_dir_snapshot) if parent is not None else None
-            ),
-            parent_session_id=parent_session_id,
+            # Harness
+            harness_type=args.harness_type,
         )
         # Use provided ID if given, otherwise DB default generates one
         if args.id:
@@ -877,7 +856,6 @@ class AgentSessionService(BaseWorkspaceService):
         args: AgentSessionCreate,
         *,
         agents_binding: ResolvedAgentsConfig | None = None,
-        parent_session_id: uuid.UUID | None = None,
     ) -> tuple[AgentSession, bool]:
         """Get an existing session or create a new one.
 
@@ -893,11 +871,7 @@ class AgentSessionService(BaseWorkspaceService):
             existing = await self.get_session(args.id)
             if existing:
                 return existing, False
-        new_session = await self.create_session(
-            args,
-            agents_binding=agents_binding,
-            parent_session_id=parent_session_id,
-        )
+        new_session = await self.create_session(args, agents_binding=agents_binding)
         return new_session, True
 
     async def list_sessions(
@@ -3568,7 +3542,7 @@ class AgentSessionService(BaseWorkspaceService):
             return str(result)
 
     # =========================================================================
-    # Session Forking
+    # Session Forking (for post-decision agent interactions)
     # =========================================================================
 
     async def fork_session(
@@ -3577,11 +3551,10 @@ class AgentSessionService(BaseWorkspaceService):
         *,
         entity_type: AgentSessionEntity | None = None,
     ) -> AgentSession:
-        """Create a read-only reviewer session forked from a parent session.
+        """Create a forked session from a parent session.
 
-        Used after approval decisions so users can ask for context or
-        clarification. Workflow forks that need their own configuration go
-        through ``create_session`` with ``parent_session_id`` instead.
+        Forked sessions allow users to continue interacting with an agent
+        after making approval decisions, to ask for context or clarification.
 
         Args:
             parent_session_id: The ID of the session to fork.
