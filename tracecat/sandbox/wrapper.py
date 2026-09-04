@@ -263,6 +263,28 @@ def main():
         result["success"] = False
         result["output"] = repr(result["output"])
         result_path.write_text(json.dumps(result))
+    except MemoryError:
+        # An output that fits under the address-space cap can still exhaust it
+        # while being serialized. Drop the oversized value and write a small
+        # fixed envelope, so the failure still reports the resource-limit code
+        # instead of dying before result.json exists.
+        result_path.write_text(
+            json.dumps(
+                {
+                    "success": False,
+                    "output": None,
+                    "error": (
+                        "MemoryError: script output exceeded the sandbox "
+                        "memory limit while being serialized"
+                    ),
+                    "traceback": None,
+                    "stdout": "",
+                    "stderr": "",
+                    "error_code": "resource_limit_exceeded",
+                }
+            )
+        )
+        result["success"] = False
 
     # Exit with appropriate code
     sys.exit(0 if result["success"] else 1)

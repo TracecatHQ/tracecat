@@ -517,19 +517,10 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
         # traceback walk, which needs memory the process may not have, and
         # report a structured code so the host classifies the failure
         # without inspecting error text.
-        return {
-            "success": False,
-            "result": None,
-            "error": {
-                "type": "MemoryError",
-                "message": "Action exceeded the sandbox memory limit",
-                "action_name": _action_display_name(action_impl),
-                "filename": "<sandbox>",
-                "function": "run_action_minimal",
-                "lineno": None,
-            },
-            "error_code": "resource_limit_exceeded",
-        }
+        return _resource_limit_envelope(
+            "Action exceeded the sandbox memory limit",
+            action_name=_action_display_name(action_impl),
+        )
 
     except Exception as e:
         import traceback
@@ -550,6 +541,52 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
                 "lineno": last_frame.lineno if last_frame else None,
             },
         }
+
+
+def serialize_result(result: dict[str, Any], input_data: dict[str, Any]) -> bytes:
+    """Serialize the runner result, degrading to a fixed envelope on MemoryError.
+
+    An action whose return value fits under the address-space cap can still
+    exhaust it while being serialized, and that ``MemoryError`` is raised after
+    ``main_minimal`` has already returned. Without this the process would die
+    before writing ``result.json`` and the failure would degrade to a generic
+    workload error, losing the resource-limit code.
+    """
+    try:
+        return json_dumps(result)
+    except MemoryError:
+        # Drop the oversized result before allocating anything else.
+        result.clear()
+        return json_dumps(
+            _resource_limit_envelope(
+                "Action result exceeded the sandbox memory limit "
+                "while being serialized",
+                action_name=_action_display_name(
+                    input_data.get("resolved_context", {}).get("action_impl")
+                ),
+            )
+        )
+
+
+def _resource_limit_envelope(message: str, *, action_name: str) -> dict[str, Any]:
+    """Build the structured envelope reported when the memory cap is hit.
+
+    Allocates only small, fixed-size values so it stays usable in a process
+    that has already exhausted its address space.
+    """
+    return {
+        "success": False,
+        "result": None,
+        "error": {
+            "type": "MemoryError",
+            "message": message,
+            "action_name": action_name,
+            "filename": "<sandbox>",
+            "function": "run_action_minimal",
+            "lineno": None,
+        },
+        "error_code": "resource_limit_exceeded",
+    }
 
 
 def _action_display_name(action_impl: dict[str, Any] | None) -> str:
@@ -624,7 +661,7 @@ if __name__ == "__main__":
     result = main_minimal(input_data)
 
     # Output result
-    result_bytes = json_dumps(result)
+    result_bytes = serialize_result(result, input_data)
 
     if use_file_io:
         output_path.write_bytes(result_bytes)

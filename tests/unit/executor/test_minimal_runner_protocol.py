@@ -726,3 +726,46 @@ def test_main_minimal_reports_memory_error_as_resource_limit(
     assert result["error_code"] == "resource_limit_exceeded"
     assert result["error"]["type"] == "MemoryError"
     assert result["error"]["action_name"] == "test_module.hungry_action"
+
+
+def test_serialize_result_degrades_to_resource_limit_envelope_on_memory_error(
+    monkeypatch,
+) -> None:
+    """Invariant: a MemoryError while serializing still reports the limit code.
+
+    The allocation that dies can be the serialization itself, long after the
+    action returned. Without this fallback the process exits before writing
+    result.json and the host sees only a generic workload failure.
+    """
+    calls: list[dict[str, Any]] = []
+    real_json_dumps = minimal_runner.json_dumps
+
+    def flaky_json_dumps(obj: dict[str, Any]) -> bytes:
+        calls.append(obj)
+        if len(calls) == 1:
+            raise MemoryError()
+        return real_json_dumps(obj)
+
+    monkeypatch.setattr(minimal_runner, "json_dumps", flaky_json_dumps)
+
+    payload = minimal_runner.serialize_result(
+        {"success": True, "result": "an oversized value"},
+        {
+            "resolved_context": {
+                "action_impl": {"module": "test_module", "name": "hungry_action"}
+            }
+        },
+    )
+
+    decoded = orjson.loads(payload)
+    assert decoded["success"] is False
+    assert decoded["error_code"] == "resource_limit_exceeded"
+    assert decoded["error"]["type"] == "MemoryError"
+    assert decoded["error"]["action_name"] == "test_module.hungry_action"
+
+
+def test_serialize_result_passes_through_when_serialization_succeeds() -> None:
+    """Invariant: the fallback never fires on the ordinary path."""
+    payload = minimal_runner.serialize_result({"success": True, "result": 1}, {})
+
+    assert orjson.loads(payload) == {"success": True, "result": 1}
