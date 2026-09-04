@@ -31280,6 +31280,10 @@ export const $WorkflowExecutionCreateResponse = {
         "(wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/]((exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
       title: "Wf Exec Id",
     },
+    trace_id: {
+      type: "string",
+      title: "Trace Id",
+    },
     payload: {
       title: "Payload",
     },

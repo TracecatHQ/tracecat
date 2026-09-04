@@ -65,6 +65,95 @@ def test_agent_executor_worker_registers_runtime_execution_activities() -> None:
 
 
 @pytest.mark.anyio
+async def test_agent_worker_initializes_tracing_before_temporal_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tracecat.agent import worker
+
+    events: list[str] = []
+
+    def initialize_tracing(service_name: str) -> None:
+        assert service_name == "tracecat-agent-worker"
+        events.append("initialize_tracing")
+
+    async def get_temporal_client() -> None:
+        events.append("get_temporal_client")
+        raise RuntimeError("synthetic startup failure")
+
+    async def close_storage_cache() -> None:
+        events.append("close_storage_cache")
+
+    def shutdown_tracing() -> None:
+        events.append("shutdown_tracing")
+
+    monkeypatch.setattr(worker, "initialize_platform_tracing", initialize_tracing)
+    monkeypatch.setattr(worker, "get_temporal_client", get_temporal_client)
+    monkeypatch.setattr(worker, "close_storage_client_cache", close_storage_cache)
+    monkeypatch.setattr(worker, "shutdown_platform_tracing", shutdown_tracing)
+
+    with pytest.raises(RuntimeError, match="synthetic startup failure"):
+        await worker.main()
+
+    assert events == [
+        "initialize_tracing",
+        "get_temporal_client",
+        "close_storage_cache",
+        "shutdown_tracing",
+    ]
+
+
+@pytest.mark.anyio
+async def test_agent_executor_initializes_tracing_before_runtime_services(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tracecat.agent import executor_worker
+
+    events: list[str] = []
+
+    def initialize_tracing(service_name: str) -> None:
+        assert service_name == "tracecat-agent-executor"
+        events.append("initialize_tracing")
+
+    async def start_runtime_services() -> None:
+        events.append("start_runtime_services")
+        raise RuntimeError("synthetic startup failure")
+
+    async def close_storage_cache() -> None:
+        events.append("close_storage_cache")
+
+    async def stop_runtime_services() -> None:
+        events.append("stop_runtime_services")
+
+    def shutdown_tracing() -> None:
+        events.append("shutdown_tracing")
+
+    monkeypatch.setattr(
+        executor_worker, "initialize_platform_tracing", initialize_tracing
+    )
+    monkeypatch.setattr(
+        executor_worker, "_start_runtime_services", start_runtime_services
+    )
+    monkeypatch.setattr(
+        executor_worker, "close_storage_client_cache", close_storage_cache
+    )
+    monkeypatch.setattr(
+        executor_worker, "_stop_runtime_services", stop_runtime_services
+    )
+    monkeypatch.setattr(executor_worker, "shutdown_platform_tracing", shutdown_tracing)
+
+    with pytest.raises(RuntimeError, match="synthetic startup failure"):
+        await executor_worker.main()
+
+    assert events == [
+        "initialize_tracing",
+        "start_runtime_services",
+        "close_storage_cache",
+        "stop_runtime_services",
+        "shutdown_tracing",
+    ]
+
+
+@pytest.mark.anyio
 async def test_executor_worker_continues_after_registry_cache_warmup_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

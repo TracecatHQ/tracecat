@@ -16,10 +16,16 @@
 
 <ResponseField name="edit_workflow" type="tool">
   Edit a draft workflow using RFC 6902 JSON Patch.
+
+  Prefer this tool over `update_workflow` for focused edits to an existing workflow. If the latest `draft_document` and `draft_revision` are already in the context window, reuse them and build the smallest patch that changes the intended fields. Call `get_workflow` only when the latest draft is missing, stale, or a revision conflict says the draft changed.
+
+  Patch paths are rooted at `draft_document`, so action edits use `/definition/actions/N/...`, not `/actions/N/...`. RFC 6902 array rules apply: `/-` appends, and indexes shift after array edits.
 </ResponseField>
 
 <ResponseField name="update_workflow" type="tool">
   Update workflow metadata and optional inline YAML.
+
+  This tool does not accept `patch_ops`. Use `edit_workflow` for RFC 6902 draft patches with a `base_revision`.
 </ResponseField>
 
 <ResponseField name="list_workflows" type="tool">
@@ -344,7 +350,7 @@
 </ResponseField>
 
 <ResponseField name="create_column" type="tool">
-  Add a column to an existing table. This alters the table schema, so tell the user which table and column you are about to change and get their confirmation before calling this tool.
+  Add a column to an existing table. Migrating a table is never needed to add a field. This alters the schema every workflow and view reads, so tell the user which table and column you are about to change and get their confirmation before calling this tool.
 </ResponseField>
 
 <ResponseField name="insert_table_row" type="tool">

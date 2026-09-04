@@ -126,6 +126,7 @@ locals {
         TRACECAT__EMAIL_DOMAIN                     = var.email_domain
         TRACECAT__DB_ENDPOINT                      = local.core_db_hostname
         TRACECAT__SERVICE_NAME                     = "api"
+        SENTRY_DSN                                 = var.sentry_dsn
         OIDC_ISSUER                                = var.oidc_issuer
         OIDC_SCOPES                                = var.oidc_scopes
         TEMPORAL__CLUSTER_QUEUE                    = local.temporal_cluster_queue
