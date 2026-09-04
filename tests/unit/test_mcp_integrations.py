@@ -5084,6 +5084,54 @@ class TestMCPProviderOAuth:
 
         assert endpoints.resource == "https://mcp.app.wiz.io/"
 
+    @pytest.mark.parametrize(
+        ("server_uri", "metadata_url"),
+        [
+            (
+                "https://mcp.example.com/mcp?tenant=alpha",
+                "https://mcp.example.com/.well-known/"
+                "oauth-protected-resource/mcp?tenant=alpha",
+            ),
+            (
+                "https://mcp.example.com?tenant=alpha",
+                "https://mcp.example.com/.well-known/"
+                "oauth-protected-resource?tenant=alpha",
+            ),
+        ],
+    )
+    async def test_generic_mcp_discovery_preserves_query_resource_identity(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+        server_uri: str,
+        metadata_url: str,
+    ) -> None:
+        """RFC 9728 query components remain part of the resource identity."""
+        docs = {
+            metadata_url: {
+                "resource": server_uri,
+                "authorization_servers": ["https://login.example-idp.com"],
+            },
+            "https://login.example-idp.com/.well-known/oauth-authorization-server": {
+                "issuer": "https://login.example-idp.com",
+                "authorization_endpoint": (
+                    "https://login.example-idp.com/oauth/authorize"
+                ),
+                "token_endpoint": "https://login.example-idp.com/oauth/token",
+            },
+        }
+
+        async def fake_fetch(url: str) -> OAuthServerMetadata | None:
+            return OAuthServerMetadata.from_json(docs[url])
+
+        monkeypatch.setattr(integration_service, "_fetch_oauth_json", fake_fetch)
+
+        endpoints = await integration_service._discover_mcp_oauth_endpoints(
+            server_uri=server_uri,
+        )
+
+        assert endpoints.resource == server_uri
+
     async def test_generic_mcp_discovery_captures_scopes_supported(
         self,
         integration_service: IntegrationService,
@@ -6318,9 +6366,20 @@ class TestMCPProviderOAuth:
         self,
     ) -> None:
         """Saved Feedly connections can recover the audience after OAuth redirect."""
-        assert IntegrationService._catalog_mcp_oauth_resource("feedly-mcp") == (
-            "https://mcp.feedly.com"
-        )
+        assert IntegrationService._catalog_mcp_oauth_resource(
+            "feedly-mcp",
+            server_uri="https://mcp.feedly.com/mcp",
+        ) == ("https://mcp.feedly.com")
+
+    def test_datadog_catalog_ignores_only_toolsets_in_oauth_resource(self) -> None:
+        """Datadog tool selection does not alter its OAuth resource identity."""
+        assert IntegrationService._catalog_mcp_oauth_resource(
+            "datadog-mcp",
+            server_uri=(
+                "https://mcp.us3.datadoghq.com/v1/mcp"
+                "?tenant=alpha&toolsets=core%2Call&mode=strict"
+            ),
+        ) == ("https://mcp.us3.datadoghq.com/v1/mcp?tenant=alpha&mode=strict")
 
     async def test_generic_mcp_discovery_uses_protected_resource_identifier(
         self,

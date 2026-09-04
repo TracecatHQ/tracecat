@@ -755,6 +755,7 @@ def test_datadog_row_uses_configurable_regional_v1_endpoint() -> None:
     assert spec.kind == "http_oauth2"
     assert spec.server_uri == "https://mcp.datadoghq.com/v1/mcp"
     assert spec.requires_config is True
+    assert spec.oauth_resource_ignored_query_params == ["toolsets"]
     assert spec.oauth_authorization_endpoint is None
     assert spec.oauth_token_endpoint is None
     assert {credential.key: credential.target for credential in spec.credentials} == {

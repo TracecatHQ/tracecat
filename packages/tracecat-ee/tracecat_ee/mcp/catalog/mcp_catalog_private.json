@@ -417,6 +417,9 @@
         "auth_type": "OAUTH2",
         "server_uri": "https://mcp.datadoghq.com/v1/mcp",
         "scopes": [],
+        "oauth_resource_ignored_query_params": [
+          "toolsets"
+        ],
         "oauth_authorization_endpoint": null,
         "oauth_token_endpoint": null,
         "credentials": [

@@ -9,7 +9,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any, TypedDict, cast
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import unquote_plus, urlparse, urlunparse
 from uuid import uuid4
 
 import httpx
@@ -756,40 +756,75 @@ class IntegrationService(BaseWorkspaceService):
 
     @staticmethod
     def _mcp_oauth_resource_metadata_urls(
-        server_uri: str,
+        resource_uri: str,
     ) -> list[tuple[str, str]]:
         """Build RFC 9728 URLs paired with their expected resource identifiers."""
-        parsed = urlparse(server_uri)
-        base_url = IntegrationService._mcp_resource_base_url(server_uri)
+        resource_uri = IntegrationService._mcp_resource_uri(resource_uri)
+        parsed = urlparse(resource_uri)
+        base_url = IntegrationService._mcp_resource_base_url(resource_uri)
         urls: list[tuple[str, str]] = []
         if parsed.path and parsed.path != "/":
-            resource_uri = IntegrationService._mcp_resource_uri(server_uri)
-            parsed_resource = urlparse(resource_uri)
-            # Query parameters configure the MCP transport (for example,
-            # Datadog toolsets) but are not part of its OAuth resource identity.
-            expected_resource = urlunparse(
-                (
-                    parsed_resource.scheme,
-                    parsed_resource.netloc,
-                    parsed_resource.path,
-                    "",
-                    "",
-                    "",
-                )
-            )
             urls.append(
                 (
-                    f"{base_url}/.well-known/oauth-protected-resource{parsed.path}",
-                    expected_resource,
+                    urlunparse(
+                        (
+                            "https",
+                            parsed.netloc,
+                            f"/.well-known/oauth-protected-resource{parsed.path}",
+                            "",
+                            parsed.query,
+                            "",
+                        )
+                    ),
+                    resource_uri,
                 )
             )
-        root_resource = (
-            IntegrationService._mcp_resource_uri(server_uri)
-            if parsed.path == "/"
-            else base_url
-        )
-        urls.append((f"{base_url}/.well-known/oauth-protected-resource", root_resource))
+            urls.append((f"{base_url}/.well-known/oauth-protected-resource", base_url))
+        else:
+            metadata_url = urlunparse(
+                (
+                    "https",
+                    parsed.netloc,
+                    "/.well-known/oauth-protected-resource",
+                    "",
+                    parsed.query,
+                    "",
+                )
+            )
+            urls.append((metadata_url, resource_uri))
         return urls
+
+    @classmethod
+    def _catalog_spec_mcp_oauth_resource(
+        cls,
+        catalog_spec: MCPHTTPOAuth2ConnectionSpec,
+        *,
+        server_uri: str,
+    ) -> str | None:
+        """Return a catalog-pinned or provider-normalized OAuth resource URI."""
+        if catalog_spec.oauth_resource is not None:
+            return catalog_spec.oauth_resource
+        ignored_params = set(catalog_spec.oauth_resource_ignored_query_params)
+        if not ignored_params:
+            return None
+
+        resource_uri = cls._mcp_resource_uri(server_uri)
+        parsed = urlparse(resource_uri)
+        query_parts = [
+            part
+            for part in parsed.query.split("&")
+            if unquote_plus(part.partition("=")[0]) not in ignored_params
+        ]
+        return urlunparse(
+            (
+                parsed.scheme,
+                parsed.netloc,
+                parsed.path,
+                "",
+                "&".join(query_parts),
+                "",
+            )
+        )
 
     @staticmethod
     def _validate_mcp_oauth_resource_metadata(
@@ -1017,7 +1052,7 @@ class IntegrationService(BaseWorkspaceService):
         # after this chain of authority has been established.
         authorization_server_issuers: list[str] = []
         for metadata_url, expected_resource in self._mcp_oauth_resource_metadata_urls(
-            server_uri
+            resource_uri
         ):
             metadata = await self._fetch_oauth_json(metadata_url)
             if not metadata:
@@ -1032,7 +1067,7 @@ class IntegrationService(BaseWorkspaceService):
             break
 
         if not authorization_server_issuers:
-            authorization_server_issuers = [self._mcp_resource_base_url(server_uri)]
+            authorization_server_issuers = [self._mcp_resource_base_url(resource_uri)]
 
         direct_metadata: OAuthServerMetadata | None = None
         for raw_issuer in authorization_server_issuers:
@@ -1332,7 +1367,10 @@ class IntegrationService(BaseWorkspaceService):
             if not isinstance(catalog_spec, MCPHTTPOAuth2ConnectionSpec):
                 raise ValueError("Catalog option is not an HTTP OAuth MCP server")
             scopes = catalog_spec.scopes
-            oauth_resource = catalog_spec.oauth_resource
+            oauth_resource = self._catalog_spec_mcp_oauth_resource(
+                catalog_spec,
+                server_uri=params.server_uri,
+            )
             # Fail before any discovery or registration call so a row that
             # cannot connect is never half-created.
             self._validate_required_catalog_headers(
@@ -1719,7 +1757,8 @@ class IntegrationService(BaseWorkspaceService):
             server_uri=mcp_integration.server_uri,
             provider_config=provider_config,
             oauth_resource=self._catalog_mcp_oauth_resource(
-                mcp_integration.catalog_slug
+                mcp_integration.catalog_slug,
+                server_uri=mcp_integration.server_uri,
             ),
         )
         client_secret = (
@@ -1796,7 +1835,8 @@ class IntegrationService(BaseWorkspaceService):
             server_uri=mcp_integration.server_uri,
             provider_config=provider_config,
             oauth_resource=self._catalog_mcp_oauth_resource(
-                mcp_integration.catalog_slug
+                mcp_integration.catalog_slug,
+                server_uri=mcp_integration.server_uri,
             ),
         )
         client_secret = (
@@ -3196,7 +3236,8 @@ class IntegrationService(BaseWorkspaceService):
             server_uri=mcp_integration.server_uri,
             provider_config=provider_config,
             oauth_resource=self._catalog_mcp_oauth_resource(
-                mcp_integration.catalog_slug
+                mcp_integration.catalog_slug,
+                server_uri=mcp_integration.server_uri,
             ),
         )
         client_secret = (
@@ -3489,7 +3530,12 @@ class IntegrationService(BaseWorkspaceService):
         return ResolvedCatalogConnection(entry=catalog, option=default_option)
 
     @classmethod
-    def _catalog_mcp_oauth_resource(cls, catalog_slug: str | None) -> str | None:
+    def _catalog_mcp_oauth_resource(
+        cls,
+        catalog_slug: str | None,
+        *,
+        server_uri: str,
+    ) -> str | None:
         """Return a catalog-pinned OAuth resource for a saved MCP integration."""
         if catalog_slug is None:
             return None
@@ -3500,7 +3546,10 @@ class IntegrationService(BaseWorkspaceService):
             return None
         if not isinstance(catalog.connection_spec, MCPHTTPOAuth2ConnectionSpec):
             return None
-        return catalog.connection_spec.oauth_resource
+        return cls._catalog_spec_mcp_oauth_resource(
+            catalog.connection_spec,
+            server_uri=server_uri,
+        )
 
     @classmethod
     def _catalog_mcp_authorize_params(cls, catalog_slug: str | None) -> dict[str, str]:
