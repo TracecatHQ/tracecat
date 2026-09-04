@@ -1,24 +1,37 @@
 import type { ActionRead } from "@/client"
 import type { WorkflowExecutionEventCompact } from "@/lib/event-history"
-import { computePinDomains, isPinnableActionEvent } from "@/lib/workflow-pins"
+import {
+  computePinDomains,
+  computeScopedActionRefs,
+  isPinnableActionEvent,
+} from "@/lib/workflow-pins"
+
+type UpstreamEdge =
+  | string
+  | [sourceId: string, sourceHandle: "success" | "error"]
 
 function action(
   id: string,
   title: string,
-  upstreamIds: string[] = []
+  upstreamEdges: UpstreamEdge[] = [],
+  type = "core.noop"
 ): ActionRead {
   return {
     id,
-    type: "core.noop",
+    type,
     title,
     description: "",
     status: "online",
     inputs: "",
-    upstream_edges: upstreamIds.map((sourceId) => ({
-      source_id: sourceId,
-      source_type: "udf" as const,
-      source_handle: "success" as const,
-    })),
+    upstream_edges: upstreamEdges.map((edge) => {
+      const [sourceId, sourceHandle] =
+        typeof edge === "string" ? [edge, "success" as const] : edge
+      return {
+        source_id: sourceId,
+        source_type: "udf" as const,
+        source_handle: sourceHandle,
+      }
+    }),
   } as ActionRead
 }
 
@@ -63,6 +76,19 @@ describe("isPinnableActionEvent", () => {
 })
 
 describe("computePinDomains", () => {
+  it("keeps sources with error edges out of the force-skip domain", () => {
+    const conditionalActions = {
+      "id-a": action("id-a", "a"),
+      "id-handler": action("id-handler", "handler", [["id-a", "error"]]),
+    }
+    const domains = computePinDomains(conditionalActions, {
+      source_execution_id: "exec_1",
+      action_refs: ["handler"],
+    })
+
+    expect(domains.forceSkipRefs.has("a")).toBe(false)
+  })
+
   it("force-skips only the exclusive upstream of a pinned action", () => {
     const domains = computePinDomains(actions, {
       source_execution_id: "exec_1",
@@ -92,5 +118,78 @@ describe("computePinDomains", () => {
 
     expect(domains.pinnedRefs.size).toBe(0)
     expect(domains.forceSkipRefs.size).toBe(0)
+  })
+})
+
+describe("computeScopedActionRefs", () => {
+  it("marks loop bodies as scoped and excludes their persisted pins", () => {
+    const loopActions = {
+      "id-loop-start": action(
+        "id-loop-start",
+        "loop_start",
+        [],
+        "core.loop.start"
+      ),
+      "id-body": action("id-body", "body", ["id-loop-start"]),
+      "id-loop-end": action(
+        "id-loop-end",
+        "loop_end",
+        ["id-body"],
+        "core.loop.end"
+      ),
+      "id-after": action("id-after", "after", ["id-loop-end"]),
+    }
+
+    const scopedRefs = computeScopedActionRefs(loopActions)
+    expect(scopedRefs.has("body")).toBe(true)
+    expect(scopedRefs.has("after")).toBe(false)
+    expect(
+      isPinnableActionEvent(
+        "body",
+        { body: [completedEvent("<root>:0")] },
+        loopActions
+      )
+    ).toBe(false)
+    expect(
+      computePinDomains(loopActions, {
+        source_execution_id: "exec_1",
+        action_refs: ["body"],
+      }).pinnedRefs.size
+    ).toBe(0)
+  })
+
+  it("keeps actions inside nested scatter scopes scoped", () => {
+    const nestedScatterActions = {
+      "id-scatter": action(
+        "id-scatter",
+        "scatter",
+        [],
+        "core.transform.scatter"
+      ),
+      "id-inner-scatter": action(
+        "id-inner-scatter",
+        "inner_scatter",
+        ["id-scatter"],
+        "core.transform.scatter"
+      ),
+      "id-x": action("id-x", "x", ["id-inner-scatter"]),
+      "id-inner-gather": action(
+        "id-inner-gather",
+        "inner_gather",
+        ["id-x"],
+        "core.transform.gather"
+      ),
+      "id-y": action("id-y", "y", ["id-inner-gather"]),
+      "id-gather": action(
+        "id-gather",
+        "gather",
+        ["id-y"],
+        "core.transform.gather"
+      ),
+    }
+
+    const scopedRefs = computeScopedActionRefs(nestedScatterActions)
+    expect(scopedRefs.has("x")).toBe(true)
+    expect(scopedRefs.has("y")).toBe(true)
   })
 })

@@ -24,6 +24,11 @@ export type PinDomains = {
   forceSkipRefs: Set<string>
 }
 
+const SCOPE_CLOSER_BY_OPENER = new Map([
+  ["core.transform.scatter", "core.transform.gather"],
+  ["core.loop.start", "core.loop.end"],
+])
+
 export function getWorkflowDraftPins(
   workflow: Pick<WorkflowRead, "draft_pins"> | null | undefined
 ): WorkflowDraftPins | null {
@@ -41,6 +46,87 @@ export function getWorkflowDraftPins(
   }
 }
 
+/** Return action refs that live between matching scatter or loop boundaries. */
+export function computeScopedActionRefs(
+  actions: Record<string, ActionRead> | null | undefined
+): Set<string> {
+  if (!actions) {
+    return new Set()
+  }
+
+  const actionList = Object.values(actions)
+  const refByActionId = new Map<string, string>()
+  const typeByRef = new Map<string, string>()
+  const adjacency = new Map<string, Set<string>>()
+  for (const action of actionList) {
+    const actionRef = slugifyActionRef(action.title)
+    if (actionRef.length === 0) {
+      continue
+    }
+    refByActionId.set(action.id, actionRef)
+    typeByRef.set(actionRef, action.type)
+    adjacency.set(action.id, new Set())
+  }
+
+  for (const action of actionList) {
+    if (!refByActionId.has(action.id)) {
+      continue
+    }
+    for (const edge of action.upstream_edges ?? []) {
+      if (edge.source_type !== "udf" || !refByActionId.has(edge.source_id)) {
+        continue
+      }
+      adjacency.get(edge.source_id)?.add(action.id)
+    }
+  }
+
+  const scopedRefs = new Set<string>()
+  for (const action of actionList) {
+    const openerRef = refByActionId.get(action.id)
+    const closerType = SCOPE_CLOSER_BY_OPENER.get(action.type)
+    if (!openerRef || !closerType) {
+      continue
+    }
+
+    const queue = Array.from(adjacency.get(action.id) ?? []).map(
+      (actionId) => ({ actionId, depth: 1 })
+    )
+    const visited = new Set<string>()
+    while (queue.length > 0) {
+      const state = queue.shift()
+      if (!state) {
+        break
+      }
+      const actionRef = refByActionId.get(state.actionId)
+      if (!actionRef) {
+        continue
+      }
+      const visitKey = `${actionRef}:${state.depth}`
+      if (visited.has(visitKey)) {
+        continue
+      }
+      visited.add(visitKey)
+
+      const actionType = typeByRef.get(actionRef)
+      let depth = state.depth
+      if (actionType === closerType) {
+        depth -= 1
+        if (depth === 0) {
+          continue
+        }
+      }
+
+      scopedRefs.add(actionRef)
+      const nextDepth = actionType === action.type ? depth + 1 : depth
+      for (const childId of adjacency.get(state.actionId) ?? []) {
+        queue.push({ actionId: childId, depth: nextDepth })
+      }
+    }
+  }
+
+  return scopedRefs
+}
+
 /** Return whether a selected execution event is eligible to become a draft pin. */
 export function isPinnableActionEvent(
   actionRef: string | undefined,
@@ -48,6 +134,10 @@ export function isPinnableActionEvent(
   actions: Record<string, ActionRead> | null | undefined
 ): boolean {
   if (!actionRef || !groupedEvents[actionRef] || !actions) {
+    return false
+  }
+
+  if (computeScopedActionRefs(actions).has(actionRef)) {
     return false
   }
 
@@ -70,6 +160,7 @@ export function isPinnableActionEvent(
   )
 }
 
+/** Compute pinned and force-skipped refs without bypassing conditional edges. */
 export function computePinDomains(
   actions: Record<string, ActionRead> | null | undefined,
   pins: WorkflowDraftPins | null
@@ -89,15 +180,19 @@ export function computePinDomains(
     }
   }
   const allActionRefs = new Set<string>(refByActionId.values())
+  const scopedRefs = computeScopedActionRefs(actions)
 
   const pinnedRefs = new Set(
-    pins.action_refs.filter((actionRef) => allActionRefs.has(actionRef))
+    pins.action_refs.filter(
+      (actionRef) => allActionRefs.has(actionRef) && !scopedRefs.has(actionRef)
+    )
   )
   if (pinnedRefs.size === 0) {
     return { pinnedRefs, forceSkipRefs: new Set() }
   }
 
   const adjacency = new Map<string, Set<string>>()
+  const refsWithErrorEdges = new Set<string>()
   for (const actionRef of allActionRefs) {
     adjacency.set(actionRef, new Set())
   }
@@ -117,6 +212,9 @@ export function computePinDomains(
         continue
       }
       adjacency.get(sourceRef)?.add(targetRef)
+      if (edge.source_handle === "error") {
+        refsWithErrorEdges.add(sourceRef)
+      }
     }
   }
 
@@ -125,7 +223,11 @@ export function computePinDomains(
   while (changed) {
     changed = false
     for (const [actionRef, nextRefs] of adjacency.entries()) {
-      if (skipDomain.has(actionRef) || nextRefs.size === 0) {
+      if (
+        skipDomain.has(actionRef) ||
+        nextRefs.size === 0 ||
+        refsWithErrorEdges.has(actionRef)
+      ) {
         continue
       }
       const allDownstreamSkipped = Array.from(nextRefs).every((nextRef) =>
