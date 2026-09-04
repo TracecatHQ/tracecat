@@ -2226,76 +2226,49 @@ headers:
 ```
 
 ## Conditions and transforms before Python
-Take the cheapest rung that does the job:
-1. An inline expression in `args` — `${{ FN.lowercase(TRIGGER.email) }}`, \
-`${{ ACTIONS.fetch.result.count > 10 }}`, or a `||` default.
-2. `run_if` on the action itself to skip it — \
-`run_if: ${{ TRIGGER.severity in ["high", "critical"] }}`.
-3. A `core.transform.*` action for shaping: `core.transform.reshape` to build a \
-payload, `core.transform.filter`, `core.transform.map`, \
-`core.transform.deduplicate`, or `core.transform.drop_nulls` for list work, and \
-`core.transform.eval_jsonpaths` to pull fields out of a nested response.
-4. `core.script.run_python` when the work is genuinely data-heavy — joins, \
-grouping, batching, chunked writes, or bounded async HTTP loops.
+Take the cheapest rung that does the job: an inline expression in `args`, then \
+`run_if` on the action, then a `core.transform.*` action for shaping, then \
+`core.script.run_python` only when the work is genuinely data-heavy.
 
-Repeating the same `run_if` on several sibling branches is fine and idiomatic. \
-Do not introduce a `core.script.run_python` router action purely to evaluate a \
-condition in one place; that trades a duplicated one-line expression for an \
-extra scheduled action and a serialization hop.
+When several sibling branches genuinely need the same guard, repeating the \
+one-line `run_if` is fine — do not add a `core.script.run_python` router action \
+just to evaluate it once; that trades a duplicated expression for an extra \
+scheduled action and a serialization hop.
 
 ## Loop and batching guidance
-- Default to `core.transform.scatter` for workflow-level loop management: \
-scatter alerts into `core.cases.create_case`, run `ai.agent` or \
-`ai.preset_agent` per item, branch enrichment, or call `core.workflow.execute`. \
-Add `core.transform.gather` only when downstream steps need combined results.
-- Use best judgment: use `core.script.run_python` for data-heavy in-process \
-work such as list transforms, batching, joins, dedupe, sorting, grouping, \
-chunked table writes, batch table uploads, and bounded async HTTP loops. \
-Run-python scripts can import Tracecat modules when needed for platform-native \
-helpers.
-- For bulk table writes, prefer one native `core.table.insert_rows` action when \
-rows are already shaped (up to 1000 rows per batch). Do not scatter one insert \
-per row. If shaping, chunking, or mixed table/case side effects are needed, batch \
-inside `core.script.run_python` and import helpers such as \
-`from tracecat_registry.core.table import insert_rows`.
-- Scatter is useful, but >10 concurrent DB-backed table/case branches can exhaust \
-Postgres connection slots (for example: "remaining connection slots are reserved \
-for roles with the SUPERUSER attribute"). Scatter's optional `interval` can \
-stagger stream creation, but it is not a DB batch/throttle primitive; do not rely \
-on retries to fix connection-starvation fanout. Replace high-fanout `scatter -> \
-gather` DB writes with `core.table.insert_rows` or run-python batching.
-- Avoid action-level `for_each` by default. Use it only for known, bounded lists \
-when the user explicitly needs separate workflow action runs per item and accepts \
-the scheduler/concurrency tradeoff. Unbounded or large `for_each` loops can hurt \
-the scheduler.
+- Default to `core.transform.scatter` for workflow-level fan-out. Add \
+`core.transform.gather` only when a downstream step needs combined results.
+- More than 10 concurrent DB-backed table/case branches can exhaust Postgres \
+connection slots ("remaining connection slots are reserved for roles with the \
+SUPERUSER attribute"). Scatter's `interval` staggers stream creation but is not \
+a DB throttle. Replace high-fanout `scatter -> gather` DB writes with \
+`core.table.insert_rows` or run-python batching.
+- One `core.table.insert_rows` action (up to 1000 rows per batch) beats \
+scattering one insert per row.
+- Avoid action-level `for_each` by default; large or unbounded loops hurt the \
+scheduler.
 - Use `core.loop.start` / `core.loop.end` for while-style workflow loops where \
 the next iteration depends on prior action output.
 
-Run-python batching example for table helpers:
-```python
-from tracecat_registry.core.table import insert_rows
-
-async def main(items: list[dict]) -> dict:
-    inserted = 0
-    batch_size = 1000
-    for start in range(0, len(items), batch_size):
-        batch = items[start:start + batch_size]
-        rows = [{"external_id": item["id"], "payload": item} for item in batch]
-        inserted += await insert_rows(
-            table="alerts",
-            rows_data=rows,
-            upsert=False,
-        )
-    return {"input_count": len(items), "inserted": inserted}
-```
-Set the `core.script.run_python` action's `allow_network: true` when imported \
-helpers call Tracecat APIs.
+## Graph shape
+`depends_on` is execution order, not data wiring. An action can read
+`ACTIONS.<ref>.result` from any upstream ancestor, not just its direct parents, so
+add an edge only when the action must wait. Fewer edges is better.
+- Default to one linear chain. Branch only for work that is genuinely independent,
+  and rejoin only when a later step needs both.
+- A skipped or failed parent already stops dependents on the default success edge,
+  so do not re-assert an upstream condition in `run_if`.
+- A join is different. Default `join_strategy: all` needs every parent visited, so
+  one skipped branch makes the join unreachable and fails the workflow. Give a join
+  over a conditional branch `join_strategy: any`, or repeat the branch's `run_if`
+  on the join so it self-skips first.
+- One parent is the norm. Multiple parents mean a deliberate join.
 
 ## Key DSL fields (inside each action under `actions:`)
 - `ref` — unique slug identifier for the action
 - `action` — action type (e.g. `core.http_request`)
 - `args` — action arguments as key-value pairs
-- `depends_on` — list of action refs this action waits for
+- `depends_on` — refs this action waits for (execution order, not data access)
 - `run_if` — conditional expression to skip execution
 - `for_each` — iterate over a list
 - `retry_policy` — {max_attempts, timeout}
@@ -2309,54 +2282,10 @@ helpers call Tracecat APIs.
 5. Debug runs with `list_workflow_executions` and `get_workflow_execution`
 
 ## Workflow definition editing
-- Default to `edit_workflow` for existing workflows. If the latest
-`draft_document` and `draft_revision` are already in the context window, reuse
-them and create the smallest RFC 6902 patch that changes the intended fields.
-Call `get_workflow` only when the latest draft is missing, stale, or a revision
-conflict says the draft changed.
-- Patch paths are rooted at `draft_document`, so action edits use
+- Default to `edit_workflow` for focused edits to an existing workflow; its \
+docstring carries the full RFC 6902 patch rules.
+- Patch paths are rooted at `draft_document`, so action edits use \
 `/definition/actions/N/...`, not `/actions/N/...`.
-- `patch_ops` are applied sequentially. Every successful write returns a new \
-`draft_revision`; use it as the next `base_revision`, or refetch.
-- For nontrivial patches, run `edit_workflow(validate_only=true)`, then repeat \
-the same patch with `validate_only=false` and the same `base_revision`.
-- RFC 6902 array rules apply: `/-` appends, and indexes shift after array edits.
-- Use `update_workflow` without `definition_yaml` for metadata-only updates. Use \
-inline YAML on `create_workflow`/`update_workflow` only for creation or intentional \
-bulk replacement.
-
-```json
-{
-  "base_revision": "<draft_revision from get_workflow>",
-  "validate_only": true,
-  "patch_ops": [
-    {
-      "op": "replace",
-      "path": "/definition/actions/2/args/script",
-      "value": "def main(): return {'ok': True}"
-    },
-    {
-      "op": "add",
-      "path": "/definition/actions/-",
-      "value": {
-        "ref": "notify_owner",
-        "action": "core.http_request",
-        "depends_on": ["parse_event"],
-        "args": {
-          "method": "POST",
-          "url": "https://api.example.com/notify",
-          "payload": {"owner": "${{ ACTIONS.parse_event.result.owner }}"}
-        }
-      }
-    },
-    {
-      "op": "add",
-      "path": "/layout/actions/-",
-      "value": {"ref": "notify_owner", "x": 600, "y": 120}
-    }
-  ]
-}
-```
 
 ## Template and CSV file tools
 - {_TEMPLATE_FILE_WARNING}
@@ -2369,59 +2298,17 @@ bulk replacement.
 - Call `prepare_skill_upload` with file metadata, upload the raw bytes to each
   returned URL, then call `complete_skill_upload` with the upload IDs.
 
-## Agent preset authoring
-1. `get_agent_preset_authoring_context` — inspect models, integrations, variables, and output_type options
-2. `list_integrations` — inspect attachable MCP integrations and provider status
-3. `list_actions` / `get_action_context` — choose exact tools and schemas
-4. `create_agent_preset` or `update_agent_preset`
-5. `list_agent_presets`, `get_agent_preset`, or `run_agent_preset` as needed
-
-## Tag and case field argument rules
-- Workflow tag definition tools (`list_workflow_tags`, `create_workflow_tag`, \
-`update_workflow_tag`, `delete_workflow_tag`) operate on workspace tag definitions. \
-Use `tag_id` from `list_workflow_tags`; refs are also accepted for update/delete.
-- Workflow tag association tools (`list_tags_for_workflow`, `add_workflow_tag`, \
-`remove_workflow_tag`) use `workflow_id` plus a workflow tag definition `tag_id`.
-- Case tag definition tools (`list_case_tags`, `create_case_tag`, \
-`update_case_tag`, `delete_case_tag`) operate on workspace case tag definitions.
-- Case tag association tools (`list_tags_for_case`, `add_case_tag`, \
-`remove_case_tag`) use `tag_identifier`, which can be a case tag UUID, ref, or a \
-free-form name that slugifies to an existing tag. If no tag exists yet, create it \
-first with `create_case_tag`.
-- Case field tools use `field_id` from `list_case_fields`. This field id is the \
-field name/column id, not a UUID.
-- `list_case_fields` returns field objects with `id`, `type`, `description`, \
-`nullable`, `default`, `reserved`, `options`, and optional `kind`.
-- Case field `type` must be an uppercase SqlType value: `TEXT`, `INTEGER`, \
-`NUMERIC`, `DATE`, `BOOLEAN`, `TIMESTAMPTZ`, `JSONB`, \
-`SELECT`, or `MULTI_SELECT`.
-- Case field `kind` is optional on `create_case_field` only. Valid values are \
-`LONG_TEXT` and `URL`. `LONG_TEXT` requires `type="TEXT"` and `URL` requires \
-`type="JSONB"`.
-- Case field `options` must be a string list such as `["low","medium","high"]`. \
-`options` are required for `SELECT` and `MULTI_SELECT`, and invalid for other types.
-
-## Structured argument schema quick reference
+## Structured argument quick reference
+Tool docstrings are the source of truth for every other argument shape.
 - Webhook status: `"online"` or `"offline"`; methods are uppercase HTTP verbs; \
 allowlisted CIDRs are CIDR strings.
 - Case trigger status: `"online"` or `"offline"`; event type values: \
 `{_CASE_EVENT_TYPE_VALUES_JSON}`.
-- `create_table.columns`: list of column objects with schema \
-`{"name": str, "type": SqlType, "nullable": bool?, "default": any?, "options": list[str]?}`. \
-`options` only apply to `SELECT`/`MULTI_SELECT`. `create_table` creates no \
-unique indexes; use `create_column_index` (UUIDs from `get_table`).
-- `create_column.column` adds one column (same schema) to an existing table. \
-Confirm the table and column with the user first; on a populated table keep \
-`nullable` true or set a `default`.
 - Keep table names, column names, and case field names under 63 characters.
-- `update_workflow` accepts metadata plus optional `definition_yaml` and \
-`update_mode`; do not pass `patch_ops` to it. Use `edit_workflow` for RFC 6902 \
-draft patches with `base_revision`.
-- `create_case_field.options` and `update_case_field.options`: list of strings, \
-e.g. `["low","medium","high"]`; use `[]` to clear options on update.
-- Tag `color` values should be hex strings such as `"#ff0000"` when provided.
 
 Read the `tracecat://platform/dsl-reference` resource for the full DSL specification.
+Read the `tracecat://platform/authoring-guide` resource for worked graph-shape, \
+loop, batching, condition-ladder, and agent-preset guidance.
 
 ## Canonical upstream references
 Fetch these when you need detail; this prompt does not restate them.
@@ -2896,6 +2783,196 @@ actions:
 def get_dsl_reference() -> str:
     """Return the full Tracecat DSL reference documentation."""
     return _DSL_REFERENCE_TEXT
+
+
+_AUTHORING_GUIDE_TEXT = """\
+# Tracecat Workflow Authoring Guide
+
+`tracecat://platform/dsl-reference` covers syntax. This resource covers the
+judgment calls the syntax leaves open: how to shape the graph, when to loop,
+when to reach for Python, and how to author an agent preset.
+
+## Graph shape
+
+`depends_on` is execution order, not data wiring. An action can read
+`ACTIONS.<ref>.result` from any upstream ancestor, not just its direct parents,
+so add an edge only when the action must wait for that specific parent. Fewer
+edges is better: a wide dependency list makes the canvas unreadable without
+changing what runs.
+
+- Default to one linear chain. Branch only for work that is genuinely
+  independent, and rejoin only when a later step needs results from both sides.
+- A skipped parent already skips its dependents, and a failed parent prunes its
+  success edges, so a dependent on the default success edge never runs after
+  either. Do not re-assert an upstream condition in a downstream `run_if`.
+- A join is the exception, and the trap. A task with several parents is not
+  force-skipped while one parent survives, but reachability is checked next and
+  the default `join_strategy: all` requires *every* parent to have been visited.
+  One skipped branch therefore makes the join unreachable, which fails the
+  workflow rather than skipping it. Either set `join_strategy: any`, or repeat
+  the branch's condition in the join's own `run_if` so it self-skips before the
+  reachability check.
+- One parent is the norm. Multiple parents should mean a deliberate join.
+
+### Worked example
+
+Over-connected. Every action depends on everything before it, and the severity
+guard is repeated on each one:
+
+```yaml
+actions:
+  - ref: fetch_alert
+    action: core.http_request
+    args:
+      method: GET
+      url: https://api.example.com/alerts/latest
+  - ref: enrich_host
+    action: core.http_request
+    depends_on:
+      - fetch_alert
+    run_if: ${{ ACTIONS.fetch_alert.result.data.severity == "high" }}
+    args:
+      method: GET
+      url: https://api.example.com/hosts/${{ ACTIONS.fetch_alert.result.data.host }}
+  - ref: notify_owner
+    action: core.http_request
+    depends_on:
+      - fetch_alert
+      - enrich_host
+    run_if: ${{ ACTIONS.fetch_alert.result.data.severity == "high" }}
+    args:
+      method: POST
+      url: https://api.example.com/notify
+      payload:
+        alert_id: ${{ ACTIONS.fetch_alert.result.data.id }}
+        host: ${{ ACTIONS.enrich_host.result.data }}
+```
+
+Linear rewrite. One edge per action, one guard, and `notify_owner` still reads
+`fetch_alert` because it is an upstream ancestor:
+
+```yaml
+actions:
+  - ref: fetch_alert
+    action: core.http_request
+    args:
+      method: GET
+      url: https://api.example.com/alerts/latest
+  - ref: enrich_host
+    action: core.http_request
+    depends_on:
+      - fetch_alert
+    run_if: ${{ ACTIONS.fetch_alert.result.data.severity == "high" }}
+    args:
+      method: GET
+      url: https://api.example.com/hosts/${{ ACTIONS.fetch_alert.result.data.host }}
+  - ref: notify_owner
+    action: core.http_request
+    depends_on:
+      - enrich_host
+    args:
+      method: POST
+      url: https://api.example.com/notify
+      payload:
+        alert_id: ${{ ACTIONS.fetch_alert.result.data.id }}
+        host: ${{ ACTIONS.enrich_host.result.data }}
+```
+
+If `enrich_host` is skipped, `notify_owner` is skipped with it. If it fails,
+the success edge is pruned and `notify_owner` never runs.
+
+## Conditions and transforms before Python
+
+Take the cheapest rung that does the job:
+
+1. An inline expression in `args` — `${{ FN.lowercase(TRIGGER.email) }}`,
+   `${{ ACTIONS.fetch.result.count > 10 }}`, or a `||` default.
+2. `run_if` on the action itself to skip it —
+   `run_if: ${{ TRIGGER.severity in ["high", "critical"] }}`.
+3. A `core.transform.*` action for shaping: `core.transform.reshape` to build a
+   payload, `core.transform.filter`, `core.transform.map`,
+   `core.transform.deduplicate`, or `core.transform.drop_nulls` for list work,
+   and `core.transform.eval_jsonpaths` to pull fields out of a nested response.
+4. `core.script.run_python` when the work is genuinely data-heavy — joins,
+   grouping, batching, chunked writes, or bounded async HTTP loops.
+
+Repeating a one-line `run_if` across sibling branches that genuinely need the
+same guard is fine. Do not introduce a `core.script.run_python` router action
+purely to evaluate that condition in one place; that trades a duplicated
+expression for an extra scheduled action and a serialization hop.
+
+## Loop and batching guidance
+
+- Default to `core.transform.scatter` for workflow-level loop management:
+  scatter alerts into `core.cases.create_case`, run `ai.agent` or
+  `ai.preset_agent` per item, branch enrichment, or call
+  `core.workflow.execute`. Add `core.transform.gather` only when downstream
+  steps need combined results.
+- Use `core.script.run_python` for data-heavy in-process work such as list
+  transforms, batching, joins, dedupe, sorting, grouping, chunked table writes,
+  batch table uploads, and bounded async HTTP loops. Run-python scripts can
+  import Tracecat modules for platform-native helpers.
+- For bulk table writes, prefer one native `core.table.insert_rows` action when
+  rows are already shaped (up to 1000 rows per batch). Do not scatter one insert
+  per row. If shaping, chunking, or mixed table/case side effects are needed,
+  batch inside `core.script.run_python` and import helpers such as
+  `from tracecat_registry.core.table import insert_rows`.
+- Scatter is useful, but more than 10 concurrent DB-backed table/case branches
+  can exhaust Postgres connection slots (for example: "remaining connection
+  slots are reserved for roles with the SUPERUSER attribute"). Scatter's
+  optional `interval` can stagger stream creation, but it is not a DB
+  batch/throttle primitive; do not rely on retries to fix connection-starvation
+  fanout. Replace high-fanout `scatter -> gather` DB writes with
+  `core.table.insert_rows` or run-python batching.
+- Avoid action-level `for_each` by default. Use it only for known, bounded lists
+  when the user explicitly needs separate workflow action runs per item and
+  accepts the scheduler/concurrency tradeoff. Unbounded or large `for_each`
+  loops can hurt the scheduler.
+- Use `core.loop.start` / `core.loop.end` for while-style workflow loops where
+  the next iteration depends on prior action output.
+
+Run-python batching example for table helpers:
+
+```python
+from tracecat_registry.core.table import insert_rows
+
+async def main(items: list[dict]) -> dict:
+    inserted = 0
+    batch_size = 1000
+    for start in range(0, len(items), batch_size):
+        batch = items[start:start + batch_size]
+        rows = [{"external_id": item["id"], "payload": item} for item in batch]
+        inserted += await insert_rows(
+            table="alerts",
+            rows_data=rows,
+            upsert=False,
+        )
+    return {"input_count": len(items), "inserted": inserted}
+```
+
+Set the `core.script.run_python` action's `allow_network: true` when imported
+helpers call Tracecat APIs.
+
+## Agent preset authoring
+
+1. `get_agent_preset_authoring_context` — inspect models, integrations,
+   variables, and output_type options
+2. `list_integrations` — inspect attachable MCP integrations and provider status
+3. `list_actions` / `get_action_context` — choose exact tools and schemas
+4. `create_agent_preset` or `update_agent_preset`
+5. `list_agent_presets`, `get_agent_preset`, or `run_agent_preset` as needed
+"""
+
+
+@mcp.resource(
+    "tracecat://platform/authoring-guide",
+    name="Workflow Authoring Guide",
+    description="Judgment guidance for authoring Tracecat workflows: graph shape, condition and transform selection, loop and batching strategy, and agent preset authoring.",
+    mime_type="text/plain",
+)
+def get_authoring_guide() -> str:
+    """Return the Tracecat workflow authoring guide."""
+    return _AUTHORING_GUIDE_TEXT
 
 
 _DOMAIN_REFERENCE_TEXT = """\
@@ -3530,7 +3607,69 @@ async def edit_workflow(
     patch_ops: list[JsonPatchOperation],
     validate_only: bool = False,
 ) -> WorkflowEditResponse:
-    """Edit a draft workflow using RFC 6902 JSON Patch."""
+    """Edit a draft workflow using RFC 6902 JSON Patch.
+
+    Prefer this tool over `update_workflow` for focused edits to an existing
+    workflow. If the latest `draft_document` and `draft_revision` are already in
+    the context window, reuse them and build the smallest patch that changes the
+    intended fields. Call `get_workflow` only when the latest draft is missing,
+    stale, or a revision conflict says the draft changed.
+
+    Patch paths are rooted at `draft_document`, so action edits use
+    `/definition/actions/N/...`, not `/actions/N/...`. RFC 6902 array rules
+    apply: `/-` appends, and indexes shift after array edits.
+
+    Args:
+        workspace_id: The workspace ID.
+        workflow_id: The workflow ID.
+        base_revision: `draft_revision` the patch is built against. Every
+            successful write returns a new `draft_revision`; use it as the next
+            `base_revision`, or refetch with `get_workflow`.
+        patch_ops: RFC 6902 operations applied sequentially.
+        validate_only: For nontrivial patches, call once with `true`, then
+            repeat the same patch with `false` and the same `base_revision`.
+
+    Use `update_workflow` without `definition_yaml` for metadata-only updates.
+    Use inline YAML on `create_workflow`/`update_workflow` only for creation or
+    intentional bulk replacement.
+
+    Example request:
+
+    ```json
+    {
+      "base_revision": "<draft_revision from get_workflow>",
+      "validate_only": true,
+      "patch_ops": [
+        {
+          "op": "replace",
+          "path": "/definition/actions/2/args/script",
+          "value": "def main(): return {'ok': True}"
+        },
+        {
+          "op": "add",
+          "path": "/definition/actions/-",
+          "value": {
+            "ref": "notify_owner",
+            "action": "core.http_request",
+            "depends_on": ["parse_event"],
+            "args": {
+              "method": "POST",
+              "url": "https://api.example.com/notify",
+              "payload": {"owner": "${{ ACTIONS.parse_event.result.owner }}"}
+            }
+          }
+        },
+        {
+          "op": "add",
+          "path": "/layout/actions/-",
+          "value": {"ref": "notify_owner", "x": 600, "y": 120}
+        }
+      ]
+    }
+    ```
+
+    Returns JSON with the workflow id and the new `draft_revision`.
+    """
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -3634,6 +3773,9 @@ async def update_workflow(
     update_mode: Literal["replace", "patch"] = "patch",
 ) -> WorkflowUpdateResponse:
     """Update workflow metadata and optional inline YAML.
+
+    This tool does not accept `patch_ops`. Use `edit_workflow` for RFC 6902
+    draft patches with a `base_revision`.
 
     Args:
         workspace_id: The workspace ID.
@@ -6662,8 +6804,11 @@ async def update_case_field(
         name: Optional new field name. Schema: string matching
             `^[a-zA-Z_][a-zA-Z0-9_]*$`.
         display_name: Optional new human-readable field name.
-        type: Optional uppercase SqlType value.
-        options: Optional list of strings. Use `[]` to clear select options.
+        type: Optional uppercase SqlType value: TEXT, INTEGER, NUMERIC, DATE,
+            BOOLEAN, TIMESTAMPTZ, JSONB, SELECT, or MULTI_SELECT.
+        options: Optional list of strings. For SELECT and MULTI_SELECT fields,
+            sets the available values (e.g. `["low","medium","high"]`); use
+            `[]` to clear them. Invalid for all other field types.
 
     Returns a confirmation message.
     """
@@ -7203,6 +7348,9 @@ async def create_table(
             DATE, BOOLEAN, TIMESTAMPTZ, JSONB, SELECT, MULTI_SELECT.
             `options` are only valid for SELECT or MULTI_SELECT.
 
+    This tool does not create unique indexes. To index a column, call
+    `get_table`, then `create_column_index` with the table UUID and column UUID.
+
     Returns JSON with the new table's id and name.
     """
 
@@ -7282,7 +7430,8 @@ async def create_column(
     table_id: uuid.UUID,
     column: TableColumnCreate,
 ) -> TableColumnResponse:
-    """Add a column to an existing table. This alters the table schema, so tell
+    """Add a column to an existing table. Migrating a table is never needed to
+    add a field. This alters the schema every workflow and view reads, so tell
     the user which table and column you are about to change and get their
     confirmation before calling this tool.
 

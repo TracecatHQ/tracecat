@@ -9319,6 +9319,7 @@ export type WorkflowExecutionCreateResponse = {
   message: string
   wf_id: string
   wf_exec_id: string
+  trace_id?: string
   payload?: unknown
 }
 

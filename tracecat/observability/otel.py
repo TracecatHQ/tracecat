@@ -6,12 +6,16 @@ settings. Platform services export to the operator-controlled OTLP endpoint.
 
 from __future__ import annotations
 
+import hashlib
 import logging
+import os
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
+from enum import StrEnum
 from threading import Lock
 from typing import TYPE_CHECKING, Final, Protocol
+from uuid import UUID
 
 from opentelemetry import context as otel_context
 from opentelemetry import trace
@@ -25,6 +29,7 @@ from opentelemetry.sdk.trace.export import (
     SimpleSpanProcessor,
     SpanExporter,
 )
+from opentelemetry.sdk.trace.sampling import Sampler
 from opentelemetry.trace import Link, Span, SpanKind, Status, StatusCode, TraceFlags
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 from opentelemetry.util.types import Attributes
@@ -46,6 +51,10 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 TRACE_ID_HEADER: Final = "X-Trace-ID"
+# Set by the Temporal SDK on every workflow command span.
+_TEMPORAL_RUN_ID_ATTRIBUTE: Final = "temporalRunID"
+# Name the sampler sees for the per-run root decision of a headerless run.
+_HEADERLESS_RUN_SPAN_NAME: Final = "RunWorkflow"
 TRACE_SAMPLED_HEADER: Final = "X-Trace-Sampled"
 
 _EXCLUDED_FASTAPI_URLS: Final = ",".join(
@@ -67,8 +76,11 @@ _REDACTED_HTTP_PATH: Final = "/[REDACTED]"
 _REDACTED_ATTRIBUTE_VALUE: Final = "[REDACTED]"
 _TRACE_CONTEXT_PROPAGATOR: Final = TraceContextTextMapPropagator()
 _TEMPORAL_FAILURE_TYPE: Final = "temporal.failure"
+_PLATFORM_INSTRUMENTATION_NAME: Final = "tracecat.platform"
 
 type _TraceCarrier = dict[str, list[str] | str]
+# Platform span attributes; UUIDs and StrEnums are stringified on the way in.
+type _PlatformAttributes = Mapping[str, str | int | bool | UUID | StrEnum | None]
 
 
 class _TemporalInputWithHeaders(Protocol):
@@ -101,7 +113,7 @@ class _CompletedWorkflowSpanInput(Protocol):
     def parent_missing(self) -> bool: ...
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class PlatformTracing:
     """Process-level platform tracing runtime."""
 
@@ -118,6 +130,19 @@ class PlatformTracing:
 
 _runtime: PlatformTracing | None = None
 _runtime_lock = Lock()
+
+
+def platform_otel_collector_env() -> dict[str, str]:
+    """Return only credential-free endpoint routing for the local relay.
+
+    Executor processes may use this endpoint only when it is an internal
+    gateway that owns any upstream collector credentials.
+    """
+    keys = (
+        "OTEL_EXPORTER_OTLP_ENDPOINT",
+        "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+    )
+    return {key: value for key in keys if (value := os.environ.get(key))}
 
 
 def initialize_platform_tracing(
@@ -214,7 +239,8 @@ def temporal_tracing_interceptor() -> TracingInterceptor | None:
         return None
     return _TraceContextOnlyTracingInterceptor(
         tracer=runtime.tracer("tracecat.temporal"),
-        always_create_workflow_spans=False,
+        sampler=runtime.tracer_provider.sampler,
+        always_create_workflow_spans=True,
     )
 
 
@@ -233,12 +259,14 @@ class _TraceContextOnlyTracingInterceptor(TracingInterceptor):
         self,
         *,
         tracer: trace.Tracer,
+        sampler: Sampler,
         always_create_workflow_spans: bool,
     ) -> None:
         super().__init__(
             tracer=tracer,
             always_create_workflow_spans=always_create_workflow_spans,
         )
+        self._sampler = sampler
         self.text_map_propagator = _TRACE_CONTEXT_PROPAGATOR
 
     @contextmanager
@@ -282,10 +310,12 @@ class _TraceContextOnlyTracingInterceptor(TracingInterceptor):
         self, params: _CompletedWorkflowSpanInput
     ) -> _TraceCarrier | None:
         """Export workflow failures without messages or stack traces."""
-        if params.parent_missing and not self._always_create_workflow_spans:
-            return None
-
-        span_context = self.text_map_propagator.extract(params.context)
+        if params.parent_missing:
+            if not self._always_create_workflow_spans:
+                return None
+            span_context = self._headerless_run_context(params)
+        else:
+            span_context = self.text_map_propagator.extract(params.context)
         links: Sequence[Link] = []
         if params.link_context:
             link_span = trace.get_current_span(
@@ -312,6 +342,49 @@ class _TraceContextOnlyTracingInterceptor(TracingInterceptor):
         self.text_map_propagator.inject(carrier, span_context)
         return carrier
 
+    def _headerless_run_context(
+        self, params: _CompletedWorkflowSpanInput
+    ) -> otel_context.Context:
+        """Parent every span of a headerless run under one synthetic context.
+
+        Runs started by Temporal itself (schedules) carry no trace header, so
+        the SDK would make each workflow command span its own root and one run
+        would fragment into many traces. The parent is derived from the run ID,
+        so it is identical across replays and cache evictions, and it is never
+        exported: the run shows as one trace whose root is deliberately absent.
+        The configured sampler makes a single root decision per run so the whole
+        run is kept or dropped together.
+        """
+        run_id = (params.attributes or {}).get(_TEMPORAL_RUN_ID_ATTRIBUTE)
+        if not isinstance(run_id, str) or not run_id:
+            return self.text_map_propagator.extract(params.context)
+        digest = hashlib.sha256(f"tracecat.temporal.run:{run_id}".encode()).digest()
+        trace_id = int.from_bytes(digest[:16], "big") or 1
+        span_id = int.from_bytes(digest[16:24], "big") or 1
+        # An explicit empty parent context forces a root decision; ``None``
+        # would let the parent-based sampler inherit whatever span happens to
+        # be current on the worker thread.
+        sampling = self._sampler.should_sample(
+            otel_context.Context(),
+            trace_id,
+            _HEADERLESS_RUN_SPAN_NAME,
+            kind=SpanKind.SERVER,
+        )
+        parent = trace.NonRecordingSpan(
+            trace.SpanContext(
+                trace_id=trace_id,
+                span_id=span_id,
+                is_remote=True,
+                trace_flags=TraceFlags(
+                    TraceFlags.SAMPLED
+                    if sampling.decision.is_sampled()
+                    else TraceFlags.DEFAULT
+                ),
+                trace_state=sampling.trace_state,
+            )
+        )
+        return trace.set_span_in_context(parent, otel_context.Context())
+
     def workflow_interceptor_class(
         self, input: WorkflowInterceptorClassInput
     ) -> type[TracingWorkflowInboundInterceptor]:
@@ -319,14 +392,56 @@ class _TraceContextOnlyTracingInterceptor(TracingInterceptor):
         return _TraceContextOnlyWorkflowTracingInterceptor
 
 
-def set_current_span_attributes(attributes: dict[str, str | int | bool | None]) -> None:
-    """Attach safe platform attributes to the current recording span."""
+def set_current_span_attributes(attributes: _PlatformAttributes) -> None:
+    """Attach safe platform attributes to the current recording span.
+
+    ``None`` values are dropped and UUIDs and StrEnums are stringified to a
+    plain ``str``, so callers can pass their identifiers straight through.
+    """
     span = trace.get_current_span()
     if not span.is_recording():
         return
     for key, value in attributes.items():
         if value is not None:
-            span.set_attribute(key, value)
+            span.set_attribute(
+                key, str(value) if isinstance(value, UUID | StrEnum) else value
+            )
+
+
+@contextmanager
+def platform_span(
+    name: str,
+    *,
+    attributes: _PlatformAttributes | None = None,
+) -> Iterator[Span | None]:
+    """Create a sanitized child span beneath the active platform trace."""
+    runtime = get_platform_tracing()
+    if runtime is None:
+        yield None
+        return
+
+    with runtime.tracer(_PLATFORM_INSTRUMENTATION_NAME).start_as_current_span(
+        name,
+        record_exception=False,
+        set_status_on_exception=False,
+    ) as span:
+        if attributes:
+            set_current_span_attributes(attributes)
+        try:
+            yield span
+        except BaseException as exc:
+            span.set_status(Status(status_code=StatusCode.ERROR))
+            span.set_attribute("error.type", type(exc).__name__)
+            raise
+
+
+def current_trace_id() -> str | None:
+    """Return the active trace ID, or ``None`` when no valid span is active."""
+    span_context = trace.get_current_span().get_span_context()
+    if not span_context.is_valid:
+        return None
+
+    return f"{span_context.trace_id:032x}"
 
 
 def _sanitize_server_span(span: Span, scope: Scope) -> None:

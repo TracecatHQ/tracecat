@@ -4,7 +4,7 @@ import uuid
 from collections.abc import AsyncIterator
 from types import SimpleNamespace
 from typing import Any, cast
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, call, patch
 
 import pytest
 from fastapi import HTTPException
@@ -698,6 +698,7 @@ async def test_send_message_noop_continue_returns_finished_stream() -> None:
 async def test_send_message_new_turn_uses_fresh_per_turn_stream() -> None:
     session_id = uuid.uuid4()
     workspace_id = uuid.uuid4()
+    run_id = uuid.uuid4()
     agent_session = _agent_session_stub(id=session_id, workspace_id=workspace_id)
     role = Role(
         type="service",
@@ -725,7 +726,7 @@ async def test_send_message_new_turn_uses_fresh_per_turn_stream() -> None:
             return_value=ChatResponse(
                 stream_url="/stream",
                 chat_id=session_id,
-                curr_run_id=uuid.uuid4(),
+                curr_run_id=run_id,
             )
         ),
         is_first_prompt_for_session=AsyncMock(return_value=False),
@@ -746,6 +747,9 @@ async def test_send_message_new_turn_uses_fresh_per_turn_stream() -> None:
             "tracecat.agent.session.router.AgentStream.new",
             AsyncMock(return_value=fake_stream),
         ) as stream_new_mock,
+        patch(
+            "tracecat.agent.session.router.set_current_span_attributes"
+        ) as set_span_attributes,
     ):
         raw_send_message = cast(Any, send_message).__wrapped__
         response = await raw_send_message(
@@ -778,6 +782,19 @@ async def test_send_message_new_turn_uses_fresh_per_turn_stream() -> None:
         request=request,
         active_stream_id=minted_stream_id,
         is_first_prompt=False,
+    )
+    assert role.organization_id is not None
+    set_span_attributes.assert_has_calls(
+        [
+            call(
+                {
+                    "tracecat.organization.id": role.organization_id,
+                    "tracecat.workspace.id": workspace_id,
+                    "tracecat.agent.session.id": session_id,
+                }
+            ),
+            call({"tracecat.agent.run.id": run_id}),
+        ]
     )
 
 
