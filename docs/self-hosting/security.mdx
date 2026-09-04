@@ -136,6 +136,22 @@ nsjail requires:
   nsjail is not supported on macOS or Windows. Use the `direct` backend on those platforms.
 </Info>
 
+### Resource limits
+
+Each sandbox runs under nsjail rlimits. The memory cap is the one you tune; the others are fixed.
+
+| Sandbox | Memory cap | Configure with | CPU time | File size | Processes |
+| :------ | :--------- | :------------- | :------- | :-------- | :-------- |
+| `core.script.run_python` and custom actions | 2048 MB | `TRACECAT__SANDBOX_DEFAULT_MEMORY_MB` | 300 s | 256 MB | 64 |
+| Dependency installation for `core.script.run_python` | 2048 MB | Fixed | 300 s | 256 MB | 64 |
+| Agents | 4096 MB | `TRACECAT__AGENT_SANDBOX_MEMORY_MB` | Agent timeout ceiling | 256 MB | 128 |
+
+The memory cap is `rlimit_as`: it bounds the virtual address space a process may map, not its resident memory. A runtime that reserves large address ranges up front hits the cap before it uses that much RAM, so size it above the peak virtual size of your workload rather than its RSS. Python raises `MemoryError` at the cap; native runtimes such as the agent's Claude Code CLI abort.
+
+The cap applies per process inside the sandbox. The executor pod's container memory limit still applies on top and covers every concurrent sandbox, so raising a sandbox cap without raising the pod limit trades a sandbox failure for an OOM kill of the executor.
+
+Tracecat reports a workload that exceeds any of these limits as `sandbox.resource_limit_exceeded`. The failure is attributed to the workload, is not retried, and the action or agent error names the env var that controls the cap.
+
 ### No isolation
 
 Without nsjail, scripts, custom actions, and agents run as regular subprocesses in the executor.
