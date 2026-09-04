@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from email.message import EmailMessage
 from email.utils import formataddr
+from types import MappingProxyType
 from typing import Annotated, Protocol
 
 import aiosmtplib
@@ -13,6 +14,7 @@ from fastapi import BackgroundTasks, Depends
 
 from tracecat import config
 from tracecat.email.templates import render_invitation_email
+from tracecat.exceptions import TracecatException
 from tracecat.logger import logger
 
 
@@ -26,6 +28,14 @@ class OutboundEmail:
     text: str
     from_addr: str
     headers: Mapping[str, str] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        # Sends run after the response; detach from the caller's mapping.
+        object.__setattr__(self, "headers", MappingProxyType(dict(self.headers)))
+
+
+class EmailDeliveryError(TracecatException):
+    """A send failed. Carries the error type only, never recipients or content."""
 
 
 class EmailTransport(Protocol):
@@ -113,7 +123,15 @@ async def _send(message: OutboundEmail) -> None:
     try:
         await transport.send(message)
     except Exception as error:
-        logger.error("Failed to send email", error_type=type(error).__name__)
+        logger.error(
+            "Failed to send email",
+            host=config.TRACECAT__SMTP_HOST,
+            port=config.TRACECAT__SMTP_PORT,
+            error_type=type(error).__name__,
+        )
+        raise EmailDeliveryError(
+            f"SMTP delivery failed: {type(error).__name__}"
+        ) from None
 
 
 class Mailer:
