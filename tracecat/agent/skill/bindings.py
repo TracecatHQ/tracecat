@@ -18,6 +18,23 @@ from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.tiers.enums import Entitlement
 
 
+def validate_no_duplicate_skill_ids(skill_ids: Sequence[uuid.UUID]) -> None:
+    """Reject a binding payload that names the same Skill more than once.
+
+    Args:
+        skill_ids: Requested Skill IDs, in the order the caller supplied them.
+
+    Raises:
+        TracecatValidationError: If any Skill ID appears more than once.
+    """
+
+    if len(set(skill_ids)) != len(skill_ids):
+        raise TracecatValidationError(
+            "Duplicate skills are not allowed on a preset",
+            detail={"code": "duplicate_skill_binding"},
+        )
+
+
 class SkillBindingService(BaseWorkspaceService):
     """Validate mutable Skill bindings and resolve preset-version references."""
 
@@ -74,13 +91,8 @@ class SkillBindingService(BaseWorkspaceService):
 
         if not bindings:
             return
-        if len({binding.skill_id for binding in bindings}) != len(bindings):
-            raise TracecatValidationError(
-                "Duplicate skills are not allowed on a preset",
-                detail={"code": "duplicate_skill_binding"},
-            )
-
         skill_ids = [binding.skill_id for binding in bindings]
+        validate_no_duplicate_skill_ids(skill_ids)
         skills = await self._get_bindable_skills(skill_ids, for_update=for_update)
         missing = [str(skill_id) for skill_id in skill_ids if skill_id not in skills]
         if missing:

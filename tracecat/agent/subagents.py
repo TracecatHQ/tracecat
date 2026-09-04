@@ -73,9 +73,11 @@ type AnyAttachedSubagentRef = ResolvedAttachedSubagentRef | AttachedSubagentRef
 def _drop_legacy_agents_config_keys(data: Any) -> Any:
     """Strip the legacy ``enabled`` key from persisted agents config payloads.
 
-    ``enabled`` is a leftover from the removed agents toggle. A migration drops
-    it from every stored row, so this only has to cover rows written by an older
-    replica during a rolling deploy. Everything else still hits ``extra=forbid``.
+    ``enabled`` is a leftover from the removed agents toggle. It is still
+    present on rows written before this release, and on rows written by an older
+    replica during a rolling deploy, so it is stripped on read until a later
+    contract migration removes it from stored rows. Everything else still hits
+    ``extra=forbid``.
     """
     if isinstance(data, Mapping) and "enabled" in data:
         return {key: value for key, value in data.items() if key != "enabled"}

@@ -1697,6 +1697,81 @@ class TestAgentPresetService:
         assert detail["code"] == "skill_not_published"
         assert detail["skill_id"] == str(created_skill.id)
 
+    async def test_create_preset_rejects_duplicate_skill_binding(
+        self,
+        configure_minio_for_skills,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+    ) -> None:
+        """Authoring rejects a payload that binds the same Skill twice."""
+
+        skill_service = SkillService(session=session, role=svc_role)
+        created_skill = await skill_service.create_skill(
+            SkillCreate(name="duplicate-create-binding")
+        )
+        await skill_service.publish_skill(created_skill.id)
+
+        with pytest.raises(TracecatValidationError) as exc_info:
+            await agent_preset_service.create_preset(
+                AgentPresetCreate(
+                    name="Duplicate skill create preset",
+                    instructions="Use the selected skill",
+                    model_name="gpt-4o-mini",
+                    model_provider="openai",
+                    skills=[
+                        AgentPresetSkillBindingBase(skill_id=created_skill.id),
+                        AgentPresetSkillBindingBase(skill_id=created_skill.id),
+                    ],
+                )
+            )
+
+        detail = exc_info.value.detail
+        assert detail is not None
+        assert detail["code"] == "duplicate_skill_binding"
+
+    async def test_update_preset_rejects_duplicate_skill_binding(
+        self,
+        configure_minio_for_skills,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+    ) -> None:
+        """Updates reject a duplicate binding instead of silently deduping it."""
+
+        skill_service = SkillService(session=session, role=svc_role)
+        created_skill = await skill_service.create_skill(
+            SkillCreate(name="duplicate-update-binding")
+        )
+        await skill_service.publish_skill(created_skill.id)
+        created_preset = await agent_preset_service.create_preset(
+            AgentPresetCreate(
+                name="Duplicate skill update preset",
+                instructions="No skills yet",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+            )
+        )
+
+        with pytest.raises(TracecatValidationError) as exc_info:
+            await agent_preset_service.update_preset(
+                created_preset,
+                AgentPresetUpdate(
+                    skills=[
+                        AgentPresetSkillBindingBase(skill_id=created_skill.id),
+                        AgentPresetSkillBindingBase(skill_id=created_skill.id),
+                    ]
+                ),
+            )
+
+        detail = exc_info.value.detail
+        assert detail is not None
+        assert detail["code"] == "duplicate_skill_binding"
+        assert (
+            await agent_preset_service._list_head_skill_bindings(created_preset.id)
+            == []
+        )
+
     async def test_resolve_config_uses_latest_skill_versions(
         self,
         configure_minio_for_skills,

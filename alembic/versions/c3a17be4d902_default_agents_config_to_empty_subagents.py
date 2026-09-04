@@ -1,9 +1,18 @@
-"""Drop the legacy agents 'enabled' key
+"""Default agents config to empty subagents
 
 Revision ID: c3a17be4d902
 Revises: 44d7e75b6f4c
 Create Date: 2026-09-04 12:00:00.000000
 
+This is the expand half of an expand/contract pair. The legacy ``enabled`` key
+is deliberately left on rows written before this release: migrations run ahead
+of the application rollout, and the old app version reads a missing ``enabled``
+as ``False``, which trips its ``subagents require enabled=true`` validator and
+silently drops Agent-tool access. The new app strips the key on read. A later
+contract migration removes it from stored rows once the old replicas are gone.
+
+Only the column's server default changes here, which is safe for both app
+versions because each sets ``agents`` explicitly on insert.
 """
 
 from collections.abc import Sequence
@@ -35,14 +44,11 @@ def upgrade() -> None:
             existing_nullable=False,
             server_default=_EMPTY_SUBAGENTS_SQL,
         )
-        op.execute(
-            f"UPDATE {table} SET agents = agents - 'enabled' WHERE agents ? 'enabled'"
-        )
 
 
 def downgrade() -> None:
-    # Restore the previous server default only. The 'enabled' key is no longer
-    # read by any schema, so existing rows are left untouched.
+    # Restore the previous server default. Stored rows are untouched by
+    # upgrade(), so there is nothing to restore beyond the default.
     for table in _AGENTS_TABLES:
         op.alter_column(
             table,

@@ -40,7 +40,10 @@ from tracecat.agent.preset.schemas import (
     build_subagent_eligibility,
 )
 from tracecat.agent.preset.types import SkillBindingSpec
-from tracecat.agent.skill.bindings import SkillBindingService
+from tracecat.agent.skill.bindings import (
+    SkillBindingService,
+    validate_no_duplicate_skill_ids,
+)
 from tracecat.agent.subagents import (
     AgentSubagentsConfig,
     ResolvedAgentsConfig,
@@ -429,6 +432,11 @@ class AgentPresetService(BaseWorkspaceService):
         observed_skill_ids = {binding.skill_id for binding in observed_specs}
         if "skills" in params.model_fields_set:
             requested_skills = params.skills or []
+            # Reject duplicates before the set below hides them from the check
+            # inside _current_skill_binding_specs.
+            validate_no_duplicate_skill_ids(
+                [binding.skill_id for binding in requested_skills]
+            )
             requested_skill_ids = {binding.skill_id for binding in requested_skills}
         else:
             requested_skill_ids = observed_skill_ids
@@ -1560,11 +1568,7 @@ class AgentPresetService(BaseWorkspaceService):
 
         if not skill_ids:
             return []
-        if len(set(skill_ids)) != len(skill_ids):
-            raise TracecatValidationError(
-                "Duplicate skills are not allowed on a preset",
-                detail={"code": "duplicate_skill_binding"},
-            )
+        validate_no_duplicate_skill_ids(skill_ids)
 
         normalized_ids = sorted(set(skill_ids), key=str)
         predicates = [
