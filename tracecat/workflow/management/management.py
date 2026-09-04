@@ -46,7 +46,7 @@ from tracecat.exceptions import (
     WorkflowAliasResolutionError,
 )
 from tracecat.expressions.eval import eval_templated_object
-from tracecat.identifiers import WorkflowID
+from tracecat.identifiers import WorkflowExecutionID, WorkflowID
 from tracecat.identifiers.workflow import (
     LEGACY_WF_ID_PATTERN,
     WF_ID_SHORT_PATTERN,
@@ -1190,6 +1190,83 @@ class WorkflowsManagementService(BaseWorkspaceService):
             payload=inputs,
             trigger_type=TriggerType.MANUAL,
             registry_lock=registry_lock,
+        )
+
+    @require_scope("workflow:execute")
+    async def run_workflow_from_action(
+        self,
+        workflow_id: WorkflowID,
+        *,
+        action_ref: str,
+        source_execution_id: WorkflowExecutionID,
+        inputs: Any | None = None,
+        time_anchor: datetime | None = None,
+    ) -> WorkflowExecutionCreateResponse:
+        """Run the current draft starting at ``action_ref``.
+
+        The immediate parents of ``action_ref`` are pinned to their results in
+        ``source_execution_id``, so the scheduler skips the exclusive upstream
+        cone and runs the selected action and everything downstream fresh.
+
+        This is stateless: the workflow's stored ``draft_pins`` are neither read
+        nor written.
+
+        Args:
+            workflow_id: Workflow UUID (short ``wf_...`` or full format).
+            action_ref: Ref of the action to start the run from.
+            source_execution_id: Execution whose results the upstream actions
+                are replayed from.
+            inputs: Trigger inputs. Defaults to the source execution's own
+                trigger inputs when omitted.
+            time_anchor: Override the workflow's time anchor.
+
+        Returns:
+            WorkflowExecutionCreateResponse with the workflow and execution IDs.
+
+        Raises:
+            TracecatNotFoundError: If the workflow does not exist.
+            TracecatValidationError: If the draft has no actions or fails
+                validation, or if the selected action cannot be run from.
+        """
+        wf_id = WorkflowUUID.new(workflow_id)
+        workflow = await self.get_workflow(wf_id)
+        if workflow is None:
+            raise TracecatNotFoundError(f"Workflow {wf_id.short()} not found")
+        # Raises TracecatValidationError on an empty/invalid draft graph.
+        dsl = await self.build_dsl_from_workflow(workflow)
+        if val_errors := await validate_dsl(
+            session=self.session, dsl=dsl, role=self.role
+        ):
+            raise TracecatValidationError(
+                f"Draft workflow validation failed with {len(val_errors)} "
+                "error(s). Fix the draft or publish a working version first.",
+                detail=[err.root.model_dump(mode="json") for err in val_errors],
+            )
+
+        # Import here to avoid pulling the Temporal-client execution stack into
+        # the management import chain.
+        from tracecat.workflow.executions.service import WorkflowExecutionsService
+
+        exec_service = await WorkflowExecutionsService.connect(role=self.role)
+        pinned_action_results = await exec_service.resolve_run_from_action_pins(
+            wf_id=wf_id,
+            dsl=dsl,
+            action_ref=action_ref,
+            source_execution_id=source_execution_id,
+        )
+        effective_inputs = (
+            inputs
+            if inputs is not None
+            else await exec_service.get_execution_trigger_inputs(source_execution_id)
+        )
+        return await exec_service.create_draft_workflow_execution_wait_for_start(
+            dsl=dsl,
+            wf_id=wf_id,
+            payload=effective_inputs,
+            trigger_type=TriggerType.MANUAL,
+            time_anchor=time_anchor,
+            pinned_action_results=pinned_action_results,
+            pinned_source_execution_id=source_execution_id,
         )
 
     @require_scope("workflow:update")

@@ -1145,6 +1145,9 @@ class _FakeExecService:
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self.pinned_action_results: dict[str, TaskResult] = {}
         self.parsed_draft_pins: WorkflowDraftPins | None = None
+        self.run_from_action_pins: dict[str, TaskResult] = {}
+        self.run_from_action_kwargs: dict[str, Any] | None = None
+        self.source_trigger_inputs: Any | None = None
 
     async def create_draft_workflow_execution_wait_for_start(self, **kwargs: Any):
         self.calls.append(("draft", kwargs))
@@ -1171,6 +1174,15 @@ class _FakeExecService:
         self, draft_pins: WorkflowDraftPinsData | None
     ) -> WorkflowDraftPins | None:
         return self.parsed_draft_pins
+
+    async def resolve_run_from_action_pins(
+        self, **kwargs: Any
+    ) -> dict[str, TaskResult]:
+        self.run_from_action_kwargs = kwargs
+        return self.run_from_action_pins
+
+    async def get_execution_trigger_inputs(self, wf_exec_id: str) -> Any | None:
+        return self.source_trigger_inputs
 
 
 def _patch_exec_service(monkeypatch: pytest.MonkeyPatch) -> _FakeExecService:
@@ -1436,3 +1448,81 @@ async def test_create_actions_from_dsl_persists_action_environment() -> None:
     by_ref = {a.ref: a for a in actions}
     assert by_ref["a"].control_flow["environment"] == "prod"
     assert by_ref["b"].control_flow["environment"] is None
+
+
+@pytest.mark.anyio
+async def test_run_workflow_from_action_forwards_pins_and_default_inputs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Invariant: run-from-action pins the cut set and replays source inputs."""
+    wf_id = WorkflowUUID.new_uuid4()
+    source_execution_id = generate_exec_id(wf_id)
+    dsl = _run_dsl()
+    service = _service(_role())
+    # A stored draft_pins config must not leak into a run-from-action dispatch.
+    monkeypatch.setattr(
+        service,
+        "get_workflow",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                draft_pins={
+                    "source_execution_id": "wf-other/exec-other",
+                    "action_refs": ["stale"],
+                }
+            )
+        ),
+    )
+    monkeypatch.setattr(service, "build_dsl_from_workflow", AsyncMock(return_value=dsl))
+    monkeypatch.setattr(management, "validate_dsl", AsyncMock(return_value=[]))
+    fake_exec = _patch_exec_service(monkeypatch)
+    pinned_result = TaskResult.from_result({"value": "parent"})
+    fake_exec.run_from_action_pins = {"parent": pinned_result}
+    fake_exec.source_trigger_inputs = {"alpha": 1}
+
+    resp = await service.run_workflow_from_action(
+        wf_id,
+        action_ref="child",
+        source_execution_id=source_execution_id,
+    )
+
+    assert resp["wf_exec_id"] == "wf-exec-draft"
+    assert fake_exec.run_from_action_kwargs is not None
+    assert fake_exec.run_from_action_kwargs["action_ref"] == "child"
+    assert (
+        fake_exec.run_from_action_kwargs["source_execution_id"] == source_execution_id
+    )
+    assert [name for name, _ in fake_exec.calls] == ["draft"]
+    _, kwargs = fake_exec.calls[0]
+    assert kwargs["pinned_action_results"] == {"parent": pinned_result}
+    assert kwargs["pinned_source_execution_id"] == source_execution_id
+    # Inputs default to the source execution's trigger inputs.
+    assert kwargs["payload"] == {"alpha": 1}
+
+
+@pytest.mark.anyio
+async def test_run_workflow_from_action_prefers_explicit_inputs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Invariant: caller-supplied inputs win over the source execution's."""
+    wf_id = WorkflowUUID.new_uuid4()
+    dsl = _run_dsl()
+    service = _service(_role())
+    monkeypatch.setattr(
+        service,
+        "get_workflow",
+        AsyncMock(return_value=SimpleNamespace(draft_pins=None)),
+    )
+    monkeypatch.setattr(service, "build_dsl_from_workflow", AsyncMock(return_value=dsl))
+    monkeypatch.setattr(management, "validate_dsl", AsyncMock(return_value=[]))
+    fake_exec = _patch_exec_service(monkeypatch)
+    fake_exec.source_trigger_inputs = {"alpha": 1}
+
+    await service.run_workflow_from_action(
+        wf_id,
+        action_ref="child",
+        source_execution_id=generate_exec_id(wf_id),
+        inputs={"beta": 2},
+    )
+
+    _, kwargs = fake_exec.calls[0]
+    assert kwargs["payload"] == {"beta": 2}
