@@ -78,7 +78,6 @@ import {
 } from "@/lib/hooks"
 import { cn, slugifyActionRef } from "@/lib/utils"
 import { CHILD_WORKFLOW_ACTION_TYPE } from "@/lib/workflow"
-import { computePinDomains, getWorkflowDraftPins } from "@/lib/workflow-pins"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
 
@@ -117,7 +116,7 @@ export default React.memo(function ActionNode({
     actionPanelRef,
     setSelectedActionEventRef,
   } = useWorkflowBuilder()
-  const { validationErrors, workflow } = useWorkflow()
+  const { validationErrors, pinDomains } = useWorkflow()
 
   const { toast } = useToast()
   // SAFETY: Node only exists if it's in the workflow
@@ -133,11 +132,7 @@ export default React.memo(function ActionNode({
       ) ?? []
     )
   }, [validationErrors, action])
-  const draftPins = useMemo(() => getWorkflowDraftPins(workflow), [workflow])
-  const { pinnedRefs, forceSkipRefs } = useMemo(
-    () => computePinDomains(workflow?.actions, draftPins),
-    [workflow?.actions, draftPins]
-  )
+  const { pinnedRefs, forceSkipRefs } = pinDomains
   const actionRef = useMemo(
     () => (action?.title ? slugifyActionRef(action.title) : null),
     [action?.title]
