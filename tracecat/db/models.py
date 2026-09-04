@@ -359,6 +359,45 @@ class OAuthAccount(SQLAlchemyBaseOAuthAccountTableUUID, Base):
     user: Mapped[User] = relationship(back_populates="oauth_accounts")
 
 
+class LegacyMembership(Base):
+    """Pre-derivation workspace membership table.
+
+    Dual-written for N-1 pod compatibility during the rolling upgrade.
+    Remove in: ENG-1499 contract, two releases after the dual-write release.
+    """
+
+    __tablename__ = "membership"
+    __table_args__ = (
+        Index("ix_membership_workspace_id", "workspace_id"),
+        Index("ix_membership_workspace_user", "workspace_id", "user_id"),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("user.id"), primary_key=True
+    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("workspace.id", ondelete="CASCADE"), primary_key=True
+    )
+
+
+class LegacyOrganizationMembership(Base, TimestampMixin):
+    """Pre-derivation organization membership table.
+
+    Dual-written for N-1 pod compatibility during the rolling upgrade.
+    Remove in: ENG-1499 contract, two releases after the dual-write release.
+    """
+
+    __tablename__ = "organization_membership"
+    __table_args__ = (Index("ix_org_membership_org_id", "organization_id"),)
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("user.id", ondelete="CASCADE"), primary_key=True
+    )
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("organization.id", ondelete="CASCADE"), primary_key=True
+    )
+
+
 class Ownership(Base):
     """Table to map resources to owners.
 

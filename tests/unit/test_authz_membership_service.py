@@ -3,12 +3,16 @@
 import uuid
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
-from tracecat.authz.membership import resolve_org_role_names
+from tracecat.authz.membership import (
+    mirror_assignment_grant,
+    mirror_assignment_revoke,
+    resolve_org_role_names,
+)
 from tracecat.authz.scopes import ADMIN_SCOPES, EDITOR_SCOPES
 from tracecat.authz.seeding import seed_system_scopes
 from tracecat.authz.service import MembershipService
@@ -16,6 +20,8 @@ from tracecat.db.models import (
     Group,
     GroupMember,
     GroupRoleAssignment,
+    LegacyMembership,
+    LegacyOrganizationMembership,
     Membership,
     Organization,
     RoleScope,
@@ -118,6 +124,22 @@ async def workspace_editor_role(
 
 
 @pytest.fixture
+async def org_member_role(session: AsyncSession, organization: Organization) -> DBRole:
+    """Create the org-wide member role used by the legacy-mirror tests."""
+    role = DBRole(
+        id=uuid.uuid4(),
+        name="Organization Member",
+        slug="organization-member",
+        description="Default org member role",
+        organization_id=organization.id,
+    )
+    session.add(role)
+    await session.commit()
+    await session.refresh(role)
+    return role
+
+
+@pytest.fixture
 def actor_role(
     organization: Organization, workspace: Workspace, actor_user: User
 ) -> Role:
@@ -177,8 +199,16 @@ async def test_delete_membership_removes_membership_and_assignment(
         )
     )
 
+    legacy = await session.scalar(
+        select(LegacyMembership).where(
+            LegacyMembership.workspace_id == workspace.id,
+            LegacyMembership.user_id == member_user.id,
+        )
+    )
+
     assert membership is None
     assert assignment is None
+    assert legacy is None
 
 
 async def test_delete_membership_removes_orphan_assignment(
@@ -765,3 +795,124 @@ async def test_resolve_org_role_names_ignores_workspace_scoped_grants(
     resolved = await resolve_org_role_names(session, organization.id, [member_user.id])
 
     assert member_user.id not in resolved
+
+
+async def test_create_membership_mirrors_legacy_rows(
+    session: AsyncSession,
+    membership_service: MembershipService,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    workspace_editor_role: DBRole,
+) -> None:
+    """A workspace grant dual-writes both legacy rows for N-1 pods."""
+    await membership_service.create_membership(
+        workspace_id=workspace.id,
+        params=WorkspaceMembershipCreate(user_id=member_user.id),
+    )
+
+    legacy_ws = await session.scalar(
+        select(LegacyMembership).where(
+            LegacyMembership.workspace_id == workspace.id,
+            LegacyMembership.user_id == member_user.id,
+        )
+    )
+    legacy_org = await session.scalar(
+        select(LegacyOrganizationMembership).where(
+            LegacyOrganizationMembership.organization_id == organization.id,
+            LegacyOrganizationMembership.user_id == member_user.id,
+        )
+    )
+
+    assert legacy_ws is not None
+    assert legacy_org is not None
+
+
+async def test_mirror_revoke_keeps_org_row_while_an_assignment_remains(
+    session: AsyncSession,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    workspace_editor_role: DBRole,
+    org_member_role: DBRole,
+) -> None:
+    """The legacy org row survives until the user's last assignment in it goes."""
+    session.add(
+        UserRoleAssignment(
+            organization_id=organization.id,
+            user_id=member_user.id,
+            workspace_id=workspace.id,
+            role_id=workspace_editor_role.id,
+        )
+    )
+    session.add(
+        UserRoleAssignment(
+            organization_id=organization.id,
+            user_id=member_user.id,
+            workspace_id=None,
+            role_id=org_member_role.id,
+        )
+    )
+    await session.flush()
+    await mirror_assignment_grant(
+        session,
+        user_id=member_user.id,
+        organization_id=organization.id,
+        workspace_id=workspace.id,
+    )
+    await session.commit()
+
+    # Drop only the workspace assignment; the org-wide one still stands.
+    await session.execute(
+        delete(UserRoleAssignment).where(
+            UserRoleAssignment.user_id == member_user.id,
+            UserRoleAssignment.workspace_id == workspace.id,
+        )
+    )
+    await mirror_assignment_revoke(
+        session,
+        user_id=member_user.id,
+        organization_id=organization.id,
+        workspace_id=workspace.id,
+    )
+    await session.commit()
+
+    assert (
+        await session.scalar(
+            select(LegacyMembership).where(
+                LegacyMembership.workspace_id == workspace.id,
+                LegacyMembership.user_id == member_user.id,
+            )
+        )
+    ) is None
+    legacy_org = await session.scalar(
+        select(LegacyOrganizationMembership).where(
+            LegacyOrganizationMembership.organization_id == organization.id,
+            LegacyOrganizationMembership.user_id == member_user.id,
+        )
+    )
+    assert legacy_org is not None
+
+    # Removing the last assignment drops the org row too.
+    await session.execute(
+        delete(UserRoleAssignment).where(
+            UserRoleAssignment.user_id == member_user.id,
+            UserRoleAssignment.organization_id == organization.id,
+        )
+    )
+    await mirror_assignment_revoke(
+        session,
+        user_id=member_user.id,
+        organization_id=organization.id,
+        workspace_id=None,
+    )
+    await session.commit()
+
+    assert (
+        await session.scalar(
+            select(LegacyOrganizationMembership).where(
+                LegacyOrganizationMembership.organization_id == organization.id,
+                LegacyOrganizationMembership.user_id == member_user.id,
+            )
+        )
+    ) is None

@@ -15,7 +15,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.auth.types import Role
-from tracecat.authz.membership import org_membership_predicate
+from tracecat.authz.membership import (
+    mirror_assignment_grant,
+    org_membership_predicate,
+)
 from tracecat.authz.seeding import seed_system_roles_for_org
 from tracecat.cases.service import CaseFieldsService
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
@@ -513,6 +516,12 @@ async def ensure_single_tenant_user_defaults_in_session(
             )
         assignment_result = await session.execute(assignment_insert)
         changed = changed or (assignment_result.rowcount or 0) > 0  # pyright: ignore[reportAttributeAccessIssue]
+        await mirror_assignment_grant(
+            session,
+            user_id=user_id,
+            organization_id=organization_id,
+            workspace_id=None,
+        )
         return changed
 
     # Only reached for a superuser holding a non-owner org-wide role.

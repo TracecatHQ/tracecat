@@ -1,9 +1,10 @@
-"""Tests for the rollout-compatibility views and assignment write RLS.
+"""Tests for the expand-phase membership migration and assignment write RLS.
 
-The 2bf069003a77 migration drops the ``membership`` and
-``organization_membership`` tables and recreates the names as read-only views so
-old API pods keep working until they roll. It also splits the assignment RLS
-policy so a workspace-scoped session cannot write org-wide assignments.
+The 2bf069003a77 migration keeps the ``membership`` and
+``organization_membership`` tables in place and reverse-backfills them, so N-1
+API pods keep reading and writing them until they roll. It also splits the
+assignment RLS policy so a workspace-scoped session cannot write org-wide
+assignments.
 """
 
 from __future__ import annotations
@@ -27,7 +28,13 @@ from tracecat.db.tenant_rls import (
 
 MIGRATION_REVISION = "2bf069003a77"
 PREVIOUS_REVISION = "44d7e75b6f4c"
-COMPAT_VIEWS = ("membership", "organization_membership")
+LEGACY_TABLES = ("membership", "organization_membership")
+# Mirrors WORKSPACE_INDEXES in the migration; alembic versions aren't importable.
+WORKSPACE_INDEX_NAMES = (
+    "ix_user_role_assignment_workspace_id",
+    "ix_group_role_assignment_workspace_id",
+    "ix_group_member_group_id",
+)
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -84,14 +91,13 @@ def migration_db() -> Iterator[str]:
         default_engine.dispose()
 
 
-def test_upgrade_replaces_membership_tables_with_views(migration_db: str) -> None:
-    """After upgrade both legacy names resolve to views, not tables."""
+def test_upgrade_keeps_legacy_tables_writable(migration_db: str) -> None:
+    """Expand phase: both legacy names stay ordinary, writable tables."""
     engine = create_engine(migration_db)
     try:
         with engine.connect() as conn:
-            for name in COMPAT_VIEWS:
-                assert _relkind(conn, name) == "v", f"{name} should be a view"
-                # The view must be selectable with the legacy column shape.
+            for name in LEGACY_TABLES:
+                assert _relkind(conn, name) == "r", f"{name} should still be a table"
                 columns = set(
                     conn.execute(text(f"SELECT * FROM {name} LIMIT 0")).keys()
                 )
@@ -108,43 +114,55 @@ def test_upgrade_replaces_membership_tables_with_views(migration_db: str) -> Non
         engine.dispose()
 
 
-def test_compat_views_use_security_invoker(migration_db: str) -> None:
-    """RLS on the assignment tables must apply to the view's caller."""
+def test_upgrade_creates_workspace_indexes(migration_db: str) -> None:
+    """The workspace-leading assignment indexes back member listing."""
     engine = create_engine(migration_db)
     try:
         with engine.connect() as conn:
-            for name in COMPAT_VIEWS:
-                options = conn.execute(
-                    text(
-                        "SELECT reloptions FROM pg_class c "
-                        "JOIN pg_namespace n ON n.oid = c.relnamespace "
-                        "WHERE n.nspname = 'public' AND c.relname = :name"
-                    ),
-                    {"name": name},
-                ).scalar_one()
-                assert options is not None and "security_invoker=true" in options
+            for name in WORKSPACE_INDEX_NAMES:
+                assert (
+                    conn.execute(
+                        text(
+                            "SELECT 1 FROM pg_indexes "
+                            "WHERE schemaname = 'public' AND indexname = :name"
+                        ),
+                        {"name": name},
+                    ).scalar_one_or_none()
+                    == 1
+                ), f"{name} should exist"
     finally:
         engine.dispose()
 
 
-def test_downgrade_restores_tables_and_drops_views(migration_db: str) -> None:
-    """Downgrade must drop the views so the tables can reclaim the names."""
+def test_downgrade_keeps_legacy_tables_and_drops_indexes(migration_db: str) -> None:
+    """Downgrade only reverses the indexes and RLS swap; tables were never dropped."""
     _run_alembic(migration_db, "downgrade", PREVIOUS_REVISION)
     engine = create_engine(migration_db)
     try:
         with engine.connect() as conn:
-            for name in COMPAT_VIEWS:
-                assert _relkind(conn, name) == "r", f"{name} should be a table again"
+            for name in LEGACY_TABLES:
+                assert _relkind(conn, name) == "r", f"{name} should still be a table"
+            for name in WORKSPACE_INDEX_NAMES:
+                assert (
+                    conn.execute(
+                        text(
+                            "SELECT 1 FROM pg_indexes "
+                            "WHERE schemaname = 'public' AND indexname = :name"
+                        ),
+                        {"name": name},
+                    ).scalar_one_or_none()
+                    is None
+                ), f"{name} should be dropped"
     finally:
         engine.dispose()
 
 
-def test_membership_orm_alias_shadows_the_view(migration_db: str) -> None:
-    """The ORM's `.subquery("membership")` alias must not read the real view."""
+def test_membership_orm_alias_shadows_the_legacy_table(migration_db: str) -> None:
+    """The ORM's `.subquery("membership")` alias must not read the legacy table."""
     engine = create_engine(migration_db)
     try:
         compiled = str(select(Membership).compile(engine))
-        # A derived-table alias, not a reference to the view.
+        # A derived-table alias, not a reference to the legacy table.
         assert ") AS membership" in compiled
         assert "FROM membership" not in compiled
         with engine.connect() as conn:

@@ -11,18 +11,13 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 from sqlalchemy import Connection
-from sqlalchemy.dialects import postgresql
 
 from alembic import op
 from tracecat.db.tenant_rls import (
     disable_assignment_split_table_rls,
     disable_org_optional_workspace_table_rls,
-    disable_org_table_rls,
-    disable_workspace_table_rls,
     enable_assignment_split_table_rls,
     enable_org_optional_workspace_table_rls,
-    enable_org_table_rls,
-    enable_workspace_table_rls,
 )
 
 # revision identifiers, used by Alembic.
@@ -97,7 +92,7 @@ SELECT count(*) FROM inserted
 
 # Workspace memberships still uncovered by any assignment path after backfill.
 # The backfill inner-joins `role`, so an org missing the system role silently
-# skips its members; dropping the table would lose their access permanently.
+# skips its members; the derived read path would lose their access.
 UNCOVERED_WORKSPACE_MEMBERSHIPS = """
 SELECT count(*) AS uncovered,
        coalesce(array_agg(DISTINCT w.organization_id), '{}') AS organization_ids
@@ -135,8 +130,8 @@ AND NOT EXISTS (
 )
 """
 
-# The old tables' rows, derived from the assignment graph. Shared by the
-# compatibility views on upgrade and the repopulated tables on downgrade.
+# The legacy tables' rows, derived from the assignment graph. Used to reverse
+# backfill the legacy tables so both representations agree after upgrade.
 MEMBERSHIP_ROWS = """
 SELECT DISTINCT user_id, workspace_id
 FROM (
@@ -161,18 +156,6 @@ FROM (
 GROUP BY user_id, organization_id
 """
 
-# Compatibility views keep the dropped table names readable while old API pods
-# still query them during a rolling upgrade; writes to them fail in that window.
-# security_invoker (PG 15+) applies the caller's RLS on the assignment tables.
-# TODO: a later contract migration drops both views once no old pod remains.
-CREATE_MEMBERSHIP_VIEW = (
-    f"CREATE VIEW membership WITH (security_invoker = true) AS {MEMBERSHIP_ROWS}"
-)
-CREATE_ORG_MEMBERSHIP_VIEW = (
-    "CREATE VIEW organization_membership WITH (security_invoker = true) AS "
-    f"{ORG_MEMBERSHIP_ROWS}"
-)
-
 REPOPULATE_WORKSPACE_MEMBERSHIP = (
     f"INSERT INTO membership (user_id, workspace_id) {MEMBERSHIP_ROWS} "
     "ON CONFLICT DO NOTHING"
@@ -190,11 +173,6 @@ WORKSPACE_INDEXES = (
     ("ix_user_role_assignment_workspace_id", "user_role_assignment", "workspace_id"),
     ("ix_group_role_assignment_workspace_id", "group_role_assignment", "workspace_id"),
     ("ix_group_member_group_id", "group_member", "group_id"),
-)
-
-DROP_COMPAT_VIEWS = (
-    "DROP VIEW IF EXISTS membership",
-    "DROP VIEW IF EXISTS organization_membership",
 )
 
 
@@ -222,7 +200,7 @@ def assert_no_membership_dropped(connection: Connection) -> None:
             | {str(org_id) for org_id in org_row.organization_ids}
         )
         raise RuntimeError(
-            "Refusing to drop membership tables: "
+            "Refusing to derive membership from assignments: "
             f"{workspace_row.uncovered} workspace membership(s) and "
             f"{org_row.uncovered} organization membership(s) are not covered by "
             "any role assignment. Affected organization_ids: "
@@ -244,102 +222,20 @@ def upgrade() -> None:
         op.execute(disable_org_optional_workspace_table_rls(table))
         op.execute(enable_assignment_split_table_rls(table))
 
-    # 3. Drop the legacy membership tables.
-    op.execute(disable_workspace_table_rls("membership"))
-    op.execute(disable_org_table_rls("organization_membership"))
-    op.drop_index("ix_membership_workspace_id", table_name="membership")
-    op.drop_index("ix_membership_workspace_user", table_name="membership")
-    op.drop_table("membership")
-    op.drop_index("ix_org_membership_org_id", table_name="organization_membership")
-    op.drop_table("organization_membership")
-
-    # 4. Recreate the names as read-only views so old pods survive the rollout.
-    op.execute(CREATE_MEMBERSHIP_VIEW)
-    op.execute(CREATE_ORG_MEMBERSHIP_VIEW)
+    # 3. Reverse backfill: legacy tables keep their rows so N-1 pods, which
+    # read and write them directly, keep working through the rolling upgrade.
+    op.execute(REPOPULATE_ORG_MEMBERSHIP)
+    op.execute(REPOPULATE_WORKSPACE_MEMBERSHIP)
 
     for name, table, column in WORKSPACE_INDEXES:
         op.create_index(name, table, [column], unique=False)
 
 
 def downgrade() -> None:
+    # The legacy tables were never dropped, so only the indexes and the RLS
+    # swap are reversed. Backfilled assignments stay; they are valid grants.
     for name, table, _ in WORKSPACE_INDEXES:
         op.drop_index(name, table_name=table)
-
-    # The views own these names until dropped; the tables below reclaim them.
-    for statement in DROP_COMPAT_VIEWS:
-        op.execute(statement)
-
-    op.create_table(
-        "membership",
-        sa.Column("user_id", sa.UUID(), autoincrement=False, nullable=False),
-        sa.Column("workspace_id", sa.UUID(), autoincrement=False, nullable=False),
-        sa.ForeignKeyConstraint(
-            ["user_id"], ["user.id"], name="fk_membership_user_id_user"
-        ),
-        sa.ForeignKeyConstraint(
-            ["workspace_id"],
-            ["workspace.id"],
-            name="fk_membership_workspace_id_workspace",
-            ondelete="CASCADE",
-        ),
-        sa.PrimaryKeyConstraint("user_id", "workspace_id", name="pk_membership"),
-    )
-    op.create_index(
-        "ix_membership_workspace_id", "membership", ["workspace_id"], unique=False
-    )
-    op.create_index(
-        "ix_membership_workspace_user",
-        "membership",
-        ["workspace_id", "user_id"],
-        unique=False,
-    )
-
-    op.create_table(
-        "organization_membership",
-        sa.Column("user_id", sa.UUID(), autoincrement=False, nullable=False),
-        sa.Column("organization_id", sa.UUID(), autoincrement=False, nullable=False),
-        sa.Column(
-            "created_at",
-            postgresql.TIMESTAMP(timezone=True),
-            server_default=sa.text("now()"),
-            autoincrement=False,
-            nullable=False,
-        ),
-        sa.Column(
-            "updated_at",
-            postgresql.TIMESTAMP(timezone=True),
-            server_default=sa.text("now()"),
-            autoincrement=False,
-            nullable=False,
-        ),
-        sa.ForeignKeyConstraint(
-            ["organization_id"],
-            ["organization.id"],
-            name="fk_organization_membership_organization_id_organization",
-            ondelete="CASCADE",
-        ),
-        sa.ForeignKeyConstraint(
-            ["user_id"],
-            ["user.id"],
-            name="fk_organization_membership_user_id_user",
-            ondelete="CASCADE",
-        ),
-        sa.PrimaryKeyConstraint(
-            "user_id", "organization_id", name="pk_organization_membership"
-        ),
-    )
-    op.create_index(
-        "ix_org_membership_org_id",
-        "organization_membership",
-        ["organization_id"],
-        unique=False,
-    )
-
-    op.execute(REPOPULATE_ORG_MEMBERSHIP)
-    op.execute(REPOPULATE_WORKSPACE_MEMBERSHIP)
-
-    op.execute(enable_workspace_table_rls("membership"))
-    op.execute(enable_org_table_rls("organization_membership"))
 
     for table in SPLIT_POLICY_TABLES:
         op.execute(disable_assignment_split_table_rls(table))

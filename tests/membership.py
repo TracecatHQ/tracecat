@@ -13,6 +13,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.authz.membership import mirror_assignment_grant
 from tracecat.authz.seeding import seed_system_roles_for_org
 from tracecat.db.models import Role as DBRole
 from tracecat.db.models import UserRoleAssignment
@@ -72,6 +73,12 @@ async def grant_org_membership(
             index_where=UserRoleAssignment.workspace_id.is_(None),
         )
     )
+    await mirror_assignment_grant(
+        session,
+        user_id=user_id,
+        organization_id=organization_id,
+        workspace_id=None,
+    )
     await session.flush()
 
 
@@ -102,5 +109,11 @@ async def grant_workspace_membership(
                 UserRoleAssignment.workspace_id,
             ],
         )
+    )
+    await mirror_assignment_grant(
+        session,
+        user_id=user_id,
+        organization_id=organization_id,
+        workspace_id=workspace_id,
     )
     await session.flush()

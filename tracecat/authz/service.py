@@ -12,6 +12,7 @@ from sqlalchemy.sql.elements import ColumnElement
 from tracecat.auth.types import Role
 from tracecat.authz.controls import ensure_can_grant_scopes, require_scope
 from tracecat.authz.enums import WorkspaceMemberSourceKind
+from tracecat.authz.membership import mirror_assignment_grant, mirror_assignment_revoke
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import SupportsExecute
 from tracecat.db.models import (
@@ -370,6 +371,13 @@ class MembershipService(BaseService):
                 assigned_by=self.role.user_id if self.role else None,
             )
         )
+        await self.session.flush()
+        await mirror_assignment_grant(
+            self.session,
+            user_id=params.user_id,
+            organization_id=organization_id,
+            workspace_id=workspace_id,
+        )
         await self.session.commit()
 
     @require_scope("workspace:member:remove")
@@ -399,6 +407,17 @@ class MembershipService(BaseService):
                 UserRoleAssignment.workspace_id == workspace_id,
                 UserRoleAssignment.user_id == user_id,
             )
+        )
+        organization_id = (
+            await self.session.execute(
+                select(Workspace.organization_id).where(Workspace.id == workspace_id)
+            )
+        ).scalar_one()
+        await mirror_assignment_revoke(
+            self.session,
+            user_id=user_id,
+            organization_id=organization_id,
+            workspace_id=workspace_id,
         )
         await self.session.commit()
 

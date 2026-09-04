@@ -12,13 +12,17 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import and_, literal, select, union_all
+from sqlalchemy import and_, delete, literal, select, union_all
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
 from tracecat.db.engine import SupportsExecute
 from tracecat.db.models import (
     GroupMember,
     GroupRoleAssignment,
+    LegacyMembership,
+    LegacyOrganizationMembership,
     Membership,
     UserRoleAssignment,
 )
@@ -106,3 +110,73 @@ async def resolve_org_role_names(
     for user_id, name, slug in (await session.execute(stmt)).tuples().all():
         resolved.setdefault(user_id, OrgRoleName(name=name, slug=slug))
     return resolved
+
+
+async def mirror_assignment_grant(
+    session: AsyncSession,
+    *,
+    user_id: object,
+    organization_id: object,
+    workspace_id: object | None,
+) -> None:
+    """Mirror an assignment grant into the legacy membership tables.
+
+    N-1 pods still read those tables directly, so they must be kept in step
+    until the contract release drops them. Does not commit.
+    """
+    await session.execute(
+        pg_insert(LegacyOrganizationMembership)
+        .values(user_id=user_id, organization_id=organization_id)
+        .on_conflict_do_nothing(
+            index_elements=[
+                LegacyOrganizationMembership.user_id,
+                LegacyOrganizationMembership.organization_id,
+            ]
+        )
+    )
+    if workspace_id is None:
+        return
+    await session.execute(
+        pg_insert(LegacyMembership)
+        .values(user_id=user_id, workspace_id=workspace_id)
+        .on_conflict_do_nothing(
+            index_elements=[LegacyMembership.user_id, LegacyMembership.workspace_id]
+        )
+    )
+
+
+async def mirror_assignment_revoke(
+    session: AsyncSession,
+    *,
+    user_id: object,
+    organization_id: object,
+    workspace_id: object | None,
+) -> None:
+    """Mirror an assignment revoke into the legacy membership tables.
+
+    The org row survives while any other direct assignment in the org remains.
+    Group grants are ignored: old pods never derived membership from groups.
+    Does not commit.
+    """
+    if workspace_id is not None:
+        await session.execute(
+            delete(LegacyMembership).where(
+                LegacyMembership.user_id == user_id,
+                LegacyMembership.workspace_id == workspace_id,
+            )
+        )
+    remaining = (
+        select(UserRoleAssignment.id)
+        .where(
+            UserRoleAssignment.user_id == user_id,
+            UserRoleAssignment.organization_id == organization_id,
+        )
+        .exists()
+    )
+    await session.execute(
+        delete(LegacyOrganizationMembership).where(
+            LegacyOrganizationMembership.user_id == user_id,
+            LegacyOrganizationMembership.organization_id == organization_id,
+            ~remaining,
+        )
+    )

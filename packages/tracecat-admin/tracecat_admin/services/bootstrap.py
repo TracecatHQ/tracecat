@@ -22,6 +22,7 @@ from tracecat.auth.users import (
     get_user_manager_context,
     lookup_user_by_email,
 )
+from tracecat.authz.membership import mirror_assignment_grant
 from tracecat.db.engine import (
     get_async_session_bypass_rls_context_manager,
     get_async_session_context_manager,
@@ -375,10 +376,17 @@ async def _ensure_role_assignment(
                 role_id=role_id,
             )
         )
-        return
+        await session.flush()
+    else:
+        assignment.organization_id = organization_id
+        assignment.role_id = role_id
 
-    assignment.organization_id = organization_id
-    assignment.role_id = role_id
+    await mirror_assignment_grant(
+        session,
+        user_id=user_id,
+        organization_id=organization_id,
+        workspace_id=workspace_id,
+    )
 
 
 async def create_dev_user(

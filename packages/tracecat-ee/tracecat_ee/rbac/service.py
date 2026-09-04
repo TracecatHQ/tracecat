@@ -16,7 +16,11 @@ from tracecat.authz.controls import (
     validate_scope_string,
 )
 from tracecat.authz.enums import ScopeSource
-from tracecat.authz.membership import org_membership_predicate
+from tracecat.authz.membership import (
+    mirror_assignment_grant,
+    mirror_assignment_revoke,
+    org_membership_predicate,
+)
 from tracecat.authz.scopes import PRESET_ROLE_SCOPES
 from tracecat.authz.service import resolve_grantable_role, resolve_granter_scopes
 from tracecat.db.models import (
@@ -729,6 +733,13 @@ class RBACService(BaseOrgService):
         )
         self.session.add(assignment)
         try:
+            await self.session.flush()
+            await mirror_assignment_grant(
+                self.session,
+                user_id=user_id,
+                organization_id=self.organization_id,
+                workspace_id=workspace_id,
+            )
             await self.session.commit()
         except IntegrityError as e:
             await self.session.rollback()
@@ -770,7 +781,16 @@ class RBACService(BaseOrgService):
     async def delete_user_assignment(self, assignment_id: UUID) -> None:
         """Delete a user role assignment."""
         assignment = await self.get_user_assignment(assignment_id)
+        user_id = assignment.user_id
+        workspace_id = assignment.workspace_id
         await self.session.delete(assignment)
+        await self.session.flush()
+        await mirror_assignment_revoke(
+            self.session,
+            user_id=user_id,
+            organization_id=self.organization_id,
+            workspace_id=workspace_id,
+        )
         await self.session.commit()
 
     async def get_user_role_scopes(
