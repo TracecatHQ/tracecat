@@ -254,9 +254,24 @@ def main():
             result["traceback"] = traceback.format_exc()
 
     finally:
-        # Capture stdout/stderr
-        result["stdout"] = sys.stdout.getvalue()
-        result["stderr"] = sys.stderr.getvalue()
+        # Capture stdout/stderr. Joining a large capture buffer allocates a
+        # second copy of it, so a script that exhausted the cap by printing
+        # can raise here, outside every handler above, and die before
+        # result.json exists. Degrade to the same fixed envelope instead.
+        try:
+            result["stdout"] = sys.stdout.getvalue()
+            result["stderr"] = sys.stderr.getvalue()
+        except MemoryError as exc:
+            exc.__traceback__ = None
+            result.clear()
+            result["success"] = False
+            result["output"] = None
+            result["error"] = "Script exceeded the sandbox memory limit"
+            result["traceback"] = None
+            result["stdout"] = ""
+            result["stderr"] = ""
+            result["error_code"] = "resource_limit_exceeded"
+        # Dropping the capture buffers releases whatever the script printed.
         sys.stdout = old_stdout
         sys.stderr = old_stderr
 
@@ -269,12 +284,14 @@ def main():
         result["success"] = False
         result["output"] = repr(result["output"])
         result_path.write_text(json.dumps(result))
-    except MemoryError:
+    except MemoryError as exc:
         # An output that fits under the address-space cap can still exhaust it
         # while being serialized. Release every reference to the oversized
         # value before allocating anything else, then write a small fixed
         # envelope, so the failure still reports the resource-limit code
-        # instead of dying before result.json exists.
+        # instead of dying before result.json exists. The traceback counts:
+        # it pins to_json_safe's frame locals, which hold the value itself.
+        exc.__traceback__ = None
         output = None
         call = None
         result.clear()

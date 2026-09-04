@@ -38,8 +38,12 @@ try:
         if hasattr(obj, "model_dump"):
             try:
                 return obj.model_dump(mode="json")
-            except Exception:
-                pass
+            except Exception as exc:
+                if is_memory_exhaustion(exc):
+                    # The address-space cap, not an unserializable type. Let it
+                    # out so serialize_result can degrade to the resource-limit
+                    # envelope instead of reporting a TypeError.
+                    raise
         raise TypeError(f"Type is not JSON serializable: {type(obj).__name__}")
 
     def json_dumps(obj: dict) -> bytes:
@@ -556,6 +560,24 @@ def is_memory_exhaustion(error: BaseException) -> bool:
     return isinstance(error, OSError) and error.errno == errno.ENOMEM
 
 
+def caused_by_memory_exhaustion(error: BaseException) -> bool:
+    """Report whether memory exhaustion produced ``error``, directly or as a cause.
+
+    orjson reports an exception raised inside its ``default`` hook as its own
+    ``JSONEncodeError`` carrying the original on ``__cause__``, so a model whose
+    ``model_dump()`` hits the cap arrives here one level down rather than as
+    itself.
+    """
+    seen: set[int] = set()
+    current: BaseException | None = error
+    while current is not None and id(current) not in seen:
+        if is_memory_exhaustion(current):
+            return True
+        seen.add(id(current))
+        current = current.__cause__ or current.__context__
+    return False
+
+
 def serialize_result(result: dict[str, Any], input_data: dict[str, Any]) -> bytes:
     """Serialize the runner result, degrading to a fixed envelope on MemoryError.
 
@@ -567,8 +589,12 @@ def serialize_result(result: dict[str, Any], input_data: dict[str, Any]) -> byte
     """
     try:
         return json_dumps(result)
-    except MemoryError:
-        # Drop the oversized result before allocating anything else.
+    except Exception as exc:
+        if not caused_by_memory_exhaustion(exc):
+            raise
+        # Drop the oversized result, and the traceback pinning it through the
+        # serializer's frame locals, before allocating anything else.
+        exc.__traceback__ = None
         result.clear()
         return json_dumps(
             _resource_limit_envelope(

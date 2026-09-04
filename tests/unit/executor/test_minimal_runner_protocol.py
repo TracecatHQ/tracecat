@@ -780,6 +780,29 @@ def test_is_memory_exhaustion_ignores_other_oserrors() -> None:
     assert not minimal_runner.is_memory_exhaustion(ValueError("nope"))
 
 
+def test_serialize_result_reports_limit_when_model_dump_exhausts_memory() -> None:
+    """Invariant: the orjson default hook must not swallow memory exhaustion.
+
+    ``_orjson_default`` treats a failing ``model_dump()`` as an unserializable
+    type and raises ``TypeError``. A ``MemoryError`` raised in there is the
+    address-space cap, not a type problem, so swallowing it would strip the
+    resource-limit code off a failure that really did hit the cap.
+    """
+
+    class _HungryModel:
+        def model_dump(self, mode: str = "json") -> dict[str, Any]:
+            raise MemoryError()
+
+    encoded = minimal_runner.serialize_result(
+        {"success": True, "result": _HungryModel()},
+        {"resolved_context": {"action_impl": {"module": "m", "name": "n"}}},
+    )
+    decoded = orjson.loads(encoded)
+
+    assert decoded["success"] is False
+    assert decoded["error_code"] == "resource_limit_exceeded"
+
+
 def test_serialize_result_degrades_to_resource_limit_envelope_on_memory_error(
     monkeypatch,
 ) -> None:

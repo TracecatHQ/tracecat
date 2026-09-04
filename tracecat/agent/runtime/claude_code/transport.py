@@ -6,7 +6,7 @@ import asyncio
 import os
 import socket
 from collections.abc import AsyncIterator, Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass, replace
 from pathlib import Path
 from time import perf_counter
@@ -41,6 +41,10 @@ from tracecat.agent.sandbox.nsjail import (
 from tracecat.logger import logger
 
 _TRUSTED_MCP_BRIDGE_PATH = "/mcp"
+
+# How long a broken write waits for the shim to be reaped before giving up on
+# recording its exit code. Short enough not to stall the error path.
+_EXIT_REAP_TIMEOUT_SECONDS = 0.5
 
 
 class ClaudeShimInitPayload(TypedDict):
@@ -234,9 +238,15 @@ class SandboxedCLITransport(Transport):
             try:
                 await self._process.stdin.drain()
             except (BrokenPipeError, ConnectionResetError):
-                # A dead shim breaks the pipe. Record the code if the process
-                # has already been reaped; never wait for it here, because the
-                # child may have closed stdin while still running.
+                # A dead shim breaks the pipe, but the child may not be reaped
+                # yet at the moment the write fails. Give it a bounded moment
+                # rather than losing the exit code to that race -- and bounded
+                # rather than open-ended, because a child that merely closed
+                # stdin while still running must not block the error path.
+                with suppress(TimeoutError):
+                    await asyncio.wait_for(
+                        self._process.wait(), timeout=_EXIT_REAP_TIMEOUT_SECONDS
+                    )
                 returncode = self._process.returncode
                 if returncode is not None:
                     self._record_process_exit(returncode)
