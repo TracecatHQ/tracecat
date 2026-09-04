@@ -189,6 +189,12 @@ def _sandbox_process_exit_error(
     a negative code means the host itself terminated the process during
     transport teardown rather than the jailed runtime dying.
     """
+    if TRACECAT__DISABLE_NSJAIL:
+        # Without a jail no rlimit was installed, so the exit code carries no
+        # resource-limit meaning. A direct process that aborts or that the host
+        # OOM-kills is a platform failure, and attributing it to the caller
+        # would name a cap this deployment never enforced.
+        return None
     if not isinstance(transport, SandboxedCLITransport):
         return None
     exit_code = transport.exit_code

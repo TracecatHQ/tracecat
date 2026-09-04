@@ -3622,6 +3622,7 @@ async def test_run_rebuilds_sandbox_process_exit_from_transport_exit_code(
     mock_socket_writer: MagicMock,
     mock_claude_sdk_client: MagicMock,
     sample_init_payload: RuntimeInitPayload,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Invariant: a dead sandbox process is attributed from the transport's exit code.
 
@@ -3629,7 +3630,9 @@ async def test_run_rebuilds_sandbox_process_exit_from_transport_exit_code(
     runtime must not parse. The transport keeps the exit code, the runtime
     rebuilds the typed exit error from it, the loopback receives the
     resource-limit classification, and the typed error is what propagates.
+    Attribution requires a jail, so nsjail is enabled explicitly here.
     """
+    monkeypatch.setattr(runtime_module, "TRACECAT__DISABLE_NSJAIL", False)
     mock_claude_sdk_client.query = AsyncMock(
         side_effect=Exception("Sandbox shim failed with exit code 134")
     )
@@ -3657,6 +3660,42 @@ async def test_run_rebuilds_sandbox_process_exit_from_transport_exit_code(
     assert classification.kind is RuntimeErrorKind.SANDBOX_RESOURCE_LIMIT_EXCEEDED
     assert await_args.args[0] == classification.message
     mock_socket_writer.send_done.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_run_does_not_attribute_process_exit_when_nsjail_is_disabled(
+    mock_socket_writer: MagicMock,
+    mock_claude_sdk_client: MagicMock,
+    sample_init_payload: RuntimeInitPayload,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Invariant: without a jail an exit code carries no resource-limit meaning.
+
+    TRACECAT__DISABLE_NSJAIL installs no rlimits, so a direct process that
+    aborts or is OOM-killed by the host must stay platform-owned rather than
+    blaming the caller for a cap this deployment never enforced.
+    """
+    monkeypatch.setattr(runtime_module, "TRACECAT__DISABLE_NSJAIL", True)
+    mock_claude_sdk_client.query = AsyncMock(side_effect=ValueError("Test error"))
+    transport = MagicMock(spec=SandboxedCLITransport)
+    transport.exit_code = 137
+
+    with (
+        patch(
+            "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+            return_value=mock_claude_sdk_client,
+        ),
+        pytest.raises(ValueError, match="Test error"),
+    ):
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: transport
+        )
+        await runtime.run(sample_init_payload)
+
+    await_args = mock_socket_writer.send_error.await_args
+    assert await_args is not None
+    classification = await_args.kwargs["classification"]
+    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
 
 
 @pytest.mark.anyio

@@ -305,8 +305,12 @@ class SandboxedCLITransport(Transport):
                     self._process.kill()
                     await self._process.wait()
 
-        if self._process is not None:
-            self._exit_code = self._process.returncode
+        # Deliberately not recording the exit code here. By this point the host
+        # may have terminated or killed the process itself, and treating that
+        # as a runtime death would re-attribute an unrelated error. Only
+        # ``read_messages`` records a code, where a non-zero exit is the jailed
+        # process dying on its own; that value is never cleared, so it still
+        # survives this teardown.
         self._process = None
         if self._spawned_runtime is not None:
             cleanup_spawned_runtime(self._spawned_runtime)
