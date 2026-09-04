@@ -286,6 +286,7 @@ async def test_admin_org_invitation_schedules_configured_email(
     assert message.to == (invitation.email,)
     assert message.subject == "Join Acme on Tracecat"
     assert message.from_addr == "Tracecat <no-reply@mail.example.com>"
+    assert "token=raw-token" in message.text
 
 
 @pytest.mark.anyio

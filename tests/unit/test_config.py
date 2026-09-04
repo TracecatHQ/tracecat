@@ -460,6 +460,41 @@ def test_action_gateway_socket_uses_default_for_empty_string(
         importlib.reload(tracecat_config)
 
 
+@pytest.mark.parametrize("port", ["0", "65536", "-1"])
+def test_smtp_port_rejects_out_of_range(
+    monkeypatch: pytest.MonkeyPatch, port: str
+) -> None:
+    try:
+        with monkeypatch.context() as env:
+            env.setenv("TRACECAT__SMTP_PORT", port)
+
+            with pytest.raises(ValueError, match="TRACECAT__SMTP_PORT"):
+                importlib.reload(tracecat_config)
+    finally:
+        importlib.reload(tracecat_config)
+
+
+def test_smtp_password_preserves_whitespace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    try:
+        with monkeypatch.context() as env:
+            env.setenv("TRACECAT__SMTP_PASSWORD", " secret ")
+
+            reloaded_config = importlib.reload(tracecat_config)
+
+            assert reloaded_config.TRACECAT__SMTP_PASSWORD == " secret "
+
+        with monkeypatch.context() as env:
+            env.setenv("TRACECAT__SMTP_PASSWORD", "   ")
+
+            reloaded_config = importlib.reload(tracecat_config)
+
+            assert reloaded_config.TRACECAT__SMTP_PASSWORD is None
+    finally:
+        importlib.reload(tracecat_config)
+
+
 def test_copilot_skills_dir_uses_default_for_empty_string(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
