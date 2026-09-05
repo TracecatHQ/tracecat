@@ -69,9 +69,7 @@ export function ActionEventPane({
     draftPins !== null &&
     (draftPins.source_execution_id === execution.id ||
       selectedEvents?.some(
-        (event) =>
-          getSyntheticPinnedEventMeta(event)?.source_execution_id ===
-          draftPins.source_execution_id
+        (event) => getSyntheticPinnedEventMeta(event) !== null
       ) === true)
   const selectedRefIsPinned =
     isResultTab &&
