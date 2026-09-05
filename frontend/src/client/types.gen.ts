@@ -15236,6 +15236,14 @@ export type $OpenApiTs = {
          */
         200: WorkflowExecutionCreateResponse
         /**
+         * Draft, replay source, or trigger inputs are invalid
+         */
+        400: unknown
+        /**
+         * Workflow or source execution not found
+         */
+        404: unknown
+        /**
          * Validation Error
          */
         422: HTTPValidationError

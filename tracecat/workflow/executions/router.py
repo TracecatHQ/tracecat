@@ -1146,7 +1146,13 @@ async def create_draft_workflow_execution(
         ) from e
 
 
-@router.post("/draft/from-action")
+@router.post(
+    "/draft/from-action",
+    responses={
+        400: {"description": "Draft, replay source, or trigger inputs are invalid"},
+        404: {"description": "Workflow or source execution not found"},
+    },
+)
 @require_scope("workflow:execute")
 async def create_draft_workflow_execution_from_action(
     role: WorkspaceUserRouteRole,

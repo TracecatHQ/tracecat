@@ -2969,6 +2969,8 @@ export const workflowExecutionsCreateDraftWorkflowExecutionFromAction = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
+      400: "Draft, replay source, or trigger inputs are invalid",
+      404: "Workflow or source execution not found",
       422: "Validation Error",
     },
   })
