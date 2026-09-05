@@ -9,7 +9,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any, TypedDict, cast
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import unquote_plus, urlparse, urlunparse
 from uuid import uuid4
 
 import httpx
@@ -755,15 +755,107 @@ class IntegrationService(BaseWorkspaceService):
         return urlunparse(("https", netloc, path, "", parsed.query, ""))
 
     @staticmethod
-    def _mcp_oauth_metadata_urls(server_uri: str) -> list[str]:
-        parsed = urlparse(server_uri)
-        base_url = IntegrationService._mcp_resource_base_url(server_uri)
-        urls: list[str] = []
+    def _mcp_oauth_resource_metadata_urls(
+        resource_uri: str,
+    ) -> list[tuple[str, str]]:
+        """Build RFC 9728 URLs paired with their expected resource identifiers."""
+        resource_uri = IntegrationService._mcp_resource_uri(resource_uri)
+        parsed = urlparse(resource_uri)
+        base_url = IntegrationService._mcp_resource_base_url(resource_uri)
+        urls: list[tuple[str, str]] = []
         if parsed.path and parsed.path != "/":
-            urls.append(f"{base_url}/.well-known/oauth-protected-resource{parsed.path}")
-        urls.append(f"{base_url}/.well-known/oauth-protected-resource")
-        urls.append(f"{base_url}/.well-known/oauth-authorization-server")
+            urls.append(
+                (
+                    urlunparse(
+                        (
+                            "https",
+                            parsed.netloc,
+                            f"/.well-known/oauth-protected-resource{parsed.path}",
+                            "",
+                            parsed.query,
+                            "",
+                        )
+                    ),
+                    resource_uri,
+                )
+            )
+            urls.append((f"{base_url}/.well-known/oauth-protected-resource", base_url))
+        else:
+            metadata_url = urlunparse(
+                (
+                    "https",
+                    parsed.netloc,
+                    "/.well-known/oauth-protected-resource",
+                    "",
+                    parsed.query,
+                    "",
+                )
+            )
+            urls.append((metadata_url, resource_uri))
         return urls
+
+    @classmethod
+    def _catalog_spec_mcp_oauth_resource(
+        cls,
+        catalog_spec: MCPHTTPOAuth2ConnectionSpec,
+        *,
+        server_uri: str,
+    ) -> str | None:
+        """Return a catalog-pinned or provider-normalized OAuth resource URI."""
+        if catalog_spec.oauth_resource is not None:
+            return catalog_spec.oauth_resource
+        ignored_params = set(catalog_spec.oauth_resource_ignored_query_params)
+        if not ignored_params:
+            return None
+
+        resource_uri = cls._mcp_resource_uri(server_uri)
+        parsed = urlparse(resource_uri)
+        query_parts = [
+            part
+            for part in parsed.query.split("&")
+            if unquote_plus(part.partition("=")[0]) not in ignored_params
+        ]
+        return urlunparse(
+            (
+                parsed.scheme,
+                parsed.netloc,
+                parsed.path,
+                "",
+                "&".join(query_parts),
+                "",
+            )
+        )
+
+    @staticmethod
+    def _validate_mcp_oauth_resource_metadata(
+        metadata: OAuthServerMetadata,
+        *,
+        expected_resource: str,
+    ) -> str:
+        """Validate the RFC 9728 resource identity for a metadata response."""
+        if metadata.resource is None:
+            raise ValueError("OAuth protected-resource metadata is missing resource")
+        resource = IntegrationService._mcp_resource_uri(metadata.resource)
+        if resource != expected_resource:
+            raise ValueError(
+                "OAuth protected-resource metadata does not match the MCP resource"
+            )
+        return resource
+
+    @staticmethod
+    def _validate_mcp_oauth_server_metadata(
+        metadata: OAuthServerMetadata,
+        *,
+        expected_issuer: str,
+    ) -> None:
+        """Validate the RFC 8414 issuer identity for a metadata response."""
+        if metadata.issuer is None:
+            raise ValueError("OAuth authorization-server metadata is missing issuer")
+        if metadata.issuer != expected_issuer:
+            raise ValueError(
+                "OAuth authorization-server metadata issuer does not match "
+                "the discovered issuer"
+            )
 
     @classmethod
     def _catalog_pinned_oauth_endpoints(
@@ -772,7 +864,6 @@ class IntegrationService(BaseWorkspaceService):
         *,
         server_uri: str,
         oauth_resource: str | None,
-        allowed_endpoint_hosts: frozenset[str],
     ) -> MCPOAuthDiscoveryEndpoints | None:
         """Use a catalog row's pinned OAuth endpoints instead of discovery.
 
@@ -788,40 +879,23 @@ class IntegrationService(BaseWorkspaceService):
             return None
         return MCPOAuthDiscoveryEndpoints(
             authorization_endpoint=cls._validate_mcp_oauth_endpoint(
-                authorization_endpoint, allowed_hosts=allowed_endpoint_hosts
+                authorization_endpoint
             ),
-            token_endpoint=cls._validate_mcp_oauth_endpoint(
-                token_endpoint, allowed_hosts=allowed_endpoint_hosts
-            ),
+            token_endpoint=cls._validate_mcp_oauth_endpoint(token_endpoint),
             token_methods=[],
             registration_endpoint=None,
             resource=cls._mcp_resource_uri(oauth_resource or server_uri),
         )
 
     @staticmethod
-    def _validate_mcp_oauth_endpoint(
-        endpoint: str,
-        *,
-        base_domain: str | None = None,
-        allowed_hosts: frozenset[str] = frozenset(),
-    ) -> str:
-        """Validate a generic MCP OAuth endpoint discovered from metadata.
+    def _validate_mcp_oauth_endpoint(endpoint: str) -> str:
+        """Validate a generic MCP OAuth endpoint.
 
-        Generic BYO/catalog DCR follows the trust chain from the user-supplied
-        MCP server URI to protected-resource or authorization-server metadata.
-        Endpoint hosts must match the metadata host that advertised them,
-        except for exact hosts of OAuth endpoints pinned on the repo-owned
-        catalog row (still SSRF-validated).
+        OAuth endpoints discovered from provider metadata may use a different
+        host from the MCP resource server. They still require HTTPS and undergo
+        DNS-backed SSRF validation before server-side requests.
         """
-        hostname = urlparse(endpoint).hostname
-        if not hostname:
-            raise InsecureOAuthEndpointError(
-                f"oauth_endpoint must include a hostname: {endpoint}"
-            )
-        if hostname in allowed_hosts:
-            validate_oauth_endpoint(endpoint)
-            return endpoint
-        validate_oauth_endpoint(endpoint, base_domain=base_domain)
+        validate_oauth_endpoint(endpoint)
         return endpoint
 
     @staticmethod
@@ -969,44 +1043,56 @@ class IntegrationService(BaseWorkspaceService):
         *,
         server_uri: str,
         oauth_resource: str | None = None,
-        allowed_endpoint_hosts: frozenset[str] = frozenset(),
     ) -> MCPOAuthDiscoveryEndpoints:
         resource_uri = self._mcp_resource_uri(oauth_resource or server_uri)
-        resource_host = urlparse(resource_uri).hostname
-        if resource_host is None:
-            raise ValueError("MCP server URI is missing a hostname")
 
-        # Two-tier OAuth discovery (RFC 9728 + RFC 8414): first try the server's
-        # own .well-known metadata. If it advertises the endpoints directly we use
-        # them; otherwise it points at separate authorization servers whose
-        # .well-known metadata we fetch in the second pass below.
-        auth_server_metadata_urls: list[str] = []
-        direct_metadata: OAuthServerMetadata | None = None
-        direct_metadata_host: str | None = None
-        for metadata_url in self._mcp_oauth_metadata_urls(server_uri):
+        # Two-tier OAuth discovery (RFC 9728 + RFC 8414): validate the protected
+        # resource identity, then validate the authorization server metadata
+        # against the issuer that selected it. Endpoint hosts may differ only
+        # after this chain of authority has been established.
+        authorization_server_issuers: list[str] = []
+        for metadata_url, expected_resource in self._mcp_oauth_resource_metadata_urls(
+            resource_uri
+        ):
             metadata = await self._fetch_oauth_json(metadata_url)
             if not metadata:
                 continue
-            # Metadata may override the canonical resource identifier we send as
-            # the OAuth `resource` parameter; re-validate it before trusting it.
-            if metadata.resource and oauth_resource is None:
-                resource_uri = self._mcp_resource_uri(metadata.resource)
-            if metadata.is_complete:
-                direct_metadata = metadata
-                direct_metadata_host = urlparse(metadata_url).hostname
-                break
-            for issuer in metadata.authorization_servers:
-                auth_server_metadata_urls.extend(
-                    oauth_authorization_server_metadata_urls(issuer)
+            discovered_resource = self._validate_mcp_oauth_resource_metadata(
+                metadata,
+                expected_resource=expected_resource,
+            )
+            if oauth_resource is None:
+                resource_uri = discovered_resource
+            authorization_server_issuers = metadata.authorization_servers
+            if not authorization_server_issuers:
+                raise ValueError(
+                    "OAuth protected-resource metadata is missing authorization_servers"
                 )
+            break
 
-        if direct_metadata is None:
-            for metadata_url in auth_server_metadata_urls:
+        if not authorization_server_issuers:
+            authorization_server_issuers = [self._mcp_resource_base_url(resource_uri)]
+
+        direct_metadata: OAuthServerMetadata | None = None
+        for raw_issuer in authorization_server_issuers:
+            issuer = raw_issuer.strip()
+            metadata_urls = oauth_authorization_server_metadata_urls(issuer)
+            if not metadata_urls:
+                raise ValueError("OAuth authorization-server issuer is invalid")
+            for metadata_url in metadata_urls:
                 metadata = await self._fetch_oauth_json(metadata_url)
-                if metadata and metadata.is_complete:
-                    direct_metadata = metadata
-                    direct_metadata_host = urlparse(metadata_url).hostname
-                    break
+                if metadata is None:
+                    continue
+                self._validate_mcp_oauth_server_metadata(
+                    metadata,
+                    expected_issuer=issuer,
+                )
+                if not metadata.is_complete:
+                    continue
+                direct_metadata = metadata
+                break
+            if direct_metadata is not None:
+                break
 
         if direct_metadata is None:
             raise ValueError(f"Could not discover OAuth endpoints from {server_uri}")
@@ -1021,20 +1107,12 @@ class IntegrationService(BaseWorkspaceService):
 
         return MCPOAuthDiscoveryEndpoints(
             authorization_endpoint=self._validate_mcp_oauth_endpoint(
-                authorization_endpoint,
-                base_domain=direct_metadata_host,
-                allowed_hosts=allowed_endpoint_hosts,
+                authorization_endpoint
             ),
-            token_endpoint=self._validate_mcp_oauth_endpoint(
-                token_endpoint,
-                base_domain=direct_metadata_host,
-                allowed_hosts=allowed_endpoint_hosts,
-            ),
+            token_endpoint=self._validate_mcp_oauth_endpoint(token_endpoint),
             token_methods=token_methods,
             registration_endpoint=self._validate_mcp_oauth_endpoint(
-                registration_endpoint,
-                base_domain=direct_metadata_host,
-                allowed_hosts=allowed_endpoint_hosts,
+                registration_endpoint
             )
             if registration_endpoint
             else None,
@@ -1288,23 +1366,14 @@ class IntegrationService(BaseWorkspaceService):
             )
 
         scopes: list[str] | None = None
-        allowed_endpoint_hosts: frozenset[str] = frozenset()
         oauth_resource: str | None = None
         if catalog_spec is not None:
             if not isinstance(catalog_spec, MCPHTTPOAuth2ConnectionSpec):
                 raise ValueError("Catalog option is not an HTTP OAuth MCP server")
             scopes = catalog_spec.scopes
-            oauth_resource = catalog_spec.oauth_resource
-            # Hosts of catalog-pinned OAuth endpoints are trusted during
-            # discovery; the catalog is repo-owned, so a pinned endpoint
-            # states explicitly where the provider serves OAuth.
-            allowed_endpoint_hosts = frozenset(
-                hostname
-                for endpoint in (
-                    catalog_spec.oauth_authorization_endpoint,
-                    catalog_spec.oauth_token_endpoint,
-                )
-                if endpoint and (hostname := urlparse(endpoint).hostname)
+            oauth_resource = self._catalog_spec_mcp_oauth_resource(
+                catalog_spec,
+                server_uri=params.server_uri,
             )
             # Fail before any discovery or registration call so a row that
             # cannot connect is never half-created.
@@ -1332,7 +1401,6 @@ class IntegrationService(BaseWorkspaceService):
                 catalog_spec,
                 server_uri=params.server_uri,
                 oauth_resource=oauth_resource,
-                allowed_endpoint_hosts=allowed_endpoint_hosts,
             )
             if catalog_spec is not None and not needs_dcr
             else None
@@ -1343,12 +1411,10 @@ class IntegrationService(BaseWorkspaceService):
             endpoints = await self._discover_mcp_oauth_endpoints(
                 server_uri=params.server_uri,
                 oauth_resource=oauth_resource,
-                allowed_endpoint_hosts=allowed_endpoint_hosts,
             )
         else:
             endpoints = await self._discover_mcp_oauth_endpoints(
                 server_uri=params.server_uri,
-                allowed_endpoint_hosts=allowed_endpoint_hosts,
             )
         # Request offline_access only when the AS advertises it, so refresh
         # tokens survive session-bound authorization policies. Computed once and
@@ -1695,7 +1761,8 @@ class IntegrationService(BaseWorkspaceService):
             server_uri=mcp_integration.server_uri,
             provider_config=provider_config,
             oauth_resource=self._catalog_mcp_oauth_resource(
-                mcp_integration.catalog_slug
+                mcp_integration.catalog_slug,
+                server_uri=mcp_integration.server_uri,
             ),
         )
         client_secret = (
@@ -1772,7 +1839,8 @@ class IntegrationService(BaseWorkspaceService):
             server_uri=mcp_integration.server_uri,
             provider_config=provider_config,
             oauth_resource=self._catalog_mcp_oauth_resource(
-                mcp_integration.catalog_slug
+                mcp_integration.catalog_slug,
+                server_uri=mcp_integration.server_uri,
             ),
         )
         client_secret = (
@@ -3172,7 +3240,8 @@ class IntegrationService(BaseWorkspaceService):
             server_uri=mcp_integration.server_uri,
             provider_config=provider_config,
             oauth_resource=self._catalog_mcp_oauth_resource(
-                mcp_integration.catalog_slug
+                mcp_integration.catalog_slug,
+                server_uri=mcp_integration.server_uri,
             ),
         )
         client_secret = (
@@ -3465,7 +3534,12 @@ class IntegrationService(BaseWorkspaceService):
         return ResolvedCatalogConnection(entry=catalog, option=default_option)
 
     @classmethod
-    def _catalog_mcp_oauth_resource(cls, catalog_slug: str | None) -> str | None:
+    def _catalog_mcp_oauth_resource(
+        cls,
+        catalog_slug: str | None,
+        *,
+        server_uri: str,
+    ) -> str | None:
         """Return a catalog-pinned OAuth resource for a saved MCP integration."""
         if catalog_slug is None:
             return None
@@ -3476,7 +3550,10 @@ class IntegrationService(BaseWorkspaceService):
             return None
         if not isinstance(catalog.connection_spec, MCPHTTPOAuth2ConnectionSpec):
             return None
-        return catalog.connection_spec.oauth_resource
+        return cls._catalog_spec_mcp_oauth_resource(
+            catalog.connection_spec,
+            server_uri=server_uri,
+        )
 
     @classmethod
     def _catalog_mcp_authorize_params(cls, catalog_slug: str | None) -> dict[str, str]:
