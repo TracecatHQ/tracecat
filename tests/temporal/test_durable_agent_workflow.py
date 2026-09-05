@@ -20,6 +20,8 @@ import orjson
 import pytest
 import tracecat_ee.agent.workflows.durable as durable_workflow_module
 
+from tracecat.temporal.patches import DurableAgentWorkflowPatch
+
 pytestmark = [pytest.mark.temporal, pytest.mark.usefixtures("db")]
 
 from temporalio import activity
@@ -51,9 +53,6 @@ from tracecat_ee.agent.approvals.service import (
 )
 from tracecat_ee.agent.types import AgentWorkflowID
 from tracecat_ee.agent.workflows.durable import (
-    APPROVAL_STREAM_V2_PATCH,
-    PRESERVE_RESUMED_AGENT_BINDINGS_PATCH,
-    RESOLVE_AGENTS_PER_TURN_PATCH,
     AgentWorkflowArgs,
     DurableAgentWorkflow,
     WorkflowApprovalSubmission,
@@ -914,7 +913,7 @@ async def test_agent_workflow_replays_approval_stream_v2_patch_history(
             )
 
     await wf_handle.terminate(reason="Replay regression history captured")
-    assert APPROVAL_STREAM_V2_PATCH in await recorded_patch_ids(
+    assert DurableAgentWorkflowPatch.APPROVAL_STREAM_V2 in await recorded_patch_ids(
         temporal_client,
         marked_history,
     )
@@ -1522,7 +1521,9 @@ async def test_agent_workflow_resolves_turn_bindings_and_replays(
         monkeypatch.setattr(
             durable_workflow_module,
             "_use_per_turn_agent_bindings",
-            lambda: temporal_workflow.patched(RESOLVE_AGENTS_PER_TURN_PATCH),
+            lambda: temporal_workflow.patched(
+                DurableAgentWorkflowPatch.RESOLVE_AGENTS_PER_TURN
+            ),
         )
 
     async with agent_worker_factory(
@@ -1567,12 +1568,12 @@ async def test_agent_workflow_resolves_turn_bindings_and_replays(
         completed_history = await handle.fetch_history()
         patch_ids = await recorded_patch_ids(temporal_client, completed_history)
         assert (
-            PRESERVE_RESUMED_AGENT_BINDINGS_PATCH
+            DurableAgentWorkflowPatch.PRESERVE_RESUMED_AGENT_BINDINGS
             if legacy
-            else RESOLVE_AGENTS_PER_TURN_PATCH
+            else DurableAgentWorkflowPatch.RESOLVE_AGENTS_PER_TURN
         ) in patch_ids
         if legacy:
-            assert RESOLVE_AGENTS_PER_TURN_PATCH not in patch_ids
+            assert DurableAgentWorkflowPatch.RESOLVE_AGENTS_PER_TURN not in patch_ids
         # Restore the actual compatibility release before replaying either
         # compatibility or activation history (including approval continuation).
         monkeypatch.setattr(

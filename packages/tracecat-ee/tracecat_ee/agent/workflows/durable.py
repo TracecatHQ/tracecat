@@ -118,6 +118,7 @@ with workflow.unsafe.imports_passed_through():
         raise_application_error_from_classification,
         raise_wrapped_application_error,
     )
+    from tracecat.temporal.patches import DurableAgentWorkflowPatch
     from tracecat.workflow.executions.correlation import (
         build_agent_session_correlation_id,
     )
@@ -145,21 +146,6 @@ with workflow.unsafe.imports_passed_through():
 ROOT_AGENT_SCOPE = "root"
 AGENT_TOOL_DEFINITION_ERROR = "AgentToolDefinitionError"
 AGENT_RUNTIME_EXECUTION_ERROR = "AgentRuntimeExecutionError"
-BUILD_AGENT_TOOL_DEFINITIONS_PATCH = (
-    "tracecat_ee.agent.workflows.durable.build_agent_tool_definitions"
-)
-EMIT_PRE_STREAM_SESSION_ERRORS_PATCH = (
-    "tracecat_ee.agent.workflows.durable.emit_pre_stream_session_errors"
-)
-PERSIST_SESSION_ERROR_PATCH = (
-    "tracecat_ee.agent.workflows.durable.persist_session_error"
-)
-# Temporal patch IDs are persisted in each workflow execution's history. Use a
-# stable, unique ID for every command-producing workflow change, and never reuse
-# an ID for another change. Keep both branches until old histories that lack the
-# marker have aged out, then use workflow.deprecate_patch(...) before removing
-# the marker entirely in a later cleanup.
-AGENT_REQUEST_CANCEL_PATCH = "durable-agent-request-cancel-v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -534,21 +520,6 @@ def _resolve_agent_output(
     return None
 
 
-UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH = (
-    "durable-agent-upsert-tracecat-search-attributes-v1"
-)
-# Temporal patch IDs are persisted in each workflow execution's history. Use a
-# stable, unique ID for every command-producing workflow change, and never reuse
-# an ID for another change. Keep both branches until old histories that lack the
-# marker have aged out, then use workflow.deprecate_patch(...) before removing
-# the marker entirely in a later cleanup.
-LOAD_TERMINAL_MESSAGE_HISTORY_PATCH = "durable-agent-load-terminal-message-history-v1"
-PRESERVE_RESUMED_AGENT_BINDINGS_PATCH = (
-    "durable-agent-preserve-resumed-agent-bindings-v1"
-)
-RESOLVE_AGENTS_PER_TURN_PATCH = "durable-agent-resolve-agents-per-turn-v1"
-
-
 def _use_per_turn_agent_bindings() -> bool:
     """Accept recorded activation histories without activating new turns yet.
 
@@ -559,7 +530,7 @@ def _use_per_turn_agent_bindings() -> bool:
     recorded branch, making this release a compatible rollback target.
     """
     return workflow.unsafe.is_replaying() and workflow.patched(
-        RESOLVE_AGENTS_PER_TURN_PATCH
+        DurableAgentWorkflowPatch.RESOLVE_AGENTS_PER_TURN
     )
 
 
@@ -579,12 +550,6 @@ def _preserved_agents_binding(
     if load_result.has_resume_state:
         return ResolvedAgentsConfig()
     return None
-
-
-FINALIZE_TURN_PATCH = "durable-agent-finalize-turn-v1"
-FINALIZE_TURN_WITH_END_PATCH = "durable-agent-finalize-turn-with-end-v1"
-REMINT_SCOPE_TOKENS_PATCH = "durable-agent-remint-scope-tokens-v1"
-APPROVAL_STREAM_V2_PATCH = "durable-agent-approval-stream-v2"
 
 
 @workflow.defn
@@ -836,7 +801,7 @@ class DurableAgentWorkflow:
             config=cfg,
             internal_tool_context=internal_tool_context,
         )
-        if not workflow.patched(BUILD_AGENT_TOOL_DEFINITIONS_PATCH):
+        if not workflow.patched(DurableAgentWorkflowPatch.BUILD_AGENT_TOOL_DEFINITIONS):
             try:
                 legacy_build_result = await workflow.execute_activity_method(
                     AgentActivities.build_tool_definitions,
@@ -982,7 +947,9 @@ class DurableAgentWorkflow:
         self._initialize_run()
 
         try:
-            if workflow.patched(UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH):
+            if workflow.patched(
+                DurableAgentWorkflowPatch.UPSERT_TRACECAT_SEARCH_ATTRIBUTES
+            ):
                 self._upsert_tracecat_search_attributes()
             logger.debug("DurableAgentWorkflow run", harness_type=self.harness_type)
             logger.debug("AGENT CONTEXT", agent_context=AgentContext.get())
@@ -1006,7 +973,9 @@ class DurableAgentWorkflow:
             # was not yet wired up to surface it inline).
             await self._finalize_session_error(
                 classification.message,
-                should_stream=workflow.patched(EMIT_PRE_STREAM_SESSION_ERRORS_PATCH),
+                should_stream=workflow.patched(
+                    DurableAgentWorkflowPatch.EMIT_PRE_STREAM_SESSION_ERRORS
+                ),
             )
             raise_wrapped_application_error(
                 e,
@@ -1031,7 +1000,9 @@ class DurableAgentWorkflow:
                 else e.type == AGENT_TOOL_DEFINITION_ERROR
                 or (
                     e.type != AGENT_RUNTIME_EXECUTION_ERROR
-                    and workflow.patched(EMIT_PRE_STREAM_SESSION_ERRORS_PATCH)
+                    and workflow.patched(
+                        DurableAgentWorkflowPatch.EMIT_PRE_STREAM_SESSION_ERRORS
+                    )
                 )
             )
             await self._finalize_session_error(
@@ -1051,7 +1022,9 @@ class DurableAgentWorkflow:
             classification = agent_workflow_internal_error(e)
             await self._finalize_session_error(
                 classification.message,
-                should_stream=workflow.patched(EMIT_PRE_STREAM_SESSION_ERRORS_PATCH),
+                should_stream=workflow.patched(
+                    DurableAgentWorkflowPatch.EMIT_PRE_STREAM_SESSION_ERRORS
+                ),
             )
             raise_application_error_from_classification(classification)
         finally:
@@ -1063,13 +1036,13 @@ class DurableAgentWorkflow:
             # with or without pointer cleanup, while the activity-result fallback
             # covers a v2 workflow whose task is picked up by a pre-v2 worker.
             terminal_stream_id = self.active_stream_id
-            if workflow.patched(FINALIZE_TURN_WITH_END_PATCH):
+            if workflow.patched(DurableAgentWorkflowPatch.FINALIZE_TURN_WITH_END):
                 await self._finalize_turn(
                     terminal_stream_id,
                     emit_terminal_done=True,
                 )
             else:
-                if workflow.patched(FINALIZE_TURN_PATCH):
+                if workflow.patched(DurableAgentWorkflowPatch.FINALIZE_TURN):
                     await self._finalize_turn(None, emit_terminal_done=False)
                 await self._emit_terminal_done(terminal_stream_id)
 
@@ -1127,7 +1100,7 @@ class DurableAgentWorkflow:
         failures, and we guard the schedule so finalizing never masks the
         agent's real error or aborts the workflow's own error propagation.
         """
-        if not workflow.patched(PERSIST_SESSION_ERROR_PATCH):
+        if not workflow.patched(DurableAgentWorkflowPatch.PERSIST_SESSION_ERROR):
             # Pre-patch histories kept their original pre-stream-only behavior,
             # so preserve that command shape on replay.
             if not should_stream:
@@ -1340,7 +1313,9 @@ class DurableAgentWorkflow:
             # this workflow's history freezes its configuration, including
             # approval continuation; session history does not pin dependencies.
             agents_result = await self._resolve_agents_config(args, cfg)
-        elif workflow.patched(PRESERVE_RESUMED_AGENT_BINDINGS_PATCH):
+        elif workflow.patched(
+            DurableAgentWorkflowPatch.PRESERVE_RESUMED_AGENT_BINDINGS
+        ):
             # Load session topology before resolving agents. A resumed session's
             # stored binding is the stable runtime contract, even if the preset
             # now follows a newer child version.
@@ -1459,7 +1434,7 @@ class DurableAgentWorkflow:
         # histories that already advanced past an approval pause compatible
         # with the now-unconditional emit_session_done command; verify that no
         # such executions remain RUNNING before rollout.
-        workflow.deprecate_patch(APPROVAL_STREAM_V2_PATCH)
+        workflow.deprecate_patch(DurableAgentWorkflowPatch.APPROVAL_STREAM_V2)
         agent_otel_auth_token = mint_agent_otel_token(
             workspace_id=self.workspace_id,
             organization_id=self.organization_id,
@@ -1494,7 +1469,7 @@ class DurableAgentWorkflow:
 
             # Run one executor activity turn with update-driven cancellation.
             try:
-                if not workflow.patched(AGENT_REQUEST_CANCEL_PATCH):
+                if not workflow.patched(DurableAgentWorkflowPatch.AGENT_REQUEST_CANCEL):
                     result = await workflow.execute_activity(
                         run_agent_activity,
                         executor_input,
@@ -1635,7 +1610,7 @@ class DurableAgentWorkflow:
 
                 # Approval waits are unbounded. Tokens are turn-scoped, so resumed
                 # user-MCP tool execution and the continuation need fresh tokens.
-                if workflow.patched(REMINT_SCOPE_TOKENS_PATCH):
+                if workflow.patched(DurableAgentWorkflowPatch.REMINT_SCOPE_TOKENS):
                     compiled_run = self._remint_scope_tokens(
                         compiled_run,
                         internal_tool_context=internal_tool_context,
@@ -1850,7 +1825,9 @@ class DurableAgentWorkflow:
         if result.messages is not None:
             return result.messages
 
-        if not workflow.patched(LOAD_TERMINAL_MESSAGE_HISTORY_PATCH):
+        if not workflow.patched(
+            DurableAgentWorkflowPatch.LOAD_TERMINAL_MESSAGE_HISTORY
+        ):
             return None
 
         try:
