@@ -1,11 +1,13 @@
 from collections.abc import Mapping
 from typing import Any, cast
+from uuid import uuid4
 
 import pytest
 from pydantic import HttpUrl, SecretStr, ValidationError
 
 from tracecat.agent.otel_config import (
     AgentOtelConfig,
+    AgentRunIdentity,
     resolve_agent_otel_config,
     secret_otel_headers,
     validate_otel_header_items,
@@ -70,6 +72,54 @@ def test_agent_otel_config_rejects_non_positive_interval() -> None:
 def test_agent_otel_config_rejects_empty_resource_attribute() -> None:
     with pytest.raises(ValidationError, match="cannot be empty"):
         AgentOtelConfig(resource_attributes={"service.name": "  "})
+
+
+def test_agent_otel_config_rejects_reserved_resource_attribute() -> None:
+    with pytest.raises(ValidationError, match="is reserved"):
+        AgentOtelConfig(resource_attributes={"tracecat.session_id": "spoofed"})
+
+
+def test_run_identity_attributes_reach_the_sandbox() -> None:
+    session_id = uuid4()
+    workspace_id = uuid4()
+    organization_id = uuid4()
+    user_id = uuid4()
+
+    resolved = resolve_agent_otel_config(
+        org_config=AgentOtelConfig(
+            enabled=True,
+            endpoint=HttpUrl("https://collector.example.com"),
+            resource_attributes={"service.name": "tracecat agent"},
+        ),
+        org_headers=None,
+        run_identity=AgentRunIdentity(
+            session_id=session_id,
+            workspace_id=workspace_id,
+            organization_id=organization_id,
+            user_id=user_id,
+        ),
+    )
+
+    attributes = dict(
+        pair.split("=", 1)
+        for pair in resolved.sandbox_env["OTEL_RESOURCE_ATTRIBUTES"].split(",")
+    )
+    assert attributes == {
+        "service.name": "tracecat%20agent",
+        "tracecat.session_id": str(session_id),
+        "tracecat.workspace_id": str(workspace_id),
+        "tracecat.organization_id": str(organization_id),
+        "tracecat.user_id": str(user_id),
+    }
+
+
+def test_run_identity_omits_absent_user() -> None:
+    identity = AgentRunIdentity(session_id=uuid4(), workspace_id=uuid4())
+
+    assert set(identity.to_resource_attributes()) == {
+        "tracecat.session_id",
+        "tracecat.workspace_id",
+    }
 
 
 def test_agent_otel_config_rejects_endpoint_userinfo() -> None:
