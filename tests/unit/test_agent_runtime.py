@@ -28,7 +28,10 @@ from claude_agent_sdk.types import (
 )
 
 import tracecat.agent.runtime.claude_code.runtime as runtime_module
-from tracecat.agent.common.exceptions import AgentSandboxValidationError
+from tracecat.agent.common.exceptions import (
+    AgentSandboxProcessExitError,
+    AgentSandboxValidationError,
+)
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.socket_io import SocketStreamWriter
 from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
@@ -54,8 +57,10 @@ from tracecat.agent.runtime.claude_code.runtime import (
 from tracecat.agent.runtime.claude_code.session_lines import (
     MODEL_CONTEXT_PROMPT_PREFIX,
 )
+from tracecat.agent.runtime.claude_code.transport import SandboxedCLITransport
 from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.agent.types import AgentConfig
+from tracecat.runtime.errors import RuntimeErrorKind
 from tracecat.sandbox.exceptions import SandboxFileSafetyError
 
 
@@ -3610,3 +3615,174 @@ class TestClaudeAgentRuntimeSessionLineFlushing:
             internal=False,
         )
         assert runtime._last_seen_byte_offset == len(child_bytes)
+
+
+@pytest.mark.anyio
+async def test_run_rebuilds_sandbox_process_exit_from_transport_exit_code(
+    mock_socket_writer: MagicMock,
+    mock_claude_sdk_client: MagicMock,
+    sample_init_payload: RuntimeInitPayload,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Invariant: a dead sandbox process is attributed from the transport's exit code.
+
+    The SDK erases ``ProcessError`` into a plain ``Exception`` whose text the
+    runtime must not parse. The transport keeps the exit code, the runtime
+    rebuilds the typed exit error from it, the loopback receives the
+    resource-limit classification, and the typed error is what propagates.
+    Attribution requires a jail, so nsjail is enabled explicitly here.
+    """
+    monkeypatch.setattr(runtime_module, "TRACECAT__DISABLE_NSJAIL", False)
+    mock_claude_sdk_client.query = AsyncMock(
+        side_effect=Exception("Sandbox shim failed with exit code 134")
+    )
+    transport = MagicMock(spec=SandboxedCLITransport)
+    transport.exit_code = 134
+
+    with (
+        patch(
+            "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+            return_value=mock_claude_sdk_client,
+        ),
+        pytest.raises(AgentSandboxProcessExitError) as excinfo,
+    ):
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: transport
+        )
+        await runtime.run(sample_init_payload)
+
+    assert excinfo.value.exit_code == 134
+    assert str(excinfo.value.__cause__) == "Sandbox shim failed with exit code 134"
+
+    # The runtime log describes one exception at a time: the attributed error's
+    # type and message together, with the SDK's erased text kept as the cause.
+    log_args = mock_socket_writer.send_log.await_args
+    assert log_args is not None
+    assert log_args.kwargs["error_type"] == "AgentSandboxProcessExitError"
+    assert log_args.kwargs["error_message"] == str(excinfo.value)
+    assert log_args.kwargs["cause_type"] == "Exception"
+    assert log_args.kwargs["cause_message"] == "Sandbox shim failed with exit code 134"
+
+    mock_socket_writer.send_error.assert_awaited_once()
+    await_args = mock_socket_writer.send_error.await_args
+    assert await_args is not None
+    classification = await_args.kwargs["classification"]
+    assert classification.kind is RuntimeErrorKind.SANDBOX_RESOURCE_LIMIT_EXCEEDED
+    assert await_args.args[0] == classification.message
+    mock_socket_writer.send_done.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_run_does_not_attribute_process_exit_when_nsjail_is_disabled(
+    mock_socket_writer: MagicMock,
+    mock_claude_sdk_client: MagicMock,
+    sample_init_payload: RuntimeInitPayload,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Invariant: without a jail an exit code carries no resource-limit meaning.
+
+    TRACECAT__DISABLE_NSJAIL installs no rlimits, so a direct process that
+    aborts or is OOM-killed by the host must stay platform-owned rather than
+    blaming the caller for a cap this deployment never enforced.
+    """
+    monkeypatch.setattr(runtime_module, "TRACECAT__DISABLE_NSJAIL", True)
+    mock_claude_sdk_client.query = AsyncMock(side_effect=ValueError("Test error"))
+    transport = MagicMock(spec=SandboxedCLITransport)
+    transport.exit_code = 137
+
+    with (
+        patch(
+            "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+            return_value=mock_claude_sdk_client,
+        ),
+        pytest.raises(ValueError, match="Test error"),
+    ):
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: transport
+        )
+        await runtime.run(sample_init_payload)
+
+    await_args = mock_socket_writer.send_error.await_args
+    assert await_args is not None
+    classification = await_args.kwargs["classification"]
+    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+
+
+@pytest.mark.anyio
+async def test_run_keeps_original_error_for_non_resource_limit_exit_code(
+    mock_socket_writer: MagicMock,
+    mock_claude_sdk_client: MagicMock,
+    sample_init_payload: RuntimeInitPayload,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Invariant: only a resource-limit exit code may replace the raised error.
+
+    Rebuilding the typed exit error for any other code would change nothing
+    about the classification while destroying the original exception's type,
+    so a failure that carries its own attribution would reach the activity as
+    a process exit and lose it.
+    """
+    monkeypatch.setattr(runtime_module, "TRACECAT__DISABLE_NSJAIL", False)
+    mock_claude_sdk_client.query = AsyncMock(
+        side_effect=AgentSandboxValidationError("Bad agent config")
+    )
+    transport = MagicMock(spec=SandboxedCLITransport)
+    transport.exit_code = 1
+
+    with (
+        patch(
+            "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+            return_value=mock_claude_sdk_client,
+        ),
+        pytest.raises(AgentSandboxValidationError, match="Bad agent config"),
+    ):
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: transport
+        )
+        await runtime.run(sample_init_payload)
+
+    await_args = mock_socket_writer.send_error.await_args
+    assert await_args is not None
+    classification = await_args.kwargs["classification"]
+    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+
+
+@pytest.mark.anyio
+async def test_run_keeps_original_error_when_sandbox_process_did_not_exit(
+    mock_socket_writer: MagicMock,
+    mock_claude_sdk_client: MagicMock,
+    sample_init_payload: RuntimeInitPayload,
+) -> None:
+    """Invariant: without a recorded process exit the runtime error is untouched.
+
+    The failure stays platform-owned executor unavailability and the original
+    exception type and text reach the caller.
+    """
+    mock_claude_sdk_client.query = AsyncMock(side_effect=ValueError("Test error"))
+    transport = MagicMock(spec=SandboxedCLITransport)
+    transport.exit_code = None
+
+    with (
+        patch(
+            "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+            return_value=mock_claude_sdk_client,
+        ),
+        pytest.raises(ValueError, match="Test error"),
+    ):
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: transport
+        )
+        await runtime.run(sample_init_payload)
+
+    await_args = mock_socket_writer.send_error.await_args
+    assert await_args is not None
+    assert await_args.args[0] == "Test error"
+    classification = await_args.kwargs["classification"]
+    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+
+    # Nothing was re-attributed, so the log carries no cause fields.
+    log_args = mock_socket_writer.send_log.await_args
+    assert log_args is not None
+    assert log_args.kwargs["error_type"] == "ValueError"
+    assert log_args.kwargs["error_message"] == "Test error"
+    assert "cause_type" not in log_args.kwargs

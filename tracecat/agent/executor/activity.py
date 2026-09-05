@@ -49,7 +49,7 @@ from tracecat.agent.common.types import (
 from tracecat.agent.error_policy import (
     agent_executor_protocol_failed,
     agent_executor_timed_out,
-    agent_executor_unavailable,
+    agent_runtime_failure,
     invalid_agent_configuration,
 )
 from tracecat.agent.executor.loopback import (
@@ -692,12 +692,16 @@ class SandboxedAgentExecutor:
             result.classification = invalid_agent_configuration(e)
         except AgentSandboxExecutionError as e:
             logger.error("Agent sandbox execution failed", error=str(e))
-            result.error = str(e)
-            result.classification = agent_executor_unavailable(e)
+            failure = agent_runtime_failure(e, fallback_message=str(e))
+            result.error = failure.message
+            result.classification = failure.classification
         except Exception as e:
             logger.exception("Unexpected error in agent executor", error=str(e))
-            result.error = f"Unexpected error: {e}"
-            result.classification = agent_executor_unavailable(e)
+            failure = agent_runtime_failure(
+                e, fallback_message=f"Unexpected error: {e}"
+            )
+            result.error = failure.message
+            result.classification = failure.classification
         finally:
             await self._cleanup()
 
@@ -937,8 +941,11 @@ class SandboxedAgentExecutor:
                     )
                     broker_task = None
         except Exception as e:
-            result.error = str(e)
-            result.classification = agent_executor_unavailable(e)
+            # A jailed runtime that died from an rlimit is the caller's failure
+            # and must win over the generic executor-unavailable attribution.
+            failure = agent_runtime_failure(e, fallback_message=str(e))
+            result.error = failure.message
+            result.classification = failure.classification
             result.terminal_stream_error_emitted = await handler.emit_terminal_error(
                 result.error
             )

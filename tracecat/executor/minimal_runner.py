@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import errno
 import importlib
 import os
 import resource
@@ -37,8 +38,12 @@ try:
         if hasattr(obj, "model_dump"):
             try:
                 return obj.model_dump(mode="json")
-            except Exception:
-                pass
+            except Exception as exc:
+                if is_memory_exhaustion(exc):
+                    # The address-space cap, not an unserializable type. Let it
+                    # out so serialize_result can degrade to the resource-limit
+                    # envelope instead of reporting a TypeError.
+                    raise
         raise TypeError(f"Type is not JSON serializable: {type(obj).__name__}")
 
     def json_dumps(obj: dict) -> bytes:
@@ -513,21 +518,22 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
         return {"success": True, "result": result}
 
     except Exception as e:
+        if is_memory_exhaustion(e):
+            # Skip the traceback walk, which needs memory the process may not
+            # have, and report a structured code so the host classifies the
+            # failure without inspecting error text. Release the frames first:
+            # the action's own locals are what exhausted the cap.
+            release_exception_chain(e)
+            return _resource_limit_envelope(
+                "Action ran out of memory",
+                action_name=_action_display_name(action_impl),
+            )
+
         import traceback
 
         # Extract traceback info for ExecutorActionErrorInfo compatibility
         tb = traceback.extract_tb(e.__traceback__)
         last_frame = tb[-1] if tb else None
-
-        # Build action name from impl if available
-        action_name = "<unknown>"
-        if action_impl:
-            module = action_impl.get("module", "")
-            name = action_impl.get("name", "")
-            if module and name:
-                action_name = f"{module}.{name}"
-            elif name:
-                action_name = name
 
         return {
             "success": False,
@@ -535,12 +541,138 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
             "error": {
                 "type": type(e).__name__,
                 "message": str(e),
-                "action_name": action_name,
+                "action_name": _action_display_name(action_impl),
                 "filename": last_frame.filename if last_frame else "<unknown>",
                 "function": last_frame.name if last_frame else "<unknown>",
                 "lineno": last_frame.lineno if last_frame else None,
             },
         }
+
+
+def is_memory_exhaustion(error: BaseException) -> bool:
+    """Report whether an exception means the address-space cap was reached.
+
+    Python's own allocator raises ``MemoryError``, but a syscall that fails
+    under ``rlimit_as`` -- ``mmap`` most commonly -- surfaces as ``OSError``
+    with ``errno.ENOMEM`` instead. Both mean the same cap, and both are matched
+    on a machine-readable attribute rather than on message text.
+    """
+    if isinstance(error, MemoryError):
+        return True
+    return isinstance(error, OSError) and error.errno == errno.ENOMEM
+
+
+def caused_by_memory_exhaustion(error: BaseException) -> bool:
+    """Report whether memory exhaustion produced ``error``, directly or as a cause.
+
+    orjson reports an exception raised inside its ``default`` hook as its own
+    ``JSONEncodeError`` carrying the original on ``__cause__``, so a model whose
+    ``model_dump()`` hits the cap arrives here one level down rather than as
+    itself.
+    """
+    seen: set[int] = set()
+    current: BaseException | None = error
+    while current is not None and id(current) not in seen:
+        if is_memory_exhaustion(current):
+            return True
+        seen.add(id(current))
+        current = current.__cause__ or current.__context__
+    return False
+
+
+def release_exception_chain(error: BaseException) -> None:
+    """Drop the tracebacks, and the chain itself, of ``error`` and its causes.
+
+    A traceback keeps its frames alive, and a frame's locals can be the very
+    object that exhausted memory. Clearing only the outermost one is not
+    enough: orjson reports a failure inside its ``default`` hook as its own
+    error, so the frame still holding the oversized object hangs off
+    ``__cause__`` rather than off the exception that was caught.
+    """
+    seen: set[int] = set()
+    pending: list[BaseException] = [error]
+    while pending:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        current.__traceback__ = None
+        # Both links, not the first one that happens to be set: an exception
+        # can carry a distinct cause and context, and either frame can be the
+        # one holding what exhausted the cap.
+        for following in (current.__cause__, current.__context__):
+            if following is not None:
+                pending.append(following)
+        current.__cause__ = None
+        current.__context__ = None
+
+
+def serialize_result(result: dict[str, Any], input_data: dict[str, Any]) -> bytes:
+    """Serialize the runner result, degrading to a fixed envelope on MemoryError.
+
+    An action whose return value fits under the address-space cap can still
+    exhaust it while being serialized, and that ``MemoryError`` is raised after
+    ``main_minimal`` has already returned. Without this the process would die
+    before writing ``result.json`` and the failure would degrade to a generic
+    workload error, losing the resource-limit code.
+    """
+    try:
+        return json_dumps(result)
+    except Exception as exc:
+        if not caused_by_memory_exhaustion(exc):
+            raise
+        # Drop the oversized result, and every frame still pinning it through
+        # the serializer's locals, before allocating anything else.
+        release_exception_chain(exc)
+        result.clear()
+        return json_dumps(
+            _resource_limit_envelope(
+                "Action ran out of memory while serializing its result",
+                action_name=_action_display_name(
+                    input_data.get("resolved_context", {}).get("action_impl")
+                ),
+            )
+        )
+
+
+def _resource_limit_envelope(message: str, *, action_name: str) -> dict[str, Any]:
+    """Build the structured envelope reported when the memory cap is hit.
+
+    Allocates only small, fixed-size values so it stays usable in a process
+    that has already exhausted its address space.
+
+    The message stays neutral about where the memory ran out. This runner also
+    executes unjailed, under the default direct backend, where no address-space
+    rlimit exists; the host names the cap only on the sandboxed path, from
+    ``sandbox_resource_limit_message()``, and the direct path drops
+    ``error_code`` and surfaces this message as an ordinary action failure.
+    """
+    return {
+        "success": False,
+        "result": None,
+        "error": {
+            "type": "MemoryError",
+            "message": message,
+            "action_name": action_name,
+            "filename": "<sandbox>",
+            "function": "run_action_minimal",
+            "lineno": None,
+        },
+        "error_code": "resource_limit_exceeded",
+    }
+
+
+def _action_display_name(action_impl: dict[str, Any] | None) -> str:
+    """Build the action name reported in a structured runner error."""
+    if not action_impl:
+        return "<unknown>"
+    module = action_impl.get("module", "")
+    name = action_impl.get("name", "")
+    if module and name:
+        return f"{module}.{name}"
+    if name:
+        return name
+    return "<unknown>"
 
 
 def _enforce_nproc_limit() -> None:
@@ -590,19 +722,40 @@ if __name__ == "__main__":
     input_path = Path("/work/input.json")
     output_path = Path("/work/result.json")
 
-    if input_path.exists():
-        input_data = json_loads(input_path.read_bytes())
-        use_file_io = True
-    else:
-        input_bytes = sys.stdin.buffer.read()
-        input_data = json_loads(input_bytes)
-        use_file_io = False
+    # A large enough payload can exhaust the cap while it is being read or
+    # decoded, before main_minimal's handlers exist. Dying here would leave no
+    # result.json and report a generic workload failure for what really was
+    # the memory limit.
+    try:
+        if input_path.exists():
+            input_data = json_loads(input_path.read_bytes())
+            use_file_io = True
+        else:
+            input_bytes = sys.stdin.buffer.read()
+            input_data = json_loads(input_bytes)
+            use_file_io = False
+    except Exception as exc:
+        if not caused_by_memory_exhaustion(exc):
+            raise
+        release_exception_chain(exc)
+        envelope = json_dumps(
+            _resource_limit_envelope(
+                "Action inputs ran out of memory while being decoded",
+                action_name="<unknown>",
+            )
+        )
+        if input_path.exists():
+            output_path.write_bytes(envelope)
+        else:
+            sys.stdout.buffer.write(envelope)
+            sys.stdout.buffer.flush()
+        raise SystemExit(1) from None
 
     # Run the action
     result = main_minimal(input_data)
 
     # Output result
-    result_bytes = json_dumps(result)
+    result_bytes = serialize_result(result, input_data)
 
     if use_file_io:
         output_path.write_bytes(result_bytes)

@@ -251,3 +251,30 @@ def test_decode_result_envelope_can_preserve_process_streams(tmp_path: Path) -> 
     assert outcome is not None
     assert outcome.result.stdout == "process stdout"
     assert outcome.result.stderr == "process stderr"
+
+
+def test_decode_result_envelope_passes_resource_limit_code_through(
+    tmp_path: Path,
+) -> None:
+    """Invariant: the in-jail ``MemoryError`` code is not clamped at the boundary.
+
+    Only unknown codes and INFRASTRUCTURE_FAILURE degrade to WORKLOAD_FAILURE;
+    ``resource_limit_exceeded`` must reach the host so the error policy can
+    classify it without parsing error text.
+    """
+    (tmp_path / "result.json").write_bytes(
+        orjson.dumps(
+            {
+                "success": False,
+                "output": None,
+                "error": "MemoryError: script exceeded the sandbox memory limit",
+                "error_code": "resource_limit_exceeded",
+            }
+        )
+    )
+
+    outcome = _decode(tmp_path)
+
+    assert outcome is not None
+    assert outcome.valid_envelope is True
+    assert outcome.result.error_code is SandboxErrorCode.RESOURCE_LIMIT_EXCEEDED

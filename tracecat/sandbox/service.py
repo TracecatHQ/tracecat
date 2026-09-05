@@ -31,6 +31,7 @@ from tracecat.sandbox.exceptions import (
     SandboxFileSafetyError,
     SandboxInfrastructureError,
     raise_for_sandbox_error_code,
+    sandbox_resource_limit_message,
 )
 from tracecat.sandbox.executor import RUN_PYTHON_ACTION_GATEWAY_SOCKET, NsjailExecutor
 from tracecat.sandbox.file_io import copy_tree_without_following_symlinks
@@ -637,12 +638,19 @@ class SandboxService:
                     stderr=result.stderr[:500] if result.stderr else None,
                 )
                 # Envelope errors may carry a structured dict; the typed
-                # exceptions take plain strings only.
-                message = (
-                    error_msg
-                    if isinstance(error_msg, str)
-                    else "Sandbox execution failed"
-                )
+                # exceptions take plain strings only. A resource-limit death
+                # gets a host-authored message naming the configured cap.
+                if result.error_code is SandboxErrorCode.RESOURCE_LIMIT_EXCEEDED:
+                    message = sandbox_resource_limit_message(
+                        memory_mb=TRACECAT__SANDBOX_DEFAULT_MEMORY_MB,
+                        memory_env_var="TRACECAT__SANDBOX_DEFAULT_MEMORY_MB",
+                    )
+                else:
+                    message = (
+                        error_msg
+                        if isinstance(error_msg, str)
+                        else "Sandbox execution failed"
+                    )
                 raise_for_sandbox_error_code(result.error_code, message)
                 raise SandboxExecutionError(message)
 

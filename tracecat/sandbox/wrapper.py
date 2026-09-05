@@ -15,6 +15,7 @@ import dataclasses
 import datetime
 import decimal
 import enum
+import errno
 import importlib
 import inspect
 import json
@@ -174,16 +175,76 @@ def _enforce_nproc_limit() -> None:
         ) from exc
 
 
+def _is_memory_exhaustion(error):
+    """Report whether an exception means the address-space cap was reached.
+
+    Python's own allocator raises MemoryError, but a syscall that fails under
+    rlimit_as -- mmap most commonly -- surfaces as OSError with errno.ENOMEM
+    instead. Both mean the same cap, matched on a machine-readable attribute
+    rather than on message text.
+    """
+    if isinstance(error, MemoryError):
+        return True
+    return isinstance(error, OSError) and error.errno == errno.ENOMEM
+
+
+def _release_exception_chain(error):
+    """Drop the tracebacks, and the chain itself, of an exception and its causes.
+
+    A traceback keeps its frames alive, and a frame's locals can be the very
+    object that exhausted memory, so the fallback envelope would allocate
+    against a cap that is still fully consumed.
+    """
+    seen = set()
+    pending = [error]
+    while pending:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        current.__traceback__ = None
+        # Both links, not the first one that happens to be set: an exception
+        # can carry a distinct cause and context, and either frame can be the
+        # one holding what exhausted the cap.
+        for following in (current.__cause__, current.__context__):
+            if following is not None:
+                pending.append(following)
+        current.__cause__ = None
+        current.__context__ = None
+
+
 def main():
     """Execute user script and capture results."""
     _enforce_nproc_limit()
 
-    # Read inputs from file
+    # Read inputs from file. A large enough inputs.json can exhaust the cap
+    # here, before any handler below exists, so guard it too: dying at this
+    # point would leave no result.json and report a generic workload failure
+    # for what really was the memory limit.
     inputs_path = Path("/work/inputs.json")
-    if inputs_path.exists():
-        inputs = json.loads(inputs_path.read_text())
-    else:
-        inputs = {}
+    try:
+        if inputs_path.exists():
+            inputs = json.loads(inputs_path.read_text())
+        else:
+            inputs = {}
+    except (MemoryError, OSError) as exc:
+        if not _is_memory_exhaustion(exc):
+            raise
+        _release_exception_chain(exc)
+        Path("/work/result.json").write_text(
+            json.dumps(
+                {
+                    "success": False,
+                    "output": None,
+                    "error": "Script inputs exceeded the sandbox memory limit",
+                    "traceback": None,
+                    "stdout": "",
+                    "stderr": "",
+                    "error_code": "resource_limit_exceeded",
+                }
+            )
+        )
+        sys.exit(1)
 
     result = {
         "success": False,
@@ -236,13 +297,46 @@ def main():
         result["output"] = output
 
     except Exception as e:
-        result["error"] = f"{type(e).__name__}: {e}"
-        result["traceback"] = traceback.format_exc()
+        if _is_memory_exhaustion(e):
+            # Skip the traceback: formatting it needs memory the process may
+            # not have, and its frames still hold what exhausted the cap.
+            # Report a structured code so the host classifies the failure
+            # without inspecting error text.
+            _release_exception_chain(e)
+            result["error"] = "Script exceeded the sandbox memory limit"
+            result["error_code"] = "resource_limit_exceeded"
+        else:
+            result["error"] = f"{type(e).__name__}: {e}"
+            result["traceback"] = traceback.format_exc()
 
     finally:
-        # Capture stdout/stderr
-        result["stdout"] = sys.stdout.getvalue()
-        result["stderr"] = sys.stderr.getvalue()
+        # Capture stdout/stderr. Joining a large capture buffer allocates a
+        # second copy of it, so a script that exhausted the cap by printing
+        # can raise here, outside every handler above, and die before
+        # result.json exists. Degrade to the same fixed envelope instead.
+        try:
+            result["stdout"] = sys.stdout.getvalue()
+            result["stderr"] = sys.stderr.getvalue()
+        except (MemoryError, OSError) as exc:
+            if not _is_memory_exhaustion(exc):
+                raise
+            _release_exception_chain(exc)
+            # Restore the real streams first. That drops the capture buffers,
+            # which are the very thing that exhausted the cap, so the envelope
+            # below is allocated against memory that has actually been freed.
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
+            output = None
+            call = None
+            result.clear()
+            result["success"] = False
+            result["output"] = None
+            result["error"] = "Script exceeded the sandbox memory limit"
+            result["traceback"] = None
+            result["stdout"] = ""
+            result["stderr"] = ""
+            result["error_code"] = "resource_limit_exceeded"
+        # Dropping the capture buffers releases whatever the script printed.
         sys.stdout = old_stdout
         sys.stderr = old_stderr
 
@@ -255,6 +349,37 @@ def main():
         result["success"] = False
         result["output"] = repr(result["output"])
         result_path.write_text(json.dumps(result))
+    except (MemoryError, OSError) as exc:
+        if not _is_memory_exhaustion(exc):
+            # A write failure such as ENOSPC or EACCES is not the memory cap.
+            raise
+        # An output that fits under the address-space cap can still exhaust it
+        # while being serialized. Release every reference to the oversized
+        # value before allocating anything else, then write a small fixed
+        # envelope, so the failure still reports the resource-limit code
+        # instead of dying before result.json exists. The tracebacks count:
+        # they pin to_json_safe's frame locals, which hold the value itself.
+        _release_exception_chain(exc)
+        output = None
+        call = None
+        result.clear()
+        result_path.write_text(
+            json.dumps(
+                {
+                    "success": False,
+                    "output": None,
+                    "error": (
+                        "MemoryError: script output exceeded the sandbox "
+                        "memory limit while being serialized"
+                    ),
+                    "traceback": None,
+                    "stdout": "",
+                    "stderr": "",
+                    "error_code": "resource_limit_exceeded",
+                }
+            )
+        )
+        result["success"] = False
 
     # Exit with appropriate code
     sys.exit(0 if result["success"] else 1)

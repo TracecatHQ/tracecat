@@ -6,7 +6,7 @@ import asyncio
 import os
 import socket
 from collections.abc import AsyncIterator, Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass, replace
 from pathlib import Path
 from time import perf_counter
@@ -41,6 +41,10 @@ from tracecat.agent.sandbox.nsjail import (
 from tracecat.logger import logger
 
 _TRUSTED_MCP_BRIDGE_PATH = "/mcp"
+
+# How long a broken write waits for the shim to be reaped before giving up on
+# recording its exit code. Short enough not to stall the error path.
+_EXIT_REAP_TIMEOUT_SECONDS = 0.5
 
 
 class ClaudeShimInitPayload(TypedDict):
@@ -122,6 +126,7 @@ class SandboxedCLITransport(Transport):
         self._stderr_buffer: list[str] = []
         self._connect_started_at: float | None = None
         self._logged_first_message = False
+        self._exit_code: int | None = None
 
     def _log_benchmark_phase(self, phase: str, **extra: object) -> None:
         """Emit a temporary structured benchmark log for transport phases."""
@@ -205,18 +210,47 @@ class SandboxedCLITransport(Transport):
         if self._process.stderr is not None:
             self._stderr_task = asyncio.create_task(self._drain_stderr())
 
+    def _record_process_exit(self, returncode: int) -> None:
+        """Record a shim exit observed while the transport was still live.
+
+        The SDK erases ``ProcessError`` into a plain ``Exception`` before the
+        runtime sees it, so keep the exit code observable on the transport
+        itself. Called from every point that observes the shim dying on its
+        own, and deliberately never from ``close()``, where the host may have
+        killed the process itself.
+        """
+        self._exit_code = returncode
+
     async def write(self, data: str) -> None:
         """Write raw stream-json data to the sandbox shim stdin."""
         async with self._write_lock:
             if not self._ready or self._process is None or self._process.stdin is None:
                 raise CLIConnectionError("Sandbox transport is not ready for writing")
-            if self._process.returncode is not None:
-                raise CLIConnectionError(
-                    f"Sandbox shim exited with code {self._process.returncode}"
-                )
+            returncode = self._process.returncode
+            if returncode is not None:
+                # The shim died on its own before this write. Record it here
+                # too: the SDK cancels its reader task on a write failure, so
+                # ``read_messages`` may never reach its own recording point.
+                self._record_process_exit(returncode)
+                raise CLIConnectionError(f"Sandbox shim exited with code {returncode}")
 
             self._process.stdin.write(data.encode("utf-8"))
-            await self._process.stdin.drain()
+            try:
+                await self._process.stdin.drain()
+            except (BrokenPipeError, ConnectionResetError):
+                # A dead shim breaks the pipe, but the child may not be reaped
+                # yet at the moment the write fails. Give it a bounded moment
+                # rather than losing the exit code to that race -- and bounded
+                # rather than open-ended, because a child that merely closed
+                # stdin while still running must not block the error path.
+                with suppress(TimeoutError):
+                    await asyncio.wait_for(
+                        self._process.wait(), timeout=_EXIT_REAP_TIMEOUT_SECONDS
+                    )
+                returncode = self._process.returncode
+                if returncode is not None:
+                    self._record_process_exit(returncode)
+                raise
 
     def read_messages(self) -> AsyncIterator[dict[str, Any]]:
         """Read JSON messages emitted by sandboxed Claude Code."""
@@ -267,6 +301,7 @@ class SandboxedCLITransport(Transport):
             await self._process.wait()
 
         returncode = self._process.returncode or 0
+        self._record_process_exit(returncode)
         if returncode != 0:
             stderr_output = await self._collect_error_stderr()
             raise ProcessError(
@@ -301,6 +336,12 @@ class SandboxedCLITransport(Transport):
                     self._process.kill()
                     await self._process.wait()
 
+        # Deliberately not recording the exit code here. By this point the host
+        # may have terminated or killed the process itself, and treating that
+        # as a runtime death would re-attribute an unrelated error. Only
+        # ``read_messages`` records a code, where a non-zero exit is the jailed
+        # process dying on its own; that value is never cleared, so it still
+        # survives this teardown.
         self._process = None
         if self._spawned_runtime is not None:
             cleanup_spawned_runtime(self._spawned_runtime)
@@ -309,6 +350,15 @@ class SandboxedCLITransport(Transport):
     def is_ready(self) -> bool:
         """Return whether the shim is ready for Claude SDK traffic."""
         return self._ready
+
+    @property
+    def exit_code(self) -> int | None:
+        """Exit code of the sandbox shim once it has exited, else ``None``.
+
+        The value survives ``close()`` so the runtime can attribute a process
+        death after the SDK has already torn the transport down.
+        """
+        return self._exit_code
 
     async def end_input(self) -> None:
         """Close the shim stdin to signal end-of-input."""

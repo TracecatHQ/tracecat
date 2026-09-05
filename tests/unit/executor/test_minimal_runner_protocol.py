@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import errno
 import io
 import sys
 import types
@@ -685,3 +686,161 @@ def test_json_dumps_rejects_broken_model_dump():
     result = {"success": True, "result": _FakeModel()}
     with pytest.raises(TypeError, match="Type is not JSON serializable"):
         minimal_runner.json_dumps(result)
+
+
+def test_main_minimal_reports_memory_error_as_resource_limit(
+    monkeypatch,
+) -> None:
+    """Invariant: an action's MemoryError carries the resource-limit envelope code.
+
+    The action path raises the typed sandbox exception from this code before
+    it ever parses the structured error, so the code is what the host reads.
+    """
+    test_module: Any = types.ModuleType("test_module")
+
+    def hungry_action() -> None:
+        raise MemoryError()
+
+    test_module.hungry_action = hungry_action
+
+    monkeypatch.setattr(
+        minimal_runner.importlib,
+        "import_module",
+        lambda _p, *args, **kwargs: test_module,
+    )
+
+    result = minimal_runner.main_minimal(
+        {
+            "resolved_context": {
+                "action_impl": {
+                    "type": "udf",
+                    "module": "test_module",
+                    "name": "hungry_action",
+                },
+                "evaluated_args": {},
+            },
+            "secret_env": {},
+        }
+    )
+
+    assert result["success"] is False
+    assert result["error_code"] == "resource_limit_exceeded"
+    assert result["error"]["type"] == "MemoryError"
+    assert result["error"]["action_name"] == "test_module.hungry_action"
+
+
+def test_main_minimal_reports_enomem_oserror_as_resource_limit(
+    monkeypatch,
+) -> None:
+    """Invariant: an ENOMEM syscall failure is the same cap as MemoryError.
+
+    Exhausting ``rlimit_as`` through ``mmap`` and friends raises ``OSError``
+    with ``errno.ENOMEM``, not ``MemoryError``. Matching on the errno rather
+    than on message text keeps that failure inside the resource-limit
+    guarantee instead of degrading it to a generic action failure.
+    """
+    test_module: Any = types.ModuleType("test_module")
+
+    def mapping_action() -> None:
+        raise OSError(errno.ENOMEM, "Cannot allocate memory")
+
+    test_module.mapping_action = mapping_action
+
+    monkeypatch.setattr(
+        minimal_runner.importlib,
+        "import_module",
+        lambda _p, *args, **kwargs: test_module,
+    )
+
+    result = minimal_runner.main_minimal(
+        {
+            "resolved_context": {
+                "action_impl": {
+                    "type": "udf",
+                    "module": "test_module",
+                    "name": "mapping_action",
+                },
+                "evaluated_args": {},
+            },
+            "secret_env": {},
+        }
+    )
+
+    assert result["success"] is False
+    assert result["error_code"] == "resource_limit_exceeded"
+    assert result["error"]["action_name"] == "test_module.mapping_action"
+
+
+def test_is_memory_exhaustion_ignores_other_oserrors() -> None:
+    """Invariant: only ENOMEM counts, so unrelated OSErrors keep their own kind."""
+    assert minimal_runner.is_memory_exhaustion(MemoryError())
+    assert minimal_runner.is_memory_exhaustion(OSError(errno.ENOMEM, "no memory"))
+    assert not minimal_runner.is_memory_exhaustion(OSError(errno.EAGAIN, "would block"))
+    assert not minimal_runner.is_memory_exhaustion(OSError(errno.ENOENT, "missing"))
+    assert not minimal_runner.is_memory_exhaustion(ValueError("nope"))
+
+
+def test_serialize_result_reports_limit_when_model_dump_exhausts_memory() -> None:
+    """Invariant: the orjson default hook must not swallow memory exhaustion.
+
+    ``_orjson_default`` treats a failing ``model_dump()`` as an unserializable
+    type and raises ``TypeError``. A ``MemoryError`` raised in there is the
+    address-space cap, not a type problem, so swallowing it would strip the
+    resource-limit code off a failure that really did hit the cap.
+    """
+
+    class _HungryModel:
+        def model_dump(self, mode: str = "json") -> dict[str, Any]:
+            raise MemoryError()
+
+    encoded = minimal_runner.serialize_result(
+        {"success": True, "result": _HungryModel()},
+        {"resolved_context": {"action_impl": {"module": "m", "name": "n"}}},
+    )
+    decoded = orjson.loads(encoded)
+
+    assert decoded["success"] is False
+    assert decoded["error_code"] == "resource_limit_exceeded"
+
+
+def test_serialize_result_degrades_to_resource_limit_envelope_on_memory_error(
+    monkeypatch,
+) -> None:
+    """Invariant: a MemoryError while serializing still reports the limit code.
+
+    The allocation that dies can be the serialization itself, long after the
+    action returned. Without this fallback the process exits before writing
+    result.json and the host sees only a generic workload failure.
+    """
+    calls: list[dict[str, Any]] = []
+    real_json_dumps = minimal_runner.json_dumps
+
+    def flaky_json_dumps(obj: dict[str, Any]) -> bytes:
+        calls.append(obj)
+        if len(calls) == 1:
+            raise MemoryError()
+        return real_json_dumps(obj)
+
+    monkeypatch.setattr(minimal_runner, "json_dumps", flaky_json_dumps)
+
+    payload = minimal_runner.serialize_result(
+        {"success": True, "result": "an oversized value"},
+        {
+            "resolved_context": {
+                "action_impl": {"module": "test_module", "name": "hungry_action"}
+            }
+        },
+    )
+
+    decoded = orjson.loads(payload)
+    assert decoded["success"] is False
+    assert decoded["error_code"] == "resource_limit_exceeded"
+    assert decoded["error"]["type"] == "MemoryError"
+    assert decoded["error"]["action_name"] == "test_module.hungry_action"
+
+
+def test_serialize_result_passes_through_when_serialization_succeeds() -> None:
+    """Invariant: the fallback never fires on the ordinary path."""
+    payload = minimal_runner.serialize_result({"success": True, "result": 1}, {})
+
+    assert orjson.loads(payload) == {"success": True, "result": 1}

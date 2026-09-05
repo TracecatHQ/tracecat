@@ -16,12 +16,17 @@ from __future__ import annotations
 
 import asyncio
 from enum import IntEnum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import orjson
 
 from tracecat.agent.common.protocol import RuntimeEventEnvelope
 from tracecat.agent.common.stream_types import UnifiedStreamEvent
+
+if TYPE_CHECKING:
+    # Type-only: this module is imported inside the sandbox and must keep its
+    # runtime import surface minimal (no pydantic_core).
+    from tracecat.runtime.errors import RuntimeErrorClassification
 
 # Header size: 1 byte msg_type + 4 bytes length
 HEADER_SIZE = 5
@@ -181,8 +186,21 @@ class SocketStreamWriter:
             )
         )
 
-    async def send_error(self, error: str) -> None:
-        """Send error event to the orchestrator."""
+    async def send_error(
+        self,
+        error: str,
+        *,
+        classification: RuntimeErrorClassification | None = None,
+    ) -> None:
+        """Send error event to the orchestrator.
+
+        ``classification`` is accepted for signature compatibility with the
+        in-process writer and then dropped. This writer sits on the sandbox
+        side of an untrusted boundary, so the envelope protocol deliberately
+        carries no ownership metadata; the orchestrator classifies a socket
+        error itself rather than believing what the runtime claims.
+        """
+        del classification
         await self._send(RuntimeEventEnvelope.from_error(error))
 
     async def send_done(self) -> None:
