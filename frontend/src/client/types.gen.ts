@@ -3748,6 +3748,16 @@ export type DSLRunArgs = {
    * Registry version lock for action execution. Contains origins (origin -> version) and actions (action_name -> origin) mappings.
    */
   registry_lock?: RegistryLock | null
+  /**
+   * Pinned action results for draft executions. Keys are action refs and values are TaskResult objects to reuse.
+   */
+  pinned_action_results?: {
+    [key: string]: TaskResult
+  }
+  /**
+   * Source workflow execution ID used to resolve pinned action results for this run. Used for compact event synthesis in read APIs.
+   */
+  pinned_source_execution_id?: string | null
 }
 
 /**
@@ -9164,6 +9174,14 @@ export type WorkflowDirectoryItem = {
   type: "workflow"
 }
 
+/**
+ * Draft-run pin configuration stored on Workflow.
+ */
+export type WorkflowDraftPins = {
+  source_execution_id: string
+  action_refs?: Array<string>
+}
+
 export type WorkflowDslPublish = {
   message?: string | null
   branch?: string | null
@@ -9368,6 +9386,18 @@ export type WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__Any_ = {
   while_continue?: boolean | null
   child_wf_wait_strategy?: WaitStrategy | null
   session?: Session_Any_ | null
+  /**
+   * Synthetic compact event marker. Set for stitched non-Temporal rows.
+   */
+  synthetic_kind?: "pinned" | null
+  /**
+   * Source execution ID when synthetic_kind is pinned.
+   */
+  pinned_source_execution_id?: string | null
+  /**
+   * Source compact event ID when synthetic_kind is pinned.
+   */
+  pinned_source_event_id?: number | null
 }
 
 export type WorkflowExecutionEventStatus =
@@ -9711,6 +9741,7 @@ export type WorkflowRead = {
   trigger_position_x?: number
   trigger_position_y?: number
   graph_version?: number
+  draft_pins?: WorkflowDraftPins | null
 }
 
 /**
@@ -9864,6 +9895,7 @@ export type WorkflowUpdate = {
   config?: DSLConfig_Input | null
   alias?: string | null
   error_handler?: string | null
+  draft_pins?: WorkflowDraftPins | null
 }
 
 export type WorkspaceCreate = {

@@ -743,7 +743,9 @@ async def test_get_workflow_execution_compact_accepts_slash_id(
     assert payload["id"] == wf_exec_id
     assert payload["status"] == "RUNNING"
     mock_svc.get_execution.assert_awaited_once_with(wf_exec_id)
-    mock_svc.list_workflow_execution_events_compact.assert_awaited_once_with(wf_exec_id)
+    mock_svc.list_workflow_execution_events_compact.assert_awaited_once_with(
+        wf_exec_id, include_pinned_synthetic=True
+    )
 
 
 @pytest.mark.anyio

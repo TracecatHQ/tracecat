@@ -611,8 +611,12 @@ export function WorkflowManualTrigger({
   /** Invoked after a run is successfully started (e.g. to reveal events). */
   onAfterTrigger?: () => void
 }) {
-  const { expandSidebarAndFocusEvents, setCurrentExecutionId, triggerPayload } =
-    useWorkflowBuilder()
+  const {
+    expandSidebarAndFocusEvents,
+    setCurrentExecutionId,
+    sidebarRef,
+    triggerPayload,
+  } = useWorkflowBuilder()
   // Always use draft execution endpoint - runs the current draft workflow graph
   const { createDraftExecution, createDraftExecutionIsPending } =
     useCreateDraftWorkflowExecution(workflowId)
@@ -648,6 +652,7 @@ export function WorkflowManualTrigger({
 
       // Expand sidebar immediately
       expandSidebarAndFocusEvents()
+      sidebarRef.current?.setActiveTab("workflow-events")
       onAfterTrigger?.()
     } catch (error) {
       if (error instanceof ApiError) {

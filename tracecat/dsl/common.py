@@ -67,7 +67,11 @@ from tracecat.expressions.core import extract_expressions
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers import ActionID
 from tracecat.identifiers.schedules import ScheduleUUID
-from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
+from tracecat.identifiers.workflow import (
+    AnyWorkflowID,
+    WorkflowExecutionID,
+    WorkflowUUID,
+)
 from tracecat.interactions.schemas import ActionInteractionValidator
 from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
@@ -79,6 +83,8 @@ from tracecat.workflow.executions.enums import (
     TemporalSearchAttr,
     TriggerType,
 )
+
+ROOT_SCOPE = "<root>"
 
 
 def _load_action_inputs_yaml(inputs: str) -> Any:
@@ -666,7 +672,6 @@ class DSLInput(BaseModel):
         scopes: dict[str, str] = {}
         scope_openers: dict[str, str] = {}
 
-        ROOT_SCOPE = "<root>"
         scope_hierarchy: dict[str, str | None] = {ROOT_SCOPE: None}
 
         # Build indegrees for topological sort
@@ -743,6 +748,13 @@ class DSLInput(BaseModel):
             raise TracecatDSLError("Cycle detected in control-flow workflow")
 
         return scopes, scope_hierarchy, scope_openers
+
+    def scoped_action_refs(self) -> frozenset[str]:
+        """Refs that live inside a scatter or loop scope."""
+        scopes, _scope_hierarchy, _scope_openers = self._assign_action_scopes(
+            self._to_adjacency()
+        )
+        return frozenset(ref for ref, scope in scopes.items() if scope != ROOT_SCOPE)
 
     def _to_adjacency(self) -> dict[str, list[str]]:
         """Convert the DSLInput to an adjacency list."""
@@ -899,6 +911,20 @@ class DSLRunArgs(BaseModel):
     registry_lock: RegistryLock | None = Field(
         default=None,
         description="Registry version lock for action execution. Contains origins (origin -> version) and actions (action_name -> origin) mappings.",
+    )
+    pinned_action_results: dict[str, TaskResult] = Field(
+        default_factory=dict,
+        description=(
+            "Pinned action results for draft executions. "
+            "Keys are action refs and values are TaskResult objects to reuse."
+        ),
+    )
+    pinned_source_execution_id: WorkflowExecutionID | None = Field(
+        default=None,
+        description=(
+            "Source workflow execution ID used to resolve pinned action results "
+            "for this run. Used for compact event synthesis in read APIs."
+        ),
     )
 
     @field_validator("wf_id", mode="before")

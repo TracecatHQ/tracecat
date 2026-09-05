@@ -95,6 +95,7 @@ from tracecat.workflow.management.schemas import (
 )
 from tracecat.workflow.management.types import (
     WorkflowDefinitionMinimal,
+    WorkflowDraftPinsData,
     WorkflowTriggerSummaryMinimal,
     build_workflow_trigger_summary,
 )
@@ -1101,6 +1102,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
                 workflow's input schema.
         """
         wf_id = WorkflowUUID.new(workflow_id)
+        draft_pins: WorkflowDraftPinsData | None = None
 
         if use_draft:
             workflow = await self.get_workflow(wf_id)
@@ -1120,6 +1122,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
                 )
             # Draft executions resolve the registry lock dynamically.
             registry_lock: RegistryLock | None = None
+            draft_pins = workflow.draft_pins
         else:
             defn_service = WorkflowDefinitionsService(self.session, self.role)
             defn = await defn_service.get_definition_by_workflow_id(
@@ -1163,11 +1166,23 @@ class WorkflowsManagementService(BaseWorkspaceService):
 
         exec_service = await WorkflowExecutionsService.connect(role=self.role)
         if use_draft:
+            pinned_action_results = (
+                await exec_service.resolve_draft_pinned_action_results(
+                    wf_id=wf_id,
+                    dsl=dsl,
+                    draft_pins=draft_pins,
+                )
+            )
+            parsed_draft_pins = exec_service.parse_draft_pins(draft_pins)
             return await exec_service.create_draft_workflow_execution_wait_for_start(
                 dsl=dsl,
                 wf_id=wf_id,
                 payload=inputs,
                 trigger_type=TriggerType.MANUAL,
+                pinned_action_results=pinned_action_results,
+                pinned_source_execution_id=parsed_draft_pins.source_execution_id
+                if parsed_draft_pins
+                else None,
             )
         return await exec_service.create_workflow_execution_wait_for_start(
             dsl=dsl,

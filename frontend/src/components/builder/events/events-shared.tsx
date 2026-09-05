@@ -127,7 +127,7 @@ export function useResolvedLastExecution(
 }
 
 /** Empty state shown when a workflow has never run. */
-function NoWorkflowRuns() {
+export function NoWorkflowRuns() {
   return (
     <div className="flex h-full items-center justify-center">
       <Empty className="border-none">

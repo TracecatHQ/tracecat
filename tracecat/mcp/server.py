@@ -5031,7 +5031,8 @@ async def get_workflow_execution(
 
         # Get compact event history for action-level details
         compact_events = await exec_service.list_workflow_execution_events_compact(
-            execution_id
+            execution_id,
+            include_pinned_synthetic=True,
         )
 
         summary = build_execution_summary(execution)

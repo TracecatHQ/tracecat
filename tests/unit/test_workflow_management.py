@@ -9,12 +9,15 @@ import pytest
 from tracecat.auth.types import Role
 from tracecat.db.models import Action, Workflow, WorkflowDefinition
 from tracecat.dsl.common import DSLInput
+from tracecat.dsl.schemas import TaskResult
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.expressions.expectations import ExpectedField
-from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.identifiers.workflow import WorkflowUUID, generate_exec_id
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.workflow.management import management
 from tracecat.workflow.management.management import WorkflowsManagementService
+from tracecat.workflow.management.schemas import WorkflowDraftPins
+from tracecat.workflow.management.types import WorkflowDraftPinsData
 
 
 class _ScalarResult:
@@ -1140,6 +1143,8 @@ class _FakeExecService:
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict[str, Any]]] = []
+        self.pinned_action_results: dict[str, TaskResult] = {}
+        self.parsed_draft_pins: WorkflowDraftPins | None = None
 
     async def create_draft_workflow_execution_wait_for_start(self, **kwargs: Any):
         self.calls.append(("draft", kwargs))
@@ -1156,6 +1161,16 @@ class _FakeExecService:
             "wf_id": kwargs["wf_id"],
             "wf_exec_id": "wf-exec-published",
         }
+
+    async def resolve_draft_pinned_action_results(
+        self, **kwargs: Any
+    ) -> dict[str, TaskResult]:
+        return self.pinned_action_results
+
+    def parse_draft_pins(
+        self, draft_pins: WorkflowDraftPinsData | None
+    ) -> WorkflowDraftPins | None:
+        return self.parsed_draft_pins
 
 
 def _patch_exec_service(monkeypatch: pytest.MonkeyPatch) -> _FakeExecService:
@@ -1181,7 +1196,11 @@ async def test_run_workflow_draft_builds_and_dispatches_draft(
     dsl = _run_dsl()
     service = _service(_role())
 
-    monkeypatch.setattr(service, "get_workflow", AsyncMock(return_value=object()))
+    monkeypatch.setattr(
+        service,
+        "get_workflow",
+        AsyncMock(return_value=SimpleNamespace(draft_pins=None)),
+    )
     monkeypatch.setattr(service, "build_dsl_from_workflow", AsyncMock(return_value=dsl))
     # No validation errors from the tiered validator.
     monkeypatch.setattr(management, "validate_dsl", AsyncMock(return_value=[]))
@@ -1196,6 +1215,38 @@ async def test_run_workflow_draft_builds_and_dispatches_draft(
     assert kwargs["payload"] == {"a": 1}
     # Draft runs resolve the registry lock dynamically (not passed here).
     assert "registry_lock" not in kwargs
+
+
+@pytest.mark.anyio
+async def test_run_workflow_draft_forwards_pinned_execution_kwargs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Draft dispatch forwards resolved pins and their source execution ID."""
+    wf_id = WorkflowUUID.new_uuid4()
+    source_execution_id = generate_exec_id(wf_id)
+    draft_pins = WorkflowDraftPins(
+        source_execution_id=source_execution_id,
+        action_refs=["a"],
+    )
+    dsl = _run_dsl()
+    service = _service(_role())
+    monkeypatch.setattr(
+        service,
+        "get_workflow",
+        AsyncMock(return_value=SimpleNamespace(draft_pins=draft_pins.model_dump())),
+    )
+    monkeypatch.setattr(service, "build_dsl_from_workflow", AsyncMock(return_value=dsl))
+    monkeypatch.setattr(management, "validate_dsl", AsyncMock(return_value=[]))
+    fake_exec = _patch_exec_service(monkeypatch)
+    pinned_result = TaskResult.from_result({"value": "pinned"})
+    fake_exec.pinned_action_results = {"a": pinned_result}
+    fake_exec.parsed_draft_pins = draft_pins
+
+    await service.run_workflow(wf_id, use_draft=True)
+
+    _, kwargs = fake_exec.calls[0]
+    assert kwargs["pinned_action_results"] == {"a": pinned_result}
+    assert kwargs["pinned_source_execution_id"] == source_execution_id
 
 
 @pytest.mark.anyio
@@ -1217,7 +1268,11 @@ async def test_run_workflow_draft_validation_error_does_not_dispatch(
 ) -> None:
     service = _service(_role())
     dsl = _run_dsl()
-    monkeypatch.setattr(service, "get_workflow", AsyncMock(return_value=object()))
+    monkeypatch.setattr(
+        service,
+        "get_workflow",
+        AsyncMock(return_value=SimpleNamespace(draft_pins=None)),
+    )
     monkeypatch.setattr(service, "build_dsl_from_workflow", AsyncMock(return_value=dsl))
 
     # One validation error from the tiered validator.
@@ -1332,7 +1387,11 @@ async def test_run_workflow_invalid_inputs_raise_before_dispatch(
     # DSL requires an integer `count`; a string should fail validation.
     dsl = _run_dsl(expects={"count": {"type": "int"}})
     service = _service(_role())
-    monkeypatch.setattr(service, "get_workflow", AsyncMock(return_value=object()))
+    monkeypatch.setattr(
+        service,
+        "get_workflow",
+        AsyncMock(return_value=SimpleNamespace(draft_pins=None)),
+    )
     monkeypatch.setattr(service, "build_dsl_from_workflow", AsyncMock(return_value=dsl))
     monkeypatch.setattr(management, "validate_dsl", AsyncMock(return_value=[]))
     fake_exec = _patch_exec_service(monkeypatch)
