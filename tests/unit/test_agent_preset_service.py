@@ -1128,8 +1128,10 @@ class TestAgentPresetService:
         finally:
             await concurrent_engine.dispose()
 
+    @pytest.mark.parametrize("delete_replacement", [False, True])
     async def test_non_skill_update_preserves_concurrent_skill_replacement(
         self,
+        delete_replacement: bool,
         configure_minio_for_skills,
         agent_preset_create_params: AgentPresetCreate,
         svc_role: Role,
@@ -1174,6 +1176,8 @@ class TestAgentPresetService:
 
             observed_stale_membership = asyncio.Event()
             replacement_committed = asyncio.Event()
+            replacement_read = asyncio.Event()
+            deletion_done = asyncio.Event()
 
             async def update_instructions() -> None:
                 async with session_factory() as update_session:
@@ -1182,6 +1186,28 @@ class TestAgentPresetService:
                     assert loaded is not None
                     original_resolve = service._current_skill_binding_specs
                     first_call = True
+                    original_membership = service._get_head_skill_binding_specs
+
+                    async def pause_after_replacement_read(
+                        preset_id: uuid.UUID,
+                    ) -> list[SkillBindingSpec]:
+                        bindings = await original_membership(preset_id)
+                        if (
+                            delete_replacement
+                            and not replacement_read.is_set()
+                            and any(
+                                binding.skill_id == skill_b.id for binding in bindings
+                            )
+                        ):
+                            replacement_read.set()
+                            await deletion_done.wait()
+                        return bindings
+
+                    monkeypatch.setattr(
+                        service,
+                        "_get_head_skill_binding_specs",
+                        pause_after_replacement_read,
+                    )
 
                     async def pause_after_membership_read(
                         skill_ids: Sequence[uuid.UUID], **kwargs: Any
@@ -1221,7 +1247,23 @@ class TestAgentPresetService:
                 finally:
                     replacement_committed.set()
 
-            await asyncio.gather(update_instructions(), replace_skill())
+            async def delete_new_skill() -> None:
+                if not delete_replacement:
+                    return
+                await replacement_read.wait()
+                try:
+                    async with session_factory() as delete_session:
+                        service = SkillService(delete_session, role=role)
+                        await service.archive_skill(skill_b.id)
+                finally:
+                    deletion_done.set()
+
+            await asyncio.wait_for(
+                asyncio.gather(
+                    update_instructions(), replace_skill(), delete_new_skill()
+                ),
+                timeout=20,
+            )
 
             async with session_factory() as verification_session:
                 current = await verification_session.scalar(
@@ -1246,8 +1288,21 @@ class TestAgentPresetService:
 
             assert current is not None
             assert current.instructions == "Keep the replacement"
-            assert head_skill_id == skill_b.id
-            assert version_skill_id == skill_b.id
+            expected_skill_id = None if delete_replacement else skill_b.id
+            assert head_skill_id == expected_skill_id
+            assert version_skill_id == expected_skill_id
+            if delete_replacement:
+                async with session_factory() as check_session:
+                    assert (
+                        await check_session.scalar(
+                            select(sa.func.count())
+                            .select_from(AgentPresetVersionSkill)
+                            .where(
+                                AgentPresetVersionSkill.skill_id == skill_b.id,
+                            )
+                        )
+                        == 0
+                    )
         finally:
             await concurrent_engine.dispose()
 

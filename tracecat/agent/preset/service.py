@@ -429,49 +429,16 @@ class AgentPresetService(BaseWorkspaceService):
         requested_skills = None
         requested_specs: list[SkillBindingSpec] | None = None
         preset_locked = True
-        observed_specs = await self._get_head_skill_binding_specs(preset.id)
-        observed_skill_ids = {binding.skill_id for binding in observed_specs}
         if "skills" in params.model_fields_set:
             requested_skills = params.skills or []
-            # Reject duplicates before the set below hides them from the check
-            # inside _current_skill_binding_specs.
             validate_no_duplicate_skill_ids(
                 [binding.skill_id for binding in requested_skills]
             )
-            requested_skill_ids = {binding.skill_id for binding in requested_skills}
-        else:
-            requested_skill_ids = observed_skill_ids
-        locked_specs = await self._current_skill_binding_specs(
-            sorted(observed_skill_ids | requested_skill_ids, key=str),
-            for_update=True,
+        current_specs, publish_specs = await self._lock_update_skill_bindings(
+            preset, params
         )
-        locked_specs_by_id = {binding.skill_id: binding for binding in locked_specs}
-
-        if "agents" in set_fields:
-            await self._lock_preset_update_dependencies(
-                preset.id,
-                set_fields["agents"],
-            )
-        else:
-            await self._lock_preset_row(preset.id)
-
-        # The caller's entity and Skill membership may have become stale while
-        # waiting for the serialization lock. Merge this PATCH into the locked
-        # head and publish from the membership that actually won the race.
-        await self.session.refresh(preset)
-        current_specs = await self._get_head_skill_binding_specs(preset.id)
-        current_specs_by_id = {binding.skill_id: binding for binding in current_specs}
         if requested_skills is not None:
-            requested_specs = [
-                locked_specs_by_id[skill_id]
-                for skill_id in sorted(requested_skill_ids, key=str)
-            ]
-            publish_specs = requested_specs
-        else:
-            publish_specs = [
-                locked_specs_by_id.get(skill_id, current_specs_by_id[skill_id])
-                for skill_id in sorted(current_specs_by_id, key=str)
-            ]
+            requested_specs = publish_specs
 
         # Handle name first as it may be needed for slug fallback
         if "name" in set_fields:
@@ -565,6 +532,49 @@ class AgentPresetService(BaseWorkspaceService):
         await self.session.commit()
         await self.session.refresh(preset)
         return preset
+
+    async def _lock_update_skill_bindings(
+        self, preset: AgentPreset, params: AgentPresetUpdate
+    ) -> tuple[list[SkillBindingSpec], list[SkillBindingSpec]]:
+        """Lock and validate every Skill that this update will publish.
+
+        A waiting update can discover new membership after locking the parent.
+        Roll back that lock attempt before retrying so Skills always precede
+        presets in the lock order, including newly observed dependencies.
+        """
+        requested_ids = (
+            {binding.skill_id for binding in params.skills or []}
+            if "skills" in params.model_fields_set
+            else None
+        )
+        while True:
+            observed = await self._get_head_skill_binding_specs(preset.id)
+            observed_ids = {binding.skill_id for binding in observed}
+            async with self.session.begin_nested() as attempt:
+                locked = await self._current_skill_binding_specs(
+                    sorted(observed_ids | (requested_ids or set()), key=str),
+                    for_update=True,
+                )
+                if "agents" in params.model_fields_set:
+                    await self._lock_preset_update_dependencies(
+                        preset.id, params.agents
+                    )
+                else:
+                    await self._lock_preset_row(preset.id)
+                current = await self._get_head_skill_binding_specs(preset.id)
+                selected_ids = (
+                    requested_ids
+                    if requested_ids is not None
+                    else {binding.skill_id for binding in current}
+                )
+                locked_by_id = {binding.skill_id: binding for binding in locked}
+                if not selected_ids.issubset(locked_by_id):
+                    await attempt.rollback()
+                    continue
+                await self.session.refresh(preset)
+                return current, [
+                    locked_by_id[skill_id] for skill_id in sorted(selected_ids, key=str)
+                ]
 
     @staticmethod
     def _subagent_declarations(
