@@ -349,6 +349,7 @@ async def test_get_session_includes_agents_binding() -> None:
         )
 
     assert response.model_dump(mode="json")["agents_binding"] == {
+        "enabled": True,
         "subagents": [],
     }
 
@@ -374,6 +375,7 @@ async def test_get_session_vercel_includes_agents_binding() -> None:
         )
 
     assert response.model_dump(mode="json")["agents_binding"] == {
+        "enabled": True,
         "subagents": [],
     }
 

@@ -472,6 +472,7 @@ class TestBuildAgentArgsActivity:
         result = await DSLActivities.build_agent_args_activity(input)
 
         assert result.agents.model_dump(mode="json") == {
+            "enabled": True,
             "subagents": args["agents"]["subagents"],
         }
 
@@ -494,6 +495,7 @@ class TestBuildAgentArgsActivity:
         result = await DSLActivities.build_agent_args_activity(input)
 
         assert result.agents.model_dump(mode="json") == {
+            "enabled": True,
             "subagents": [],
         }
 
