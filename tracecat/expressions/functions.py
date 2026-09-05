@@ -8,13 +8,15 @@ import itertools
 import json
 import math
 import re
+import shlex
 import urllib.parse
 import zoneinfo
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import UTC, date, datetime, time, timedelta
+from email.headerregistry import AddressHeader
 from functools import wraps
 from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network
-from typing import Any, Literal, ParamSpec, TypeVar
+from typing import Any, Literal, ParamSpec, TypedDict, TypeVar
 from uuid import uuid4
 
 import orjson
@@ -88,6 +90,34 @@ def url_encode(x: str | int, safe: str = "") -> str:
 def url_decode(x: str) -> str:
     """Converts percent-encoded characters back into their original form."""
     return urllib.parse.unquote(x)
+
+
+class ParsedUrl(TypedDict):
+    """The component parts of a URL."""
+
+    scheme: str
+    host: str | None
+    port: int | None
+    path: str
+    query: dict[str, str]
+    fragment: str
+
+
+def parse_url(url: str) -> ParsedUrl:
+    """Parse a URL into an object with its scheme, host, port, path, query, and fragment."""
+    parsed = urllib.parse.urlsplit(url)
+    query = {
+        key: ",".join(values)
+        for key, values in urllib.parse.parse_qs(parsed.query).items()
+    }
+    return ParsedUrl(
+        scheme=parsed.scheme,
+        host=parsed.hostname,
+        port=parsed.port,
+        path=parsed.path,
+        query=query,
+        fragment=parsed.fragment,
+    )
 
 
 def add_prefix(x: str | list[str], prefix: str) -> str | list[str]:
@@ -227,6 +257,35 @@ def regex_extract(pattern: str, text: str) -> str | None:
     return match.group(0)
 
 
+def regex_extract_all(pattern: str, text: str) -> list[str]:
+    """Extract every match of a regex pattern from text, one item per match.
+
+    Each item follows `regex_extract`: the first captured group, or the full
+    match when the pattern has no groups.
+    """
+    matches: list[str] = []
+    for match in re.finditer(pattern, text):
+        if match.lastindex:
+            group = next((g for g in match.groups() if g is not None), None)
+            if group is not None:
+                matches.append(group)
+                continue
+        matches.append(match.group(0))
+    return matches
+
+
+def regex_extract_fields(pattern: str, text: str) -> dict[str, str | None] | None:
+    """Extract the named groups of a regex pattern from text into an object.
+
+    Returns null when the pattern does not match. Named groups that did not
+    participate in the match are null.
+    """
+    match = re.search(pattern, text)
+    if not match:
+        return None
+    return match.groupdict()
+
+
 def regex_match(pattern: str, text: str) -> bool:
     """Check if text matches regex pattern."""
     return bool(re.match(pattern, text))
@@ -253,6 +312,55 @@ def deserialize_ndjson(x: str) -> list[dict[str, Any]]:
 def parse_csv(x: str) -> list[dict[str, Any]]:
     """Parse CSV string into list of objects."""
     return [dict(row) for row in csv.DictReader(x.splitlines())]
+
+
+def parse_key_value(text: str, separator: str = "=") -> dict[str, str]:
+    """Parse whitespace-separated `key=value` pairs into an object.
+
+    Values may be quoted to contain whitespace, e.g. `user=bob msg="access denied"`.
+    Tokens without the separator are ignored.
+    """
+    parsed: dict[str, str] = {}
+    for token in shlex.split(text):
+        key, found, value = token.partition(separator)
+        if found:
+            parsed[key] = value
+    return parsed
+
+
+class EmailAddress(TypedDict):
+    """A single mailbox parsed out of an email address header."""
+
+    display_name: str
+    email: str
+    user: str
+    domain: str
+
+
+def parse_email_addresses(headers: str | list[str]) -> list[EmailAddress]:
+    """Parse email address headers (e.g. `To`, `From`) into a list of mailboxes.
+
+    Accepts a single header value or a list of them, and de-duplicates mailboxes
+    by address across all of them.
+    """
+    if isinstance(headers, str):
+        headers = [headers]
+
+    mailboxes: dict[str, EmailAddress] = {}
+    for header in headers:
+        parsed: dict[str, Any] = {"defects": []}
+        AddressHeader.parse(header, parsed)
+        for address in parsed["parse_tree"].addresses:
+            for mailbox in address.mailboxes:
+                if mailbox.addr_spec in mailboxes:
+                    continue
+                mailboxes[mailbox.addr_spec] = EmailAddress(
+                    display_name=mailbox.display_name or "",
+                    email=mailbox.addr_spec,
+                    user=mailbox.local_part or "",
+                    domain=mailbox.domain or "",
+                )
+    return list(mailboxes.values())
 
 
 # IP address functions
@@ -457,6 +565,37 @@ def create_range(start: int, end: int, step: int = 1) -> list[int]:
     return list(range(start, end, step))
 
 
+def _dedupe(values: Sequence[Any]) -> list[Any]:
+    """Remove duplicates while preserving order, tolerating unhashable values."""
+    seen: set[Any] = set()
+    seen_unhashable: list[Any] = []
+    deduped: list[Any] = []
+    for value in values:
+        try:
+            if value in seen:
+                continue
+            seen.add(value)
+        except TypeError:
+            if value in seen_unhashable:
+                continue
+            seen_unhashable.append(value)
+        deduped.append(value)
+    return deduped
+
+
+def collect(
+    mappings: Sequence[Mapping[Any, Any]], remove_duplicates: bool = False
+) -> dict[Any, list[Any]]:
+    """Group values from a sequence of objects by key into an object of arrays."""
+    collected: dict[Any, list[Any]] = {}
+    for mapping in mappings:
+        for key, value in mapping.items():
+            collected.setdefault(key, []).append(value)
+    if remove_duplicates:
+        return {key: _dedupe(values) for key, values in collected.items()}
+    return collected
+
+
 # Dictionary functions
 # NOTE: Use "object" in docstrings to align to Javascript / JSON terminology.
 
@@ -507,6 +646,22 @@ def dict_lookup(d: dict[Any, Any], k: Any) -> Any:
 def dict_values(x: dict[Any, Any]) -> list[Any]:
     """Extract values from an object."""
     return list(x.values())
+
+
+def omit_keys(x: dict[Any, Any], keys: Sequence[Any]) -> dict[Any, Any]:
+    """Return a copy of an object without the given keys."""
+    omitted = set(keys)
+    return {k: v for k, v in x.items() if k not in omitted}
+
+
+def pick_keys(x: dict[Any, Any], keys: Sequence[Any]) -> dict[Any, Any]:
+    """Return a copy of an object with only the given keys. Missing keys are skipped."""
+    return {k: x[k] for k in keys if k in x}
+
+
+def compact_object(x: dict[Any, Any]) -> dict[Any, Any]:
+    """Drop null values from an object. The object equivalent of `compact`."""
+    return {k: v for k, v in x.items() if v is not None}
 
 
 def zip_map(x: list[str], y: list[str]) -> dict[str, str]:
@@ -1058,6 +1213,9 @@ def deserialize_yaml(x: str) -> Any:
 _FUNCTION_MAPPING = {
     # IO
     "parse_csv": parse_csv,
+    "parse_key_value": parse_key_value,
+    "parse_email_addresses": parse_email_addresses,
+    "parse_url": parse_url,
     # String transforms
     "capitalize": capitalize,
     "concat": concat_strings,
@@ -1090,6 +1248,8 @@ _FUNCTION_MAPPING = {
     "not_null": not_null,
     # Regex
     "regex_extract": regex_extract,
+    "regex_extract_all": regex_extract_all,
+    "regex_extract_fields": regex_extract_fields,
     "regex_match": regex_match,
     "regex_not_match": regex_not_match,
     # Arrays
@@ -1114,6 +1274,7 @@ _FUNCTION_MAPPING = {
     "unique": unique,
     "zip_map": zip_map,  # Inspired by Terraform: https://developer.hashicorp.com/terraform/language/functions/zipmap
     "at": at,
+    "collect": collect,
     # Math
     "add": add,
     "sub": sub,
@@ -1137,6 +1298,9 @@ _FUNCTION_MAPPING = {
     "flatten_dict": flatten_dict,
     "to_keys": dict_keys,
     "to_values": dict_values,
+    "omit_keys": omit_keys,
+    "pick_keys": pick_keys,
+    "compact_object": compact_object,
     "tabulate": tabulate,
     # Formatters
     "to_markdown_list": to_markdown_list,
