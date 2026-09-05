@@ -1,10 +1,12 @@
 """Unit tests for resolving draft action pins from prior executions."""
 
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from temporalio.api.enums.v1 import EventType
 from temporalio.client import Client
 from temporalio.service import RPCError, RPCStatusCode
 
@@ -26,6 +28,35 @@ from tracecat.workflow.executions.service import (
     WorkflowExecutionsService,
 )
 from tracecat.workflow.management.types import WorkflowDraftPinsData
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("has_start", [False, True])
+async def test_unreadable_source_inputs_fail_closed(
+    monkeypatch: pytest.MonkeyPatch, has_start: bool
+) -> None:
+    service = _service()
+    monkeypatch.setattr(service, "require_execution", AsyncMock())
+
+    async def history():
+        if has_start:
+            yield SimpleNamespace(
+                event_type=EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED,
+                workflow_execution_started_event_attributes=SimpleNamespace(input=None),
+            )
+
+    monkeypatch.setattr(
+        service, "handle", lambda _: SimpleNamespace(fetch_history_events=history)
+    )
+    monkeypatch.setattr(
+        "tracecat.workflow.executions.service.extract_first",
+        AsyncMock(return_value={"invalid": "start arguments"}),
+    )
+    with pytest.raises(TracecatValidationError) as exc_info:
+        await service.get_execution_trigger_inputs(
+            generate_exec_id(WorkflowUUID.new_uuid4())
+        )
+    assert _detail(exc_info.value)["code"] == "source_inputs_unreadable"
 
 
 def _service() -> WorkflowExecutionsService:

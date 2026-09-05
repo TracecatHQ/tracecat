@@ -803,9 +803,7 @@ class WorkflowExecutionsService:
         except WorkflowExecutionNotFoundError as e:
             raise TracecatNotFoundError("Source execution not found") from e
 
-    async def _get_run_start_args(
-        self, wf_exec_id: WorkflowExecutionID
-    ) -> DSLRunArgs | None:
+    async def _get_run_start_args(self, wf_exec_id: WorkflowExecutionID) -> DSLRunArgs:
         """Read a run's start args from the first history event."""
         handle = self.handle(wf_exec_id)
         async for event in handle.fetch_history_events():
@@ -814,15 +812,16 @@ class WorkflowExecutionsService:
             attrs = event.workflow_execution_started_event_attributes
             run_args_data = await extract_first(attrs.input)
             try:
-                return DSLRunArgs(**run_args_data)
+                return DSLRunArgs.model_validate(run_args_data)
             except ValidationError as e:
-                self.logger.warning(
-                    "Failed to parse workflow start args",
-                    wf_exec_id=wf_exec_id,
-                    error=e,
-                )
-                return None
-        return None
+                raise TracecatValidationError(
+                    "Source trigger inputs could not be read; supply inputs explicitly.",
+                    detail={"code": "source_inputs_unreadable"},
+                ) from e
+        raise TracecatValidationError(
+            "Source execution has no start event; supply inputs explicitly.",
+            detail={"code": "source_inputs_unreadable"},
+        )
 
     async def get_execution_trigger_inputs(
         self, wf_exec_id: WorkflowExecutionID
@@ -836,7 +835,7 @@ class WorkflowExecutionsService:
         """
         await self._require_replay_source(wf_exec_id)
         run_args = await self._get_run_start_args(wf_exec_id)
-        if run_args is None or run_args.trigger_inputs is None:
+        if run_args.trigger_inputs is None:
             return None
         trigger_inputs = run_args.trigger_inputs
         if isinstance(trigger_inputs, InlineObject):
