@@ -31310,6 +31310,64 @@ export const $WorkflowExecutionCreate = {
   title: "WorkflowExecutionCreate",
 } as const
 
+export const $WorkflowExecutionCreateFromAction = {
+  properties: {
+    workflow_id: {
+      anyOf: [
+        {
+          type: "string",
+          pattern: "wf_[0-9a-zA-Z]+",
+        },
+        {
+          type: "string",
+          pattern: "wf-[0-9a-f]{32}",
+        },
+      ],
+      title: "Workflow Id",
+    },
+    action_ref: {
+      type: "string",
+      title: "Action Ref",
+    },
+    source_execution_id: {
+      type: "string",
+      pattern:
+        "(wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/]((exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
+      title: "Source Execution Id",
+    },
+    inputs: {
+      anyOf: [
+        {},
+        {
+          type: "null",
+        },
+      ],
+      title: "Inputs",
+      description:
+        "Trigger inputs. Defaults to the source execution's trigger inputs when omitted.",
+    },
+    time_anchor: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Time Anchor",
+      description:
+        "Override the workflow's time anchor for FN.now() and related functions.",
+    },
+  },
+  type: "object",
+  required: ["workflow_id", "action_ref", "source_execution_id"],
+  title: "WorkflowExecutionCreateFromAction",
+  description:
+    "Start a draft run at a specific action, reusing its upstream results.",
+} as const
+
 export const $WorkflowExecutionCreateResponse = {
   properties: {
     message: {

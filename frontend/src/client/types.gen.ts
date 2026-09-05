@@ -9342,6 +9342,23 @@ export type WorkflowExecutionCreate = {
   time_anchor?: string | null
 }
 
+/**
+ * Start a draft run at a specific action, reusing its upstream results.
+ */
+export type WorkflowExecutionCreateFromAction = {
+  workflow_id: string
+  action_ref: string
+  source_execution_id: string
+  /**
+   * Trigger inputs. Defaults to the source execution's trigger inputs when omitted.
+   */
+  inputs?: unknown | null
+  /**
+   * Override the workflow's time anchor for FN.now() and related functions.
+   */
+  time_anchor?: string | null
+}
+
 export type WorkflowExecutionCreateResponse = {
   message: string
   wf_id: string
@@ -10869,6 +10886,14 @@ export type WorkflowExecutionsCreateDraftWorkflowExecutionData = {
 }
 
 export type WorkflowExecutionsCreateDraftWorkflowExecutionResponse =
+  WorkflowExecutionCreateResponse
+
+export type WorkflowExecutionsCreateDraftWorkflowExecutionFromActionData = {
+  requestBody: WorkflowExecutionCreateFromAction
+  workspaceId: string
+}
+
+export type WorkflowExecutionsCreateDraftWorkflowExecutionFromActionResponse =
   WorkflowExecutionCreateResponse
 
 export type WorkflowExecutionsCancelWorkflowExecutionData = {
@@ -15195,6 +15220,29 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: WorkflowExecutionCreateResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/workflow-executions/draft/from-action": {
+    post: {
+      req: WorkflowExecutionsCreateDraftWorkflowExecutionFromActionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkflowExecutionCreateResponse
+        /**
+         * Draft, replay source, or trigger inputs are invalid
+         */
+        400: unknown
+        /**
+         * Workflow or source execution not found
+         */
+        404: unknown
         /**
          * Validation Error
          */

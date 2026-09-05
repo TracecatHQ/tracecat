@@ -4801,6 +4801,76 @@ async def run_workflow(
 
 
 @mcp.tool()
+async def run_workflow_from_action(
+    workspace_id: uuid.UUID,
+    workflow_id: MCPWorkflowUUID,
+    action_ref: str,
+    source_execution_id: WorkflowExecutionID,
+    inputs: dict[str, Any] | None = None,
+) -> WorkflowRunStartedResponse:
+    """Replay a draft run starting at ``action_ref``.
+
+    The selected action's immediate parents reuse their results from
+    ``source_execution_id``, so the upstream is skipped and the selected action
+    and everything downstream run fresh. The action must be a root-scope,
+    non-control-flow action reached through success edges, and every parent
+    needs a completed result in the source execution.
+
+    Args:
+        workspace_id: The workspace ID.
+        workflow_id: The workflow ID.
+        action_ref: Ref of the action to start the run from.
+        source_execution_id: Execution to reuse upstream results from.
+        inputs: Optional trigger inputs object. Defaults to the source
+            execution's own trigger inputs.
+
+    Returns JSON with workflow_id, execution_id, and a message.
+    """
+
+    try:
+        workflow_id = WorkflowUUID.new(workflow_id)
+        _, role = await _resolve_workspace_role(workspace_id)
+        async with WorkflowsManagementService.with_session(role=role) as svc:
+            response = await svc.run_workflow_from_action(
+                workflow_id,
+                action_ref=action_ref,
+                source_execution_id=source_execution_id,
+                inputs=inputs,
+            )
+        response_workflow_id = WorkflowUUID.new(response["wf_id"])
+        return WorkflowRunStartedResponse(
+            workflow_id=response_workflow_id,
+            execution_id=response["wf_exec_id"],
+            message=response["message"],
+        )
+    except ToolError:
+        raise
+    except TracecatNotFoundError as e:
+        raise ToolError(str(e)) from e
+    except TracecatValidationError as e:
+        raise ToolError(
+            json.dumps(
+                {
+                    "type": "validation_error",
+                    "message": str(e),
+                    "status": "error",
+                    "detail": e.detail,
+                },
+                default=str,
+            )
+        ) from e
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except BaseException as e:
+        msg = str(e)
+        if isinstance(e, BaseExceptionGroup):
+            msgs = [str(exc) for exc in e.exceptions]
+            msg = "; ".join(msgs)
+        logger.error("Failed to run workflow from action", error=msg)
+        raise ToolError(f"Failed to run workflow from action: {msg}") from None
+
+
+@mcp.tool()
 async def list_workflow_executions(
     workspace_id: uuid.UUID,
     workflow_id: MCPWorkflowUUID,

@@ -27,7 +27,7 @@ from tracecat.dsl.common import (
 )
 from tracecat.ee.interactions.schemas import InteractionRead
 from tracecat.ee.interactions.service import InteractionService
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.identifiers import UserID
 from tracecat.identifiers.workflow import (
     AnyWorkflowIDPath,
@@ -70,6 +70,7 @@ from tracecat.workflow.executions.schemas import (
     WorkflowExecutionCollectionPageRequest,
     WorkflowExecutionCollectionPageResponse,
     WorkflowExecutionCreate,
+    WorkflowExecutionCreateFromAction,
     WorkflowExecutionCreateResponse,
     WorkflowExecutionObjectDownloadResponse,
     WorkflowExecutionObjectPreviewResponse,
@@ -1134,6 +1135,48 @@ async def create_draft_workflow_execution(
             # For draft workflow executions, pass None to dynamically resolve the registry lock
         )
         return response
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "type": "TracecatValidationError",
+                "message": str(e),
+                "detail": e.detail,
+            },
+        ) from e
+
+
+@router.post(
+    "/draft/from-action",
+    responses={
+        400: {"description": "Draft, replay source, or trigger inputs are invalid"},
+        404: {"description": "Workflow or source execution not found"},
+    },
+)
+@require_scope("workflow:execute")
+async def create_draft_workflow_execution_from_action(
+    role: WorkspaceUserRouteRole,
+    params: WorkflowExecutionCreateFromAction,
+) -> WorkflowExecutionCreateResponse:
+    """Create and schedule a draft execution that starts at a specific action.
+
+    The immediate parents of `action_ref` are pinned to their results in
+    `source_execution_id`, so the exclusive upstream cone is skipped and the
+    selected action and everything downstream run fresh. The workflow's stored
+    draft pins are neither read nor modified.
+    """
+    wf_id = WorkflowUUID.new(params.workflow_id)
+    try:
+        async with WorkflowsManagementService.with_session(role=role) as mgmt_service:
+            return await mgmt_service.run_workflow_from_action(
+                wf_id,
+                action_ref=params.action_ref,
+                source_execution_id=params.source_execution_id,
+                inputs=params.inputs,
+                time_anchor=params.time_anchor,
+            )
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
     except TracecatValidationError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

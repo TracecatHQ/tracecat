@@ -42,12 +42,13 @@ from tracecat.dsl.common import (
     edge_components_from_dep,
 )
 from tracecat.dsl.constants import PINNED_SKIPPED_REFS_MEMO_KEY
-from tracecat.dsl.enums import PlatformAction
+from tracecat.dsl.enums import EdgeType, PlatformAction
 from tracecat.dsl.schemas import ROOT_STREAM, TaskResult, TriggerInputs
 from tracecat.dsl.types import Task
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.ee.interactions.schemas import InteractionInput
 from tracecat.ee.interactions.service import InteractionService
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.identifiers import UserID, WorkspaceID
 from tracecat.identifiers.workflow import (
     WorkflowExecutionID,
@@ -684,6 +685,169 @@ class WorkflowExecutionsService:
             )
 
         return pinned_results
+
+    async def resolve_run_from_action_pins(
+        self,
+        *,
+        wf_id: WorkflowID,
+        dsl: DSLInput,
+        action_ref: str,
+        source_execution_id: WorkflowExecutionID,
+    ) -> dict[str, TaskResult]:
+        """Resolve the pinned results needed to restart a run at ``action_ref``.
+
+        The cut set is the selected action's immediate parents: pinning them
+        lets the scheduler force-skip the exclusive upstream cone and execute
+        ``action_ref`` and everything downstream fresh.
+
+        Unlike :meth:`resolve_draft_pinned_action_results` this is strict --
+        every rejection raises ``TracecatValidationError`` with a
+        machine-readable ``detail["code"]`` so callers never silently re-run
+        upstream actions.
+        """
+        dsl_actions = {task.ref: task for task in dsl.actions}
+        stmt = dsl_actions.get(action_ref)
+        if stmt is None:
+            raise TracecatValidationError(
+                f"Action {action_ref!r} is not part of the current workflow graph.",
+                detail={"code": "unknown_action_ref", "action_ref": action_ref},
+            )
+
+        if (
+            action_ref in dsl.scoped_action_refs()
+            or stmt.action in UNSUPPORTED_DRAFT_PIN_ACTIONS
+        ):
+            raise TracecatValidationError(
+                f"Action {action_ref!r} cannot start a run: control-flow actions "
+                "and actions inside scatter or loop scopes are not restartable.",
+                detail={"code": "action_not_restartable", "action_ref": action_ref},
+            )
+
+        parent_refs: list[str] = []
+        error_edge_parents: list[str] = []
+        for dep in stmt.depends_on:
+            src_ref, edge_type = edge_components_from_dep(dep)
+            if edge_type is EdgeType.ERROR:
+                error_edge_parents.append(src_ref)
+            if src_ref not in parent_refs:
+                parent_refs.append(src_ref)
+
+        if error_edge_parents:
+            raise TracecatValidationError(
+                f"Action {action_ref!r} runs on an error branch; a failed parent "
+                "result cannot be reused as a pinned success.",
+                detail={
+                    "code": "error_edge_parent",
+                    "action_ref": action_ref,
+                    "parent_refs": sorted(set(error_edge_parents)),
+                },
+            )
+
+        control_flow_parents = sorted(
+            ref
+            for ref in parent_refs
+            if (parent := dsl_actions.get(ref)) is not None
+            and parent.action in UNSUPPORTED_DRAFT_PIN_ACTIONS
+        )
+        if control_flow_parents:
+            raise TracecatValidationError(
+                f"Action {action_ref!r} depends on a control-flow action whose "
+                "result cannot be reused.",
+                detail={
+                    "code": "control_flow_parent",
+                    "action_ref": action_ref,
+                    "parent_refs": control_flow_parents,
+                },
+            )
+
+        source_wf_id, _ = exec_id_to_parts(source_execution_id)
+        if source_wf_id != wf_id:
+            raise TracecatValidationError(
+                "Source execution does not belong to this workflow.",
+                detail={"code": "source_workflow_mismatch"},
+            )
+        await self._require_replay_source(source_execution_id)
+
+        if not parent_refs:
+            # A root action: run the draft from the start with no pins.
+            return {}
+
+        pinned_results = await self.resolve_draft_pinned_action_results(
+            wf_id=wf_id,
+            dsl=dsl,
+            draft_pins=WorkflowDraftPinsData(
+                source_execution_id=source_execution_id,
+                action_refs=parent_refs,
+            ),
+        )
+
+        missing_refs = sorted(set(parent_refs) - set(pinned_results))
+        if missing_refs:
+            raise TracecatValidationError(
+                f"Could not reuse every upstream result for {action_ref!r} from "
+                f"execution {source_execution_id}.",
+                detail={
+                    "code": "unresolved_parents",
+                    "action_ref": action_ref,
+                    "parent_refs": missing_refs,
+                    "source_execution_id": source_execution_id,
+                },
+            )
+
+        return pinned_results
+
+    async def _require_replay_source(self, wf_exec_id: WorkflowExecutionID) -> None:
+        """Authorize replay history reads without exposing inaccessible runs."""
+        try:
+            await self.require_execution(wf_exec_id)
+        except WorkflowExecutionNotFoundError as e:
+            raise TracecatNotFoundError("Source execution not found") from e
+
+    async def _get_run_start_args(self, wf_exec_id: WorkflowExecutionID) -> DSLRunArgs:
+        """Read a run's start args from the first history event."""
+        handle = self.handle(wf_exec_id)
+        async for event in handle.fetch_history_events():
+            if event.event_type != EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED:
+                continue
+            attrs = event.workflow_execution_started_event_attributes
+            run_args_data = await extract_first(attrs.input)
+            try:
+                return DSLRunArgs.model_validate(run_args_data)
+            except ValidationError as e:
+                raise TracecatValidationError(
+                    "Source trigger inputs could not be read; supply inputs explicitly.",
+                    detail={"code": "source_inputs_unreadable"},
+                ) from e
+        raise TracecatValidationError(
+            "Source execution has no start event; supply inputs explicitly.",
+            detail={"code": "source_inputs_unreadable"},
+        )
+
+    async def get_execution_trigger_inputs(
+        self, wf_exec_id: WorkflowExecutionID
+    ) -> Any | None:
+        """Return the inline trigger inputs an execution was started with.
+
+        Returns ``None`` when the run had no trigger inputs. Raises
+        ``TracecatValidationError`` with code ``source_inputs_not_inline`` when
+        the payload was offloaded to object storage, since the caller must then
+        supply inputs explicitly.
+        """
+        await self._require_replay_source(wf_exec_id)
+        run_args = await self._get_run_start_args(wf_exec_id)
+        if run_args.trigger_inputs is None:
+            return None
+        trigger_inputs = run_args.trigger_inputs
+        if isinstance(trigger_inputs, InlineObject):
+            return trigger_inputs.data
+        raise TracecatValidationError(
+            f"Execution {wf_exec_id} stored its trigger inputs outside the "
+            "workflow history; supply inputs explicitly.",
+            detail={
+                "code": "source_inputs_not_inline",
+                "source_execution_id": wf_exec_id,
+            },
+        )
 
     @staticmethod
     async def connect(role: Role | None = None) -> WorkflowExecutionsService:

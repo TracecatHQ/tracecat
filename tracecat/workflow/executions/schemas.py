@@ -1092,6 +1092,27 @@ class WorkflowExecutionCreate(BaseModel):
     )
 
 
+class WorkflowExecutionCreateFromAction(BaseModel):
+    """Start a draft run at a specific action, reusing its upstream results."""
+
+    workflow_id: AnyWorkflowID
+    action_ref: str
+    source_execution_id: WorkflowExecutionID
+    inputs: TriggerInputs | None = Field(
+        default=None,
+        description=(
+            "Trigger inputs. Defaults to the source execution's trigger inputs "
+            "when omitted."
+        ),
+    )
+    time_anchor: datetime | None = Field(
+        default=None,
+        description=(
+            "Override the workflow's time anchor for FN.now() and related functions."
+        ),
+    )
+
+
 class WorkflowExecutionCreateResponse(TypedDict):
     message: str
     wf_id: WorkflowID

@@ -850,6 +850,8 @@ import type {
   WorkflowExecutionsCancelWorkflowExecutionData,
   WorkflowExecutionsCancelWorkflowExecutionResponse,
   WorkflowExecutionsCreateDraftWorkflowExecutionData,
+  WorkflowExecutionsCreateDraftWorkflowExecutionFromActionData,
+  WorkflowExecutionsCreateDraftWorkflowExecutionFromActionResponse,
   WorkflowExecutionsCreateDraftWorkflowExecutionResponse,
   WorkflowExecutionsCreateWorkflowExecutionData,
   WorkflowExecutionsCreateWorkflowExecutionResponse,
@@ -2936,6 +2938,39 @@ export const workflowExecutionsCreateDraftWorkflowExecution = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Draft Workflow Execution From Action
+ * Create and schedule a draft execution that starts at a specific action.
+ *
+ * The immediate parents of `action_ref` are pinned to their results in
+ * `source_execution_id`, so the exclusive upstream cone is skipped and the
+ * selected action and everything downstream run fresh. The workflow's stored
+ * draft pins are neither read nor modified.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns WorkflowExecutionCreateResponse Successful Response
+ * @throws ApiError
+ */
+export const workflowExecutionsCreateDraftWorkflowExecutionFromAction = (
+  data: WorkflowExecutionsCreateDraftWorkflowExecutionFromActionData
+): CancelablePromise<WorkflowExecutionsCreateDraftWorkflowExecutionFromActionResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/workflow-executions/draft/from-action",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      400: "Draft, replay source, or trigger inputs are invalid",
+      404: "Workflow or source execution not found",
       422: "Validation Error",
     },
   })
