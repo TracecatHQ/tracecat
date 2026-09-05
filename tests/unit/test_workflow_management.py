@@ -1526,3 +1526,31 @@ async def test_run_workflow_from_action_prefers_explicit_inputs(
 
     _, kwargs = fake_exec.calls[0]
     assert kwargs["payload"] == {"beta": 2}
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("explicit", [False, True])
+@pytest.mark.parametrize("payload", [{"count": "not-an-int"}, {}])
+async def test_run_from_action_validates_inputs_before_dispatch(
+    monkeypatch: pytest.MonkeyPatch, explicit: bool, payload: dict[str, Any]
+) -> None:
+    dsl = _run_dsl(expects={"count": {"type": "int"}})
+    service = _service(_role())
+    monkeypatch.setattr(
+        service,
+        "get_workflow",
+        AsyncMock(return_value=SimpleNamespace(draft_pins=None)),
+    )
+    monkeypatch.setattr(service, "build_dsl_from_workflow", AsyncMock(return_value=dsl))
+    monkeypatch.setattr(management, "validate_dsl", AsyncMock(return_value=[]))
+    fake_exec = _patch_exec_service(monkeypatch)
+    fake_exec.source_trigger_inputs = payload
+
+    with pytest.raises(TracecatValidationError):
+        await service.run_workflow_from_action(
+            WorkflowUUID.new_uuid4(),
+            action_ref="child",
+            source_execution_id=generate_exec_id(WorkflowUUID.new_uuid4()),
+            inputs=payload if explicit else None,
+        )
+    assert fake_exec.calls == []

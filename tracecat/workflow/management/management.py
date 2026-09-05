@@ -1259,6 +1259,18 @@ class WorkflowsManagementService(BaseWorkspaceService):
             if inputs is not None
             else await exec_service.get_execution_trigger_inputs(source_execution_id)
         )
+        if expects := dsl.entrypoint.expects:
+            try:
+                normalize_trigger_inputs(
+                    expects,
+                    {} if effective_inputs is None else effective_inputs,
+                    model_name="TriggerInputsValidator",
+                )
+            except ValidationError as e:
+                raise TracecatValidationError(
+                    "Trigger inputs do not match the workflow's input schema.",
+                    detail=ValidationDetail.list_from_pydantic(e),
+                ) from e
         return await exec_service.create_draft_workflow_execution_wait_for_start(
             dsl=dsl,
             wf_id=wf_id,
