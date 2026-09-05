@@ -5,6 +5,7 @@ import uuid
 from pathlib import Path
 
 import orjson
+import pytest
 import sqlalchemy as sa
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
@@ -89,11 +90,14 @@ def test_deleted_dependency_backfill_preserves_live_refs_and_order() -> None:
                     assert conn.scalar(
                         sa.text(f"INSERT INTO {table} DEFAULT VALUES RETURNING agents")
                     ) == {"subagents": []}
-                migration.downgrade()  # Never recreates deleted links.
+                with pytest.raises(
+                    NotImplementedError, match="Database downgrade is unsupported"
+                ):
+                    migration.downgrade()
                 for table in ("agent_preset", "agent_preset_version"):
                     assert conn.scalar(
                         sa.text(f"INSERT INTO {table} DEFAULT VALUES RETURNING agents")
-                    ) == {"enabled": False}
+                    ) == {"subagents": []}
             for table in ("agent_preset", "agent_preset_version"):
                 agents = conn.scalar(
                     sa.text(f"SELECT agents FROM {table} WHERE id = :parent"),

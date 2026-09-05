@@ -34,7 +34,6 @@ depends_on: str | Sequence[str] | None = None
 _AGENTS_TABLES = ("agent_preset", "agent_preset_version")
 _AGENTS_TYPE = postgresql.JSONB(astext_type=sa.Text())
 _EMPTY_SUBAGENTS_SQL = sa.text("'{\"subagents\": []}'::jsonb")
-_LEGACY_DISABLED_SQL = sa.text("'{\"enabled\": false}'::jsonb")
 
 
 def upgrade() -> None:
@@ -86,13 +85,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Restore the previous server default. Deleted dependency links are
-    # intentionally not restored.
-    for table in _AGENTS_TABLES:
-        op.alter_column(
-            table,
-            "agents",
-            existing_type=_AGENTS_TYPE,
-            existing_nullable=False,
-            server_default=_LEGACY_DISABLED_SQL,
-        )
+    raise NotImplementedError(
+        "Database downgrade is unsupported: deleted dependency links cannot be "
+        "restored by this migration. Roll back the application only. Recover "
+        "deleted database data from a backup or snapshot if needed."
+    )
