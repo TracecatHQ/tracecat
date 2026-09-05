@@ -182,10 +182,19 @@ export function computePinDomains(
   }
   const allActionRefs = new Set<string>(refByActionId.values())
   const scopedRefs = computeScopedActionRefs(actions)
+  const eligibleRefs = new Set(
+    actionList
+      .filter(
+        (action) =>
+          !UNPINNABLE_ACTION_TYPES.has(action.type) &&
+          action.control_flow?.mask_output !== true
+      )
+      .map((action) => slugifyActionRef(action.title))
+  )
 
   const pinnedRefs = new Set(
     pins.action_refs.filter(
-      (actionRef) => allActionRefs.has(actionRef) && !scopedRefs.has(actionRef)
+      (actionRef) => eligibleRefs.has(actionRef) && !scopedRefs.has(actionRef)
     )
   )
   if (pinnedRefs.size === 0) {
@@ -221,6 +230,11 @@ export function computePinDomains(
   }
 
   const skipDomain = new Set(pinnedRefs)
+  const scatterRefs = new Set(
+    actionList
+      .filter((action) => action.type === "core.transform.scatter")
+      .map((action) => slugifyActionRef(action.title))
+  )
   let changed = true
   while (changed) {
     changed = false
@@ -228,7 +242,8 @@ export function computePinDomains(
       if (
         skipDomain.has(actionRef) ||
         nextRefs.size === 0 ||
-        refsWithErrorEdges.has(actionRef)
+        refsWithErrorEdges.has(actionRef) ||
+        scatterRefs.has(actionRef)
       ) {
         continue
       }
