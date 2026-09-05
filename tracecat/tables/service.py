@@ -45,6 +45,8 @@ from tracecat.pagination import (
     PaginationError,
     paginate,
 )
+from tracecat.query.compiler import compile_aggregation, compile_filter
+from tracecat.query.execution import query_execution_context
 from tracecat.service import BaseWorkspaceService
 from tracecat.tables.common import (
     INTERNAL_COLUMN_PREFIX as INTERNAL_COLUMN_PREFIX,
@@ -82,7 +84,10 @@ from tracecat.tables.importer import (
     InferredCSVColumn,
     generate_table_name,
 )
+from tracecat.tables.query import TableFieldResolver
 from tracecat.tables.schemas import (
+    AggregateResponse,
+    TableAggregateRequest,
     TableColumnCreate,
     TableColumnUpdate,
     TableCreate,
@@ -1146,6 +1151,84 @@ class BaseTablesService(BaseWorkspaceService):
         result = await conn.execute(stmt)
         await self.session.flush()
         return result.rowcount
+
+    @retry(
+        retry=retry_if_exception_type(_RETRYABLE_DB_EXCEPTIONS),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=0.1, min=0.2, max=2),
+        reraise=True,
+    )
+    async def aggregate_rows(
+        self,
+        table_name: str,
+        request: TableAggregateRequest,
+    ) -> AggregateResponse:
+        """Filter and aggregate rows in a workspace-scoped table."""
+        table = await self.get_table_by_name(table_name)
+        schema_name = self._get_schema_name()
+        sanitized_table_name = self._sanitize_identifier(table.name)
+        physical_table = sa.table(sanitized_table_name, schema=schema_name)
+        resolver = TableFieldResolver(table.columns)
+
+        statement = sa.select(sa.literal(1)).select_from(physical_table)
+        if request.filters is not None:
+            statement = statement.where(compile_filter(request.filters, resolver))
+
+        requested_fields = {group.field for group in request.group_by}
+        requested_fields.update(
+            agg.field for agg in request.aggs if agg.field is not None
+        )
+        resolved_fields = {
+            field: resolved
+            for field in requested_fields
+            if (resolved := resolver.resolve_aggregation(field)) is not None
+        }
+        statement = compile_aggregation(
+            statement,
+            request,
+            resolved_fields,
+            limit=request.limit,
+            base_has_multi_valued_join=False,
+        )
+
+        txn_cm = (
+            self.session.begin_nested()
+            if self.session.in_transaction()
+            else self.session.begin()
+        )
+        async with txn_cm as txn:
+            conn = await txn.session.connection()
+            try:
+                async with query_execution_context(txn.session):
+                    result = await conn.execute(
+                        statement,
+                        execution_options={"isolation_level": "READ COMMITTED"},
+                    )
+                rows = [dict(row) for row in result.mappings().all()]
+            except _RETRYABLE_DB_EXCEPTIONS as exc:
+                self.logger.warning(
+                    "Retryable DB exception occurred during table aggregation",
+                    kind=type(exc).__name__,
+                    error=str(exc),
+                    table=table_name,
+                    schema=schema_name,
+                )
+                raise
+            except ProgrammingError as exc:
+                root: BaseException = exc
+                while root.__cause__ is not None:
+                    root = root.__cause__
+                if isinstance(root, UndefinedTableError):
+                    raise TracecatNotFoundError(
+                        f"Table '{table_name}' does not exist"
+                    ) from exc
+                raise
+
+        truncated = len(rows) > request.limit
+        return AggregateResponse(
+            groups=rows[: request.limit],
+            truncated=truncated,
+        )
 
     @retry(
         retry=retry_if_exception_type(_RETRYABLE_DB_EXCEPTIONS),
