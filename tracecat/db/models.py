@@ -31,10 +31,15 @@ from sqlalchemy import (
     MetaData,
     PrimaryKeyConstraint,
     String,
+    Subquery,
     Text,
     UniqueConstraint,
     func,
+    null,
+    select,
     text,
+    union,
+    union_all,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.ext.hybrid import hybrid_property
@@ -234,12 +239,6 @@ class Organization(Base, TimestampMixin):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     # Relationships
-    members: Mapped[list[User]] = relationship(
-        "User",
-        secondary="organization_membership",
-        back_populates="organizations",
-        lazy="select",
-    )
     organization_tier: Mapped[OrganizationTier | None] = relationship(
         "OrganizationTier",
         back_populates="organization",
@@ -360,49 +359,6 @@ class OAuthAccount(SQLAlchemyBaseOAuthAccountTableUUID, Base):
     user: Mapped[User] = relationship(back_populates="oauth_accounts")
 
 
-class Membership(Base):
-    """Link table for users and workspaces (many to many)."""
-
-    __tablename__ = "membership"
-    __table_args__ = (
-        Index("ix_membership_workspace_id", "workspace_id"),
-        Index("ix_membership_workspace_user", "workspace_id", "user_id"),
-    )
-
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        ForeignKey("user.id"),
-        primary_key=True,
-    )
-    workspace_id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        ForeignKey("workspace.id", ondelete="CASCADE"),
-        primary_key=True,
-    )
-
-
-class OrganizationMembership(Base, TimestampMixin):
-    """Link table for users and organizations (many to many)."""
-
-    __tablename__ = "organization_membership"
-    __table_args__ = (
-        # Index for "get all members of org" queries
-        # (PK index covers user_id lookups, but not org_id alone)
-        Index("ix_org_membership_org_id", "organization_id"),
-    )
-
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        ForeignKey("user.id", ondelete="CASCADE"),
-        primary_key=True,
-    )
-    organization_id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        ForeignKey("organization.id", ondelete="CASCADE"),
-        primary_key=True,
-    )
-
-
 class Ownership(Base):
     """Table to map resources to owners.
 
@@ -453,8 +409,11 @@ class Workspace(OrganizationModel):
     )
     members: Mapped[list[User]] = relationship(
         "User",
-        secondary=Membership.__table__,
+        secondary=lambda: Membership.__table__,
+        primaryjoin="Workspace.id == Membership.workspace_id",
+        secondaryjoin="Membership.user_id == User.id",
         back_populates="workspaces",
+        viewonly=True,
     )
     workflows: Mapped[list[Workflow]] = relationship(
         "Workflow",
@@ -602,7 +561,10 @@ class User(SQLAlchemyBaseUserTableUUID, Base):
         "Workspace",
         back_populates="members",
         lazy="select",
-        secondary=Membership.__table__,
+        secondary=lambda: Membership.__table__,
+        primaryjoin="User.id == Membership.user_id",
+        secondaryjoin="Membership.workspace_id == Workspace.id",
+        viewonly=True,
     )
     assigned_cases: Mapped[list[Case]] = relationship(
         "Case",
@@ -625,13 +587,6 @@ class User(SQLAlchemyBaseUserTableUUID, Base):
         "UserRoleAssignment",
         back_populates="user",
         foreign_keys="UserRoleAssignment.user_id",
-        lazy="select",
-        passive_deletes=True,
-    )
-    organizations: Mapped[list[Organization]] = relationship(
-        "Organization",
-        secondary=OrganizationMembership.__table__,
-        back_populates="members",
         lazy="select",
         passive_deletes=True,
     )
@@ -5467,7 +5422,7 @@ class GroupMember(Base):
         UUID, ForeignKey("user.id", ondelete="CASCADE"), primary_key=True
     )
     group_id: Mapped[uuid.UUID] = mapped_column(
-        UUID, ForeignKey("group.id", ondelete="CASCADE"), primary_key=True
+        UUID, ForeignKey("group.id", ondelete="CASCADE"), primary_key=True, index=True
     )
     added_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now()
@@ -5503,7 +5458,7 @@ class GroupRoleAssignment(Base):
         UUID, ForeignKey("group.id", ondelete="CASCADE")
     )
     workspace_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID, ForeignKey("workspace.id", ondelete="CASCADE")
+        UUID, ForeignKey("workspace.id", ondelete="CASCADE"), index=True
     )
     role_id: Mapped[uuid.UUID] = mapped_column(
         UUID, ForeignKey("role.id", ondelete="RESTRICT"), index=True
@@ -5552,7 +5507,7 @@ class UserRoleAssignment(Base):
         UUID, ForeignKey("user.id", ondelete="CASCADE")
     )
     workspace_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID, ForeignKey("workspace.id", ondelete="CASCADE")
+        UUID, ForeignKey("workspace.id", ondelete="CASCADE"), index=True
     )
     role_id: Mapped[uuid.UUID] = mapped_column(
         UUID, ForeignKey("role.id", ondelete="RESTRICT"), index=True
@@ -5571,3 +5526,68 @@ class UserRoleAssignment(Base):
     )
     workspace: Mapped[Workspace | None] = relationship("Workspace")
     role: Mapped[Role] = relationship("Role", back_populates="user_assignments")
+
+
+def _role_paths(name: str) -> Subquery:
+    """Every (user, org, scope) role path, direct or via a group."""
+    ura = UserRoleAssignment.__table__
+    gra = GroupRoleAssignment.__table__
+    gm = GroupMember.__table__
+    return union_all(
+        select(ura.c.user_id, ura.c.organization_id, ura.c.workspace_id),
+        select(gm.c.user_id, gra.c.organization_id, gra.c.workspace_id).join_from(
+            gra, gm, gm.c.group_id == gra.c.group_id
+        ),
+    ).subquery(name)
+
+
+# Inline subqueries, not a CTE: a CTE referenced twice is materialized and
+# blocks predicate pushdown into the assignment tables.
+_scoped = _role_paths("scoped_paths")
+_org = _role_paths("org_paths")
+membership_select = union(
+    select(_scoped.c.user_id, _scoped.c.organization_id, _scoped.c.workspace_id),
+    select(_org.c.user_id, _org.c.organization_id, null().label("workspace_id")),
+).subquery("membership")
+
+
+class Membership(Base):
+    """Read-only membership derived from RBAC assignments."""
+
+    __table__ = membership_select
+
+    user_id: Mapped[uuid.UUID]
+    organization_id: Mapped[uuid.UUID]
+    workspace_id: Mapped[uuid.UUID | None]
+
+    __mapper_args__ = {
+        "primary_key": [
+            membership_select.c.user_id,
+            membership_select.c.organization_id,
+            membership_select.c.workspace_id,
+        ]
+    }
+
+
+# Org-wide presence is the NULL-workspace slice of the derived membership.
+organization_membership_select = (
+    select(membership_select.c.user_id, membership_select.c.organization_id)
+    .where(membership_select.c.workspace_id.is_(None))
+    .subquery("organization_membership")
+)
+
+
+class OrganizationMembership(Base):
+    """Read-only org presence derived from RBAC assignments."""
+
+    __table__ = organization_membership_select
+
+    user_id: Mapped[uuid.UUID]
+    organization_id: Mapped[uuid.UUID]
+
+    __mapper_args__ = {
+        "primary_key": [
+            organization_membership_select.c.user_id,
+            organization_membership_select.c.organization_id,
+        ]
+    }

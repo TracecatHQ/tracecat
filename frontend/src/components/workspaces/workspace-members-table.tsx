@@ -43,6 +43,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import {
   useWorkspaceMembers,
@@ -50,6 +55,18 @@ import {
 } from "@/hooks/use-workspace"
 import { useRbacRoles, useRbacUserAssignments } from "@/lib/hooks"
 import { useQueryClient } from "@/lib/query"
+
+/**
+ * Describes where a member's workspace access comes from, for display.
+ * Group-derived members cannot be removed here; their group must change.
+ */
+function describeMemberSource(source: WorkspaceMember["source"]): string {
+  const groups = (source.group_names ?? []).join(", ")
+  if (source.kind === "direct") {
+    return groups ? `Direct + ${groups}` : "Direct"
+  }
+  return groups || "Group"
+}
 
 export function WorkspaceMembersTable({
   workspace,
@@ -227,9 +244,30 @@ export function WorkspaceMembersTable({
             },
 
             {
+              accessorKey: "source",
+              header: ({ column }) => (
+                <DataTableColumnHeader
+                  className="text-xs"
+                  column={column}
+                  title="Source"
+                />
+              ),
+              cell: ({ row }) => (
+                <div className="text-xs">
+                  {describeMemberSource(row.original.source)}
+                </div>
+              ),
+              enableSorting: false,
+              enableHiding: false,
+            },
+
+            {
               id: "actions",
               enableHiding: false,
               cell: ({ row }) => {
+                const isGroupDerived = row.original.source.kind === "group"
+                const hasGroupGrant =
+                  (row.original.source.group_names?.length ?? 0) > 0
                 return (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
@@ -247,32 +285,70 @@ export function WorkspaceMembersTable({
                         Copy user ID
                       </DropdownMenuItem>
 
-                      {canUpdateMembers && (
-                        <DialogTrigger asChild>
-                          <DropdownMenuItem
-                            onClick={() => {
-                              setSelectedUser(row.original)
-                              setIsChangeRoleOpen(true)
-                            }}
-                          >
-                            Change role
-                          </DropdownMenuItem>
-                        </DialogTrigger>
-                      )}
+                      {canUpdateMembers &&
+                        (isGroupDerived ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="block" tabIndex={0}>
+                                <DropdownMenuItem
+                                  disabled
+                                  onSelect={(event) => event.preventDefault()}
+                                >
+                                  Change role
+                                </DropdownMenuItem>
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              Change the role on the granting group instead.
+                            </TooltipContent>
+                          </Tooltip>
+                        ) : (
+                          <DialogTrigger asChild>
+                            <DropdownMenuItem
+                              onClick={() => {
+                                setSelectedUser(row.original)
+                                setIsChangeRoleOpen(true)
+                              }}
+                            >
+                              Change role
+                            </DropdownMenuItem>
+                          </DialogTrigger>
+                        ))}
 
-                      {canRemoveMembers && (
-                        <AlertDialogTrigger asChild>
-                          <DropdownMenuItem
-                            className="text-rose-500 focus:text-rose-600"
-                            onClick={() => {
-                              setSelectedUser(row.original)
-                              console.debug("Selected user", row.original)
-                            }}
-                          >
-                            Remove from workspace
-                          </DropdownMenuItem>
-                        </AlertDialogTrigger>
-                      )}
+                      {canRemoveMembers &&
+                        (hasGroupGrant ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              {/* A focusable span keeps the tooltip reachable by
+                                  pointer and keyboard: a disabled menu item emits
+                                  no pointer events and is not focusable itself. */}
+                              <span className="block" tabIndex={0}>
+                                <DropdownMenuItem
+                                  disabled
+                                  onSelect={(event) => event.preventDefault()}
+                                >
+                                  Remove from workspace
+                                </DropdownMenuItem>
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              Access comes from{" "}
+                              {describeMemberSource(row.original.source)}.
+                              Remove this user from the group instead.
+                            </TooltipContent>
+                          </Tooltip>
+                        ) : (
+                          <AlertDialogTrigger asChild>
+                            <DropdownMenuItem
+                              className="text-rose-500 focus:text-rose-600"
+                              onClick={() => {
+                                setSelectedUser(row.original)
+                              }}
+                            >
+                              Remove from workspace
+                            </DropdownMenuItem>
+                          </AlertDialogTrigger>
+                        ))}
                     </DropdownMenuContent>
                   </DropdownMenu>
                 )

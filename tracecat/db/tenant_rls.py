@@ -69,6 +69,13 @@ INITIAL_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES = (
     "group_role_assignment",
 )
 
+# Assignment tables need org-wide reads for org-presence queries, but writes must
+# stay workspace-scoped. They carry a split policy instead of a plain org policy.
+ASSIGNMENT_SPLIT_POLICY_TABLES = (
+    "user_role_assignment",
+    "group_role_assignment",
+)
+
 # Tables introduced after the initial RLS rollout. Their creating or follow-up
 # revisions must apply policy SQL explicitly.
 POST_RLS_WORKSPACE_SCOPED_TABLES = (
@@ -106,7 +113,12 @@ POST_RLS_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES = (
 )
 
 SPECIAL_TENANT_POLICY_TABLES = frozenset(
-    {"agent_tag_link", "service_account_api_key", "service_account_scope"}
+    {
+        "agent_tag_link",
+        "service_account_api_key",
+        "service_account_scope",
+        *ASSIGNMENT_SPLIT_POLICY_TABLES,
+    }
 )
 
 # Workspace and oauth_state carry custom policy SQL. scope and agent_catalog
@@ -122,9 +134,13 @@ CURRENT_ORG_SCOPED_TABLES = (
     *INITIAL_ORG_SCOPED_TABLES,
     *POST_RLS_ORG_SCOPED_TABLES,
 )
-CURRENT_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES = (
-    *INITIAL_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES,
-    *POST_RLS_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES,
+CURRENT_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES = tuple(
+    table
+    for table in (
+        *INITIAL_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES,
+        *POST_RLS_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES,
+    )
+    if table not in ASSIGNMENT_SPLIT_POLICY_TABLES
 )
 
 WORKSPACE_POLICY_TABLES = frozenset(CURRENT_WORKSPACE_SCOPED_TABLES)
@@ -255,6 +271,71 @@ def enable_org_optional_workspace_table_rls(table: str) -> str:
 
 def disable_org_optional_workspace_table_rls(table: str) -> str:
     return disable_org_table_rls(table)
+
+
+def _assignment_org_read_policy(table: str) -> str:
+    return f"{policy_name(table)}_org_read"
+
+
+def _assignment_write_policy(table: str, verb: str) -> str:
+    return f"{policy_name(table)}_{verb}"
+
+
+# A workspace-scoped session may only touch rows for its own workspace; org-wide
+# rows (workspace_id IS NULL) are writable only without a workspace context.
+_ASSIGNMENT_WRITE_PREDICATE = """
+                current_setting('{bypass_var}', true) = '{bypass_on}'
+                OR (
+                    organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid
+                    AND (
+                        NULLIF(current_setting('app.current_workspace_id', true), '')::uuid IS NULL
+                        OR workspace_id = NULLIF(current_setting('app.current_workspace_id', true), '')::uuid
+                    )
+                )
+"""
+
+
+def enable_assignment_split_table_rls(table: str) -> str:
+    # Split policies so org-presence queries read the whole org while writes stay
+    # workspace-scoped. Separate INSERT/UPDATE/DELETE policies replace a FOR ALL
+    # policy whose WITH CHECK let a workspace session write org-wide rows.
+    predicate = _ASSIGNMENT_WRITE_PREDICATE.format(
+        bypass_var=RLS_BYPASS_VAR, bypass_on=RLS_BYPASS_ON
+    )
+    return f"""
+        ALTER TABLE "{table}" ENABLE ROW LEVEL SECURITY;
+
+        CREATE POLICY {_assignment_org_read_policy(table)} ON "{table}"
+            FOR SELECT
+            USING (
+                current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}'
+                OR organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid
+            );
+
+        CREATE POLICY {_assignment_write_policy(table, "insert")} ON "{table}"
+            FOR INSERT
+            WITH CHECK ({predicate});
+
+        CREATE POLICY {_assignment_write_policy(table, "update")} ON "{table}"
+            FOR UPDATE
+            USING ({predicate})
+            WITH CHECK ({predicate});
+
+        CREATE POLICY {_assignment_write_policy(table, "delete")} ON "{table}"
+            FOR DELETE
+            USING ({predicate});
+    """
+
+
+def disable_assignment_split_table_rls(table: str) -> str:
+    return f"""
+        DROP POLICY IF EXISTS {_assignment_org_read_policy(table)} ON "{table}";
+        DROP POLICY IF EXISTS {_assignment_write_policy(table, "insert")} ON "{table}";
+        DROP POLICY IF EXISTS {_assignment_write_policy(table, "update")} ON "{table}";
+        DROP POLICY IF EXISTS {_assignment_write_policy(table, "delete")} ON "{table}";
+        DROP POLICY IF EXISTS {policy_name(table)} ON "{table}";
+        ALTER TABLE "{table}" DISABLE ROW LEVEL SECURITY;
+    """
 
 
 def enable_scope_table_rls() -> str:

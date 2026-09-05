@@ -11,6 +11,7 @@ import pytest
 import respx
 from httpx import Response
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql import Select
 from tracecat_admin.cli import app
 from typer.testing import CliRunner
 
@@ -60,7 +61,11 @@ class TestListUsers:
             return_value=Response(200, json=sample_users)
         )
 
-        result = runner.invoke(app, ["admin", "list-users"])
+        result = runner.invoke(
+            app,
+            ["admin", "list-users"],
+            env={"COLUMNS": "200"},
+        )
 
         assert result.exit_code == 0
         assert "admin@example.com" in result.stdout
@@ -100,7 +105,7 @@ class TestListUsers:
         result = runner.invoke(app, ["admin", "list-users"])
 
         assert result.exit_code == 1
-        assert "Error" in result.stdout
+        assert "Error" in result.output
 
 
 class TestGetUser:
@@ -133,7 +138,7 @@ class TestGetUser:
         result = runner.invoke(app, ["admin", "get-user", user_id])
 
         assert result.exit_code == 1
-        assert "not found" in result.stdout
+        assert "not found" in result.output
 
 
 class TestPromoteUser:
@@ -173,7 +178,7 @@ class TestPromoteUser:
         )
 
         assert result.exit_code == 1
-        assert "not found" in result.stdout
+        assert "not found" in result.output
 
     @respx.mock
     def test_promote_already_superuser(
@@ -190,7 +195,7 @@ class TestPromoteUser:
         )
 
         assert result.exit_code == 1
-        assert "already a superuser" in result.stdout
+        assert "already a superuser" in result.output
 
 
 class TestDemoteUser:
@@ -233,7 +238,7 @@ class TestDemoteUser:
         )
 
         assert result.exit_code == 1
-        assert "not a superuser" in result.stdout
+        assert "not a superuser" in result.output
 
 
 class TestCreateDevUser:
@@ -322,7 +327,7 @@ class TestCreateDevUser:
         )
 
         assert result.exit_code == 1
-        assert "Password must be at least 12 characters" in result.stdout
+        assert "Password must be at least 12 characters" in result.output
 
     def test_create_dev_user_rejects_short_superuser_password(self) -> None:
         """Test superuser password length validation."""
@@ -341,7 +346,7 @@ class TestCreateDevUser:
         )
 
         assert result.exit_code == 1
-        assert "Superuser password must be at least 12 characters" in result.stdout
+        assert "Superuser password must be at least 12 characters" in result.output
 
     def test_default_tier_entitlement_selection(self) -> None:
         """Test default tier entitlement selector modes."""
@@ -370,10 +375,13 @@ class TestCreateDevUser:
                 return SimpleNamespace()
 
         class FakeSession:
-            statement: Any | None = None
+            statements: list[Any]
+
+            def __init__(self) -> None:
+                self.statements = []
 
             async def execute(self, statement: Any) -> FakeResult:
-                self.statement = statement
+                self.statements.append(statement)
                 return FakeResult()
 
             def add(self, value: Any) -> None:
@@ -389,7 +397,9 @@ class TestCreateDevUser:
             role_id=uuid.uuid4(),
         )
 
-        assert session.statement is not None
-        assert "user_role_assignment.organization_id =" in str(
-            session.statement.compile()
+        first_select = next(
+            statement
+            for statement in session.statements
+            if isinstance(statement, Select)
         )
+        assert "user_role_assignment.organization_id =" in str(first_select.compile())

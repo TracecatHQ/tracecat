@@ -458,6 +458,7 @@ class RBACService(BaseOrgService):
 
         member = GroupMember(group_id=group_id, user_id=user_id)
         self.session.add(member)
+        await self.session.flush()
         await self.session.commit()
 
     @require_scope("org:rbac:update")
@@ -592,6 +593,7 @@ class RBACService(BaseOrgService):
             assigned_by=self.role.user_id,
         )
         self.session.add(assignment)
+        await self.session.flush()
         await self.session.commit()
         await self.session.refresh(assignment, ["group", "role", "workspace"])
         return assignment
@@ -730,6 +732,7 @@ class RBACService(BaseOrgService):
         )
         self.session.add(assignment)
         try:
+            await self.session.flush()
             await self.session.commit()
         except IntegrityError as e:
             await self.session.rollback()

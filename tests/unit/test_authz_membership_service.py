@@ -4,15 +4,20 @@ import uuid
 
 import pytest
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
+from tracecat.authz.membership import (
+    resolve_org_role_names,
+)
 from tracecat.authz.scopes import ADMIN_SCOPES, EDITOR_SCOPES
 from tracecat.authz.seeding import seed_system_scopes
 from tracecat.authz.service import MembershipService
 from tracecat.db.models import (
+    Group,
+    GroupMember,
+    GroupRoleAssignment,
     Membership,
     Organization,
     RoleScope,
@@ -22,7 +27,10 @@ from tracecat.db.models import (
     Workspace,
 )
 from tracecat.db.models import Role as DBRole
-from tracecat.exceptions import TracecatAuthorizationError
+from tracecat.exceptions import (
+    GroupDerivedMembershipError,
+    TracecatAuthorizationError,
+)
 from tracecat.workspaces.schemas import WorkspaceMembershipCreate
 
 pytestmark = [pytest.mark.anyio, pytest.mark.usefixtures("db")]
@@ -112,6 +120,22 @@ async def workspace_editor_role(
 
 
 @pytest.fixture
+async def org_member_role(session: AsyncSession, organization: Organization) -> DBRole:
+    """Create the org-wide member role used by the legacy-mirror tests."""
+    role = DBRole(
+        id=uuid.uuid4(),
+        name="Organization Member",
+        slug="organization-member",
+        description="Default org member role",
+        organization_id=organization.id,
+    )
+    session.add(role)
+    await session.commit()
+    await session.refresh(role)
+    return role
+
+
+@pytest.fixture
 def actor_role(
     organization: Organization, workspace: Workspace, actor_user: User
 ) -> Role:
@@ -143,12 +167,6 @@ async def test_delete_membership_removes_membership_and_assignment(
 ) -> None:
     """Deleting membership should also delete workspace direct role assignment."""
     session.add(
-        Membership(
-            user_id=member_user.id,
-            workspace_id=workspace.id,
-        )
-    )
-    session.add(
         UserRoleAssignment(
             organization_id=organization.id,
             user_id=member_user.id,
@@ -157,6 +175,7 @@ async def test_delete_membership_removes_membership_and_assignment(
             assigned_by=actor_user.id,
         )
     )
+    await session.flush()
     await session.commit()
 
     await membership_service.delete_membership(
@@ -266,28 +285,40 @@ async def test_create_membership_heals_stale_workspace_assignment(
     assert assignment_list[0].assigned_by == actor_user.id
 
 
-async def test_create_membership_duplicate_raises_integrity_error(
+async def test_create_membership_is_idempotent(
     session: AsyncSession,
     membership_service: MembershipService,
+    organization: Organization,
     workspace: Workspace,
     member_user: User,
     workspace_editor_role: DBRole,
 ) -> None:
-    """Creating an existing membership should raise an integrity conflict."""
+    """Re-adding an existing member replaces the assignment rather than failing."""
     assert workspace_editor_role.slug == "workspace-editor"
     session.add(
-        Membership(
+        UserRoleAssignment(
+            organization_id=organization.id,
             user_id=member_user.id,
             workspace_id=workspace.id,
+            role_id=workspace_editor_role.id,
         )
     )
     await session.commit()
 
-    with pytest.raises(IntegrityError):
-        await membership_service.create_membership(
-            workspace_id=workspace.id,
-            params=WorkspaceMembershipCreate(user_id=member_user.id),
+    await membership_service.create_membership(
+        workspace_id=workspace.id,
+        params=WorkspaceMembershipCreate(user_id=member_user.id),
+    )
+
+    assignments = (
+        await session.execute(
+            select(UserRoleAssignment).where(
+                UserRoleAssignment.workspace_id == workspace.id,
+                UserRoleAssignment.user_id == member_user.id,
+            )
         )
+    ).scalars()
+    assert len(list(assignments)) == 1
 
 
 @pytest.fixture
@@ -421,3 +452,335 @@ async def test_create_membership_allows_admin_inviter(
         )
     ).scalar_one_or_none()
     assert membership is not None
+
+
+@pytest.fixture
+async def granting_group(
+    session: AsyncSession,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    workspace_editor_role: DBRole,
+) -> Group:
+    """A group that grants member_user access to the workspace."""
+    group = Group(
+        id=uuid.uuid4(),
+        name=f"engineering-{uuid.uuid4().hex[:8]}",
+        organization_id=organization.id,
+    )
+    session.add(group)
+    await session.flush()
+    session.add(GroupMember(group_id=group.id, user_id=member_user.id))
+    session.add(
+        GroupRoleAssignment(
+            organization_id=organization.id,
+            group_id=group.id,
+            workspace_id=workspace.id,
+            role_id=workspace_editor_role.id,
+        )
+    )
+    await session.commit()
+    await session.refresh(group)
+    return group
+
+
+async def test_delete_membership_rejects_group_derived_member(
+    session: AsyncSession,
+    membership_service: MembershipService,
+    workspace: Workspace,
+    member_user: User,
+    granting_group: Group,
+) -> None:
+    """A member whose access is only group-derived cannot be removed directly."""
+    with pytest.raises(GroupDerivedMembershipError) as excinfo:
+        await membership_service.delete_membership(
+            workspace_id=workspace.id,
+            user_id=member_user.id,
+        )
+
+    assert excinfo.value.group_names == [granting_group.name]
+    assert excinfo.value.detail == {
+        "code": "group_derived_membership",
+        "group_names": [granting_group.name],
+    }
+
+    # The preflight must not have mutated anything: the member is still there.
+    membership = await session.scalar(
+        select(Membership).where(
+            Membership.workspace_id == workspace.id,
+            Membership.user_id == member_user.id,
+        )
+    )
+    assert membership is not None
+
+
+async def test_delete_membership_rejects_mixed_member(
+    session: AsyncSession,
+    membership_service: MembershipService,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    actor_user: User,
+    workspace_editor_role: DBRole,
+    granting_group: Group,
+) -> None:
+    """Removal is refused while a group still grants access, direct row or not."""
+    session.add(
+        UserRoleAssignment(
+            organization_id=organization.id,
+            user_id=member_user.id,
+            workspace_id=workspace.id,
+            role_id=workspace_editor_role.id,
+            assigned_by=actor_user.id,
+        )
+    )
+    await session.commit()
+
+    with pytest.raises(GroupDerivedMembershipError) as excinfo:
+        await membership_service.delete_membership(
+            workspace_id=workspace.id,
+            user_id=member_user.id,
+        )
+    assert excinfo.value.group_names == [granting_group.name]
+
+    assignment = await session.scalar(
+        select(UserRoleAssignment).where(
+            UserRoleAssignment.workspace_id == workspace.id,
+            UserRoleAssignment.user_id == member_user.id,
+        )
+    )
+    assert assignment is not None
+
+
+async def test_list_workspace_members_reports_direct_source(
+    session: AsyncSession,
+    membership_service: MembershipService,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    actor_user: User,
+    workspace_editor_role: DBRole,
+) -> None:
+    """A directly assigned member reports source kind 'direct'."""
+    session.add(
+        UserRoleAssignment(
+            organization_id=organization.id,
+            user_id=member_user.id,
+            workspace_id=workspace.id,
+            role_id=workspace_editor_role.id,
+            assigned_by=actor_user.id,
+        )
+    )
+    await session.commit()
+
+    members = await membership_service.list_workspace_members(workspace.id)
+
+    member = next(m for m in members if m.user_id == member_user.id)
+    assert member.source.kind == "direct"
+    assert member.source.group_names == []
+
+
+async def test_list_workspace_members_reports_group_source(
+    membership_service: MembershipService,
+    workspace: Workspace,
+    member_user: User,
+    granting_group: Group,
+) -> None:
+    """A group-derived member reports the granting group names."""
+    members = await membership_service.list_workspace_members(workspace.id)
+
+    member = next(m for m in members if m.user_id == member_user.id)
+    assert member.source.kind == "group"
+    assert member.source.group_names == [granting_group.name]
+
+
+@pytest.fixture
+async def workspace_viewer_role(
+    session: AsyncSession, organization: Organization
+) -> DBRole:
+    """A non-editor workspace role for group-granted access."""
+    role = DBRole(
+        id=uuid.uuid4(),
+        name="Workspace Viewer",
+        slug="workspace-viewer",
+        description="Read-only role",
+        organization_id=organization.id,
+    )
+    session.add(role)
+    await session.commit()
+    await session.refresh(role)
+    return role
+
+
+async def test_list_workspace_members_reports_group_granted_role_name(
+    session: AsyncSession,
+    membership_service: MembershipService,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    workspace_viewer_role: DBRole,
+) -> None:
+    """A group-only member shows the role the group grants, not the default."""
+    group = Group(
+        id=uuid.uuid4(),
+        name=f"viewers-{uuid.uuid4().hex[:8]}",
+        organization_id=organization.id,
+    )
+    session.add(group)
+    await session.flush()
+    session.add(GroupMember(group_id=group.id, user_id=member_user.id))
+    session.add(
+        GroupRoleAssignment(
+            organization_id=organization.id,
+            group_id=group.id,
+            workspace_id=workspace.id,
+            role_id=workspace_viewer_role.id,
+        )
+    )
+    await session.commit()
+
+    members = await membership_service.list_workspace_members(workspace.id)
+
+    member = next(m for m in members if m.user_id == member_user.id)
+    assert member.source.kind == "group"
+    assert member.source.group_names == [group.name]
+    assert member.role_name == "Workspace Viewer"
+
+
+async def test_list_workspace_members_picks_first_role_name_across_groups(
+    session: AsyncSession,
+    membership_service: MembershipService,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    granting_group: Group,
+    workspace_viewer_role: DBRole,
+) -> None:
+    """With several granting groups, the first role name alphabetically wins."""
+    group = Group(
+        id=uuid.uuid4(),
+        name=f"viewers-{uuid.uuid4().hex[:8]}",
+        organization_id=organization.id,
+    )
+    session.add(group)
+    await session.flush()
+    session.add(GroupMember(group_id=group.id, user_id=member_user.id))
+    session.add(
+        GroupRoleAssignment(
+            organization_id=organization.id,
+            group_id=group.id,
+            workspace_id=workspace.id,
+            role_id=workspace_viewer_role.id,
+        )
+    )
+    await session.commit()
+
+    members = await membership_service.list_workspace_members(workspace.id)
+
+    member = next(m for m in members if m.user_id == member_user.id)
+    # "Workspace Editor" (from granting_group) sorts before "Workspace Viewer".
+    assert member.role_name == "Workspace Editor"
+    assert sorted(member.source.group_names) == sorted(
+        [granting_group.name, group.name]
+    )
+
+
+@pytest.fixture
+async def org_admin_role(session: AsyncSession, organization: Organization) -> DBRole:
+    """An org-wide admin role."""
+    role = DBRole(
+        id=uuid.uuid4(),
+        name="Organization Admin",
+        slug="organization-admin",
+        description="Org admin",
+        organization_id=organization.id,
+    )
+    session.add(role)
+    await session.commit()
+    await session.refresh(role)
+    return role
+
+
+async def test_resolve_org_role_names_resolves_via_group(
+    session: AsyncSession,
+    organization: Organization,
+    member_user: User,
+    org_admin_role: DBRole,
+) -> None:
+    """An org role granted through an org-wide group assignment resolves."""
+    group = Group(
+        id=uuid.uuid4(),
+        name=f"admins-{uuid.uuid4().hex[:8]}",
+        organization_id=organization.id,
+    )
+    session.add(group)
+    await session.flush()
+    session.add(GroupMember(group_id=group.id, user_id=member_user.id))
+    session.add(
+        GroupRoleAssignment(
+            organization_id=organization.id,
+            group_id=group.id,
+            workspace_id=None,
+            role_id=org_admin_role.id,
+        )
+    )
+    await session.commit()
+
+    resolved = await resolve_org_role_names(session, organization.id, [member_user.id])
+
+    assert resolved[member_user.id].name == "Organization Admin"
+    assert resolved[member_user.id].slug == "organization-admin"
+
+
+async def test_resolve_org_role_names_prefers_direct_assignment(
+    session: AsyncSession,
+    organization: Organization,
+    member_user: User,
+    actor_user: User,
+    org_admin_role: DBRole,
+    workspace_editor_role: DBRole,
+) -> None:
+    """A direct org assignment wins over a group-derived one."""
+    group = Group(
+        id=uuid.uuid4(),
+        name=f"admins-{uuid.uuid4().hex[:8]}",
+        organization_id=organization.id,
+    )
+    session.add(group)
+    await session.flush()
+    session.add(GroupMember(group_id=group.id, user_id=member_user.id))
+    session.add(
+        GroupRoleAssignment(
+            organization_id=organization.id,
+            group_id=group.id,
+            workspace_id=None,
+            role_id=org_admin_role.id,
+        )
+    )
+    session.add(
+        UserRoleAssignment(
+            organization_id=organization.id,
+            user_id=member_user.id,
+            workspace_id=None,
+            role_id=workspace_editor_role.id,
+            assigned_by=actor_user.id,
+        )
+    )
+    await session.commit()
+
+    resolved = await resolve_org_role_names(session, organization.id, [member_user.id])
+
+    assert resolved[member_user.id].name == "Workspace Editor"
+
+
+async def test_resolve_org_role_names_ignores_workspace_scoped_grants(
+    session: AsyncSession,
+    organization: Organization,
+    member_user: User,
+    workspace: Workspace,
+    granting_group: Group,
+) -> None:
+    """A workspace-scoped group grant is not an org role."""
+    resolved = await resolve_org_role_names(session, organization.id, [member_user.id])
+
+    assert member_user.id not in resolved

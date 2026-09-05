@@ -6,6 +6,7 @@ from typing import NotRequired, TypedDict
 from pydantic import EmailStr, Field, computed_field, field_validator
 
 from tracecat import config
+from tracecat.authz.enums import WorkspaceMemberSourceKind
 from tracecat.core.schemas import Schema
 from tracecat.git.constants import GIT_SSH_URL_REGEX
 from tracecat.identifiers import InvitationID, OrganizationID, UserID, WorkspaceID
@@ -125,12 +126,25 @@ class WorkspaceReadMinimal(Schema):
     name: str
 
 
+class WorkspaceMemberSource(Schema):
+    """Where a member's workspace access comes from.
+
+    ``kind`` is ``"direct"`` for a direct role assignment, or ``"group"`` when
+    access is derived only from group membership. ``group_names`` lists every
+    granting group in either case, since group grants also shape effective scopes.
+    """
+
+    kind: WorkspaceMemberSourceKind
+    group_names: list[str] = Field(default_factory=list)
+
+
 class WorkspaceMember(Schema):
     user_id: UserID
     first_name: str | None
     last_name: str | None
     email: EmailStr
     role_name: str
+    source: WorkspaceMemberSource
 
 
 class WorkspaceRead(Schema):

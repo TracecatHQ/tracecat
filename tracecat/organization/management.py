@@ -21,7 +21,6 @@ from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import (
     AccessToken,
     MCPRefreshToken,
-    Membership,
     Organization,
     OrganizationMembership,
     OrganizationSecret,
@@ -232,9 +231,8 @@ async def delete_organization_with_cleanup(
         case_fields_service = CaseFieldsService(session=session, role=bootstrap_role)
         await case_fields_service.drop_workspace_schema()
 
-        await session.execute(
-            delete(Membership).where(Membership.workspace_id == workspace.id)
-        )
+        # Workspace-scoped assignments cascade with the workspace, and
+        # membership is derived from them.
         await session.delete(workspace)
 
     if workspace_ids:
@@ -469,23 +467,9 @@ async def ensure_single_tenant_user_defaults_in_session(
     # and only runs after the fast path determines a repair may be needed.
     await seed_system_roles_for_org(session, organization_id)
 
+    # Membership is derived, so the org-wide assignment insert below is what
+    # repairs a missing membership.
     changed = False
-    if membership is None:
-        # Auth-path lazy repair can run concurrently for the same legacy user.
-        # Use an idempotent insert so one request repairs the row and the other
-        # continues without surfacing a unique-constraint failure.
-        membership_insert = pg_insert(OrganizationMembership).values(
-            user_id=user_id,
-            organization_id=organization_id,
-        )
-        membership_insert = membership_insert.on_conflict_do_nothing(
-            index_elements=[
-                OrganizationMembership.user_id,
-                OrganizationMembership.organization_id,
-            ]
-        )
-        membership_result = await session.execute(membership_insert)
-        changed = (membership_result.rowcount or 0) > 0  # pyright: ignore[reportAttributeAccessIssue]
 
     # Single-tenant defaults are intentionally minimal for regular users, while
     # superusers are granted default-org owner permissions.
@@ -531,10 +515,7 @@ async def ensure_single_tenant_user_defaults_in_session(
         changed = changed or (assignment_result.rowcount or 0) > 0  # pyright: ignore[reportAttributeAccessIssue]
         return changed
 
-    # At this point a repair is needed: either the membership row was missing,
-    # or a superuser still had a non-owner org-wide role. Keep the org-wide
-    # assignment aligned with the default role for this user type, but skip
-    # no-op writes.
+    # Only reached for a superuser holding a non-owner org-wide role.
     if assignment.role_id != role.id:
         assignment.role_id = role.id
         changed = True

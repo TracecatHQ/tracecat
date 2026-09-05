@@ -11,9 +11,11 @@ from sqlalchemy.sql.elements import ColumnElement
 
 from tracecat.auth.types import Role
 from tracecat.authz.controls import ensure_can_grant_scopes, require_scope
+from tracecat.authz.enums import WorkspaceMemberSourceKind
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import SupportsExecute
 from tracecat.db.models import (
+    Group,
     GroupMember,
     GroupRoleAssignment,
     Membership,
@@ -25,6 +27,7 @@ from tracecat.db.models import (
 )
 from tracecat.db.models import Role as DBRole
 from tracecat.exceptions import (
+    GroupDerivedMembershipError,
     TracecatAuthorizationError,
     TracecatNotFoundError,
     TracecatValidationError,
@@ -34,6 +37,7 @@ from tracecat.service import BaseService
 from tracecat.workspaces.schemas import (
     WorkspaceMember,
     WorkspaceMembershipCreate,
+    WorkspaceMemberSource,
 )
 
 
@@ -212,6 +216,7 @@ class MembershipService(BaseService):
                 func.coalesce(DBRole.name, literal("Workspace Editor")).label(
                     "role_name"
                 ),
+                UserRoleAssignment.id.is_not(None).label("is_direct"),
             )
             .select_from(Membership)
             .join(User, Membership.user_id == User.id)  # pyright: ignore[reportArgumentType]
@@ -228,15 +233,48 @@ class MembershipService(BaseService):
             .where(Membership.workspace_id == workspace_id)
         )
         rows = (await self.session.execute(statement)).all()
+
+        # One extra query for group provenance and group-granted roles, rather
+        # than an N+1 per member.
+        group_statement = (
+            select(GroupMember.user_id, Group.name, DBRole.name)
+            .join(Group, Group.id == GroupMember.group_id)
+            .join(GroupRoleAssignment, GroupRoleAssignment.group_id == Group.id)
+            .join(DBRole, DBRole.id == GroupRoleAssignment.role_id)
+            .where(GroupRoleAssignment.workspace_id == workspace_id)
+            .distinct()
+            .order_by(GroupMember.user_id, Group.name, DBRole.name)
+        )
+        groups_by_user: dict[UUID, list[str]] = {}
+        group_role_by_user: dict[UUID, str] = {}
+        for member_user_id, group_name, group_role_name in (
+            (await self.session.execute(group_statement)).tuples().all()
+        ):
+            names = groups_by_user.setdefault(member_user_id, [])
+            if group_name not in names:
+                names.append(group_name)
+            # Several groups may grant a member: first role name alphabetically wins.
+            existing = group_role_by_user.get(member_user_id)
+            if existing is None or group_role_name < existing:
+                group_role_by_user[member_user_id] = group_role_name
+
         return [
             WorkspaceMember(
                 user_id=user.id,
                 first_name=user.first_name,
                 last_name=user.last_name,
                 email=user.email,
-                role_name=role_name,
+                role_name=role_name
+                if is_direct
+                else (group_role_by_user.get(user.id) or role_name),
+                source=WorkspaceMemberSource(
+                    kind=WorkspaceMemberSourceKind.DIRECT
+                    if is_direct
+                    else WorkspaceMemberSourceKind.GROUP,
+                    group_names=groups_by_user.get(user.id, []),
+                ),
             )
-            for user, role_name in rows
+            for user, role_name, is_direct in rows
         ]
 
     async def get_membership(
@@ -263,7 +301,10 @@ class MembershipService(BaseService):
 
         This is used by the authorization middleware to cache user permissions.
         """
-        statement = select(Membership).where(Membership.user_id == user_id)
+        statement = select(Membership).where(
+            Membership.user_id == user_id,
+            Membership.workspace_id.is_not(None),
+        )
         result = await self.session.execute(statement)
         return result.scalars().all()
 
@@ -320,11 +361,6 @@ class MembershipService(BaseService):
             )
         )
 
-        membership = Membership(
-            user_id=params.user_id,
-            workspace_id=workspace_id,
-        )
-        self.session.add(membership)
         self.session.add(
             UserRoleAssignment(
                 organization_id=organization_id,
@@ -334,6 +370,7 @@ class MembershipService(BaseService):
                 assigned_by=self.role.user_id if self.role else None,
             )
         )
+        await self.session.flush()
         await self.session.commit()
 
     @require_scope("workspace:member:remove")
@@ -345,12 +382,19 @@ class MembershipService(BaseService):
         Note: The authorization cache is request-scoped, so changes will be
         reflected in subsequent requests automatically.
         """
-        await self.session.execute(
-            delete(Membership).where(
-                Membership.workspace_id == workspace_id,
-                Membership.user_id == user_id,
-            )
+        # Membership is derived, so deleting the workspace-scoped assignment
+        # delists the user only if no group still grants access. Refuse in that
+        # case rather than return success without removing the member.
+        group_names = await self.list_membership_group_names(
+            workspace_id, user_id=user_id
         )
+        if group_names:
+            raise GroupDerivedMembershipError(
+                "This member's workspace access comes from group membership. "
+                "Remove them from the granting group instead.",
+                group_names=group_names,
+            )
+
         await self.session.execute(
             delete(UserRoleAssignment).where(
                 UserRoleAssignment.workspace_id == workspace_id,
@@ -358,3 +402,20 @@ class MembershipService(BaseService):
             )
         )
         await self.session.commit()
+
+    async def list_membership_group_names(
+        self, workspace_id: WorkspaceID, user_id: UserID
+    ) -> list[str]:
+        """Names of the groups granting a user access to a workspace."""
+        statement = (
+            select(Group.name)
+            .join(GroupRoleAssignment, GroupRoleAssignment.group_id == Group.id)
+            .join(GroupMember, GroupMember.group_id == Group.id)
+            .where(
+                GroupMember.user_id == user_id,
+                GroupRoleAssignment.workspace_id == workspace_id,
+            )
+            .distinct()
+            .order_by(Group.name)
+        )
+        return list((await self.session.execute(statement)).scalars().all())

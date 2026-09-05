@@ -14,6 +14,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tests.membership import grant_org_membership
 from tracecat.auth.types import Role
 from tracecat.authz.seeding import seed_system_scopes
 from tracecat.authz.service import resolve_grantable_role
@@ -22,7 +23,6 @@ from tracecat.db.models import (
     GroupMember,
     GroupRoleAssignment,
     Organization,
-    OrganizationMembership,
     RoleScope,
     Scope,
     User,
@@ -60,7 +60,7 @@ async def granter_user(session: AsyncSession, org: Organization) -> User:
     )
     session.add(user)
     await session.flush()
-    session.add(OrganizationMembership(user_id=user.id, organization_id=org.id))
+    await grant_org_membership(session, user_id=user.id, organization_id=org.id)
     await session.commit()
     return user
 
@@ -107,14 +107,31 @@ async def _assign(
     role: DBRole,
     workspace_id: uuid.UUID | None = None,
 ) -> None:
-    session.add(
-        UserRoleAssignment(
-            organization_id=org.id,
-            user_id=user.id,
-            workspace_id=workspace_id,
-            role_id=role.id,
+    # A user holds at most one assignment per scope, and the membership
+    # fixture already granted an org-wide one, so replace the role in place.
+    existing = (
+        await session.execute(
+            select(UserRoleAssignment).where(
+                UserRoleAssignment.organization_id == org.id,
+                UserRoleAssignment.user_id == user.id,
+                UserRoleAssignment.workspace_id == workspace_id
+                if workspace_id is not None
+                else UserRoleAssignment.workspace_id.is_(None),
+            )
         )
-    )
+    ).scalar_one_or_none()
+
+    if existing is not None:
+        existing.role_id = role.id
+    else:
+        session.add(
+            UserRoleAssignment(
+                organization_id=org.id,
+                user_id=user.id,
+                workspace_id=workspace_id,
+                role_id=role.id,
+            )
+        )
     await session.commit()
 
 

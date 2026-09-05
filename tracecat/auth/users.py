@@ -409,16 +409,16 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
 
         try:
             async with get_async_session_bypass_rls_context_manager() as session:
-                membership = await accept_invitation_for_user(
+                organization_id = await accept_invitation_for_user(
                     session, user_id=user.id, token=token
                 )
                 self.logger.info(
                     "Invitation accepted during registration",
                     user_id=str(user.id),
                     email=user.email,
-                    org_id=str(membership.organization_id),
+                    org_id=str(organization_id),
                 )
-                return membership.organization_id
+                return organization_id
         except TracecatNotFoundError:
             self.logger.warning(
                 "Invitation token not found during registration",

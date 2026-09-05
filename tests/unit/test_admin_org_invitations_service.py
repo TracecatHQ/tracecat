@@ -13,12 +13,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.admin.organizations.schemas import AdminOrgInvitationCreate
 from tracecat_ee.admin.organizations.service import AdminOrgService
 
+from tests.membership import grant_org_membership
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import PlatformRole
 from tracecat.db.models import (
     Organization,
     OrganizationInvitation,
-    OrganizationMembership,
     User,
 )
 from tracecat.db.models import Role as DBRole
@@ -163,7 +163,7 @@ async def test_create_organization_invitation_rejects_existing_member(
     )
     session.add(member)
     await session.flush()
-    session.add(OrganizationMembership(user_id=member.id, organization_id=org.id))
+    await grant_org_membership(session, user_id=member.id, organization_id=org.id)
     await session.commit()
 
     service = AdminOrgService(session, platform_role)

@@ -20,6 +20,13 @@ class ScopeSource(StrEnum):
     CUSTOM = "custom"  # Organization-defined scopes
 
 
+class WorkspaceMemberSourceKind(StrEnum):
+    """Where a workspace member's access comes from."""
+
+    DIRECT = "direct"
+    GROUP = "group"
+
+
 class OrgRole(StrEnum):
     """Organization-level roles."""
 
