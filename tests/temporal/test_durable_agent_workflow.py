@@ -1299,6 +1299,8 @@ async def test_approval_wait_cancellation_defers_end_until_marker_and_finalize(
     ("legacy", "stored_has_agents", "incoming_has_agents", "session_activity"),
     [
         (True, True, True, "stub"),
+        (True, True, True, "current"),
+        (True, True, True, "previous"),
         (False, True, True, "stub"),
         (False, True, False, "stub"),
         (False, False, True, "stub"),
@@ -1306,7 +1308,9 @@ async def test_approval_wait_cancellation_defers_end_until_marker_and_finalize(
         (False, True, True, "previous"),
     ],
     ids=[
-        "legacy-pinned",
+        "compatibility-pinned",
+        "compatibility-current-activity",
+        "compatibility-previous-activity",
         "new-version",
         "removed",
         "added",
@@ -1325,7 +1329,7 @@ async def test_agent_workflow_resolves_turn_bindings_and_replays(
     incoming_has_agents: bool,
     session_activity: Literal["stub", "current", "previous"],
 ) -> None:
-    """Replay coverage plus the old session activity's mixed-rollout rejection."""
+    """Compatibility turns work on both activities; activation needs the new one."""
     queue = f"test-agent-queue-{mock_session_id}"
     child_preset_id = uuid.uuid4()
     stored_version_id = uuid.uuid4()
@@ -1511,15 +1515,15 @@ async def test_agent_workflow_resolves_turn_bindings_and_replays(
         mock_emit_session_error,
     ]
 
-    original_patched = temporal_workflow.patched
-
-    def legacy_patched(patch_id: str) -> bool:
-        if patch_id == RESOLVE_AGENTS_PER_TURN_PATCH:
-            return False
-        return original_patched(patch_id)
-
-    if legacy:
-        monkeypatch.setattr(temporal_workflow, "patched", legacy_patched)
+    compatibility_gate = durable_workflow_module._use_per_turn_agent_bindings
+    if not legacy:
+        # Simulate the activation release after compatibility workers are live.
+        # The compatibility release must also replay these activated histories.
+        monkeypatch.setattr(
+            durable_workflow_module,
+            "_use_per_turn_agent_bindings",
+            lambda: temporal_workflow.patched(RESOLVE_AGENTS_PER_TURN_PATCH),
+        )
 
     async with agent_worker_factory(
         temporal_client, task_queue=queue, custom_activities=activities
@@ -1534,6 +1538,16 @@ async def test_agent_workflow_resolves_turn_bindings_and_replays(
         )
         if approval_continuation:
             await asyncio.wait_for(approval_done.wait(), timeout=10)
+            suspended_history = await handle.fetch_history()
+            with monkeypatch.context() as rollback:
+                rollback.setattr(
+                    durable_workflow_module,
+                    "_use_per_turn_agent_bindings",
+                    compatibility_gate,
+                )
+                await replay_durable_agent_workflow_history(
+                    temporal_client, suspended_history
+                )
             await handle.execute_update(
                 DurableAgentWorkflow.set_approvals,
                 WorkflowApprovalSubmission(
@@ -1542,7 +1556,7 @@ async def test_agent_workflow_resolves_turn_bindings_and_replays(
                 ),
             )
         result = None
-        if session_activity == "previous":
+        if session_activity == "previous" and not legacy:
             with pytest.raises(WorkflowFailureError) as exc_info:
                 await handle.result()
             classification = extract_error_classification(exc_info.value.cause)
@@ -1557,15 +1571,19 @@ async def test_agent_workflow_resolves_turn_bindings_and_replays(
             if legacy
             else RESOLVE_AGENTS_PER_TURN_PATCH
         ) in patch_ids
-        # Replay old histories against the new worker code, without the test's
-        # simulation of the prior version.
-        monkeypatch.setattr(temporal_workflow, "patched", original_patched)
+        if legacy:
+            assert RESOLVE_AGENTS_PER_TURN_PATCH not in patch_ids
+        # Restore the actual compatibility release before replaying either
+        # compatibility or activation history (including approval continuation).
+        monkeypatch.setattr(
+            durable_workflow_module, "_use_per_turn_agent_bindings", compatibility_gate
+        )
         await replay_durable_agent_workflow_history(
             temporal_client,
             completed_history,
         )
 
-    if session_activity == "previous":
+    if session_activity == "previous" and not legacy:
         assert len(resolve_inputs) == 1
         assert len(create_inputs) == 1
         assert create_inputs[0].enforce_session_agents_binding is False

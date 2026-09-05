@@ -549,6 +549,20 @@ PRESERVE_RESUMED_AGENT_BINDINGS_PATCH = (
 RESOLVE_AGENTS_PER_TURN_PATCH = "durable-agent-resolve-agents-per-turn-v1"
 
 
+def _use_per_turn_agent_bindings() -> bool:
+    """Accept recorded activation histories without activating new turns yet.
+
+    Ship the session activity compatibility support to every worker first.
+    The activation release can remove the is_replaying guard. Until then,
+    new turns retain session bindings, including after a workflow-task replay
+    without this patch marker. Histories from an activated worker retain their
+    recorded branch, making this release a compatible rollback target.
+    """
+    return workflow.unsafe.is_replaying() and workflow.patched(
+        RESOLVE_AGENTS_PER_TURN_PATCH
+    )
+
+
 def _agents_config_from_binding(
     binding: ResolvedAgentsConfig,
 ) -> AgentSubagentsConfig:
@@ -1320,7 +1334,7 @@ class DurableAgentWorkflow:
             workflow.info().workflow_id
         ).session_id
         load_result: LoadSessionResult | None = None
-        resolve_agents_per_turn = workflow.patched(RESOLVE_AGENTS_PER_TURN_PATCH)
+        resolve_agents_per_turn = _use_per_turn_agent_bindings()
         if resolve_agents_per_turn:
             # Each workflow is a new turn. The resolution activity result in
             # this workflow's history freezes its configuration, including
