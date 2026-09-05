@@ -52,29 +52,14 @@ class SkillBindingService(BaseWorkspaceService):
         if not normalized_ids:
             return {}
 
-        if not for_update:
-            stmt = select(Skill).where(
-                Skill.workspace_id == self.workspace_id,
-                Skill.id.in_(normalized_ids),
-                Skill.deleted_at.is_(None),
-                Skill.archived_at.is_(None),
-            )
-            return {
-                skill.id: skill
-                for skill in (await self.session.execute(stmt)).scalars().all()
-            }
-
-        stmt = (
-            select(Skill)
-            .where(
-                Skill.workspace_id == self.workspace_id,
-                Skill.id.in_(normalized_ids),
-                Skill.deleted_at.is_(None),
-                Skill.archived_at.is_(None),
-            )
-            .order_by(Skill.id)
-            .with_for_update()
+        stmt = select(Skill).where(
+            Skill.workspace_id == self.workspace_id,
+            Skill.id.in_(normalized_ids),
+            Skill.deleted_at.is_(None),
+            Skill.archived_at.is_(None),
         )
+        if for_update:
+            stmt = stmt.order_by(Skill.id).with_for_update()
         return {
             skill.id: skill
             for skill in (await self.session.execute(stmt)).scalars().all()

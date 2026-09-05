@@ -427,8 +427,6 @@ class AgentPresetService(BaseWorkspaceService):
         set_fields = params.model_dump(exclude_unset=True, exclude={"skills"})
         execution_changed = False
         requested_skills = None
-        requested_specs: list[SkillBindingSpec] | None = None
-        preset_locked = True
         if "skills" in params.model_fields_set:
             requested_skills = params.skills or []
             validate_no_duplicate_skill_ids(
@@ -437,8 +435,6 @@ class AgentPresetService(BaseWorkspaceService):
         current_specs, publish_specs = await self._lock_update_skill_bindings(
             preset, params
         )
-        if requested_skills is not None:
-            requested_specs = publish_specs
 
         # Handle name first as it may be needed for slug fallback
         if "name" in set_fields:
@@ -496,15 +492,13 @@ class AgentPresetService(BaseWorkspaceService):
                 preset.agents = agents
                 execution_changed = True
 
-        if requested_skills is not None:
-            assert requested_specs is not None
-            if current_specs != requested_specs:
-                await self._replace_head_skill_bindings(
-                    preset.id,
-                    requested_skills,
-                    binding_specs=requested_specs,
-                )
-                execution_changed = True
+        if requested_skills is not None and current_specs != publish_specs:
+            await self._replace_head_skill_bindings(
+                preset.id,
+                requested_skills,
+                binding_specs=publish_specs,
+            )
+            execution_changed = True
         effective_catalog_id = None
         if "catalog_id" in set_fields:
             effective_catalog_id = set_fields["catalog_id"]
@@ -526,7 +520,7 @@ class AgentPresetService(BaseWorkspaceService):
         if execution_changed:
             await self.publish_preset_head(
                 preset,
-                preset_locked=preset_locked,
+                preset_locked=True,
                 binding_specs=publish_specs,
             )
         await self.session.commit()
