@@ -234,6 +234,11 @@ class SecretCreate(BaseModel):
 
     @model_validator(mode="after")
     def validate_typed_secret(self) -> SecretCreate:
+        # Value-less payloads register a secret whose values live in an
+        # external secrets backend; there is nothing to validate. The service
+        # re-validates values when the database backend is active.
+        if all(not kv.value.get_secret_value() for kv in self.keys):
+            return self
         if self.type == SecretType.SSH_KEY:
             validate_ssh_key_values(self.keys)
         elif self.type == SecretType.MTLS:
@@ -265,6 +270,12 @@ class SecretUpdate(BaseModel):
 
     @model_validator(mode="after")
     def validate_typed_secret(self) -> SecretUpdate:
+        # Empty values either preserve existing values or describe a
+        # value-less registration; defer validation to the service.
+        if self.keys is not None and all(
+            not kv.value.get_secret_value() for kv in self.keys
+        ):
+            return self
         if self.type == SecretType.SSH_KEY and self.keys is not None:
             validate_ssh_key_values(self.keys)
         elif self.type == SecretType.MTLS and self.keys is not None:
