@@ -14,7 +14,10 @@ from sqlalchemy.pool import NullPool
 from tests.database import TEST_DB_CONFIG
 
 
-def test_deleted_dependency_backfill_preserves_live_refs_and_order() -> None:
+@pytest.mark.parametrize("deletion_marker", ["archived_at", "deleted_at"])
+def test_deleted_dependency_backfill_preserves_live_refs_and_order(
+    deletion_marker: str,
+) -> None:
     migration_path = (
         Path(__file__).parents[2]
         / "alembic/versions/c3a17be4d902_default_agents_config_to_empty_subagents.py"
@@ -67,9 +70,17 @@ def test_deleted_dependency_backfill_preserves_live_refs_and_order() -> None:
             )
             conn.execute(
                 sa.text(
-                    "INSERT INTO skill VALUES (:deleted, :workspace, NULL, now()), (:live, :workspace, NULL, NULL)"
+                    "INSERT INTO skill VALUES (:deleted, :workspace, "
+                    "CASE WHEN :canonical THEN now() END, "
+                    "CASE WHEN NOT :canonical THEN now() END), "
+                    "(:live, :workspace, NULL, NULL)"
                 ),
-                {"deleted": deleted, "live": live, "workspace": workspace},
+                {
+                    "deleted": deleted,
+                    "live": live,
+                    "workspace": workspace,
+                    "canonical": deletion_marker == "deleted_at",
+                },
             )
             for table in ("agent_preset_skill", "agent_preset_version_skill"):
                 conn.execute(
