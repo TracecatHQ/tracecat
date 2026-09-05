@@ -78,6 +78,45 @@ describe("isPinnableActionEvent", () => {
 })
 
 describe("computePinDomains", () => {
+  it("keeps scatter openers live before a pinned root action", () => {
+    const graph = {
+      a: action("a", "a"),
+      scatter: action("scatter", "scatter", ["a"], "core.transform.scatter"),
+      body: action("body", "body", ["scatter"]),
+      gather: action("gather", "gather", ["body"], "core.transform.gather"),
+      after: action("after", "after", ["gather"]),
+    }
+    const domains = computePinDomains(graph, {
+      source_execution_id: "exec_1",
+      action_refs: ["after"],
+    })
+    expect([...domains.pinnedRefs]).toEqual(["after"])
+    expect([...domains.forceSkipRefs].sort()).toEqual(["body", "gather"])
+  })
+  it.each([
+    "core.transform.scatter",
+    "core.transform.gather",
+    "core.loop.start",
+    "core.loop.end",
+    "masked",
+  ])("ignores a stored pin whose action became %s", (type) => {
+    const changed = action(
+      "id-c",
+      "c",
+      ["id-b"],
+      type === "masked" ? "core.noop" : type
+    )
+    if (type === "masked") changed.control_flow = { mask_output: true }
+    const domains = computePinDomains(
+      { ...actions, "id-c": changed },
+      {
+        source_execution_id: "exec_1",
+        action_refs: ["c"],
+      }
+    )
+    expect([...domains.pinnedRefs]).toEqual([])
+    expect([...domains.forceSkipRefs]).toEqual([])
+  })
   it("keeps sources with error edges out of the force-skip domain", () => {
     const conditionalActions = {
       "id-a": action("id-a", "a"),

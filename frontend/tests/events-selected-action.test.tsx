@@ -413,68 +413,71 @@ describe("SuccessEvent", () => {
 })
 
 describe("ActionEventPane draft pins", () => {
-  it("unpins a stitched result without changing its source or other refs", async () => {
-    const updateWorkflow = jest.fn().mockResolvedValue(undefined)
-    mockUseWorkflowBuilder.mockReturnValue({
-      workspaceId: "workspace-1",
-      workflowId: "workflow-1",
-      selectedActionEventRef: "reshape",
-      setSelectedActionEventRef: jest.fn(),
-    } as never)
-    mockUseWorkflow.mockReturnValue({
-      workflow: {
-        draft_pins: {
-          source_execution_id: "exec-source",
-          action_refs: ["reshape", "other"],
-        },
-        actions: {
-          "action-reshape": {
-            id: "action-reshape",
-            type: "core.noop",
-            title: "reshape",
-            description: "",
-            status: "online",
-            inputs: "",
-            upstream_edges: [],
+  it.each(["exec-source", "exec-original"])(
+    "unpins a stitched result from %s without changing its source or other refs",
+    async (originalSource) => {
+      const updateWorkflow = jest.fn().mockResolvedValue(undefined)
+      mockUseWorkflowBuilder.mockReturnValue({
+        workspaceId: "workspace-1",
+        workflowId: "workflow-1",
+        selectedActionEventRef: "reshape",
+        setSelectedActionEventRef: jest.fn(),
+      } as never)
+      mockUseWorkflow.mockReturnValue({
+        workflow: {
+          draft_pins: {
+            source_execution_id: "exec-source",
+            action_refs: ["reshape", "other"],
+          },
+          actions: {
+            "action-reshape": {
+              id: "action-reshape",
+              type: "core.noop",
+              title: "reshape",
+              description: "",
+              status: "online",
+              inputs: "",
+              upstream_edges: [],
+            },
           },
         },
-      },
-      updateWorkflow,
-    } as never)
+        updateWorkflow,
+      } as never)
 
-    render(
-      <ActionEventPane
-        execution={
-          {
-            id: "exec-current",
-            status: "COMPLETED",
-            events: [
-              createEvent({
-                source_event_id: 99,
-                action_ref: "reshape",
-                action_name: "Reshape",
-                curr_event_type: "ACTIVITY_TASK_COMPLETED",
-                stream_id: "<root>:0",
-                synthetic_kind: "pinned",
-                pinned_source_execution_id: "exec-source",
-                pinned_source_event_id: 42,
-              }),
-            ],
-          } as never
-        }
-        type="result"
-      />
-    )
+      render(
+        <ActionEventPane
+          execution={
+            {
+              id: "exec-current",
+              status: "COMPLETED",
+              events: [
+                createEvent({
+                  source_event_id: 99,
+                  action_ref: "reshape",
+                  action_name: "Reshape",
+                  curr_event_type: "ACTIVITY_TASK_COMPLETED",
+                  stream_id: "<root>:0",
+                  synthetic_kind: "pinned",
+                  pinned_source_execution_id: originalSource,
+                  pinned_source_event_id: 42,
+                }),
+              ],
+            } as never
+          }
+          type="result"
+        />
+      )
 
-    fireEvent.click(screen.getByRole("button", { name: "Unpin selected" }))
+      fireEvent.click(screen.getByRole("button", { name: "Unpin selected" }))
 
-    await waitFor(() =>
-      expect(updateWorkflow).toHaveBeenCalledWith({
-        draft_pins: {
-          source_execution_id: "exec-source",
-          action_refs: ["other"],
-        },
-      })
-    )
-  })
+      await waitFor(() =>
+        expect(updateWorkflow).toHaveBeenCalledWith({
+          draft_pins: {
+            source_execution_id: "exec-source",
+            action_refs: ["other"],
+          },
+        })
+      )
+    }
+  )
 })
