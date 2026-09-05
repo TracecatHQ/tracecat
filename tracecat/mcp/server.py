@@ -4805,7 +4805,7 @@ async def run_workflow_from_action(
     workspace_id: uuid.UUID,
     workflow_id: MCPWorkflowUUID,
     action_ref: str,
-    source_execution_id: str,
+    source_execution_id: WorkflowExecutionID,
     inputs: dict[str, Any] | None = None,
 ) -> WorkflowRunStartedResponse:
     """Replay a draft run starting at ``action_ref``.
