@@ -48,7 +48,7 @@ from tracecat.dsl.types import Task
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.ee.interactions.schemas import InteractionInput
 from tracecat.ee.interactions.service import InteractionService
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.identifiers import UserID, WorkspaceID
 from tracecat.identifiers.workflow import (
     WorkflowExecutionID,
@@ -760,6 +760,14 @@ class WorkflowExecutionsService:
                 },
             )
 
+        source_wf_id, _ = exec_id_to_parts(source_execution_id)
+        if source_wf_id != wf_id:
+            raise TracecatValidationError(
+                "Source execution does not belong to this workflow.",
+                detail={"code": "source_workflow_mismatch"},
+            )
+        await self._require_replay_source(source_execution_id)
+
         if not parent_refs:
             # A root action: run the draft from the start with no pins.
             return {}
@@ -787,6 +795,13 @@ class WorkflowExecutionsService:
             )
 
         return pinned_results
+
+    async def _require_replay_source(self, wf_exec_id: WorkflowExecutionID) -> None:
+        """Authorize replay history reads without exposing inaccessible runs."""
+        try:
+            await self.require_execution(wf_exec_id)
+        except WorkflowExecutionNotFoundError as e:
+            raise TracecatNotFoundError("Source execution not found") from e
 
     async def _get_run_start_args(
         self, wf_exec_id: WorkflowExecutionID
@@ -819,6 +834,7 @@ class WorkflowExecutionsService:
         the payload was offloaded to object storage, since the caller must then
         supply inputs explicitly.
         """
+        await self._require_replay_source(wf_exec_id)
         run_args = await self._get_run_start_args(wf_exec_id)
         if run_args is None or run_args.trigger_inputs is None:
             return None

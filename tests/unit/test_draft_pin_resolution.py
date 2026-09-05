@@ -13,7 +13,7 @@ from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.dsl.common import DSLEntrypoint, DSLInput, DSLRunArgs
 from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.schemas import ActionStatement, TaskResult
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.identifiers.workflow import WorkflowUUID, generate_exec_id
 from tracecat.storage.object import ExternalObject, InlineObject, ObjectRef
 from tracecat.workflow.executions.enums import (
@@ -564,12 +564,14 @@ async def test_run_from_action_requires_every_parent_result(
 async def test_run_from_root_action_needs_no_pins(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Invariant: a root action runs a plain draft run with no source lookup."""
+    """A root action needs no pins but still requires source visibility."""
     wf_id = WorkflowUUID.new_uuid4()
     service = _service()
     list_events = AsyncMock(return_value=[])
     monkeypatch.setattr(service, "list_workflow_execution_events_compact", list_events)
 
+    require = AsyncMock(return_value=MagicMock())
+    monkeypatch.setattr(service, "require_execution", require)
     result = await service.resolve_run_from_action_pins(
         wf_id=wf_id,
         dsl=_chain_dsl(),
@@ -578,6 +580,7 @@ async def test_run_from_root_action_needs_no_pins(
     )
 
     assert result == {}
+    require.assert_awaited_once()
     list_events.assert_not_awaited()
 
 
@@ -593,6 +596,7 @@ async def test_execution_trigger_inputs_returns_inline_data(
     """Invariant: inline trigger inputs are replayed verbatim."""
     wf_id = WorkflowUUID.new_uuid4()
     service = _service()
+    monkeypatch.setattr(service, "require_execution", AsyncMock())
     assert service.role is not None
     run_args = DSLRunArgs(
         role=service.role,
@@ -616,6 +620,7 @@ async def test_execution_trigger_inputs_rejects_external_object(
     """Invariant: offloaded trigger inputs must be supplied by the caller."""
     wf_id = WorkflowUUID.new_uuid4()
     service = _service()
+    monkeypatch.setattr(service, "require_execution", AsyncMock())
     assert service.role is not None
     run_args = DSLRunArgs(
         role=service.role,
@@ -639,3 +644,46 @@ async def test_execution_trigger_inputs_rejects_external_object(
         await service.get_execution_trigger_inputs(generate_exec_id(wf_id))
 
     assert _detail(exc_info.value)["code"] == "source_inputs_not_inline"
+
+
+@pytest.mark.anyio
+async def test_root_replay_rejects_other_workflow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = _service()
+    require = AsyncMock()
+    monkeypatch.setattr(service, "require_execution", require)
+    with pytest.raises(TracecatValidationError) as exc:
+        await service.resolve_run_from_action_pins(
+            wf_id=WorkflowUUID.new_uuid4(),
+            dsl=_chain_dsl(),
+            action_ref="a",
+            source_execution_id=generate_exec_id(WorkflowUUID.new_uuid4()),
+        )
+    assert _detail(exc.value)["code"] == "source_workflow_mismatch"
+    require.assert_not_awaited()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("read_inputs", [False, True])
+async def test_replay_denies_invisible_source_before_history(
+    monkeypatch: pytest.MonkeyPatch,
+    read_inputs: bool,
+) -> None:
+    service = _service()
+    wf_id = WorkflowUUID.new_uuid4()
+    source_id = generate_exec_id(wf_id)
+    monkeypatch.setattr(service, "get_execution", AsyncMock(return_value=None))
+    history = AsyncMock()
+    monkeypatch.setattr(service, "_get_run_start_args", history)
+    with pytest.raises(TracecatNotFoundError):
+        if read_inputs:
+            await service.get_execution_trigger_inputs(source_id)
+        else:
+            await service.resolve_run_from_action_pins(
+                wf_id=wf_id,
+                dsl=_chain_dsl(),
+                action_ref="a",
+                source_execution_id=source_id,
+            )
+    history.assert_not_awaited()
