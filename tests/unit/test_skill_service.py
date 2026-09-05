@@ -43,6 +43,7 @@ from tracecat.agent.skill.schemas import (
     SkillUploadFile,
     SkillUploadSessionCreate,
     SkillVersionPublish,
+    SkillVersionRead,
     SkillVersionReadMinimal,
 )
 from tracecat.agent.skill.service import (
@@ -3465,11 +3466,11 @@ class TestSkillService:
         finally:
             await concurrent_engine.dispose()
 
-    async def test_restore_version_updates_current_version_without_replacing_draft(
+    async def test_restore_version_publishes_copy_without_replacing_draft(
         self,
         skill_service: SkillService,
     ) -> None:
-        """Restoring a version should move the head pointer without rewriting draft files."""
+        """Restoring publishes a copy while leaving the working draft untouched."""
 
         created = await skill_service.create_skill(SkillCreate(name="snapshot-skill"))
         draft = await skill_service.get_draft(created.id)
@@ -3540,9 +3541,18 @@ class TestSkillService:
         )
 
         assert isinstance(restored, SkillReadMinimal)
-        assert restored.current_version_id == version_one.id
+        assert restored.current_version_id is not None
+        assert restored.current_version_id not in {version_one.id, version_two.id}
+        restored_published_file = await skill_service.get_version_file(
+            skill_id=created.id,
+            version_id=restored.current_version_id,
+            path="references/guide.md",
+        )
         assert restored.name == version_one.name
         assert restored.description == version_one.description
+        assert restored_published_file is not None
+        assert restored_published_file.kind == "inline"
+        assert restored_published_file.text_content == "Version one"
         assert restored_draft is not None
         assert restored_draft.draft_revision == current_draft.draft_revision
         assert restored_draft.name == "version-two"
@@ -3883,13 +3893,13 @@ class TestSkillService:
 
         assert lock_calls == 1
 
-    async def test_archive_blocks_when_preset_head_references_skill(
+    async def test_archive_unlinks_current_and_saved_preset_bindings(
         self,
         session: AsyncSession,
         svc_role: Role,
         skill_service: SkillService,
     ) -> None:
-        """Archiving is blocked while a preset head still binds the skill."""
+        """Deletion removes dependency membership from heads and saved versions."""
 
         created = await skill_service.create_skill(SkillCreate(name="bound-skill"))
         await skill_service.publish_skill(created.id)
@@ -3910,11 +3920,29 @@ class TestSkillService:
             )
         )
 
-        assert preset.current_version_id is not None
-        with pytest.raises(
-            TracecatValidationError, match="still referenced by a preset"
-        ):
-            await skill_service.archive_skill(created.id)
+        original_version_id = preset.current_version_id
+
+        await skill_service.archive_skill(created.id)
+
+        refreshed = await preset_service.get_preset(preset.id)
+        assert refreshed is not None
+        assert refreshed.current_version_id == original_version_id
+        head_bindings = await preset_service._list_head_skill_bindings(preset.id)
+        assert head_bindings == []
+        assert original_version_id is not None
+        for use_latest_versions in (False, True):
+            resolved = await skill_service.get_resolved_skill_refs_for_preset_version(
+                original_version_id,
+                use_latest_versions=use_latest_versions,
+            )
+            assert resolved == []
+        assert await skill_service.get_skill(created.id) is None
+        saved = await preset_service.get_version(original_version_id)
+        assert saved is not None
+        replacement = await skill_service.create_skill(SkillCreate(name="bound-skill"))
+        await skill_service.publish_skill(replacement.id)
+        await preset_service.restore_version(refreshed, saved)
+        assert await preset_service._list_head_skill_bindings(preset.id) == []
 
     async def test_archive_allows_when_only_preset_history_references_skill(
         self,
@@ -4023,13 +4051,13 @@ class TestSkillService:
         assert await skill_service.get_skill_by_identifier(created.slug) is None
         assert await skill_service.get_skill_read(created.id) is None
 
-    async def test_legacy_archived_skill_binding_and_resolution_treat_as_archived(
+    async def test_legacy_archived_skill_is_unbindable_but_existing_refs_resolve(
         self,
         session: AsyncSession,
         svc_role: Role,
         skill_service: SkillService,
     ) -> None:
-        """Legacy archived-only skills remain unbindable and resolve as archived."""
+        """Legacy archived-only skills remain unbindable but refs still resolve."""
 
         created = await skill_service.create_skill(
             SkillCreate(name="legacy-resolution")
@@ -4067,15 +4095,11 @@ class TestSkillService:
         assert bind_detail["code"] == "skill_not_found"
 
         for use_latest_versions in (False, True):
-            with pytest.raises(TracecatValidationError) as resolve_exc_info:
-                await skill_service.get_resolved_skill_refs_for_preset_version(
-                    preset.current_version_id,
-                    use_latest_versions=use_latest_versions,
-                )
-            resolve_detail = resolve_exc_info.value.detail
-            assert resolve_detail is not None
-            assert resolve_detail["code"] == "skill_archived"
-            assert str(created.id) in str(resolve_detail["skills"])
+            resolved = await skill_service.get_resolved_skill_refs_for_preset_version(
+                preset.current_version_id,
+                use_latest_versions=use_latest_versions,
+            )
+            assert [skill.skill_id for skill in resolved] == [created.id]
 
     async def test_legacy_archived_skill_api_projection_reports_deleted_at(
         self,
@@ -4098,29 +4122,31 @@ class TestSkillService:
         assert full_read.deleted_at == legacy_archived_at
         assert minimal_read.deleted_at == legacy_archived_at
 
-    async def test_archive_skill_locks_skill_row(
+    async def test_archive_skill_locks_only_target(
         self,
         skill_service: SkillService,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Archiving a skill locks the row before checking preset bindings."""
+        """Soft deletion locks only the target Skill row."""
 
         created = await skill_service.create_skill(SkillCreate(name="locked-archive"))
 
-        original_get_skill_for_update = SkillService._get_skill_for_update
+        original_lock = skill_service._get_skill_for_update
         lock_calls = 0
 
-        async def instrumented_get_skill_for_update(
-            self: SkillService, skill_id: uuid.UUID
-        ):
+        async def instrumented_lock(
+            skill_id: uuid.UUID,
+        ) -> Skill:
             nonlocal lock_calls
             lock_calls += 1
-            return await original_get_skill_for_update(self, skill_id)
+            skill = await original_lock(skill_id)
+            assert skill is not None
+            return skill
 
         monkeypatch.setattr(
-            SkillService,
+            skill_service,
             "_get_skill_for_update",
-            instrumented_get_skill_for_update,
+            instrumented_lock,
         )
 
         await skill_service.archive_skill(created.id)
@@ -4130,3 +4156,139 @@ class TestSkillService:
         assert archived is not None
         assert archived.archived_at is not None
         assert archived.deleted_at == archived.archived_at
+
+
+async def _set_package_name(
+    service: SkillService, skill_id: uuid.UUID, name: str
+) -> None:
+    draft = await service.get_draft(skill_id)
+    assert draft is not None
+    await service.patch_draft(
+        skill_id=skill_id,
+        params=SkillDraftPatch(
+            base_revision=draft.draft_revision,
+            operations=[
+                SkillDraftUpsertTextFileOp(
+                    path="SKILL.md",
+                    content=f"---\nname: {name}\ndescription: Test package\n---\nInstructions\n",
+                )
+            ],
+        ),
+    )
+
+
+@pytest.mark.anyio
+class TestPublishedSkillNameUniqueness:
+    async def test_conflicting_publish_preserves_head_and_slug(
+        self, skill_service: SkillService
+    ) -> None:
+        first = await skill_service.create_skill(SkillCreate(name="search-package"))
+        second = await skill_service.create_skill(SkillCreate(name="summary-package"))
+        await skill_service.publish_skill(first.id)
+        previous = await skill_service.publish_skill(second.id)
+        await _set_package_name(skill_service, second.id, "search-package")
+
+        with pytest.raises(TracecatValidationError) as exc_info:
+            await skill_service.publish_skill(second.id)
+        assert exc_info.value.detail == {
+            "code": "skill_name_conflict",
+            "name": "search-package",
+        }
+        await skill_service.session.rollback()
+        current = await skill_service.get_skill_read(second.id)
+        assert current is not None
+        assert current.current_version_id == previous.id
+        assert current.slug == second.slug
+
+    async def test_restore_cannot_reclaim_another_skills_published_name(
+        self, skill_service: SkillService
+    ) -> None:
+        first = await skill_service.create_skill(SkillCreate(name="original-package"))
+        original = await skill_service.publish_skill(first.id)
+        await _set_package_name(skill_service, first.id, "renamed-package")
+        renamed = await skill_service.publish_skill(first.id)
+        second = await skill_service.create_skill(SkillCreate(name="original-package"))
+        await skill_service.publish_skill(second.id)
+
+        with pytest.raises(TracecatValidationError) as exc_info:
+            await skill_service.restore_version(
+                skill_id=first.id, version_id=original.id
+            )
+        assert exc_info.value.detail == {
+            "code": "skill_name_conflict",
+            "name": "original-package",
+        }
+        await skill_service.session.rollback()
+        current = await skill_service.get_skill_read(first.id)
+        assert current is not None
+        assert current.current_version_id == renamed.id
+
+    async def test_drafts_and_archived_skills_do_not_reserve_package_names(
+        self, skill_service: SkillService
+    ) -> None:
+        draft_only = await skill_service.create_skill(
+            SkillCreate(name="shared-package")
+        )
+        active = await skill_service.create_skill(SkillCreate(name="shared-package"))
+        await skill_service.publish_skill(active.id)
+        await skill_service.archive_skill(active.id)
+        published = await skill_service.publish_skill(draft_only.id)
+        assert published.name == "shared-package"
+        # Republishing the same resource does not conflict with itself.
+        republished = await skill_service.publish_skill(draft_only.id)
+        assert republished.version == published.version + 1
+
+    async def test_concurrent_publications_cannot_claim_same_package_name(
+        self, svc_role: Role
+    ) -> None:
+        role = svc_role.model_copy(update={"workspace_id": uuid.uuid4()}, deep=True)
+        engine = create_async_engine(TEST_DB_CONFIG.test_url)
+        factory = async_sessionmaker(bind=engine, expire_on_commit=False)
+        both_ready = asyncio.Event()
+        arrivals = 0
+        try:
+            async with factory() as session:
+                session.add(
+                    Workspace(
+                        id=role.workspace_id,
+                        name="publication-test",
+                        organization_id=role.organization_id,
+                    )
+                )
+                await session.commit()
+                service = SkillService(session=session, role=role)
+                first = await service.create_skill(SkillCreate(name="same-package"))
+                second = await service.create_skill(SkillCreate(name="same-package"))
+
+            async def publish(
+                skill_id: uuid.UUID,
+            ) -> SkillVersionRead | TracecatValidationError:
+                nonlocal arrivals
+                arrivals += 1
+                if arrivals == 2:
+                    both_ready.set()
+                await asyncio.wait_for(both_ready.wait(), timeout=10)
+                async with factory() as session:
+                    service = SkillService(session=session, role=role)
+                    try:
+                        return await service.publish_skill(skill_id)
+                    except TracecatValidationError as exc:
+                        await session.rollback()
+                        return exc
+
+            results = await asyncio.wait_for(
+                asyncio.gather(publish(first.id), publish(second.id)), timeout=20
+            )
+            assert sum(isinstance(result, SkillVersionRead) for result in results) == 1
+            errors = [
+                result
+                for result in results
+                if isinstance(result, TracecatValidationError)
+            ]
+            assert len(errors) == 1
+            assert errors[0].detail == {
+                "code": "skill_name_conflict",
+                "name": "same-package",
+            }
+        finally:
+            await engine.dispose()

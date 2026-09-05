@@ -3820,8 +3820,8 @@ class AgentPreset(SoftDeleteMixin, WorkspaceModel):
     )
     agents: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
-        default=lambda: {"enabled": False},
-        server_default=text("'{\"enabled\": false}'::jsonb"),
+        default=lambda: {"enabled": True, "subagents": []},
+        server_default=text('\'{"enabled": true, "subagents": []}\'::jsonb'),
         nullable=False,
         doc="Subagent configuration for this preset",
     )
@@ -3880,7 +3880,11 @@ class AgentPreset(SoftDeleteMixin, WorkspaceModel):
 
 
 class AgentPresetVersion(WorkspaceModel):
-    """Immutable version snapshot for an agent preset."""
+    """Saved agent configuration; deletion permanently removes dependency refs.
+
+    Other configuration fields retain their published values. Restoring a
+    version cannot restore links to deleted agents or Skills.
+    """
 
     __tablename__ = "agent_preset_version"
     __table_args__ = (UniqueConstraint("workspace_id", "preset_id", "version"),)
@@ -3955,8 +3959,8 @@ class AgentPresetVersion(WorkspaceModel):
     )
     agents: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
-        default=lambda: {"enabled": False},
-        server_default=text("'{\"enabled\": false}'::jsonb"),
+        default=lambda: {"enabled": True, "subagents": []},
+        server_default=text('\'{"enabled": true, "subagents": []}\'::jsonb'),
         nullable=False,
         doc="Subagent configuration for this preset version",
     )
@@ -4438,7 +4442,7 @@ class AgentPresetSkill(WorkspaceModel):
 
 
 class AgentPresetVersionSkill(WorkspaceModel):
-    """Exact skill version snapshot bound to an immutable preset version."""
+    """Exact Skill snapshot reference, removed when the Skill is deleted."""
 
     __tablename__ = "agent_preset_version_skill"
     __table_args__ = (

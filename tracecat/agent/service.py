@@ -1090,7 +1090,7 @@ class AgentManagementService(BaseOrgService):
             preset_id: Agent preset ID to load
             slug: Agent preset slug to load (alternative to preset_id)
             preset_version_id: Optional preset version ID to pin
-            preset_version: Optional preset version number to pin
+            preset_version: Deprecated compatibility input; current head is used
         """
         if self.presets is None:
             raise TracecatAuthorizationError(

@@ -765,7 +765,7 @@ export type AgentPresetSubagentEligibility = {
 }
 
 export type AgentPresetSubagentEligibilityReason =
-  | "agents_enabled"
+  | "subagents_attached"
   | "tool_approvals"
 
 /**
@@ -846,6 +846,7 @@ export type AgentPresetVersionRead = {
   capabilities?: Array<AgentPresetCapability>
   subagent_eligibility?: AgentPresetSubagentEligibility
   skills?: Array<AgentPresetSkillBindingRead>
+  restore_skills: Array<AgentPresetSkillBindingRead>
   created_at: string
   updated_at: string
 }
@@ -1122,17 +1123,23 @@ export type AgentSettingsUpdate = {
 }
 
 /**
- * User-facing agents toggle and optional preset-backed subagents.
+ * User-facing preset-backed subagents.
  */
 export type AgentSubagentsConfig_Input = {
+  /**
+   * @deprecated
+   */
   enabled?: boolean
   subagents?: Array<AnyAttachedSubagentRef>
 }
 
 /**
- * User-facing agents toggle and optional preset-backed subagents.
+ * User-facing preset-backed subagents.
  */
 export type AgentSubagentsConfig_Output = {
+  /**
+   * @deprecated
+   */
   enabled?: boolean
   subagents?: Array<AnyAttachedSubagentRef>
 }
@@ -1171,7 +1178,6 @@ export type AppSettingsRead = {
   app_workflow_export_enabled: boolean
   app_create_workspace_on_register: boolean
   app_action_form_mode_enabled: boolean
-  app_versioned_resource_resolution_strategy?: VersionedResourceResolutionStrategy
 }
 
 /**
@@ -1202,10 +1208,6 @@ export type AppSettingsUpdate = {
    * Whether to enable form mode for action inputs. When disabled, only YAML mode is available, preserving raw YAML formatting.
    */
   app_action_form_mode_enabled?: boolean
-  /**
-   * How versioned resource references are resolved when a feature supports both pinned and latest dependency resolution.
-   */
-  app_versioned_resource_resolution_strategy?: VersionedResourceResolutionStrategy
 }
 
 /**
@@ -2688,7 +2690,7 @@ export type CaseViewedEventRead = {
 export type CatalogMappingAffectedPreset = {
   preset_slug: string
   preset_name: string
-  version: number
+  version: number | null
   path: string
 }
 
@@ -5488,7 +5490,7 @@ export type status5 =
 export type McpIntegrationMappingAffectedPreset = {
   preset_slug: string
   preset_name: string
-  version: number
+  version: number | null
   path: string
 }
 
@@ -6677,9 +6679,12 @@ export type RepositorySyncResult = {
 }
 
 /**
- * Persisted agents toggle with immutable resolved child refs.
+ * Persisted immutable resolved child refs.
  */
 export type ResolvedAgentsConfig = {
+  /**
+   * @deprecated
+   */
   enabled?: boolean
   subagents?: Array<ResolvedAttachedSubagentRef>
 }
@@ -8850,8 +8855,6 @@ export type VersionDiff = {
   actions_modified?: Array<ActionChange>
   total_changes?: number
 }
-
-export type VersionedResourceResolutionStrategy = "pinned" | "latest"
 
 /**
  * Vertex AI catalog entry.
@@ -16717,6 +16720,10 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Agent preset not found
+         */
+        404: unknown
         /**
          * Validation Error
          */

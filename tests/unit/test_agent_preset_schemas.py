@@ -2,13 +2,20 @@
 
 import uuid
 from datetime import UTC, datetime
+from typing import Any, Self, cast
 
 import pytest
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.sql.schema import CallableColumnDefault
 
 from tracecat.agent.preset.internal_router import (
     PresetCreateRequest,
     PresetUpdateRequest,
+)
+from tracecat.agent.preset.resolver import (
+    ResolvedAgentsRuntimeConfig,
+    ResolvedSubagentConfig,
 )
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
@@ -19,7 +26,14 @@ from tracecat.agent.preset.schemas import (
     build_agent_preset_read_minimal,
     build_subagent_eligibility,
 )
-from tracecat.db.models import AgentPreset
+from tracecat.agent.subagents import (
+    AgentSubagentsConfig,
+    AnyAttachedSubagentRef,
+    ResolvedAgentsConfig,
+    ResolvedAttachedSubagentRef,
+)
+from tracecat.agent.workflow_schemas import AgentConfigPayload
+from tracecat.db.models import AgentPreset, AgentPresetVersion
 
 
 def make_agent_preset(
@@ -41,7 +55,7 @@ def make_agent_preset(
         model_name="gpt-4o-mini",
         current_version_id=None,
         tool_approvals=tool_approvals,
-        agents=agents or {"enabled": False},
+        agents=agents or {},
         enable_internet_access=enable_internet_access,
         created_at=timestamp,
         updated_at=timestamp,
@@ -250,32 +264,159 @@ def test_agent_preset_read_minimal_exposes_current_version_subagent_eligibility(
             name="Parent preset",
             slug="parent-preset",
             tool_approvals={"core.http_request": True},
-            agents={"enabled": True, "subagents": []},
+            agents={"subagents": []},
         )
     )
 
     dumped = payload.model_dump(mode="json")
     assert dumped["current_version_subagent_eligibility"] == {
         "eligible": False,
-        "reasons": ["agents_enabled", "tool_approvals"],
+        "reasons": ["tool_approvals"],
         "message": (
-            "This version defines its own subagents and requires manual approvals, "
-            "which are not supported for preset subagents yet."
+            "This version requires manual approvals, which are not supported for "
+            "preset subagents yet."
         ),
     }
-    assert dumped["capabilities"] == ["approvals", "subagents"]
+    assert dumped["capabilities"] == ["approvals"]
     assert "agents" not in dumped
 
 
-def test_build_subagent_eligibility_allows_plain_versions() -> None:
+def test_build_subagent_eligibility_allows_no_attached_children() -> None:
     eligibility = build_subagent_eligibility(
-        agents_config={"enabled": False},
+        agents_config={"subagents": []},
         tool_approvals={"core.http_request": False},
     )
 
     assert eligibility.eligible is True
     assert eligibility.reasons == []
     assert eligibility.message is None
+
+
+class LegacyAgentsConfig(BaseModel):
+    """The pre-removal reader contract, including its enabled validator."""
+
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool = Field(default=False)
+    subagents: list[AnyAttachedSubagentRef] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_subagents_enabled(self) -> Self:
+        if not self.enabled and self.subagents:
+            raise ValueError("subagents require enabled=true")
+        return self
+
+
+@pytest.mark.parametrize("enabled", [None, True, False])
+@pytest.mark.parametrize("model", [AgentSubagentsConfig, ResolvedAgentsConfig])
+def test_agents_config_normalizes_deprecated_enabled_for_old_readers(
+    enabled: bool | None,
+    model: type[AgentSubagentsConfig] | type[ResolvedAgentsConfig],
+) -> None:
+    payload: dict[str, object] = {
+        "subagents": [
+            {
+                "preset": "analyst",
+                "preset_id": str(uuid.uuid4()),
+                "preset_version_id": str(uuid.uuid4()),
+            }
+        ]
+    }
+    if enabled is not None:
+        payload["enabled"] = enabled
+    config = model.model_validate(payload)
+    dumped = config.model_dump(mode="json")
+    assert dumped["enabled"] is True
+    assert [
+        ref.preset for ref in LegacyAgentsConfig.model_validate(dumped).subagents
+    ] == ["analyst"]
+
+
+class LegacyRuntimeAgentsConfig(BaseModel):
+    """Previous workflow worker's activity-result and binding conversion."""
+
+    enabled: bool = Field(default=False)
+    subagents: list[ResolvedSubagentConfig] = Field(default_factory=list)
+
+    def to_agents_binding(self) -> LegacyAgentsConfig:
+        return LegacyAgentsConfig(
+            enabled=self.enabled,
+            subagents=[subagent.binding for subagent in self.subagents],
+        )
+
+
+@pytest.mark.parametrize("enabled", [None, False, True])
+def test_runtime_agents_result_is_readable_by_previous_workflow_worker(
+    enabled: bool | None,
+) -> None:
+    child = ResolvedSubagentConfig(
+        binding=ResolvedAttachedSubagentRef(
+            preset="analyst",
+            preset_id=uuid.uuid4(),
+            preset_version_id=uuid.uuid4(),
+        ),
+        description="Analyst",
+        prompt="Review the request.",
+        config=AgentConfigPayload(
+            model_name="gpt-4o-mini", model_provider="openai", retries=3
+        ),
+    )
+    payload: dict[str, object] = {"subagents": [child.model_dump(mode="json")]}
+    if enabled is not None:
+        payload["enabled"] = enabled
+    result = ResolvedAgentsRuntimeConfig.model_validate(payload)
+    old_result = LegacyRuntimeAgentsConfig.model_validate_json(result.model_dump_json())
+
+    assert old_result.enabled is True
+    assert [ref.preset for ref in old_result.to_agents_binding().subagents] == [
+        "analyst"
+    ]
+
+
+@pytest.mark.parametrize("model", [AgentPreset, AgentPresetVersion])
+def test_orm_agents_default_validates_against_schema(
+    model: type[DeclarativeBase],
+) -> None:
+    """A row written with the ORM default must validate for both new and old app readers."""
+    column = model.__table__.c.agents
+    default = column.default
+    assert isinstance(default, CallableColumnDefault)
+
+    # SQLAlchemy wraps the zero-arg lambda, so the execution context is unused.
+    value = default.arg(cast(Any, None))
+
+    assert value == AgentSubagentsConfig().model_dump(mode="json")
+    assert ResolvedAgentsConfig.model_validate(value).subagents == []
+    assert column.server_default is not None
+    assert (
+        str(column.server_default.arg)
+        == '\'{"enabled": true, "subagents": []}\'::jsonb'
+    )
+
+
+def test_agents_config_rejects_misspelled_subagents_field() -> None:
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        AgentSubagentsConfig.model_validate({"subagent": [{"preset": "analyst"}]})
+
+
+def test_resolved_agents_config_rejects_other_unknown_fields() -> None:
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        ResolvedAgentsConfig.model_validate({"enabled": False, "disabled": True})
+
+
+def test_build_subagent_eligibility_rejects_nested_subagents() -> None:
+    eligibility = build_subagent_eligibility(
+        agents_config={
+            "subagents": [{"preset": "nested-child"}],
+        },
+        tool_approvals={},
+    )
+
+    assert eligibility.eligible is False
+    assert eligibility.reasons == ["subagents_attached"]
+    assert eligibility.message == (
+        "This version defines its own subagents. Remove those subagents before "
+        "attaching this version as a subagent."
+    )
 
 
 def test_agent_preset_version_read_schema_accepts_legacy_whitespace_model_fields() -> (

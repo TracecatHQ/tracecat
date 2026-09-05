@@ -316,7 +316,6 @@ class ClaudeAgentRuntime:
         self._runtime_internet_access_enabled: bool = False
         self._explicit_subagent_aliases: set[str] = set()
         self._registry_mcp_server_names: set[str] = {REGISTRY_MCP_SERVER_NAME}
-        self._agents_enabled: bool = False
         self._pending_approval_tool_ids: set[str] = set()
         self.client: ClaudeSDKClient | None = None
         self._was_interrupted: bool = False
@@ -643,8 +642,6 @@ class ClaudeAgentRuntime:
         """Return denial reason for invalid Agent/Task tool use, else None."""
         if tool_name not in AGENT_TOOL_NAMES:
             return None
-        if not self._agents_enabled:
-            return "Subagents are disabled for this agent configuration."
         if self._is_subagent_scope(input_data):
             return "Subagents cannot invoke other subagents."
 
@@ -1349,11 +1346,10 @@ class ClaudeAgentRuntime:
         if instructions:
             prompt_parts.append(instructions)
         prompt_parts.extend(self._system_prompt_fragments)
-        if self._agents_enabled:
-            prompt_parts.append(
-                "prefer the most specific attached alias; use `general-purpose` only "
-                "when none matches."
-            )
+        prompt_parts.append(
+            "Prefer the most specific attached alias; use `general-purpose` only "
+            "when none matches."
+        )
         return "\n\n".join(prompt_parts)
 
     def _build_agent_definitions(
@@ -1435,7 +1431,6 @@ class ClaudeAgentRuntime:
         self.registry_tools = payload.allowed_actions
         self.tool_approvals = payload.config.tool_approvals
         self._stdio_approval_blocked_tools = set()
-        self._agents_enabled = payload.config.agents.enabled
         self._explicit_subagent_aliases = {
             subagent.alias for subagent in payload.subagents
         }
@@ -1463,9 +1458,7 @@ class ClaudeAgentRuntime:
     def _root_disallowed_tools(self) -> list[str]:
         """Return root Claude tools blocked for this turn."""
         disallowed_tools = [
-            tool
-            for tool in DISALLOWED_TOOLS
-            if not (self._agents_enabled and tool in AGENT_TOOL_NAMES)
+            tool for tool in DISALLOWED_TOOLS if tool not in AGENT_TOOL_NAMES
         ]
         # Internet access is a runtime-wide sandbox/network capability for the
         # turn, so the root setting also governs explicit subagents.
@@ -1487,8 +1480,7 @@ class ClaudeAgentRuntime:
             stdio_server_names=stdio_server_names,
             stdio_tools_by_server=stdio_tools_by_server,
         )
-        if self._agents_enabled:
-            allowed_tools.extend(sorted(AGENT_TOOL_NAMES))
+        allowed_tools.extend(sorted(AGENT_TOOL_NAMES))
         return allowed_tools
 
     @staticmethod

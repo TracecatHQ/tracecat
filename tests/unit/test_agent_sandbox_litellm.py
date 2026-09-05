@@ -1757,7 +1757,7 @@ def _run_nsjail_harness_in_docker_or_skip(
             env=compose_env,
             capture_output=True,
             text=True,
-            timeout=180,
+            timeout=600,
             check=False,
         )
     finally:
@@ -2331,7 +2331,7 @@ async def test_run_agent_activity_plumbs_subagents_to_runtime_in_each_sandbox_mo
                 model_provider="openai",
                 agents=cast(
                     Any,
-                    {"enabled": True, "subagents": [{"preset": "analyst"}]},
+                    {"subagents": [{"preset": "analyst"}]},
                 ),
             ),
             "subagents": [
@@ -2351,7 +2351,6 @@ async def test_run_agent_activity_plumbs_subagents_to_runtime_in_each_sandbox_mo
         handler: LoopbackHandler,
         payload: RuntimeInitPayload,
     ) -> None:
-        assert payload.config.agents.enabled is True
         assert payload.config.agents.subagents[0].preset == "analyst"
         [subagent] = payload.subagents
         assert subagent.alias == "analyst"

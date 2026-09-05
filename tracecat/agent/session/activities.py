@@ -49,6 +49,9 @@ class CreateSessionInput(BaseModel):
     agent_preset_id: uuid.UUID | None = None
     agent_preset_version_id: uuid.UUID | None = None
     agents_binding: ResolvedAgentsConfig | None = None
+    # Old workflow histories and queued activities retain session-wide binding
+    # validation. New turns freeze dependencies in Temporal activity results.
+    enforce_session_agents_binding: bool = True
     harness_type: HarnessType = HarnessType.CLAUDE_CODE
     # Workflow run tracking (for approval lookups)
     curr_run_id: uuid.UUID | None = None
@@ -162,9 +165,11 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
                         harness_type=input.harness_type,
                     ),
                     agents_binding=input.agents_binding,
+                    persist_agents_binding=input.enforce_session_agents_binding,
                 )
 
-            # Reconcile agents_binding for pre-existing sessions. Chat-created
+            # Legacy workflows reconcile bindings on pre-existing sessions.
+            # New turns bypass this session-wide contract. Chat-created
             # sessions may be inserted before the durable workflow resolves the
             # current preset's subagent bindings, so a fresh session can have a
             # NULL binding even though this run already has a concrete binding.
@@ -172,21 +177,21 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
             # row forks from a parent SDK history, the binding is part of the
             # resumable runtime topology and explicit mismatches must continue
             # to fail.
-            if not created:
-                disabled_agents_binding = ResolvedAgentsConfig()
-                requested_agents_binding = (
-                    input.agents_binding or disabled_agents_binding
-                )
+            if not created and input.enforce_session_agents_binding:
+                empty_agents_binding = ResolvedAgentsConfig()
+                requested_agents_binding = input.agents_binding or empty_agents_binding
                 if agent_session.agents_binding is None:
                     has_resume_state = (
                         agent_session.sdk_session_id is not None
                         or agent_session.parent_session_id is not None
                     )
-                    should_backfill_agents_binding = input.agents_binding is not None
+                    should_backfill_agents_binding = (
+                        input.agents_binding is not None and not has_resume_state
+                    )
                     stored_agents_binding = (
                         requested_agents_binding
-                        if should_backfill_agents_binding and not has_resume_state
-                        else disabled_agents_binding
+                        if should_backfill_agents_binding
+                        else empty_agents_binding
                     )
                 else:
                     stored_agents_binding = ResolvedAgentsConfig.model_validate(

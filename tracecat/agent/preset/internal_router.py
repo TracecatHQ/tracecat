@@ -182,7 +182,7 @@ async def list_presets(
         capabilities = []
         if has_manual_tool_approvals(tool_approvals):
             capabilities.append("approvals")
-        if agents.enabled:
+        if agents.subagents:
             capabilities.append("subagents")
         if preset.enable_internet_access:
             capabilities.append("internet_access")
@@ -294,4 +294,10 @@ async def delete_preset_by_slug(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Agent preset with slug '{slug}' not found",
         )
-    await service.delete_preset(preset)
+    try:
+        await service.delete_preset(preset)
+    except TracecatNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc

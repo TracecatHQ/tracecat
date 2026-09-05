@@ -6,7 +6,7 @@ import uuid
 from collections.abc import Awaitable
 from typing import TYPE_CHECKING, Any, Protocol
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from tracecat.agent.subagents import (
     AgentSubagentsConfig,
@@ -14,6 +14,7 @@ from tracecat.agent.subagents import (
     ResolvedAgentsConfig,
     ResolvedAttachedSubagentRef,
     has_manual_tool_approvals,
+    normalize_deprecated_agents_enabled,
     validate_subagent_alias,
 )
 from tracecat.agent.workflow_config import agent_config_to_payload
@@ -33,6 +34,7 @@ class AgentPresetResolutionService(Protocol):
         slug: str | None = None,
         preset_version_id: uuid.UUID | None = None,
         preset_version: int | None = None,
+        include_deleted: bool = False,
     ) -> Awaitable[AgentPresetVersion]: ...
 
     def get_preset(self, preset_id: uuid.UUID) -> Awaitable[AgentPreset | None]: ...
@@ -44,6 +46,8 @@ class AgentPresetResolutionService(Protocol):
         slug: str | None = None,
         preset_version_id: uuid.UUID | None = None,
         preset_version: int | None = None,
+        resolve_dependencies_from_heads: bool = True,
+        include_deleted: bool = False,
     ) -> Awaitable[AgentConfig]: ...
 
 
@@ -86,18 +90,15 @@ class ResolvedSubagentResolution(BaseModel):
 class ResolvedAgentsConfigResult(BaseModel):
     """Resolved preset-backed subagent bindings."""
 
-    enabled: bool = False
     subagents: list[ResolvedSubagentResolution] = Field(default_factory=list)
 
     def to_agents_binding(self) -> ResolvedAgentsConfig:
         return ResolvedAgentsConfig(
-            enabled=self.enabled,
             subagents=[subagent.binding for subagent in self.subagents],
         )
 
     def to_runtime_config(self) -> ResolvedAgentsRuntimeConfig:
         return ResolvedAgentsRuntimeConfig(
-            enabled=self.enabled,
             subagents=[
                 subagent.require_runtime_config() for subagent in self.subagents
             ],
@@ -107,12 +108,19 @@ class ResolvedAgentsConfigResult(BaseModel):
 class ResolvedAgentsRuntimeConfig(BaseModel):
     """Runtime-ready resolved preset-backed subagent config."""
 
-    enabled: bool = False
+    # Temporal activity results must remain readable by older workflow workers.
+    enabled: bool = Field(
+        default=True, deprecated="Always enabled; this field is ignored."
+    )
     subagents: list[ResolvedSubagentConfig] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_legacy_enabled(cls, data: Any) -> Any:
+        return normalize_deprecated_agents_enabled(data)
 
     def to_agents_binding(self) -> ResolvedAgentsConfig:
         return ResolvedAgentsConfig(
-            enabled=self.enabled,
             subagents=[subagent.binding for subagent in self.subagents],
         )
 
@@ -129,9 +137,6 @@ async def resolve_agents_config(
     """Resolve and validate preset-backed subagent refs."""
 
     config = AgentSubagentsConfig.model_validate({} if agents is None else agents)
-    if not config.enabled:
-        return ResolvedAgentsConfigResult()
-
     aliases: set[str] = set()
     resolved_subagents: list[ResolvedSubagentResolution] = []
     for ref in config.subagents:
@@ -161,11 +166,13 @@ async def resolve_agents_config(
                     # Pinned identity, but the caller wants the newest version.
                     version = await service.resolve_agent_preset_version(
                         preset_id=preset_id,
+                        include_deleted=True,
                     )
                 else:
                     # Resolve the exact persisted version.
                     version = await service.resolve_agent_preset_version(
                         preset_version_id=preset_version_id,
+                        include_deleted=True,
                     )
             case AttachedSubagentRef(preset=preset_slug, preset_version=preset_version):
                 # Unresolved ref has no persisted UUID; resolve by slug.
@@ -191,7 +198,7 @@ async def resolve_agents_config(
             raise TracecatValidationError("Agent presets cannot reference themselves")
 
         child_agents = AgentSubagentsConfig.model_validate(version.agents)
-        if child_agents.enabled:
+        if child_agents.subagents:
             raise TracecatValidationError(
                 f"Subagent preset '{ref.preset}' cannot define its own agents in v1"
             )
@@ -214,6 +221,8 @@ async def resolve_agents_config(
             preset = await service.get_preset(version.preset_id)
             child_config = await service.resolve_agent_preset_config(
                 preset_version_id=version.id,
+                resolve_dependencies_from_heads=follow_latest_versions,
+                include_deleted=True,
             )
             description = (
                 ref.description
@@ -231,7 +240,7 @@ async def resolve_agents_config(
         else:
             resolved_subagents.append(ResolvedSubagentResolution(binding=binding))
 
-    return ResolvedAgentsConfigResult(enabled=True, subagents=resolved_subagents)
+    return ResolvedAgentsConfigResult(subagents=resolved_subagents)
 
 
 def build_subagent_prompt(instructions: str | None) -> str:

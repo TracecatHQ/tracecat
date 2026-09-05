@@ -93,7 +93,6 @@ async def resolve_agent_preset_version_ref_activity(
     async with AgentPresetService.with_session(role=args.role) as service:
         version = await service.resolve_agent_preset_version(
             slug=args.preset_slug,
-            preset_version=args.preset_version,
         )
         return AgentPresetVersionRef(
             preset_id=version.preset_id,
@@ -107,9 +106,10 @@ async def resolve_agents_config_activity(
 ) -> ResolvedAgentsRuntimeConfig:
     try:
         async with AgentPresetService.with_session(role=args.role) as service:
-            follow_latest_versions = args.follow_latest_versions
-            if follow_latest_versions is None:
-                follow_latest_versions = await service.use_latest_resource_versions()
+            # ``False`` is reserved for rebuilding an already-resolved session
+            # binding. Fresh executions (including legacy payloads with ``None``)
+            # always follow child heads.
+            follow_latest_versions = args.follow_latest_versions is not False
             resolved = await resolve_agents_config(
                 service,
                 agents=args.agents,

@@ -571,6 +571,7 @@ class AgentSessionService(BaseWorkspaceService):
         *,
         channel_context: dict[str, Any] | None = None,
         agents_binding: ResolvedAgentsConfig | None = None,
+        persist_agents_binding: bool = True,
     ) -> AgentSession:
         """Create a new agent session.
 
@@ -579,6 +580,8 @@ class AgentSessionService(BaseWorkspaceService):
             channel_context: Trusted external channel metadata to bind to session.
             agents_binding: Already-resolved internal subagent binding from the
                 workflow.
+            persist_agents_binding: Store legacy session topology. New durable
+                turns keep their resolved topology in Temporal history instead.
 
         Returns:
             The created AgentSession model.
@@ -604,7 +607,9 @@ class AgentSessionService(BaseWorkspaceService):
             agent_preset_id=args.agent_preset_id,
             agent_preset_version_id=args.agent_preset_version_id,
         )
-        if agents_binding is not None:
+        if not persist_agents_binding:
+            resolved_agents_binding = None
+        elif agents_binding is not None:
             resolved_agents_binding = agents_binding.model_dump(mode="json")
         else:
             resolved_agents_binding = (
@@ -856,6 +861,7 @@ class AgentSessionService(BaseWorkspaceService):
         args: AgentSessionCreate,
         *,
         agents_binding: ResolvedAgentsConfig | None = None,
+        persist_agents_binding: bool = True,
     ) -> tuple[AgentSession, bool]:
         """Get an existing session or create a new one.
 
@@ -871,7 +877,11 @@ class AgentSessionService(BaseWorkspaceService):
             existing = await self.get_session(args.id)
             if existing:
                 return existing, False
-        new_session = await self.create_session(args, agents_binding=agents_binding)
+        new_session = await self.create_session(
+            args,
+            agents_binding=agents_binding,
+            persist_agents_binding=persist_agents_binding,
+        )
         return new_session, True
 
     async def list_sessions(

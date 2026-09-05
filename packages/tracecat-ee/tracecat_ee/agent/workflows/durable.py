@@ -546,6 +546,7 @@ LOAD_TERMINAL_MESSAGE_HISTORY_PATCH = "durable-agent-load-terminal-message-histo
 PRESERVE_RESUMED_AGENT_BINDINGS_PATCH = (
     "durable-agent-preserve-resumed-agent-bindings-v1"
 )
+RESOLVE_AGENTS_PER_TURN_PATCH = "durable-agent-resolve-agents-per-turn-v1"
 
 
 def _agents_config_from_binding(
@@ -737,10 +738,8 @@ class DurableAgentWorkflow:
         follow_latest_versions: bool | None = None,
     ) -> ResolvedAgentsRuntimeConfig:
         agents_config = agents if agents is not None else cfg.agents
-        if not agents_config.enabled:
-            return ResolvedAgentsRuntimeConfig()
         if not agents_config.subagents:
-            return ResolvedAgentsRuntimeConfig(enabled=True)
+            return ResolvedAgentsRuntimeConfig()
         return await workflow.execute_activity(
             resolve_agents_config_activity,
             ResolveAgentsConfigActivityInput(
@@ -1321,7 +1320,13 @@ class DurableAgentWorkflow:
             workflow.info().workflow_id
         ).session_id
         load_result: LoadSessionResult | None = None
-        if workflow.patched(PRESERVE_RESUMED_AGENT_BINDINGS_PATCH):
+        resolve_agents_per_turn = workflow.patched(RESOLVE_AGENTS_PER_TURN_PATCH)
+        if resolve_agents_per_turn:
+            # Each workflow is a new turn. The resolution activity result in
+            # this workflow's history freezes its configuration, including
+            # approval continuation; session history does not pin dependencies.
+            agents_result = await self._resolve_agents_config(args, cfg)
+        elif workflow.patched(PRESERVE_RESUMED_AGENT_BINDINGS_PATCH):
             # Load session topology before resolving agents. A resumed session's
             # stored binding is the stable runtime contract, even if the preset
             # now follows a newer child version.
@@ -1359,6 +1364,7 @@ class DurableAgentWorkflow:
                 agent_preset_id=args.agent_preset_id,
                 agent_preset_version_id=args.agent_preset_version_id,
                 agents_binding=agents_result.to_agents_binding(),
+                enforce_session_agents_binding=not resolve_agents_per_turn,
                 harness_type=HarnessType(self.harness_type),
                 curr_run_id=curr_run_id,
                 initial_user_prompt=(
@@ -1402,9 +1408,9 @@ class DurableAgentWorkflow:
         )
 
         if load_result is None:
-            # Legacy command order for histories without the binding-preservation
-            # patch marker. sdk_session_data is replay compatibility only; new
-            # activity executions leave it unset.
+            # New turns load conversation history independently of dependency
+            # resolution. This also preserves the original command order before
+            # session binding preservation was introduced.
             load_result = await workflow.execute_activity(
                 load_session_activity,
                 LoadSessionInput(role=self.role, session_id=self.session_id),

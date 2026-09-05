@@ -1,4 +1,4 @@
-"""Skill resource adapter (skill manifest plus versioned file blobs)."""
+"""Skill resource adapter for the current published desired state."""
 
 from __future__ import annotations
 
@@ -10,18 +10,17 @@ from collections import defaultdict
 from collections.abc import Mapping
 from typing import Literal, cast
 
-import orjson
 import sqlalchemy as sa
-import yaml
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from tracecat.agent.skill.service import SkillFileBlobRef, SkillService
+from tracecat.agent.skill.service import (
+    ManifestValidationResult,
+    SkillFileBlobRef,
+    SkillService,
+)
 from tracecat.db.models import (
-    AgentPreset,
-    AgentPresetSkill,
-    AgentPresetVersionSkill,
     Skill,
     SkillBlob,
     SkillVersion,
@@ -29,7 +28,7 @@ from tracecat.db.models import (
 )
 from tracecat.exceptions import TracecatValidationError
 from tracecat.storage import blob
-from tracecat.sync import PullDiagnostic, serializable_validation_errors
+from tracecat.sync import PullDiagnostic
 from tracecat.workspace_sync.adapters.base import (
     DirectoryManifestAdapter,
     ImportedResource,
@@ -45,20 +44,16 @@ from tracecat.workspace_sync.schemas import (
     SKILL_ROOT,
     SkillFileSpec,
     SkillResourceSpec,
-    SkillVersionResourceSpec,
     WorkspaceManifestResources,
     WorkspaceSpec,
 )
-from tracecat.workspace_sync.serialization import serialize_yaml_model
 
 SKILL_FILENAME = "skill.yml"
 SKILL_FILES_DIR = "files"
-SKILL_VERSIONS_DIR = "versions"
-SKILL_VERSION_FILENAME = "version.yml"
 
 
 class SkillAdapter(DirectoryManifestAdapter):
-    """Adapter for skills: a manifest file plus versioned file blob snapshots."""
+    """Adapter for a Skill head manifest and its published file contents."""
 
     resource_type = SyncResourceType.SKILL
     spec_attr = "skills"
@@ -71,46 +66,25 @@ class SkillAdapter(DirectoryManifestAdapter):
     import_identity_attrs = ("slug",)
     import_identity_noun = "slug"
 
-    def _version_manifest_path(self, source_id: str, version: int) -> str:
-        """Return the repository path for a skill version manifest."""
-        return (
-            f"{self.root}/{source_id}/{SKILL_VERSIONS_DIR}/"
-            f"{version}/{SKILL_VERSION_FILENAME}"
-        )
-
-    def _version_file_source_path(
-        self,
-        source_id: str,
-        version: int,
-        file_path: str,
-    ) -> str:
-        """Return the repository path for a versioned skill file blob."""
-        return (
-            f"{self.root}/{source_id}/{SKILL_VERSIONS_DIR}/"
-            f"{version}/{SKILL_FILES_DIR}/{file_path}"
-        )
+    def _file_source_path(self, source_id: str, file_path: str) -> str:
+        """Return the repository path for desired Skill-head file content."""
+        return f"{self.root}/{source_id}/{SKILL_FILES_DIR}/{file_path}"
 
     def extra_path_from_path(
         self,
         path: str,
         roots: WorkspaceManifestResources,
     ) -> tuple[str, str] | None:
-        """Map a skill companion path to ``(source_id, relpath)``.
-
-        Versioned snapshots live under ``versions/<n>/``. The returned relpath
-        is interpreted by :meth:`attach_extra_files`.
-        """
+        """Map desired head file content to ``(source_id, relpath)``."""
         parts = path_parts(path)
         root_parts = path_parts(roots.skills)
         # The leading segments must match the configured skills root exactly.
         if parts[: len(root_parts)] != root_parts:
             return None
-        # A companion file needs at least root + <source_id> + one nested
-        # segment; the primary "skill.yml" lives directly below the source id.
         if len(parts) < len(root_parts) + 3:
             return None
         source_id = parts[len(root_parts)]
-        if not source_id:
+        if not source_id or parts[len(root_parts) + 1] != SKILL_FILES_DIR:
             return None
         relpath = "/".join(parts[len(root_parts) + 1 :])
         return (source_id, relpath) if relpath else None
@@ -120,24 +94,12 @@ class SkillAdapter(DirectoryManifestAdapter):
         source_id: str,
         spec: BaseModel,
     ) -> dict[str, str]:
-        """Serialize a skill's versioned file blobs to their repository paths."""
+        """Serialize the desired Skill-head file contents."""
         skill = cast(SkillResourceSpec, spec)
-        files: dict[str, str] = {}
-        for version_number, version in sorted(skill.versions.items()):
-            files[self._version_manifest_path(source_id, version_number)] = (
-                serialize_yaml_model(version)
-            )
-            files.update(
-                {
-                    self._version_file_source_path(
-                        source_id,
-                        version_number,
-                        file_path,
-                    ): content
-                    for file_path, content in sorted(version.file_contents.items())
-                }
-            )
-        return files
+        return {
+            f"{self.root}/{source_id}/{SKILL_FILES_DIR}/{file_path}": content
+            for file_path, content in sorted(skill.file_contents.items())
+        }
 
     def attach_extra_files(
         self,
@@ -145,115 +107,54 @@ class SkillAdapter(DirectoryManifestAdapter):
         extra_files: Mapping[tuple[str, str], str],
         diagnostics: list[PullDiagnostic],
     ) -> dict[str, BaseModel]:
-        """Fold parsed skill file blobs back into each skill spec.
-
-        Attaches version file contents by source id and emits a
-        :class:`PullDiagnostic` for any declared version file that is missing or
-        whose SHA256 does not match the manifest.
-        """
-        # Group the flat (source_id, relpath) blob map by skill so each version
-        # spec can look up only its own files below.
-        version_manifest_by_source: dict[str, dict[int, str]] = defaultdict(dict)
-        version_contents_by_source: dict[str, dict[int, dict[str, str]]] = defaultdict(
-            lambda: defaultdict(dict)
-        )
+        """Attach and validate desired Skill-head file contents."""
+        contents_by_source: dict[str, dict[str, str]] = defaultdict(dict)
         for (source_id, relpath), content in extra_files.items():
-            parsed = _parse_skill_version_relpath(relpath)
-            if parsed is None:
+            parts = path_parts(relpath)
+            if len(parts) < 2 or parts[0] != SKILL_FILES_DIR:
                 continue
-            version_number, kind, file_path = parsed
-            if kind == "manifest":
-                version_manifest_by_source[source_id][version_number] = content
-            elif file_path:
-                version_contents_by_source[source_id][version_number][file_path] = (
-                    content
-                )
+            contents_by_source[source_id]["/".join(parts[1:])] = content
 
         updated: dict[str, BaseModel] = {}
         for source_id, base_spec in specs.items():
             spec = cast(SkillResourceSpec, base_spec)
-            versions: dict[int, SkillVersionResourceSpec] = dict(spec.versions)
-            for version_number, content in sorted(
-                version_manifest_by_source.get(source_id, {}).items()
-            ):
-                version_spec = _parse_skill_version_manifest(
-                    self,
-                    source_id=source_id,
-                    version_number=version_number,
-                    content=content,
-                    diagnostics=diagnostics,
-                )
-                if version_spec is None:
-                    continue
-                version_contents = version_contents_by_source[source_id].get(
-                    version_number, {}
-                )
-                self._validate_version_files(
-                    source_id=source_id,
-                    spec=spec,
-                    version=version_spec,
-                    contents=version_contents,
-                    diagnostics=diagnostics,
-                )
-                versions[version_number] = version_spec.model_copy(
-                    update={"file_contents": version_contents}
-                )
+            contents = contents_by_source.get(source_id, {})
+            self._validate_head_files(
+                source_id=source_id,
+                spec=spec,
+                contents=contents,
+                diagnostics=diagnostics,
+            )
+            updated[source_id] = spec.model_copy(
+                update={
+                    "file_contents": contents,
+                }
+            )
+        return updated
 
-            if (
-                spec.current_version is not None
-                and spec.current_version not in versions
-            ):
+    def _validate_head_files(
+        self,
+        *,
+        source_id: str,
+        spec: SkillResourceSpec,
+        contents: Mapping[str, str],
+        diagnostics: list[PullDiagnostic],
+    ) -> None:
+        """Validate a parsed Skill head's declared file hashes."""
+        for file_spec in spec.files:
+            content = contents.get(file_spec.path)
+            if content is None:
                 diagnostics.append(
                     PullDiagnostic(
                         workflow_path=self.source_path(source_id),
                         workflow_title=spec.name,
                         error_type="dependency",
                         message=(
-                            f"Skill {spec.slug!r} current version "
-                            f"{spec.current_version} is missing"
+                            f"Skill {spec.slug!r} head file "
+                            f"{file_spec.path!r} is missing"
                         ),
                         details={
                             "skill_slug": spec.slug,
-                            "skill_version": spec.current_version,
-                        },
-                    )
-                )
-
-            # Attach the resolved version contents even when diagnostics fired
-            # so the caller has whatever did parse; diagnostics gate acceptance.
-            updated[source_id] = spec.model_copy(
-                update={"files": [], "file_contents": {}, "versions": versions}
-            )
-        return updated
-
-    def _validate_version_files(
-        self,
-        *,
-        source_id: str,
-        spec: SkillResourceSpec,
-        version: SkillVersionResourceSpec,
-        contents: Mapping[str, str],
-        diagnostics: list[PullDiagnostic],
-    ) -> None:
-        """Validate a parsed version's declared file hashes."""
-        for file_spec in version.files:
-            content = contents.get(file_spec.path)
-            if content is None:
-                diagnostics.append(
-                    PullDiagnostic(
-                        workflow_path=self._version_manifest_path(
-                            source_id,
-                            version.version_number,
-                        ),
-                        workflow_title=version.name,
-                        error_type="dependency",
-                        message=(
-                            f"Skill version {spec.slug!r}@{version.version_number} "
-                            f"file {file_spec.path!r} is missing"
-                        ),
-                        details={
-                            "skill_slug": spec.slug,
-                            "skill_version": version.version_number,
                             "file_path": file_spec.path,
                         },
                     )
@@ -264,20 +165,15 @@ class SkillAdapter(DirectoryManifestAdapter):
             except ValueError as e:
                 diagnostics.append(
                     PullDiagnostic(
-                        workflow_path=self._version_file_source_path(
-                            source_id,
-                            version.version_number,
-                            file_spec.path,
-                        ),
-                        workflow_title=version.name,
+                        workflow_path=self._file_source_path(source_id, file_spec.path),
+                        workflow_title=spec.name,
                         error_type="validation",
                         message=(
-                            f"Skill version {spec.slug!r}@{version.version_number} "
-                            f"file {file_spec.path!r} could not be decoded: {e}"
+                            f"Skill {spec.slug!r} head file {file_spec.path!r} "
+                            f"could not be decoded: {e}"
                         ),
                         details={
                             "skill_slug": spec.slug,
-                            "skill_version": version.version_number,
                             "file_path": file_spec.path,
                             "encoding": file_spec.encoding,
                         },
@@ -288,20 +184,15 @@ class SkillAdapter(DirectoryManifestAdapter):
             if actual_hash != file_spec.sha256:
                 diagnostics.append(
                     PullDiagnostic(
-                        workflow_path=self._version_file_source_path(
-                            source_id,
-                            version.version_number,
-                            file_spec.path,
-                        ),
-                        workflow_title=version.name,
+                        workflow_path=self._file_source_path(source_id, file_spec.path),
+                        workflow_title=spec.name,
                         error_type="validation",
                         message=(
-                            f"Skill version {spec.slug!r}@{version.version_number} "
-                            f"file {file_spec.path!r} SHA256 does not match"
+                            f"Skill {spec.slug!r} head file {file_spec.path!r} "
+                            "SHA256 does not match"
                         ),
                         details={
                             "skill_slug": spec.slug,
-                            "skill_version": version.version_number,
                             "file_path": file_spec.path,
                             "expected_sha256": file_spec.sha256,
                             "actual_sha256": actual_hash,
@@ -312,17 +203,10 @@ class SkillAdapter(DirectoryManifestAdapter):
     async def project(
         self, workspace_service: SyncMappingService
     ) -> ResourceProjection:
-        """Project skills and the version snapshots needed to preserve pins."""
+        """Project each Skill's current desired head content."""
         stmt = self._projection_stmt(workspace_service)
         skills = list((await workspace_service.session.execute(stmt)).scalars().all())
-        versions_by_skill_id = await self._exported_bound_versions_by_skill(
-            workspace_service
-        )
-        return await self._projection_from_skills(
-            workspace_service,
-            skills,
-            versions_by_skill_id=versions_by_skill_id,
-        )
+        return await self._projection_from_skills(workspace_service, skills)
 
     async def project_dependency_refs(
         self,
@@ -348,26 +232,15 @@ class SkillAdapter(DirectoryManifestAdapter):
                 ).values()
             )
         stmt = self._projection_stmt(workspace_service)
+        slug_column = sa.func.coalesce(Skill.slug, Skill.name)
         if local_ids and slugs:
-            stmt = stmt.where(sa.or_(Skill.id.in_(local_ids), Skill.name.in_(slugs)))
+            stmt = stmt.where(sa.or_(Skill.id.in_(local_ids), slug_column.in_(slugs)))
         elif local_ids:
             stmt = stmt.where(Skill.id.in_(local_ids))
         else:
-            stmt = stmt.where(Skill.name.in_(slugs))
+            stmt = stmt.where(slug_column.in_(slugs))
         skills = list((await workspace_service.session.execute(stmt)).scalars().all())
-        versions_by_slug: dict[str, set[int]] = defaultdict(set)
-        for slug, version in refs.versioned_slugs:
-            versions_by_slug[slug].add(version)
-        versions_by_skill_id = {
-            skill.id: versions_by_slug[skill.name]
-            for skill in skills
-            if skill.name in versions_by_slug
-        }
-        return await self._projection_from_skills(
-            workspace_service,
-            skills,
-            versions_by_skill_id=versions_by_skill_id,
-        )
+        return await self._projection_from_skills(workspace_service, skills)
 
     def _projection_stmt(
         self, workspace_service: SyncMappingService
@@ -390,111 +263,23 @@ class SkillAdapter(DirectoryManifestAdapter):
         self,
         workspace_service: SyncMappingService,
         skills: list[Skill],
-        versions_by_skill_id: Mapping[uuid.UUID, set[int]] | None = None,
     ) -> ResourceProjection:
-        """Build sync specs from eager-loaded skill rows."""
+        """Build one desired head spec from each current Skill version."""
         assigner = await self.source_id_assigner(workspace_service)
         specs: dict[str, BaseModel] = {}
         resources: list[ProjectedResource] = []
         for skill in skills:
-            source_id = assigner.assign(skill.id, skill.name)
-            # Keep the top-level manifest as metadata only, then emit immutable
-            # file snapshots below ``versions/`` for current and pinned versions.
             version = skill.current_version
-            version_numbers = set((versions_by_skill_id or {}).get(skill.id, set()))
-            if version is not None:
-                version_numbers.add(version.version)
-            versions = await self._version_specs_for_skill(
-                workspace_service,
-                skill=skill,
-                version_numbers=version_numbers,
-            )
-
-            specs[source_id] = SkillResourceSpec(
-                id=source_id,
-                slug=skill.name,
-                name=version.name if version is not None else skill.name,
-                current_version=version.version if version is not None else None,
-                description=skill.description,
-                versions=versions,
-            )
-            resources.append(self.projected_resource(source_id, skill.id))
-        return ResourceProjection(specs=specs, resources=resources)
-
-    async def _exported_bound_versions_by_skill(
-        self,
-        workspace_service: SyncMappingService,
-    ) -> dict[uuid.UUID, set[int]]:
-        """Return skill versions bound by exported agent preset state."""
-        # Soft-deleted presets keep their skill bindings but are excluded from the
-        # preset projection, so their pins must not keep versions exported.
-        head_stmt = (
-            select(SkillVersion.skill_id, SkillVersion.version)
-            .join(
-                AgentPresetSkill,
-                AgentPresetSkill.skill_version_id == SkillVersion.id,
-            )
-            .join(
-                AgentPreset,
-                AgentPresetSkill.preset_id == AgentPreset.id,
-            )
-            .where(
-                AgentPresetSkill.workspace_id == workspace_service.workspace_id,
-                AgentPreset.workspace_id == workspace_service.workspace_id,
-                AgentPreset.deleted_at.is_(None),
-            )
-        )
-        current_version_stmt = (
-            select(SkillVersion.skill_id, SkillVersion.version)
-            .select_from(AgentPresetVersionSkill)
-            .join(
-                AgentPreset,
-                AgentPreset.current_version_id
-                == AgentPresetVersionSkill.preset_version_id,
-            )
-            .join(
-                SkillVersion,
-                AgentPresetVersionSkill.skill_version_id == SkillVersion.id,
-            )
-            .where(
-                AgentPresetVersionSkill.workspace_id == workspace_service.workspace_id,
-                AgentPreset.workspace_id == workspace_service.workspace_id,
-                AgentPreset.deleted_at.is_(None),
-            )
-        )
-        versions_by_skill_id: dict[uuid.UUID, set[int]] = defaultdict(set)
-        for stmt in (head_stmt, current_version_stmt):
-            for skill_id, version_number in (
-                await workspace_service.session.execute(stmt)
-            ).tuples():
-                versions_by_skill_id[skill_id].add(version_number)
-        return versions_by_skill_id
-
-    async def _version_specs_for_skill(
-        self,
-        workspace_service: SyncMappingService,
-        *,
-        skill: Skill,
-        version_numbers: set[int],
-    ) -> dict[int, SkillVersionResourceSpec]:
-        """Build version specs for the requested version numbers of ``skill``."""
-        if not version_numbers:
-            return {}
-        stmt = (
-            select(SkillVersion)
-            .where(
-                SkillVersion.workspace_id == workspace_service.workspace_id,
-                SkillVersion.skill_id == skill.id,
-                SkillVersion.version.in_(version_numbers),
-            )
-            .order_by(SkillVersion.version.asc())
-        )
-        versions: dict[int, SkillVersionResourceSpec] = {}
-        for version in (await workspace_service.session.scalars(stmt)).all():
+            if version is None:
+                continue
+            skill_slug = skill.slug or skill.name
+            source_id = assigner.assign(skill.id, skill_slug)
             files: list[SkillFileSpec] = []
             file_contents: dict[str, str] = {}
-            rows = await self._skill_version_rows(workspace_service, version.id)
-            for version_file, blob_row in rows:
+            for version_file, blob_row in await self._skill_version_rows(
+                workspace_service,
+                version.id,
+            ):
                 content = await blob.download_file(
                     key=blob_row.key,
                     bucket=blob_row.bucket,
@@ -508,14 +293,17 @@ class SkillAdapter(DirectoryManifestAdapter):
                     )
                 )
                 file_contents[version_file.path] = content_text
-            versions[version.version] = SkillVersionResourceSpec(
-                version_number=version.version,
+
+            specs[source_id] = SkillResourceSpec(
+                id=source_id,
+                slug=skill_slug,
                 name=version.name,
-                description=version.description,
+                description=skill.description,
                 files=files,
                 file_contents=file_contents,
             )
-        return versions
+            resources.append(self.projected_resource(source_id, skill.id))
+        return ResourceProjection(specs=specs, resources=resources)
 
     async def _skill_version_rows(
         self,
@@ -553,6 +341,10 @@ class SkillAdapter(DirectoryManifestAdapter):
         their file rows and recomputing manifest hashes) before pinning the
         declared current version.
         """
+        skill_service = SkillService(
+            session=workspace_service.session, role=workspace_service.role
+        )
+        await skill_service.lock_publications()
         skills = workspace_spec.skills
         # Skill identity lives on ``Skill.name`` but specs key off ``slug``; the
         # shorter temp prefix keeps placeholders within the slug length budget.
@@ -560,7 +352,7 @@ class SkillAdapter(DirectoryManifestAdapter):
             workspace_service,
             targets={source_id: spec.slug for source_id, spec in skills.items()},
             model=Skill,
-            name_column=Skill.name,
+            name_column=Skill.slug,
             noun="slug",
             kind_label="Skill",
             owner_label="skill",
@@ -573,9 +365,7 @@ class SkillAdapter(DirectoryManifestAdapter):
             ),
         )
         imported: list[ImportedResource] = []
-        skill_service = SkillService(
-            session=workspace_service.session, role=workspace_service.role
-        )
+        prepared: list[tuple[str, SkillResourceSpec, Skill, SkillVersion | None]] = []
         # Sort by source id so imports apply in a deterministic order.
         for source_id, spec in sorted(skills.items()):
             # Stage 1: locate or create the skill row this spec maps to.
@@ -589,154 +379,154 @@ class SkillAdapter(DirectoryManifestAdapter):
                 await skill_service._validate_skill_slug_available(spec.slug)
                 skill = Skill(
                     workspace_id=workspace_service.workspace_id,
-                    name=spec.slug,
+                    name=spec.name,
                     slug=spec.slug,
-                    description=getattr(spec, "description", None),
+                    description=spec.description,
                     draft_revision=0,
                 )
                 workspace_service.session.add(skill)
                 # Flush to assign skill.id before referencing it below.
                 await workspace_service.session.flush()
             else:
-                # Keep existing name-based sync behavior; slug is stable identity.
-                skill.name = spec.slug
-                skill.description = getattr(spec, "description", None)
+                skill.slug = spec.slug
+                skill.name = spec.name
+                skill.description = spec.description
 
-            version_specs = dict(spec.versions)
-            if (
-                spec.current_version is not None
-                and spec.current_version not in version_specs
-            ):
-                raise TracecatValidationError(
-                    f"Skill {spec.slug!r} current version {spec.current_version} "
-                    "is missing from the version snapshots."
-                )
-
-            imported_versions: dict[int, SkillVersion] = {}
-            imported_version_file_refs: dict[int, dict[str, SkillFileBlobRef]] = {}
-            for version_number, version_spec in sorted(version_specs.items()):
-                imported_version, file_refs = await self._upsert_skill_version(
-                    workspace_service,
-                    skill_service,
-                    skill=skill,
-                    version=version_spec,
-                )
-                imported_versions[version_number] = imported_version
-                imported_version_file_refs[version_number] = file_refs
-
-            if spec.current_version is not None:
-                if current := imported_versions.get(spec.current_version):
-                    skill.current_version_id = current.id
-                    await skill_service._replace_draft_with_blob_map(
-                        skill=skill,
-                        path_to_blob=imported_version_file_refs[spec.current_version],
+            current = None
+            if skill.current_version_id is not None:
+                current = await workspace_service.session.scalar(
+                    select(SkillVersion).where(
+                        SkillVersion.workspace_id == workspace_service.workspace_id,
+                        SkillVersion.skill_id == skill.id,
+                        SkillVersion.id == skill.current_version_id,
                     )
-            else:
-                # Git says the skill is unversioned: drop any stale head pin so an
-                # existing skill stops pointing at a version it no longer declares,
-                # and clear draft files copied from the previously pinned version.
-                skill.current_version_id = None
-                await skill_service._replace_draft_with_blob_map(
-                    skill=skill,
-                    path_to_blob={},
                 )
+            prepared.append((source_id, spec, skill, current))
+        await skill_service.validate_publication_names(
+            {skill.id: spec.name for _, spec, skill, _ in prepared}
+        )
+        # Release renamed packages inside this transaction so a valid batch
+        # swap does not conflict with the other resource's previous head.
+        for _, spec, skill, current in prepared:
+            if current is not None and current.name != spec.name:
+                skill.current_version_id = None
+        await workspace_service.session.flush()
+        for source_id, spec, skill, current in prepared:
+            if current is None or not await self._version_matches_desired(
+                workspace_service,
+                current=current,
+                desired=spec,
+            ):
+                prior_file_refs = (
+                    await self._file_refs_for_version(
+                        workspace_service,
+                        current.id,
+                    )
+                    if current is not None
+                    else None
+                )
+                file_refs = await self._materialize_file_refs(
+                    skill_service,
+                    spec,
+                    prior_file_refs=prior_file_refs,
+                )
+                current = await skill_service.publish_version_from_blob_refs(
+                    skill=skill,
+                    file_refs=list(file_refs.items()),
+                    validation=ManifestValidationResult(
+                        name=spec.name,
+                        description=spec.description,
+                    ),
+                    head_name=spec.name,
+                )
+            else:
+                file_refs = await self._file_refs_for_version(
+                    workspace_service,
+                    current.id,
+                )
+            skill.current_version_id = current.id
+            await skill_service._replace_draft_with_blob_map(
+                skill=skill,
+                path_to_blob=file_refs,
+            )
             workspace_service.session.add(skill)
             await workspace_service.session.flush()
             imported.append(self.imported_resource(source_id, skill.id))
         return imported
 
-    async def _upsert_skill_version(
+    async def _version_matches_desired(
         self,
         workspace_service: SyncMappingService,
-        skill_service: SkillService,
         *,
-        skill: Skill,
-        version: SkillVersionResourceSpec,
-    ) -> tuple[SkillVersion, dict[str, SkillFileBlobRef]]:
-        """Create or update one skill version and its file rows."""
-        file_refs: list[tuple[str, SkillFileBlobRef]] = []
-        for file_spec in version.files:
-            content_text = version.file_contents.get(file_spec.path)
+        current: SkillVersion,
+        desired: SkillResourceSpec,
+    ) -> bool:
+        """Return whether the current immutable version matches desired Git state."""
+
+        if current.name != desired.name or current.description != desired.description:
+            return False
+        rows = await self._skill_version_rows(workspace_service, current.id)
+        current_files = {
+            version_file.path: blob_row.sha256 for version_file, blob_row in rows
+        }
+        desired_files = {file.path: file.sha256 for file in desired.files}
+        return current_files == desired_files
+
+    async def _file_refs_for_version(
+        self,
+        workspace_service: SyncMappingService,
+        version_id: uuid.UUID,
+    ) -> dict[str, SkillFileBlobRef]:
+        """Load immutable file refs for resetting the mutable draft shadow."""
+
+        return {
+            version_file.path: SkillFileBlobRef(
+                blob=blob_row,
+                content_type=version_file.content_type,
+            )
+            for version_file, blob_row in await self._skill_version_rows(
+                workspace_service, version_id
+            )
+        }
+
+    async def _materialize_file_refs(
+        self,
+        skill_service: SkillService,
+        spec: SkillResourceSpec,
+        *,
+        prior_file_refs: Mapping[str, SkillFileBlobRef] | None = None,
+    ) -> dict[str, SkillFileBlobRef]:
+        """Materialize a Git-owned Skill head's declared file blobs."""
+
+        file_refs: dict[str, SkillFileBlobRef] = {}
+        for file_spec in spec.files:
+            content_text = spec.file_contents.get(file_spec.path)
             if content_text is None:
                 raise TracecatValidationError(
-                    f"Skill version {version.name!r}@{version.version_number} "
+                    f"Skill {spec.slug!r} head "
                     f"declares file {file_spec.path!r} but no content was provided."
                 )
             try:
                 content = _skill_file_content_bytes(file_spec, content_text)
             except ValueError as e:
                 raise TracecatValidationError(
-                    f"Skill version {version.name!r}@{version.version_number} "
+                    f"Skill {spec.slug!r} head "
                     f"file {file_spec.path!r} could not be decoded: {e}"
                 ) from e
+            prior_ref = (
+                prior_file_refs.get(file_spec.path)
+                if prior_file_refs is not None
+                else None
+            )
+            if prior_ref is not None and prior_ref.blob.sha256 == file_spec.sha256:
+                file_refs[file_spec.path] = prior_ref
+                continue
             blob_row = await skill_service._get_or_create_blob(content=content)
-            file_refs.append(
-                (
-                    file_spec.path,
-                    SkillFileBlobRef(
-                        blob=blob_row,
-                        content_type=skill_service._guess_content_type(file_spec.path),
-                    ),
-                )
+            file_refs[file_spec.path] = SkillFileBlobRef(
+                blob=blob_row,
+                content_type=skill_service._guess_content_type(file_spec.path),
             )
-
-        existing = await workspace_service.session.scalar(
-            select(SkillVersion).where(
-                SkillVersion.workspace_id == workspace_service.workspace_id,
-                SkillVersion.skill_id == skill.id,
-                SkillVersion.version == version.version_number,
-            )
-        )
-        manifest_payload = [
-            {
-                "path": path,
-                "sha256": file_ref.blob.sha256,
-                "size_bytes": file_ref.blob.size_bytes,
-                "content_type": file_ref.content_type,
-            }
-            for path, file_ref in sorted(file_refs, key=lambda item: item[0])
-        ]
-        manifest_sha256 = skill_service._compute_sha256(orjson.dumps(manifest_payload))
-        attrs = {
-            "manifest_sha256": manifest_sha256,
-            "file_count": len(file_refs),
-            "total_size_bytes": sum(
-                file_ref.blob.size_bytes for _, file_ref in file_refs
-            ),
-            "name": version.name,
-            "description": version.description,
-        }
-        if existing is None:
-            existing = SkillVersion(
-                workspace_id=workspace_service.workspace_id,
-                skill_id=skill.id,
-                version=version.version_number,
-                **attrs,
-            )
-            workspace_service.session.add(existing)
-            await workspace_service.session.flush()
-        else:
-            for key, value in attrs.items():
-                setattr(existing, key, value)
-            await workspace_service.session.execute(
-                sa.delete(SkillVersionFile).where(
-                    SkillVersionFile.workspace_id == workspace_service.workspace_id,
-                    SkillVersionFile.skill_version_id == existing.id,
-                )
-            )
-
-        for path, file_ref in sorted(file_refs, key=lambda item: item[0]):
-            workspace_service.session.add(
-                SkillVersionFile(
-                    workspace_id=workspace_service.workspace_id,
-                    skill_version_id=existing.id,
-                    path=path,
-                    blob_id=file_ref.blob.id,
-                    content_type=file_ref.content_type,
-                )
-            )
-        await workspace_service.session.flush()
-        return existing, dict(file_refs)
+        return file_refs
 
     async def _skill_for_import(
         self,
@@ -773,7 +563,10 @@ class SkillAdapter(DirectoryManifestAdapter):
         return await workspace_service.session.scalar(
             select(Skill).where(
                 Skill.workspace_id == workspace_service.workspace_id,
-                Skill.name == spec.slug,
+                sa.or_(
+                    Skill.slug == spec.slug,
+                    sa.and_(Skill.slug.is_(None), Skill.name == spec.slug),
+                ),
                 Skill.deleted_at.is_(None),
                 Skill.archived_at.is_(None),
             )
@@ -792,89 +585,6 @@ class SkillAdapter(DirectoryManifestAdapter):
             model=Skill,
             row_predicates=(Skill.deleted_at.is_(None), Skill.archived_at.is_(None)),
         )
-
-
-def _parse_skill_version_relpath(relpath: str) -> tuple[int, str, str | None] | None:
-    """Parse ``versions/<n>/...`` relpaths for skill companion files."""
-    parts = path_parts(relpath)
-    if len(parts) < 3 or parts[0] != SKILL_VERSIONS_DIR:
-        return None
-    try:
-        version_number = int(parts[1])
-    except ValueError:
-        return None
-    if version_number < 1:
-        return None
-    if len(parts) == 3 and parts[2] == SKILL_VERSION_FILENAME:
-        return version_number, "manifest", None
-    if len(parts) >= 4 and parts[2] == SKILL_FILES_DIR:
-        file_path = "/".join(parts[3:])
-        return (version_number, "file", file_path) if file_path else None
-    return None
-
-
-def _parse_skill_version_manifest(
-    adapter: SkillAdapter,
-    *,
-    source_id: str,
-    version_number: int,
-    content: str,
-    diagnostics: list[PullDiagnostic],
-) -> SkillVersionResourceSpec | None:
-    """Parse one skill version manifest or append a diagnostic."""
-    path = adapter._version_manifest_path(source_id, version_number)
-    try:
-        raw = yaml.safe_load(content)
-        if not isinstance(raw, dict) or not raw:
-            diagnostics.append(
-                PullDiagnostic(
-                    workflow_path=path,
-                    workflow_title=None,
-                    error_type="parse",
-                    message="Empty or invalid skill version YAML file",
-                    details={},
-                )
-            )
-            return None
-        version = SkillVersionResourceSpec.model_validate(raw)
-        if version.version_number != version_number:
-            diagnostics.append(
-                PullDiagnostic(
-                    workflow_path=path,
-                    workflow_title=version.name,
-                    error_type="validation",
-                    message="Skill version number does not match its repository path",
-                    details={
-                        "path_version": version_number,
-                        "spec_version": version.version_number,
-                    },
-                )
-            )
-            return None
-        return version
-    except yaml.YAMLError as e:
-        diagnostics.append(
-            PullDiagnostic(
-                workflow_path=path,
-                workflow_title=None,
-                error_type="parse",
-                message=f"YAML parsing error: {str(e)}",
-                details={"yaml_error": str(e)},
-            )
-        )
-    except ValidationError as e:
-        diagnostics.append(
-            PullDiagnostic(
-                workflow_path=path,
-                workflow_title=None,
-                error_type="validation",
-                message=f"Validation error: {str(e)}",
-                details={
-                    "validation_errors": serializable_validation_errors(e.errors())
-                },
-            )
-        )
-    return None
 
 
 def _skill_file_content_for_git(content: bytes) -> tuple[str, Literal["base64"] | None]:
