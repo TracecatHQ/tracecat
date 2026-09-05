@@ -13,6 +13,10 @@ from tracecat.agent.preset.internal_router import (
     PresetCreateRequest,
     PresetUpdateRequest,
 )
+from tracecat.agent.preset.resolver import (
+    ResolvedAgentsRuntimeConfig,
+    ResolvedSubagentConfig,
+)
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
     AgentPresetRead,
@@ -26,7 +30,9 @@ from tracecat.agent.subagents import (
     AgentSubagentsConfig,
     AnyAttachedSubagentRef,
     ResolvedAgentsConfig,
+    ResolvedAttachedSubagentRef,
 )
+from tracecat.agent.workflow_schemas import AgentConfigPayload
 from tracecat.db.models import AgentPreset, AgentPresetVersion
 
 
@@ -323,6 +329,47 @@ def test_agents_config_normalizes_deprecated_enabled_for_old_readers(
     assert [
         ref.preset for ref in LegacyAgentsConfig.model_validate(dumped).subagents
     ] == ["analyst"]
+
+
+class LegacyRuntimeAgentsConfig(BaseModel):
+    """Previous workflow worker's activity-result and binding conversion."""
+
+    enabled: bool = Field(default=False)
+    subagents: list[ResolvedSubagentConfig] = Field(default_factory=list)
+
+    def to_agents_binding(self) -> LegacyAgentsConfig:
+        return LegacyAgentsConfig(
+            enabled=self.enabled,
+            subagents=[subagent.binding for subagent in self.subagents],
+        )
+
+
+@pytest.mark.parametrize("enabled", [None, False, True])
+def test_runtime_agents_result_is_readable_by_previous_workflow_worker(
+    enabled: bool | None,
+) -> None:
+    child = ResolvedSubagentConfig(
+        binding=ResolvedAttachedSubagentRef(
+            preset="analyst",
+            preset_id=uuid.uuid4(),
+            preset_version_id=uuid.uuid4(),
+        ),
+        description="Analyst",
+        prompt="Review the request.",
+        config=AgentConfigPayload(
+            model_name="gpt-4o-mini", model_provider="openai", retries=3
+        ),
+    )
+    payload: dict[str, object] = {"subagents": [child.model_dump(mode="json")]}
+    if enabled is not None:
+        payload["enabled"] = enabled
+    result = ResolvedAgentsRuntimeConfig.model_validate(payload)
+    old_result = LegacyRuntimeAgentsConfig.model_validate_json(result.model_dump_json())
+
+    assert old_result.enabled is True
+    assert [ref.preset for ref in old_result.to_agents_binding().subagents] == [
+        "analyst"
+    ]
 
 
 @pytest.mark.parametrize("model", [AgentPreset, AgentPresetVersion])

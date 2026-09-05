@@ -6,7 +6,7 @@ import uuid
 from collections.abc import Awaitable
 from typing import TYPE_CHECKING, Any, Protocol
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from tracecat.agent.subagents import (
     AgentSubagentsConfig,
@@ -14,6 +14,7 @@ from tracecat.agent.subagents import (
     ResolvedAgentsConfig,
     ResolvedAttachedSubagentRef,
     has_manual_tool_approvals,
+    normalize_deprecated_agents_enabled,
     validate_subagent_alias,
 )
 from tracecat.agent.workflow_config import agent_config_to_payload
@@ -107,7 +108,16 @@ class ResolvedAgentsConfigResult(BaseModel):
 class ResolvedAgentsRuntimeConfig(BaseModel):
     """Runtime-ready resolved preset-backed subagent config."""
 
+    # Temporal activity results must remain readable by older workflow workers.
+    enabled: bool = Field(
+        default=True, deprecated="Always enabled; this field is ignored."
+    )
     subagents: list[ResolvedSubagentConfig] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_legacy_enabled(cls, data: Any) -> Any:
+        return normalize_deprecated_agents_enabled(data)
 
     def to_agents_binding(self) -> ResolvedAgentsConfig:
         return ResolvedAgentsConfig(

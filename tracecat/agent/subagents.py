@@ -70,7 +70,7 @@ class ResolvedAttachedSubagentRef(AttachedSubagentRef):
 type AnyAttachedSubagentRef = ResolvedAttachedSubagentRef | AttachedSubagentRef
 
 
-def _normalize_legacy_enabled(data: Any) -> Any:
+def normalize_deprecated_agents_enabled(data: Any) -> Any:
     """Keep serialized configs readable by older app versions without a toggle."""
     if isinstance(data, Mapping):
         return {**data, "enabled": True}
@@ -90,7 +90,7 @@ class AgentSubagentsConfig(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def normalize_legacy_enabled(cls, data: Any) -> Any:
-        return _normalize_legacy_enabled(data)
+        return normalize_deprecated_agents_enabled(data)
 
 
 class ResolvedAgentsConfig(BaseModel):
@@ -106,7 +106,7 @@ class ResolvedAgentsConfig(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def normalize_legacy_enabled(cls, data: Any) -> Any:
-        return _normalize_legacy_enabled(data)
+        return normalize_deprecated_agents_enabled(data)
 
 
 def validate_subagent_alias(alias: str) -> None:
