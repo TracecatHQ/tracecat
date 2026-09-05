@@ -140,23 +140,41 @@ export function computeScopedActionRefs(
   return scopedRefs
 }
 
+export type WorkflowPinGraph = {
+  actionsByRef: ReadonlyMap<string, ActionRead>
+  refByActionId: ReadonlyMap<string, string>
+  scopedRefs: ReadonlySet<string>
+}
+
+/** Build once per draft graph, then reuse for each action eligibility check. */
+export function buildWorkflowPinGraph(
+  actions: Record<string, ActionRead> | null | undefined
+): WorkflowPinGraph {
+  const actionList = Object.values(actions ?? {})
+  return {
+    actionsByRef: new Map(
+      actionList.map((action) => [slugifyActionRef(action.title), action])
+    ),
+    refByActionId: buildRefByActionId(actionList),
+    scopedRefs: computeScopedActionRefs(actions),
+  }
+}
+
 /** Return whether a selected execution event is eligible to become a draft pin. */
 export function isPinnableActionEvent(
   actionRef: string | undefined,
   groupedEvents: Record<string, WorkflowExecutionEventCompact[]>,
-  actions: Record<string, ActionRead> | null | undefined
+  graph: WorkflowPinGraph
 ): boolean {
-  if (!actionRef || !groupedEvents[actionRef] || !actions) {
+  if (!actionRef || !groupedEvents[actionRef]) {
     return false
   }
 
-  if (computeScopedActionRefs(actions).has(actionRef)) {
+  if (graph.scopedRefs.has(actionRef)) {
     return false
   }
 
-  const action = Object.values(actions).find(
-    (candidate) => slugifyActionRef(candidate.title) === actionRef
-  )
+  const action = graph.actionsByRef.get(actionRef)
   if (
     !action ||
     UNPINNABLE_ACTION_TYPES.has(action.type) ||
@@ -273,34 +291,20 @@ export function computePinDomains(
 export function getRunFromActionBlocker(
   actionRef: string | undefined,
   groupedEvents: Record<string, WorkflowExecutionEventCompact[]>,
-  actions: Record<string, ActionRead> | null | undefined
+  graph: WorkflowPinGraph
 ): string | null {
-  if (!actionRef || !actions) {
+  if (!actionRef) {
     return "Select a workflow action"
   }
 
-  const actionList = Object.values(actions)
-  const refByActionId = buildRefByActionId(actionList)
-  const action = actionList.find(
-    (candidate) => slugifyActionRef(candidate.title) === actionRef
-  )
+  const { actionsByRef, refByActionId, scopedRefs } = graph
+  const action = actionsByRef.get(actionRef)
   if (!action) {
     return "Select a workflow action"
   }
 
-  if (
-    computeScopedActionRefs(actions).has(actionRef) ||
-    UNPINNABLE_ACTION_TYPES.has(action.type)
-  ) {
+  if (scopedRefs.has(actionRef) || UNPINNABLE_ACTION_TYPES.has(action.type)) {
     return "Cannot run from inside a scatter or loop"
-  }
-
-  const typeByRef = new Map<string, string>()
-  for (const candidate of actionList) {
-    const candidateRef = refByActionId.get(candidate.id)
-    if (candidateRef) {
-      typeByRef.set(candidateRef, candidate.type)
-    }
   }
 
   const parentRefs: string[] = []
@@ -323,7 +327,7 @@ export function getRunFromActionBlocker(
 
   if (
     parentRefs.some((parentRef) =>
-      UNPINNABLE_ACTION_TYPES.has(typeByRef.get(parentRef) ?? "")
+      UNPINNABLE_ACTION_TYPES.has(actionsByRef.get(parentRef)?.type ?? "")
     )
   ) {
     return "Cannot run from directly after a gather or loop end"
@@ -331,7 +335,7 @@ export function getRunFromActionBlocker(
 
   if (
     parentRefs.some(
-      (parentRef) => !isPinnableActionEvent(parentRef, groupedEvents, actions)
+      (parentRef) => !isPinnableActionEvent(parentRef, groupedEvents, graph)
     )
   ) {
     return "Every upstream action needs a completed result in this run"

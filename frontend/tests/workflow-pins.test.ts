@@ -1,6 +1,7 @@
 import type { ActionRead } from "@/client"
 import type { WorkflowExecutionEventCompact } from "@/lib/event-history"
 import {
+  buildWorkflowPinGraph,
   computePinDomains,
   computeScopedActionRefs,
   getRunFromActionBlocker,
@@ -45,6 +46,7 @@ const actions: Record<string, ActionRead> = {
   "id-d": action("id-d", "d", ["id-a"]),
   "id-e": action("id-e", "e", ["id-c", "id-d"]),
 }
+const pinGraph = buildWorkflowPinGraph(actions)
 
 function completedEvent(streamId: string): WorkflowExecutionEventCompact {
   return {
@@ -60,9 +62,20 @@ function completedEvent(streamId: string): WorkflowExecutionEventCompact {
 }
 
 describe("isPinnableActionEvent", () => {
+  it("reuses graph facts while evaluating changing run results", () => {
+    const graph = buildWorkflowPinGraph(actions)
+    expect(isPinnableActionEvent("c", {}, graph)).toBe(false)
+    expect(
+      isPinnableActionEvent("c", { c: [completedEvent("<root>:0")] }, graph)
+    ).toBe(true)
+    expect(
+      isPinnableActionEvent("c", {}, buildWorkflowPinGraph(undefined))
+    ).toBe(false)
+  })
+
   it("accepts completed root-stream events", () => {
     expect(
-      isPinnableActionEvent("c", { c: [completedEvent("<root>:0")] }, actions)
+      isPinnableActionEvent("c", { c: [completedEvent("<root>:0")] }, pinGraph)
     ).toBe(true)
   })
 
@@ -71,7 +84,7 @@ describe("isPinnableActionEvent", () => {
       isPinnableActionEvent(
         "c",
         { c: [completedEvent("<root>:0/scatter:0")] },
-        actions
+        pinGraph
       )
     ).toBe(false)
   })
@@ -202,7 +215,7 @@ describe("computeScopedActionRefs", () => {
       isPinnableActionEvent(
         "body",
         { body: [completedEvent("<root>:0")] },
-        loopActions
+        buildWorkflowPinGraph(loopActions)
       )
     ).toBe(false)
     expect(
@@ -299,19 +312,19 @@ describe("getRunFromActionBlocker", () => {
 
   it("allows running from an action whose parents all completed", () => {
     expect(
-      getRunFromActionBlocker("c", { b: [completedEventFor("b")] }, actions)
+      getRunFromActionBlocker("c", { b: [completedEventFor("b")] }, pinGraph)
     ).toBeNull()
   })
 
   it("allows running from a root action with no parents", () => {
-    expect(getRunFromActionBlocker("a", {}, actions)).toBeNull()
+    expect(getRunFromActionBlocker("a", {}, pinGraph)).toBeNull()
   })
 
   it("requires a selected workflow action", () => {
-    expect(getRunFromActionBlocker(undefined, {}, actions)).toBe(
+    expect(getRunFromActionBlocker(undefined, {}, pinGraph)).toBe(
       "Select a workflow action"
     )
-    expect(getRunFromActionBlocker("ghost", {}, actions)).toBe(
+    expect(getRunFromActionBlocker("ghost", {}, pinGraph)).toBe(
       "Select a workflow action"
     )
   })
@@ -337,7 +350,7 @@ describe("getRunFromActionBlocker", () => {
       getRunFromActionBlocker(
         "body",
         { loop_start: [completedEventFor("loop_start")] },
-        loopActions
+        buildWorkflowPinGraph(loopActions)
       )
     ).toBe("Cannot run from inside a scatter or loop")
   })
@@ -352,7 +365,7 @@ describe("getRunFromActionBlocker", () => {
       getRunFromActionBlocker(
         "handler",
         { a: [completedEventFor("a")] },
-        conditionalActions
+        buildWorkflowPinGraph(conditionalActions)
       )
     ).toBe("Cannot run from an error branch")
   })
@@ -379,20 +392,20 @@ describe("getRunFromActionBlocker", () => {
       getRunFromActionBlocker(
         "after",
         { gather: [completedEventFor("gather")] },
-        scatterActions
+        buildWorkflowPinGraph(scatterActions)
       )
     ).toBe("Cannot run from directly after a gather or loop end")
   })
 
   it("requires every parent to have a completed result in this run", () => {
-    expect(getRunFromActionBlocker("c", {}, actions)).toBe(
+    expect(getRunFromActionBlocker("c", {}, pinGraph)).toBe(
       "Every upstream action needs a completed result in this run"
     )
     expect(
       getRunFromActionBlocker(
         "c",
         { b: [completedEventFor("b", "<root>:0/scatter:0")] },
-        actions
+        pinGraph
       )
     ).toBe("Every upstream action needs a completed result in this run")
   })

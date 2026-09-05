@@ -1,7 +1,7 @@
 "use client"
 
 import { CircleDot, PinIcon, PlayIcon } from "lucide-react"
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import type { InteractionRead } from "@/client"
 import { ActionEventDetails } from "@/components/executions/action-event-details"
 import { JsonViewWithControls } from "@/components/json-viewer"
@@ -26,6 +26,7 @@ import {
 } from "@/lib/event-history"
 import { useCreateDraftWorkflowExecutionFromAction } from "@/lib/hooks"
 import {
+  buildWorkflowPinGraph,
   getRunFromActionBlocker,
   getWorkflowDraftPins,
   isPinnableActionEvent,
@@ -57,6 +58,10 @@ export function ActionEventPane({
     createDraftExecutionFromActionIsPending,
   } = useCreateDraftWorkflowExecutionFromAction(workflowId ?? "")
   const draftPins = getWorkflowDraftPins(workflow)
+  const pinGraph = useMemo(
+    () => buildWorkflowPinGraph(workflow?.actions),
+    [workflow?.actions]
+  )
   const isResultTab = type === "result"
 
   if (!workflowId)
@@ -90,12 +95,12 @@ export function ActionEventPane({
   const canPinSelected = isPinnableActionEvent(
     selectedActionEventRef,
     groupedEvents,
-    workflow?.actions
+    pinGraph
   )
   const runFromBlocker = getRunFromActionBlocker(
     selectedActionEventRef,
     groupedEvents,
-    workflow?.actions
+    pinGraph
   )
 
   const saveDraftPins = async (
