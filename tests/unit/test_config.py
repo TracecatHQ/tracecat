@@ -60,6 +60,13 @@ REGISTRY_POLICY_ENV_VARS = {
     "TRACECAT__SANDBOX_REGISTRY_ALLOWED_EGRESS_TCP_PORTS",
 }
 SENTRY_PLATFORM_COMPOSE_SERVICES = ("api", "worker", "agent-worker", "executor")
+SMTP_COMPOSE_ENV = (
+    "TRACECAT__SMTP_HOST: ${TRACECAT__SMTP_HOST:-}",
+    "TRACECAT__SMTP_PORT: ${TRACECAT__SMTP_PORT:-587}",
+    "TRACECAT__SMTP_USER: ${TRACECAT__SMTP_USER:-}",
+    "TRACECAT__SMTP_PASSWORD: ${TRACECAT__SMTP_PASSWORD:-}",
+    "TRACECAT__EMAIL_FROM: ${TRACECAT__EMAIL_FROM:-}",
+)
 
 
 def _config_bool_env_vars() -> set[str]:
@@ -228,6 +235,41 @@ def test_audit_trusted_proxy_env_is_wired_to_deployments() -> None:
     assert name in (fargate / "modules/ecs/locals.tf").read_text()
     for tf in ("variables.tf", "main.tf", "modules/ecs/variables.tf"):
         assert "audit_trusted_proxy_cidrs" in (fargate / tf).read_text(), tf
+
+
+def test_smtp_env_is_wired_to_api_deployments() -> None:
+    for path in SANDBOX_POLICY_COMPOSE_ENV_FILES:
+        source = path.read_text().replace(" # Sensitive", "")
+        api_match = re.search(
+            r"(?ms)^  api:\n(?P<body>.*?)(?=^  [a-z][a-z0-9_-]*:\n|\Z)",
+            source,
+        )
+        assert api_match is not None
+        for env_line in SMTP_COMPOSE_ENV:
+            assert env_line in api_match.group("body"), f"{path.name}: {env_line}"
+
+    fargate = REPO_ROOT / "deployments/fargate"
+    for name in (
+        "smtp_host",
+        "smtp_port",
+        "smtp_user",
+        "smtp_password",
+        "email_from",
+    ):
+        assert (
+            name in (fargate / "modules/ecs/locals.tf").read_text()
+            or name in (fargate / "modules/ecs/secrets.tf").read_text()
+        )
+    for tf in ("variables.tf", "main.tf", "modules/ecs/variables.tf"):
+        source = (fargate / tf).read_text()
+        for name in (
+            "smtp_password_arn",
+            "smtp_host",
+            "smtp_port",
+            "smtp_user",
+            "email_from",
+        ):
+            assert name in source, f"{tf}: {name}"
 
 
 def test_sandbox_policy_env_vars_are_wired_to_compose_files() -> None:
@@ -422,6 +464,41 @@ def test_action_gateway_socket_uses_default_for_empty_string(
                 reloaded_config.TRACECAT__ACTION_GATEWAY_SOCKET
                 == "/var/run/tracecat/action-gateway.sock"
             )
+    finally:
+        importlib.reload(tracecat_config)
+
+
+@pytest.mark.parametrize("port", ["0", "65536", "-1"])
+def test_smtp_port_rejects_out_of_range(
+    monkeypatch: pytest.MonkeyPatch, port: str
+) -> None:
+    try:
+        with monkeypatch.context() as env:
+            env.setenv("TRACECAT__SMTP_PORT", port)
+
+            with pytest.raises(ValueError, match="TRACECAT__SMTP_PORT"):
+                importlib.reload(tracecat_config)
+    finally:
+        importlib.reload(tracecat_config)
+
+
+def test_smtp_password_preserves_whitespace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    try:
+        with monkeypatch.context() as env:
+            env.setenv("TRACECAT__SMTP_PASSWORD", " secret ")
+
+            reloaded_config = importlib.reload(tracecat_config)
+
+            assert reloaded_config.TRACECAT__SMTP_PASSWORD == " secret "
+
+        with monkeypatch.context() as env:
+            env.setenv("TRACECAT__SMTP_PASSWORD", "   ")
+
+            reloaded_config = importlib.reload(tracecat_config)
+
+            assert reloaded_config.TRACECAT__SMTP_PASSWORD is None
     finally:
         importlib.reload(tracecat_config)
 

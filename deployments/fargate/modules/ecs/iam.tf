@@ -176,6 +176,23 @@ resource "aws_iam_policy" "api_only_secrets_access" {
   })
 }
 
+resource "aws_iam_policy" "smtp_password_access" {
+  count       = var.smtp_password_arn != null ? 1 : 0
+  name        = "${var.iam_name_prefix}SmtpPasswordAccessPolicy"
+  description = "Policy for accessing the SMTP password (API service only)"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
+        Resource = [var.smtp_password_arn]
+      }
+    ]
+  })
+}
+
 resource "aws_iam_policy" "temporal_payload_encryption_keyring_access" {
   count       = var.temporal_payload_encryption_keyring_arn != null ? 1 : 0
   name        = "${var.iam_name_prefix}TemporalPayloadEncryptionKeyringAccessPolicy"
@@ -267,6 +284,12 @@ resource "aws_iam_role_policy_attachment" "api_execution_secrets" {
 
 resource "aws_iam_role_policy_attachment" "api_execution_api_only_secrets" {
   policy_arn = aws_iam_policy.api_only_secrets_access.arn
+  role       = aws_iam_role.api_execution.name
+}
+
+resource "aws_iam_role_policy_attachment" "api_execution_smtp_password" {
+  count      = var.smtp_password_arn != null ? 1 : 0
+  policy_arn = aws_iam_policy.smtp_password_access[0].arn
   role       = aws_iam_role.api_execution.name
 }
 

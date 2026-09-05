@@ -495,6 +495,38 @@ variable "saml_allow_unsolicited" {
   default     = false
 }
 
+# Email (SMTP relay)
+
+variable "smtp_password_arn" {
+  type        = string
+  description = "The ARN of the optional secret containing the SMTP password"
+  default     = null
+}
+
+variable "smtp_host" {
+  type        = string
+  description = "The SMTP relay host for invitation emails"
+  default     = ""
+}
+
+variable "smtp_port" {
+  type        = number
+  description = "The SMTP relay port for invitation emails"
+  default     = 587
+}
+
+variable "smtp_user" {
+  type        = string
+  description = "The SMTP username for invitation emails"
+  default     = ""
+}
+
+variable "email_from" {
+  type        = string
+  description = "The sender address for invitation emails, e.g. Tracecat <no-reply@example.com>"
+  default     = ""
+}
+
 # Temporal UI
 
 variable "temporal_auth_provider_url" {
