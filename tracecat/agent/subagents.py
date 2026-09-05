@@ -70,17 +70,10 @@ class ResolvedAttachedSubagentRef(AttachedSubagentRef):
 type AnyAttachedSubagentRef = ResolvedAttachedSubagentRef | AttachedSubagentRef
 
 
-def _drop_legacy_agents_config_keys(data: Any) -> Any:
-    """Strip the legacy ``enabled`` key from persisted agents config payloads.
-
-    ``enabled`` is a leftover from the removed agents toggle. It is still
-    present on rows written before this release, and on rows written by an older
-    replica during a rolling deploy, so it is stripped on read until a later
-    contract migration removes it from stored rows. Everything else still hits
-    ``extra=forbid``.
-    """
-    if isinstance(data, Mapping) and "enabled" in data:
-        return {key: value for key, value in data.items() if key != "enabled"}
+def _normalize_legacy_enabled(data: Any) -> Any:
+    """Keep serialized configs readable by older app versions without a toggle."""
+    if isinstance(data, Mapping):
+        return {**data, "enabled": True}
     return data
 
 
@@ -89,12 +82,15 @@ class AgentSubagentsConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    enabled: bool = Field(
+        default=True, deprecated="Always enabled; this field is ignored."
+    )
     subagents: list[AnyAttachedSubagentRef] = Field(default_factory=list)
 
     @model_validator(mode="before")
     @classmethod
-    def drop_legacy_keys(cls, data: Any) -> Any:
-        return _drop_legacy_agents_config_keys(data)
+    def normalize_legacy_enabled(cls, data: Any) -> Any:
+        return _normalize_legacy_enabled(data)
 
 
 class ResolvedAgentsConfig(BaseModel):
@@ -102,12 +98,15 @@ class ResolvedAgentsConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    enabled: bool = Field(
+        default=True, deprecated="Always enabled; this field is ignored."
+    )
     subagents: list[ResolvedAttachedSubagentRef] = Field(default_factory=list)
 
     @model_validator(mode="before")
     @classmethod
-    def drop_legacy_keys(cls, data: Any) -> Any:
-        return _drop_legacy_agents_config_keys(data)
+    def normalize_legacy_enabled(cls, data: Any) -> Any:
+        return _normalize_legacy_enabled(data)
 
 
 def validate_subagent_alias(alias: str) -> None:

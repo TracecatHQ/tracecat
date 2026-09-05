@@ -722,7 +722,7 @@ async def test_import_selected_fixture_reconciles_supported_non_workflow_resourc
         )
     )
     assert parent_preset is not None
-    assert "enabled" not in parent_preset.agents
+    assert parent_preset.agents["enabled"] is True
     assert parent_preset.agents["subagents"][0]["preset"] == "qa-evidence-child"
     assert parent_preset.base_url == "https://models.example.test/v1"
     assert parent_preset.output_type == {"type": "json_schema", "name": "qa_triage"}
@@ -1167,7 +1167,7 @@ async def test_agent_preset_import_resolves_subagent_to_active_preset(
         )
     )
     assert parent_preset is not None
-    assert "enabled" not in parent_preset.agents
+    assert parent_preset.agents["enabled"] is True
     assert [
         subagent["preset_id"] for subagent in parent_preset.agents["subagents"]
     ] == [str(active_child.id)]
@@ -4002,7 +4002,7 @@ async def test_agent_preset_import_resolves_parent_before_child_order(
     assert parent is not None
     assert child is not None
     assert child.current_version_id is not None
-    assert "enabled" not in parent.agents
+    assert parent.agents["enabled"] is True
     assert parent.agents["subagents"][0]["preset_version_id"] == str(
         child.current_version_id
     )

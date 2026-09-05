@@ -1319,7 +1319,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                     name=spec.name,
                     model_name=DEFAULT_AGENT_MODEL_NAME,
                     model_provider=DEFAULT_AGENT_MODEL_PROVIDER,
-                    agents={"subagents": []},
+                    agents=AgentSubagentsConfig().model_dump(mode="json"),
                 )
             else:
                 preset.slug = spec.slug

@@ -4,16 +4,12 @@ Revision ID: c3a17be4d902
 Revises: 44d7e75b6f4c
 Create Date: 2026-09-04 12:00:00.000000
 
-This is the expand half of an expand/contract pair. The legacy ``enabled`` key
-is deliberately left on rows written before this release: migrations run ahead
-of the application rollout, and the old app version reads a missing ``enabled``
-as ``False``, which trips its ``subagents require enabled=true`` validator and
-silently drops Agent-tool access. The new app strips the key on read. A later
-contract migration removes it from stored rows once the old replicas are gone.
+The deprecated ``enabled`` key remains readable by older app versions during
+rolling deploys and application rollback. New app writes normalize it to True;
+existing values are preserved here because the migration runs before rollout.
 
-The column default changes safely because both app versions set ``agents``
-explicitly on insert. Existing references to deleted agents and Skills are
-also removed from current and saved versions; this unlinking is permanent.
+Existing references to deleted agents and Skills are removed from current and
+saved versions; this unlinking is permanent.
 The cleanup preserves the legacy ``enabled`` key and all other configuration.
 """
 
@@ -33,7 +29,7 @@ depends_on: str | Sequence[str] | None = None
 
 _AGENTS_TABLES = ("agent_preset", "agent_preset_version")
 _AGENTS_TYPE = postgresql.JSONB(astext_type=sa.Text())
-_EMPTY_SUBAGENTS_SQL = sa.text("'{\"subagents\": []}'::jsonb")
+_AGENTS_DEFAULT_SQL = sa.text('\'{"enabled": true, "subagents": []}\'::jsonb')
 
 
 def upgrade() -> None:
@@ -43,7 +39,7 @@ def upgrade() -> None:
             "agents",
             existing_type=_AGENTS_TYPE,
             existing_nullable=False,
-            server_default=_EMPTY_SUBAGENTS_SQL,
+            server_default=_AGENTS_DEFAULT_SQL,
         )
 
     # Data-only migration: schema autogeneration cannot infer this cleanup.

@@ -1126,6 +1126,10 @@ export type AgentSettingsUpdate = {
  * User-facing preset-backed subagents.
  */
 export type AgentSubagentsConfig_Input = {
+  /**
+   * @deprecated
+   */
+  enabled?: boolean
   subagents?: Array<AnyAttachedSubagentRef>
 }
 
@@ -1133,6 +1137,10 @@ export type AgentSubagentsConfig_Input = {
  * User-facing preset-backed subagents.
  */
 export type AgentSubagentsConfig_Output = {
+  /**
+   * @deprecated
+   */
+  enabled?: boolean
   subagents?: Array<AnyAttachedSubagentRef>
 }
 
@@ -6674,6 +6682,10 @@ export type RepositorySyncResult = {
  * Persisted immutable resolved child refs.
  */
 export type ResolvedAgentsConfig = {
+  /**
+   * @deprecated
+   */
+  enabled?: boolean
   subagents?: Array<ResolvedAttachedSubagentRef>
 }
 

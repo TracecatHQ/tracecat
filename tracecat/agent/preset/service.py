@@ -2270,6 +2270,9 @@ class AgentPresetService(BaseWorkspaceService):
         current_version = result.scalar_one_or_none()
         next_version = (current_version or 0) + 1
 
+        preset.agents = AgentSubagentsConfig.model_validate(preset.agents).model_dump(
+            mode="json"
+        )
         version = AgentPresetVersion(
             workspace_id=self.workspace_id,
             preset_id=preset.id,

@@ -100,7 +100,7 @@ def test_deleted_dependency_backfill_preserves_live_refs_and_order(
                 for table in ("agent_preset", "agent_preset_version"):
                     assert conn.scalar(
                         sa.text(f"INSERT INTO {table} DEFAULT VALUES RETURNING agents")
-                    ) == {"subagents": []}
+                    ) == {"enabled": True, "subagents": []}
                 with pytest.raises(
                     NotImplementedError, match="Database downgrade is unsupported"
                 ):
@@ -108,7 +108,7 @@ def test_deleted_dependency_backfill_preserves_live_refs_and_order(
                 for table in ("agent_preset", "agent_preset_version"):
                     assert conn.scalar(
                         sa.text(f"INSERT INTO {table} DEFAULT VALUES RETURNING agents")
-                    ) == {"subagents": []}
+                    ) == {"enabled": True, "subagents": []}
             for table in ("agent_preset", "agent_preset_version"):
                 agents = conn.scalar(
                     sa.text(f"SELECT agents FROM {table} WHERE id = :parent"),

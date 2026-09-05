@@ -2,10 +2,10 @@
 
 import uuid
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any, Self, cast
 
 import pytest
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.sql.schema import CallableColumnDefault
 
@@ -22,7 +22,11 @@ from tracecat.agent.preset.schemas import (
     build_agent_preset_read_minimal,
     build_subagent_eligibility,
 )
-from tracecat.agent.subagents import AgentSubagentsConfig, ResolvedAgentsConfig
+from tracecat.agent.subagents import (
+    AgentSubagentsConfig,
+    AnyAttachedSubagentRef,
+    ResolvedAgentsConfig,
+)
 from tracecat.db.models import AgentPreset, AgentPresetVersion
 
 
@@ -282,42 +286,50 @@ def test_build_subagent_eligibility_allows_no_attached_children() -> None:
     assert eligibility.message is None
 
 
-@pytest.mark.parametrize("enabled", [True, False])
-def test_agents_config_drops_legacy_enabled_field(enabled: bool) -> None:
-    """Rows written before the toggle was removed still carry `enabled`."""
-    config = AgentSubagentsConfig.model_validate(
-        {"enabled": enabled, "subagents": [{"preset": "analyst"}]}
-    )
+class LegacyAgentsConfig(BaseModel):
+    """The pre-removal reader contract, including its enabled validator."""
 
-    assert [ref.preset for ref in config.subagents] == ["analyst"]
-    assert "enabled" not in config.model_dump()
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool = Field(default=False)
+    subagents: list[AnyAttachedSubagentRef] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_subagents_enabled(self) -> Self:
+        if not self.enabled and self.subagents:
+            raise ValueError("subagents require enabled=true")
+        return self
 
 
-@pytest.mark.parametrize("enabled", [True, False])
-def test_resolved_agents_config_drops_legacy_enabled_field(enabled: bool) -> None:
-    """The persisted binding schema tolerates the same legacy key."""
-    config = ResolvedAgentsConfig.model_validate(
-        {
-            "enabled": enabled,
-            "subagents": [
-                {
-                    "preset": "analyst",
-                    "preset_id": str(uuid.uuid4()),
-                    "preset_version_id": str(uuid.uuid4()),
-                }
-            ],
-        }
-    )
-
-    assert [ref.preset for ref in config.subagents] == ["analyst"]
-    assert "enabled" not in config.model_dump()
+@pytest.mark.parametrize("enabled", [None, True, False])
+@pytest.mark.parametrize("model", [AgentSubagentsConfig, ResolvedAgentsConfig])
+def test_agents_config_normalizes_deprecated_enabled_for_old_readers(
+    enabled: bool | None,
+    model: type[AgentSubagentsConfig] | type[ResolvedAgentsConfig],
+) -> None:
+    payload: dict[str, object] = {
+        "subagents": [
+            {
+                "preset": "analyst",
+                "preset_id": str(uuid.uuid4()),
+                "preset_version_id": str(uuid.uuid4()),
+            }
+        ]
+    }
+    if enabled is not None:
+        payload["enabled"] = enabled
+    config = model.model_validate(payload)
+    dumped = config.model_dump(mode="json")
+    assert dumped["enabled"] is True
+    assert [
+        ref.preset for ref in LegacyAgentsConfig.model_validate(dumped).subagents
+    ] == ["analyst"]
 
 
 @pytest.mark.parametrize("model", [AgentPreset, AgentPresetVersion])
 def test_orm_agents_default_validates_against_schema(
     model: type[DeclarativeBase],
 ) -> None:
-    """A row written with the ORM default must validate without legacy keys."""
+    """A row written with the ORM default must validate for both new and old app readers."""
     column = model.__table__.c.agents
     default = column.default
     assert isinstance(default, CallableColumnDefault)
@@ -328,7 +340,10 @@ def test_orm_agents_default_validates_against_schema(
     assert value == AgentSubagentsConfig().model_dump(mode="json")
     assert ResolvedAgentsConfig.model_validate(value).subagents == []
     assert column.server_default is not None
-    assert str(column.server_default.arg) == "'{\"subagents\": []}'::jsonb"
+    assert (
+        str(column.server_default.arg)
+        == '\'{"enabled": true, "subagents": []}\'::jsonb'
+    )
 
 
 def test_agents_config_rejects_misspelled_subagents_field() -> None:

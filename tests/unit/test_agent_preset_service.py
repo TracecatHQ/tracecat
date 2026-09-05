@@ -893,6 +893,29 @@ class TestAgentPresetService:
         assert preset_read.enable_thinking is False
         assert version_read.enable_thinking is False
 
+    @pytest.mark.parametrize("enabled", [None, False])
+    async def test_publishing_existing_head_normalizes_enabled(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+        enabled: bool | None,
+    ) -> None:
+        preset = await agent_preset_service.create_preset(agent_preset_create_params)
+        # Simulate persisted JSON from before the deprecated field default.
+        preset.agents = (
+            {"subagents": []}
+            if enabled is None
+            else {"subagents": [], "enabled": enabled}
+        )
+        await agent_preset_service.session.commit()
+
+        updated = await agent_preset_service.update_preset(
+            preset, AgentPresetUpdate(instructions="Updated instructions")
+        )
+        version = await agent_preset_service.get_current_version_for_preset(updated)
+        assert updated.agents["enabled"] is True
+        assert version.agents["enabled"] is True
+
     async def test_create_preset_creates_initial_version(
         self,
         agent_preset_service: AgentPresetService,
@@ -3068,7 +3091,7 @@ class TestAgentPresetService:
 
         await agent_preset_service.session.refresh(parent)
         assert parent.current_version_id != version_without_child.id
-        assert parent.agents == {"subagents": []}
+        assert parent.agents == {"enabled": True, "subagents": []}
 
     async def test_restore_version_locks_skill_bindings_during_validation(
         self,

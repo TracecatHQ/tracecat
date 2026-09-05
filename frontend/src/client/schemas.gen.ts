@@ -4605,6 +4605,12 @@ export const $AgentSettingsUpdate = {
 
 export const $AgentSubagentsConfig_Input = {
   properties: {
+    enabled: {
+      type: "boolean",
+      title: "Enabled",
+      default: true,
+      deprecated: true,
+    },
     subagents: {
       items: {
         $ref: "#/components/schemas/AnyAttachedSubagentRef",
@@ -4621,6 +4627,12 @@ export const $AgentSubagentsConfig_Input = {
 
 export const $AgentSubagentsConfig_Output = {
   properties: {
+    enabled: {
+      type: "boolean",
+      title: "Enabled",
+      default: true,
+      deprecated: true,
+    },
     subagents: {
       items: {
         $ref: "#/components/schemas/AnyAttachedSubagentRef",
@@ -21960,6 +21972,12 @@ export const $RepositorySyncResult = {
 
 export const $ResolvedAgentsConfig = {
   properties: {
+    enabled: {
+      type: "boolean",
+      title: "Enabled",
+      default: true,
+      deprecated: true,
+    },
     subagents: {
       items: {
         $ref: "#/components/schemas/ResolvedAttachedSubagentRef",
