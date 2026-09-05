@@ -268,7 +268,7 @@ def check_scopes(
 # =============================================================================
 
 
-def require_action_scope(action_key: str) -> None:
+def require_action_scope(action_key: str, *, role: Role | None = None) -> None:
     """Check if the current user has permission to execute a specific action.
 
     This function checks the context scopes against the required action scope.
@@ -282,45 +282,12 @@ def require_action_scope(action_key: str) -> None:
 
     Args:
         action_key: The action key (e.g., "core.http_request", "tools.okta.list_users")
+        role: Explicit role to check. Falls back to the current role context.
 
     Raises:
         ScopeDeniedError: If the user doesn't have permission to execute the action
     """
-    role = ctx_role.get()
-    if role is None:
-        raise ScopeDeniedError(
-            required_scopes=[f"action:{action_key}:execute"],
-            missing_scopes=[f"action:{action_key}:execute"],
-        )
-    user_scopes = role.scopes
-    if user_scopes is None:
-        raise ScopeDeniedError(
-            required_scopes=[f"action:{action_key}:execute"],
-            missing_scopes=[f"action:{action_key}:execute"],
-        )
-
-    # Platform superuser has "*" scope - bypass all checks
-    if "*" in user_scopes:
-        return
-
-    required_scope = f"action:{action_key}:execute"
-
-    if not has_scope(user_scopes, required_scope):
-        logger.warning(
-            "Action scope check failed",
-            action_key=action_key,
-            required_scope=required_scope,
-        )
-        raise ScopeDeniedError(
-            required_scopes=[required_scope],
-            missing_scopes=[required_scope],
-        )
-
-    logger.debug(
-        "Action scope check passed",
-        action_key=action_key,
-        required_scope=required_scope,
-    )
+    check_scopes(role, f"action:{action_key}:execute")
 
 
 def require_scope(*scopes: str, require_all: bool = True) -> Callable[[T], T]:

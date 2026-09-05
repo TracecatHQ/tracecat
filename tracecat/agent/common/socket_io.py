@@ -168,6 +168,7 @@ class SocketStreamWriter:
         self,
         usage: dict[str, Any] | None = None,
         num_turns: int | None = None,
+        consumed_tool_calls: int | None = None,
         duration_ms: int | None = None,
         output: Any = None,
     ) -> None:
@@ -176,14 +177,15 @@ class SocketStreamWriter:
             RuntimeEventEnvelope.from_result(
                 usage=usage,
                 num_turns=num_turns,
+                consumed_tool_calls=consumed_tool_calls,
                 duration_ms=duration_ms,
                 output=output,
             )
         )
 
-    async def send_error(self, error: str) -> None:
+    async def send_error(self, error: str, *, error_code: str | None = None) -> None:
         """Send error event to the orchestrator."""
-        await self._send(RuntimeEventEnvelope.from_error(error))
+        await self._send(RuntimeEventEnvelope.from_error(error, error_code=error_code))
 
     async def send_done(self) -> None:
         """Send done event to signal completion."""

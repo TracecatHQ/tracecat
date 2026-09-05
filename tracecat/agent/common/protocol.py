@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import Any, Literal, TypeGuard, get_args
 
 from tracecat.agent.common.stream_types import UnifiedStreamEvent
@@ -55,6 +56,8 @@ class RuntimeInitPayload:
     sdk_session_data: str | None = None  # JSONL content for resume
     is_approval_continuation: bool = False  # True when resuming after approval decision
     is_fork: bool = False
+    max_requests: int | None = None
+    max_tool_calls: int | None = None
 
     # Sandbox-safe Claude OTel env (exporters, protocols, intervals, content
     # gates, resource attrs, and the OTEL_EXPORTER_OTLP_HEADERS bearer for
@@ -98,6 +101,8 @@ class RuntimeInitPayload:
             sdk_session_data=data.get("sdk_session_data"),
             is_approval_continuation=data.get("is_approval_continuation", False),
             is_fork=data.get("is_fork", False),
+            max_requests=data.get("max_requests"),
+            max_tool_calls=data.get("max_tool_calls"),
             agent_otel_sandbox_env=data.get("agent_otel_sandbox_env"),
         )
 
@@ -126,6 +131,10 @@ class RuntimeInitPayload:
             result["sdk_session_id"] = self.sdk_session_id
         if self.sdk_session_data is not None:
             result["sdk_session_data"] = self.sdk_session_data
+        if self.max_requests is not None:
+            result["max_requests"] = self.max_requests
+        if self.max_tool_calls is not None:
+            result["max_tool_calls"] = self.max_tool_calls
         if self.agent_otel_sandbox_env is not None:
             result["agent_otel_sandbox_env"] = self.agent_otel_sandbox_env
         return result
@@ -150,6 +159,12 @@ _RUNTIME_LOG_EXTRA_RESERVED_KEYS = frozenset({"self", "level", "message", "sessi
 def _is_runtime_event_type(value: object) -> TypeGuard[RuntimeEventType]:
     """Narrow a wire value using the canonical runtime event type definition."""
     return isinstance(value, str) and value in _RUNTIME_EVENT_TYPES
+
+
+class RuntimeErrorCode(StrEnum):
+    """Machine-readable classification codes carried on error envelopes."""
+
+    RUN_LIMIT_EXCEEDED = "run_limit_exceeded"
 
 
 @dataclass(kw_only=True, slots=True)
@@ -180,9 +195,11 @@ class RuntimeEventEnvelope:
     sdk_session_id: str | None = None  # For type="session_update" or "session_line"
     sdk_session_data: str | None = None  # For type="session_update"
     error: str | None = None  # For type="error"
+    error_code: str | None = None  # For type="error" - machine-readable code
     # For type="result" - final usage data from Claude SDK ResultMessage
     result_usage: dict[str, Any] | None = None
     result_num_turns: int | None = None
+    consumed_tool_calls: int | None = None
     result_duration_ms: int | None = None
     result_output: Any = None
     # For type="log" - structured log forwarding from sandbox
@@ -216,10 +233,16 @@ class RuntimeEventEnvelope:
             path="runtime_event",
         )
         error = optional_string(data, "error", path="runtime_event")
+        error_code = optional_string(data, "error_code", path="runtime_event")
         result_usage = optional_object(data, "result_usage", path="runtime_event")
         result_num_turns = optional_integer(
             data,
             "result_num_turns",
+            path="runtime_event",
+        )
+        consumed_tool_calls = optional_integer(
+            data,
+            "consumed_tool_calls",
             path="runtime_event",
         )
         result_duration_ms = optional_integer(
@@ -269,8 +292,10 @@ class RuntimeEventEnvelope:
             sdk_session_id=sdk_session_id,
             sdk_session_data=sdk_session_data,
             error=error,
+            error_code=error_code,
             result_usage=result_usage,
             result_num_turns=result_num_turns,
+            consumed_tool_calls=consumed_tool_calls,
             result_duration_ms=result_duration_ms,
             result_output=data.get(
                 "result_output",
@@ -298,10 +323,14 @@ class RuntimeEventEnvelope:
             result["sdk_session_data"] = self.sdk_session_data
         if self.error is not None:
             result["error"] = self.error
+        if self.error_code is not None:
+            result["error_code"] = self.error_code
         if self.result_usage is not None:
             result["result_usage"] = self.result_usage
         if self.result_num_turns is not None:
             result["result_num_turns"] = self.result_num_turns
+        if self.consumed_tool_calls is not None:
+            result["consumed_tool_calls"] = self.consumed_tool_calls
         if self.result_duration_ms is not None:
             result["result_duration_ms"] = self.result_duration_ms
         if self.result_output is not None:
@@ -371,6 +400,7 @@ class RuntimeEventEnvelope:
         cls,
         usage: dict[str, Any] | None = None,
         num_turns: int | None = None,
+        consumed_tool_calls: int | None = None,
         duration_ms: int | None = None,
         output: Any = None,
     ) -> RuntimeEventEnvelope:
@@ -379,14 +409,17 @@ class RuntimeEventEnvelope:
             type="result",
             result_usage=usage,
             result_num_turns=num_turns,
+            consumed_tool_calls=consumed_tool_calls,
             result_duration_ms=duration_ms,
             result_output=output,
         )
 
     @classmethod
-    def from_error(cls, error: str) -> RuntimeEventEnvelope:
+    def from_error(
+        cls, error: str, *, error_code: str | None = None
+    ) -> RuntimeEventEnvelope:
         """Create an error envelope."""
-        return cls(type="error", error=error)
+        return cls(type="error", error=error, error_code=error_code)
 
     @classmethod
     def done(cls) -> RuntimeEventEnvelope:

@@ -29,7 +29,7 @@ from claude_agent_sdk.types import (
 
 import tracecat.agent.runtime.claude_code.runtime as runtime_module
 from tracecat.agent.common.exceptions import AgentSandboxValidationError
-from tracecat.agent.common.protocol import RuntimeInitPayload
+from tracecat.agent.common.protocol import RuntimeErrorCode, RuntimeInitPayload
 from tracecat.agent.common.socket_io import SocketStreamWriter
 from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
 from tracecat.agent.common.types import (
@@ -212,6 +212,21 @@ def test_pre_tool_use_hook_input_declares_subagent_context_fields() -> None:
 
     assert {"agent_id", "agent_type"} <= annotations
     assert {"agent_id", "agent_type"} <= optional_keys
+
+
+def test_runtime_init_payload_round_trips_run_limits(
+    sample_init_payload: RuntimeInitPayload,
+) -> None:
+    payload = replace(
+        sample_init_payload,
+        max_requests=12,
+        max_tool_calls=4,
+    )
+
+    restored = RuntimeInitPayload.from_dict(payload.to_dict())
+
+    assert restored.max_requests == 12
+    assert restored.max_tool_calls == 4
 
 
 @pytest.mark.parametrize(
@@ -864,6 +879,145 @@ class TestClaudeAgentRuntimeRun:
 
         mock_socket_writer.send_error.assert_awaited_once()
         mock_socket_writer.send_done.assert_awaited_once()
+
+    @pytest.mark.anyio
+    async def test_max_turns_result_sends_request_limit_failure(
+        self,
+        mock_socket_writer: MagicMock,
+        mock_claude_sdk_client: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+    ) -> None:
+        async def max_turns_response() -> Any:
+            yield ResultMessage(
+                subtype="error_max_turns",
+                duration_ms=1,
+                duration_api_ms=1,
+                is_error=True,
+                num_turns=3,
+                session_id="test-sdk-session",
+                usage={"input_tokens": 10, "output_tokens": 5},
+                result=None,
+            )
+
+        mock_claude_sdk_client.receive_response = max_turns_response
+        payload = replace(sample_init_payload, max_requests=3)
+
+        with patch(
+            "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+            return_value=mock_claude_sdk_client,
+        ) as client_cls:
+            runtime = ClaudeAgentRuntime(
+                mock_socket_writer, transport_factory=lambda _: MagicMock()
+            )
+            await runtime.run(payload)
+
+        assert client_cls.call_args.kwargs["options"].max_turns == 3
+        mock_socket_writer.send_result.assert_awaited_once()
+        assert (
+            mock_socket_writer.send_result.await_args.kwargs["consumed_tool_calls"] == 0
+        )
+        mock_socket_writer.send_error.assert_awaited_once_with(
+            "Agent exceeded max_requests limit (3)",
+            error_code=RuntimeErrorCode.RUN_LIMIT_EXCEEDED,
+        )
+
+    @pytest.mark.anyio
+    async def test_limit_error_wins_over_later_exception(
+        self,
+        mock_socket_writer: MagicMock,
+        mock_claude_sdk_client: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+    ) -> None:
+        async def max_turns_then_crash() -> Any:
+            yield ResultMessage(
+                subtype="error_max_turns",
+                duration_ms=1,
+                duration_api_ms=1,
+                is_error=True,
+                num_turns=3,
+                session_id="test-sdk-session",
+                usage={"input_tokens": 10, "output_tokens": 5},
+                result=None,
+            )
+            raise ConnectionResetError("transport closed")
+
+        mock_claude_sdk_client.receive_response = max_turns_then_crash
+        payload = replace(sample_init_payload, max_requests=3)
+
+        with patch(
+            "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+            return_value=mock_claude_sdk_client,
+        ):
+            runtime = ClaudeAgentRuntime(
+                mock_socket_writer, transport_factory=lambda _: MagicMock()
+            )
+            # Limit already exceeded: the crash must not re-raise (retryable).
+            await runtime.run(payload)
+
+        mock_socket_writer.send_result.assert_awaited_once()
+        mock_socket_writer.send_error.assert_awaited_once_with(
+            "Agent exceeded max_requests limit (3); runtime exited with "
+            "ConnectionResetError",
+            error_code=RuntimeErrorCode.RUN_LIMIT_EXCEEDED,
+        )
+        mock_socket_writer.send_done.assert_awaited_once()
+
+    @pytest.mark.anyio
+    async def test_tool_limit_hook_termination_sends_run_failure(
+        self,
+        mock_socket_writer: MagicMock,
+        mock_claude_sdk_client: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+    ) -> None:
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: MagicMock()
+        )
+        hook_results: list[SyncHookJSONOutput] = []
+
+        async def attempt_tool(_query: object) -> None:
+            hook_results.append(
+                await runtime._pre_tool_use_hook(
+                    input_data=make_hook_input(
+                        tool_name="mcp__jira__search",
+                        tool_input={"query": "status = open"},
+                        tool_use_id="call-1",
+                    ),
+                    tool_use_id="call-1",
+                    context=make_hook_context(),
+                )
+            )
+
+        async def completed_response() -> Any:
+            yield ResultMessage(
+                subtype="success",
+                duration_ms=1,
+                duration_api_ms=1,
+                is_error=False,
+                num_turns=1,
+                session_id="test-sdk-session",
+                usage={"input_tokens": 10, "output_tokens": 5},
+                result="done",
+            )
+
+        mock_claude_sdk_client.query = AsyncMock(side_effect=attempt_tool)
+        mock_claude_sdk_client.receive_response = completed_response
+        payload = replace(sample_init_payload, max_tool_calls=0)
+
+        with patch(
+            "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+            return_value=mock_claude_sdk_client,
+        ):
+            await runtime.run(payload)
+
+        assert hook_results[0].get("continue_") is False
+        assert hook_results[0].get("stopReason") == "Tool call limit (0) exceeded"
+        assert (
+            mock_socket_writer.send_result.await_args.kwargs["consumed_tool_calls"] == 1
+        )
+        mock_socket_writer.send_error.assert_awaited_once_with(
+            "Agent max_tool_calls exceeded (0)",
+            error_code=RuntimeErrorCode.RUN_LIMIT_EXCEEDED,
+        )
 
     @pytest.mark.anyio
     async def test_canonicalizes_registry_mcp_alias_on_resume(
@@ -1935,6 +2089,93 @@ class TestClaudeAgentRuntimeRun:
         }
 
     @pytest.mark.parametrize(
+        ("message_ids", "expected_requests"),
+        [
+            pytest.param(["msg-1"], 1, id="single"),
+            pytest.param(["msg-1", "msg-1"], 1, id="parallel-shared-id"),
+        ],
+    )
+    @pytest.mark.anyio
+    async def test_approval_interrupt_result_reports_request_consumption(
+        self,
+        mock_socket_writer: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+        message_ids: list[str],
+        expected_requests: int,
+    ) -> None:
+        """An approval interrupt without a ResultMessage still reports usage."""
+
+        class ApprovalHookClient:
+            def __init__(self, options: Any) -> None:
+                self.options = options
+                self.connect = AsyncMock()
+                self.disconnect = AsyncMock()
+                self.query = AsyncMock()
+                self.interrupt = AsyncMock()
+
+            async def __aenter__(self) -> ApprovalHookClient:
+                return self
+
+            async def __aexit__(
+                self, exc_type: object, exc: object, tb: object
+            ) -> None:
+                del exc_type, exc, tb
+
+            async def receive_response(self) -> Any:
+                for index, message_id in enumerate(message_ids):
+                    yield AssistantMessage(
+                        content=[
+                            ToolUseBlock(
+                                id=f"call-approval-{index}",
+                                name="mcp__tracecat-registry__core__http_request",
+                                input={"url": "https://example.com"},
+                            )
+                        ],
+                        model="claude-sonnet-4-5",
+                        parent_tool_use_id=None,
+                        message_id=message_id,
+                        usage={"input_tokens": 123, "output_tokens": 7},
+                    )
+                [matcher] = self.options.hooks["PreToolUse"]
+                [hook] = matcher.hooks
+                await hook(
+                    input_data=make_hook_input(
+                        tool_name="mcp__tracecat-registry__core__http_request",
+                        tool_input={"url": "https://example.com"},
+                        tool_use_id="call-approval-0",
+                    ),
+                    tool_use_id="call-approval-0",
+                    context=make_hook_context(),
+                )
+
+        approval_payload = replace(
+            sample_init_payload,
+            config=sample_init_payload.config.model_copy(
+                update={"tool_approvals": {"core.http_request": True}}
+            ),
+        )
+
+        with patch(
+            "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+            side_effect=lambda *_a, **kwargs: ApprovalHookClient(kwargs["options"]),
+        ):
+            runtime = ClaudeAgentRuntime(
+                mock_socket_writer, transport_factory=lambda _: MagicMock()
+            )
+            await runtime.run(approval_payload)
+
+        mock_socket_writer.send_result.assert_awaited_once()
+        result_kwargs = mock_socket_writer.send_result.await_args.kwargs
+        assert result_kwargs["num_turns"] == expected_requests
+        assert result_kwargs["consumed_tool_calls"] == len(message_ids)
+        assert result_kwargs["usage"] == {
+            "input_tokens": 123,
+            "output_tokens": 7,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+        }
+
+    @pytest.mark.parametrize(
         "disable_nsjail",
         [
             pytest.param(True, id="direct"),
@@ -2337,6 +2578,47 @@ class TestClaudeAgentRuntimePreToolUseHook:
             "hookEventName": "PreToolUse",
             "permissionDecision": "allow",
         }
+
+    @pytest.mark.anyio
+    async def test_tool_call_limit_counts_only_unique_allowed_calls(
+        self,
+        mock_socket_writer: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+    ) -> None:
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: MagicMock()
+        )
+        runtime._configure_runtime_state(replace(sample_init_payload, max_tool_calls=2))
+
+        async def call_tool(
+            tool_name: str, tool_use_id: str | None
+        ) -> SyncHookJSONOutput:
+            return await runtime._pre_tool_use_hook(
+                input_data=make_hook_input(
+                    tool_name=tool_name,
+                    tool_input={"query": "status = open"},
+                    tool_use_id=tool_use_id or "sdk-omitted-this-id",
+                ),
+                tool_use_id=tool_use_id,
+                context=make_hook_context(),
+            )
+
+        results = [
+            await call_tool("WebSearch", "denied"),
+            await call_tool("mcp__jira__search", "call-1"),
+            await call_tool("mcp__jira__search", "call-1"),
+            await call_tool("mcp__jira__search", None),
+            await call_tool("mcp__jira__search", "call-2"),
+        ]
+        exceeded = results[-1]
+
+        assert [
+            get_hook_output(result).get("permissionDecision") for result in results
+        ] == ["deny", "allow", "allow", "allow", "deny"]
+        assert exceeded.get("continue_") is False
+        assert exceeded.get("stopReason") == "Tool call limit (2) exceeded"
+        assert runtime._consumed_tool_calls == 3
+        assert runtime._counted_tool_use_ids == {"call-1", "call-2"}
 
     @pytest.mark.anyio
     async def test_auto_approve_registry_tool_without_approval(
@@ -2773,6 +3055,36 @@ class TestClaudeAgentRuntimeParallelApprovals:
         # No duplicate approval events from the hook, and a single interrupt.
         assert len(_approval_events(mock_socket_writer)) == 2
         interrupt.assert_awaited_once()
+
+    @pytest.mark.anyio
+    async def test_gated_siblings_count_against_tool_call_budget(
+        self,
+        mock_socket_writer: MagicMock,
+    ) -> None:
+        """Parallel gated calls consume budget even though their hooks never fire."""
+        runtime, _interrupt = self._make_runtime(mock_socket_writer)
+
+        await runtime._register_assistant_tool_approvals(
+            self._tool_use_message("call-a", "https://example.com")
+        )
+        await runtime._register_assistant_tool_approvals(
+            self._tool_use_message("call-b", "https://example.org")
+        )
+
+        assert runtime._consumed_tool_calls == 2
+        assert runtime._counted_tool_use_ids == {"call-a", "call-b"}
+
+        await runtime._pre_tool_use_hook(
+            input_data=make_hook_input(
+                tool_name="mcp__tracecat-registry__core__http_request",
+                tool_input={"url": "https://example.com"},
+                tool_use_id="call-a",
+            ),
+            tool_use_id="call-a",
+            context=make_hook_context(),
+        )
+
+        assert runtime._consumed_tool_calls == 2
 
     @pytest.mark.anyio
     async def test_subagent_assistant_messages_are_skipped(

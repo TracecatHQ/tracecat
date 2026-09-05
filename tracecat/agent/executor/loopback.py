@@ -30,7 +30,7 @@ from tracecat.agent.channels.schemas import ChannelType
 from tracecat.agent.channels.service import PENDING_SLACK_BOT_TOKEN, AgentChannelService
 from tracecat.agent.channels.sinks import ExternalChannelSink
 from tracecat.agent.channels.sinks.slack import SlackStreamSink
-from tracecat.agent.common.protocol import RuntimeEventEnvelope
+from tracecat.agent.common.protocol import RuntimeErrorCode, RuntimeEventEnvelope
 from tracecat.agent.common.socket_io import MessageType, read_message
 from tracecat.agent.common.stream_types import (
     StreamEventType,
@@ -40,6 +40,7 @@ from tracecat.agent.common.stream_types import (
 from tracecat.agent.error_policy import (
     agent_executor_protocol_failed,
     agent_executor_unavailable,
+    user_agent_execution_failed,
 )
 from tracecat.agent.session.history import prepare_session_history
 from tracecat.agent.session.service import AgentSessionService
@@ -125,6 +126,7 @@ class LoopbackResult:
     output: RuntimeOutput | None = None
     result_usage: ResultUsage | None = None
     result_num_turns: int | None = None
+    consumed_tool_calls: int | None = None
     cancelled: bool = False
     cancelled_reason: str | None = None
     # Tool calls the interrupt aborted mid-flight: calls that either errored
@@ -658,13 +660,15 @@ class LoopbackHandler:
                 await self.send_result(
                     usage=envelope.result_usage,
                     num_turns=envelope.result_num_turns,
+                    consumed_tool_calls=envelope.consumed_tool_calls,
                     duration_ms=envelope.result_duration_ms,
                     output=envelope.result_output,
                 )
 
             case "error":
                 return await self._handle_error(
-                    envelope.error or "Unknown runtime error"
+                    envelope.error or "Unknown runtime error",
+                    error_code=envelope.error_code,
                 )
 
             case "done":
@@ -901,6 +905,7 @@ class LoopbackHandler:
         self,
         usage: ResultUsage | None = None,
         num_turns: int | None = None,
+        consumed_tool_calls: int | None = None,
         duration_ms: int | None = None,
         output: RuntimeOutput | None = None,
     ) -> None:
@@ -910,21 +915,25 @@ class LoopbackHandler:
         self._result.output = output
         self._result.result_usage = usage
         self._result.result_num_turns = num_turns
+        self._result.consumed_tool_calls = consumed_tool_calls
 
-    async def _handle_error(self, error: str) -> bool:
+    async def _handle_error(self, error: str, *, error_code: str | None = None) -> bool:
         """Handle a terminal runtime error."""
         stream_sink = await self.prepare()
-        logger.error("Runtime error", error=error)
+        logger.error("Runtime error", error=error, error_code=error_code)
         await self._emit_terminal_stream_error(stream_sink, error)
         self._result.error = error
-        # Top-level runtime errors are emitted by the runtime's unexpected-error
-        # boundary and carry no trusted ownership metadata.
-        self._result.classification = agent_executor_unavailable()
+        # Only a machine-readable code carries trusted ownership; anything else
+        # comes from the runtime's unexpected-error boundary.
+        if error_code == RuntimeErrorCode.RUN_LIMIT_EXCEEDED:
+            self._result.classification = user_agent_execution_failed(retryable=False)
+        else:
+            self._result.classification = agent_executor_unavailable()
         return True
 
-    async def send_error(self, error: str) -> None:
+    async def send_error(self, error: str, *, error_code: str | None = None) -> None:
         """Handle a terminal runtime error."""
-        await self._handle_error(error)
+        await self._handle_error(error, error_code=error_code)
 
     async def _handle_done(self) -> bool:
         """Handle runtime completion."""

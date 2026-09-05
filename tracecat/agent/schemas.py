@@ -42,6 +42,8 @@ class RunAgentArgs(BaseModel):
 
     user_prompt: str
     """User prompt for the agent."""
+    environment: str = "default"
+    """Resolved workflow environment for agent-owned action execution."""
     session_id: uuid.UUID
     """Session ID for the agent execution."""
     active_stream_id: uuid.UUID | None = None
@@ -58,6 +60,7 @@ class RunAgentArgs(BaseModel):
     """Slug for the preset configuration (if using a preset)."""
     preset_version: int | None = None
     """Optional preset version number to pin for this execution."""
+    # Persisted in Temporal history; validate at ingress only.
     max_requests: int | None = None
     """Maximum number of requests for the agent."""
     max_tool_calls: int | None = None
@@ -245,8 +248,8 @@ class InternalRunAgentRequest(BaseModel):
     config: AgentConfigSchema | None = None
     preset_slug: str | None = None
     preset_version: int | None = None
-    max_requests: int = Field(default=120, le=120)
-    max_tool_calls: int | None = Field(default=None, le=40)
+    max_requests: int = Field(default=120, ge=1, le=120)
+    max_tool_calls: int | None = Field(default=None, ge=0, le=40)
 
     @model_validator(mode="after")
     def validate_config_or_preset(self) -> InternalRunAgentRequest:
@@ -265,7 +268,7 @@ class InternalRankItemsRequest(BaseModel):
     model_provider: str
     catalog_id: uuid.UUID | None = None
     model_settings: dict[str, Any] | None = None
-    max_requests: int = 5
+    max_requests: int = Field(default=5, ge=1, le=120)
     retries: int = 3
     base_url: str | None = None
     min_items: int | None = None

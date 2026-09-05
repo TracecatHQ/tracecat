@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import uuid
+from datetime import UTC, datetime
 from typing import Any, cast
 from unittest.mock import AsyncMock
 
@@ -13,10 +15,14 @@ from tracecat_registry.integrations.agents.slack import (
 )
 
 from tracecat.auth.types import Role
+from tracecat.contexts import ctx_run
 from tracecat.dsl import action as dsl_action
 from tracecat.dsl.action import BuildAgentArgsActivityInput, DSLActivities
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.dsl.enums import PlatformAction
+from tracecat.dsl.schemas import RunContext
+from tracecat.exceptions import ScopeDeniedError
+from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
 
 
@@ -84,6 +90,7 @@ async def test_slackbot_interface_prepares_direct_agent_config(
                 "model_settings": None,
                 "retries": 6,
                 "limit_messages": 5,
+                "environment": "default",
             }
         ),
     )
@@ -122,6 +129,118 @@ async def test_slackbot_interface_prepares_direct_agent_config(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    "action",
+    [
+        "ai.agent",
+        "ai.action",
+        "ai.preset_agent",
+        "ai.slackbot",
+    ],
+)
+async def test_agent_interface_evaluation_enforces_exact_action_scope(
+    action: str,
+) -> None:
+    input = BuildAgentArgsActivityInput(
+        action=action,
+        args={},
+        operand=create_default_execution_context(),
+        role=Role(
+            type="user",
+            user_id=uuid.uuid4(),
+            service_id="tracecat-api",
+            scopes=frozenset({"action:some.other.action:execute"}),
+        ),
+        task_environment=None,
+        default_environment="default",
+    )
+
+    with pytest.raises(ScopeDeniedError):
+        await dsl_action._evaluate_agent_args(input)
+
+    input = input.model_copy(
+        update={
+            "role": input.role.model_copy(
+                update={"scopes": frozenset({f"action:{action}:execute"})}
+            )
+        }
+    )
+    assert await dsl_action._evaluate_agent_args(input) == {"environment": "default"}
+
+
+@pytest.mark.anyio
+async def test_agent_interface_scope_denial_is_non_retryable() -> None:
+    with pytest.raises(ApplicationError) as exc_info:
+        await DSLActivities.build_agent_args_activity(
+            BuildAgentArgsActivityInput(
+                action="ai.agent",
+                args={"user_prompt": "hi"},
+                operand=create_default_execution_context(),
+                role=Role(
+                    type="user",
+                    user_id=uuid.uuid4(),
+                    service_id="tracecat-api",
+                    scopes=frozenset(),
+                ),
+                task_environment=None,
+                default_environment="default",
+            )
+        )
+
+    assert exc_info.value.non_retryable
+
+
+@pytest.mark.anyio
+async def test_slackbot_secrets_use_resolved_run_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+    wf_id = WorkflowUUID.from_legacy("wf-" + "0" * 32)
+    run_context = RunContext(
+        wf_id=wf_id,
+        wf_exec_id="wf-" + "0" * 32 + ":exec-" + "0" * 32,
+        wf_run_id=uuid.uuid4(),
+        environment="staging",
+        logical_time=datetime.now(UTC),
+    )
+    monkeypatch.setattr(
+        dsl_action.registry_resolver,
+        "prefetch_lock",
+        AsyncMock(),
+    )
+    monkeypatch.setattr(
+        dsl_action.registry_resolver,
+        "collect_action_secrets_from_manifest",
+        AsyncMock(return_value=set()),
+    )
+
+    async def get_action_secrets(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        assert ctx_run.get() == run_context
+        return {"slack": {"SLACK_BOT_TOKEN": "synthetic-token"}}
+
+    monkeypatch.setattr(
+        dsl_action.secrets_manager,
+        "get_action_secrets",
+        get_action_secrets,
+    )
+    previous_run_context = ctx_run.get()
+
+    result = await dsl_action._slackbot_secret_context(
+        role=role,
+        registry_lock=RegistryLock(origins={}, actions={}),
+        run_context=run_context,
+    )
+
+    assert result == {"SLACK_BOT_TOKEN": "synthetic-token"}
+    assert ctx_run.get() is previous_run_context
+
+
+@pytest.mark.anyio
 async def test_slackbot_prepare_failure_after_ack_clears_slack(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -139,6 +258,7 @@ async def test_slackbot_prepare_failure_after_ack_clears_slack(
                 "model_settings": None,
                 "retries": 6,
                 "limit_messages": 5,
+                "environment": "default",
             }
         ),
     )
@@ -175,6 +295,96 @@ async def test_slackbot_prepare_failure_after_ack_clears_slack(
         )
 
     finalize.assert_awaited_once_with(context, succeeded=False)
+
+
+@pytest.mark.anyio
+async def test_slackbot_prepare_failure_cleanup_uses_resolved_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cleanup after a prep failure must resolve secrets in the task environment."""
+    monkeypatch.setattr(
+        dsl_action,
+        "_evaluate_agent_args",
+        AsyncMock(
+            return_value={
+                "event": None,
+                "prompt": "p",
+                "instructions": None,
+                "channel_id": "C01234567",
+                "model": {"model_name": "m", "model_provider": "anthropic"},
+                "actions": None,
+                "model_settings": None,
+                "retries": 6,
+                "limit_messages": 5,
+                "environment": "staging",
+            }
+        ),
+    )
+    context = SlackbotContext(channel_id="C01234567", ts="1.2")
+    monkeypatch.setattr(
+        dsl_action,
+        "prepare_slackbot",
+        AsyncMock(
+            return_value=PreparedSlackbotPrompt(
+                user_prompt="p", instructions="i", actions=[], context=context
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        dsl_action, "_apply_mcp_servers", AsyncMock(side_effect=RuntimeError("boom"))
+    )
+    monkeypatch.setattr(dsl_action, "finalize_slackbot", AsyncMock())
+    monkeypatch.setattr(dsl_action.registry_resolver, "prefetch_lock", AsyncMock())
+    monkeypatch.setattr(
+        dsl_action.registry_resolver,
+        "collect_action_secrets_from_manifest",
+        AsyncMock(return_value=set()),
+    )
+
+    observed_environments: list[str] = []
+
+    async def get_action_secrets(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        observed_run_context = ctx_run.get()
+        assert observed_run_context is not None
+        observed_environments.append(observed_run_context.environment)
+        return {"slack": {"SLACK_BOT_TOKEN": "synthetic-token"}}
+
+    monkeypatch.setattr(
+        dsl_action.secrets_manager, "get_action_secrets", get_action_secrets
+    )
+
+    wf_id = WorkflowUUID.from_legacy("wf-" + "0" * 32)
+    run_context = RunContext(
+        wf_id=wf_id,
+        wf_exec_id="wf-" + "0" * 32 + ":exec-" + "0" * 32,
+        wf_run_id=uuid.uuid4(),
+        environment="default",
+        logical_time=datetime.now(UTC),
+    )
+
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+
+    with pytest.raises(ApplicationError):
+        await DSLActivities.prepare_slackbot_activity(
+            BuildAgentArgsActivityInput(
+                action="ai.slackbot",
+                args={},
+                operand=create_default_execution_context(),
+                role=role,
+                task_environment="staging",
+                default_environment="default",
+                registry_lock=RegistryLock(origins={}, actions={}),
+                run_context=run_context,
+            )
+        )
+
+    # Prepare resolves in "staging"; the cleanup path must too.
+    assert observed_environments == ["staging", "staging"]
 
 
 @pytest.mark.anyio
