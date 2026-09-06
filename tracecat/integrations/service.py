@@ -4824,6 +4824,20 @@ class IntegrationService(BaseWorkspaceService):
         mcp_integration_id = mcp_integration.id
         id_str = str(mcp_integration_id)
 
+        # Projection inserts acquire a foreign-key key-share lock. Wait for
+        # those publications before checking references, and prevent new ones
+        # from appearing between the check and deletion.
+        locked_id = await self.session.scalar(
+            select(MCPIntegration.id)
+            .where(
+                MCPIntegration.id == mcp_integration_id,
+                MCPIntegration.workspace_id == self.workspace_id,
+            )
+            .with_for_update()
+        )
+        if locked_id is None:
+            return False
+
         current_skill_versions = select(Skill.current_version_id).where(
             Skill.workspace_id == self.workspace_id,
             Skill.deleted_at.is_(None),
