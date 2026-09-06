@@ -39,7 +39,7 @@ try:
             try:
                 return obj.model_dump(mode="json")
             except Exception as exc:
-                if is_memory_exhaustion(exc):
+                if caused_by_memory_exhaustion(exc):
                     # The address-space cap, not an unserializable type. Let it
                     # out so serialize_result can degrade to the resource-limit
                     # envelope instead of reporting a TypeError.

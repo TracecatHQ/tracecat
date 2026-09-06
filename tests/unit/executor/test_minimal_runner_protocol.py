@@ -14,7 +14,7 @@ from uuid import UUID
 import httpx
 import orjson
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, field_serializer
 
 from tracecat.executor import minimal_runner
 
@@ -796,6 +796,26 @@ def test_serialize_result_reports_limit_when_model_dump_exhausts_memory() -> Non
     encoded = minimal_runner.serialize_result(
         {"success": True, "result": _HungryModel()},
         {"resolved_context": {"action_impl": {"module": "m", "name": "n"}}},
+    )
+    decoded = orjson.loads(encoded)
+
+    assert decoded["success"] is False
+    assert decoded["error_code"] == "resource_limit_exceeded"
+
+
+@pytest.mark.parametrize("error", [MemoryError(), OSError(errno.ENOMEM, "no memory")])
+def test_serialize_result_preserves_pydantic_serializer_memory_cause(
+    error: Exception,
+) -> None:
+    class HungryModel(BaseModel):
+        value: int = 1
+
+        @field_serializer("value")
+        def serialize_value(self, value: int) -> int:
+            raise error
+
+    encoded = minimal_runner.serialize_result(
+        {"success": True, "result": HungryModel()}, {}
     )
     decoded = orjson.loads(encoded)
 
