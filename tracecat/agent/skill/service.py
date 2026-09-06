@@ -34,6 +34,7 @@ from tracecat.agent.skill.frontmatter import (
     parse_skill_markdown,
     split_skill_markdown_frontmatter,
 )
+from tracecat.agent.skill.grants import SkillToolGrantService
 from tracecat.agent.skill.schemas import (
     SkillCreate,
     SkillDownloadPreparedFile,
@@ -3249,19 +3250,37 @@ class SkillService(SkillBindingService):
         if version.name is None:
             self._raise_missing_version_name(skill_version_id=version.id)
         rows = await self._list_version_rows(version.id)
-        validation = await self._validate_manifest_rows(
-            [(version_file.path, blob_row) for version_file, blob_row in rows]
+        await self.session.refresh(version, attribute_names=["tools", "mcp_tools"])
+        await SkillToolGrantService(self.session, role=self.role).compile_tool_grants(
+            resolved_skills=[
+                ResolvedSkillRef(
+                    skill_id=skill.id,
+                    skill_name=version.name,
+                    skill_version_id=version.id,
+                    manifest_sha256=version.manifest_sha256,
+                )
+            ]
         )
-        if validation.errors:
-            raise TracecatValidationError(
-                "Skill version failed validation",
-                detail={
-                    "code": "skill_version_validation_failed",
-                    "errors": [
-                        error.model_dump(mode="json") for error in validation.errors
-                    ],
-                },
-            )
+        # Restore the accepted snapshot, including its original projection UUIDs.
+        # Historical frontmatter may not satisfy today's authoring schema; these
+        # canonical fields have already been persisted by the original publisher.
+        validation = ManifestValidationResult(
+            frontmatter=SkillFrontmatter.model_construct(
+                name=version.name, description=version.description
+            ),
+            tool_projection=SkillToolProjection(
+                registry_tool_ids=tuple(tool.tool_id for tool in version.tools),
+                mcp_tools=tuple(
+                    ResolvedSkillMcpTool(
+                        tool_id=tool.tool_id,
+                        mcp_integration_id=tool.mcp_integration_id,
+                        tool_name=tool.tool_name,
+                    )
+                    for tool in version.mcp_tools
+                    if tool.mcp_integration_id is not None
+                ),
+            ),
+        )
         restored = await self._create_version_from_blob_refs(
             skill=skill,
             file_refs=[

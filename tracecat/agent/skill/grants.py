@@ -31,7 +31,7 @@ class SkillToolGrantService(BaseWorkspaceService):
     async def compile_tool_grants(
         self,
         *,
-        preset_version_id: uuid.UUID,
+        preset_version_id: uuid.UUID | None = None,
         resolved_skills: Sequence[ResolvedSkillRef],
     ) -> SkillToolGrants:
         """Compile grants for the same versions selected by head resolution."""
@@ -39,6 +39,9 @@ class SkillToolGrantService(BaseWorkspaceService):
         if not resolved_skills:
             return SkillToolGrants()
 
+        preset_context = (
+            str(preset_version_id) if preset_version_id is not None else None
+        )
         version_ids = [skill.skill_version_id for skill in resolved_skills]
         stmt = (
             select(SkillVersion)
@@ -64,7 +67,7 @@ class SkillToolGrantService(BaseWorkspaceService):
                 detail={
                     "code": "skill_versions_unavailable",
                     "skill_version_ids": missing_version_ids,
-                    "preset_version_id": str(preset_version_id),
+                    "preset_version_id": preset_context,
                 },
             )
 
@@ -86,7 +89,7 @@ class SkillToolGrantService(BaseWorkspaceService):
                     detail={
                         "code": "skill_registry_tools_unavailable",
                         "tool_ids": sorted(missing),
-                        "preset_version_id": str(preset_version_id),
+                        "preset_version_id": preset_context,
                     },
                 )
 
@@ -100,7 +103,7 @@ class SkillToolGrantService(BaseWorkspaceService):
                 detail={
                     "code": "skill_mcp_integrations_unavailable",
                     "tool_ids": null_integration_tool_ids,
-                    "preset_version_id": str(preset_version_id),
+                    "preset_version_id": preset_context,
                 },
             )
 
@@ -131,7 +134,7 @@ class SkillToolGrantService(BaseWorkspaceService):
                     "mcp_integration_ids": sorted(
                         str(integration_id) for integration_id in missing_integrations
                     ),
-                    "preset_version_id": str(preset_version_id),
+                    "preset_version_id": preset_context,
                 },
             )
 
@@ -169,7 +172,7 @@ class SkillToolGrantService(BaseWorkspaceService):
                 detail={
                     "code": "skill_mcp_tools_unavailable",
                     "tool_ids": sorted(unavailable_tool_ids),
-                    "preset_version_id": str(preset_version_id),
+                    "preset_version_id": preset_context,
                 },
             )
 
