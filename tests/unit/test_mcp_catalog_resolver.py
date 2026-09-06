@@ -199,6 +199,24 @@ def test_user_supplied_uri_rejects_embedded_credentials() -> None:
             "https://acme.service-now.com/sncapps/mcp-server/mcp/itsm",
             id="servicenow-instance-and-server-placeholders",
         ),
+        pytest.param(
+            "glean-mcp",
+            MCPAuthType.OAUTH2,
+            "https://acme-be.glean.com/mcp/default",
+            id="glean-backend-domain-and-server-placeholders",
+        ),
+        pytest.param(
+            "splunk-mcp",
+            MCPAuthType.CUSTOM,
+            "https://splunk.example.test:8089/services/mcp",
+            id="splunk-enterprise-encrypted-token-endpoint",
+        ),
+        pytest.param(
+            "splunk-mcp",
+            MCPAuthType.OAUTH2,
+            "https://acme.splunkcloud.com/services/mcp",
+            id="splunk-cloud-oauth-endpoint",
+        ),
     ],
 )
 def test_user_supplied_uri_accepts_any_host(
@@ -287,4 +305,4 @@ def test_resolve_available_catalog_entry_guards() -> None:
     with pytest.raises(CatalogConnectionError, match="not found"):
         resolve_available_catalog_entry("no-such-mcp")
     with pytest.raises(CatalogConnectionError, match="not available"):
-        resolve_available_catalog_entry("splunk-mcp")
+        resolve_available_catalog_entry("hashicorp-vault-mcp")

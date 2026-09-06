@@ -245,12 +245,13 @@ SDK-backed or not.
         url: ${{ inputs.base_url || VARS.vendor.base_url }}/v1/resources
         method: GET
         headers:
-          Authorization: Bearer ${{ SECRETS.vendor_oauth.VENDOR_USER_TOKEN || SECRETS.vendor_oauth.VENDOR_SERVICE_TOKEN }}
+          Authorization: Bearer ${{ SECRETS.vendor_oauth.VENDOR_USER_TOKEN }}
   ```
 
   Do not replace the wrong example with a longer suffix list or a generic Python
   URL wrapper. Remove the validator and keep the request endpoint-specific in
-  the template.
+  the template. Use the key for the configured OAuth grant; use a user/service
+  fallback expression only when both grants are connected.
 - Distinguish multiple placements of one credential from genuinely different
   authentication modes. If the same API key can be sent in a query parameter,
   custom header, Bearer header, or Basic auth, implement one safest documented

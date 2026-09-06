@@ -1,11 +1,14 @@
 """High-level sandbox service for Python script execution."""
 
+import asyncio
+import contextlib
 import hashlib
 import json
 import os
 import re
 import shutil
 import tempfile
+import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -17,16 +20,20 @@ from tracecat.config import (
     TRACECAT__SANDBOX_DEFAULT_MEMORY_MB,
     TRACECAT__SANDBOX_DEFAULT_TIMEOUT,
     TRACECAT__SANDBOX_NSJAIL_PATH,
+    TRACECAT__SANDBOX_PACKAGE_CACHE_MAX_BYTES,
+    TRACECAT__SANDBOX_PACKAGE_CACHE_MAX_ENTRIES,
     TRACECAT__SANDBOX_ROOTFS_PATH,
 )
 from tracecat.logger import logger
 from tracecat.sandbox.exceptions import (
     PackageInstallError,
     SandboxExecutionError,
+    SandboxFileSafetyError,
     SandboxInfrastructureError,
     raise_for_sandbox_error_code,
 )
 from tracecat.sandbox.executor import RUN_PYTHON_ACTION_GATEWAY_SOCKET, NsjailExecutor
+from tracecat.sandbox.file_io import copy_tree_without_following_symlinks
 from tracecat.sandbox.types import (
     ResourceLimits,
     SandboxConfig,
@@ -36,6 +43,38 @@ from tracecat.sandbox.types import (
 )
 from tracecat.sandbox.unsafe_pid_executor import UnsafePidExecutor
 from tracecat.sandbox.wrapper import INSTALL_SCRIPT, WRAPPER_SCRIPT
+
+
+async def _await_task_rejoined(task: asyncio.Task[Any]) -> Any:
+    """Await a worker task, rejoining its thread even under cancellation.
+
+    Cancelling an ``asyncio.to_thread`` await does not stop the worker thread;
+    a caller that proceeds to more filesystem work (cleanup removals,
+    caller-side job-dir removal) would otherwise race the still-running
+    thread. If cancellation arrives during the wait, the thread is joined
+    (further cancellation attempts are swallowed) and the cancellation is
+    re-raised afterwards — a cancelled caller must not silently fall through
+    to further execution (e.g. script execution after cleanup), and the
+    worker's outcome (result or error) is deliberately discarded so the
+    pending cancellation is never masked. Otherwise the task's result is
+    returned (or its exception re-raised).
+    """
+    done = asyncio.Event()
+    task.add_done_callback(lambda _task: done.set())
+    try:
+        await done.wait()
+    except asyncio.CancelledError:
+        # The worker thread keeps running; join it fully (swallowing further
+        # cancellation attempts) before surfacing the cancellation so no
+        # cleanup can race the in-flight worker.
+        while not done.is_set():
+            with contextlib.suppress(asyncio.CancelledError):
+                await done.wait()
+        # Retrieve the worker outcome so it does not linger as an
+        # unretrieved-exception; the pending cancellation supersedes it.
+        worker_outcome = task.exception()
+        raise asyncio.CancelledError() from worker_outcome
+    return task.result()
 
 
 def validate_run_python_script(script: str) -> tuple[bool, str | None]:
@@ -84,11 +123,9 @@ class SandboxService:
     ):
         self.cache_dir = Path(cache_dir)
         self.package_cache = self.cache_dir / "packages"
-        self.uv_cache = self.cache_dir / "uv-cache"
 
         # Ensure cache directories exist
         self.package_cache.mkdir(parents=True, exist_ok=True)
-        self.uv_cache.mkdir(parents=True, exist_ok=True)
 
         # Initialize executors lazily based on availability
         self._nsjail_executor: NsjailExecutor | None = None
@@ -257,47 +294,108 @@ class SandboxService:
                 f"Failed to install packages: {result.error or 'Unknown error'}"
             )
 
+        # Promotion safety invariant: execute_install() has already awaited and
+        # reaped the install jail (exit_code is its final return code), so the
+        # sandbox-controlled tree cannot change between validation and copy.
+        if result.exit_code is None:
+            raise PackageInstallError(
+                "Package install jail did not report a completed execution"
+            )
+
         # Copy installed packages to shared cache using atomic rename.
         # This prevents race conditions when multiple concurrent requests
         # try to install the same dependencies.
         site_packages = cache_dir / "site-packages"
-        if site_packages.exists() and any(site_packages.iterdir()):
-            dest = self.package_cache / cache_key / "site-packages"
-            dest.parent.mkdir(parents=True, exist_ok=True)
+        dest = self.package_cache / cache_key / "site-packages"
+        dest.parent.mkdir(parents=True, exist_ok=True)
 
-            # Use atomic rename: copy to temp dir in same parent, then rename.
-            # os.rename is atomic on the same filesystem.
-            temp_dest = dest.parent / f"site-packages.{os.getpid()}.tmp"
-            try:
-                # Clean up any stale temp dir from a previous failed attempt
-                if temp_dest.exists():
-                    shutil.rmtree(temp_dest)
-                shutil.copytree(site_packages, temp_dest)
-
-                # Atomic rename into place. If dest already exists (another process
-                # beat us), this will fail on POSIX - that's fine, we just use theirs.
-                try:
-                    os.rename(temp_dest, dest)
-                    logger.info(
-                        "Packages cached",
-                        cache_key=cache_key,
-                        path=str(dest),
-                    )
-                except OSError:
-                    # Another process already created the cache - use theirs
-                    logger.debug(
-                        "Cache already exists (concurrent install), using existing",
-                        cache_key=cache_key,
-                    )
-            finally:
-                # Clean up temp dir if rename failed or succeeded
-                if temp_dest.exists():
-                    shutil.rmtree(temp_dest, ignore_errors=True)
-        else:
-            logger.warning(
-                "No packages were installed",
-                dependencies=dependencies,
+        # The installer has stopped, so validate the tree and preserve symlinks
+        # rather than dereferencing sandbox-selected targets in the host process.
+        temp_dest = dest.parent / f"site-packages.{uuid.uuid4().hex}.tmp"
+        copy_task = asyncio.create_task(
+            asyncio.to_thread(
+                copy_tree_without_following_symlinks,
+                site_packages,
+                temp_dest,
+                trusted_root=job_dir,
+                max_bytes=TRACECAT__SANDBOX_PACKAGE_CACHE_MAX_BYTES,
+                max_entries=TRACECAT__SANDBOX_PACKAGE_CACHE_MAX_ENTRIES,
             )
+        )
+        try:
+            try:
+                # The walk and copy can span gigabytes; keep them off the loop.
+                # Shielded so activity cancellation cannot abandon the copy
+                # thread mid-flight: cancelling the await does not stop the
+                # thread, and a still-running copy would race the finally-block
+                # removal of temp_dest and the caller's job-dir cleanup.
+                copied = await asyncio.shield(copy_task)
+            except asyncio.CancelledError:
+                # Rejoin the copy thread (shielded even under repeated
+                # cancellation) before any cleanup runs. Prefer the pending
+                # cancellation if the copy also failed; the temp tree is
+                # removed in the finally block.
+                try:
+                    await _await_task_rejoined(copy_task)
+                except SandboxFileSafetyError as exc:
+                    logger.warning(
+                        "Discarded cancelled package promotion",
+                        error=type(exc).__name__,
+                    )
+                except Exception as exc:
+                    # A copy-worker failure that already completed before the
+                    # join (e.g. PermissionError or shutil.Error) must not
+                    # mask the pending cancellation either; log it and let the
+                    # cancellation win once the thread is rejoined. Log the
+                    # exception class only: str(exc) can embed sandbox-
+                    # controlled filenames and paths.
+                    logger.warning(
+                        "Cancelled package promotion copy worker failed",
+                        error=type(exc).__name__,
+                    )
+                raise
+            except SandboxFileSafetyError as exc:
+                raise PackageInstallError(
+                    "Installed packages contained unsafe filesystem entries"
+                ) from exc
+
+            if not copied:
+                logger.warning(
+                    "No packages were installed",
+                    dependencies=dependencies,
+                )
+                return
+
+            # Atomic rename into place. If another installer won the race, use
+            # the already-published cache tree.
+            try:
+                os.rename(temp_dest, dest)
+                logger.info(
+                    "Packages cached",
+                    cache_key=cache_key,
+                    path=str(dest),
+                )
+            except OSError:
+                logger.debug(
+                    "Cache already exists (concurrent install), using existing",
+                    cache_key=cache_key,
+                )
+        finally:
+            # The copy thread is always joined before this point, but the
+            # removal itself must also complete under cancellation (a stranded
+            # partial .tmp tree in the shared package cache persists forever).
+            # If cancellation arrives mid-removal, the rejoined helper
+            # re-raises it after the tree is gone so the cancelled activity
+            # does not continue into script execution.
+            if temp_dest.exists():
+                rmtree_task = asyncio.create_task(
+                    asyncio.to_thread(
+                        shutil.rmtree,
+                        temp_dest,
+                        ignore_errors=True,
+                    )
+                )
+                await _await_task_rejoined(rmtree_task)
 
     async def _prepare_execution(
         self,
@@ -420,7 +518,16 @@ class SandboxService:
                     stdout=result.stdout[:500] if result.stdout else None,
                     stderr=result.stderr[:500] if result.stderr else None,
                 )
-                raise SandboxExecutionError(error_msg)
+                # Same trust boundary as the nsjail path: a rejected result
+                # envelope was produced by sandbox-controlled code and must
+                # classify as a workload failure, not a retryable fault.
+                message = (
+                    error_msg
+                    if isinstance(error_msg, str)
+                    else "Sandbox execution failed"
+                )
+                raise_for_sandbox_error_code(result.error_code, message)
+                raise SandboxExecutionError(message)
 
             return result.output
 
@@ -529,7 +636,14 @@ class SandboxService:
                     stdout=result.stdout[:500] if result.stdout else None,
                     stderr=result.stderr[:500] if result.stderr else None,
                 )
-                raise_for_sandbox_error_code(result.error_code, error_msg)
-                raise SandboxExecutionError(error_msg)
+                # Envelope errors may carry a structured dict; the typed
+                # exceptions take plain strings only.
+                message = (
+                    error_msg
+                    if isinstance(error_msg, str)
+                    else "Sandbox execution failed"
+                )
+                raise_for_sandbox_error_code(result.error_code, message)
+                raise SandboxExecutionError(message)
 
             return result.output

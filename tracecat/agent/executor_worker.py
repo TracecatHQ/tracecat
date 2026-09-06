@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import AsyncExitStack
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
@@ -25,6 +26,10 @@ from tracecat.agent.runtime_services import (
 from tracecat.agent.worker import new_sandbox_runner
 from tracecat.dsl.client import get_temporal_client
 from tracecat.logger import logger
+from tracecat.observability.otel import (
+    initialize_platform_tracing,
+    shutdown_platform_tracing,
+)
 from tracecat.storage.blob import close_storage_client_cache
 from tracecat.temporal.worker_lifecycle import run_worker_entrypoint
 
@@ -92,8 +97,15 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
         task_queue=config.TRACECAT__AGENT_EXECUTOR_QUEUE,
         max_concurrent_activities=max_concurrent,
     )
+    initialize_platform_tracing("tracecat-agent-executor")
 
-    try:
+    # LIFO teardown: storage cache, then runtime services, then tracing. The
+    # stack still runs later callbacks when an earlier one raises.
+    async with AsyncExitStack() as cleanup:
+        cleanup.callback(shutdown_platform_tracing)
+        cleanup.push_async_callback(_stop_runtime_services)
+        cleanup.push_async_callback(close_storage_client_cache)
+
         client = await _start_runtime_services()
         with ThreadPoolExecutor(max_workers=threadpool_max_workers) as executor:
             async with Worker(
@@ -120,9 +132,6 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
                 await shutdown_event.wait()
                 logger.info("AgentExecutorWorker shutdown requested")
             logger.info("Temporal Worker context exited")
-    finally:
-        await close_storage_client_cache()
-        await _stop_runtime_services()
     if runtime_failure_reason is not None:
         raise RuntimeError(runtime_failure_reason)
 

@@ -56,8 +56,6 @@ export interface AgentPresetSubagentEntry {
   name: string | null
   /** Preset slug the subagent is backed by. */
   preset: string
-  /** Pinned preset version, or null to track the latest. */
-  presetVersion: number | null
   /** Maximum turns allowed for this subagent, or null for the default. */
   maxTurns: number | null
   /** Description override, or null. */
@@ -204,7 +202,6 @@ function normalizeSubagents(
     .map((subagent) => ({
       name: subagent.name ?? null,
       preset: subagent.preset,
-      presetVersion: subagent.preset_version ?? null,
       maxTurns: subagent.max_turns ?? null,
       description: subagent.description ?? null,
     }))
@@ -291,8 +288,8 @@ function agentPresetExecutionFieldsToDocumentInput(
 /**
  * Normalizes a saved preset version into the shared document input.
  *
- * Skill pins come straight from the version's bindings: restoring copies those
- * exact `skill_version` pins back to the head, so they are part of the diff.
+ * Skill pins come from the restore projection, which resolves the historical
+ * membership through each Skill's current head to match backend restore behavior.
  */
 export function agentPresetVersionToDocumentInput(
   version: AgentPresetVersionRead,
@@ -300,7 +297,7 @@ export function agentPresetVersionToDocumentInput(
 ): AgentPresetDocumentInput {
   return agentPresetExecutionFieldsToDocumentInput(
     version,
-    (version.skills ?? []).map((skill) => ({
+    version.restore_skills.map((skill) => ({
       skillId: skill.skill_id,
       fallbackName: skill.skill_name,
       version: skill.skill_version,
@@ -399,7 +396,6 @@ export function buildAgentPresetVirtualFiles(input: AgentPresetDocumentInput): {
       agents: input.subagents.map((subagent) => ({
         name: subagent.name,
         preset: subagent.preset,
-        preset_version: subagent.presetVersion,
         max_turns: subagent.maxTurns,
         description: subagent.description,
       })),

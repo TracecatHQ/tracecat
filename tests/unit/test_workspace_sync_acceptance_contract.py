@@ -722,7 +722,7 @@ async def test_import_selected_fixture_reconciles_supported_non_workflow_resourc
         )
     )
     assert parent_preset is not None
-    assert "enabled" not in parent_preset.agents
+    assert parent_preset.agents["enabled"] is True
     assert parent_preset.agents["subagents"][0]["preset"] == "qa-evidence-child"
     assert parent_preset.base_url == "https://models.example.test/v1"
     assert parent_preset.output_type == {"type": "json_schema", "name": "qa_triage"}
@@ -1167,7 +1167,7 @@ async def test_agent_preset_import_resolves_subagent_to_active_preset(
         )
     )
     assert parent_preset is not None
-    assert "enabled" not in parent_preset.agents
+    assert parent_preset.agents["enabled"] is True
     assert [
         subagent["preset_id"] for subagent in parent_preset.agents["subagents"]
     ] == [str(active_child.id)]
@@ -2920,6 +2920,72 @@ async def test_pull_older_skill_content_rolls_forward_a_new_version(
 
 
 @pytest.mark.anyio
+async def test_pull_unchanged_skill_ignores_inferred_content_type(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    git_tree = _skill_git_tree(
+        source_id="qa-enrichment-skill",
+        slug="qa-enrichment-skill",
+        name="QA enrichment skill",
+    )
+    transport = AsyncMock()
+    transport.read_files.side_effect = [
+        VcsTreeSnapshot(
+            commit_sha="f" * 40,
+            tree_sha="tree-1",
+            files=git_tree,
+        ),
+        VcsTreeSnapshot(
+            commit_sha="g" * 40,
+            tree_sha="tree-2",
+            files=git_tree,
+        ),
+    ]
+    service._workspace_git_url = AsyncMock(
+        return_value=GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
+    )
+
+    with patch(
+        "tracecat.workspace_sync.service.vcs_transport_for_provider",
+        return_value=transport,
+    ):
+        first_result = await service.pull(options=PullOptions(commit_sha="f" * 40))
+        skill = await session.scalar(
+            select(Skill).where(
+                Skill.workspace_id == svc_role.workspace_id,
+                Skill.slug == "qa-enrichment-skill",
+            )
+        )
+        assert skill is not None
+        assert skill.current_version_id is not None
+        first_version_id = skill.current_version_id
+
+        with patch(
+            "tracecat.agent.skill.service.SkillService._guess_content_type",
+            return_value="application/octet-stream",
+        ):
+            second_result = await service.pull(options=PullOptions(commit_sha="g" * 40))
+
+    assert first_result.success is True
+    assert second_result.success is True
+    await session.refresh(skill)
+    assert skill.current_version_id == first_version_id
+    version_ids = list(
+        (
+            await session.scalars(
+                select(SkillVersion.id).where(
+                    SkillVersion.workspace_id == svc_role.workspace_id,
+                    SkillVersion.skill_id == skill.id,
+                )
+            )
+        ).all()
+    )
+    assert version_ids == [first_version_id]
+
+
+@pytest.mark.anyio
 async def test_pull_agent_preset_slug_swap_reuses_source_id_mappings(
     session: AsyncSession,
     svc_role: Role,
@@ -3161,9 +3227,11 @@ async def test_project_workspace_preserves_binary_skill_file(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("conflicting_names", [False, True])
 async def test_pull_skill_slug_swap_reuses_source_id_mappings(
     session: AsyncSession,
     svc_role: Role,
+    conflicting_names: bool,
 ) -> None:
     service = WorkspaceSyncService(session=session, role=svc_role)
     transport = AsyncMock()
@@ -3191,7 +3259,7 @@ async def test_pull_skill_slug_swap_reuses_source_id_mappings(
                 _skill_git_tree(
                     source_id="skill-a",
                     slug="beta-skill",
-                    name="Beta skill",
+                    name="Alpha skill" if conflicting_names else "Beta skill",
                 ),
                 _skill_git_tree(
                     source_id="skill-b",
@@ -3222,10 +3290,15 @@ async def test_pull_skill_slug_swap_reuses_source_id_mappings(
                 Skill.slug == "beta-skill",
             )
         )
+        previous_heads = dict(
+            (await session.execute(select(Skill.id, Skill.current_version_id)))
+            .tuples()
+            .all()
+        )
         second_result = await service.pull(options=PullOptions(commit_sha="t" * 40))
 
     assert first_result.success is True
-    assert second_result.success is True
+    assert second_result.success is not conflicting_names
     assert alpha_id is not None
     assert beta_id is not None
     skills = {
@@ -3236,7 +3309,18 @@ async def test_pull_skill_slug_swap_reuses_source_id_mappings(
             )
         ).all()
     }
-    assert skills == {"alpha-skill": beta_id, "beta-skill": alpha_id}
+    if conflicting_names:
+        assert skills == {"alpha-skill": alpha_id, "beta-skill": beta_id}
+        assert (
+            dict(
+                (await session.execute(select(Skill.id, Skill.current_version_id)))
+                .tuples()
+                .all()
+            )
+            == previous_heads
+        )
+    else:
+        assert skills == {"alpha-skill": beta_id, "beta-skill": alpha_id}
 
 
 @pytest.mark.anyio
@@ -3918,7 +4002,7 @@ async def test_agent_preset_import_resolves_parent_before_child_order(
     assert parent is not None
     assert child is not None
     assert child.current_version_id is not None
-    assert "enabled" not in parent.agents
+    assert parent.agents["enabled"] is True
     assert parent.agents["subagents"][0]["preset_version_id"] == str(
         child.current_version_id
     )
@@ -4407,7 +4491,7 @@ async def test_agent_preset_sync_requires_an_ambiguous_catalog_choice_per_pull(
         assert {candidate.catalog_id for candidate in requirement.candidates} == {
             row.id for row in catalog_rows
         }
-        assert [affected.version for affected in requirement.affected_presets] == [1]
+        assert [affected.version for affected in requirement.affected_presets] == [None]
         assert (
             await session.scalar(
                 select(AgentPreset).where(
@@ -4962,7 +5046,7 @@ async def test_mcp_integration_hint_mismatch_requires_a_mapping_choice(
         slug_match.id,
         other.id,
     ]
-    assert [affected.version for affected in requirement.affected_presets] == [1]
+    assert [affected.version for affected in requirement.affected_presets] == [None]
     assert [
         diagnostic.details["code"]
         for diagnostic in prepared.diagnostics

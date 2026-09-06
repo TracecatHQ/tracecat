@@ -8,11 +8,13 @@ import tempfile
 import uuid
 from collections import Counter
 from dataclasses import dataclass, field
-from importlib.resources import as_file, files
+from enum import StrEnum
 from pathlib import Path
 from time import perf_counter
 from typing import Any, cast
 
+from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
 from pydantic import AliasChoices, BaseModel, Field
 from temporalio import activity
 from tracecat_ee.workspace_chat.policy import (
@@ -29,7 +31,10 @@ from tracecat.agent.common.config import (
     TRACECAT__AGENT_SANDBOX_MEMORY_MB,
     TRACECAT__DISABLE_NSJAIL,
 )
-from tracecat.agent.common.exceptions import AgentSandboxExecutionError
+from tracecat.agent.common.exceptions import (
+    AgentSandboxExecutionError,
+    AgentSandboxValidationError,
+)
 from tracecat.agent.common.fs import force_rmtree
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.stream_types import ToolCallContent
@@ -40,6 +45,12 @@ from tracecat.agent.common.types import (
     SandboxSubagentConfig,
     is_stdio_mcp_server,
     requires_sandbox_internet_access,
+)
+from tracecat.agent.error_policy import (
+    agent_executor_protocol_failed,
+    agent_executor_timed_out,
+    agent_executor_unavailable,
+    invalid_agent_configuration,
 )
 from tracecat.agent.executor.loopback import (
     LoopbackHandler,
@@ -72,14 +83,23 @@ from tracecat.agent.runtime.session_paths import build_agent_sandbox_path_mappin
 from tracecat.agent.runtime_services import get_claude_runtime_broker
 from tracecat.agent.sandbox.llm_proxy import (
     LLM_SOCKET_NAME,
+    LLMProxyError,
     LLMRoute,
     LLMRoutingPlan,
     LLMSocketProxy,
 )
-from tracecat.agent.sandbox.otel_relay import OTEL_SOCKET_NAME, OtelSocketReceiver
+from tracecat.agent.sandbox.otel_relay import (
+    OTEL_SOCKET_NAME,
+    OtelRoutingPlan,
+    OtelSocketReceiver,
+    PlatformTraceParent,
+)
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
-from tracecat.agent.skill.builtin import BUILTIN_SKILL_NAME_PREFIX
+from tracecat.agent.skill.builtin import (
+    BUILTIN_SKILL_NAME_PREFIX,
+    BUILTIN_WORKSPACE_CHAT_SKILLS,
+)
 from tracecat.agent.skill.service import SkillService
 from tracecat.agent.types import AgentConfig, clamp_agent_timeout_seconds
 from tracecat.auth.types import Role
@@ -93,7 +113,13 @@ from tracecat.feature_flags import FeatureFlag, is_feature_enabled
 from tracecat.integrations.mcp_validation import MCPSecretResolutionError
 from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
+from tracecat.observability.otel import (
+    platform_otel_collector_env,
+    platform_span,
+    set_current_span_attributes,
+)
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.runtime.errors import RuntimeErrorClassification
 from tracecat.settings.service import SettingsService
 from tracecat.storage import blob
 
@@ -105,6 +131,31 @@ from .schemas import (
 
 BROKER_TASK_CANCEL_TIMEOUT_SECONDS = 5.0
 GRACEFUL_CANCEL_TIMEOUT_SECONDS = 30.0
+
+# Turns on the sandbox runtime's native trace exporter for platform tracing.
+_PLATFORM_TELEMETRY_ENV = {
+    "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+    "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA": "1",
+    "OTEL_TRACES_EXPORTER": "otlp",
+    "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
+}
+
+# Silences every tenant-facing signal when the tenant has no OTel config of
+# their own, so platform tracing alone never emits their prompts or tool I/O.
+_PLATFORM_ONLY_TELEMETRY_ENV = {
+    "OTEL_METRICS_EXPORTER": "none",
+    "OTEL_LOGS_EXPORTER": "none",
+    "OTEL_LOG_USER_PROMPTS": "0",
+    "OTEL_LOG_TOOL_DETAILS": "0",
+    "OTEL_LOG_TOOL_CONTENT": "0",
+}
+
+
+class AgentRuntimeOutcome(StrEnum):
+    SUCCESS = "success"
+    FAILURE = "failure"
+    APPROVAL = "approval"
+    CANCELLED = "cancelled"
 
 
 @dataclass(frozen=True, slots=True)
@@ -191,6 +242,9 @@ class AgentExecutorResult(BaseModel):
 
     success: bool
     error: str | None = None
+    # Typed terminal attribution produced by the trusted executor boundary.
+    # None keeps activity results recorded before this field replayable.
+    classification: RuntimeErrorClassification | None = None
     # None means a legacy activity result did not carry this field. The
     # workflow treats unknown failed results as already terminal-emitted so old
     # histories keep their original command shape.
@@ -212,6 +266,27 @@ class AgentExecutorResult(BaseModel):
     # Tool calls the interrupt aborted mid-flight (errored after cancellation
     # or never resolved). None on legacy results that predate this field.
     interrupted_tool_call_ids: list[str] | None = None
+
+
+def _agent_correlation_attributes(input: AgentExecutorInput) -> dict[str, str]:
+    """Build the single trusted correlation mapping for an agent turn."""
+    values: dict[str, uuid.UUID | None] = {
+        "tracecat.organization.id": input.role.organization_id,
+        "tracecat.workspace.id": input.workspace_id,
+        "tracecat.agent.session.id": input.session_id,
+        "tracecat.agent.run.id": input.curr_run_id,
+    }
+    return {key: str(value) for key, value in values.items() if value is not None}
+
+
+def _agent_runtime_outcome(result: AgentExecutorResult) -> AgentRuntimeOutcome:
+    if result.approval_requested:
+        return AgentRuntimeOutcome.APPROVAL
+    if result.cancelled:
+        return AgentRuntimeOutcome.CANCELLED
+    if result.success:
+        return AgentRuntimeOutcome.SUCCESS
+    return AgentRuntimeOutcome.FAILURE
 
 
 class ExecuteApprovedToolsInput(BaseModel):
@@ -296,7 +371,7 @@ class SandboxedAgentExecutor:
     _otel_receiver: OtelSocketReceiver | None = field(
         default=None, init=False, repr=False
     )
-    _fatal_error: str | None = field(default=None, init=False, repr=False)
+    _fatal_error: LLMProxyError | None = field(default=None, init=False, repr=False)
     _fatal_error_event: asyncio.Event = field(
         default_factory=asyncio.Event, init=False, repr=False
     )
@@ -319,8 +394,8 @@ class SandboxedAgentExecutor:
     async def _create_llm_socket_proxy(self, socket_path: Path) -> LLMSocketProxy:
         """Create the host-side LiteLLM transport proxy for this execution."""
 
-        def on_error(error_msg: str) -> None:
-            self._fatal_error = error_msg
+        def on_error(error: LLMProxyError) -> None:
+            self._fatal_error = error
             self._fatal_error_event.set()
 
         routing_plan = self._llm_routing_plan()
@@ -429,11 +504,11 @@ class SandboxedAgentExecutor:
             Direct route for the model config.
 
         Raises:
-            AgentSandboxExecutionError: If passthrough is enabled without a
+            AgentSandboxValidationError: If passthrough is enabled without a
                 resolved base URL.
         """
         if base_url is None:
-            raise AgentSandboxExecutionError(
+            raise AgentSandboxValidationError(
                 "Custom model provider passthrough requires a resolved base_url."
             )
         return LLMRoute(
@@ -466,11 +541,25 @@ class SandboxedAgentExecutor:
             )
             return ResolvedAgentOtelConfig(enabled=False)
 
+    def _platform_trace_parent(self) -> PlatformTraceParent | None:
+        """Capture the active host span and safe agent/workflow correlation."""
+        span_context = trace.get_current_span().get_span_context()
+        if not span_context.is_valid:
+            return None
+
+        return PlatformTraceParent(
+            trace_id=span_context.trace_id.to_bytes(16, byteorder="big"),
+            span_id=span_context.span_id.to_bytes(8, byteorder="big"),
+            trace_flags=int(span_context.trace_flags),
+            resource_attributes=_agent_correlation_attributes(self.input),
+        )
+
     @staticmethod
     def _build_sandbox_env(
         resolved: ResolvedAgentOtelConfig,
         *,
         otel_auth_token: str,
+        platform_tracing: bool = False,
     ) -> dict[str, str]:
         """Build the sandbox-side OTel env.
 
@@ -479,6 +568,10 @@ class SandboxedAgentExecutor:
         host-side socket receiver to verify.
         """
         sandbox_env = dict(resolved.sandbox_env)
+        if platform_tracing:
+            sandbox_env.update(_PLATFORM_TELEMETRY_ENV)
+            if not resolved.enabled:
+                sandbox_env.update(_PLATFORM_ONLY_TELEMETRY_ENV)
         sandbox_env.pop("OTEL_EXPORTER_OTLP_ENDPOINT", None)
         sandbox_env["OTEL_EXPORTER_OTLP_HEADERS"] = (
             f"Authorization=Bearer {otel_auth_token}"
@@ -536,7 +629,15 @@ class SandboxedAgentExecutor:
             # decryption stay trusted-side, never cross Temporal payload boundary).
             otel_socket_path: Path | None = None
             resolved_otel = await self._resolve_agent_otel_config()
-            if resolved_otel.enabled:
+            otel_plan = OtelRoutingPlan.build(
+                collector_env=resolved_otel.collector_env,
+                headers=resolved_otel.headers,
+                platform_trace_parent=self._platform_trace_parent(),
+                platform_collector_env=platform_otel_collector_env(),
+            )
+            platform_tracing = otel_plan.platform_endpoint is not None
+            telemetry_enabled = resolved_otel.enabled or platform_tracing
+            if telemetry_enabled:
                 if self.input.agent_otel_auth_token is None:
                     logger.warning(
                         "Agent OTel enabled but auth token is missing; running without telemetry",
@@ -551,12 +652,12 @@ class SandboxedAgentExecutor:
                     init_payload.agent_otel_sandbox_env = self._build_sandbox_env(
                         resolved_otel,
                         otel_auth_token=self.input.agent_otel_auth_token,
+                        platform_tracing=platform_tracing,
                     )
                     otel_socket_path = socket_dir / OTEL_SOCKET_NAME
                     self._otel_receiver = OtelSocketReceiver(
                         socket_path=otel_socket_path,
-                        collector_env=resolved_otel.collector_env,
-                        headers=resolved_otel.headers,
+                        plan=otel_plan,
                         expected_workspace_id=self.input.workspace_id,
                         expected_organization_id=self.input.role.organization_id,
                         expected_session_id=self.input.session_id,
@@ -585,12 +686,18 @@ class SandboxedAgentExecutor:
                 otel_socket_path=otel_socket_path,
             )
 
+        except AgentSandboxValidationError as e:
+            logger.error("Agent configuration is invalid", error=str(e))
+            result.error = str(e)
+            result.classification = invalid_agent_configuration(e)
         except AgentSandboxExecutionError as e:
             logger.error("Agent sandbox execution failed", error=str(e))
             result.error = str(e)
+            result.classification = agent_executor_unavailable(e)
         except Exception as e:
             logger.exception("Unexpected error in agent executor", error=str(e))
             result.error = f"Unexpected error: {e}"
+            result.classification = agent_executor_unavailable(e)
         finally:
             await self._cleanup()
 
@@ -658,6 +765,7 @@ class SandboxedAgentExecutor:
         """Copy loopback result fields into the activity result."""
         result.success = loopback_result.success
         result.error = loopback_result.error
+        result.classification = loopback_result.classification
         result.approval_requested = loopback_result.approval_requested
         result.approval_items = loopback_result.approval_items or None
         result.terminal_stream_error_emitted = (
@@ -730,12 +838,15 @@ class SandboxedAgentExecutor:
             otel_socket_path=otel_socket_path,
         )
 
-        async def wait_fatal_error() -> str:
+        async def wait_fatal_error() -> LLMProxyError:
             await self._fatal_error_event.wait()
-            return self._fatal_error or "Unknown LLM error"
+            return self._fatal_error or LLMProxyError(
+                message="Unknown LLM error",
+                classification=agent_executor_protocol_failed(),
+            )
 
         broker_task: asyncio.Task[None] | None = None
-        fatal_error_task: asyncio.Task[str] | None = None
+        fatal_error_task: asyncio.Task[LLMProxyError] | None = None
         cancel_signal_task: asyncio.Task[None] | None = None
         try:
             async with broker.session_turn_lease(str(self.input.session_id)):
@@ -774,10 +885,11 @@ class SandboxedAgentExecutor:
                         continue
 
                     if fatal_error_task in done:
-                        error_msg = fatal_error_task.result()
-                        result.error = error_msg
+                        proxy_error = fatal_error_task.result()
+                        result.error = proxy_error.message
+                        result.classification = proxy_error.classification
                         result.terminal_stream_error_emitted = (
-                            await handler.emit_terminal_error(error_msg)
+                            await handler.emit_terminal_error(proxy_error.message)
                         )
                         await broker.cancel_turn(str(self.input.session_id))
                         await _cancel_task_with_timeout(
@@ -814,6 +926,7 @@ class SandboxedAgentExecutor:
                     result.error = (
                         f"Agent execution timed out after {self.timeout_seconds}s"
                     )
+                    result.classification = agent_executor_timed_out()
                     result.terminal_stream_error_emitted = (
                         await handler.emit_terminal_error(result.error)
                     )
@@ -825,6 +938,7 @@ class SandboxedAgentExecutor:
                     broker_task = None
         except Exception as e:
             result.error = str(e)
+            result.classification = agent_executor_unavailable(e)
             result.terminal_stream_error_emitted = await handler.emit_terminal_error(
                 result.error
             )
@@ -1061,11 +1175,12 @@ class SandboxedAgentExecutor:
     async def _stage_builtin_skills(self, skills_dir: Path) -> None:
         """Stage always-on built-in platform skills into the run home dir.
 
-        Built-in skills are plain on-disk directories packaged inside
-        ``tracecat`` package. They are identified by name only (resolved from the
+        Built-in skills are plain on-disk directories vendored from the public
+        ``tracecat-plugins`` repository into ``TRACECAT__COPILOT_SKILLS_DIR`` at
+        image build time. They are identified by name only (resolved from the
         config, which set them when the org is workspace-chat entitled), so this
-        method maps each reserved-prefix name to its packaged directory and
-        copies it into the staged skills directory. Built-in skills own the
+        method maps each reserved-prefix name to its directory and copies it
+        into the staged skills directory. Built-in skills own the
         ``tracecat-`` namespace and are staged BEFORE preset
         ``resolved_skills``, which skip any name already staged here — so a
         legacy user skill with a reserved-prefix name can never overlay or be
@@ -1076,26 +1191,46 @@ class SandboxedAgentExecutor:
         if not names:
             return
 
-        skills_root = files("tracecat.agent.skill.builtin")
+        requested_names: list[str] = []
         for name in dict.fromkeys(names):
             if (
                 not name.startswith(BUILTIN_SKILL_NAME_PREFIX)
                 or "/" in name
                 or name in {".", ".."}
+                or name not in BUILTIN_WORKSPACE_CHAT_SKILLS
             ):
                 logger.warning("Skipping invalid built-in skill name", skill=name)
                 continue
-            source = skills_root / name
+            requested_names.append(name)
+        if not requested_names:
+            return
+
+        # The vendored directory lives outside the package tree so that
+        # neither the wheel build nor a development bind mount over `packages/`
+        # can serve a stale copy. Built-ins are part of the Workspace Chat
+        # runtime contract, so fail explicitly if an image omits them instead
+        # of silently starting an entitled session without its guidance.
+        vendored_root = Path(app_config.TRACECAT__COPILOT_SKILLS_DIR)
+        if not vendored_root.is_dir():
+            raise FileNotFoundError(
+                "Vendored copilot skills directory is required when built-in "
+                f"skills are requested: {vendored_root}"
+            )
+        for name in requested_names:
+            source = vendored_root / name
             if not (source / "SKILL.md").is_file():
-                logger.warning("Built-in skill missing SKILL.md; skipping", skill=name)
-                continue
-            with as_file(source) as source_path:
-                await asyncio.to_thread(
-                    shutil.copytree,
-                    source_path,
-                    skills_dir / name,
-                    dirs_exist_ok=True,
+                logger.warning(
+                    "Built-in skill missing SKILL.md; skipping",
+                    skill=name,
+                    skills_root=str(vendored_root),
                 )
+                continue
+            await asyncio.to_thread(
+                shutil.copytree,
+                source,
+                skills_dir / name,
+                dirs_exist_ok=True,
+            )
 
     async def _ensure_cached_skill_dir(
         self,
@@ -1204,17 +1339,19 @@ async def _hydrate_stdio_env(
     if not mcp_servers:
         return mcp_servers
 
+    for cfg in mcp_servers:
+        if is_stdio_mcp_server(cfg) and not cfg.get("id"):
+            raise AgentSandboxValidationError(
+                "Stdio MCP server configuration is missing a source integration id"
+            )
+
     result: list[MCPServerConfig] = []
     async with AgentPresetService.with_session(role=role) as svc:
         for cfg in mcp_servers:
             if not is_stdio_mcp_server(cfg):
                 result.append(cfg)
             else:
-                cfg_id = cfg.get("id")
-                if not cfg_id:
-                    raise ValueError(
-                        f"Stdio MCP server {cfg.get('name')!r} is missing a source integration id"
-                    )
+                cfg_id = cast(str, cfg.get("id"))
                 try:
                     env = await svc.resolve_mcp_integration_secrets(uuid.UUID(cfg_id))
                 except (ValueError, MCPSecretResolutionError):
@@ -1340,31 +1477,62 @@ async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
     Returns:
         AgentExecutorResult with execution status and terminal output.
     """
+    activity_info = activity.info()
+    set_current_span_attributes(
+        {
+            **_agent_correlation_attributes(input),
+            "temporal.activity.attempt": activity_info.attempt,
+            "temporal.task_queue": activity_info.task_queue,
+        }
+    )
+
     sandbox_mode = "direct" if TRACECAT__DISABLE_NSJAIL else "nsjail"
     activity.heartbeat(
         f"Starting agent execution ({sandbox_mode} mode): {input.session_id}"
     )
 
-    input = await _hydrate_sdk_session_history(input)
+    with platform_span("tracecat.agent.prepare"):
+        input = await _hydrate_sdk_session_history(input)
 
-    # Stdio MCP servers are spawned directly by the runtime; unlike HTTP
-    # servers they have no per-call secret resolution hook downstream. The
-    # configs in ``input.config.mcp_servers`` and each subagent's
-    # ``config.mcp_servers`` arrive in refs-only shape (no ``env``) — hydrate
-    # from the DB here so the spawned processes get their credentials.
-    config = cast(Any, input.config)
-    config.mcp_servers = await _hydrate_stdio_env(config.mcp_servers, role=input.role)
-    for subagent in input.subagents:
-        subagent.config.mcp_servers = await _hydrate_stdio_env(
-            subagent.config.mcp_servers, role=input.role
+        # Stdio MCP servers are spawned directly by the runtime; unlike HTTP
+        # servers they have no per-call secret resolution hook downstream. The
+        # configs in ``input.config.mcp_servers`` and each subagent's
+        # ``config.mcp_servers`` arrive in refs-only shape (no ``env``) — hydrate
+        # from the DB here so the spawned processes get their credentials.
+        config = cast(Any, input.config)
+        try:
+            config.mcp_servers = await _hydrate_stdio_env(
+                config.mcp_servers, role=input.role
+            )
+            for subagent in input.subagents:
+                subagent.config.mcp_servers = await _hydrate_stdio_env(
+                    subagent.config.mcp_servers, role=input.role
+                )
+        except AgentSandboxValidationError as e:
+            classification = invalid_agent_configuration(e)
+            return AgentExecutorResult(
+                success=False,
+                error=classification.message,
+                classification=classification,
+                terminal_stream_error_emitted=False,
+            )
+
+        timeout_seconds = clamp_agent_timeout_seconds(input.timeout_seconds)
+        executor = SandboxedAgentExecutor(
+            input=input,
+            timeout_seconds=timeout_seconds,
         )
 
-    timeout_seconds = clamp_agent_timeout_seconds(input.timeout_seconds)
-    executor = SandboxedAgentExecutor(
-        input=input,
-        timeout_seconds=timeout_seconds,
-    )
-    result = await executor.run()
+    with platform_span(
+        "tracecat.agent.runtime",
+        attributes={"tracecat.agent.harness": "claude_code"},
+    ) as runtime_span:
+        result = await executor.run()
+        outcome = _agent_runtime_outcome(result)
+        if runtime_span is not None:
+            runtime_span.set_attribute("tracecat.agent.outcome", outcome)
+            if outcome is AgentRuntimeOutcome.FAILURE:
+                runtime_span.set_status(Status(status_code=StatusCode.ERROR))
 
     if result.success:
         activity.heartbeat(f"Agent execution completed: {input.session_id}")

@@ -77,6 +77,14 @@ class RuntimeErrorKind(StrEnum):
     WORKFLOW_RUNTIME_INVARIANT_VIOLATION = "workflow.runtime.invariant_violation"
     WORKFLOW_AGENT_INPUT_INVALID = "workflow.agent.input_invalid"
     WORKFLOW_AGENT_PREPARATION_FAILED = "workflow.agent.preparation_failed"
+    AGENT_CONFIGURATION_INVALID = "agent.configuration.invalid"
+    AGENT_PREPARATION_FAILED = "agent.preparation.failed"
+    AGENT_SESSION_INITIALIZATION_FAILED = "agent.session.initialization_failed"
+    AGENT_EXECUTION_FAILED = "agent.execution.failed"
+    AGENT_EXECUTOR_UNAVAILABLE = "agent.executor.unavailable"
+    AGENT_EXECUTOR_TIMED_OUT = "agent.executor.timed_out"
+    AGENT_EXECUTOR_PROTOCOL_FAILED = "agent.executor.protocol_failed"
+    AGENT_WORKFLOW_INTERNAL_ERROR = "agent.workflow.internal_error"
 
 
 class RuntimeErrorClassification(BaseModel):

@@ -16,6 +16,7 @@ import asyncio
 import contextlib
 import importlib
 import os
+import resource
 import sys
 import warnings
 from collections.abc import Mapping
@@ -542,10 +543,48 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
         }
 
 
+def _enforce_nproc_limit() -> None:
+    """Cap the sandbox's process count via RLIMIT_NPROC.
+
+    nsjail cannot enforce rlimit_nproc when it creates a user namespace
+    (clone_newuser), so the host injects the configured limit via
+    TRACECAT__SANDBOX_RLIMIT_NPROC and this trusted runner applies it before
+    any untrusted code runs. Lowering a hard rlimit is permitted for
+    unprivileged processes, and the limit is enforced per real UID, which
+    covers every process in the sandbox.
+    """
+    raw = os.environ.get("TRACECAT__SANDBOX_RLIMIT_NPROC")
+    if not raw:
+        return
+    try:
+        limit = int(raw)
+        if limit <= 0:
+            raise ValueError(f"non-positive cap: {limit}")
+        _soft, current_hard = resource.getrlimit(resource.RLIMIT_NPROC)
+        finite = current_hard != resource.RLIM_INFINITY
+        # Already capped when the inherited hard cap is at or below the
+        # requested limit (including 0 = no child processes), or when a
+        # stricter finite soft limit is in force: raising either would only
+        # relax enforcement.
+        already_capped = 0 <= current_hard <= limit if finite else 0 < _soft <= limit
+        if not already_capped:
+            resource.setrlimit(resource.RLIMIT_NPROC, (limit, limit))
+    except (ValueError, OSError, OverflowError) as exc:
+        # Values are host-injected; a malformed value or an unenforceable
+        # rlimit means the process cap is not in place. Exit instead of
+        # running untrusted code without the enforced cap.
+        raise SystemExit(
+            f"_enforce_nproc_limit: could not enforce RLIMIT_NPROC={raw!r}: "
+            f"{type(exc).__name__}"
+        ) from exc
+
+
 if __name__ == "__main__":
     """Standalone entry point for subprocess execution."""
     import sys
     from pathlib import Path
+
+    _enforce_nproc_limit()
 
     # Determine input source: file (sandbox) or stdin (direct)
     input_path = Path("/work/input.json")

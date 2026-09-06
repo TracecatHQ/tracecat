@@ -403,6 +403,8 @@ class ActionRunner:
 
         # Build environment with registry paths in PYTHONPATH
         env = os.environ.copy()
+        # Platform ingestion credentials belong to the worker, not action code.
+        env.pop("SENTRY_DSN", None)
         if env_vars:
             env.update(env_vars)
 

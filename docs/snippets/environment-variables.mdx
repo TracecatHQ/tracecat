@@ -6,6 +6,8 @@
 | `PUBLIC_APP_URL` | `http://localhost:${PUBLIC_APP_PORT}` | Public URL users visit to reach the Tracecat UI. |
 | `PUBLIC_API_URL` | `${PUBLIC_APP_URL}/api` | Public URL for the Tracecat API, used by the browser and for webhook callbacks. |
 | `INTERNAL_API_URL` | `http://api:8000` | Internal URL that other services use to reach the API container. |
+| `TRACECAT__TRUSTED_PROXY_CIDRS` | `127.0.0.1/32` | Space-separated proxy CIDRs that Caddy trusts when deriving the client address from `X-Forwarded-For`. Set this when another proxy or load balancer runs in front of Caddy. |
+| `TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS` | loopback + private ranges | Comma-separated CIDRs of proxies behind which the API runs (Caddy, the UI container, a load balancer). `X-Forwarded-For` entries from these hops are skipped when resolving the client IP for audit logs. |
 
 ### Application
 

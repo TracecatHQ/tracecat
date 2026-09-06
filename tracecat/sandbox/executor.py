@@ -1,6 +1,5 @@
 """nsjail executor for sandboxed Python execution."""
 
-import json
 import os
 import re
 import signal
@@ -10,6 +9,7 @@ from pathlib import Path
 from typing import Literal
 
 from tracecat.config import (
+    TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES,
     TRACECAT__SANDBOX_CACHE_DIR,
     TRACECAT__SANDBOX_NSJAIL_PATH,
     TRACECAT__SANDBOX_PYPI_EXTRA_INDEX_URLS,
@@ -17,9 +17,12 @@ from tracecat.config import (
     TRACECAT__SANDBOX_ROOTFS_PATH,
 )
 from tracecat.logger import logger
-from tracecat.sandbox.exceptions import SandboxValidationError
+from tracecat.sandbox.exceptions import (
+    SandboxValidationError,
+)
 from tracecat.sandbox.networking import resolve_sandbox_network_plan
 from tracecat.sandbox.nsjail_protocol import invoke_nsjail
+from tracecat.sandbox.result_envelope import decode_result_envelope
 from tracecat.sandbox.seccomp import build_untrusted_seccomp_policy
 from tracecat.sandbox.types import (
     ResourceLimits,
@@ -86,6 +89,9 @@ SANDBOX_BASE_ENV = {
     "LC_ALL": "C.UTF-8",
 }
 
+SANDBOX_PROTECTED_ENV_VARS = frozenset({"TRACECAT__SANDBOX_RLIMIT_NPROC"})
+"""Host-injected sandbox environment variables users cannot override."""
+
 _NSJAIL_HINT_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (
         re.compile(r"\bCLONE_NEWUSER\b|clone_newuser", re.IGNORECASE),
@@ -127,26 +133,29 @@ _WORKLOAD_LAUNCHER_NAME = ".tracecat-workload-launcher.py"
 _WORKLOAD_STARTED_MARKER = b"\x00tracecat-workload-started\x00"
 _WORKLOAD_LAUNCHER_SCRIPT = f"""\
 import os
+import resource
 import sys
+
+# Authoritative in-jail process cap: the trusted launcher enforces the
+# host-injected RLIMIT_NPROC BEFORE the workload-started marker exists, so a
+# guard failure classifies as infrastructure failure, not a workload fault.
+# Lowering the hard limit is irreversible for the unprivileged workload, so
+# enforcement here cannot be undone by jailed code.
+_guard_raw = os.environ.get("TRACECAT__SANDBOX_RLIMIT_NPROC")
+if _guard_raw:
+    try:
+        _limit = int(_guard_raw)
+        if _limit <= 0:
+            raise ValueError(f"non-positive cap: {{_limit}}")
+        _soft, _hard = resource.getrlimit(resource.RLIMIT_NPROC)
+        if not (_hard != resource.RLIM_INFINITY and 0 < _hard <= _limit):
+            resource.setrlimit(resource.RLIMIT_NPROC, (_limit, _limit))
+    except (ValueError, OSError, OverflowError):
+        os._exit({_NSJAIL_LAUNCH_FAILURE_EXIT_CODE})
 
 os.write(2, {_WORKLOAD_STARTED_MARKER!r})
 os.execv("/usr/local/bin/python3", ["/usr/local/bin/python3", sys.argv[1]])
 """
-
-
-def _parse_result_error_code(value: object) -> SandboxErrorCode | None:
-    """Parse an untrusted result error code without escaping the boundary."""
-    if value is None:
-        return None
-    if not isinstance(value, str):
-        return SandboxErrorCode.WORKLOAD_FAILURE
-    try:
-        error_code = SandboxErrorCode(value)
-    except ValueError:
-        return SandboxErrorCode.WORKLOAD_FAILURE
-    if error_code is SandboxErrorCode.INFRASTRUCTURE_FAILURE:
-        return SandboxErrorCode.WORKLOAD_FAILURE
-    return error_code
 
 
 def _classify_missing_nsjail_result(
@@ -275,7 +284,6 @@ class NsjailExecutor:
         self.rootfs = Path(rootfs_path)
         self.cache_dir = Path(cache_dir)
         self.package_cache = self.cache_dir / "packages"
-        self.uv_cache = self.cache_dir / "uv-cache"
 
     def _build_config(
         self,
@@ -378,6 +386,11 @@ class NsjailExecutor:
 
         lines.extend(network_plan.dns_mount_lines)
 
+        # NOTE: bind mounts expose their host-side source paths (rootfs,
+        # cache, and job directories) via /proc/self/mountinfo inside the
+        # jail. This is inherent to bind-mount sandboxes and is accepted:
+        # mount sources reveal filesystem layout but grant no access beyond
+        # the read-only rootfs and explicitly mounted job directories.
         lines.extend(
             [
                 "",
@@ -396,14 +409,15 @@ class NsjailExecutor:
 
         # Phase-specific mounts
         if phase == "install":
-            # Writable cache for package installation
+            # Keep installer inputs read-only and expose only the package cache as
+            # writable. This prevents the sandbox from replacing host-visible
+            # paths that are inspected after the jail exits.
             lines.extend(
                 [
                     "",
-                    "# Install phase mounts - writable cache",
+                    "# Install phase mounts - writable cache, read-only inputs",
                     f'mount {{ src: "{job_dir}/cache" dst: "/cache" is_bind: true rw: true }}',
-                    f'mount {{ src: "{self.uv_cache}" dst: "/uv-cache" is_bind: true rw: true }}',
-                    f'mount {{ src: "{job_dir}" dst: "/work" is_bind: true rw: true }}',
+                    f'mount {{ src: "{job_dir}" dst: "/work" is_bind: true rw: false }}',
                 ]
             )
         else:
@@ -452,9 +466,9 @@ class NsjailExecutor:
             [
                 "",
                 "# Resource limits",
-                f"rlimit_as: {config.resources.memory_mb * 1024 * 1024}",
+                f"rlimit_as: {config.resources.memory_mb}",
                 f"rlimit_cpu: {config.resources.cpu_seconds}",
-                f"rlimit_fsize: {config.resources.max_file_size_mb * 1024 * 1024}",
+                f"rlimit_fsize: {config.resources.max_file_size_mb}",
                 f"rlimit_nofile: {config.resources.max_open_files}",
                 f"rlimit_nproc: {config.resources.max_processes}",
                 f"time_limit: {config.resources.timeout_seconds}",
@@ -486,8 +500,18 @@ class NsjailExecutor:
         env_map: dict[str, str] = {**SANDBOX_BASE_ENV}
         user_pythonpath = config.env_vars.get("PYTHONPATH")
 
+        # Enforce the process cap inside the jail: nsjail cannot apply
+        # rlimit_nproc under clone_newuser, so the trusted phase entrypoint
+        # (wrapper for execute, install script for install) applies it via
+        # this injected value before untrusted code runs. The install phase
+        # needs this too: uv executes the arbitrary build backends of
+        # user-selected source dependencies.
+        env_map["TRACECAT__SANDBOX_RLIMIT_NPROC"] = str(config.resources.max_processes)
+
         if phase == "install":
-            env_map["UV_CACHE_DIR"] = "/uv-cache"
+            # Keep uv's mutable cache inside this job's private bind mount. A
+            # global writable cache would let one sandbox tamper with another.
+            env_map["UV_CACHE_DIR"] = "/cache/uv-cache"
             # Pass PyPI index URLs to uv for package installation
             env_map["UV_INDEX_URL"] = TRACECAT__SANDBOX_PYPI_INDEX_URL
             if TRACECAT__SANDBOX_PYPI_EXTRA_INDEX_URLS:
@@ -512,6 +536,10 @@ class NsjailExecutor:
             if key == "PYTHONPATH":
                 continue
             _validate_env_key(key)
+            if key in SANDBOX_PROTECTED_ENV_VARS:
+                raise SandboxValidationError(
+                    f"Cannot override protected sandbox env var: {key}"
+                )
             env_map[key] = value
 
         return env_map
@@ -566,25 +594,28 @@ class NsjailExecutor:
         stdout = completed.stdout.decode("utf-8", errors="replace")
         stderr = completed.stderr.decode("utf-8", errors="replace")
 
-        # Try to parse result.json for structured output
+        # Try to decode result.json through the typed envelope. A valid
+        # envelope returns directly; the absence of a result file falls
+        # through to main's workload-classification fallbacks below.
         result_path = job_dir / "result.json"
         result_file_exists = result_path.exists()
         workload_started = completed.workload_started
-        if result_file_exists:
-            try:
-                result_data = json.loads(result_path.read_text())
-                return SandboxResult(
-                    success=result_data.get("success", False),
-                    output=result_data.get("output"),
-                    stdout=result_data.get("stdout", stdout),
-                    stderr=result_data.get("stderr", stderr),
-                    error=result_data.get("error"),
-                    error_code=_parse_result_error_code(result_data.get("error_code")),
-                    exit_code=returncode,
-                    execution_time_ms=execution_time_ms,
-                )
-            except json.JSONDecodeError:
-                logger.warning("Failed to parse result.json", path=str(result_path))
+        outcome = decode_result_envelope(
+            job_dir,
+            output_key="output",
+            stdout=stdout,
+            stderr=stderr,
+            stderr_limit=500,
+            invalid_result_error="Sandbox produced an invalid result file",
+            log_label="sandbox",
+            exit_code=returncode,
+            execution_time_ms=execution_time_ms,
+            max_bytes=TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES,
+            stream_source="envelope",
+            include_error_code=True,
+        )
+        if outcome is not None:
+            return outcome.result
 
         # Script workloads have no result-file contract: a clean zero exit is a
         # success even without result.json. NsJail reports its own launch
@@ -786,6 +817,12 @@ class NsjailExecutor:
 
         lines.extend(network_plan.dns_mount_lines)
 
+        # NOTE: bind mounts expose their host-side source paths (rootfs,
+        # registry packages, and job directories) via /proc/self/mountinfo
+        # inside the jail. This is inherent to bind-mount sandboxes and is
+        # accepted: mount sources reveal filesystem layout but grant no
+        # access beyond the read-only rootfs and explicitly mounted
+        # directories.
         lines.extend(
             [
                 "",
@@ -829,9 +866,9 @@ class NsjailExecutor:
             [
                 "",
                 "# Resource limits",
-                f"rlimit_as: {config.resources.memory_mb * 1024 * 1024}",
+                f"rlimit_as: {config.resources.memory_mb}",
                 f"rlimit_cpu: {config.resources.cpu_seconds}",
-                f"rlimit_fsize: {config.resources.max_file_size_mb * 1024 * 1024}",
+                f"rlimit_fsize: {config.resources.max_file_size_mb}",
                 f"rlimit_nofile: {config.resources.max_open_files}",
                 f"rlimit_nproc: {config.resources.max_processes}",
                 f"time_limit: {int(config.timeout_seconds)}",
@@ -872,7 +909,16 @@ class NsjailExecutor:
         # Add user-provided env vars (SDK context, NOT DB credentials)
         for key, value in config.env_vars.items():
             _validate_env_key(key)
+            if key in SANDBOX_PROTECTED_ENV_VARS:
+                raise SandboxValidationError(
+                    f"Cannot override protected sandbox env var: {key}"
+                )
             env_map[key] = value
+
+        # Enforce the process cap inside the jail: nsjail cannot apply
+        # rlimit_nproc under clone_newuser, so the trusted minimal runner
+        # applies this injected value before untrusted code runs.
+        env_map["TRACECAT__SANDBOX_RLIMIT_NPROC"] = str(config.resources.max_processes)
 
         return env_map
 
@@ -922,38 +968,39 @@ class NsjailExecutor:
         stdout = completed.stdout.decode("utf-8", errors="replace")
         stderr = completed.stderr.decode("utf-8", errors="replace")
 
-        # Try to parse result.json for structured output
+        # Try to decode result.json through the typed envelope. A valid
+        # envelope returns directly; the absence of a result file falls
+        # through to the workload-classification fallbacks below.
         result_path = job_dir / "result.json"
         result_file_exists = result_path.exists()
         workload_started = completed.workload_started
-        if result_file_exists:
-            try:
-                result_data = json.loads(result_path.read_text())
-                # Log subprocess stderr for debugging (contains timing info)
-                # Filter out nsjail verbose output, look for Python logs
-                if stderr.strip():
-                    # Extract lines that look like Python logs (not nsjail [I] lines)
-                    python_logs = "\n".join(
-                        line
-                        for line in stderr.split("\n")
-                        if not line.startswith("[I]") and not line.startswith("[W]")
-                    )
-                    if python_logs.strip():
-                        logger.info("Subprocess output", output=python_logs[:2000])
-                return SandboxResult(
-                    success=result_data.get("success", False),
-                    output=result_data.get("result"),
-                    stdout=stdout,
-                    stderr=stderr,
-                    error=result_data.get("error"),
-                    error_code=_parse_result_error_code(result_data.get("error_code")),
-                    exit_code=returncode,
-                    execution_time_ms=execution_time_ms,
+        outcome = decode_result_envelope(
+            job_dir,
+            output_key="result",
+            stdout=stdout,
+            stderr=stderr,
+            stderr_limit=2000,
+            invalid_result_error="Action sandbox produced an invalid result file",
+            log_label="action",
+            exit_code=returncode,
+            execution_time_ms=execution_time_ms,
+            max_bytes=TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES,
+            stream_source="process",
+            include_error_code=True,
+        )
+        if outcome is not None:
+            # Log subprocess stderr for debugging (contains timing info)
+            # Filter out nsjail verbose output, look for Python logs
+            if outcome.valid_envelope and stderr.strip():
+                # Extract lines that look like Python logs (not nsjail [I] lines)
+                python_logs = "\n".join(
+                    line
+                    for line in stderr.split("\n")
+                    if not line.startswith("[I]") and not line.startswith("[W]")
                 )
-            except json.JSONDecodeError:
-                logger.warning(
-                    "Failed to parse action result.json", path=str(result_path)
-                )
+                if python_logs.strip():
+                    logger.info("Subprocess output", output=python_logs[:2000])
+            return outcome.result
 
         error_code = _classify_missing_nsjail_result(
             returncode,

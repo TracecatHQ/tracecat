@@ -390,13 +390,12 @@ export function useDeleteAgentPreset(workspaceId: string) {
   } = useMutation<
     void,
     TracecatApiError,
-    { presetId: string; presetName?: string; confirmUnlink?: boolean }
+    { presetId: string; presetName?: string }
   >({
-    mutationFn: async ({ presetId, confirmUnlink }) =>
+    mutationFn: async ({ presetId }) =>
       await agentPresetsDeleteAgentPreset({
         workspaceId,
         presetId,
-        confirmUnlink,
       }),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({

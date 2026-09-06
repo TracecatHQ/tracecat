@@ -5,15 +5,17 @@ import uuid
 from pathlib import Path
 from types import TracebackType
 from typing import cast
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID
 
 import orjson
 import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
+import tracecat.agent.executor.loopback as loopback_module
+from tracecat.agent.channels.sinks.slack import SlackStreamSink
 from tracecat.agent.common.protocol import RuntimeEventEnvelope
-from tracecat.agent.common.socket_io import MessageType, build_message
+from tracecat.agent.common.socket_io import MAX_PAYLOAD_SIZE, MessageType, build_message
 from tracecat.agent.common.stream_types import (
     StreamEventType,
     ToolCallContent,
@@ -24,6 +26,8 @@ from tracecat.agent.executor.loopback import (
     FanoutStreamSink,
     LoopbackHandler,
     LoopbackInput,
+    RuntimeEnvelopeProtocolError,
+    _runtime_envelope_from_json,
 )
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.artifacts.bindings import ArtifactSideEffect
@@ -31,6 +35,11 @@ from tracecat.artifacts.schemas import CaseArtifact
 from tracecat.auth.types import Role
 from tracecat.cases.enums import CaseSeverity, CaseStatus
 from tracecat.db.models import AgentSessionHistory
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorKind,
+    RuntimeErrorOwner,
+)
 
 
 class _FakeStream:
@@ -207,6 +216,53 @@ async def test_emit_terminal_error_emits_failed_compaction_when_pending(
     assert failed_event.metadata == {"phase": "failed"}
     fake_stream.error.assert_awaited_once_with("runtime exited before connect")
     fake_stream.done.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_emit_terminal_error_bounds_stalled_stream_sink(
+    monkeypatch: pytest.MonkeyPatch, loopback_input: LoopbackInput
+) -> None:
+    async def stalled_error(_error: str) -> None:
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(
+        loopback_module,
+        "TERMINAL_STREAM_ERROR_TIMEOUT_SECONDS",
+        0.01,
+    )
+    handler = LoopbackHandler(input=loopback_input)
+    fake_stream = _FakeStream()
+    fake_stream.error.side_effect = stalled_error
+    handler._stream_sink = fake_stream
+
+    emitted = await handler.emit_terminal_error("provider request failed")
+
+    assert emitted is False
+    assert handler.build_result().terminal_stream_error_emitted is False
+    fake_stream.error.assert_awaited_once_with("provider request failed")
+
+
+@pytest.mark.anyio
+async def test_emit_terminal_error_bounds_stalled_stream_sink_initialization(
+    monkeypatch: pytest.MonkeyPatch, loopback_input: LoopbackInput
+) -> None:
+    async def stalled_initialization() -> None:
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(
+        loopback_module,
+        "TERMINAL_STREAM_ERROR_TIMEOUT_SECONDS",
+        0.01,
+    )
+    handler = LoopbackHandler(input=loopback_input)
+    initialize_stream_sink = AsyncMock(side_effect=stalled_initialization)
+    monkeypatch.setattr(handler, "_initialize_stream_sink", initialize_stream_sink)
+
+    emitted = await handler.emit_terminal_error("provider request failed")
+
+    assert emitted is False
+    assert handler.build_result().terminal_stream_error_emitted is False
+    initialize_stream_sink.assert_awaited_once()
 
 
 @pytest.mark.anyio
@@ -568,6 +624,15 @@ async def test_terminal_error_streams_error_and_closes_only_external_sink() -> N
     redis_stream.done.assert_not_awaited()
     external_stream.done.assert_awaited_once()
     assert handler._external_stream_done_emitted is True
+    assert handler._result.classification is not None
+    assert handler._result.classification.owner is RuntimeErrorOwner.PLATFORM
+    assert (
+        handler._result.classification.kind
+        is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+    )
+    assert (
+        handler._result.classification.retry_disposition is RetryDisposition.RETRYABLE
+    )
 
 
 @pytest.mark.anyio
@@ -643,6 +708,16 @@ async def test_process_runtime_events_emits_failed_compaction_on_runtime_error()
     ]
     stream.error.assert_awaited_once_with("request_timeout: LLM gateway timed out")
     stream.done.assert_not_awaited()
+    assert handler._result.classification is not None
+    assert handler._result.classification.owner is RuntimeErrorOwner.PLATFORM
+    assert (
+        handler._result.classification.kind
+        is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+    )
+    assert (
+        handler._result.classification.retry_disposition is RetryDisposition.RETRYABLE
+    )
+    assert handler._result.terminal_stream_error_emitted is True
 
 
 @pytest.mark.anyio
@@ -688,7 +763,13 @@ async def test_process_runtime_events_fails_when_done_arrives_without_result() -
     await handler._process_runtime_events(reader)
 
     assert handler._result.error == "Runtime completed without final result"
+    assert handler._result.classification is not None
+    assert (
+        handler._result.classification.kind
+        is RuntimeErrorKind.AGENT_EXECUTOR_PROTOCOL_FAILED
+    )
     stream.error.assert_awaited_once_with("Runtime completed without final result")
+    assert handler._result.terminal_stream_error_emitted is True
     stream.done.assert_not_awaited()
 
 
@@ -716,9 +797,420 @@ async def test_process_runtime_events_fails_zero_work_completion() -> None:
         handler._result.error
         == "Runtime completed without assistant output or model usage"
     )
+    assert handler._result.classification is not None
+    assert (
+        handler._result.classification.kind
+        is RuntimeErrorKind.AGENT_EXECUTOR_PROTOCOL_FAILED
+    )
     stream.error.assert_awaited_once_with(
         "Runtime completed without assistant output or model usage"
     )
+    assert handler._result.terminal_stream_error_emitted is True
+
+
+@pytest.mark.anyio
+async def test_process_runtime_events_classifies_disconnect_and_marks_streamed() -> (
+    None
+):
+    handler = _make_handler()
+    stream = _FakeStream()
+    handler._stream_sink = stream
+
+    await handler._process_runtime_events(_reader_for_envelopes())
+
+    assert handler._result.classification is not None
+    assert handler._result.classification.owner is RuntimeErrorOwner.PLATFORM
+    assert (
+        handler._result.classification.kind
+        is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+    )
+    assert handler._result.terminal_stream_error_emitted is True
+    stream.error.assert_awaited_once_with("Runtime disconnected during execution")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b"{",
+        orjson.dumps({"event": {"type": StreamEventType.TEXT_DELTA.value}}),
+        orjson.dumps({"type": "unknown"}),
+        orjson.dumps({"type": "stream_event", "event": []}),
+        orjson.dumps(
+            {
+                "type": "stream_event",
+                "event": {
+                    "type": StreamEventType.APPROVAL_REQUEST.value,
+                    "approval_items": [1],
+                },
+            }
+        ),
+        orjson.dumps(
+            {
+                "type": "stream_event",
+                "event": {
+                    "type": StreamEventType.ARTIFACT.value,
+                    "artifact_data": [],
+                },
+            }
+        ),
+    ],
+)
+async def test_handle_connection_classifies_invalid_runtime_envelope_as_protocol_failure(
+    payload: bytes,
+) -> None:
+    handler = _make_handler()
+    stream = _FakeStream()
+    handler._stream_sink = stream
+    reader = asyncio.StreamReader()
+    reader.feed_data(build_message(MessageType.EVENT, payload))
+    reader.feed_eof()
+    writer = MagicMock()
+    writer.wait_closed = AsyncMock()
+
+    result = await handler.handle_connection(
+        reader,
+        cast(asyncio.StreamWriter, writer),
+    )
+
+    assert result.error == "Runtime sent an invalid event envelope"
+    assert result.classification is not None
+    assert result.classification.owner is RuntimeErrorOwner.PLATFORM
+    assert result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_PROTOCOL_FAILED
+    assert result.classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+    stream.error.assert_awaited_once_with("Runtime sent an invalid event envelope")
+    assert result.terminal_stream_error_emitted is True
+    writer.close.assert_called_once()
+    writer.wait_closed.assert_awaited_once()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "frame",
+    [
+        build_message(MessageType.INIT, b"{}"),
+        bytes([0xFF]) + (0).to_bytes(4, "big"),
+        bytes([MessageType.EVENT]) + (MAX_PAYLOAD_SIZE + 1).to_bytes(4, "big"),
+    ],
+)
+async def test_handle_connection_classifies_invalid_runtime_frame_as_protocol_failure(
+    frame: bytes,
+) -> None:
+    handler = _make_handler()
+    stream = _FakeStream()
+    handler._stream_sink = stream
+    reader = asyncio.StreamReader()
+    reader.feed_data(frame)
+    reader.feed_eof()
+    writer = MagicMock()
+    writer.wait_closed = AsyncMock()
+
+    result = await handler.handle_connection(
+        reader,
+        cast(asyncio.StreamWriter, writer),
+    )
+
+    assert result.error == "Runtime sent an invalid event envelope"
+    assert result.classification is not None
+    assert result.classification.owner is RuntimeErrorOwner.PLATFORM
+    assert result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_PROTOCOL_FAILED
+    assert result.classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+    stream.error.assert_awaited_once_with("Runtime sent an invalid event envelope")
+    assert result.terminal_stream_error_emitted is True
+    writer.close.assert_called_once()
+    writer.wait_closed.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_handle_connection_bounds_protocol_error_stream_emission(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def stalled_error(_error: str) -> None:
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(
+        loopback_module,
+        "TERMINAL_STREAM_ERROR_TIMEOUT_SECONDS",
+        0.01,
+    )
+    handler = _make_handler()
+    stream = _FakeStream()
+    stream.error.side_effect = stalled_error
+    handler._stream_sink = stream
+    reader = asyncio.StreamReader()
+    reader.feed_data(build_message(MessageType.EVENT, b"{"))
+    reader.feed_eof()
+    writer = MagicMock()
+    writer.wait_closed = AsyncMock()
+
+    result = await handler.handle_connection(
+        reader,
+        cast(asyncio.StreamWriter, writer),
+    )
+
+    assert result.error == "Runtime sent an invalid event envelope"
+    assert result.classification is not None
+    assert result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_PROTOCOL_FAILED
+    assert result.terminal_stream_error_emitted is False
+    stream.error.assert_awaited_once_with("Runtime sent an invalid event envelope")
+    writer.close.assert_called_once()
+    writer.wait_closed.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_handle_connection_preserves_protocol_error_when_stream_sink_fails() -> (
+    None
+):
+    handler = _make_handler()
+    stream = _FakeStream()
+    stream.error.side_effect = ConnectionError("stream unavailable")
+    handler._stream_sink = stream
+    reader = asyncio.StreamReader()
+    reader.feed_data(build_message(MessageType.EVENT, b"{"))
+    reader.feed_eof()
+    writer = MagicMock()
+    writer.wait_closed = AsyncMock()
+
+    result = await handler.handle_connection(
+        reader,
+        cast(asyncio.StreamWriter, writer),
+    )
+
+    assert result.error == "Runtime sent an invalid event envelope"
+    assert result.classification is not None
+    assert result.classification.owner is RuntimeErrorOwner.PLATFORM
+    assert result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_PROTOCOL_FAILED
+    assert result.classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+    assert result.terminal_stream_error_emitted is False
+    stream.error.assert_awaited_once_with("Runtime sent an invalid event envelope")
+    writer.close.assert_called_once()
+    writer.wait_closed.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_handle_connection_deadline_cancels_slack_terminal_cleanup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def stalled_operation(*_args: object, **_kwargs: object) -> None:
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(
+        loopback_module,
+        "TERMINAL_STREAM_ERROR_TIMEOUT_SECONDS",
+        0.01,
+    )
+    slack_sink = SlackStreamSink(
+        slack_bot_token="xoxb-test",
+        channel_id="C123",
+        thread_ts="1700000000.000001",
+        reaction_ts="1700000000.000001",
+        session_id="session-1",
+        workspace_id="workspace-1",
+    )
+    append_stream_text = AsyncMock(side_effect=stalled_operation)
+    terminal_reaction = AsyncMock(side_effect=stalled_operation)
+    monkeypatch.setattr(slack_sink, "_append_stream_text", append_stream_text)
+    monkeypatch.setattr(slack_sink, "_set_terminal_reaction", terminal_reaction)
+
+    handler = _make_handler()
+    handler._stream_sink = slack_sink
+    reader = asyncio.StreamReader()
+    reader.feed_data(build_message(MessageType.EVENT, b"{"))
+    reader.feed_eof()
+    writer = MagicMock()
+    writer.wait_closed = AsyncMock()
+
+    result = await asyncio.wait_for(
+        handler.handle_connection(
+            reader,
+            cast(asyncio.StreamWriter, writer),
+        ),
+        timeout=0.2,
+    )
+
+    assert result.classification is not None
+    assert result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_PROTOCOL_FAILED
+    assert result.terminal_stream_error_emitted is False
+    append_stream_text.assert_awaited_once()
+    terminal_reaction.assert_not_awaited()
+    assert slack_sink._is_closed is True
+
+
+@pytest.mark.parametrize(
+    "envelope",
+    [
+        {
+            "type": "stream_event",
+            "event": {"type": "approval_request"},
+        },
+        {
+            "type": "stream_event",
+            "event": {"type": "approval_request", "approval_items": []},
+        },
+        {
+            "type": "stream_event",
+            "event": {
+                "type": "approval_request",
+                "approval_items": [{"id": [], "name": "tool"}],
+            },
+        },
+        {
+            "type": "stream_event",
+            "event": {
+                "type": "approval_request",
+                "approval_items": [{"id": "call", "name": "tool", "input": []}],
+            },
+        },
+        {
+            "type": "stream_event",
+            "event": {
+                "type": "approval_request",
+                "approval_items": [{"id": "call", "name": "tool", "metadata": []}],
+            },
+        },
+        {
+            "type": "stream_event",
+            "event": {
+                "type": "approval_request",
+                "approval_items": [{"id": "call", "name": "tool", "status": "waiting"}],
+            },
+        },
+        {
+            "type": "stream_event",
+            "event": {
+                "type": "approval_request",
+                "approval_items": [{"id": "call", "name": "tool", "decision": []}],
+            },
+        },
+        {
+            "type": "stream_event",
+            "event": {
+                "type": "approval_request",
+                "approval_items": [
+                    {
+                        "id": "call",
+                        "name": "tool",
+                        "decision": {"value": "yes", "metadata": {}},
+                    }
+                ],
+            },
+        },
+        {
+            "type": "stream_event",
+            "event": {
+                "type": "artifact",
+                "artifact_data": {"op": "replace", "artifact": {}},
+            },
+        },
+        {
+            "type": "stream_event",
+            "event": {
+                "type": "artifact",
+                "artifact_data": {"op": "upsert", "artifact": []},
+            },
+        },
+        {"type": "stream_event", "event": {"type": "text_delta", "part_id": True}},
+        {"type": "stream_event", "event": {"type": "text_delta", "text": []}},
+        {
+            "type": "stream_event",
+            "event": {"type": "tool_call_start", "tool_call_id": []},
+        },
+        {
+            "type": "stream_event",
+            "event": {"type": "tool_call_start", "tool_input": []},
+        },
+        {
+            "type": "stream_event",
+            "event": {"type": "tool_result", "is_error": "false"},
+        },
+        {
+            "type": "stream_event",
+            "event": {"type": "compaction", "metadata": []},
+        },
+        {"type": "stream_event", "event": {"type": "text_delta", "timestamp": 1}},
+        {"type": "message", "message": []},
+        {"type": "message"},
+        {"type": "session_line", "session_line": 1, "sdk_session_id": "sdk"},
+        {"type": "session_line", "session_line": "{}", "sdk_session_id": ""},
+        {"type": "session_line", "session_line": "{}", "internal": 1},
+        {"type": "session_update", "sdk_session_id": "", "sdk_session_data": "{}"},
+        {"type": "session_update", "sdk_session_id": "sdk"},
+        {"type": "error"},
+        {"type": "result", "result_usage": []},
+        {"type": "result", "result_num_turns": True},
+        {"type": "result", "result_duration_ms": "1"},
+        {"type": "log", "log_level": "fatal", "log_message": "message"},
+        {"type": "log", "log_level": "info", "log_message": []},
+        {
+            "type": "log",
+            "log_level": "info",
+            "log_message": "message",
+            "log_extra": [],
+        },
+        {
+            "type": "log",
+            "log_level": "info",
+            "log_message": "message",
+            "log_extra": {"session_id": "spoofed"},
+        },
+        {
+            "type": "log",
+            "log_level": "info",
+            "log_message": "message",
+            "log_extra": {"self": "spoofed"},
+        },
+        {
+            "type": "log",
+            "log_level": "info",
+            "log_message": "message",
+            "log_extra": {"level": "spoofed"},
+        },
+        {
+            "type": "log",
+            "log_level": "info",
+            "log_message": "message",
+            "log_extra": {"message": "spoofed"},
+        },
+    ],
+)
+def test_runtime_envelope_parser_rejects_malformed_typed_fields(
+    envelope: dict[str, object],
+) -> None:
+    with pytest.raises(RuntimeEnvelopeProtocolError):
+        _runtime_envelope_from_json(orjson.dumps(envelope))
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("session_line", ["", "{", "[]"])
+async def test_handle_connection_classifies_malformed_session_line_as_protocol_failure(
+    session_line: str,
+) -> None:
+    handler = _make_handler()
+    stream = _FakeStream()
+    handler._stream_sink = stream
+    reader = _reader_for_envelopes(
+        RuntimeEventEnvelope.from_session_line(
+            "sdk-session",
+            session_line,
+        )
+    )
+    writer = MagicMock()
+    writer.wait_closed = AsyncMock()
+
+    result = await handler.handle_connection(
+        reader,
+        cast(asyncio.StreamWriter, writer),
+    )
+
+    assert result.error == "Runtime sent an invalid event envelope"
+    assert result.classification is not None
+    assert result.classification.owner is RuntimeErrorOwner.PLATFORM
+    assert result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_PROTOCOL_FAILED
+    assert result.classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+    stream.error.assert_awaited_once_with("Runtime sent an invalid event envelope")
+    assert result.terminal_stream_error_emitted is True
+    writer.close.assert_called_once()
+    writer.wait_closed.assert_awaited_once()
 
 
 @pytest.mark.anyio

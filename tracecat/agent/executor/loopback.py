@@ -37,6 +37,10 @@ from tracecat.agent.common.stream_types import (
     ToolCallContent,
     UnifiedStreamEvent,
 )
+from tracecat.agent.error_policy import (
+    agent_executor_protocol_failed,
+    agent_executor_unavailable,
+)
 from tracecat.agent.session.history import prepare_session_history
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
@@ -60,6 +64,7 @@ from tracecat.db.models import (
 )
 from tracecat.exceptions import TracecatValidationError
 from tracecat.logger import logger
+from tracecat.runtime.errors import RuntimeErrorClassification
 
 type JsonScalar = str | int | float | bool | None
 type JsonValue = JsonScalar | list[JsonValue] | dict[str, JsonValue]
@@ -68,6 +73,10 @@ type ResultUsage = dict[str, JsonValue]
 type RuntimeOutput = JsonValue
 type SessionLineKind = Literal["chat-message", "internal", "compaction"]
 type CompactionPhase = Literal["started", "completed", "failed"]
+
+
+class RuntimeEnvelopeProtocolError(ValueError):
+    """The sandbox runtime sent an event that violates the socket protocol."""
 
 
 class ClaudeSessionMessage(TypedDict):
@@ -90,6 +99,8 @@ class ClaudeSessionLine(TypedDict):
 
 type SinkOperation = Callable[[LoopbackEventSink], Awaitable[None]]
 
+TERMINAL_STREAM_ERROR_TIMEOUT_SECONDS = 5.0
+
 
 @dataclass(kw_only=True, slots=True)
 class LoopbackInput:
@@ -107,6 +118,7 @@ class LoopbackResult:
 
     success: bool
     error: str | None = None
+    classification: RuntimeErrorClassification | None = None
     terminal_stream_error_emitted: bool = False
     approval_requested: bool = False
     approval_items: list[ToolCallContent] = field(default_factory=list)
@@ -245,18 +257,24 @@ class FanoutStreamSink:
 
 def _runtime_envelope_from_json(payload: bytes) -> RuntimeEventEnvelope:
     """Decode a socket payload into a typed runtime event envelope."""
-    decoded = orjson.loads(payload)
-    if not isinstance(decoded, dict):
-        raise ValueError("Runtime event payload must be a JSON object")
-    return RuntimeEventEnvelope.from_dict(cast(dict[str, Any], decoded))
+    try:
+        decoded = orjson.loads(payload)
+        if not isinstance(decoded, dict):
+            raise ValueError("Runtime event payload must be a JSON object")
+        return RuntimeEventEnvelope.from_dict(cast(dict[str, Any], decoded))
+    except (orjson.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+        raise RuntimeEnvelopeProtocolError from exc
 
 
 def _session_line_from_json(session_line: str) -> ClaudeSessionLine:
     """Decode and validate the outer shape of a Claude Code JSONL line."""
-    decoded = orjson.loads(session_line)
-    if not isinstance(decoded, dict):
-        raise ValueError("Claude session line must be a JSON object")
-    return cast(ClaudeSessionLine, decoded)
+    try:
+        decoded = orjson.loads(session_line)
+        if not isinstance(decoded, dict):
+            raise ValueError("Claude session line must be a JSON object")
+        return cast(ClaudeSessionLine, decoded)
+    except (orjson.JSONDecodeError, ValueError) as exc:
+        raise RuntimeEnvelopeProtocolError from exc
 
 
 class LoopbackHandler:
@@ -388,6 +406,29 @@ class LoopbackHandler:
         await self._close_external_stream()
         self._result.terminal_stream_error_emitted = True
 
+    async def _emit_terminal_stream_error_best_effort(
+        self,
+        stream_sink: LoopbackEventSink,
+        error: str,
+    ) -> None:
+        """Bound terminal stream delivery on failure paths."""
+        try:
+            await asyncio.wait_for(
+                self._emit_terminal_stream_error(stream_sink, error),
+                timeout=TERMINAL_STREAM_ERROR_TIMEOUT_SECONDS,
+            )
+        except TimeoutError:
+            logger.warning(
+                "Timeout emitting stream error",
+                session_id=self.input.session_id,
+            )
+        except Exception as e:
+            logger.warning(
+                "Failed to emit stream error",
+                error_type=type(e).__name__,
+                session_id=self.input.session_id,
+            )
+
     def mark_cancelled(self, reason: str) -> None:
         """Record that the active runtime turn is expected to stop early.
 
@@ -440,16 +481,26 @@ class LoopbackHandler:
         """Emit a terminal error through the resolved stream sink.
 
         This is used by executor-level crash/timeout paths that happen outside
-        normal loopback event processing.
+        normal loopback event processing. Bound the entire best-effort operation,
+        including sink initialization, so a stalled stream cannot replace the
+        executor's authoritative failure with an activity timeout.
         """
         try:
-            if self._stream_sink is None:
-                self._stream_sink = await self._initialize_stream_sink()
-            await self._emit_terminal_stream_error(self._stream_sink, error)
-            return self._result.terminal_stream_error_emitted
-        except Exception:
+            async with asyncio.timeout(TERMINAL_STREAM_ERROR_TIMEOUT_SECONDS):
+                if self._stream_sink is None:
+                    self._stream_sink = await self._initialize_stream_sink()
+                await self._emit_terminal_stream_error(self._stream_sink, error)
+                return self._result.terminal_stream_error_emitted
+        except TimeoutError:
+            logger.warning(
+                "Timeout emitting terminal stream error",
+                session_id=self.input.session_id,
+            )
+            return False
+        except Exception as e:
             logger.warning(
                 "Failed to emit terminal stream error",
+                error_type=type(e).__name__,
                 session_id=self.input.session_id,
             )
             return False
@@ -518,18 +569,30 @@ class LoopbackHandler:
         except asyncio.IncompleteReadError:
             logger.warning("Runtime disconnected unexpectedly during execution")
             self._result.error = "Runtime disconnected unexpectedly"
+            self._result.classification = agent_executor_unavailable()
             if self._stream_sink:
-                await self._emit_failed_compaction_if_pending()
-                await self._stream_sink.error(self._result.error)
+                await self._emit_terminal_stream_error(
+                    self._stream_sink,
+                    self._result.error,
+                )
+        except RuntimeEnvelopeProtocolError as e:
+            logger.warning("Runtime sent an invalid event envelope")
+            self._result.error = "Runtime sent an invalid event envelope"
+            self._result.classification = agent_executor_protocol_failed(e)
+            if self._stream_sink:
+                await self._emit_terminal_stream_error_best_effort(
+                    self._stream_sink,
+                    self._result.error,
+                )
         except Exception as e:
             logger.exception("Error handling runtime connection", error=str(e))
             self._result.error = f"Connection error: {e}"
+            self._result.classification = agent_executor_unavailable(e)
             if self._stream_sink:
-                try:
-                    await self._emit_failed_compaction_if_pending()
-                    await asyncio.wait_for(self._stream_sink.error(str(e)), timeout=5.0)
-                except TimeoutError:
-                    logger.warning("Timeout emitting stream error")
+                await self._emit_terminal_stream_error_best_effort(
+                    self._stream_sink,
+                    self._result.error,
+                )
         finally:
             # External channels finish with the runtime. The durable workflow
             # owns Redis completion after approval persistence or finalization.
@@ -551,10 +614,15 @@ class LoopbackHandler:
                     "Runtime connection closed unexpectedly during execution"
                 )
                 self._result.error = "Runtime disconnected during execution"
+                self._result.classification = agent_executor_unavailable()
                 if self._stream_sink is not None:
-                    await self._emit_failed_compaction_if_pending()
-                    await self._stream_sink.error(self._result.error)
+                    await self._emit_terminal_stream_error(
+                        self._stream_sink,
+                        self._result.error,
+                    )
                 break
+            except (RuntimeError, ValueError) as e:
+                raise RuntimeEnvelopeProtocolError from e
 
             envelope = _runtime_envelope_from_json(payload_bytes)
             if await self.process_envelope(envelope):
@@ -576,7 +644,10 @@ class LoopbackHandler:
                 pass
 
             case "session_line":
-                if envelope.session_line and envelope.sdk_session_id:
+                if (
+                    envelope.session_line is not None
+                    and envelope.sdk_session_id is not None
+                ):
                     await self.send_session_line(
                         envelope.sdk_session_id,
                         envelope.session_line,
@@ -703,6 +774,11 @@ class LoopbackHandler:
         )
         await self._emit_terminal_stream_error(stream_sink, error_msg)
         self._result.error = error_msg
+        # The runtime error event carries no trusted ownership metadata. Known
+        # route/status failures are classified by the host-side LLM proxy before
+        # they reach this fallback, so do not blame the caller for an untyped
+        # runtime or provider failure.
+        self._result.classification = agent_executor_unavailable()
         return True
 
     def _track_tool_event(self, event: UnifiedStreamEvent) -> None:
@@ -841,6 +917,9 @@ class LoopbackHandler:
         logger.error("Runtime error", error=error)
         await self._emit_terminal_stream_error(stream_sink, error)
         self._result.error = error
+        # Top-level runtime errors are emitted by the runtime's unexpected-error
+        # boundary and carry no trusted ownership metadata.
+        self._result.classification = agent_executor_unavailable()
         return True
 
     async def send_error(self, error: str) -> None:
@@ -862,6 +941,7 @@ class LoopbackHandler:
         if validation_error := self._validate_runtime_completion():
             await self._emit_terminal_stream_error(stream_sink, validation_error)
             self._result.error = validation_error
+            self._result.classification = agent_executor_protocol_failed()
             return True
         self._result.success = True
         await self._emit_interrupt_notice_if_cancelled(stream_sink)

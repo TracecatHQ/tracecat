@@ -180,6 +180,9 @@ importers:
       '@tiptap/extension-code-block':
         specifier: 3.7.1
         version: 3.7.1(@tiptap/core@3.7.1(@tiptap/pm@3.7.1))(@tiptap/pm@3.7.1)
+      '@tiptap/extension-hard-break':
+        specifier: 3.7.1
+        version: 3.7.1(@tiptap/core@3.7.1(@tiptap/pm@3.7.1))
       '@tiptap/extension-highlight':
         specifier: 3.7.1
         version: 3.7.1(@tiptap/core@3.7.1(@tiptap/pm@3.7.1))
