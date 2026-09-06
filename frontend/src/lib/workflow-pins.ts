@@ -151,10 +151,16 @@ export function buildWorkflowPinGraph(
   actions: Record<string, ActionRead> | null | undefined
 ): WorkflowPinGraph {
   const actionList = Object.values(actions ?? {})
+  const actionsByRef = new Map<string, ActionRead>()
+  for (const action of actionList) {
+    const actionRef = slugifyActionRef(action.title)
+    // Match event navigation's first action when an editable draft has duplicates.
+    if (actionRef && !actionsByRef.has(actionRef)) {
+      actionsByRef.set(actionRef, action)
+    }
+  }
   return {
-    actionsByRef: new Map(
-      actionList.map((action) => [slugifyActionRef(action.title), action])
-    ),
+    actionsByRef,
     refByActionId: buildRefByActionId(actionList),
     scopedRefs: computeScopedActionRefs(actions),
   }

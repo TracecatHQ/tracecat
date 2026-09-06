@@ -62,6 +62,36 @@ function completedEvent(streamId: string): WorkflowExecutionEventCompact {
 }
 
 describe("isPinnableActionEvent", () => {
+  it.each([true, false])(
+    "uses the first duplicate ref's mask setting (%s)",
+    (maskOutput) => {
+      const first = {
+        ...action("first", "Duplicate action"),
+        control_flow: { mask_output: maskOutput },
+      }
+      const second = {
+        ...action("second", "Duplicate Action"),
+        control_flow: { mask_output: !maskOutput },
+      }
+      const graph = buildWorkflowPinGraph({
+        first,
+        second,
+        downstream: action("downstream", "downstream", ["first"]),
+      })
+      const events = { duplicate_action: [completedEvent("<root>:0")] }
+
+      expect(graph.actionsByRef.get("duplicate_action")).toBe(first)
+      expect(isPinnableActionEvent("duplicate_action", events, graph)).toBe(
+        !maskOutput
+      )
+      expect(getRunFromActionBlocker("downstream", events, graph)).toBe(
+        maskOutput
+          ? "Every upstream action needs a completed result in this run"
+          : null
+      )
+    }
+  )
+
   it("reuses graph facts while evaluating changing run results", () => {
     const graph = buildWorkflowPinGraph(actions)
     expect(isPinnableActionEvent("c", {}, graph)).toBe(false)
