@@ -103,6 +103,22 @@ from tracecat.workflow.schedules import bridge
 from tracecat.workflow.schedules.service import WorkflowSchedulesService
 
 
+def _validate_trigger_inputs(dsl: DSLInput, payload: Any) -> None:
+    """Validate inputs consistently before dispatching any workflow run."""
+    if expects := dsl.entrypoint.expects:
+        try:
+            normalize_trigger_inputs(
+                expects,
+                {} if payload is None else payload,
+                model_name="TriggerInputsValidator",
+            )
+        except ValidationError as e:
+            raise TracecatValidationError(
+                "Trigger inputs do not match the workflow's input schema.",
+                detail=ValidationDetail.list_from_pydantic(e),
+            ) from e
+
+
 class _ModelKey(NamedTuple):
     """Stable cross-environment identity of a model selection.
 
@@ -1147,18 +1163,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
         # Validate trigger inputs against the entrypoint schema up front so a
         # bad payload returns a fixable error here instead of failing inside the
         # (async) workflow run. Dispatch does not re-check inputs against expects.
-        if expects := dsl.entrypoint.expects:
-            try:
-                normalize_trigger_inputs(
-                    expects,
-                    {} if inputs is None else inputs,
-                    model_name="TriggerInputsValidator",
-                )
-            except ValidationError as e:
-                raise TracecatValidationError(
-                    "Trigger inputs do not match the workflow's input schema.",
-                    detail=ValidationDetail.list_from_pydantic(e),
-                ) from e
+        _validate_trigger_inputs(dsl, inputs)
 
         # Import here to avoid pulling the Temporal-client execution stack into
         # the management import chain.
@@ -1259,18 +1264,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
             if inputs is not None
             else await exec_service.get_execution_trigger_inputs(source_execution_id)
         )
-        if expects := dsl.entrypoint.expects:
-            try:
-                normalize_trigger_inputs(
-                    expects,
-                    {} if effective_inputs is None else effective_inputs,
-                    model_name="TriggerInputsValidator",
-                )
-            except ValidationError as e:
-                raise TracecatValidationError(
-                    "Trigger inputs do not match the workflow's input schema.",
-                    detail=ValidationDetail.list_from_pydantic(e),
-                ) from e
+        _validate_trigger_inputs(dsl, effective_inputs)
         return await exec_service.create_draft_workflow_execution_wait_for_start(
             dsl=dsl,
             wf_id=wf_id,
