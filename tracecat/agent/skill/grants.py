@@ -144,11 +144,9 @@ class SkillToolGrantService(BaseWorkspaceService):
             if row.tool_name is None:
                 grants_by_integration[integration_id] = None
                 continue
-            if (
-                integration_id in grants_by_integration
-                and grants_by_integration[integration_id] is None
-            ):
-                continue
+            # Every explicit dependency must remain available, even when another
+            # declaration grants the whole integration. Validate before unioning
+            # so row or skill ordering cannot change whether resolution succeeds.
             integration = integrations_by_id[integration_id]
             policies = MCPToolSummary.validate_stored(
                 integration.tools,
