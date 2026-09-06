@@ -1,6 +1,6 @@
 """Tests for always-on built-in Workspace Chat skills.
 
-Covers the reserved skill-name namespace, the ``builtin_skills`` config field
+Covers explicit skill origin and runtime namespaces, the ``builtin_skills`` config field
 threading across the Temporal payload boundary, and the executor staging that
 copies vendored skill directories into the per-run skills directory.
 """
@@ -17,10 +17,9 @@ import yaml
 
 from tracecat import config
 from tracecat.agent.executor.activity import SandboxedAgentExecutor
-from tracecat.agent.skill.schemas import (
-    RESERVED_SKILL_NAME_PREFIX,
-    SkillCreate,
-)
+from tracecat.agent.skill.builtin import PLATFORM_SKILLS
+from tracecat.agent.skill.schemas import SkillCreate
+from tracecat.agent.skill.types import SkillOrigin
 
 VENDORED_SKILLS_ROOT = Path(config.TRACECAT__COPILOT_SKILLS_DIR)
 VENDORED_SKILLS_SKIP_REASON = (
@@ -43,53 +42,18 @@ def require_vendored_skills() -> Path:
     return VENDORED_SKILLS_ROOT
 
 
-class TestReservedSkillNamespace:
-    """User/preset skill names may not use the reserved platform prefix."""
+class TestSkillOrigin:
+    def test_workspace_names_do_not_reserve_platform_prefix(self):
+        assert SkillCreate(name="tracecat-triage").name == "tracecat-triage"
 
-    def test_reserved_prefix_rejected(self):
-        with pytest.raises(ValueError, match="reserved prefix"):
-            SkillCreate(name=f"{RESERVED_SKILL_NAME_PREFIX}manage-workflows")
-
-    def test_non_reserved_name_allowed(self):
-        skill = SkillCreate(name="my-custom-skill")
-        assert skill.name == "my-custom-skill"
-
-    def test_lookup_name_accepts_reserved_prefix(self):
-        # Legacy skills named before the prefix was reserved must remain
-        # addressable by name — only create/publish paths reject the prefix.
-        from pydantic import TypeAdapter
-
-        from tracecat.agent.skill.schemas import SkillName
-
-        adapter = TypeAdapter(SkillName)
-        assert (
-            adapter.validate_python(f"{RESERVED_SKILL_NAME_PREFIX}legacy")
-            == f"{RESERVED_SKILL_NAME_PREFIX}legacy"
-        )
-
-    def test_reserved_prefix_matches_builtin_constant(self):
-        # Keep the core validator prefix in sync with the built-in package constant.
-        from tracecat.agent.skill.builtin import BUILTIN_SKILL_NAME_PREFIX
-
-        assert RESERVED_SKILL_NAME_PREFIX == BUILTIN_SKILL_NAME_PREFIX
+    def test_platform_origin_is_explicit(self):
+        assert all(skill.origin is SkillOrigin.PLATFORM for skill in PLATFORM_SKILLS)
+        assert PLATFORM_SKILLS[0].skill_name == "workspace-chat"
+        assert PLATFORM_SKILLS[0].qualified_name == "tracecat:workspace-chat"
 
 
 class TestBuiltinSkillsConstant:
     """The built-in skill catalog is well-formed and present on disk."""
-
-    def test_all_builtin_skills_use_reserved_prefix(self):
-        from tracecat.agent.skill.builtin import (
-            BUILTIN_SKILL_NAME_PREFIX,
-            BUILTIN_WORKSPACE_CHAT_SKILLS,
-        )
-
-        assert BUILTIN_WORKSPACE_CHAT_SKILLS == (
-            "tracecat-workspace-chat",
-            "tracecat-automation-best-practices",
-            "tracecat-slackbot-best-practices",
-        )
-        for name in BUILTIN_WORKSPACE_CHAT_SKILLS:
-            assert name.startswith(BUILTIN_SKILL_NAME_PREFIX)
 
     def test_each_builtin_skill_has_skill_md(self):
         from tracecat.agent.skill.builtin import BUILTIN_WORKSPACE_CHAT_SKILLS
@@ -261,7 +225,9 @@ class TestStageBuiltinSkills:
         vendored_root = tmp_path / "vendored"
         vendored_skill = vendored_root / "tracecat-automation-best-practices"
         vendored_skill.mkdir(parents=True)
-        (vendored_skill / "SKILL.md").write_text("vendored content")
+        (vendored_skill / "SKILL.md").write_text(
+            "---\nname: tracecat-automation-best-practices\n---\nvendored content"
+        )
         monkeypatch.setattr(
             activity_mod.app_config,
             "TRACECAT__COPILOT_SKILLS_DIR",
@@ -274,8 +240,10 @@ class TestStageBuiltinSkills:
             ["tracecat-automation-best-practices"]
         ).stage(skills_dir)
         assert (
-            skills_dir / "tracecat-automation-best-practices" / "SKILL.md"
-        ).read_text() == "vendored content"
+            (skills_dir / "skills" / "automation-best-practices" / "SKILL.md")
+            .read_text()
+            .endswith("vendored content")
+        )
 
     @pytest.mark.anyio
     async def test_errors_when_vendored_dir_absent(
@@ -307,55 +275,6 @@ class TestStageBuiltinSkills:
         assert list(skills_dir.iterdir()) == []
 
 
-class TestStageResolvedSkillsCollision:
-    """Resolved skills staged after built-ins skip name collisions."""
-
-    @pytest.mark.anyio
-    async def test_skips_resolved_skill_colliding_with_builtin(
-        self, tmp_path: Path, monkeypatch
-    ):
-        import uuid
-        from contextlib import asynccontextmanager
-
-        from tracecat.agent.executor import activity as activity_mod
-
-        skills_dir = tmp_path / "skills"
-        staged = skills_dir / "tracecat-automation-best-practices"
-        staged.mkdir(parents=True)
-        (staged / "SKILL.md").write_text("builtin content")
-
-        @asynccontextmanager
-        async def _fake_with_session(*, role=None):  # noqa: ANN001
-            yield object()
-
-        monkeypatch.setattr(
-            activity_mod.SkillService, "with_session", _fake_with_session
-        )
-
-        resolved = SimpleNamespace(
-            skill_name="tracecat-automation-best-practices",
-            manifest_sha256="0" * 64,
-            skill_version_id=uuid.uuid4(),
-        )
-
-        async def _fail_materialize(**kwargs: Any):
-            raise AssertionError("colliding skill must not be materialized")
-
-        fake = SimpleNamespace(
-            input=SimpleNamespace(
-                config=SimpleNamespace(resolved_skills=[resolved]),
-                role=object(),
-            ),
-            _ensure_cached_skill_dir=_fail_materialize,
-        )
-        stage = SandboxedAgentExecutor._stage_resolved_skills.__get__(fake)
-        await stage(skills_dir)
-
-        # The staged built-in is untouched and nothing new was copied.
-        assert (staged / "SKILL.md").read_text() == "builtin content"
-        assert list(skills_dir.iterdir()) == [staged]
-
-
 class TestWorkspaceChatPrompt:
     """Workspace Chat enters through the host adapter before generic guidance."""
 
@@ -367,7 +286,7 @@ class TestWorkspaceChatPrompt:
         platform_section = platform_section.split("</platform-guidance>", maxsplit=1)[0]
         normalized_section = " ".join(platform_section.split())
 
-        assert "tracecat-workspace-chat" in normalized_section
+        assert "tracecat:workspace-chat" in normalized_section
         assert "any Tracecat platform tool" in normalized_section
 
     def test_workflow_skill_order_is_adapter_then_generic(self):
@@ -377,8 +296,8 @@ class TestWorkspaceChatPrompt:
         workflow_section = instructions.split("<workflows>", maxsplit=1)[1]
         workflow_section = workflow_section.split("</workflows>", maxsplit=1)[0]
 
-        assert workflow_section.index("tracecat-workspace-chat") < (
-            workflow_section.index("tracecat-automation-best-practices")
+        assert workflow_section.index("tracecat:workspace-chat") < (
+            workflow_section.index("tracecat:automation-best-practices")
         )
 
 
@@ -405,5 +324,5 @@ class TestWorkflowActionDescriptions:
 
         assert action_descriptions
         for key, description in action_descriptions.items():
-            assert "`tracecat-workspace-chat`" in description, key
-            assert "`tracecat-automation-best-practices`" in description, key
+            assert "`tracecat:workspace-chat`" in description, key
+            assert "`tracecat:automation-best-practices`" in description, key

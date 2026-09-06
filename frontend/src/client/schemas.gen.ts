@@ -24777,6 +24777,12 @@ export const $SkillRead = {
       format: "uuid",
       title: "Workspace Id",
     },
+    origin: {
+      type: "string",
+      const: "workspace",
+      title: "Origin",
+      default: "workspace",
+    },
     name: {
       type: "string",
       title: "Name",
@@ -24887,6 +24893,12 @@ export const $SkillReadMinimal = {
       type: "string",
       format: "uuid",
       title: "Workspace Id",
+    },
+    origin: {
+      type: "string",
+      const: "workspace",
+      title: "Origin",
+      default: "workspace",
     },
     name: {
       type: "string",

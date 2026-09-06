@@ -113,7 +113,7 @@ SKILL_TOOL_ERROR_CODES = frozenset(
 )
 POSTGRES_UNIQUE_VIOLATION_SQLSTATE = "23505"
 EXPIRED_UPLOAD_REAP_BATCH_SIZE = 64
-# Lenient adapter for slug lookups: accepts legacy reserved-prefix identifiers.
+# Skill origin is independent of its portable name or lookup slug.
 SKILL_SLUG_ADAPTER = TypeAdapter(SkillName)
 
 

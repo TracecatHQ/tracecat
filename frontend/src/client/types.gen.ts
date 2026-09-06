@@ -7436,6 +7436,7 @@ export type SkillFileEntry = {
 export type SkillRead = {
   id: string
   workspace_id: string
+  origin?: "workspace"
   name: string
   slug: string
   description?: string | null
@@ -7460,6 +7461,7 @@ export type SkillRead = {
 export type SkillReadMinimal = {
   id: string
   workspace_id: string
+  origin?: "workspace"
   name: string
   slug: string
   description?: string | null

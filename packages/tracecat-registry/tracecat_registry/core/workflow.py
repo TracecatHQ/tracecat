@@ -20,8 +20,8 @@ from tracecat_registry.sdk.workflows import (
 )
 
 _WORKSPACE_CHAT_SKILL_GUIDANCE = (
-    " In Workspace Chat, follow `tracecat-workspace-chat` for tool routing and "
-    "`tracecat-automation-best-practices` for workflow authoring."
+    " In Workspace Chat, follow `tracecat:workspace-chat` for tool routing and "
+    "`tracecat:automation-best-practices` for workflow authoring."
 )
 
 

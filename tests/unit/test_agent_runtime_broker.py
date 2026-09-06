@@ -600,3 +600,29 @@ async def test_transport_close_preserves_caller_owned_job_directory(
     assert job_dir.is_dir()
     assert uv_file.is_file()
     assert transport._spawned_runtime is None
+
+
+@pytest.mark.parametrize("use_jailed_paths", [True, False])
+@pytest.mark.parametrize("resume", [None, "existing-session"])
+def test_transport_loads_platform_plugin_on_fresh_and_resumed_turns(
+    tmp_path: Path, use_jailed_paths: bool, resume: str | None
+) -> None:
+    plugin = tmp_path / "platform-skills"
+    manifest = plugin / ".claude-plugin" / "plugin.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text('{"name":"tracecat"}')
+    transport = _make_transport(tmp_path, use_jailed_paths=use_jailed_paths)
+    options = transport._options_with_platform_skills(ClaudeAgentOptions(resume=resume))
+    expected = Path("/run/tracecat/job/platform-skills") if use_jailed_paths else plugin
+    assert options.plugins == [{"type": "local", "path": str(expected)}]
+    assert options.resume == resume
+
+
+def test_transport_does_not_reuse_plugins_without_a_staged_catalog(
+    tmp_path: Path,
+) -> None:
+    transport = _make_transport(tmp_path, use_jailed_paths=True)
+    options = transport._options_with_platform_skills(
+        ClaudeAgentOptions(plugins=[{"type": "local", "path": "/previous-turn/plugin"}])
+    )
+    assert options.plugins == []
