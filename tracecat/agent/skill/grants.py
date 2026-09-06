@@ -13,6 +13,7 @@ from tracecat.agent.skill.types import (
     SkillMcpGrant,
     SkillToolGrants,
 )
+from tracecat.agent.skill.validation import get_mcp_grant_support_error
 from tracecat.db.models import SkillVersion
 from tracecat.exceptions import TracecatValidationError
 from tracecat.integrations.schemas import MCPToolSummary
@@ -151,6 +152,19 @@ class SkillToolGrantService(BaseWorkspaceService):
             # declaration grants the whole integration. Validate before unioning
             # so row or skill ordering cannot change whether resolution succeeds.
             integration = integrations_by_id[integration_id]
+            if support_error := get_mcp_grant_support_error(
+                server_type=integration.server_type,
+                tool_name=row.tool_name,
+                tool_id=row.tool_id,
+            ):
+                raise TracecatValidationError(
+                    support_error.message,
+                    detail={
+                        "code": support_error.code,
+                        "tool_ids": [row.tool_id],
+                        "preset_version_id": preset_context,
+                    },
+                )
             policies = MCPToolSummary.validate_stored(
                 integration.tools,
                 mcp_integration_id=integration.id,

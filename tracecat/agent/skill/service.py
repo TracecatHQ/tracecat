@@ -67,6 +67,10 @@ from tracecat.agent.skill.types import (
     ResolvedSkillRef,
     SkillToolProjection,
 )
+from tracecat.agent.skill.validation import (
+    STDIO_MCP_TOOL_SUBSET_UNSUPPORTED,
+    get_mcp_grant_support_error,
+)
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import (
     AgentPresetSkill,
@@ -109,6 +113,7 @@ SKILL_TOOL_ERROR_CODES = frozenset(
         "invalid_skill_tool_declaration",
         "unknown_skill_tools",
         "unavailable_skill_tools",
+        STDIO_MCP_TOOL_SUBSET_UNSUPPORTED,
     }
 )
 POSTGRES_UNIQUE_VIOLATION_SQLSTATE = "23505"
@@ -1208,6 +1213,13 @@ class SkillService(SkillBindingService):
                 missing_mcp_tools.add(tool_id)
                 continue
             tool_name = tool_name_parts[0] if tool_name_parts else None
+            if support_error := get_mcp_grant_support_error(
+                server_type=integration.server_type,
+                tool_name=tool_name,
+                tool_id=tool_id,
+            ):
+                result.errors.append(support_error)
+                continue
             if tool_name is not None:
                 stored_tools = MCPToolSummary.validate_stored(
                     integration.tools,
