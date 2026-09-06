@@ -3889,16 +3889,43 @@ class TestAgentPresetService:
 
     async def test_preset_to_agent_config_conversion(
         self,
+        configure_minio_for_skills: None,
+        session: AsyncSession,
+        svc_role: Role,
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
         registry_actions: list[RegistryAction],
     ) -> None:
         """Test conversion of a preset version into executable config."""
-        # Create a preset with comprehensive configuration
-        agent_preset_create_params.actions = ["tools.test.test_action"]
-        agent_preset_create_params.namespaces = ["tools.test", "core"]
+        # A real published skill grants a tool outside the preset namespace.
+        skill_service = SkillService(session=session, role=svc_role)
+        skill = await skill_service.create_skill(SkillCreate(name="independent-tool"))
+        await skill_service.patch_draft(
+            skill_id=skill.id,
+            params=SkillDraftPatch(
+                base_revision=skill.draft_revision,
+                operations=[
+                    SkillDraftUpsertTextFileOp(
+                        path="SKILL.md",
+                        content=(
+                            "---\nname: independent-tool\nmetadata:\n  tools:\n"
+                            "    - tools.test.test_action\n---\nUse the granted tool.\n"
+                        ),
+                    )
+                ],
+            ),
+        )
+        skill_version = await skill_service.publish_skill(skill.id)
+        agent_preset_create_params.skills = [
+            AgentPresetSkillBindingBase(skill_id=skill.id)
+        ]
+        agent_preset_create_params.actions = [
+            "core.http_request",
+            "tools.test.another_action",
+        ]
+        agent_preset_create_params.namespaces = ["core"]
         agent_preset_create_params.output_type = "list[str]"
-        agent_preset_create_params.tool_approvals = {"tools.test.test_action": False}
+        agent_preset_create_params.tool_approvals = {"core.http_request": False}
 
         preset = await agent_preset_service.create_preset(agent_preset_create_params)
         version = await agent_preset_service.get_current_version_for_preset(preset)
@@ -3912,7 +3939,11 @@ class TestAgentPresetService:
         assert agent_config.base_url == preset.base_url
         assert agent_config.instructions == preset.instructions
         assert agent_config.output_type == preset.output_type
-        assert agent_config.actions == preset.actions
+        assert agent_config.actions == ["core.http_request", "tools.test.test_action"]
+        assert agent_config.resolved_skills is not None
+        assert [ref.skill_version_id for ref in agent_config.resolved_skills] == [
+            skill_version.id
+        ]
         # Namespace filtering is compiled into the authored action list so that
         # independently granted skill actions are not filtered a second time.
         assert agent_config.namespaces is None
