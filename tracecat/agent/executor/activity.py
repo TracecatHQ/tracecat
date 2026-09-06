@@ -1158,9 +1158,11 @@ class SandboxedAgentExecutor:
 
     async def _stage_builtin_skills(self, plugin_dir: Path) -> None:
         """Stage platform guidance outside the workspace skill directory."""
+        if not self.input.config.builtin_skills:
+            return
         await asyncio.to_thread(
             stage_platform_skill_plugin,
-            asset_names=self.input.config.builtin_skills or [],
+            asset_names=self.input.config.builtin_skills,
             vendored_root=Path(app_config.TRACECAT__COPILOT_SKILLS_DIR),
             plugin_root=plugin_dir,
         )
