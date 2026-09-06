@@ -99,7 +99,11 @@ describe("isPinnableActionEvent", () => {
       isPinnableActionEvent("c", { c: [completedEvent("<root>:0")] }, graph)
     ).toBe(true)
     expect(
-      isPinnableActionEvent("c", {}, buildWorkflowPinGraph(undefined))
+      isPinnableActionEvent(
+        "c",
+        { c: [completedEvent("<root>:0")] },
+        buildWorkflowPinGraph(undefined)
+      )
     ).toBe(false)
   })
 
