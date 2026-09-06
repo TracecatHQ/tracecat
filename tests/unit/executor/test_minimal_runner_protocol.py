@@ -771,13 +771,24 @@ def test_main_minimal_reports_enomem_oserror_as_resource_limit(
     assert result["error"]["action_name"] == "test_module.mapping_action"
 
 
-def test_is_memory_exhaustion_ignores_other_oserrors() -> None:
-    """Invariant: only ENOMEM counts, so unrelated OSErrors keep their own kind."""
-    assert minimal_runner.is_memory_exhaustion(MemoryError())
-    assert minimal_runner.is_memory_exhaustion(OSError(errno.ENOMEM, "no memory"))
-    assert not minimal_runner.is_memory_exhaustion(OSError(errno.EAGAIN, "would block"))
-    assert not minimal_runner.is_memory_exhaustion(OSError(errno.ENOENT, "missing"))
-    assert not minimal_runner.is_memory_exhaustion(ValueError("nope"))
+def test_resource_limit_from_error_ignores_other_oserrors() -> None:
+    """Unrelated syscall failures must retain their ordinary classification."""
+    assert minimal_runner.resource_limit_from_error(MemoryError()) == "memory"
+    assert (
+        minimal_runner.resource_limit_from_error(OSError(errno.ENOMEM, "no memory"))
+        == "memory"
+    )
+    assert (
+        minimal_runner.resource_limit_from_error(OSError(errno.EFBIG, "too large"))
+        == "file_size"
+    )
+    assert not minimal_runner.resource_limit_from_error(
+        OSError(errno.EAGAIN, "would block")
+    )
+    assert not minimal_runner.resource_limit_from_error(
+        OSError(errno.ENOENT, "missing")
+    )
+    assert not minimal_runner.resource_limit_from_error(ValueError("nope"))
 
 
 def test_serialize_result_reports_limit_when_model_dump_exhausts_memory() -> None:

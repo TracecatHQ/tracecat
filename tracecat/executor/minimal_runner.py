@@ -21,8 +21,9 @@ import resource
 import sys
 import warnings
 from collections.abc import Mapping
+from pathlib import Path
 from types import ModuleType
-from typing import Any
+from typing import Any, Literal
 
 # Only import what we absolutely need - no tracecat imports!
 # Prefer orjson for performance (4-12x faster), fall back to stdlib json
@@ -39,8 +40,8 @@ try:
             try:
                 return obj.model_dump(mode="json")
             except Exception as exc:
-                if caused_by_memory_exhaustion(exc):
-                    # The address-space cap, not an unserializable type. Let it
+                if resource_limit_from_error(exc):
+                    # A resource limit, not an unserializable type. Let it
                     # out so serialize_result can degrade to the resource-limit
                     # envelope instead of reporting a TypeError.
                     raise
@@ -518,14 +519,14 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
         return {"success": True, "result": result}
 
     except Exception as e:
-        if is_memory_exhaustion(e):
+        if (limit := resource_limit_from_error(e)) is not None:
             # Skip the traceback walk, which needs memory the process may not
             # have, and report a structured code so the host classifies the
             # failure without inspecting error text. Release the frames first:
             # the action's own locals are what exhausted the cap.
             release_exception_chain(e)
             return _resource_limit_envelope(
-                "Action ran out of memory",
+                limit,
                 action_name=_action_display_name(action_impl),
             )
 
@@ -549,35 +550,33 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
         }
 
 
-def is_memory_exhaustion(error: BaseException) -> bool:
-    """Report whether an exception means the address-space cap was reached.
+def resource_limit_from_error(
+    error: BaseException,
+) -> Literal["memory", "file_size"] | None:
+    """Identify allocation or file-size failures through serializer wrappers.
 
-    Python's own allocator raises ``MemoryError``, but a syscall that fails
-    under ``rlimit_as`` -- ``mmap`` most commonly -- surfaces as ``OSError``
-    with ``errno.ENOMEM`` instead. Both mean the same cap, and both are matched
-    on a machine-readable attribute rather than on message text.
-    """
-    if isinstance(error, MemoryError):
-        return True
-    return isinstance(error, OSError) and error.errno == errno.ENOMEM
-
-
-def caused_by_memory_exhaustion(error: BaseException) -> bool:
-    """Report whether memory exhaustion produced ``error``, directly or as a cause.
-
-    orjson reports an exception raised inside its ``default`` hook as its own
-    ``JSONEncodeError`` carrying the original on ``__cause__``, so a model whose
-    ``model_dump()`` hits the cap arrives here one level down rather than as
-    itself.
+    Python ignores SIGXFSZ by default, so RLIMIT_FSIZE surfaces as EFBIG
+    rather than a signal exit. Pydantic and orjson can wrap these exceptions;
+    inspect both cause links without relying on error-message text.
     """
     seen: set[int] = set()
-    current: BaseException | None = error
-    while current is not None and id(current) not in seen:
-        if is_memory_exhaustion(current):
-            return True
+    pending = [error]
+    while pending:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
         seen.add(id(current))
-        current = current.__cause__ or current.__context__
-    return False
+        if isinstance(current, MemoryError):
+            return "memory"
+        if isinstance(current, OSError):
+            if current.errno == errno.ENOMEM:
+                return "memory"
+            if current.errno == errno.EFBIG:
+                return "file_size"
+        for following in (current.__context__, current.__cause__):
+            if following is not None:
+                pending.append(following)
+    return None
 
 
 def release_exception_chain(error: BaseException) -> None:
@@ -608,7 +607,7 @@ def release_exception_chain(error: BaseException) -> None:
 
 
 def serialize_result(result: dict[str, Any], input_data: dict[str, Any]) -> bytes:
-    """Serialize the runner result, degrading to a fixed envelope on MemoryError.
+    """Serialize the runner result, recovering structured resource failures.
 
     An action whose return value fits under the address-space cap can still
     exhaust it while being serialized, and that ``MemoryError`` is raised after
@@ -619,7 +618,7 @@ def serialize_result(result: dict[str, Any], input_data: dict[str, Any]) -> byte
     try:
         return json_dumps(result)
     except Exception as exc:
-        if not caused_by_memory_exhaustion(exc):
+        if (limit := resource_limit_from_error(exc)) is None:
             raise
         # Drop the oversized result, and every frame still pinning it through
         # the serializer's locals, before allocating anything else.
@@ -627,7 +626,7 @@ def serialize_result(result: dict[str, Any], input_data: dict[str, Any]) -> byte
         result.clear()
         return json_dumps(
             _resource_limit_envelope(
-                "Action ran out of memory while serializing its result",
+                limit,
                 action_name=_action_display_name(
                     input_data.get("resolved_context", {}).get("action_impl")
                 ),
@@ -635,8 +634,10 @@ def serialize_result(result: dict[str, Any], input_data: dict[str, Any]) -> byte
         )
 
 
-def _resource_limit_envelope(message: str, *, action_name: str) -> dict[str, Any]:
-    """Build the structured envelope reported when the memory cap is hit.
+def _resource_limit_envelope(
+    limit: Literal["memory", "file_size"], *, action_name: str
+) -> dict[str, Any]:
+    """Build a small structured envelope for an exhausted resource limit.
 
     Allocates only small, fixed-size values so it stays usable in a process
     that has already exhausted its address space.
@@ -651,8 +652,12 @@ def _resource_limit_envelope(message: str, *, action_name: str) -> dict[str, Any
         "success": False,
         "result": None,
         "error": {
-            "type": "MemoryError",
-            "message": message,
+            "type": "MemoryError" if limit == "memory" else "OSError",
+            "message": (
+                "Action ran out of memory"
+                if limit == "memory"
+                else "Action exceeded the file size limit"
+            ),
             "action_name": action_name,
             "filename": "<sandbox>",
             "function": "run_action_minimal",
@@ -660,6 +665,18 @@ def _resource_limit_envelope(message: str, *, action_name: str) -> dict[str, Any
         },
         "error_code": "resource_limit_exceeded",
     }
+
+
+def write_result_file(output_path: Path, result_bytes: bytes) -> None:
+    """Replace a result that exceeds RLIMIT_FSIZE with a small error envelope."""
+    try:
+        output_path.write_bytes(result_bytes)
+    except OSError as exc:
+        if exc.errno != errno.EFBIG:
+            raise
+        output_path.write_bytes(
+            json_dumps(_resource_limit_envelope("file_size", action_name="<unknown>"))
+        )
 
 
 def _action_display_name(action_impl: dict[str, Any] | None) -> str:
@@ -714,7 +731,6 @@ def _enforce_nproc_limit() -> None:
 if __name__ == "__main__":
     """Standalone entry point for subprocess execution."""
     import sys
-    from pathlib import Path
 
     _enforce_nproc_limit()
 
@@ -735,12 +751,12 @@ if __name__ == "__main__":
             input_data = json_loads(input_bytes)
             use_file_io = False
     except Exception as exc:
-        if not caused_by_memory_exhaustion(exc):
+        if (limit := resource_limit_from_error(exc)) is None:
             raise
         release_exception_chain(exc)
         envelope = json_dumps(
             _resource_limit_envelope(
-                "Action inputs ran out of memory while being decoded",
+                limit,
                 action_name="<unknown>",
             )
         )
@@ -758,7 +774,7 @@ if __name__ == "__main__":
     result_bytes = serialize_result(result, input_data)
 
     if use_file_io:
-        output_path.write_bytes(result_bytes)
+        write_result_file(output_path, result_bytes)
     else:
         sys.stdout.buffer.write(result_bytes)
         sys.stdout.buffer.flush()

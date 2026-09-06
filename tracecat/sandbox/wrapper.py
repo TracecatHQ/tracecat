@@ -175,17 +175,16 @@ def _enforce_nproc_limit() -> None:
         ) from exc
 
 
-def _is_memory_exhaustion(error):
-    """Report whether an exception means the address-space cap was reached.
-
-    Python's own allocator raises MemoryError, but a syscall that fails under
-    rlimit_as -- mmap most commonly -- surfaces as OSError with errno.ENOMEM
-    instead. Both mean the same cap, matched on a machine-readable attribute
-    rather than on message text.
-    """
+def _resource_limit_message(error):
+    """Recognize Python allocator and syscall resource failures by type/errno."""
     if isinstance(error, MemoryError):
-        return True
-    return isinstance(error, OSError) and error.errno == errno.ENOMEM
+        return "Script exceeded the sandbox memory limit"
+    if isinstance(error, OSError):
+        if error.errno == errno.ENOMEM:
+            return "Script exceeded the sandbox memory limit"
+        if error.errno == errno.EFBIG:
+            return "Script exceeded the sandbox file size limit"
+    return None
 
 
 def _release_exception_chain(error):
@@ -228,7 +227,7 @@ def main():
         else:
             inputs = {}
     except (MemoryError, OSError) as exc:
-        if not _is_memory_exhaustion(exc):
+        if (message := _resource_limit_message(exc)) is None:
             raise
         _release_exception_chain(exc)
         Path("/work/result.json").write_text(
@@ -236,7 +235,7 @@ def main():
                 {
                     "success": False,
                     "output": None,
-                    "error": "Script inputs exceeded the sandbox memory limit",
+                    "error": message,
                     "traceback": None,
                     "stdout": "",
                     "stderr": "",
@@ -297,13 +296,13 @@ def main():
         result["output"] = output
 
     except Exception as e:
-        if _is_memory_exhaustion(e):
+        if (message := _resource_limit_message(e)) is not None:
             # Skip the traceback: formatting it needs memory the process may
             # not have, and its frames still hold what exhausted the cap.
             # Report a structured code so the host classifies the failure
             # without inspecting error text.
             _release_exception_chain(e)
-            result["error"] = "Script exceeded the sandbox memory limit"
+            result["error"] = message
             result["error_code"] = "resource_limit_exceeded"
         else:
             result["error"] = f"{type(e).__name__}: {e}"
@@ -318,7 +317,7 @@ def main():
             result["stdout"] = sys.stdout.getvalue()
             result["stderr"] = sys.stderr.getvalue()
         except (MemoryError, OSError) as exc:
-            if not _is_memory_exhaustion(exc):
+            if (message := _resource_limit_message(exc)) is None:
                 raise
             _release_exception_chain(exc)
             # Restore the real streams first. That drops the capture buffers,
@@ -331,7 +330,7 @@ def main():
             result.clear()
             result["success"] = False
             result["output"] = None
-            result["error"] = "Script exceeded the sandbox memory limit"
+            result["error"] = message
             result["traceback"] = None
             result["stdout"] = ""
             result["stderr"] = ""
@@ -350,7 +349,7 @@ def main():
         result["output"] = repr(result["output"])
         result_path.write_text(json.dumps(result))
     except (MemoryError, OSError) as exc:
-        if not _is_memory_exhaustion(exc):
+        if (message := _resource_limit_message(exc)) is None:
             # A write failure such as ENOSPC or EACCES is not the memory cap.
             raise
         # An output that fits under the address-space cap can still exhaust it
@@ -368,10 +367,7 @@ def main():
                 {
                     "success": False,
                     "output": None,
-                    "error": (
-                        "MemoryError: script output exceeded the sandbox "
-                        "memory limit while being serialized"
-                    ),
+                    "error": message,
                     "traceback": None,
                     "stdout": "",
                     "stderr": "",
