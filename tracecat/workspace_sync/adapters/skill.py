@@ -443,6 +443,22 @@ class SkillAdapter(DirectoryManifestAdapter):
                             ],
                         },
                     )
+                mismatched_fields = [
+                    field
+                    for field, desired, actual in (
+                        ("name", spec.name, validation.name),
+                        ("description", spec.description, validation.description),
+                    )
+                    if desired != actual
+                ]
+                if mismatched_fields:
+                    raise TracecatValidationError(
+                        "Skill metadata must match root SKILL.md frontmatter",
+                        detail={
+                            "code": "workspace_sync_skill_metadata_mismatch",
+                            "fields": mismatched_fields,
+                        },
+                    )
                 current = await skill_service.publish_version_from_blob_refs(
                     skill=skill,
                     file_refs=list(file_refs.items()),
