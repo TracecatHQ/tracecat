@@ -21,6 +21,8 @@ pytestmark = [
 
 import temporalio.api.enums.v1
 from temporalio import activity
+from temporalio.api.operatorservice.v1 import AddSearchAttributesRequest
+from temporalio.client import WorkflowFailureError
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 
@@ -34,7 +36,14 @@ from tracecat.dsl.worker import get_activities
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.executor.activities import ExecutorActivities
 from tracecat.logger import logger
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorKind,
+    RuntimeErrorOwner,
+)
 from tracecat.storage.object import InlineObject, StoredObject
+from tracecat.temporal.errors import extract_error_classification
+from tracecat.workflow.executions.enums import TemporalSearchAttr
 
 
 @pytest.fixture
@@ -42,6 +51,17 @@ async def env() -> AsyncGenerator[WorkflowEnvironment, None]:
     async with await WorkflowEnvironment.start_time_skipping(
         data_converter=get_data_converter(compression_enabled=False)
     ) as env:
+        # Register the error-owner search attribute so the runtime error
+        # attribution interceptor can stamp it on terminal workflow failures.
+        await env.client.operator_service.add_search_attributes(
+            AddSearchAttributesRequest(
+                search_attributes={
+                    TemporalSearchAttr.ERROR_OWNER.value: (
+                        temporalio.api.enums.v1.IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD
+                    )
+                }
+            )
+        )
         yield env
 
 
@@ -907,3 +927,84 @@ async def test_workflow_invalid_retry_until_expression(
                 ),
                 task_queue=task_queue,
             )
+
+
+@pytest.mark.anyio
+async def test_workflow_retry_until_rejects_over_iteration_cap(
+    env: WorkflowEnvironment,
+    test_role: Role,
+    test_worker_factory,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """A retry_until condition that never succeeds fails at the iteration cap.
+
+    The failure must carry user attribution and a non-retryable
+    workflow.loop.limit_exceeded classification instead of terminating with
+    an opaque Temporal history-limit error.
+    """
+    low_cap = 3
+    monkeypatch.setattr("tracecat.dsl.workflow.MAX_RETRY_UNTIL_ITERATIONS", low_cap)
+
+    dsl = DSLInput(
+        title="retry_until_cap",
+        description="Test retry_until fails cleanly at the iteration cap",
+        entrypoint=DSLEntrypoint(ref="retry_action"),
+        actions=[
+            ActionStatement(
+                ref="retry_action",
+                action="core.transform.reshape",
+                args={"value": "test"},
+                retry_policy=ActionRetryPolicy(retry_until="${{ False }}"),
+            )
+        ],
+    )
+
+    num_activity_executions = 0
+
+    # Mock out the execute_action_activity; it never satisfies the condition.
+    @activity.defn(name=ExecutorActivities.execute_action_activity.__name__)
+    async def execute_action_activity_mock(
+        input: RunActionInput, role: Role
+    ) -> StoredObject:
+        nonlocal num_activity_executions
+        num_activity_executions += 1
+        return InlineObject(data={"status": "loading"})
+
+    # Get base activities and add the mock
+    activities = get_activities()
+    activities.append(execute_action_activity_mock)
+
+    client = env.client
+    task_queue = config.TEMPORAL__CLUSTER_QUEUE
+    async with (
+        test_worker_factory(client, activities=activities),
+        test_worker_factory(
+            client,
+            activities=[execute_action_activity_mock],
+            task_queue=config.TRACECAT__EXECUTOR_QUEUE,
+        ),
+    ):
+        with pytest.raises(WorkflowFailureError) as exc_info:
+            await client.execute_workflow(
+                DSLWorkflow.run,
+                DSLRunArgs(dsl=dsl, role=test_role, wf_id=TEST_WF_ID),
+                id=generate_test_exec_id(
+                    "test_workflow_retry_until_rejects_over_iteration_cap"
+                ),
+                task_queue=task_queue,
+            )
+
+    # The action ran exactly `low_cap` times before the cap fired.
+    assert num_activity_executions == low_cap
+
+    cause = exc_info.value.cause
+    assert isinstance(cause, ApplicationError)
+    assert "exceeded the retry_until iteration limit" in str(cause)
+    assert str(low_cap) in str(cause)
+    assert cause.non_retryable is True
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert classification.kind is RuntimeErrorKind.WORKFLOW_LOOP_LIMIT_EXCEEDED
+    assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE

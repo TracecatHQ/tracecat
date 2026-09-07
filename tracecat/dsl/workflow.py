@@ -75,6 +75,7 @@ with workflow.unsafe.imports_passed_through():
         dsl_execution_error_from_exception,
         get_trigger_type,
     )
+    from tracecat.dsl.constants import MAX_RETRY_UNTIL_ITERATIONS
     from tracecat.dsl.enums import (
         FailStrategy,
         LoopStrategy,
@@ -784,7 +785,7 @@ class DSLWorkflow:
             raise ValueError("Retry until is not set")
         ctx = self.context.copy()
         result = None
-        while True:
+        for _iteration in range(MAX_RETRY_UNTIL_ITERATIONS):
             if self._is_executable_action(task):
                 # retry_until executes the action repeatedly; enforce per attempt.
                 self._check_action_execution_limit()
@@ -807,6 +808,18 @@ class DSLWorkflow:
                     ) from None
             if retry_until_result:
                 break
+        else:
+            raise_application_error_from_classification(
+                RuntimeErrorClassification.user(
+                    kind=RuntimeErrorKind.WORKFLOW_LOOP_LIMIT_EXCEEDED,
+                    message=(
+                        f"Task '{task.ref}' exceeded the retry_until iteration limit "
+                        f"of {MAX_RETRY_UNTIL_ITERATIONS}. "
+                        "Update the `retry_until` condition so it can be satisfied."
+                    ),
+                    retry_disposition=RetryDisposition.NON_RETRYABLE,
+                )
+            )
         return result
 
     @staticmethod
