@@ -15,8 +15,10 @@ import dataclasses
 import datetime
 import decimal
 import enum
+import errno
 import importlib
 import inspect
+import io
 import json
 import os
 import resource
@@ -174,17 +176,69 @@ def _enforce_nproc_limit() -> None:
         ) from exc
 
 
-def main():
-    """Execute user script and capture results."""
-    _enforce_nproc_limit()
+def _resource_limit_message(error):
+    """Recognize Python allocator and syscall resource failures by type/errno."""
+    if isinstance(error, MemoryError):
+        return "Script exceeded the sandbox memory limit"
+    if isinstance(error, OSError):
+        if error.errno == errno.ENOMEM:
+            return "Script exceeded the sandbox memory limit"
+        if error.errno == errno.EFBIG:
+            return "Script exceeded the sandbox file size limit"
+    return None
 
-    # Read inputs from file
+
+def _release_exception_chain(error):
+    """Drop the tracebacks, and the chain itself, of an exception and its causes.
+
+    A traceback keeps its frames alive, and a frame's locals can be the very
+    object that exhausted memory, so the fallback envelope would allocate
+    against a cap that is still fully consumed.
+    """
+    seen = set()
+    pending = [error]
+    while pending:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        current.__traceback__ = None
+        # Both links, not the first one that happens to be set: an exception
+        # can carry a distinct cause and context, and either frame can be the
+        # one holding what exhausted the cap.
+        for following in (current.__cause__, current.__context__):
+            if following is not None:
+                pending.append(following)
+        current.__cause__ = None
+        current.__context__ = None
+
+
+def _execute_script(inputs):
+    """Keep workload locals in a frame that can unwind before recovery."""
+    script_path = Path("/work/script.py")
+    script_code = script_path.read_text()
+    _init_tracecat_context()
+
+    script_globals = {"__name__": "__main__", "__file__": str(script_path)}
+    exec(script_code, script_globals)
+    main_func = script_globals.get("main")
+    if main_func is None:
+        # Only user-defined functions qualify, not imported callable objects.
+        for name, obj in script_globals.items():
+            if inspect.isfunction(obj) and not name.startswith("_"):
+                main_func = obj
+                break
+    if main_func is None:
+        raise ValueError("No callable function found in script")
+
+    call = main_func(**inputs) if inputs else main_func()
+    return _resolve_output(call)
+
+
+def _capture_result():
+    """Read inputs, execute the script, and capture ordinary workload errors."""
     inputs_path = Path("/work/inputs.json")
-    if inputs_path.exists():
-        inputs = json.loads(inputs_path.read_text())
-    else:
-        inputs = {}
-
+    inputs = json.loads(inputs_path.read_text()) if inputs_path.exists() else {}
     result = {
         "success": False,
         "output": None,
@@ -193,71 +247,73 @@ def main():
         "stdout": "",
         "stderr": "",
     }
-
-    # Capture stdout/stderr
-    import io
-    old_stdout = sys.stdout
-    old_stderr = sys.stderr
-    sys.stdout = io.StringIO()
-    sys.stderr = io.StringIO()
-
+    old_stdout, old_stderr = sys.stdout, sys.stderr
     try:
-        # Read and execute the user script
-        script_path = Path("/work/script.py")
-        script_code = script_path.read_text()
+        sys.stdout = io.StringIO()
+        sys.stderr = io.StringIO()
+        try:
+            result["output"] = _execute_script(inputs)
+            result["success"] = True
+        except Exception as exc:
+            if _resource_limit_message(exc) is not None:
+                # The outer boundary must unwind workload frames and release
+                # their allocations before building the resource envelope.
+                raise
+            result["error"] = f"{type(exc).__name__}: {exc}"
+            result["traceback"] = traceback.format_exc()
 
-        _init_tracecat_context()
-
-        script_globals = {"__name__": "__main__", "__file__": str(script_path)}
-        exec(script_code, script_globals)
-
-        # Find the callable function
-        main_func = script_globals.get("main")
-        if main_func is None:
-            # Look for the first non-private user-defined function.
-            # Use inspect.isfunction to match only functions created with 'def',
-            # not imported classes or other callables.
-            for name, obj in script_globals.items():
-                if inspect.isfunction(obj) and not name.startswith("_"):
-                    main_func = obj
-                    break
-
-        if main_func is None:
-            raise ValueError("No callable function found in script")
-
-        # Call the function with inputs
-        if inputs:
-            call = main_func(**inputs)
-        else:
-            call = main_func()
-        output = _resolve_output(call)
-
-        result["success"] = True
-        result["output"] = output
-
-    except Exception as e:
-        result["error"] = f"{type(e).__name__}: {e}"
-        result["traceback"] = traceback.format_exc()
-
-    finally:
-        # Capture stdout/stderr
+        # Extraction can allocate another copy of the capture buffers. Keep
+        # it inside the outer recovery boundary, but always restore streams.
         result["stdout"] = sys.stdout.getvalue()
         result["stderr"] = sys.stderr.getvalue()
-        sys.stdout = old_stdout
-        sys.stderr = old_stderr
+    finally:
+        sys.stdout, sys.stderr = old_stdout, old_stderr
+    return result
 
-    # Write result to file
-    result_path = Path("/work/result.json")
+
+def _write_result():
+    """Write normal results, including the existing non-JSON output fallback."""
+    result = _capture_result()
     try:
-        result_path.write_text(json.dumps(result, default=to_json_safe))
-    except (TypeError, ValueError, RecursionError) as e:
-        result["error"] = f"Output not JSON-serializable: {type(e).__name__}: {e}"
+        encoded = json.dumps(result, default=to_json_safe)
+    except (TypeError, ValueError, RecursionError) as exc:
+        result["error"] = f"Output not JSON-serializable: {type(exc).__name__}: {exc}"
         result["success"] = False
         result["output"] = repr(result["output"])
-        result_path.write_text(json.dumps(result))
+        encoded = json.dumps(result)
+    Path("/work/result.json").write_text(encoded)
+    return result["success"]
 
-    # Exit with appropriate code
-    sys.exit(0 if result["success"] else 1)
+
+def main():
+    """Recover resource failures across input, execution, capture, and output."""
+    _enforce_nproc_limit()
+    try:
+        success = _write_result()
+    except (MemoryError, OSError) as exc:
+        message = _resource_limit_message(exc)
+        if message is None:
+            raise
+        # All workload and serialization frames have unwound, and streams
+        # are restored. Drop their tracebacks before allocating the fixed
+        # envelope. Opening the result file anew also truncates a partial
+        # write left by EFBIG.
+        _release_exception_chain(exc)
+        Path("/work/result.json").write_text(
+            json.dumps(
+                {
+                    "success": False,
+                    "output": None,
+                    "error": message,
+                    "traceback": None,
+                    "stdout": "",
+                    "stderr": "",
+                    "error_code": "resource_limit_exceeded",
+                }
+            )
+        )
+        success = False
+    sys.exit(0 if success else 1)
 
 if __name__ == "__main__":
     main()

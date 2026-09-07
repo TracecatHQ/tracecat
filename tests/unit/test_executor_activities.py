@@ -404,11 +404,23 @@ class TestExecuteActionActivity:
 
     @pytest.mark.anyio
     @pytest.mark.parametrize(
-        "error_code",
+        ("error_code", "kind"),
         [
-            SandboxErrorCode.RESOURCE_LIMIT_EXCEEDED,
-            SandboxErrorCode.POLICY_VIOLATION,
-            SandboxErrorCode.WORKLOAD_FAILURE,
+            pytest.param(
+                SandboxErrorCode.RESOURCE_LIMIT_EXCEEDED,
+                RuntimeErrorKind.SANDBOX_RESOURCE_LIMIT_EXCEEDED,
+                id="resource_limit_exceeded",
+            ),
+            pytest.param(
+                SandboxErrorCode.POLICY_VIOLATION,
+                RuntimeErrorKind.ACTION_EXECUTION_FAILED,
+                id="policy_violation",
+            ),
+            pytest.param(
+                SandboxErrorCode.WORKLOAD_FAILURE,
+                RuntimeErrorKind.ACTION_EXECUTION_FAILED,
+                id="workload_failure",
+            ),
         ],
     )
     async def test_sandbox_workload_failure_is_user_owned_and_non_retryable(
@@ -416,7 +428,15 @@ class TestExecuteActionActivity:
         mock_run_action_input: RunActionInput,
         mock_role: Role,
         error_code: SandboxErrorCode,
+        kind: RuntimeErrorKind,
     ) -> None:
+        """Invariant: a sandbox workload failure is the caller's and is not retried.
+
+        A resource-limit death additionally earns its own kind so fleet-wide
+        alerting can key on it; every other workload code keeps the generic
+        action-failure kind. The ``ApplicationError`` type carries the kind
+        verbatim, which is the string those alerts match on.
+        """
         workload_error = SandboxWorkloadError(
             "synthetic sandbox workload diagnostic",
             error_code=error_code,
@@ -453,10 +473,12 @@ class TestExecuteActionActivity:
         classification = extract_error_classification(app_error)
         assert classification is not None
         assert classification.owner is RuntimeErrorOwner.USER
-        assert classification.kind is RuntimeErrorKind.ACTION_EXECUTION_FAILED
+        assert classification.kind is kind
+        assert app_error.type == kind.value
         assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
         assert classification.cause_type == "SandboxWorkloadError"
         assert app_error.non_retryable is True
+        assert "synthetic sandbox workload diagnostic" not in str(app_error)
 
     @pytest.mark.anyio
     async def test_executor_backend_initialization_failure_is_classified(

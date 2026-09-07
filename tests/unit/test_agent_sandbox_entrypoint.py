@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import signal
 import socket
 import tempfile
 from collections.abc import Iterator
@@ -19,6 +20,7 @@ from tracecat.agent.sandbox.shim_entrypoint import (
     LLM_SOCKET_ENV_VAR,
     MCP_SOCKET_ENV_VAR,
     SandboxSocketBridge,
+    _forward_exit_code,
     _pump_stdin_to_process,
     _read_stdin_chunk,
     _resolve_init_payload_path,
@@ -561,3 +563,24 @@ async def test_shim_sets_otel_env_only_after_drop_mode_bridge_starts(
         assert captured_env["OTEL_EXPORTER_OTLP_ENDPOINT"] == (
             f"http://{BRIDGE_HOST}:{otel_port}"
         )
+
+
+@pytest.mark.parametrize(
+    ("return_code", "expected"),
+    [
+        pytest.param(0, 0, id="clean-exit"),
+        pytest.param(1, 1, id="nonzero-exit-passes-through"),
+        pytest.param(-signal.SIGABRT, 134, id="sigabrt-forwards-as-134"),
+        pytest.param(-signal.SIGKILL, 137, id="sigkill-forwards-as-137"),
+    ],
+)
+def test_forward_exit_code_maps_signal_death_to_nsjail_contract(
+    return_code: int,
+    expected: int,
+) -> None:
+    """Invariant: the shim forwards the Claude child's death as ``128 + signal``.
+
+    Without this the shim exits 1 for every failure and the host can never
+    observe which signal killed the jailed runtime.
+    """
+    assert _forward_exit_code(return_code) == expected
