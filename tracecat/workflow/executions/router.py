@@ -39,7 +39,10 @@ from tracecat.identifiers.workflow import (
     exec_id_to_parts,
 )
 from tracecat.logger import logger
-from tracecat.observability.otel import set_current_span_attributes
+from tracecat.observability.otel import (
+    current_trace_id,
+    set_current_span_attributes,
+)
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.settings.service import get_setting
@@ -993,6 +996,24 @@ async def get_workflow_execution_collection_page(
     )
 
 
+def _annotate_execution_trace(
+    role: Role, response: WorkflowExecutionCreateResponse
+) -> None:
+    """Correlate the request span with the execution it started and hand the
+    caller a reference for opening that trace."""
+    set_current_span_attributes(
+        {
+            "tracecat.organization.id": role.organization_id,
+            "tracecat.workspace.id": role.workspace_id,
+            "tracecat.workflow.id": response["wf_id"],
+            "tracecat.workflow.execution.id": response["wf_exec_id"],
+            "tracecat.trigger.type": TriggerType.MANUAL,
+        }
+    )
+    if trace_id := current_trace_id():
+        response["trace_id"] = trace_id
+
+
 @router.post("")
 @require_scope("workflow:execute")
 async def create_workflow_execution(
@@ -1029,18 +1050,7 @@ async def create_workflow_execution(
                 else None
             ),
         )
-        set_current_span_attributes(
-            {
-                "tracecat.organization.id": (
-                    str(role.organization_id) if role.organization_id else None
-                ),
-                "tracecat.workspace.id": (
-                    str(role.workspace_id) if role.workspace_id else None
-                ),
-                "tracecat.workflow.id": str(response["wf_id"]),
-                "tracecat.workflow.execution.id": str(response["wf_exec_id"]),
-            }
-        )
+        _annotate_execution_trace(role, response)
         return response
     except TracecatValidationError as e:
         raise HTTPException(
@@ -1116,6 +1126,7 @@ async def create_draft_workflow_execution(
             time_anchor=params.time_anchor,
             # For draft workflow executions, pass None to dynamically resolve the registry lock
         )
+        _annotate_execution_trace(role, response)
         return response
     except TracecatValidationError as e:
         raise HTTPException(

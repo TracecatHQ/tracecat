@@ -64,6 +64,7 @@ class RuntimeErrorKind(StrEnum):
     EXECUTOR_REGISTRY_CAPACITY_EXHAUSTED = "executor.registry.capacity_exhausted"
     EXECUTOR_REGISTRY_EXTRACTION_FAILED = "executor.registry.extraction_failed"
     EXECUTOR_SANDBOX_INFRASTRUCTURE_FAILED = "executor.sandbox.infrastructure_failed"
+    SANDBOX_RESOURCE_LIMIT_EXCEEDED = "sandbox.resource_limit_exceeded"
     WORKFLOW_DEFINITION_NOT_FOUND = "workflow.definition.not_found"
     WORKFLOW_DEFINITION_LOOKUP_UNAVAILABLE = "workflow.definition.lookup_unavailable"
     WORKFLOW_DEFINITION_INVALID_DATA = "workflow.definition.invalid_data"

@@ -13,13 +13,6 @@ from temporalio.common import TypedSearchAttributes
 from temporalio.exceptions import ActivityError, ApplicationError
 from tracecat_ee.agent.activities import BuildToolDefsArgs, BuildToolDefsResult
 from tracecat_ee.agent.workflows.durable import (
-    BUILD_AGENT_TOOL_DEFINITIONS_PATCH,
-    EMIT_PRE_STREAM_SESSION_ERRORS_PATCH,
-    FINALIZE_TURN_PATCH,
-    FINALIZE_TURN_WITH_END_PATCH,
-    LOAD_TERMINAL_MESSAGE_HISTORY_PATCH,
-    PERSIST_SESSION_ERROR_PATCH,
-    UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH,
     AgentWorkflowArgs,
     DurableAgentWorkflow,
     WorkflowApprovalSubmission,
@@ -45,6 +38,7 @@ from tracecat.dsl._converter import _serializer
 from tracecat.dsl.common import RETRY_POLICIES
 from tracecat.identifiers.workflow import ExecutionUUID, WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.temporal.patches import DurableAgentWorkflowPatch
 from tracecat.workflow.executions.correlation import build_agent_session_correlation_id
 from tracecat.workflow.executions.enums import (
     ExecutionType,
@@ -324,9 +318,9 @@ async def test_run_skips_search_attribute_upsert_without_patch_marker() -> None:
     # Search-attribute upsert and both finalization history shapes retain their
     # independent patch gates.
     assert patched_mock.call_args_list == [
-        ((UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH,),),
-        ((FINALIZE_TURN_WITH_END_PATCH,),),
-        ((FINALIZE_TURN_PATCH,),),
+        ((DurableAgentWorkflowPatch.UPSERT_TRACECAT_SEARCH_ATTRIBUTES,),),
+        ((DurableAgentWorkflowPatch.FINALIZE_TURN_WITH_END,),),
+        ((DurableAgentWorkflowPatch.FINALIZE_TURN,),),
     ]
     upsert_mock.assert_not_called()
     run_mock.assert_awaited_once_with(workflow_args, cfg)
@@ -369,7 +363,9 @@ async def test_run_preserves_v1_finalize_then_done_history_shape() -> None:
     with (
         patch(
             "tracecat_ee.agent.workflows.durable.workflow.patched",
-            side_effect=lambda patch_id: patch_id == FINALIZE_TURN_PATCH,
+            side_effect=lambda patch_id: (
+                patch_id == DurableAgentWorkflowPatch.FINALIZE_TURN
+            ),
         ),
         patch(
             "tracecat_ee.agent.workflows.durable.workflow.unsafe.is_replaying",
@@ -438,7 +434,9 @@ async def test_run_does_not_emit_done_after_combined_finalize_failure() -> None:
     with (
         patch(
             "tracecat_ee.agent.workflows.durable.workflow.patched",
-            side_effect=lambda patch_id: patch_id == FINALIZE_TURN_WITH_END_PATCH,
+            side_effect=lambda patch_id: (
+                patch_id == DurableAgentWorkflowPatch.FINALIZE_TURN_WITH_END
+            ),
         ),
         patch(
             "tracecat_ee.agent.workflows.durable.workflow.unsafe.is_replaying",
@@ -594,11 +592,11 @@ async def test_run_skips_activity_error_emission_without_patch_marker() -> None:
     # resolves False, and _finalize_session_error early-returns before scheduling
     # emit_session_error, preserving the legacy command shape.
     assert patched_mock.call_args_list == [
-        ((UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH,),),
-        ((EMIT_PRE_STREAM_SESSION_ERRORS_PATCH,),),
-        ((PERSIST_SESSION_ERROR_PATCH,),),
-        ((FINALIZE_TURN_WITH_END_PATCH,),),
-        ((FINALIZE_TURN_PATCH,),),
+        ((DurableAgentWorkflowPatch.UPSERT_TRACECAT_SEARCH_ATTRIBUTES,),),
+        ((DurableAgentWorkflowPatch.EMIT_PRE_STREAM_SESSION_ERRORS,),),
+        ((DurableAgentWorkflowPatch.PERSIST_SESSION_ERROR,),),
+        ((DurableAgentWorkflowPatch.FINALIZE_TURN_WITH_END,),),
+        ((DurableAgentWorkflowPatch.FINALIZE_TURN,),),
     ]
     execute_activity_mock.assert_not_awaited()
     emit_terminal_done_mock.assert_awaited_once_with(None)
@@ -653,7 +651,9 @@ async def test_compile_agent_run_uses_legacy_activity_without_patch_marker() -> 
             token_ttl_seconds=None,
         )
 
-    patched_mock.assert_called_once_with(BUILD_AGENT_TOOL_DEFINITIONS_PATCH)
+    patched_mock.assert_called_once_with(
+        DurableAgentWorkflowPatch.BUILD_AGENT_TOOL_DEFINITIONS
+    )
     execute_activity_mock.assert_awaited_once()
     assert execute_activity_mock.await_args is not None
     activity_args = execute_activity_mock.await_args.kwargs["arg"]
@@ -698,7 +698,9 @@ async def test_load_terminal_message_history_skips_activity_without_patch_marker
             AgentExecutorResult(success=True)
         )
 
-    patched_mock.assert_called_once_with(LOAD_TERMINAL_MESSAGE_HISTORY_PATCH)
+    patched_mock.assert_called_once_with(
+        DurableAgentWorkflowPatch.LOAD_TERMINAL_MESSAGE_HISTORY
+    )
     execute_activity_mock.assert_not_called()
     assert message_history is None
 

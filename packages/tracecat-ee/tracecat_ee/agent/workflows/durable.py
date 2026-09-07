@@ -19,9 +19,6 @@ from temporalio.exceptions import (
 from temporalio.exceptions import TimeoutError as TemporalTimeoutError
 
 with workflow.unsafe.imports_passed_through():
-    from pydantic_ai.messages import ToolCallPart
-    from pydantic_ai.tools import ToolApproved, ToolDenied
-
     from tracecat import config
     from tracecat.agent.common.stream_types import HarnessType
     from tracecat.agent.common.types import (
@@ -100,7 +97,12 @@ with workflow.unsafe.imports_passed_through():
         mint_llm_token,
         mint_mcp_token,
     )
-    from tracecat.agent.types import AgentConfig, clamp_agent_timeout_seconds
+    from tracecat.agent.types import (
+        AgentConfig,
+        ToolApproved,
+        ToolDenied,
+        clamp_agent_timeout_seconds,
+    )
     from tracecat.agent.workflow_config import agent_config_from_payload
     from tracecat.auth.types import Role
     from tracecat.chat.schemas import ChatMessage
@@ -116,6 +118,7 @@ with workflow.unsafe.imports_passed_through():
         raise_application_error_from_classification,
         raise_wrapped_application_error,
     )
+    from tracecat.temporal.patches import DurableAgentWorkflowPatch
     from tracecat.workflow.executions.correlation import (
         build_agent_session_correlation_id,
     )
@@ -143,21 +146,6 @@ with workflow.unsafe.imports_passed_through():
 ROOT_AGENT_SCOPE = "root"
 AGENT_TOOL_DEFINITION_ERROR = "AgentToolDefinitionError"
 AGENT_RUNTIME_EXECUTION_ERROR = "AgentRuntimeExecutionError"
-BUILD_AGENT_TOOL_DEFINITIONS_PATCH = (
-    "tracecat_ee.agent.workflows.durable.build_agent_tool_definitions"
-)
-EMIT_PRE_STREAM_SESSION_ERRORS_PATCH = (
-    "tracecat_ee.agent.workflows.durable.emit_pre_stream_session_errors"
-)
-PERSIST_SESSION_ERROR_PATCH = (
-    "tracecat_ee.agent.workflows.durable.persist_session_error"
-)
-# Temporal patch IDs are persisted in each workflow execution's history. Use a
-# stable, unique ID for every command-producing workflow change, and never reuse
-# an ID for another change. Keep both branches until old histories that lack the
-# marker have aged out, then use workflow.deprecate_patch(...) before removing
-# the marker entirely in a later cleanup.
-AGENT_REQUEST_CANCEL_PATCH = "durable-agent-request-cancel-v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -532,18 +520,18 @@ def _resolve_agent_output(
     return None
 
 
-UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH = (
-    "durable-agent-upsert-tracecat-search-attributes-v1"
-)
-# Temporal patch IDs are persisted in each workflow execution's history. Use a
-# stable, unique ID for every command-producing workflow change, and never reuse
-# an ID for another change. Keep both branches until old histories that lack the
-# marker have aged out, then use workflow.deprecate_patch(...) before removing
-# the marker entirely in a later cleanup.
-LOAD_TERMINAL_MESSAGE_HISTORY_PATCH = "durable-agent-load-terminal-message-history-v1"
-PRESERVE_RESUMED_AGENT_BINDINGS_PATCH = (
-    "durable-agent-preserve-resumed-agent-bindings-v1"
-)
+def _use_per_turn_agent_bindings() -> bool:
+    """Accept recorded activation histories without activating new turns yet.
+
+    Ship the session activity compatibility support to every worker first.
+    The activation release can remove the is_replaying guard. Until then,
+    new turns retain session bindings, including after a workflow-task replay
+    without this patch marker. Histories from an activated worker retain their
+    recorded branch, making this release a compatible rollback target.
+    """
+    return workflow.unsafe.is_replaying() and workflow.patched(
+        DurableAgentWorkflowPatch.RESOLVE_AGENTS_PER_TURN
+    )
 
 
 def _agents_config_from_binding(
@@ -562,12 +550,6 @@ def _preserved_agents_binding(
     if load_result.has_resume_state:
         return ResolvedAgentsConfig()
     return None
-
-
-FINALIZE_TURN_PATCH = "durable-agent-finalize-turn-v1"
-FINALIZE_TURN_WITH_END_PATCH = "durable-agent-finalize-turn-with-end-v1"
-REMINT_SCOPE_TOKENS_PATCH = "durable-agent-remint-scope-tokens-v1"
-APPROVAL_STREAM_V2_PATCH = "durable-agent-approval-stream-v2"
 
 
 @workflow.defn
@@ -735,10 +717,8 @@ class DurableAgentWorkflow:
         follow_latest_versions: bool | None = None,
     ) -> ResolvedAgentsRuntimeConfig:
         agents_config = agents if agents is not None else cfg.agents
-        if not agents_config.enabled:
-            return ResolvedAgentsRuntimeConfig()
         if not agents_config.subagents:
-            return ResolvedAgentsRuntimeConfig(enabled=True)
+            return ResolvedAgentsRuntimeConfig()
         return await workflow.execute_activity(
             resolve_agents_config_activity,
             ResolveAgentsConfigActivityInput(
@@ -821,7 +801,7 @@ class DurableAgentWorkflow:
             config=cfg,
             internal_tool_context=internal_tool_context,
         )
-        if not workflow.patched(BUILD_AGENT_TOOL_DEFINITIONS_PATCH):
+        if not workflow.patched(DurableAgentWorkflowPatch.BUILD_AGENT_TOOL_DEFINITIONS):
             try:
                 legacy_build_result = await workflow.execute_activity_method(
                     AgentActivities.build_tool_definitions,
@@ -967,16 +947,19 @@ class DurableAgentWorkflow:
         self._initialize_run()
 
         try:
-            if workflow.patched(UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH):
+            if workflow.patched(
+                DurableAgentWorkflowPatch.UPSERT_TRACECAT_SEARCH_ATTRIBUTES
+            ):
                 self._upsert_tracecat_search_attributes()
-            logger.debug(
-                "DurableAgentWorkflow run", args=args, harness_type=self.harness_type
-            )
+            logger.debug("DurableAgentWorkflow run", harness_type=self.harness_type)
             logger.debug("AGENT CONTEXT", agent_context=AgentContext.get())
             if workflow.unsafe.is_replaying():
                 logger.debug("Workflow is replaying")
             else:
-                logger.debug("Starting agent", prompt=args.agent_args.user_prompt)
+                logger.debug(
+                    "Starting agent",
+                    prompt_length=len(args.agent_args.user_prompt),
+                )
 
             cfg = await self._build_config(args)
             # Success needs no write: last_error was already cleared at turn
@@ -990,7 +973,9 @@ class DurableAgentWorkflow:
             # was not yet wired up to surface it inline).
             await self._finalize_session_error(
                 classification.message,
-                should_stream=workflow.patched(EMIT_PRE_STREAM_SESSION_ERRORS_PATCH),
+                should_stream=workflow.patched(
+                    DurableAgentWorkflowPatch.EMIT_PRE_STREAM_SESSION_ERRORS
+                ),
             )
             raise_wrapped_application_error(
                 e,
@@ -1015,7 +1000,9 @@ class DurableAgentWorkflow:
                 else e.type == AGENT_TOOL_DEFINITION_ERROR
                 or (
                     e.type != AGENT_RUNTIME_EXECUTION_ERROR
-                    and workflow.patched(EMIT_PRE_STREAM_SESSION_ERRORS_PATCH)
+                    and workflow.patched(
+                        DurableAgentWorkflowPatch.EMIT_PRE_STREAM_SESSION_ERRORS
+                    )
                 )
             )
             await self._finalize_session_error(
@@ -1035,7 +1022,9 @@ class DurableAgentWorkflow:
             classification = agent_workflow_internal_error(e)
             await self._finalize_session_error(
                 classification.message,
-                should_stream=workflow.patched(EMIT_PRE_STREAM_SESSION_ERRORS_PATCH),
+                should_stream=workflow.patched(
+                    DurableAgentWorkflowPatch.EMIT_PRE_STREAM_SESSION_ERRORS
+                ),
             )
             raise_application_error_from_classification(classification)
         finally:
@@ -1047,13 +1036,13 @@ class DurableAgentWorkflow:
             # with or without pointer cleanup, while the activity-result fallback
             # covers a v2 workflow whose task is picked up by a pre-v2 worker.
             terminal_stream_id = self.active_stream_id
-            if workflow.patched(FINALIZE_TURN_WITH_END_PATCH):
+            if workflow.patched(DurableAgentWorkflowPatch.FINALIZE_TURN_WITH_END):
                 await self._finalize_turn(
                     terminal_stream_id,
                     emit_terminal_done=True,
                 )
             else:
-                if workflow.patched(FINALIZE_TURN_PATCH):
+                if workflow.patched(DurableAgentWorkflowPatch.FINALIZE_TURN):
                     await self._finalize_turn(None, emit_terminal_done=False)
                 await self._emit_terminal_done(terminal_stream_id)
 
@@ -1111,7 +1100,7 @@ class DurableAgentWorkflow:
         failures, and we guard the schedule so finalizing never masks the
         agent's real error or aborts the workflow's own error propagation.
         """
-        if not workflow.patched(PERSIST_SESSION_ERROR_PATCH):
+        if not workflow.patched(DurableAgentWorkflowPatch.PERSIST_SESSION_ERROR):
             # Pre-patch histories kept their original pre-stream-only behavior,
             # so preserve that command shape on replay.
             if not should_stream:
@@ -1318,7 +1307,15 @@ class DurableAgentWorkflow:
             workflow.info().workflow_id
         ).session_id
         load_result: LoadSessionResult | None = None
-        if workflow.patched(PRESERVE_RESUMED_AGENT_BINDINGS_PATCH):
+        resolve_agents_per_turn = _use_per_turn_agent_bindings()
+        if resolve_agents_per_turn:
+            # Each workflow is a new turn. The resolution activity result in
+            # this workflow's history freezes its configuration, including
+            # approval continuation; session history does not pin dependencies.
+            agents_result = await self._resolve_agents_config(args, cfg)
+        elif workflow.patched(
+            DurableAgentWorkflowPatch.PRESERVE_RESUMED_AGENT_BINDINGS
+        ):
             # Load session topology before resolving agents. A resumed session's
             # stored binding is the stable runtime contract, even if the preset
             # now follows a newer child version.
@@ -1356,9 +1353,14 @@ class DurableAgentWorkflow:
                 agent_preset_id=args.agent_preset_id,
                 agent_preset_version_id=args.agent_preset_version_id,
                 agents_binding=agents_result.to_agents_binding(),
+                enforce_session_agents_binding=not resolve_agents_per_turn,
                 harness_type=HarnessType(self.harness_type),
                 curr_run_id=curr_run_id,
-                initial_user_prompt=args.agent_args.user_prompt,
+                initial_user_prompt=(
+                    args.agent_args.user_prompt
+                    if isinstance(args.agent_args.user_prompt, str)
+                    else None
+                ),
             ),
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=RETRY_POLICIES["activity:fail_fast"],
@@ -1395,9 +1397,9 @@ class DurableAgentWorkflow:
         )
 
         if load_result is None:
-            # Legacy command order for histories without the binding-preservation
-            # patch marker. sdk_session_data is replay compatibility only; new
-            # activity executions leave it unset.
+            # New turns load conversation history independently of dependency
+            # resolution. This also preserves the original command order before
+            # session binding preservation was introduced.
             load_result = await workflow.execute_activity(
                 load_session_activity,
                 LoadSessionInput(role=self.role, session_id=self.session_id),
@@ -1432,13 +1434,12 @@ class DurableAgentWorkflow:
         # histories that already advanced past an approval pause compatible
         # with the now-unconditional emit_session_done command; verify that no
         # such executions remain RUNNING before rollout.
-        workflow.deprecate_patch(APPROVAL_STREAM_V2_PATCH)
+        workflow.deprecate_patch(DurableAgentWorkflowPatch.APPROVAL_STREAM_V2)
         agent_otel_auth_token = mint_agent_otel_token(
             workspace_id=self.workspace_id,
             organization_id=self.organization_id,
             session_id=self.session_id,
         )
-
         # Prepare executor input
         executor_input = AgentExecutorInput(
             session_id=self.session_id,
@@ -1468,7 +1469,7 @@ class DurableAgentWorkflow:
 
             # Run one executor activity turn with update-driven cancellation.
             try:
-                if not workflow.patched(AGENT_REQUEST_CANCEL_PATCH):
+                if not workflow.patched(DurableAgentWorkflowPatch.AGENT_REQUEST_CANCEL):
                     result = await workflow.execute_activity(
                         run_agent_activity,
                         executor_input,
@@ -1561,16 +1562,7 @@ class DurableAgentWorkflow:
 
             if result.approval_requested:
                 logger.info("Agent waiting for approval", session_id=self.session_id)
-                # Convert ToolCallContent to ToolCallPart for ApprovalManager
                 if result.approval_items:
-                    tool_call_parts = [
-                        ToolCallPart(
-                            tool_call_id=item.id,
-                            tool_name=item.name,
-                            args=item.input,
-                        )
-                        for item in result.approval_items
-                    ]
                     request_metadata = {
                         item.id: item.metadata
                         for item in result.approval_items
@@ -1578,7 +1570,7 @@ class DurableAgentWorkflow:
                     }
                     # Persist approval requests to DB (atomic with chat messages)
                     await self.approvals.prepare(
-                        tool_call_parts,
+                        result.approval_items,
                         request_metadata=request_metadata,
                     )
                 await self._emit_approval_pause_done()
@@ -1618,7 +1610,7 @@ class DurableAgentWorkflow:
 
                 # Approval waits are unbounded. Tokens are turn-scoped, so resumed
                 # user-MCP tool execution and the continuation need fresh tokens.
-                if workflow.patched(REMINT_SCOPE_TOKENS_PATCH):
+                if workflow.patched(DurableAgentWorkflowPatch.REMINT_SCOPE_TOKENS):
                     compiled_run = self._remint_scope_tokens(
                         compiled_run,
                         internal_tool_context=internal_tool_context,
@@ -1833,7 +1825,9 @@ class DurableAgentWorkflow:
         if result.messages is not None:
             return result.messages
 
-        if not workflow.patched(LOAD_TERMINAL_MESSAGE_HISTORY_PATCH):
+        if not workflow.patched(
+            DurableAgentWorkflowPatch.LOAD_TERMINAL_MESSAGE_HISTORY
+        ):
             return None
 
         try:

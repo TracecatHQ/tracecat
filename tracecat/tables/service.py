@@ -14,7 +14,7 @@ from asyncpg.exceptions import (
     UndefinedTableError,
 )
 from sqlalchemy import select
-from sqlalchemy.dialects.postgresql import JSONB, insert
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import DBAPIError, IntegrityError, NoResultFound, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
 from sqlalchemy.orm import selectinload
@@ -47,6 +47,9 @@ from tracecat.pagination import (
 )
 from tracecat.service import BaseWorkspaceService
 from tracecat.tables.common import (
+    INTERNAL_COLUMN_PREFIX as INTERNAL_COLUMN_PREFIX,
+)
+from tracecat.tables.common import (
     ColumnHasDuplicateValuesError,
     coerce_integer_value,
     coerce_multi_select_value,
@@ -58,7 +61,20 @@ from tracecat.tables.common import (
     is_valid_sql_type,
     normalize_column_options,
     prepare_default_value,
+    sa_type_for_column,
     to_sql_clause,
+)
+from tracecat.tables.common import (
+    is_internal_column_name as is_internal_column_name,
+)
+from tracecat.tables.common import (
+    quote_identifier as quote_identifier,
+)
+from tracecat.tables.common import (
+    sanitize_identifier as sanitize_identifier,
+)
+from tracecat.tables.common import (
+    validate_identifier as validate_identifier,
 )
 from tracecat.tables.enums import SqlType
 from tracecat.tables.importer import (
@@ -86,7 +102,6 @@ DYNAMIC_WORKSPACE_RLS_POLICY = "rls_policy_dynamic_workspace"
 RLS_WORKSPACE_VAR = "app.current_workspace_id"
 RLS_BYPASS_VAR = "app.rls_bypass"
 RLS_BYPASS_ON = "on"
-INTERNAL_COLUMN_PREFIX = "__tc_"
 SYSTEM_VISIBLE_COLUMN_NAMES: tuple[str, ...] = ("id", "created_at", "updated_at")
 
 
@@ -279,25 +294,9 @@ class BaseTablesService(BaseWorkspaceService):
 
         return normalised
 
-    def _sa_type_for_column(self, sql_type: SqlType) -> sa.types.TypeEngine:
+    def _sa_type_for_column(self, sql_type: SqlType) -> sa.types.TypeEngine[Any]:
         """Map SqlType to SQLAlchemy column types for safe binding."""
-        match sql_type:
-            case SqlType.TEXT | SqlType.SELECT:
-                return sa.String()
-            case SqlType.INTEGER:
-                return sa.BigInteger()
-            case SqlType.NUMERIC:
-                return sa.Numeric()
-            case SqlType.DATE:
-                return sa.Date()
-            case SqlType.BOOLEAN:
-                return sa.Boolean()
-            case SqlType.TIMESTAMPTZ:
-                return sa.TIMESTAMP(timezone=True)
-            case SqlType.JSONB | SqlType.MULTI_SELECT:
-                return JSONB()
-            case _:
-                return sa.String()
+        return sa_type_for_column(sql_type)
 
     async def list_tables(self) -> Sequence[Table]:
         """List all lookup tables for a workspace.
@@ -2328,42 +2327,3 @@ class TableEditorService(BaseWorkspaceService):
         stmt = sa.delete(table_clause).where(sa.column("id") == row_id)
         await conn.execute(stmt)
         await self.session.flush()
-
-
-def sanitize_identifier(identifier: str) -> str:
-    """Normalize a stored identifier to its physical SQL name."""
-    sanitized = "".join(c for c in identifier if c.isalnum() or c == "_")
-    if not sanitized:
-        raise ValueError("Identifier must contain at least one letter")
-    if not (sanitized[0].isalpha() or sanitized[0] == "_"):
-        raise ValueError("Identifier must start with a letter or underscore")
-    return sanitized.lower()
-
-
-def quote_identifier(identifier: str) -> str:
-    """Double-quote a SQL identifier for safe use in DDL statements.
-
-    Prevents syntax errors when identifier names collide with SQL reserved
-    keywords (e.g. ``select``, ``order``, ``group``).  Safe to use because
-    all callers pass values already restricted to ``[a-zA-Z0-9_]`` by
-    ``validate_identifier`` / ``sanitize_identifier``.
-    """
-    return f'"{identifier}"'
-
-
-def is_internal_column_name(column_name: str) -> bool:
-    """Check whether a column is internal/system-managed for dynamic schemas."""
-    return column_name.lower().startswith(INTERNAL_COLUMN_PREFIX)
-
-
-def validate_identifier(identifier: str) -> str:
-    """Validate an external identifier before using it in DDL operations."""
-    if not identifier:
-        raise ValueError("Identifier must contain at least one letter")
-    if not all(c.isalnum() or c == "_" for c in identifier):
-        raise ValueError(
-            "Identifier must contain only letters, numbers, and underscores"
-        )
-    if not (identifier[0].isalpha() or identifier[0] == "_"):
-        raise ValueError("Identifier must start with a letter or underscore")
-    return identifier.lower()

@@ -4,9 +4,8 @@ from tracecat.agent.schemas import (
     ProviderCredentialField,
 )
 
-# https://ai.pydantic.dev/api/models/base/
 MODEL_CONFIGS = {
-    # Maps the pydantic-ai model name to the Tracecat model config
+    # Maps the provider model name to the Tracecat model config.
     "gpt-4o-mini": ModelConfig(
         name="gpt-4o-mini",
         provider="openai",

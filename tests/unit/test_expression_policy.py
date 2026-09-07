@@ -302,7 +302,6 @@ def test_preset_nested_durable_fields_redact_secrets(action: str) -> None:
             },
             "mcp_integrations": ["${{ SECRETS.api.MCP_INTEGRATION_ID }}"],
             "agents": {
-                "enabled": True,
                 "subagents": [
                     {
                         "preset": "triage-assistant",
@@ -337,7 +336,6 @@ def test_preset_nested_durable_fields_redact_secrets(action: str) -> None:
         },
         "mcp_integrations": [MASK_VALUE],
         "agents": {
-            "enabled": True,
             "subagents": [
                 {
                     "preset": "triage-assistant",

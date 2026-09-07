@@ -297,7 +297,10 @@ async def restore_skill_version(
 @router.delete("/{skill_id}", status_code=status.HTTP_204_NO_CONTENT)
 @require_scope("agent:delete")
 async def archive_skill(
-    *, skill_id: str, role: ExecutorWorkspaceRole, session: AsyncDBSession
+    *,
+    skill_id: str,
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
 ) -> None:
     service = SkillService(session, role=role)
     resolved_skill_id = await _resolve_skill_id(service, skill_id)

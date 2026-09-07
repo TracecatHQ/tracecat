@@ -62,6 +62,16 @@ from tracecat.sandbox.types import SandboxErrorCode
             SandboxErrorCode.POLICY_VIOLATION,
             id="workload-seccomp-policy",
         ),
+        # SIGABRT stays a workload failure on the core path: Python reports
+        # allocation failure in-band as MemoryError (structured envelope code),
+        # and an abort has other causes the exit code cannot separate.
+        pytest.param(
+            128 + signal.SIGABRT,
+            False,
+            True,
+            SandboxErrorCode.WORKLOAD_FAILURE,
+            id="workload-sigabrt-stays-workload-failure",
+        ),
         pytest.param(
             1,
             False,

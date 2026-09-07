@@ -98,7 +98,6 @@ async def test_resolve_agent_preset_version_ref_activity_returns_ids(
 
     service.resolve_agent_preset_version.assert_awaited_once_with(
         slug="triage-agent",
-        preset_version=3,
     )
     assert result.preset_id == version.preset_id
     assert result.preset_version_id == version.id
@@ -156,7 +155,6 @@ def test_resolve_agents_config_result_derives_session_binding() -> None:
         preset_version_id=uuid.uuid4(),
     )
     result = ResolvedAgentsRuntimeConfig(
-        enabled=True,
         subagents=[
             ResolvedSubagentConfig(
                 binding=binding,
@@ -174,12 +172,11 @@ def test_resolve_agents_config_result_derives_session_binding() -> None:
     assert result.subagents[0].alias == "analyst"
     assert result.subagents[0].max_turns == 5
     agents_binding = result.to_agents_binding()
-    assert agents_binding.enabled is True
     assert agents_binding.subagents == [binding]
 
 
 @pytest.mark.anyio
-async def test_resolve_preset_subagent_configs_resolves_version_id_ref() -> None:
+async def test_resolve_preset_subagent_allows_no_attached_children() -> None:
     role = Role(
         type="service",
         service_id="tracecat-api",
@@ -193,7 +190,7 @@ async def test_resolve_preset_subagent_configs_resolves_version_id_ref() -> None
         id=preset_version_id,
         preset_id=preset_id,
         version=8,
-        agents={"enabled": False},
+        agents={"subagents": []},
         tool_approvals={},
     )
     service.resolve_agent_preset_version = AsyncMock(return_value=version)
@@ -201,7 +198,6 @@ async def test_resolve_preset_subagent_configs_resolves_version_id_ref() -> None
 
     result = await service._resolve_preset_subagent_configs(
         AgentSubagentsConfig(
-            enabled=True,
             subagents=[
                 ResolvedAttachedSubagentRef(
                     preset="old-analyst-slug",
@@ -219,23 +215,25 @@ async def test_resolve_preset_subagent_configs_resolves_version_id_ref() -> None
     )
 
     service.resolve_agent_preset_version.assert_awaited_once_with(
-        preset_version_id=preset_version_id,
+        preset_id=preset_id,
+        include_deleted=True,
     )
     assert result["subagents"][0]["preset_version_id"] == str(preset_version_id)
     assert result["subagents"][0]["preset_version"] == 8
 
 
 @pytest.mark.anyio
-async def test_resolve_agents_config_resolves_pinned_ref_by_version_id(
+async def test_resolve_agents_config_follows_current_preset_head(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     preset_id = uuid.uuid4()
-    preset_version_id = uuid.uuid4()
+    attached_version_id = uuid.uuid4()
+    current_version_id = uuid.uuid4()
     version = SimpleNamespace(
-        id=preset_version_id,
+        id=current_version_id,
         preset_id=preset_id,
         version=4,
-        agents={"enabled": False},
+        agents={},
         tool_approvals={},
     )
     service = SimpleNamespace(
@@ -248,7 +246,6 @@ async def test_resolve_agents_config_resolves_pinned_ref_by_version_id(
                 retries=3,
             )
         ),
-        use_latest_resource_versions=AsyncMock(return_value=False),
     )
     role = Role(
         type="service",
@@ -266,7 +263,6 @@ async def test_resolve_agents_config_resolves_pinned_ref_by_version_id(
         ResolveAgentsConfigActivityInput(
             role=role,
             agents=AgentSubagentsConfig(
-                enabled=True,
                 subagents=[
                     ResolvedAttachedSubagentRef(
                         preset="old-analyst-slug",
@@ -275,7 +271,7 @@ async def test_resolve_agents_config_resolves_pinned_ref_by_version_id(
                         description=None,
                         max_turns=None,
                         preset_id=preset_id,
-                        preset_version_id=preset_version_id,
+                        preset_version_id=attached_version_id,
                     )
                 ],
             ),
@@ -283,10 +279,15 @@ async def test_resolve_agents_config_resolves_pinned_ref_by_version_id(
     )
 
     service.resolve_agent_preset_version.assert_awaited_once_with(
-        preset_version_id=preset_version_id,
+        preset_id=preset_id,
+        include_deleted=True,
     )
-    service.use_latest_resource_versions.assert_awaited_once()
-    assert result.subagents[0].binding.preset_version_id == preset_version_id
+    service.resolve_agent_preset_config.assert_awaited_once_with(
+        preset_version_id=current_version_id,
+        resolve_dependencies_from_heads=True,
+        include_deleted=True,
+    )
+    assert result.subagents[0].binding.preset_version_id == current_version_id
     assert result.subagents[0].binding.preset_version == 4
 
 
@@ -300,7 +301,7 @@ async def test_resolve_agents_config_explicitly_disables_latest_resolution(
         id=preset_version_id,
         preset_id=preset_id,
         version=4,
-        agents={"enabled": False},
+        agents={},
         tool_approvals={},
     )
     service = SimpleNamespace(
@@ -313,7 +314,6 @@ async def test_resolve_agents_config_explicitly_disables_latest_resolution(
                 retries=3,
             )
         ),
-        use_latest_resource_versions=AsyncMock(return_value=True),
     )
     role = Role(
         type="service",
@@ -331,7 +331,6 @@ async def test_resolve_agents_config_explicitly_disables_latest_resolution(
         ResolveAgentsConfigActivityInput(
             role=role,
             agents=AgentSubagentsConfig(
-                enabled=True,
                 subagents=[
                     ResolvedAttachedSubagentRef(
                         preset="old-analyst-slug",
@@ -346,9 +345,9 @@ async def test_resolve_agents_config_explicitly_disables_latest_resolution(
         )
     )
 
-    service.use_latest_resource_versions.assert_not_awaited()
     service.resolve_agent_preset_version.assert_awaited_once_with(
         preset_version_id=preset_version_id,
+        include_deleted=True,
     )
     assert result.subagents[0].binding.preset_version_id == preset_version_id
 
@@ -402,7 +401,7 @@ async def test_resolve_agents_config_rejects_subagent_with_tool_approvals(
         id=uuid.uuid4(),
         preset_id=uuid.uuid4(),
         version=1,
-        agents={"enabled": False},
+        agents={},
         tool_approvals={"core.http_request": True},
     )
     service = SimpleNamespace(
@@ -427,7 +426,6 @@ async def test_resolve_agents_config_rejects_subagent_with_tool_approvals(
                 role=role,
                 agents=AgentSubagentsConfig.model_validate(
                     {
-                        "enabled": True,
                         "subagents": [{"preset": "approval-child"}],
                     }
                 ),
@@ -511,7 +509,6 @@ async def test_resolve_agents_config_rejects_invalid_fallback_alias(
                 role=role,
                 agents=AgentSubagentsConfig.model_validate(
                     {
-                        "enabled": True,
                         "subagents": [{"preset": "Bad Alias"}],
                     }
                 ),

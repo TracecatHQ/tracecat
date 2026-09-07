@@ -56,8 +56,6 @@ export interface AgentPresetSubagentEntry {
   name: string | null
   /** Preset slug the subagent is backed by. */
   preset: string
-  /** Pinned preset version, or null to track the latest. */
-  presetVersion: number | null
   /** Maximum turns allowed for this subagent, or null for the default. */
   maxTurns: number | null
   /** Description override, or null. */
@@ -107,9 +105,7 @@ export interface AgentPresetDocumentInput {
   mcpIntegrations: string[]
   /** Tool approvals, sorted by tool name. */
   toolApprovals: AgentPresetToolApproval[]
-  /** Whether subagents are enabled. */
-  subagentsEnabled: boolean
-  /** Attached subagents, sorted by name then preset. Empty when disabled. */
+  /** Attached subagents, sorted by name then preset. */
   subagents: AgentPresetSubagentEntry[]
   /** Attached skills with their version pins, sorted by name then version. */
   skills: AgentPresetSkillEntry[]
@@ -206,7 +202,6 @@ function normalizeSubagents(
     .map((subagent) => ({
       name: subagent.name ?? null,
       preset: subagent.preset,
-      presetVersion: subagent.preset_version ?? null,
       maxTurns: subagent.max_turns ?? null,
       description: subagent.description ?? null,
     }))
@@ -267,12 +262,7 @@ function agentPresetExecutionFieldsToDocumentInput(
   skillBindings: readonly RawSkillBinding[],
   skillNamesById: ReadonlyMap<string, string>
 ): AgentPresetDocumentInput {
-  const subagentsEnabled = fields.agents?.enabled ?? false
-  // Mirrors `formValuesToAgentsPayload` in the builder: a disabled toggle drops
-  // the attachments entirely, so a stale list must not show up in the diff.
-  const subagents = subagentsEnabled
-    ? normalizeSubagents(fields.agents?.subagents)
-    : []
+  const subagents = normalizeSubagents(fields.agents?.subagents)
 
   return {
     instructions: fields.instructions ?? "",
@@ -285,7 +275,6 @@ function agentPresetExecutionFieldsToDocumentInput(
     namespaces: sortStrings(fields.namespaces ?? []),
     mcpIntegrations: sortStrings(fields.mcp_integrations ?? []),
     toolApprovals: normalizeToolApprovals(fields.tool_approvals),
-    subagentsEnabled,
     subagents,
     skills: normalizeSkills(skillBindings, skillNamesById),
     // `form.getValues()` returns raw input and `retries` is a `z.coerce.number()`
@@ -299,8 +288,8 @@ function agentPresetExecutionFieldsToDocumentInput(
 /**
  * Normalizes a saved preset version into the shared document input.
  *
- * Skill pins come straight from the version's bindings: restoring copies those
- * exact `skill_version` pins back to the head, so they are part of the diff.
+ * Skill pins come from the restore projection, which resolves the historical
+ * membership through each Skill's current head to match backend restore behavior.
  */
 export function agentPresetVersionToDocumentInput(
   version: AgentPresetVersionRead,
@@ -308,7 +297,7 @@ export function agentPresetVersionToDocumentInput(
 ): AgentPresetDocumentInput {
   return agentPresetExecutionFieldsToDocumentInput(
     version,
-    (version.skills ?? []).map((skill) => ({
+    version.restore_skills.map((skill) => ({
       skillId: skill.skill_id,
       fallbackName: skill.skill_name,
       version: skill.skill_version,
@@ -404,11 +393,9 @@ export function buildAgentPresetVirtualFiles(input: AgentPresetDocumentInput): {
       allow: approval.allow,
     })),
     subagents: {
-      enabled: input.subagentsEnabled,
       agents: input.subagents.map((subagent) => ({
         name: subagent.name,
         preset: subagent.preset,
-        preset_version: subagent.presetVersion,
         max_turns: subagent.maxTurns,
         description: subagent.description,
       })),

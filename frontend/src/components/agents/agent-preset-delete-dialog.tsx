@@ -64,6 +64,11 @@ export function AgentPresetDeleteDialog({
             and cannot be undone.
           </AlertDialogDescription>
           <AlertDialogDescription>
+            It will also be removed as a subagent from every agent that uses it,
+            including saved versions. Restoring an older agent version will not
+            bring this subagent back.
+          </AlertDialogDescription>
+          <AlertDialogDescription>
             Type <b>{confirmationTarget}</b> to confirm deletion.
           </AlertDialogDescription>
         </AlertDialogHeader>

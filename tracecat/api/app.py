@@ -51,6 +51,8 @@ from tracecat.api.common import (
     custom_generate_unique_id,
     generic_exception_handler,
     http_exception_handler,
+    query_overflow_exception_handler,
+    query_timeout_exception_handler,
     tracecat_exception_handler,
 )
 from tracecat.api.lifespan import LifespanTaskSupervisor
@@ -135,11 +137,16 @@ from tracecat.observability.otel import (
     instrument_fastapi_app,
     shutdown_platform_tracing,
 )
+from tracecat.observability.sentry import initialize_api_sentry_from_environment
 from tracecat.organization.management import (
     ensure_default_organization,
     get_default_organization_id,
 )
 from tracecat.organization.router import router as org_router
+from tracecat.query.errors import (
+    TracecatQueryOverflowError,
+    TracecatQueryTimeoutError,
+)
 from tracecat.registry.actions.router import router as registry_actions_router
 from tracecat.registry.repositories.router import router as registry_repos_router
 from tracecat.registry.sync.jobs import sync_platform_registry_on_startup
@@ -633,6 +640,14 @@ def create_app(**kwargs) -> FastAPI:
         auth_pool_exhausted_exception_handler,
     )
     app.add_exception_handler(TracecatException, tracecat_exception_handler)
+    app.add_exception_handler(
+        TracecatQueryTimeoutError,
+        query_timeout_exception_handler,
+    )
+    app.add_exception_handler(
+        TracecatQueryOverflowError,
+        query_overflow_exception_handler,
+    )
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
     app.add_exception_handler(
         FastAPIUsersException,
@@ -672,6 +687,7 @@ def create_app(**kwargs) -> FastAPI:
     return app
 
 
+initialize_api_sentry_from_environment()
 app = create_app()
 
 

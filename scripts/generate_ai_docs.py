@@ -158,7 +158,6 @@ EXAMPLES: dict[str, dict[str, str]] = {
               action: ai.preset_agent
               args:
                 preset: security-analyst
-                preset_version: 3
                 user_prompt: |
                   Review the incident below and decide whether to escalate it:
 

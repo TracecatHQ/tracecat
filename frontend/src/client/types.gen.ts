@@ -765,7 +765,7 @@ export type AgentPresetSubagentEligibility = {
 }
 
 export type AgentPresetSubagentEligibilityReason =
-  | "agents_enabled"
+  | "subagents_attached"
   | "tool_approvals"
 
 /**
@@ -846,6 +846,7 @@ export type AgentPresetVersionRead = {
   capabilities?: Array<AgentPresetCapability>
   subagent_eligibility?: AgentPresetSubagentEligibility
   skills?: Array<AgentPresetSkillBindingRead>
+  restore_skills: Array<AgentPresetSkillBindingRead>
   created_at: string
   updated_at: string
 }
@@ -1122,17 +1123,23 @@ export type AgentSettingsUpdate = {
 }
 
 /**
- * User-facing agents toggle and optional preset-backed subagents.
+ * User-facing preset-backed subagents.
  */
 export type AgentSubagentsConfig_Input = {
+  /**
+   * @deprecated
+   */
   enabled?: boolean
   subagents?: Array<AnyAttachedSubagentRef>
 }
 
 /**
- * User-facing agents toggle and optional preset-backed subagents.
+ * User-facing preset-backed subagents.
  */
 export type AgentSubagentsConfig_Output = {
+  /**
+   * @deprecated
+   */
   enabled?: boolean
   subagents?: Array<AnyAttachedSubagentRef>
 }
@@ -1171,7 +1178,6 @@ export type AppSettingsRead = {
   app_workflow_export_enabled: boolean
   app_create_workspace_on_register: boolean
   app_action_form_mode_enabled: boolean
-  app_versioned_resource_resolution_strategy?: VersionedResourceResolutionStrategy
 }
 
 /**
@@ -1202,10 +1208,6 @@ export type AppSettingsUpdate = {
    * Whether to enable form mode for action inputs. When disabled, only YAML mode is available, preserving raw YAML formatting.
    */
   app_action_form_mode_enabled?: boolean
-  /**
-   * How versioned resource references are resolved when a feature supports both pinned and latest dependency resolution.
-   */
-  app_versioned_resource_resolution_strategy?: VersionedResourceResolutionStrategy
 }
 
 /**
@@ -1409,36 +1411,6 @@ export type AttachmentDeletedEventRead = {
 }
 
 /**
- * A URL to an audio file.
- */
-export type AudioUrl = {
-  url: string
-  force_download?: boolean | "allow-local"
-  vendor_metadata?: {
-    [key: string]: unknown
-  } | null
-  kind?: "audio-url"
-  /**
-   * Return the media type of the file, based on the URL or the provided `media_type`.
-   */
-  readonly media_type: string
-  /**
-   * The identifier of the file, such as a unique ID.
-   *
-   * This identifier can be provided to the model in a message to allow it to refer to this file in a tool call argument,
-   * and the tool can look up the file in question by iterating over the message history and finding the matching `FileUrl`.
-   *
-   * This identifier is only automatically passed to the model when the `FileUrl` is returned by a tool.
-   * If you're passing the `FileUrl` as a user message, it's up to you to include a separate text part with the identifier,
-   * e.g. "This is file <identifier>:" preceding the `FileUrl`.
-   *
-   * It's also included in inline-text delimiters for providers that require inlining text documents, so the model can
-   * distinguish multiple files.
-   */
-  readonly identifier: string
-}
-
-/**
  * Settings for audit logging.
  */
 export type AuditSettingsRead = {
@@ -1587,52 +1559,6 @@ export type BedrockCatalogUpdate = {
   use_converse?: boolean
 }
 
-/**
- * Binary content, e.g. an audio or image file.
- */
-export type BinaryContent = {
-  data: string
-  media_type:
-    | "audio/wav"
-    | "audio/mpeg"
-    | "audio/ogg"
-    | "audio/flac"
-    | "audio/aiff"
-    | "audio/aac"
-    | "image/jpeg"
-    | "image/png"
-    | "image/gif"
-    | "image/webp"
-    | "application/pdf"
-    | "text/plain"
-    | "text/csv"
-    | "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    | "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    | "text/html"
-    | "text/markdown"
-    | "application/msword"
-    | "application/vnd.ms-excel"
-    | string
-  vendor_metadata?: {
-    [key: string]: unknown
-  } | null
-  kind?: "binary"
-  /**
-   * Identifier for the binary content, such as a unique ID.
-   *
-   * This identifier can be provided to the model in a message to allow it to refer to this file in a tool call argument,
-   * and the tool can look up the file in question by iterating over the message history and finding the matching `BinaryContent`.
-   *
-   * This identifier is only automatically passed to the model when the `BinaryContent` is returned by a tool.
-   * If you're passing the `BinaryContent` as a user message, it's up to you to include a separate text part with the identifier,
-   * e.g. "This is file <identifier>:" preceding the `BinaryContent`.
-   *
-   * It's also included in inline-text delimiters for providers that require inlining text documents, so the model can
-   * distinguish multiple files.
-   */
-  readonly identifier: string
-}
-
 export type Body_auth_reset_forgot_password = {
   email: string
 }
@@ -1688,13 +1614,6 @@ export type BooleanApprovalDecision = {
     [key: string]: unknown
   }
 }
-
-export type CachePoint = {
-  kind?: "cache-point"
-  ttl?: "5m" | "1h"
-}
-
-export type ttl = "5m" | "1h"
 
 /**
  * Lifecycle state for the durable backfill operation.
@@ -2771,7 +2690,7 @@ export type CaseViewedEventRead = {
 export type CatalogMappingAffectedPreset = {
   preset_slug: string
   preset_name: string
-  version: number
+  version: number | null
   path: string
 }
 
@@ -2842,7 +2761,6 @@ export type ChatMessage = {
    * The deserialized message (for kind=CHAT_MESSAGE)
    */
   message?:
-    | unknown
     | UserMessage
     | AssistantMessage
     | SystemMessage
@@ -3872,36 +3790,6 @@ export type DefaultModelSelectionUpdate = {
 }
 
 /**
- * The URL of the document.
- */
-export type DocumentUrl = {
-  url: string
-  force_download?: boolean | "allow-local"
-  vendor_metadata?: {
-    [key: string]: unknown
-  } | null
-  kind?: "document-url"
-  /**
-   * Return the media type of the file, based on the URL or the provided `media_type`.
-   */
-  readonly media_type: string
-  /**
-   * The identifier of the file, such as a unique ID.
-   *
-   * This identifier can be provided to the model in a message to allow it to refer to this file in a tool call argument,
-   * and the tool can look up the file in question by iterating over the message history and finding the matching `FileUrl`.
-   *
-   * This identifier is only automatically passed to the model when the `FileUrl` is returned by a tool.
-   * If you're passing the `FileUrl` as a user message, it's up to you to include a separate text part with the identifier,
-   * e.g. "This is file <identifier>:" preceding the `FileUrl`.
-   *
-   * It's also included in inline-text delimiters for providers that require inlining text documents, so the model can
-   * distinguish multiple files.
-   */
-  readonly identifier: string
-}
-
-/**
  * Event for when a case dropdown value is changed.
  */
 export type DropdownValueChangedEventRead = {
@@ -4096,17 +3984,6 @@ export type EntitlementsDict = {
    * Whether Watchtower agent monitoring is enabled (agent sessions, tool-call telemetry, and controls)
    */
   watchtower?: boolean
-}
-
-export type ErrorDetails = {
-  type: string
-  loc: Array<number | string>
-  msg: string
-  input: unknown
-  ctx?: {
-    [key: string]: unknown
-  }
-  url?: string
 }
 
 export type ErrorModel = {
@@ -4737,40 +4614,10 @@ export type HTTPValidationError = {
 /**
  * Supported agent harnesses.
  */
-export type HarnessType = "pydantic-ai" | "claude_code"
+export type HarnessType = "claude_code"
 
 export type HealthResponse = {
   status: string
-}
-
-/**
- * A URL to an image.
- */
-export type ImageUrl = {
-  url: string
-  force_download?: boolean | "allow-local"
-  vendor_metadata?: {
-    [key: string]: unknown
-  } | null
-  kind?: "image-url"
-  /**
-   * Return the media type of the file, based on the URL or the provided `media_type`.
-   */
-  readonly media_type: string
-  /**
-   * The identifier of the file, such as a unique ID.
-   *
-   * This identifier can be provided to the model in a message to allow it to refer to this file in a tool call argument,
-   * and the tool can look up the file in question by iterating over the message history and finding the matching `FileUrl`.
-   *
-   * This identifier is only automatically passed to the model when the `FileUrl` is returned by a tool.
-   * If you're passing the `FileUrl` as a user message, it's up to you to include a separate text part with the identifier,
-   * e.g. "This is file <identifier>:" preceding the `FileUrl`.
-   *
-   * It's also included in inline-text delimiters for providers that require inlining text documents, so the model can
-   * distinguish multiple files.
-   */
-  readonly identifier: string
 }
 
 /**
@@ -5643,7 +5490,7 @@ export type status5 =
 export type McpIntegrationMappingAffectedPreset = {
   preset_slug: string
   preset_name: string
-  version: number
+  version: number | null
   path: string
 }
 
@@ -6832,9 +6679,12 @@ export type RepositorySyncResult = {
 }
 
 /**
- * Persisted agents toggle with immutable resolved child refs.
+ * Persisted immutable resolved child refs.
  */
 export type ResolvedAgentsConfig = {
+  /**
+   * @deprecated
+   */
   enabled?: boolean
   subagents?: Array<ResolvedAttachedSubagentRef>
 }
@@ -6906,14 +6756,6 @@ export type ResultMessage = {
   permission_denials?: Array<unknown> | null
   errors?: Array<string> | null
   uuid?: string | null
-}
-
-export type RetryPromptPart = {
-  content: Array<ErrorDetails> | string
-  tool_name?: string | null
-  tool_call_id?: string
-  timestamp?: string
-  part_kind?: "retry-prompt"
 }
 
 /**
@@ -8616,36 +8458,6 @@ export type ToolResultBlock = {
   is_error?: boolean | null
 }
 
-export type ToolReturn = {
-  return_value: ToolReturnContent
-  content?:
-    | string
-    | Array<
-        | string
-        | ImageUrl
-        | AudioUrl
-        | DocumentUrl
-        | VideoUrl
-        | BinaryContent
-        | CachePoint
-      >
-    | null
-  metadata?: unknown
-  kind?: "tool-return"
-}
-
-export type ToolReturnContent =
-  | ImageUrl
-  | AudioUrl
-  | DocumentUrl
-  | VideoUrl
-  | BinaryContent
-  | Array<ToolReturnContent>
-  | {
-      [key: string]: ToolReturnContent
-    }
-  | unknown
-
 export type ToolUIPartInputAvailable = {
   type: string
   toolCallId: string
@@ -9046,8 +8858,6 @@ export type VersionDiff = {
   total_changes?: number
 }
 
-export type VersionedResourceResolutionStrategy = "pinned" | "latest"
-
 /**
  * Vertex AI catalog entry.
  */
@@ -9062,36 +8872,6 @@ export type VertexAICatalogUpdate = {
   display_name?: string | null
   model_provider: "vertex_ai"
   vertex_model: string
-}
-
-/**
- * A URL to a video.
- */
-export type VideoUrl = {
-  url: string
-  force_download?: boolean | "allow-local"
-  vendor_metadata?: {
-    [key: string]: unknown
-  } | null
-  kind?: "video-url"
-  /**
-   * Return the media type of the file, based on the URL or the provided `media_type`.
-   */
-  readonly media_type: string
-  /**
-   * The identifier of the file, such as a unique ID.
-   *
-   * This identifier can be provided to the model in a message to allow it to refer to this file in a tool call argument,
-   * and the tool can look up the file in question by iterating over the message history and finding the matching `FileUrl`.
-   *
-   * This identifier is only automatically passed to the model when the `FileUrl` is returned by a tool.
-   * If you're passing the `FileUrl` as a user message, it's up to you to include a separate text part with the identifier,
-   * e.g. "This is file <identifier>:" preceding the `FileUrl`.
-   *
-   * It's also included in inline-text delimiters for providers that require inlining text documents, so the model can
-   * distinguish multiple files.
-   */
-  readonly identifier: string
 }
 
 export type WaitResultOutput =
@@ -9553,6 +9333,7 @@ export type WorkflowExecutionCreateResponse = {
   message: string
   wf_id: string
   wf_exec_id: string
+  trace_id?: string
   payload?: unknown
 }
 
@@ -16941,6 +16722,10 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Agent preset not found
+         */
+        404: unknown
         /**
          * Validation Error
          */

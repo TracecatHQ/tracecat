@@ -22,8 +22,8 @@ dist
 .pytest_cache
 .ruff_cache
 
-# Docs and images (not needed in backend containers)
-docs
+# Docs text is embedded in the Workspace Chat adapter; omit only heavy images.
+docs/img
 img
 
 # IDE

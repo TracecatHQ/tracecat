@@ -112,8 +112,9 @@ function buildVersion(
 ): AgentPresetVersionRead {
   return {
     ...SHARED_EXECUTION,
-    agents: { enabled: true, subagents: VERSION_SUBAGENTS },
+    agents: { subagents: VERSION_SUBAGENTS },
     skills: VERSION_SKILLS,
+    restore_skills: VERSION_SKILLS,
     id: "version-1",
     preset_id: "preset-1",
     workspace_id: "workspace-1",
@@ -129,7 +130,7 @@ function buildPayload(
 ): AgentPresetCreate {
   return {
     ...SHARED_EXECUTION,
-    agents: { enabled: true, subagents: DRAFT_SUBAGENTS },
+    agents: { subagents: DRAFT_SUBAGENTS },
     skills: [{ skill_id: SKILL_ALPHA_ID }, { skill_id: SKILL_BETA_ID }],
     name: "Alert triage agent",
     slug: "alert-triage-agent",
@@ -226,7 +227,6 @@ describe("buildAgentPresetVirtualFiles determinism", () => {
     const shuffled = renderPayload(
       buildPayload({
         agents: {
-          enabled: true,
           subagents: [...DRAFT_SUBAGENTS].reverse(),
         },
       })
@@ -316,18 +316,33 @@ describe("buildAgentPresetVirtualFiles normalization", () => {
     )
   })
 
-  it("excludes resolved subagent uuids", () => {
+  it("excludes derived subagent version metadata", () => {
     const { config } = renderVersion(buildVersion())
     expect(config).not.toContain("preset_id")
     expect(config).not.toContain("preset_version_id")
-    expect(config).toContain("preset_version: 2")
+    expect(config).not.toContain("preset_version")
   })
 
-  it("forces an empty agent list when subagents are disabled", () => {
-    const { config } = renderPayload(
-      buildPayload({ agents: { enabled: false, subagents: DRAFT_SUBAGENTS } })
+  it("matches an unresolved draft against a resolved version", () => {
+    const draftSubagents = DRAFT_SUBAGENTS.map(
+      ({ preset_version: _presetVersion, ...subagent }) => subagent
     )
-    expect(config).toContain("subagents:\n  enabled: false\n  agents: []\n")
+
+    expect(
+      renderPayload(buildPayload({ agents: { subagents: draftSubagents } }))
+        .config
+    ).toBe(renderVersion(buildVersion()).config)
+  })
+
+  it("ignores the removed legacy enabled field", () => {
+    const { config } = renderPayload(
+      buildPayload({
+        agents: { enabled: false, subagents: DRAFT_SUBAGENTS } as never,
+      })
+    )
+    expect(config).not.toContain("enabled:")
+    expect(config).toContain("preset: writer")
+    expect(config).toContain("preset: triage")
   })
 
   it("emits explicit nulls and empty lists for a minimal preset", () => {
@@ -351,7 +366,6 @@ describe("buildAgentPresetVirtualFiles normalization", () => {
         "mcp_integrations: []",
         "tool_approvals: []",
         "subagents:",
-        "  enabled: false",
         "  agents: []",
         "skills: []",
         "runtime:",
@@ -366,12 +380,10 @@ describe("buildAgentPresetVirtualFiles normalization", () => {
 
 describe("buildAgentPresetVirtualFiles skill version pins", () => {
   /**
-   * Regression: skills used to render as bare names, so a version pinning
-   * `alpha-skill@5` against a head pinned at `alpha-skill@2` produced
-   * byte-identical configs — and the restore dialog claimed nothing would
-   * change while `restore_version` silently rolled the skill back to v5.
+   * Regression: the restore preview used the immutable historical Skill pin
+   * instead of the current Skill head that backend restore actually selects.
    */
-  it("diffs the same skill pinned at different versions", () => {
+  it("uses the current-head restore projection instead of historical pins", () => {
     const fromVersion = renderVersion(
       buildVersion({
         skills: [
@@ -380,6 +392,14 @@ describe("buildAgentPresetVirtualFiles skill version pins", () => {
             skill_version_id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
             skill_name: "alpha-skill",
             skill_version: 5,
+          },
+        ],
+        restore_skills: [
+          {
+            skill_id: SKILL_ALPHA_ID,
+            skill_version_id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+            skill_name: "alpha-skill",
+            skill_version: 2,
           },
         ],
       })
@@ -400,11 +420,8 @@ describe("buildAgentPresetVirtualFiles skill version pins", () => {
       ])
     )
 
-    expect(fromVersion.config).not.toBe(fromPayload.config)
+    expect(fromVersion.config).toBe(fromPayload.config)
     expect(fromVersion.config).toContain(
-      "skills:\n  - name: alpha-skill\n    version: 5\n"
-    )
-    expect(fromPayload.config).toContain(
       "skills:\n  - name: alpha-skill\n    version: 2\n"
     )
   })
