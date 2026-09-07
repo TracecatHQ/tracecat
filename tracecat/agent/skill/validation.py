@@ -14,9 +14,9 @@ def get_mcp_grant_support_error(
     return SkillValidationErrorDetail(
         code=STDIO_MCP_TOOL_SUBSET_UNSUPPORTED,
         message=(
-            f"Individual tool grant '{tool_id}' is not supported for stdio MCP "
-            "integrations yet. Grant the whole integration explicitly or use "
-            "an HTTP MCP integration."
+            f"Cannot add '{tool_id}' on its own. Stdio MCP servers currently "
+            "require access to all their tools. Add the whole server instead, "
+            "or use an HTTP MCP server to select individual tools."
         ),
         path="SKILL.md",
     )

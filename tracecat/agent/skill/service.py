@@ -1248,7 +1248,10 @@ class SkillService(SkillBindingService):
             result.errors.append(
                 SkillValidationErrorDetail(
                     code="unknown_skill_tools",
-                    message=f"Unknown skill tool IDs: {missing}",
+                    message=(
+                        f"Tools not found: {', '.join(missing)}. "
+                        "Check the tool names or remove them from this skill."
+                    ),
                     path="SKILL.md",
                 )
             )
@@ -1257,8 +1260,10 @@ class SkillService(SkillBindingService):
                 SkillValidationErrorDetail(
                     code="unavailable_skill_tools",
                     message=(
-                        "Skill tool IDs are disabled or unavailable: "
-                        f"{sorted(unavailable_mcp_tools)}"
+                        "Tools are disabled or unavailable: "
+                        f"{', '.join(sorted(unavailable_mcp_tools))}. "
+                        "Enable them in MCP server settings or remove them "
+                        "from this skill."
                     ),
                     path="SKILL.md",
                 )
