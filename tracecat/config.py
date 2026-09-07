@@ -1353,6 +1353,19 @@ TRACECAT__ALLOWED_ATTACHMENT_MIME_TYPES = {
 }
 """The allowed MIME types for case attachment files."""
 
+# === Webhook limits === #
+TRACECAT__WEBHOOK_MAX_BODY_BYTES = bound_env(
+    "TRACECAT__WEBHOOK_MAX_BODY_BYTES",
+    default=4 * 1024 * 1024,
+    lower=1,
+)
+"""Maximum accepted webhook request body size in bytes (default 4 MiB).
+
+Requests with a body larger than this are rejected with 413 before the
+payload is parsed. Applies to workflow webhook endpoints and to interaction
+endpoints that reuse the same payload parser.
+"""
+
 # === Enterprise Edition === #
 ENTERPRISE_EDITION = env_bool("ENTERPRISE_EDITION", default=False)
 """Whether the enterprise edition is enabled."""

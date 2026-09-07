@@ -13,6 +13,7 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
 
+from tracecat import config
 from tracecat.auth.api_keys import verify_api_key
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
@@ -247,6 +248,55 @@ def parse_content_type(content_type: str) -> tuple[str, dict[str, str]]:
     return mime_type.strip(), metadata
 
 
+async def _read_capped_body(request: Request) -> bytes:
+    """Read the request body, rejecting payloads above the configured cap.
+
+    Checks the ``content-length`` header first for a fast 413, then reads the
+    stream incrementally so unbounded bodies cannot accumulate in memory. The
+    read body is cached on the request (mirroring Starlette's ``body()``
+    behavior) so downstream consumers such as ``request.form()`` and
+    ``request.body()`` for raw-body webhooks see the same bytes without
+    re-reading a consumed stream.
+    """
+    max_body_bytes = config.TRACECAT__WEBHOOK_MAX_BODY_BYTES
+
+    content_length = request.headers.get("content-length")
+    if content_length is not None:
+        try:
+            declared_length = int(content_length)
+        except (TypeError, ValueError):
+            declared_length = None
+        if declared_length is not None and declared_length > max_body_bytes:
+            raise HTTPException(
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                detail=(
+                    "Webhook payload too large: "
+                    f"{declared_length} bytes exceeds the "
+                    f"{max_body_bytes} byte limit"
+                ),
+            )
+
+    chunks: list[bytes] = []
+    total_size = 0
+    async for chunk in request.stream():
+        total_size += len(chunk)
+        if total_size > max_body_bytes:
+            raise HTTPException(
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                detail=(
+                    "Webhook payload too large: body exceeds the "
+                    f"{max_body_bytes} byte limit"
+                ),
+            )
+        chunks.append(chunk)
+    body = b"".join(chunks)
+    # Starlette caches the body in this attribute and returns it from both
+    # `body()` and `stream()` once set; set it so later reads (raw-body
+    # envelopes, form parsing) do not hit a consumed stream.
+    request._body = body  # noqa: SLF001
+    return body
+
+
 async def parse_webhook_payload(
     request: Request,
     content_type: Annotated[str | None, Header(alias="content-type")] = None,
@@ -261,7 +311,7 @@ async def parse_webhook_payload(
     Returns:
         Parsed payload as TriggerInputs or None if no payload
     """
-    body = await request.body()
+    body = await _read_capped_body(request)
     if not body:
         return None
 

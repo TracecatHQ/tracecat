@@ -1,14 +1,14 @@
 import hashlib
+import urllib.parse
 import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
-from typing import cast
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import orjson
 import pytest
 from fastapi import HTTPException, Request
-from fastapi.datastructures import FormData
 from sqlalchemy.exc import NoResultFound
 
 from tracecat import config
@@ -27,11 +27,57 @@ from tracecat.webhooks.schemas import WebhookApiKeyRead, _normalize_cidrs
 class TestParseWebhookPayload:
     """Test cases for parse_webhook_payload function."""
 
+    @staticmethod
+    def _request_with_body(
+        body: bytes,
+        headers: dict[str, str] | None = None,
+        *,
+        chunk_size: int | None = None,
+        content_type: str | None = None,
+    ) -> Request:
+        """Build a real Starlette request whose stream yields the given body.
+
+        The body is cached the same way Starlette's ``body()`` caches it, so
+        later ``form()`` or ``body()`` calls see the bytes without re-reading
+        a consumed stream. ``content_type`` sets the scope header because
+        Starlette's ``form()`` parses according to its own content-type
+        header, not the one passed to the dependency.
+        """
+        merged_headers = dict(headers or {})
+        if content_type is not None:
+            merged_headers.setdefault("content-type", content_type)
+        encoded_headers = [
+            (key.lower().encode("latin-1"), value.encode("latin-1"))
+            for key, value in merged_headers.items()
+        ]
+        scope: dict[str, Any] = {
+            "type": "http",
+            "method": "POST",
+            "headers": encoded_headers,
+            "query_string": b"",
+        }
+        if chunk_size is None:
+            chunks = [body] if body else []
+        else:
+            chunks = [body[i : i + chunk_size] for i in range(0, len(body), chunk_size)]
+
+        async def receive() -> dict[str, Any]:
+            if chunks:
+                return {
+                    "type": "http.request",
+                    "body": chunks.pop(0),
+                    "more_body": bool(chunks),
+                }
+            return {"type": "http.disconnect"}
+
+        request = Request(scope, receive)
+        request._body = body  # noqa: SLF001
+        return request
+
     @pytest.mark.anyio
     async def test_empty_body_returns_none(self):
         """Test that empty body returns None."""
-        request = MagicMock(spec=Request)
-        request.body = AsyncMock(return_value=b"")
+        request = self._request_with_body(b"")
 
         result = await parse_webhook_payload(request, "application/json")
         assert result is None
@@ -40,8 +86,7 @@ class TestParseWebhookPayload:
     async def test_json_content_type(self):
         """Test parsing JSON content type."""
         test_data = {"key": "value", "number": 42}
-        request = MagicMock(spec=Request)
-        request.body = AsyncMock(return_value=orjson.dumps(test_data))
+        request = self._request_with_body(orjson.dumps(test_data))
 
         result = await parse_webhook_payload(request, "application/json")
         assert result == test_data
@@ -50,8 +95,7 @@ class TestParseWebhookPayload:
     async def test_json_content_type_with_charset(self):
         """Test parsing JSON content type with charset parameter."""
         test_data = {"key": "value", "number": 42}
-        request = MagicMock(spec=Request)
-        request.body = AsyncMock(return_value=orjson.dumps(test_data))
+        request = self._request_with_body(orjson.dumps(test_data))
 
         result = await parse_webhook_payload(request, "application/json; charset=utf-8")
         assert result == test_data
@@ -61,8 +105,7 @@ class TestParseWebhookPayload:
         """Test parsing NDJSON content type."""
         test_data = [{"line": 1}, {"line": 2}]
         ndjson_body = b'{"line": 1}\n{"line": 2}'
-        request = MagicMock(spec=Request)
-        request.body = AsyncMock(return_value=ndjson_body)
+        request = self._request_with_body(ndjson_body)
 
         result = await parse_webhook_payload(request, "application/x-ndjson")
         assert result == test_data
@@ -72,8 +115,7 @@ class TestParseWebhookPayload:
         """Test parsing NDJSON content type with charset parameter."""
         test_data = [{"line": 1}, {"line": 2}]
         ndjson_body = b'{"line": 1}\n{"line": 2}'
-        request = MagicMock(spec=Request)
-        request.body = AsyncMock(return_value=ndjson_body)
+        request = self._request_with_body(ndjson_body)
 
         result = await parse_webhook_payload(
             request, "application/x-ndjson; charset=utf-8"
@@ -85,8 +127,7 @@ class TestParseWebhookPayload:
         """Test parsing jsonlines content type."""
         test_data = [{"line": 1}, {"line": 2}]
         ndjson_body = b'{"line": 1}\n{"line": 2}'
-        request = MagicMock(spec=Request)
-        request.body = AsyncMock(return_value=ndjson_body)
+        request = self._request_with_body(ndjson_body)
 
         result = await parse_webhook_payload(request, "application/jsonlines")
         assert result == test_data
@@ -96,8 +137,7 @@ class TestParseWebhookPayload:
         """Test parsing jsonl content type with charset parameter."""
         test_data = [{"line": 1}, {"line": 2}]
         ndjson_body = b'{"line": 1}\n{"line": 2}'
-        request = MagicMock(spec=Request)
-        request.body = AsyncMock(return_value=ndjson_body)
+        request = self._request_with_body(ndjson_body)
 
         result = await parse_webhook_payload(
             request, "application/jsonl; charset=utf-8"
@@ -107,12 +147,10 @@ class TestParseWebhookPayload:
     @pytest.mark.anyio
     async def test_form_urlencoded_content_type(self):
         """Test parsing form-urlencoded content type."""
-        request = MagicMock(spec=Request)
-        request.body = AsyncMock(return_value=b"key=value&number=42")
-
-        # Mock the form() method
-        form_data = FormData([("key", "value"), ("number", "42")])
-        request.form = AsyncMock(return_value=form_data)
+        request = self._request_with_body(
+            b"key=value&number=42",
+            content_type="application/x-www-form-urlencoded",
+        )
 
         result = await parse_webhook_payload(
             request, "application/x-www-form-urlencoded"
@@ -122,12 +160,10 @@ class TestParseWebhookPayload:
     @pytest.mark.anyio
     async def test_form_urlencoded_content_type_with_charset(self):
         """Test parsing form-urlencoded content type with charset parameter."""
-        request = MagicMock(spec=Request)
-        request.body = AsyncMock(return_value=b"key=value&number=42")
-
-        # Mock the form() method
-        form_data = FormData([("key", "value"), ("number", "42")])
-        request.form = AsyncMock(return_value=form_data)
+        request = self._request_with_body(
+            b"key=value&number=42",
+            content_type="application/x-www-form-urlencoded; charset=utf-8",
+        )
 
         result = await parse_webhook_payload(
             request, "application/x-www-form-urlencoded; charset=utf-8"
@@ -138,8 +174,7 @@ class TestParseWebhookPayload:
     async def test_case_insensitive_content_type(self):
         """Test that content type matching is case insensitive."""
         test_data = {"key": "value"}
-        request = MagicMock(spec=Request)
-        request.body = AsyncMock(return_value=orjson.dumps(test_data))
+        request = self._request_with_body(orjson.dumps(test_data))
 
         result = await parse_webhook_payload(request, "APPLICATION/JSON; CHARSET=UTF-8")
         assert result == test_data
@@ -148,8 +183,7 @@ class TestParseWebhookPayload:
     async def test_content_type_with_whitespace(self):
         """Test that content type handles extra whitespace."""
         test_data = {"key": "value"}
-        request = MagicMock(spec=Request)
-        request.body = AsyncMock(return_value=orjson.dumps(test_data))
+        request = self._request_with_body(orjson.dumps(test_data))
 
         result = await parse_webhook_payload(
             request, "  application/json ; charset=utf-8  "
@@ -160,8 +194,7 @@ class TestParseWebhookPayload:
     async def test_none_content_type_defaults_to_json(self):
         """Test that None content type defaults to JSON parsing."""
         test_data = {"key": "value"}
-        request = MagicMock(spec=Request)
-        request.body = AsyncMock(return_value=orjson.dumps(test_data))
+        request = self._request_with_body(orjson.dumps(test_data))
 
         result = await parse_webhook_payload(request, None)
         assert result == test_data
@@ -170,11 +203,126 @@ class TestParseWebhookPayload:
     async def test_unknown_content_type_defaults_to_json(self):
         """Test that unknown content type defaults to JSON parsing."""
         test_data = {"key": "value"}
-        request = MagicMock(spec=Request)
-        request.body = AsyncMock(return_value=orjson.dumps(test_data))
+        request = self._request_with_body(orjson.dumps(test_data))
 
         result = await parse_webhook_payload(request, "text/plain")
         assert result == test_data
+
+
+class TestWebhookBodySizeCap:
+    """Tests for the webhook request body size cap in parse_webhook_payload."""
+
+    @pytest.fixture(autouse=True)
+    def small_cap(self, monkeypatch: pytest.MonkeyPatch):
+        """Use a small, deterministic cap for size tests."""
+        monkeypatch.setattr(config, "TRACECAT__WEBHOOK_MAX_BODY_BYTES", 64)
+        return 64
+
+    @pytest.mark.anyio
+    async def test_body_at_cap_is_accepted(self, small_cap: int):
+        """A body exactly at the cap parses normally."""
+        assert small_cap == 64
+        # {"key":"<54 x's>"} is exactly 64 bytes.
+        test_data = {"key": "x" * 54}
+        body = orjson.dumps(test_data)
+        assert len(body) == small_cap
+        request = TestParseWebhookPayload._request_with_body(body)
+
+        result = await parse_webhook_payload(request, "application/json")
+        assert result == test_data
+
+    @pytest.mark.anyio
+    async def test_oversized_content_length_rejected_without_reading_body(
+        self, small_cap: int
+    ):
+        """An over-cap content-length is rejected before consuming the stream."""
+        assert small_cap == 64
+        received: list[bytes] = []
+
+        async def receive() -> dict[str, Any]:
+            chunk = b"x" * 128
+            received.append(chunk)
+            return {"type": "http.request", "body": chunk, "more_body": False}
+
+        scope = {
+            "type": "http",
+            "method": "POST",
+            "headers": [(b"content-length", b"4096")],
+            "query_string": b"",
+        }
+        request = Request(scope, receive)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await parse_webhook_payload(request, "application/json")
+        assert exc_info.value.status_code == 413
+        # The 413 fast path must not have pulled bytes from the stream.
+        assert received == []
+
+    @pytest.mark.anyio
+    async def test_oversize_detected_during_streaming_read(self, small_cap: int):
+        """A chunked body that grows past the cap is rejected mid-stream."""
+        assert small_cap == 64
+        request = TestParseWebhookPayload._request_with_body(b"x" * 65, chunk_size=16)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await parse_webhook_payload(request, "application/json")
+        assert exc_info.value.status_code == 413
+
+    @pytest.mark.anyio
+    async def test_ndjson_over_cap_rejected(self, small_cap: int):
+        """The cap applies to NDJSON payloads too."""
+        assert small_cap == 64
+        # Six 11-byte lines plus 5 separator bytes is 71 bytes, above the cap.
+        body = b"\n".join(b'{"line": %d}' % i for i in range(1, 7))
+        assert len(body) == 71
+        assert len(body) > small_cap
+        request = TestParseWebhookPayload._request_with_body(body)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await parse_webhook_payload(request, "application/x-ndjson")
+        assert exc_info.value.status_code == 413
+
+    @pytest.mark.anyio
+    async def test_form_urlencoded_over_cap_rejected(self, small_cap: int):
+        """The cap applies to form-urlencoded payloads too."""
+        assert small_cap == 64
+        body = ("key=" + "x" * 100).encode()
+        request = TestParseWebhookPayload._request_with_body(body)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await parse_webhook_payload(request, "application/x-www-form-urlencoded")
+        assert exc_info.value.status_code == 413
+
+    @pytest.mark.anyio
+    async def test_form_urlencoded_under_cap_parses(self, small_cap: int):
+        """Form parsing still works under the cap without a form() mock."""
+        assert small_cap == 64
+        request = TestParseWebhookPayload._request_with_body(
+            b"key=value&number=42",
+            content_type="application/x-www-form-urlencoded",
+        )
+
+        result = await parse_webhook_payload(
+            request, "application/x-www-form-urlencoded"
+        )
+        assert result == {"key": "value", "number": "42"}
+
+    @pytest.mark.anyio
+    async def test_slack_interaction_payload_under_cap_parses(self, small_cap: int):
+        """Slack interaction form posts still parse under the cap."""
+        assert small_cap == 64
+        slack_payload = orjson.dumps({"type": "block_actions"})
+        body = urllib.parse.urlencode({"payload": slack_payload.decode()}).encode()
+        assert 0 < len(body) <= small_cap
+        request = TestParseWebhookPayload._request_with_body(
+            body, content_type="application/x-www-form-urlencoded"
+        )
+
+        result = await parse_webhook_payload(
+            request, "application/x-www-form-urlencoded"
+        )
+        assert result is not None
+        assert result["payload"] == slack_payload.decode()
 
 
 class TestWebhookNetworkHelpers:
