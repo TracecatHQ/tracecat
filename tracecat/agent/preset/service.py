@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
 
@@ -45,7 +45,10 @@ from tracecat.agent.preset.schemas import (
     build_agent_preset_read_minimal,
     build_subagent_eligibility,
 )
-from tracecat.agent.preset.tool_policy import PresetToolPolicyService
+from tracecat.agent.preset.tool_policy import (
+    PresetToolPolicyService,
+    resolve_tool_policy,
+)
 from tracecat.agent.preset.types import (
     EffectivePresetTools,
     PresetToolInputs,
@@ -55,7 +58,7 @@ from tracecat.agent.skill.bindings import (
     SkillBindingService,
     validate_no_duplicate_skill_ids,
 )
-from tracecat.agent.skill.grants import SkillToolGrantService
+from tracecat.agent.skill.dependencies import SkillToolDependencyService
 from tracecat.agent.skill.types import SkillMcpGrant
 from tracecat.agent.subagents import (
     AgentSubagentsConfig,
@@ -135,7 +138,7 @@ class AgentPresetService(BaseWorkspaceService):
     def __init__(self, session: AsyncSession, role: Role | None = None):
         super().__init__(session, role=role)
         self.skills = SkillBindingService(session, role=self.role)
-        self.skill_tools = SkillToolGrantService(session, role=self.role)
+        self.skill_tools = SkillToolDependencyService(session, role=self.role)
         self.tool_policy = PresetToolPolicyService(session, role=self.role)
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
@@ -899,6 +902,21 @@ class AgentPresetService(BaseWorkspaceService):
         if not mcp_integrations:
             return []
 
+        available = await IntegrationService(
+            self.session, role=self.role
+        ).list_mcp_integrations()
+        return self._select_mcp_integrations(
+            mcp_integrations, available, raise_on_missing=raise_on_missing
+        )
+
+    def _select_mcp_integrations(
+        self,
+        mcp_integrations: Sequence[str],
+        available_mcp_integrations: Sequence[MCPIntegration],
+        *,
+        raise_on_missing: bool = True,
+    ) -> list[MCPIntegration]:
+        """Validate authored selections against already-loaded workspace metadata."""
         # Convert string IDs to UUIDs for validation
         mcp_integration_ids = set()
         for mcp_id in mcp_integrations:
@@ -909,8 +927,6 @@ class AgentPresetService(BaseWorkspaceService):
                     f"Invalid MCP integration ID format: {mcp_id}"
                 ) from err
 
-        integrations_service = IntegrationService(self.session, role=self.role)
-        available_mcp_integrations = await integrations_service.list_mcp_integrations()
         available_mcp_integration_ids = {
             mcp_integration.id for mcp_integration in available_mcp_integrations
         }
@@ -1214,7 +1230,14 @@ class AgentPresetService(BaseWorkspaceService):
         integrations_service = IntegrationService(self.session, role=self.role)
         available = await integrations_service.list_mcp_integrations()
         by_id = {integration.id: integration for integration in available}
+        return self._mcp_integration_refs(mcp_integrations, by_id)
 
+    def _mcp_integration_refs(
+        self,
+        mcp_integrations: Sequence[str],
+        by_id: Mapping[uuid.UUID, MCPIntegration],
+    ) -> list[MCPServerConfig]:
+        """Materialize secret-free transport references from loaded integrations."""
         refs: list[MCPServerConfig] = []
         for mcp_id_str in mcp_integrations:
             try:
@@ -1344,10 +1367,21 @@ class AgentPresetService(BaseWorkspaceService):
         integrations_service = IntegrationService(self.session, role=self.role)
         available = await integrations_service.list_mcp_integrations()
 
+        return self._mcp_tool_policies(
+            [
+                integration
+                for integration in available
+                if integration.id in requested_ids
+            ]
+        )
+
+    @staticmethod
+    def _mcp_tool_policies(
+        integrations: Sequence[MCPIntegration],
+    ) -> dict[uuid.UUID, dict[str, MCPToolSummary]]:
+        """Index stored tool policy without loading integration metadata again."""
         policies: dict[uuid.UUID, dict[str, MCPToolSummary]] = {}
-        for mcp_integration in available:
-            if mcp_integration.id not in requested_ids:
-                continue
+        for mcp_integration in integrations:
             tools = MCPToolSummary.validate_stored(
                 mcp_integration.tools,
                 mcp_integration_id=mcp_integration.id,
@@ -1358,23 +1392,29 @@ class AgentPresetService(BaseWorkspaceService):
 
         return policies
 
-    async def _resolve_tool_mcp_grants(
-        self, grants: Sequence[SkillMcpGrant]
+    def _resolve_tool_mcp_grants(
+        self,
+        grants: Sequence[SkillMcpGrant],
+        integrations: Mapping[uuid.UUID, MCPIntegration],
     ) -> list[MCPServerConfig] | None:
         """Materialize the combined MCP selection without secrets."""
         if not grants:
             return None
         merged: list[MCPServerConfig] = []
-        resolved = await self.resolve_mcp_integration_refs(
-            [str(grant.mcp_integration_id) for grant in grants]
+        resolved = self._mcp_integration_refs(
+            [str(grant.mcp_integration_id) for grant in grants], integrations
         )
         resolved_by_id = {
             uuid.UUID(config_id): config
             for config in resolved or ()
             if (config_id := config.get("id")) is not None
         }
-        policies_by_id = await self.resolve_mcp_integration_tool_policies(
-            [grant.mcp_integration_id for grant in grants]
+        policies_by_id = self._mcp_tool_policies(
+            [
+                integrations[grant.mcp_integration_id]
+                for grant in grants
+                if grant.mcp_integration_id in integrations
+            ]
         )
         for grant in grants:
             config = resolved_by_id.get(grant.mcp_integration_id)
@@ -2263,25 +2303,28 @@ class AgentPresetService(BaseWorkspaceService):
         # AgentConfig is safe to cross Temporal boundaries. Trusted callers
         # (build_tool_definitions, trusted MCP server) re-resolve secrets
         # per use via resolve_mcp_integration_secrets.
-        await self.load_selected_mcp_integrations(version.mcp_integrations)
         resolved_skills = await self.skills.get_resolved_skill_refs_for_preset_version(
             version.id,
             use_latest_versions=resolve_dependencies_from_heads,
         )
-        await self.skill_tools.compile_tool_grants(
+        inputs = self._tool_inputs(
+            version, [skill.skill_version_id for skill in resolved_skills]
+        )
+        metadata = await self.skill_tools.load_metadata(
+            inputs.skill_version_ids, mcp_integration_ids=inputs.mcp_integrations
+        )
+        self._select_mcp_integrations(
+            inputs.mcp_integrations, list(metadata.integrations.values())
+        )
+        await self.skill_tools.validate_dependencies(
             preset_version_id=version.id,
             resolved_skills=resolved_skills,
+            metadata=metadata,
         )
-        policy = (
-            await self.tool_policy.resolve_many(
-                [
-                    self._tool_inputs(
-                        version, [skill.skill_version_id for skill in resolved_skills]
-                    )
-                ]
-            )
-        )[version.id]
-        mcp_servers = await self._resolve_tool_mcp_grants(policy.mcp_grants)
+        policy = resolve_tool_policy(inputs, metadata.versions, metadata.integrations)
+        mcp_servers = self._resolve_tool_mcp_grants(
+            policy.mcp_grants, metadata.integrations
+        )
         model_settings: dict[str, Any] = {}
         duplicate_skill_names = sorted(
             name
