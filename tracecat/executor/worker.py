@@ -67,7 +67,7 @@ with workflow.unsafe.imports_passed_through():
         shutdown_platform_tracing,
     )
     from tracecat.observability.sentry import (
-        initialize_worker_sentry_from_environment,
+        initialize_executor_sentry_from_environment,
     )
     from tracecat.registry.sync.workflow import (
         RegistryArtifactsBackfillWorkflow,
@@ -133,6 +133,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
         executor_backend=config.TRACECAT__EXECUTOR_BACKEND,
     )
     initialize_platform_tracing("tracecat-executor")
+    initialize_executor_sentry_from_environment()
     action_gateway = ActionGateway()
 
     try:
@@ -156,8 +157,6 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
         await initialize_executor_backend()
 
         client = await get_temporal_client()
-
-        initialize_worker_sentry_from_environment()
 
         # Collect all activities from executor and registry sync
         activities = [

@@ -8,8 +8,11 @@ from unittest.mock import Mock
 
 import pytest
 import sentry_sdk
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.testclient import TestClient
+from opentelemetry import trace
+from opentelemetry.propagate import get_global_textmap, set_global_textmap
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from sentry_sdk.client import Client
 from sentry_sdk.envelope import Envelope
 from sentry_sdk.integrations.atexit import AtexitIntegration
@@ -32,21 +35,35 @@ from tracecat.agent.error_policy import (
     invalid_agent_configuration,
     user_agent_execution_failed,
 )
+from tracecat.auth.credentials import _authenticate_executor
+from tracecat.db.exceptions import AuthPoolExhaustedError
 from tracecat.dsl import interceptor as interceptor_module
 from tracecat.dsl.interceptor import (
     RuntimeErrorAttributionInterceptor,
     _RuntimeErrorAttributionWorkflowInterceptor,
 )
+from tracecat.exceptions import EntitlementRequired, ScopeDeniedError
+from tracecat.executor.action_gateway import app as gateway_module
 from tracecat.logger import logger
 from tracecat.observability import sentry as sentry_module
+from tracecat.observability.otel import (
+    _sanitize_server_span,
+    initialize_platform_tracing,
+    instrument_fastapi_app,
+    shutdown_platform_tracing,
+)
 from tracecat.observability.sentry import (
     SentryTag,
+    WorkflowFailureEventContext,
     _sanitize_platform_event,
     capture_api_background_task_failure,
+    capture_platform_failure,
     initialize_api_sentry,
+    initialize_executor_sentry,
     initialize_worker_sentry,
     initialize_worker_sentry_from_environment,
 )
+from tracecat.query.errors import TracecatQueryOverflowError, TracecatQueryTimeoutError
 from tracecat.runtime.errors import (
     RetryDisposition,
     RuntimeErrorClassification,
@@ -116,6 +133,25 @@ def api_sentry_events(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[Event]]:
     monkeypatch.setattr(sentry_module.config, "TRACECAT__SERVICE_NAME", "api")
     transport = _InMemoryTransport()
     initialize_api_sentry(
+        dsn="https://public@example.com/1",
+        environment="test-eu",
+        release="tracecat@test",
+        transport=transport,
+    )
+    yield transport.events
+    sentry_sdk.flush()
+    sentry_sdk.init(
+        dsn=None,
+        default_integrations=False,
+        auto_enabling_integrations=False,
+    )
+
+
+@pytest.fixture
+def executor_sentry_events(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[Event]]:
+    monkeypatch.setattr(sentry_module.config, "TRACECAT__SERVICE_NAME", "executor")
+    transport = _InMemoryTransport()
+    initialize_executor_sentry(
         dsn="https://public@example.com/1",
         environment="test-eu",
         release="tracecat@test",
@@ -450,6 +486,8 @@ def test_fastapi_integration_captures_sanitized_unhandled_request_failure(
         SentryTag.API_METHOD.value: "GET",
         SentryTag.API_ROUTE.value: "/items/{item_id}",
         SentryTag.SERVICE_NAME.value: "api",
+        SentryTag.ERROR_OWNER.value: "platform",
+        SentryTag.COMPONENT.value: "api",
     }
     assert "contexts" in event
     contexts = event["contexts"]
@@ -557,6 +595,8 @@ def test_service_task_failure_emits_only_stable_task_name(
         "name": "platform_registry_sync"
     }
     assert set(event["tags"]) == {
+        SentryTag.ERROR_OWNER.value,
+        SentryTag.COMPONENT.value,
         SentryTag.SERVICE_NAME.value,
         SentryTag.SERVICE_TASK_NAME.value,
     }
@@ -707,3 +747,310 @@ def test_error_logs_are_not_promoted_to_sentry_events(
     sentry_sdk.flush()
 
     assert sentry_events == []
+
+
+def test_gateway_captures_once_without_replacing_runtime_capture(
+    executor_sentry_events: list[Event], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Keep the real gateway middleware and exception handlers, without DB routes.
+    monkeypatch.setattr(gateway_module, "_include_internal_routers", lambda app: None)
+    app = gateway_module.create_app()
+    app.dependency_overrides[gateway_module.enforce_agent_script_gateway_access] = (
+        lambda: None
+    )
+
+    async def failing_route(item_id: str) -> None:
+        raise RuntimeError(f"{_SENSITIVE_VALUE}:{item_id}")
+
+    app.add_api_route("/internal/items/{item_id}", failing_route)
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get(
+            f"/internal/items/{_SENSITIVE_VALUE}?token={_SENSITIVE_VALUE}"
+        )
+    sentry_sdk.flush()
+    assert response.status_code == 500
+    assert len(executor_sentry_events) == 1
+    event = executor_sentry_events[0]
+    assert "tags" in event
+    assert "exception" in event
+    assert event["tags"] == {
+        SentryTag.SERVICE_NAME.value: "executor",
+        SentryTag.COMPONENT.value: "action_gateway",
+        SentryTag.ERROR_OWNER.value: "platform",
+        SentryTag.API_METHOD.value: "GET",
+        SentryTag.API_ROUTE.value: "/internal/items/{item_id}",
+    }
+    assert _SENSITIVE_VALUE not in json.dumps(event)
+    assert any(
+        frame.get("function") == "failing_route"
+        for value in event["exception"]["values"]
+        for frame in value.get("stacktrace", {}).get("frames", [])
+    )
+
+    # Ordinary captures still need runtime attribution; gateway ownership must
+    # not leak into subsequent Temporal work in the same process.
+    sentry_sdk.capture_exception(ValueError(_SENSITIVE_VALUE))
+    logger.error(_SENSITIVE_VALUE)
+    sentry_sdk.flush()
+    assert len(executor_sentry_events) == 1
+    error = RuntimeError("synthetic platform failure")
+    classification = RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.RUNTIME_UNCLASSIFIED,
+        message="synthetic platform failure",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        cause=error,
+    )
+    capture_platform_failure(
+        error,
+        classification,
+        WorkflowFailureEventContext(
+            run_id="00000000-0000-4000-8000-000000000001",
+            workflow_type="DSLWorkflow",
+            attempt=1,
+            trigger_type="manual",
+        ),
+    )
+    sentry_sdk.flush()
+    assert len(executor_sentry_events) == 2
+    runtime_event = executor_sentry_events[1]
+    assert "tags" in runtime_event
+    assert SentryTag.COMPONENT.value not in runtime_event["tags"]
+    assert runtime_event["tags"][SentryTag.ERROR_OWNER.value] == "platform"
+
+
+@pytest.mark.parametrize("status_code", [401, 403, 422, 503])
+def test_gateway_excludes_handled_errors(
+    executor_sentry_events: list[Event],
+    monkeypatch: pytest.MonkeyPatch,
+    status_code: int,
+) -> None:
+    monkeypatch.setattr(gateway_module, "_include_internal_routers", lambda app: None)
+    app = gateway_module.create_app()
+    app.dependency_overrides[gateway_module.enforce_agent_script_gateway_access] = (
+        lambda: None
+    )
+
+    async def expected_error() -> None:
+        raise HTTPException(status_code=status_code, detail=_SENSITIVE_VALUE)
+
+    app.add_api_route("/internal/expected", expected_error)
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get("/internal/expected")
+    sentry_sdk.flush()
+    assert response.status_code == status_code
+    assert executor_sentry_events == []
+
+
+def test_api_capture_preserves_only_active_otel_identifiers(
+    api_sentry_events: list[Event],
+) -> None:
+    span_context = trace.SpanContext(
+        trace_id=1,
+        span_id=2,
+        is_remote=False,
+    )
+    with trace.use_span(trace.NonRecordingSpan(span_context)):
+        capture_api_background_task_failure(
+            RuntimeError(_SENSITIVE_VALUE),
+            task_name="platform_registry_sync",
+        )
+    sentry_sdk.flush()
+    assert len(api_sentry_events) == 1
+    event = api_sentry_events[0]
+    assert "contexts" in event
+    assert event["contexts"]["tracecat_otel"] == {
+        "trace_id": "00000000000000000000000000000001",
+        "span_id": "0000000000000002",
+    }
+    assert _SENSITIVE_VALUE not in json.dumps(event)
+
+
+@pytest.mark.parametrize("authorization", [None, "Bearer invalid-token"])
+def test_gateway_excludes_executor_credential_failures(
+    executor_sentry_events: list[Event],
+    monkeypatch: pytest.MonkeyPatch,
+    authorization: str | None,
+) -> None:
+    monkeypatch.setattr(gateway_module, "_include_internal_routers", lambda app: None)
+    app = gateway_module.create_app()
+
+    async def authenticate(request: Request) -> None:
+        # Exercise the real credential verifier; missing/invalid tokens fail
+        # before any workspace database lookup is needed.
+        await _authenticate_executor(
+            request=request,
+            workspace_id=None,
+            require_workspace="yes",
+        )
+
+    async def protected_route() -> None:
+        pytest.fail("Unauthorized requests must not reach the route")
+
+    app.add_api_route(
+        "/internal/protected", protected_route, dependencies=[Depends(authenticate)]
+    )
+    headers = {"Authorization": authorization} if authorization else {}
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get("/internal/protected", headers=headers)
+    sentry_sdk.flush()
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Unauthorized"}
+    assert executor_sentry_events == []
+
+
+def test_gateway_excludes_request_validation_failure(
+    executor_sentry_events: list[Event],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(gateway_module, "_include_internal_routers", lambda app: None)
+    app = gateway_module.create_app()
+
+    async def validated_route(count: int) -> None:
+        pytest.fail("Invalid input must not reach the route")
+
+    app.add_api_route("/internal/validated", validated_route)
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get("/internal/validated", params={"count": "not-an-integer"})
+    sentry_sdk.flush()
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["type"] == "int_parsing"
+    assert executor_sentry_events == []
+
+
+@pytest.mark.parametrize(
+    ("error", "status_code", "response_marker"),
+    [
+        (
+            ScopeDeniedError(
+                required_scopes=["cases:read"], missing_scopes=["cases:read"]
+            ),
+            403,
+            "insufficient_scope",
+        ),
+        (EntitlementRequired("synthetic-feature"), 403, "EntitlementRequired"),
+        (
+            AuthPoolExhaustedError("synthetic pool exhaustion"),
+            503,
+            "auth_database_unavailable",
+        ),
+        (TracecatQueryTimeoutError(), 422, "query_timeout"),
+        (TracecatQueryOverflowError(), 400, "query_numeric_overflow"),
+    ],
+)
+def test_gateway_excludes_typed_dependency_failures(
+    executor_sentry_events: list[Event],
+    monkeypatch: pytest.MonkeyPatch,
+    error: Exception,
+    status_code: int,
+    response_marker: str,
+) -> None:
+    monkeypatch.setattr(gateway_module, "_include_internal_routers", lambda app: None)
+    app = gateway_module.create_app()
+
+    async def failing_dependency() -> None:
+        raise error
+
+    async def protected_route() -> None:
+        pytest.fail("Failed dependencies must not reach the route")
+
+    app.add_api_route(
+        "/internal/protected",
+        protected_route,
+        dependencies=[Depends(failing_dependency)],
+    )
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get("/internal/protected")
+    sentry_sdk.flush()
+    assert response.status_code == status_code
+    assert response_marker in response.text
+    assert executor_sentry_events == []
+
+
+@pytest.mark.parametrize("component", ["api", "action_gateway"])
+def test_request_trace_survives_span_unwind(
+    request: pytest.FixtureRequest,
+    monkeypatch: pytest.MonkeyPatch,
+    component: str,
+) -> None:
+    previous_propagator = get_global_textmap()
+    # Register cleanup before initialization so setup failures restore it too.
+    request.addfinalizer(lambda: set_global_textmap(previous_propagator))
+    shutdown_platform_tracing()
+    monkeypatch.setattr(sentry_module.config, "TRACECAT__PLATFORM_OTEL_ENABLED", True)
+    service = "tracecat-api" if component == "api" else "tracecat-executor"
+    monkeypatch.setattr(sentry_module.config, "TRACECAT__SERVICE_NAME", service)
+    exporter = InMemorySpanExporter()
+    initialize_platform_tracing(service, exporter=exporter)
+    transport = _InMemoryTransport()
+    initializer = (
+        initialize_api_sentry if component == "api" else initialize_executor_sentry
+    )
+    initializer(
+        dsn="https://public@example.com/1",
+        environment="test-eu",
+        release="tracecat@test",
+        transport=transport,
+    )
+    try:
+        if component == "api":
+            app = FastAPI()
+            instrument_fastapi_app(app, service_name=service)
+        else:
+            monkeypatch.setattr(
+                gateway_module, "_include_internal_routers", lambda app: None
+            )
+            app = gateway_module.create_app()
+
+        async def failing_route(item_id: str) -> None:
+            raise RuntimeError(f"{_SENSITIVE_VALUE}:{item_id}")
+
+        app.add_api_route("/items/{item_id}", failing_route)
+        with TestClient(app, raise_server_exceptions=False) as client:
+            for _ in range(2):
+                response = client.get(
+                    f"/items/{_SENSITIVE_VALUE}?token={_SENSITIVE_VALUE}"
+                )
+                assert response.status_code == 500
+        sentry_sdk.flush()
+        assert not trace.get_current_span().get_span_context().is_valid
+        assert len(transport.events) == 2
+        spans = exporter.get_finished_spans()
+        assert len(spans) == 2
+        captured_ids: list[str] = []
+        for event, span in zip(transport.events, spans, strict=True):
+            assert "contexts" in event
+            span_context = span.get_span_context()
+            assert span_context is not None
+            assert event["contexts"]["tracecat_otel"] == {
+                "trace_id": f"{span_context.trace_id:032x}",
+                "span_id": f"{span_context.span_id:016x}",
+            }
+            captured_id = event["contexts"]["tracecat_otel"]["trace_id"]
+            assert isinstance(captured_id, str)
+            captured_ids.append(captured_id)
+            assert _SENSITIVE_VALUE not in json.dumps(event)
+        assert captured_ids[0] != captured_ids[1]
+    finally:
+        shutdown_platform_tracing()
+        sentry_sdk.init(
+            dsn=None, default_integrations=False, auto_enabling_integrations=False
+        )
+
+
+def test_disabled_sentry_leaves_trace_context_untouched(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with sentry_sdk.isolation_scope() as scope:
+        # A configured SDK with no DSN must also skip scope writes.
+        scope.set_client(
+            Client(
+                dsn=None, default_integrations=False, auto_enabling_integrations=False
+            )
+        )
+        set_context = Mock()
+        monkeypatch.setattr(sentry_sdk, "set_context", set_context)
+        span = trace.NonRecordingSpan(
+            trace.SpanContext(trace_id=1, span_id=2, is_remote=False)
+        )
+        _sanitize_server_span(span, {"type": "http"})
+        set_context.assert_not_called()

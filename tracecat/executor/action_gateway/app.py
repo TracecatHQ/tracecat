@@ -26,6 +26,7 @@ from tracecat.executor.action_gateway.policy import (
     enforce_agent_script_gateway_access,
 )
 from tracecat.logger import logger
+from tracecat.observability.otel import instrument_fastapi_app
 from tracecat.query.errors import (
     TracecatQueryOverflowError,
     TracecatQueryTimeoutError,
@@ -225,4 +226,5 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(router)
     _include_internal_routers(app)
     _add_exception_handlers(app)
+    instrument_fastapi_app(app, service_name="tracecat-executor")
     return app
