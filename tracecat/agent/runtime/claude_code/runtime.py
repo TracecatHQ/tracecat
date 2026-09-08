@@ -16,7 +16,7 @@ import os
 import re
 import tempfile
 import uuid
-from collections.abc import AsyncIterator, Callable, Sequence
+from collections.abc import AsyncIterator, Callable, Iterable, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -413,6 +413,17 @@ class ClaudeAgentRuntime:
     @staticmethod
     def _subagent_registry_server_name(alias: str) -> str:
         return f"{SUBAGENT_REGISTRY_MCP_SERVER_PREFIX}{alias}"
+
+    @classmethod
+    def _reserved_subagent_server_names(cls, aliases: Iterable[str]) -> set[str]:
+        return {
+            name
+            for alias in aliases
+            for name in (
+                cls._subagent_registry_server_name(alias),
+                f"{LEGACY_REGISTRY_MCP_SERVER_NAME}-{alias}",
+            )
+        }
 
     @staticmethod
     def _trusted_mcp_server_config(auth_token: str) -> McpHttpServerConfig:
@@ -1402,11 +1413,8 @@ class ClaudeAgentRuntime:
 
         used_mcp_names = set(existing_mcp_names or ())
         used_mcp_names.update(
-            name
-            for child in payload.subagents
-            for name in (
-                self._subagent_registry_server_name(child.alias),
-                f"{LEGACY_REGISTRY_MCP_SERVER_NAME}-{child.alias}",
+            self._reserved_subagent_server_names(
+                child.alias for child in payload.subagents
             )
         )
         definitions: dict[str, AgentDefinition] = {}
@@ -1766,14 +1774,9 @@ class ClaudeAgentRuntime:
             )
 
             stderr_queue: asyncio.Queue[str] = asyncio.Queue()
-            reserved_subagent_server_names = {
-                server_name
-                for subagent in payload.subagents
-                for server_name in (
-                    self._subagent_registry_server_name(subagent.alias),
-                    f"{LEGACY_REGISTRY_MCP_SERVER_NAME}-{subagent.alias}",
-                )
-            }
+            reserved_subagent_server_names = self._reserved_subagent_server_names(
+                subagent.alias for subagent in payload.subagents
+            )
             stdio_mcp_spec = self._stdio_mcp_server_spec(
                 source_configs=payload.config.mcp_servers,
                 existing_names=set(mcp_servers) | reserved_subagent_server_names,
