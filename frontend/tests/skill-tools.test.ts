@@ -215,3 +215,17 @@ it.each([
     "merge keys"
   )
 })
+
+it.each(["", "   "])(
+  "rejects blank tool IDs without hiding the error",
+  (value) => {
+    const source = `metadata: { tools: [${JSON.stringify(value)}] }`
+    expect(readSkillFrontmatterTools(source)).toMatchObject({
+      valid: false,
+      message: "metadata.tools must not contain blank tool IDs.",
+    })
+    expect(() => updateSkillFrontmatterTools(source, ["core.new"])).toThrow(
+      "blank"
+    )
+  }
+)

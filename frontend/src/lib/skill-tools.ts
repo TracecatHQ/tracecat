@@ -72,9 +72,10 @@ export function readSkillFrontmatterTools(
     return invalidToolsState("metadata.tools must contain only tool IDs.")
   }
 
-  const normalized = Array.from(
-    new Set(values.map((value) => value.trim()).filter(Boolean))
-  )
+  if (values.some((value) => value.trim().length === 0)) {
+    return invalidToolsState("metadata.tools must not contain blank tool IDs.")
+  }
+  const normalized = Array.from(new Set(values.map((value) => value.trim())))
   if (normalized.length > MAX_SKILL_TOOLS) {
     return invalidToolsState(
       `metadata.tools supports at most ${MAX_SKILL_TOOLS} tool IDs.`
