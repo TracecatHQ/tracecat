@@ -14,6 +14,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import JSONB, aggregate_order_by
 from sqlalchemy.orm import load_only, selectinload
 
+from tracecat import config
 from tracecat.agent.access.service import AgentModelAccessService
 from tracecat.agent.channels.service import AgentChannelService
 from tracecat.agent.common.config import AGENT_RUNTIME_PROTECTED_ENV_VARS
@@ -339,6 +340,19 @@ class AgentPresetService(BaseWorkspaceService):
             )
         )[version.id]
 
+    @staticmethod
+    def _validate_effective_tool_count(policy: EffectivePresetTools) -> None:
+        max_tools = config.TRACECAT__AGENT_MAX_TOOLS
+        if max_tools > 0 and len(policy.actions) > max_tools:
+            raise TracecatValidationError(
+                f"Cannot request more than {max_tools} tools",
+                detail={
+                    "code": "agent_tool_limit_exceeded",
+                    "tool_count": len(policy.actions),
+                    "max_tools": max_tools,
+                },
+            )
+
     async def preview_tool_policy(
         self, params: AgentPresetToolPolicyPreview
     ) -> AgentPresetToolPolicyRead:
@@ -365,6 +379,7 @@ class AgentPresetService(BaseWorkspaceService):
             inputs.mcp_integrations, list(metadata.integrations.values())
         )
         policy = resolve_tool_policy(inputs, metadata.versions, metadata.integrations)
+        self._validate_effective_tool_count(policy)
         return self._tool_policy_read(policy)
 
     async def build_preset_list_reads(
@@ -2345,6 +2360,7 @@ class AgentPresetService(BaseWorkspaceService):
             metadata=metadata,
         )
         policy = resolve_tool_policy(inputs, metadata.versions, metadata.integrations)
+        self._validate_effective_tool_count(policy)
         mcp_servers = self._resolve_tool_mcp_grants(
             policy.mcp_grants, metadata.integrations
         )
@@ -2514,6 +2530,7 @@ class AgentPresetService(BaseWorkspaceService):
                 ]
             )
         )[preset.id]
+        self._validate_effective_tool_count(policy)
         preset.enable_internet_access = (
             preset.enable_internet_access or policy.requires_internet_access
         )
