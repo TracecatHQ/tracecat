@@ -574,9 +574,10 @@ def test_main_minimal_errors_when_secret_value_stringify_fails(monkeypatch) -> N
     )
 
     assert result["success"] is False
+    # Secrets are in scope, so the message is withheld like any other failure.
     assert result["error"]["type"] == "TypeError"
-    assert "BROKEN" in result["error"]["message"]
-    assert "BrokenSecret" in result["error"]["message"]
+    assert "Details withheld" in result["error"]["message"]
+    assert "BROKEN" not in result["error"]["message"]
 
 
 def test_main_minimal_still_succeeds_when_warnings_raise(monkeypatch) -> None:
@@ -875,3 +876,39 @@ def test_serialize_result_passes_through_when_serialization_succeeds() -> None:
     payload = minimal_runner.serialize_result({"success": True, "result": 1}, {})
 
     assert orjson.loads(payload) == {"success": True, "result": 1}
+
+
+def test_main_minimal_withholds_error_when_secrets_in_scope(monkeypatch) -> None:
+    """With secrets in scope the raw message is withheld, phrased like the gate."""
+    test_module: Any = types.ModuleType("test_module")
+
+    def boom_action() -> None:
+        raise ValueError("invalid literal: 'sk_live_CANARY\nMULTILINE'")
+
+    test_module.boom_action = boom_action
+
+    monkeypatch.setattr(
+        minimal_runner.importlib,
+        "import_module",
+        lambda _p, *args, **kwargs: test_module,
+    )
+
+    result = minimal_runner.main_minimal(
+        {
+            "resolved_context": {
+                "action_impl": {
+                    "type": "udf",
+                    "module": "test_module",
+                    "name": "boom_action",
+                },
+                "evaluated_args": {},
+            },
+            "secret_env": {"API_KEY": "sk_live_CANARY\nMULTILINE"},
+        }
+    )
+
+    assert result["success"] is False
+    assert result["error"]["type"] == "ValueError"
+    assert "CANARY" not in result["error"]["message"]
+    # Phrasing pinned to the expression gate's "Details withheld:" contract.
+    assert "Details withheld:" in result["error"]["message"]

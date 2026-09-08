@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import ast
 import re
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Collection, Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from typing import Any
@@ -24,14 +24,17 @@ from tracecat.expressions import patterns
 from tracecat.expressions.common import eval_jsonpath
 from tracecat.expressions.eval import eval_templated_object
 from tracecat.expressions.parser.core import parser
+from tracecat.parse import traverse_expressions
 from tracecat.secrets.constants import MASK_VALUE
 
 __all__ = (
     "ActionArgumentPlan",
     "ExpressionPolicy",
     "ProvenanceMap",
+    "TaintState",
     "build_provenance",
     "expression_policy",
+    "references_secret_derived_value",
     "resolve_action_args",
 )
 
@@ -268,8 +271,151 @@ class _InputProvenance:
     dependencies: _SecretDependencies
     """Secret dependencies that directly or transitively apply to the value."""
 
+    tainted: bool = False
+    """Authored arg referenced a runtime carrier; gates error text only, never masking."""
+
 
 type ProvenanceMap = Mapping[str, _InputProvenance]
+
+
+@dataclass(frozen=True, slots=True)
+class TaintState:
+    """Secret taint known at a template invocation's evaluation boundary.
+
+    One lookup table per runtime-born namespace:
+
+    - ``provenance`` answers "is ``inputs.x`` secret-backed?" — decided by the
+      caller's authored args, fixed before the run starts.
+    - ``tainted_steps`` answers "is ``steps.x`` secret-derived?" — decided step
+      by step while the template runs.
+
+    Provenance also seeds step taint: a step referencing ``inputs.*`` is
+    tainted only if that input is. Without it every input-touching step would
+    cascade to conservative, and the failure gate would coarsen back to
+    withholding every template error.
+    """
+
+    provenance: ProvenanceMap | None = None
+    """Authored input sources and their secret dependencies, when known."""
+
+    tainted_steps: frozenset[str] = frozenset()
+    """Refs of prior template steps whose arguments are secret-dependent."""
+
+    @property
+    def tainted_inputs(self) -> frozenset[str]:
+        """Parameters whose authored argument referenced a runtime carrier."""
+        if self.provenance is None:
+            return frozenset()
+        return frozenset(
+            parameter
+            for parameter, binding in self.provenance.items()
+            if binding.tainted
+        )
+
+    def after_step(
+        self, ref: str, args: Any, *, action_reaches_secrets: bool = False
+    ) -> TaintState:
+        """The taint state after this step ran: ``ref`` is marked iff its args are
+        secret-dependent or its action can reach secrets. Encapsulates
+        classify-then-mark so callers cannot reorder it.
+
+        ``action_reaches_secrets`` covers secrets that never appear in authored
+        args: a registry action declaring its own secrets receives them through
+        the environment sandbox, so its result is secret-derived even when the
+        args are literals.
+        """
+        if action_reaches_secrets or self.step_args_are_secret_dependent(args):
+            return replace(self, tainted_steps=self.tainted_steps | {ref})
+        return self
+
+    def step_args_are_secret_dependent(self, args: Any) -> bool:
+        """Whether a template step's authored arguments depend on a secret.
+
+        Fails closed on anything ambiguous, so an unparseable argument taints
+        the step rather than silently clearing it.
+        """
+        try:
+            for expression in traverse_expressions(args):
+                tree = parser.parse(expression)
+                if references_secret_derived_value(tree, taint=self):
+                    return True
+            return False
+        except Exception:
+            return True
+
+    def step_ref_is_tainted(self, tree: Tree[Token]) -> bool:
+        """Whether any ``steps.*`` reference resolves to a tainted step.
+
+        Fails closed when a step ref cannot be extracted from the reference.
+        """
+        return _ref_is_tainted(tree, "template_action_steps", self.tainted_steps)
+
+    def input_ref_is_tainted(self, tree: Tree[Token]) -> bool:
+        """Whether any ``inputs.*`` reference resolves to a tainted parameter.
+
+        Fails closed when an input ref cannot be extracted from the reference.
+        """
+        return _ref_is_tainted(tree, "template_action_inputs", self.tainted_inputs)
+
+
+def _ref_is_tainted(tree: Tree[Token], rule: str, tainted: Collection[str]) -> bool:
+    """Whether any ``rule`` reference names a tainted root, failing closed."""
+    for node in tree.find_data(rule):
+        token = node.children[0]
+        if not isinstance(token, Token):
+            return True
+        _, concrete_prefix = _parse_path_segments(str(token))
+        if not concrete_prefix:
+            return True
+        ref = concrete_prefix[0]
+        if not isinstance(ref, str) or ref in tainted:
+            return True
+    return False
+
+
+def references_secret_derived_value(
+    parse_tree: Tree[Token] | None,
+    *,
+    taint: TaintState | None = None,
+) -> bool:
+    """Whether the expression references any value that may derive from a secret.
+
+    Reads the parse tree only, never the failing text, so repr() escaping
+    cannot defeat it. Runs only after evaluation has already failed. Fails
+    closed: whole-expression gating, and any internal error returns True.
+
+    Per namespace:
+
+    - ``SECRETS.*``: always secret.
+    - ``inputs.*`` / ``steps.*``: exact via ``taint`` when supplied; assumed
+      secret without it. Runtime-carrier taint is carried per parameter, so an
+      ``inputs.*`` renamed from a carrier is withheld too.
+    - ``ACTIONS.*`` / ``var.*``: always assumed secret. Result masking does not
+      clear them — it is conditional on the *current* action's secrets
+      (`service.py:1011`), repr-defeatable, and bypassed by AI actions and
+      child workflows (`dsl/workflow.py:897`).
+    """
+    if parse_tree is None:
+        return False
+    provenance = taint.provenance if taint is not None else None
+    try:
+        # Always-withheld namespaces; inputs/steps join only when no taint
+        # state can resolve them exactly.
+        coarse_rules = ["secrets", "actions", "local_vars"]
+        if provenance is None:
+            coarse_rules.append("template_action_inputs")
+        if taint is None:
+            coarse_rules.append("template_action_steps")
+        for rule in coarse_rules:
+            if any(True for _ in parse_tree.find_data(rule)):
+                return True
+        if taint is not None and taint.step_ref_is_tainted(parse_tree):
+            return True
+        if taint is not None and taint.input_ref_is_tainted(parse_tree):
+            return True
+        return _tree_dependencies(parse_tree, provenance).secret
+    except Exception:
+        return True
 
 
 @dataclass(frozen=True, slots=True)
@@ -287,8 +433,10 @@ class _InputSelection:
 def build_provenance(
     arguments: Mapping[str, Any],
     parent: ProvenanceMap | None = None,
+    taint: TaintState | None = None,
 ) -> dict[str, _InputProvenance]:
     """Scan authored arguments once and build the template-input mapping."""
+    taint = taint or TaintState(provenance=parent)
     provenance: dict[str, _InputProvenance] = {}
     for parameter, value in arguments.items():
         dependencies = _derive_dependencies(value, parent)
@@ -303,6 +451,9 @@ def build_provenance(
         provenance[parameter] = _InputProvenance(
             source=source,
             dependencies=dependencies,
+            # ponytail: coarse per parameter; path-sensitive taint if a mixed
+            # dict input ever needs it
+            tainted=taint.step_args_are_secret_dependent(value),
         )
     return provenance
 
@@ -466,6 +617,7 @@ def resolve_action_args(
     arguments: Mapping[str, Any],
     context: Mapping[str, Any],
     provenance: ProvenanceMap,
+    taint: TaintState | None = None,
 ) -> dict[str, Any]:
     """Resolve one template step at the target action's policy boundary."""
     redaction_policy = _RedactionPolicy(provenance)
@@ -475,13 +627,16 @@ def resolve_action_args(
     for parameter, value in arguments.items():
         match expression_policy(action, parameter):
             case ExpressionPolicy.RESOLVE:
-                resolved[parameter] = eval_templated_object(value, operand=context)
+                resolved[parameter] = eval_templated_object(
+                    value, operand=context, taint=taint
+                )
             case ExpressionPolicy.REDACT_SECRETS:
                 resolved[parameter] = eval_templated_object(
                     value,
                     operand=context,
                     policy=redaction_policy,
                     key_policy=key_policy,
+                    taint=taint,
                 )
             case ExpressionPolicy.PRESERVE:
                 preserve_policy = _PreservePolicy(

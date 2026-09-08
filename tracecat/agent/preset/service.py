@@ -69,6 +69,7 @@ from tracecat.db.models import (
 from tracecat.db.soft_delete import with_deleted
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.executor.secret_preprocessors import collect_mask_values
 from tracecat.executor.service import get_workspace_variables
 from tracecat.expressions.eval import collect_expressions, eval_templated_object
 from tracecat.integrations.enums import MCPAuthType
@@ -89,6 +90,7 @@ from tracecat.pagination import (
 )
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets import secrets_manager
+from tracecat.secrets.common import call_with_masked_errors
 from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.tiers.enums import Entitlement
 
@@ -1324,19 +1326,27 @@ class AgentPresetService(BaseWorkspaceService):
         context["SECRETS"] = secrets
         context["VARS"] = vars_map
 
-        resolved = eval_templated_object(stdio_env, operand=context)
+        # Expression errors echo their operand and can carry secret plaintext:
+        # failures surface as a chainless masked copy.
+        resolved = call_with_masked_errors(
+            lambda: eval_templated_object(stdio_env, operand=context),
+            masks=collect_mask_values([secrets]),
+        )
         if not isinstance(resolved, dict):
             raise TracecatValidationError(
                 "Resolved stdio_env must be a JSON object with string values"
             )
 
-        non_string_keys = [
-            key for key, value in resolved.items() if not isinstance(value, str)
+        # Keys are resolved too and may be secret plaintext: locate by position.
+        non_string_entries = [
+            position
+            for position, value in enumerate(resolved.values(), start=1)
+            if not isinstance(value, str)
         ]
-        if non_string_keys:
+        if non_string_entries:
             raise TracecatValidationError(
                 "Resolved stdio_env values must be strings "
-                f"(invalid keys: {sorted(non_string_keys)})"
+                f"(invalid entries: {non_string_entries})"
             )
 
         logger.info(

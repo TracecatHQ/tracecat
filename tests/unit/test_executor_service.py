@@ -19,6 +19,7 @@ from tracecat.exceptions import TracecatCredentialsError
 from tracecat.executor import service as executor_service
 from tracecat.executor.schemas import (
     ActionImplementation,
+    ExecutorActionErrorInfo,
     ExecutorResultSuccess,
     ResolvedContext,
 )
@@ -559,7 +560,11 @@ async def test_prepare_resolved_context_preserves_only_mapped_parameter(
         "action_secrets": action_secrets,
     }
     assert get_workspace_variables.await_args.kwargs["variable_exprs"] == {"runtime"}
-    assert prepared.mask_values == {"runtime-secret"}
+    # Masks union the raw fetched secrets (derived before argument evaluation so
+    # they exist when it raises) with the projection's own masks. "declared-secret"
+    # is fetched into the evaluation context, so it must be masked even though the
+    # stubbed projection above only reports "runtime-secret".
+    assert prepared.mask_values == {"runtime-secret", "declared-secret"}
 
 
 @pytest.mark.parametrize("service_id", ["tracecat-executor", "tracecat-mcp"])
@@ -1159,3 +1164,152 @@ async def test_omitted_template_default_seeds_preserve_provenance(mocker):
         "workflow_id": "wf-123",
         "patch_ops": default_ops,
     }
+
+
+@pytest.mark.anyio
+async def test_invoke_once_returns_none_result_as_success(mocker):
+    """Actions declared `-> None` must round-trip as a real result.
+
+    If the success path ever treats `None` as "no result" (e.g. a sentinel
+    check that regresses to `is None`), a successful `core.cases.delete_case`
+    is reported as a failure and retried after its side effect landed.
+    """
+    role = _expression_policy_role("tracecat-executor")
+    action_input = _expression_policy_input("core.cases.delete_case", {})
+    resolved_context = mocker.Mock(logical_time=mocker.sentinel.logical_time)
+    prepared_context = executor_service.PreparedContext(
+        resolved_context=resolved_context,
+        mask_values={"secret"},
+    )
+
+    mocker.patch.object(
+        executor_service.registry_resolver,
+        "prefetch_lock",
+        new=mocker.AsyncMock(),
+    )
+    mocker.patch.object(
+        executor_service,
+        "prepare_resolved_context",
+        new=mocker.AsyncMock(return_value=prepared_context),
+    )
+    mocker.patch.object(
+        executor_service,
+        "_invoke_step",
+        new=mocker.AsyncMock(return_value=None),
+    )
+
+    result = await executor_service.invoke_once(
+        backend=mocker.Mock(),
+        input=action_input,
+        ctx=executor_service.DispatchActionContext(role=role),
+    )
+
+    assert result is None
+
+
+@pytest.mark.anyio
+async def test_invoke_once_withholds_carrier_derived_action_error(mocker):
+    """No declared secrets does not mean no secrets.
+
+    ACTIONS/var inputs can be secret-derived, so the original exception must
+    not ride along as __cause__/__context__: Temporal serializes the chain and
+    the run view surfaces its deepest message.
+    """
+    from tracecat.exceptions import ExecutionError
+
+    canary = "SUPERSECRET-chain-canary"
+    role = _expression_policy_role("tracecat-executor")
+    action_input = _expression_policy_input(
+        "core.probe", {"value": "${{ ACTIONS.fetch.result }}"}
+    )
+    resolved_context = mocker.Mock(logical_time=mocker.sentinel.logical_time)
+    prepared_context = executor_service.PreparedContext(
+        resolved_context=resolved_context,
+        mask_values=set(),
+    )
+    mocker.patch.object(
+        executor_service.registry_resolver,
+        "prefetch_lock",
+        new=mocker.AsyncMock(),
+    )
+    mocker.patch.object(
+        executor_service,
+        "prepare_resolved_context",
+        new=mocker.AsyncMock(return_value=prepared_context),
+    )
+    action_error = ExecutionError(
+        info=ExecutorActionErrorInfo(
+            action_name="core.probe",
+            type="ValueError",
+            message=f"rejected {canary}",
+            filename="probe.py",
+            function="run",
+        )
+    )
+    mocker.patch.object(
+        executor_service,
+        "_invoke_step",
+        new=mocker.AsyncMock(side_effect=action_error),
+    )
+
+    with pytest.raises(ExecutionError) as exc_info:
+        await executor_service.invoke_once(
+            backend=mocker.Mock(),
+            input=action_input,
+            ctx=executor_service.DispatchActionContext(role=role),
+        )
+
+    assert exc_info.value.__cause__ is None
+    assert exc_info.value.__context__ is None
+    assert "Details withheld:" in str(exc_info.value)
+    assert canary not in str(exc_info.value)
+
+
+@pytest.mark.anyio
+async def test_template_expects_validation_leaves_no_plaintext_in_chain(mocker):
+    """The sanitized message is only clean if nothing plaintext is chained."""
+    from tracecat.exceptions import RegistryValidationError
+
+    canary = "SUPERSECRET-expects-canary"
+    action_input = _expression_policy_input("testing.typed", {"count": canary})
+    role = _expression_policy_role("tracecat-executor")
+    resolved = ResolvedContext(
+        secrets={},
+        variables={},
+        action_impl=ActionImplementation(
+            type="template",
+            action_name="testing.typed",
+            template_definition={
+                "name": "typed",
+                "namespace": "testing",
+                "title": "Typed",
+                "description": "Rejects non-int input",
+                "display_group": "Testing",
+                "expects": {"count": {"type": "int", "description": "n"}},
+                "steps": [
+                    {"ref": "noop", "action": "core.noop", "args": {}},
+                ],
+                "returns": "${{ inputs.count }}",
+            },
+        ),
+        evaluated_args={"count": canary},
+        workspace_id=str(role.workspace_id),
+        workflow_id=str(action_input.run_context.wf_id),
+        run_id=str(action_input.run_context.wf_run_id),
+        executor_token="parent-token",
+    )
+
+    with pytest.raises(RegistryValidationError) as exc_info:
+        await executor_service._execute_template_action(
+            backend=mocker.Mock(),
+            input=action_input,
+            ctx=executor_service.DispatchActionContext(role=role),
+            resolved_context=resolved,
+            timeout=30,
+            provenance=_policy_source_provenance({"count": canary}),
+        )
+
+    err = exc_info.value
+    assert err.__cause__ is None
+    assert err.__context__ is None
+    assert canary not in str(err)

@@ -947,7 +947,7 @@ async def test_dispatcher(
             await dispatch_action(backend, input)
         assert len(e.value.loop_errors) == 1
         assert e.value.loop_errors[0].info.loop_iteration == 2
-        assert e.value.loop_errors[0].info.loop_vars == {"x": None}
+        assert e.value.loop_errors[0].info.loop_vars is None
 
         # Try another dispatch with a different error
 
@@ -968,7 +968,7 @@ async def test_dispatcher(
             await dispatch_action(backend, input)
         assert len(e.value.loop_errors) == 1
         assert e.value.loop_errors[0].info.loop_iteration == 1
-        assert e.value.loop_errors[0].info.loop_vars == {"x": None}
+        assert e.value.loop_errors[0].info.loop_vars is None
     finally:
         ctx_role.reset(token)
 
@@ -1054,7 +1054,6 @@ async def test_dispatch_action_for_each_finishes_after_iteration_error(
                     filename=__file__,
                     function="fake_invoke_once",
                     loop_iteration=iteration,
-                    loop_vars=local_vars,
                 )
             )
         return value
@@ -1080,7 +1079,7 @@ async def test_dispatch_action_for_each_finishes_after_iteration_error(
     assert seen == [1, 2, 3]
     assert len(e.value.loop_errors) == 1
     assert e.value.loop_errors[0].info.loop_iteration == 1
-    assert e.value.loop_errors[0].info.loop_vars == {"x": 2}
+    assert e.value.loop_errors[0].info.loop_vars is None
 
 
 @pytest.fixture
