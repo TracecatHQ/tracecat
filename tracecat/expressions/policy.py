@@ -396,7 +396,7 @@ def references_secret_derived_value(
       child workflows (`dsl/workflow.py:897`).
     """
     if parse_tree is None:
-        return False
+        return True
     provenance = taint.provenance if taint is not None else None
     try:
         # Always-withheld namespaces; inputs/steps join only when no taint

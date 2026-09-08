@@ -216,10 +216,13 @@ def _walk_exception_chain(exc: BaseException) -> list[BaseException]:
     that the plaintext is absent from the graph, not merely flagged as hidden.
     """
     seen: list[BaseException] = []
-    cur: BaseException | None = exc
-    while cur is not None and len(seen) < 16:
+    todo: list[BaseException] = [exc]
+    while todo and len(seen) < 16:
+        cur = todo.pop()
+        if any(cur is s for s in seen):
+            continue
         seen.append(cur)
-        cur = cur.__cause__ or cur.__context__
+        todo.extend(link for link in (cur.__cause__, cur.__context__) if link)
     return seen
 
 
@@ -253,7 +256,7 @@ async def test_await_with_masked_errors_severs_context() -> None:
         assert CANARY not in str(link)
 
 
-@pytest.mark.parametrize("module_path", ["tracecat/observability/sentry.py"])
+@pytest.mark.parametrize("module_path", ["tracecat.observability.sentry"])
 def test_workers_disable_sentry_local_variable_capture(module_path: str) -> None:
     """Sentry captures frame locals by default, and those frames hold secrets.
 
@@ -263,9 +266,11 @@ def test_workers_disable_sentry_local_variable_capture(module_path: str) -> None
     like `evaled_args` — so collection has to be disabled at init.
     """
     import ast
+    import importlib
     from pathlib import Path
 
-    source = Path(module_path).read_text()
+    module = importlib.import_module(module_path)
+    source = Path(str(module.__file__)).read_text()
     tree = ast.parse(source)
 
     init_calls = [
