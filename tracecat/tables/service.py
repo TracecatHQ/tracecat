@@ -1152,12 +1152,6 @@ class BaseTablesService(BaseWorkspaceService):
         await self.session.flush()
         return result.rowcount
 
-    @retry(
-        retry=retry_if_exception_type(_RETRYABLE_DB_EXCEPTIONS),
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=0.1, min=0.2, max=2),
-        reraise=True,
-    )
     async def aggregate_rows(
         self,
         table_name: str,
