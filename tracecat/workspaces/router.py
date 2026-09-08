@@ -16,6 +16,7 @@ from tracecat.authz.service import MembershipService
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import (
     TracecatAuthorizationError,
+    TracecatConflictError,
     TracecatManagementError,
     TracecatNotFoundError,
     TracecatValidationError,
@@ -259,6 +260,8 @@ async def create_workspace_membership(
         # TracecatAuthorizationError intentionally propagates: the API-wide
         # handler maps it to 403, which is correct for a scope-ceiling denial.
         await service.create_membership(workspace_id, params=params)
+    except TracecatConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
     except IntegrityError as e:
         logger.error("INTEGRITY ERROR", error=str(e))
         raise HTTPException(
@@ -282,13 +285,12 @@ async def get_workspace_membership(
 ) -> WorkspaceMembershipRead:
     """Get a workspace membership for a user."""
     service = MembershipService(session, role=role)
-    membership_with_org = await service.get_membership(workspace_id, user_id=user_id)
-    if not membership_with_org:
+    membership = await service.get_membership(workspace_id, user_id=user_id)
+    if not membership:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Membership not found",
         )
-    membership = membership_with_org.membership
     return WorkspaceMembershipRead(
         user_id=membership.user_id,
         workspace_id=membership.workspace_id,
