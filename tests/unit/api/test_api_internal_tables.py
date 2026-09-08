@@ -445,16 +445,21 @@ async def test_internal_aggregate_rows_returns_serialized_response(
 
 
 @pytest.mark.anyio
-async def test_internal_aggregate_rows_rejects_limit_above_maximum(
+@pytest.mark.parametrize(
+    "payload",
+    [{"group_by": [], "limit": 1001}, {"group_by": [], "min_count": 2**63}],
+)
+async def test_internal_aggregate_rows_rejects_values_above_maximum(
     action_gateway_client: TestClient,
     test_admin_role: Role,
     mock_table: Table,
+    payload: dict[str, object],
 ) -> None:
     with patch.object(internal_tables_router, "TablesService") as MockService:
         response = action_gateway_client.post(
             f"/internal/tables/{mock_table.name}/aggregate",
             params={"workspace_id": str(test_admin_role.workspace_id)},
-            json={"group_by": [], "limit": 1001},
+            json=payload,
         )
 
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT

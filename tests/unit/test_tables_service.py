@@ -2711,6 +2711,20 @@ class TestTableAggregations:
         )
         assert total.groups == [{"count": 3}]
 
+    @pytest.mark.parametrize("min_count", [2**31, 2**63 - 1])
+    async def test_min_count_above_int32_returns_empty_groups(
+        self,
+        tables_service: TablesService,
+        aggregate_table: Table,
+        min_count: int,
+    ) -> None:
+        response = await tables_service.aggregate_rows(
+            aggregate_table.name,
+            TableAggregateRequest(group_by=[], min_count=min_count),
+        )
+        assert response.groups == []
+        assert response.truncated is False
+
     @pytest.mark.parametrize("field", ["payload", "tags"])
     async def test_jsonb_and_multi_select_are_rejected(
         self,
