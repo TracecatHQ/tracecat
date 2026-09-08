@@ -941,6 +941,13 @@ class SandboxedAgentExecutor:
                         f"Agent execution timed out after {self.timeout_seconds}s"
                     )
                     result.classification = agent_executor_timed_out()
+                    # Raise locally so the deadline event retains this source frame.
+                    try:
+                        raise TimeoutError(result.error)
+                    except TimeoutError as error:
+                        result.sentry_capture = capture_activity_failure(
+                            error, result.classification
+                        )
                     result.terminal_stream_error_emitted = (
                         await handler.emit_terminal_error(result.error)
                     )
