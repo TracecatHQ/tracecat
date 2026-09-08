@@ -8,7 +8,7 @@ from unittest.mock import Mock
 
 import pytest
 import sentry_sdk
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from opentelemetry import trace
 from sentry_sdk.client import Client
@@ -33,11 +33,14 @@ from tracecat.agent.error_policy import (
     invalid_agent_configuration,
     user_agent_execution_failed,
 )
+from tracecat.auth.credentials import _authenticate_executor
+from tracecat.db.exceptions import AuthPoolExhaustedError
 from tracecat.dsl import interceptor as interceptor_module
 from tracecat.dsl.interceptor import (
     RuntimeErrorAttributionInterceptor,
     _RuntimeErrorAttributionWorkflowInterceptor,
 )
+from tracecat.exceptions import EntitlementRequired, ScopeDeniedError
 from tracecat.executor.action_gateway import app as gateway_module
 from tracecat.logger import logger
 from tracecat.observability import sentry as sentry_module
@@ -52,6 +55,7 @@ from tracecat.observability.sentry import (
     initialize_worker_sentry,
     initialize_worker_sentry_from_environment,
 )
+from tracecat.query.errors import TracecatQueryOverflowError, TracecatQueryTimeoutError
 from tracecat.runtime.errors import (
     RetryDisposition,
     RuntimeErrorClassification,
@@ -851,3 +855,104 @@ def test_api_capture_preserves_only_active_otel_identifiers(
         "span_id": "0000000000000002",
     }
     assert _SENSITIVE_VALUE not in json.dumps(event)
+
+
+@pytest.mark.parametrize("authorization", [None, "Bearer invalid-token"])
+def test_gateway_excludes_executor_credential_failures(
+    executor_sentry_events: list[Event],
+    monkeypatch: pytest.MonkeyPatch,
+    authorization: str | None,
+) -> None:
+    monkeypatch.setattr(gateway_module, "_include_internal_routers", lambda app: None)
+    app = gateway_module.create_app()
+
+    async def authenticate(request: Request) -> None:
+        # Exercise the real credential verifier; missing/invalid tokens fail
+        # before any workspace database lookup is needed.
+        await _authenticate_executor(
+            request=request,
+            workspace_id=None,
+            require_workspace="yes",
+        )
+
+    async def protected_route() -> None:
+        pytest.fail("Unauthorized requests must not reach the route")
+
+    app.add_api_route(
+        "/internal/protected", protected_route, dependencies=[Depends(authenticate)]
+    )
+    headers = {"Authorization": authorization} if authorization else {}
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get("/internal/protected", headers=headers)
+    sentry_sdk.flush()
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Unauthorized"}
+    assert executor_sentry_events == []
+
+
+def test_gateway_excludes_request_validation_failure(
+    executor_sentry_events: list[Event],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(gateway_module, "_include_internal_routers", lambda app: None)
+    app = gateway_module.create_app()
+
+    async def validated_route(count: int) -> None:
+        pytest.fail("Invalid input must not reach the route")
+
+    app.add_api_route("/internal/validated", validated_route)
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get("/internal/validated", params={"count": "not-an-integer"})
+    sentry_sdk.flush()
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["type"] == "int_parsing"
+    assert executor_sentry_events == []
+
+
+@pytest.mark.parametrize(
+    ("error", "status_code", "response_marker"),
+    [
+        (
+            ScopeDeniedError(
+                required_scopes=["cases:read"], missing_scopes=["cases:read"]
+            ),
+            403,
+            "insufficient_scope",
+        ),
+        (EntitlementRequired("synthetic-feature"), 403, "EntitlementRequired"),
+        (
+            AuthPoolExhaustedError("synthetic pool exhaustion"),
+            503,
+            "auth_database_unavailable",
+        ),
+        (TracecatQueryTimeoutError(), 422, "query_timeout"),
+        (TracecatQueryOverflowError(), 400, "query_numeric_overflow"),
+    ],
+)
+def test_gateway_excludes_typed_dependency_failures(
+    executor_sentry_events: list[Event],
+    monkeypatch: pytest.MonkeyPatch,
+    error: Exception,
+    status_code: int,
+    response_marker: str,
+) -> None:
+    monkeypatch.setattr(gateway_module, "_include_internal_routers", lambda app: None)
+    app = gateway_module.create_app()
+
+    async def failing_dependency() -> None:
+        raise error
+
+    async def protected_route() -> None:
+        pytest.fail("Failed dependencies must not reach the route")
+
+    app.add_api_route(
+        "/internal/protected",
+        protected_route,
+        dependencies=[Depends(failing_dependency)],
+    )
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get("/internal/protected")
+    sentry_sdk.flush()
+    assert response.status_code == status_code
+    assert response_marker in response.text
+    assert executor_sentry_events == []
