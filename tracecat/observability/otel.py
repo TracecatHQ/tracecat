@@ -451,7 +451,8 @@ def _sanitize_server_span(span: Span, scope: Scope) -> None:
     # identifiers on its request isolation scope while the span is available.
     # Non-recording (unsampled) spans still provide useful correlation IDs.
     span_context = span.get_span_context()
-    if span_context.is_valid:
+    client = sentry_sdk.get_client()
+    if span_context.is_valid and client.is_active() and client.options.get("dsn"):
         sentry_sdk.set_context(
             "tracecat_otel",
             {

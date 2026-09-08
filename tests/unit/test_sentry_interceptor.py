@@ -47,6 +47,7 @@ from tracecat.executor.action_gateway import app as gateway_module
 from tracecat.logger import logger
 from tracecat.observability import sentry as sentry_module
 from tracecat.observability.otel import (
+    _sanitize_server_span,
     initialize_platform_tracing,
     instrument_fastapi_app,
     shutdown_platform_tracing,
@@ -1034,3 +1035,22 @@ def test_request_trace_survives_span_unwind(
         sentry_sdk.init(
             dsn=None, default_integrations=False, auto_enabling_integrations=False
         )
+
+
+def test_disabled_sentry_leaves_trace_context_untouched(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with sentry_sdk.isolation_scope() as scope:
+        # A configured SDK with no DSN must also skip scope writes.
+        scope.set_client(
+            Client(
+                dsn=None, default_integrations=False, auto_enabling_integrations=False
+            )
+        )
+        set_context = Mock()
+        monkeypatch.setattr(sentry_sdk, "set_context", set_context)
+        span = trace.NonRecordingSpan(
+            trace.SpanContext(trace_id=1, span_id=2, is_remote=False)
+        )
+        _sanitize_server_span(span, {"type": "http"})
+        set_context.assert_not_called()
