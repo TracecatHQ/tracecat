@@ -5,6 +5,17 @@ import { isAgentToolSelectable } from "@/lib/agent-tools"
 /** Maximum number of tool declarations accepted by skill frontmatter. */
 export const MAX_SKILL_TOOLS = 64
 
+// Keep in sync with ToolId in tracecat/agent/skill/frontmatter.py.
+const MCP_TOOL_ID_RE = /^mcp\.[a-z0-9_-]+(?:\.[A-Za-z0-9_-]+)?$/
+const REGISTRY_TOOL_ID_RE = /^[a-z0-9_]+(?:\.[a-z0-9_]+)+$/
+
+function isCanonicalToolId(value: string): boolean {
+  const pattern = value.startsWith("mcp.")
+    ? MCP_TOOL_ID_RE
+    : REGISTRY_TOOL_ID_RE
+  return value.length >= 3 && value.length <= 255 && pattern.test(value)
+}
+
 /** Tool option shown in the Skills Studio frontmatter picker. */
 export interface SkillToolOption {
   value: string
@@ -128,7 +139,12 @@ export function buildSkillToolOptions(
       tagGroup: integration.name,
     }
     const toolOptions = (integration.tools ?? [])
-      .filter((tool) => tool.enabled !== false && tool.status !== "missing")
+      .filter(
+        (tool) =>
+          tool.enabled !== false &&
+          tool.status !== "missing" &&
+          isCanonicalToolId(`mcp.${integration.slug}.${tool.name}`)
+      )
       .map<SkillToolOption>((tool) => ({
         value: `mcp.${integration.slug}.${tool.name}`,
         label: tool.name,
