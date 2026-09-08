@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import ProgrammingError
 
+from tracecat import config
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
 from tracecat.auth.types import Role
 from tracecat.cases import internal_router
@@ -22,8 +23,9 @@ from tracecat.query.errors import TracecatQueryOverflowError, TracecatQueryTimeo
 pytestmark = pytest.mark.anyio
 
 
+@pytest.mark.parametrize("limit", [None, config.TRACECAT__LIMIT_AGG_GROUPS_MAX])
 async def test_aggregate_serialization(
-    action_gateway_client: TestClient, test_admin_role: Role
+    action_gateway_client: TestClient, test_admin_role: Role, limit: int | None
 ):
     assignee = uuid.uuid4()
     with patch.object(internal_router, "CasesService") as service:
@@ -46,7 +48,11 @@ async def test_aggregate_serialization(
             )
         )
         response = action_gateway_client.post(
-            "/internal/cases/aggregate", json={"group_by": ["priority"]}
+            "/internal/cases/aggregate",
+            json={
+                "group_by": ["priority"],
+                **({"limit": limit} if limit is not None else {}),
+            },
         )
     assert response.status_code == 200
     assert response.json() == {
@@ -67,13 +73,15 @@ async def test_aggregate_serialization(
     }
     request = service.return_value.aggregate_cases.call_args.args[0]
     assert request.group_by[0].field == "priority"
-    assert request.limit == 100
+    assert request.limit == (
+        config.TRACECAT__LIMIT_AGG_GROUPS_DEFAULT if limit is None else limit
+    )
 
 
 @pytest.mark.parametrize(
     "payload",
     [
-        {"group_by": [], "limit": 1001},
+        {"group_by": [], "limit": config.TRACECAT__LIMIT_AGG_GROUPS_MAX + 1},
         {"group_by": [], "limit": 0},
         {"group_by": [], "min_count": 2**63},
         {"group_by": ["status"] * 4},

@@ -75,8 +75,11 @@ this checkout; its full text was read through the Linear MCP instead.
 ### 1. Define the question and answer
 
 In `tracecat/cases/schemas.py`, add `CaseAggregateRequest(AggregationSpec)` with
-the shared filter tree and a config-backed limit: default 100, maximum 1000,
-minimum 1. Reject invalid limits with 422; never silently reduce them.
+the shared filter tree and a config-backed limit: default 100 groups, with a
+maximum that defaults to 1000 and a minimum of 1. Operators can override the
+default and maximum through `TRACECAT__LIMIT_AGG_GROUPS_DEFAULT` and
+`TRACECAT__LIMIT_AGG_GROUPS_MAX`, as they can for tables. Reject requests above
+the configured maximum with 422; never silently reduce them.
 
 Add a case response model with the established `{groups, truncated}` shape.
 Use a closed scalar union including UUID, Decimal, datetime, date, strings,
@@ -144,7 +147,7 @@ Use existing cases fixtures and the table aggregation tests as references.
 | Negation | Matching, different, stored-null, and absent-row states under NOT, AND, and OR; missing values retain SQL null semantics |
 | Supported values | All seven calculations on numeric custom fields; URL extraction; SELECT/BOOLEAN/text grouping; 256-character prefix collapse; exact decimal group keys |
 | Time | Hour/day/week/month; non-UTC zone and DST; week/month boundaries; UTC `Z` output; custom DATE buckets stay date-only |
-| Limits and ordering | Defaults, aliases, ties, nulls last, grand total, empty input, empty `in`/`not_in`, `min_count`, exact limit and limit+1, 1001 rejected |
+| Limits and ordering | Configured defaults, aliases, ties, nulls last, grand total, empty input, empty `in`/`not_in`, `min_count`, exact limit and limit+1, configured maximum + 1 rejected |
 | Errors and access | Invalid field/type/bucket; no custom schema; real 1 ms timeout gives structured 422; overflow gives structured 400; unauthorized callers cannot read |
 | Isolation | Two workspaces with overlapping values; foreign cases excluded even with RLS off; custom schema selected from the authenticated workspace |
 
