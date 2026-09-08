@@ -74,6 +74,7 @@ from tracecat.agent.otel_config import (
     resolve_agent_otel_config,
 )
 from tracecat.agent.preset.service import AgentPresetService
+from tracecat.agent.run_context import build_agent_run_context
 from tracecat.agent.runtime.claude_code.broker import (
     ClaudeRuntimeBroker,
     ClaudeTurnRequest,
@@ -108,6 +109,7 @@ from tracecat.config import (
     TRACECAT__AGENT_SKILL_CACHE_DIR,
     TRACECAT__AGENT_SKILL_CACHE_MAX_CONCURRENT_DOWNLOADS,
 )
+from tracecat.contexts import ctx_run
 from tracecat.exceptions import TracecatException
 from tracecat.feature_flags import FeatureFlag, is_feature_enabled
 from tracecat.integrations.mcp_validation import MCPSecretResolutionError
@@ -237,6 +239,9 @@ class AgentExecutorInput(BaseModel):
     is_fork: bool = False
     max_requests: int | None = None
     max_tool_calls: int | None = None
+    # Task environment for SECRETS/VARS resolution. Histories recorded before
+    # environment propagation lack the field; "default" preserves their behavior.
+    environment: str = "default"
 
 
 class AgentExecutorResult(BaseModel):
@@ -1491,6 +1496,8 @@ async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
         AgentExecutorResult with execution status and terminal output.
     """
     activity_info = activity.info()
+    # Pins the run's task environment so SECRETS/VARS resolve against it.
+    ctx_run.set(build_agent_run_context(environment=input.environment))
     set_current_span_attributes(
         {
             **_agent_correlation_attributes(input),

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Any, Never
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from temporalio.client import WorkflowFailureError
 from temporalio.common import SearchAttributePair, TypedSearchAttributes
@@ -12,6 +12,7 @@ from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 from tracecat_ee.agent.workflows.registry_tool import ExecuteRegistryToolWorkflow
 
 from tracecat import config
+from tracecat.agent.run_context import build_agent_run_context
 from tracecat.agent.tokens import MCPTokenClaims
 from tracecat.agent.workflows.tool_execution import (
     AGENT_TOOL_PRIORITY,
@@ -27,10 +28,7 @@ from tracecat.dsl.schemas import (
     ActionStatement,
     ExecutionContext,
     RunActionInput,
-    RunContext,
 )
-from tracecat.identifiers import WorkflowUUID
-from tracecat.identifiers.workflow import ExecutionUUID
 from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.storage.object import (
@@ -169,13 +167,12 @@ def build_run_input(
         args=args,
     )
 
-    wf_id = WorkflowUUID.from_uuid(workflow_id or uuid4())
-    run_context = RunContext(
-        wf_id=wf_id,
-        wf_run_id=run_id or uuid4(),
-        wf_exec_id=f"{wf_id.short()}/{ExecutionUUID.from_uuid(execution_id or uuid4()).short()}",
+    run_context = build_agent_run_context(
         environment=environment,
-        logical_time=logical_time or datetime.now(UTC),
+        workflow_id=workflow_id,
+        run_id=run_id,
+        execution_id=execution_id,
+        logical_time=logical_time,
     )
 
     return RunActionInput(

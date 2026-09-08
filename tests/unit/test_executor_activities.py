@@ -1092,3 +1092,42 @@ class TestProbeStdioMCPConnectionActivity:
             mcp_integration_id=mcp_integration_id,
             discovered_tools=discovered_tools,
         )
+
+
+class TestResolveStdioEnvEnvironment:
+    @pytest.mark.anyio
+    async def test_variables_resolve_against_run_environment(
+        self, mock_role: Role
+    ) -> None:
+        from tracecat.agent.preset.service import AgentPresetService
+        from tracecat.agent.run_context import build_agent_run_context
+        from tracecat.contexts import ctx_run
+
+        preset_svc = AgentPresetService(session=MagicMock(), role=mock_role)
+        get_vars = AsyncMock(return_value={"cfg": {"token": "staging-token"}})
+        token = ctx_run.set(build_agent_run_context(environment="staging"))
+        try:
+            with (
+                patch(
+                    "tracecat.agent.preset.service.get_workspace_variables",
+                    get_vars,
+                ),
+                patch(
+                    "tracecat.agent.preset.service.secrets_manager.get_action_secrets",
+                    AsyncMock(return_value={}),
+                ),
+            ):
+                resolved = await preset_svc.resolve_stdio_env(
+                    stdio_env={"API_TOKEN": "${{ VARS.cfg.token }}"},
+                    mcp_integration_id=uuid.uuid4(),
+                    mcp_integration_slug="stdio-server",
+                )
+        finally:
+            ctx_run.reset(token)
+
+        assert resolved == {"API_TOKEN": "staging-token"}
+        get_vars.assert_awaited_once_with(
+            variable_exprs={"cfg"},
+            environment="staging",
+            role=mock_role,
+        )

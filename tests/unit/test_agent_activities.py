@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import shutil
 import uuid
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -42,6 +43,7 @@ from tracecat_ee.agent.activities import (
     EmitSessionErrorInputs,
 )
 
+import tracecat.agent.executor.activity as executor_activity
 from tracecat import config
 from tracecat.agent.common.config import build_agent_runtime_uv_env
 from tracecat.agent.common.fs import force_rmtree
@@ -67,6 +69,7 @@ from tracecat.agent.executor.loopback import (
     LoopbackResult,
 )
 from tracecat.agent.otel_config import AgentOtelConfig, ResolvedAgentOtelConfig
+from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.runtime.claude_code.broker import (
     ClaudeTurnRequest,
     ConcurrentSessionTurnError,
@@ -97,6 +100,7 @@ from tracecat.agent.types import AgentConfig, Tool, clamp_agent_timeout_seconds
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.chat.schemas import ChatMessage
+from tracecat.contexts import ctx_run
 from tracecat.exceptions import BuiltinRegistryHasNoSelectionError, EntitlementRequired
 from tracecat.integrations.schemas import MCPToolSummary
 from tracecat.observability.otel import (
@@ -3689,3 +3693,162 @@ class TestSandboxedAgentExecutorJobCleanup:
             if read_only_dir.exists():
                 read_only_dir.chmod(0o700)
             shutil.rmtree(job_dir, ignore_errors=True)
+
+
+def _env_test_agent_config(**overrides: Any) -> AgentConfig:
+    """Build an AgentConfig through the EE shim, which is untyped at import."""
+    agent_config = cast(Any, AgentConfig)
+    return cast(
+        AgentConfig,
+        agent_config(model_name="gpt-5", model_provider="openai", **overrides),
+    )
+
+
+class TestAgentEnvironmentPropagation:
+    """Environment must reach SECRETS/VARS resolution via ctx_run."""
+
+    def test_activity_inputs_default_environment(self, mock_role: Role) -> None:
+        assert (
+            AgentExecutorInput(
+                session_id=uuid.uuid4(),
+                workspace_id=uuid.uuid4(),
+                user_prompt="hello",
+                config=_env_test_agent_config(),
+                role=mock_role,
+                mcp_auth_token="mcp-token",
+                llm_gateway_auth_token="llm-token",
+            ).environment
+            == "default"
+        )
+        assert (
+            BuildToolDefsArgs(role=mock_role, tool_filters=ToolFilters()).environment
+            == "default"
+        )
+        assert (
+            BuildAgentToolDefsArgs(role=mock_role, scopes=[]).environment == "default"
+        )
+
+    @pytest.mark.anyio
+    async def test_run_agent_activity_pins_run_environment(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_role: Role,
+    ) -> None:
+        seen: list[str | None] = []
+        integration_id = uuid.uuid4()
+
+        class _PresetService:
+            async def resolve_mcp_integration_secrets(
+                self, mcp_integration_id: uuid.UUID
+            ) -> dict[str, str]:
+                run_context = ctx_run.get()
+                seen.append(None if run_context is None else run_context.environment)
+                return {"TOKEN": "value"}
+
+        @asynccontextmanager
+        async def _with_session(**kwargs: Any) -> AsyncIterator[_PresetService]:
+            yield _PresetService()
+
+        monkeypatch.setattr(AgentPresetService, "with_session", _with_session)
+        monkeypatch.setattr(
+            executor_activity,
+            "activity",
+            SimpleNamespace(
+                heartbeat=lambda _message: None,
+                info=lambda: SimpleNamespace(attempt=1, task_queue="test-agent-queue"),
+            ),
+        )
+
+        executed: list[AgentExecutorInput] = []
+
+        async def _fake_run(self: SandboxedAgentExecutor) -> AgentExecutorResult:
+            executed.append(self.input)
+            return AgentExecutorResult(success=True)
+
+        monkeypatch.setattr(SandboxedAgentExecutor, "run", _fake_run)
+
+        input = AgentExecutorInput(
+            session_id=uuid.uuid4(),
+            workspace_id=uuid.uuid4(),
+            user_prompt="hello",
+            config=_env_test_agent_config(
+                mcp_servers=[
+                    {
+                        "type": "stdio",
+                        "name": "local-tools",
+                        "command": "uvx",
+                        "id": str(integration_id),
+                    }
+                ]
+            ),
+            role=mock_role,
+            mcp_auth_token="mcp-token",
+            llm_gateway_auth_token="llm-token",
+            environment="prod",
+        )
+
+        result = await run_agent_activity(input)
+
+        assert result.success is True
+        assert seen == ["prod"]
+        assert executed[0].config.mcp_servers is not None
+
+    @pytest.mark.anyio
+    async def test_build_agent_tool_definitions_pins_run_environment(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_role: Role,
+    ) -> None:
+        seen: list[str | None] = []
+        activities = AgentActivities()
+
+        async def _scope_build(*args: Any, **kwargs: Any) -> BuildToolDefsResult:
+            run_context = ctx_run.get()
+            seen.append(None if run_context is None else run_context.environment)
+            return BuildToolDefsResult(
+                tool_definitions={},
+                registry_lock=RegistryLock(origins={}, actions={}),
+            )
+
+        monkeypatch.setattr(activities, "_build_scope_tool_definitions", _scope_build)
+
+        await activities.build_agent_tool_definitions(
+            BuildAgentToolDefsArgs(
+                role=mock_role,
+                environment="prod",
+                scopes=[
+                    BuildAgentScopeToolDefsArgs(
+                        scope="root", tool_filters=ToolFilters()
+                    )
+                ],
+            )
+        )
+        assert seen == ["prod"]
+
+    @pytest.mark.anyio
+    async def test_build_tool_definitions_pins_run_environment(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_role: Role,
+    ) -> None:
+        seen: list[str | None] = []
+        activities = AgentActivities()
+
+        async def _scope_build(*args: Any, **kwargs: Any) -> BuildToolDefsResult:
+            run_context = ctx_run.get()
+            seen.append(None if run_context is None else run_context.environment)
+            return BuildToolDefsResult(
+                tool_definitions={},
+                registry_lock=RegistryLock(origins={}, actions={}),
+            )
+
+        monkeypatch.setattr(activities, "_build_scope_tool_definitions", _scope_build)
+
+        await activities.build_tool_definitions(
+            BuildToolDefsArgs(
+                role=mock_role,
+                environment="prod",
+                tool_filters=ToolFilters(),
+            )
+        )
+        assert seen == ["prod"]

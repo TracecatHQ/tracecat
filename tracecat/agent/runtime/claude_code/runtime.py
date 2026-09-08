@@ -220,18 +220,15 @@ class _RequestUsage:
     cache_read_input_tokens: int = 0
 
     def add(self, usage: dict[str, Any] | None) -> None:
-        """Sum the four token fields when present and integral."""
+        """Sum the four token fields; the API may omit or null any of them."""
         if usage is None:
             return
-        for field in (
-            "input_tokens",
-            "output_tokens",
-            "cache_creation_input_tokens",
-            "cache_read_input_tokens",
-        ):
-            value = usage.get(field)
-            if isinstance(value, int) and not isinstance(value, bool):
-                setattr(self, field, getattr(self, field) + value)
+        self.input_tokens += usage.get("input_tokens") or 0
+        self.output_tokens += usage.get("output_tokens") or 0
+        self.cache_creation_input_tokens += (
+            usage.get("cache_creation_input_tokens") or 0
+        )
+        self.cache_read_input_tokens += usage.get("cache_read_input_tokens") or 0
 
     def as_dict(self) -> dict[str, int]:
         """Render the totals in the shape ``send_result(usage=...)`` accepts."""

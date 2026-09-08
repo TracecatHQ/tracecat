@@ -11,7 +11,12 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from temporalio.common import TypedSearchAttributes
 from temporalio.exceptions import ActivityError, ApplicationError
-from tracecat_ee.agent.activities import BuildToolDefsArgs, BuildToolDefsResult
+from tracecat_ee.agent.activities import (
+    BuildAgentToolDefsArgs,
+    BuildAgentToolDefsResult,
+    BuildToolDefsArgs,
+    BuildToolDefsResult,
+)
 from tracecat_ee.agent.workflows.durable import (
     AgentWorkflowArgs,
     DurableAgentWorkflow,
@@ -994,3 +999,56 @@ def test_build_approved_tool_run_input_strips_proxy_metadata() -> None:
     assert result.task.action == "core.cases.create_case"
     assert result.task.args == {"summary": "hello"}
     assert result.agent_session_id == agent_session_id
+
+
+@pytest.mark.anyio
+async def test_compile_agent_run_forwards_environment_to_build_activity() -> None:
+    role = Role(
+        type="user",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        scopes=frozenset({"agent:execute", "secret:read"}),
+    )
+    workflow_args = _build_workflow_args(role)
+    workflow_args.agent_args.environment = "prod"
+    workflow_instance = DurableAgentWorkflow(workflow_args)
+    workflow_instance.environment = workflow_args.agent_args.environment
+    cfg = cast(Any, workflow_args.agent_args.config)
+    build_result = BuildAgentToolDefsResult(
+        scopes={
+            "root": BuildToolDefsResult(
+                tool_definitions={},
+                registry_lock=RegistryLock(origins={}, actions={}),
+            )
+        }
+    )
+
+    with (
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.patched",
+            return_value=True,
+        ),
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.execute_activity_method",
+            AsyncMock(return_value=build_result),
+        ) as execute_activity_method_mock,
+        patch.object(
+            workflow_instance,
+            "_mint_scope_mcp_token",
+            return_value="mcp-token",
+        ),
+    ):
+        await workflow_instance._compile_agent_run(
+            cfg=cfg,
+            subagents=[],
+            internal_tool_context=None,
+            token_ttl_seconds=None,
+        )
+
+    await_args = execute_activity_method_mock.await_args
+    assert await_args is not None
+    args = await_args.kwargs["arg"]
+    assert isinstance(args, BuildAgentToolDefsArgs)
+    assert args.environment == "prod"

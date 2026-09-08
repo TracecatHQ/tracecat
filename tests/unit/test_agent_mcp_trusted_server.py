@@ -11,6 +11,7 @@ from tracecat.agent.mcp.metadata import PROXY_TOOL_CALL_ID_KEY, PROXY_TOOL_METAD
 from tracecat.agent.mcp.user_client import UserMCPClient, UserMCPDiscoveryResult
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.tokens import MCPTokenClaims, UserMCPServerClaim
+from tracecat.contexts import ctx_run
 from tracecat.exceptions import BuiltinRegistryHasNoSelectionError
 from tracecat.registry.lock.types import RegistryLock
 
@@ -1094,3 +1095,14 @@ async def test_token_scoped_mcp_call_requires_bearer_auth(
 
     with pytest.raises(ToolError, match="Authentication failed"):
         await trusted_server.mcp.call_tool("core__cases__list_cases", {})
+
+
+def test_set_role_context_pins_run_environment() -> None:
+    claims = _build_claims()
+    claims.environment = "prod"
+
+    trusted_server._set_role_context(claims)
+
+    run_context = ctx_run.get()
+    assert run_context is not None
+    assert run_context.environment == "prod"

@@ -33,13 +33,14 @@ from tracecat.agent.mcp.utils import (
     REGISTRY_MCP_SERVER_NAME,
     normalize_mcp_tool_name,
 )
+from tracecat.agent.run_context import build_agent_run_context
 from tracecat.agent.schemas import ToolFilters
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.tokens import InternalToolContext, UserMCPServerClaim
 from tracecat.agent.tools import build_agent_tools
 from tracecat.auth.types import Role
 from tracecat.common import all_activities
-from tracecat.contexts import ctx_role
+from tracecat.contexts import ctx_role, ctx_run
 from tracecat.exceptions import BuiltinRegistryHasNoSelectionError, EntitlementRequired
 from tracecat.logger import logger
 from tracecat.registry.lock.service import RegistryLockService
@@ -55,6 +56,8 @@ if TYPE_CHECKING:
 
 class BuildToolDefsArgs(BaseModel):
     role: Role
+    environment: str = "default"
+    """Task environment for SECRETS/VARS resolution; "default" for old histories."""
     tool_filters: ToolFilters
     tool_approvals: dict[str, bool] | None = None
     mcp_servers: list[MCPServerConfig] | None = None
@@ -90,6 +93,8 @@ class BuildToolDefsResult(BaseModel):
 
 class BuildAgentToolDefsArgs(BaseModel):
     role: Role
+    environment: str = "default"
+    """Task environment for SECRETS/VARS resolution; "default" for old histories."""
     scopes: list[BuildAgentScopeToolDefsArgs]
 
 
@@ -493,6 +498,7 @@ class AgentActivities:
     ) -> BuildToolDefsResult:
         # Set role context for services that require organization context
         ctx_role.set(args.role)
+        ctx_run.set(build_agent_run_context(environment=args.environment))
 
         # Runtime guard for approval-gated agent flows. This ensures direct
         # workflow execution paths still enforce entitlements.
@@ -519,6 +525,7 @@ class AgentActivities:
         # Compile all agent scopes in one activity while preserving partitioned
         # outputs for MCP tokens, approvals, user MCP claims, and registry locks.
         ctx_role.set(args.role)
+        ctx_run.set(build_agent_run_context(environment=args.environment))
         if any(scope.tool_approvals for scope in args.scopes):
             await self._check_tool_approval_entitlement(args.role)
 

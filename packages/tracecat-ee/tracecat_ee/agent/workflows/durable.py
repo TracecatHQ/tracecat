@@ -814,6 +814,7 @@ class DurableAgentWorkflow:
                     AgentActivities.build_tool_definitions,
                     arg=BuildToolDefsArgs(
                         role=self.role,
+                        environment=self.environment,
                         tool_filters=ToolFilters(
                             namespaces=cfg.namespaces,
                             actions=cfg.actions,
@@ -874,6 +875,7 @@ class DurableAgentWorkflow:
                 AgentActivities.build_agent_tool_definitions,
                 arg=BuildAgentToolDefsArgs(
                     role=self.role,
+                    environment=self.environment,
                     scopes=[spec.to_tool_defs_arg() for spec in scope_specs],
                 ),
                 start_to_close_timeout=timedelta(
@@ -1460,6 +1462,7 @@ class DurableAgentWorkflow:
             user_prompt=args.agent_args.user_prompt,
             config=cfg,
             role=self.role,
+            environment=self.environment,
             mcp_auth_token=compiled_run.root.mcp_auth_token,
             llm_gateway_auth_token=llm_gateway_auth_token,
             agent_otel_auth_token=agent_otel_auth_token,
@@ -1785,6 +1788,7 @@ class DurableAgentWorkflow:
                     user_prompt=args.agent_args.user_prompt,
                     config=cfg,
                     role=self.role,
+                    environment=self.environment,
                     mcp_auth_token=compiled_run.root.mcp_auth_token,
                     llm_gateway_auth_token=llm_gateway_auth_token,
                     agent_otel_auth_token=agent_otel_auth_token,
