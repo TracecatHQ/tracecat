@@ -93,7 +93,8 @@ async def test_list_current_user_organization_memberships(
     compiled = stmt.compile()
     sql = str(compiled)
 
-    assert "organization_membership.user_id = " in sql
+    # Org presence is derived; the filter lands on the derived relation.
+    assert "organization_membership_derived.user_id = " in sql
     assert "organization.is_active" in sql
     assert test_admin_role.user_id in compiled.params.values()
 
