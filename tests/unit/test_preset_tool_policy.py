@@ -8,6 +8,7 @@ from cryptography.fernet import Fernet
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
+from tracecat.agent.preset.schemas import AgentPresetToolPolicyPreview
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.preset.tool_policy import resolve_tool_policy
 from tracecat.agent.preset.types import PresetToolInputs
@@ -19,7 +20,9 @@ from tracecat.db.models import (
     SkillVersionMcpTool,
     SkillVersionTool,
 )
+from tracecat.exceptions import TracecatValidationError
 from tracecat.integrations.service import IntegrationService
+from tracecat.registry.actions.service import RegistryActionsService
 
 
 def test_namespace_policy_preserves_blocked_tool_provenance() -> None:
@@ -190,3 +193,52 @@ async def test_runtime_loads_direct_mcp_metadata_once(
     result = await service._version_to_agent_config(version)
     assert result.mcp_servers and result.mcp_servers[0].get("id") == str(integration_id)
     load.assert_awaited_once()
+
+    load.reset_mock()
+    integration.server_type = "stdio"
+    monkeypatch.setattr(service.skills, "validate_binding_inputs", AsyncMock())
+    monkeypatch.setattr(
+        service, "_binding_specs_from_inputs", AsyncMock(return_value=[])
+    )
+    preview = await service.preview_tool_policy(
+        AgentPresetToolPolicyPreview(mcp_integrations=[str(integration_id)])
+    )
+    assert preview.internet_sources[0].tool_id == f"mcp.{integration_id}"
+    load.assert_awaited_once()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("selection", ["action", "malformed_mcp", "missing_mcp"])
+async def test_preview_rejects_invalid_direct_selections(
+    selection: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        config, "TRACECAT__DB_ENCRYPTION_KEY", Fernet.generate_key().decode()
+    )
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+    service = AgentPresetService(AsyncMock(spec=AsyncSession), role=role)
+    monkeypatch.setattr(service.skills, "validate_binding_inputs", AsyncMock())
+    monkeypatch.setattr(
+        service, "_binding_specs_from_inputs", AsyncMock(return_value=[])
+    )
+    monkeypatch.setattr(
+        RegistryActionsService, "list_actions_from_index", AsyncMock(return_value=[])
+    )
+    monkeypatch.setattr(
+        IntegrationService, "list_mcp_integrations", AsyncMock(return_value=[])
+    )
+    params = AgentPresetToolPolicyPreview(
+        actions=["tools.synthetic.missing"] if selection == "action" else [],
+        mcp_integrations=(
+            []
+            if selection == "action"
+            else ["not-a-uuid" if selection == "malformed_mcp" else str(uuid.uuid4())]
+        ),
+    )
+    with pytest.raises(TracecatValidationError):
+        await service.preview_tool_policy(params)
