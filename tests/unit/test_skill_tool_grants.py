@@ -55,6 +55,7 @@ async def test_explicit_requirements_are_validated_before_union(
     session.execute.return_value = rows
     integration = MCPIntegration(
         id=integration_id,
+        server_type="http",
         tools=[{"name": "read", "enabled": available, "status": "available"}],
     )
     monkeypatch.setattr(
