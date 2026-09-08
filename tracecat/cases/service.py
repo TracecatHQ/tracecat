@@ -51,8 +51,11 @@ from tracecat.cases.enums import (
 )
 from tracecat.cases.events import CaseEventsService
 from tracecat.cases.mentions import MentionToken, parse_mentions
+from tracecat.cases.query import CaseFieldResolver
 from tracecat.cases.schemas import (
     AssigneeChangedEvent,
+    CaseAggregateRequest,
+    CaseAggregateResponse,
     CaseBatchItemResult,
     CaseBatchResponse,
     CaseCommentAgentAttributionRead,
@@ -144,6 +147,9 @@ from tracecat.pagination import (
     PageParams,
     paginate,
 )
+from tracecat.query.compiler import compile_aggregation, compile_filter
+from tracecat.query.execution import query_execution_context
+from tracecat.query.resolver import ResolvedAggregationField
 from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.tables.common import (
     coerce_integer_value,
@@ -233,6 +239,62 @@ class CasesService(BaseWorkspaceService):
         self.agent_session_interactions = CaseAgentSessionInteractionService(
             session=self.session,
             role=self.role,
+        )
+
+    async def aggregate_cases(
+        self, request: CaseAggregateRequest
+    ) -> CaseAggregateResponse:
+        """Filter, group, and aggregate workspace cases in PostgreSQL."""
+        resolver = CaseFieldResolver(
+            self.workspace_id, await self.fields.get_field_schema()
+        )
+        statement = (
+            sa.select(sa.literal(1))
+            .select_from(Case)
+            .where(Case.workspace_id == self.workspace_id)
+        )
+        if request.filters is not None:
+            statement = statement.where(compile_filter(request.filters, resolver))
+
+        requested_fields = dict.fromkeys(group.field for group in request.group_by)
+        requested_fields.update(
+            dict.fromkeys(agg.field for agg in request.aggs if agg.field is not None)
+        )
+        resolved_fields: dict[str, ResolvedAggregationField] = {}
+        joined: set[str] = set()
+        for field in requested_fields:
+            resolved = resolver.resolve_aggregation(field)
+            if resolved is None:
+                raise TracecatValidationError(f"Unknown aggregation field {field!r}")
+            resolved_fields[field] = resolved.field
+            if (join := resolved.join) is not None and join.key not in joined:
+                statement = statement.join(
+                    join.target, join.onclause, isouter=join.is_outer
+                )
+                joined.add(join.key)
+
+        statement = compile_aggregation(
+            statement,
+            request,
+            resolved_fields,
+            limit=request.limit,
+            entity_id=Case.id,
+            # The custom-fields join is one-to-one; filters use correlated EXISTS.
+            base_has_multi_valued_join=False,
+        )
+        transaction = (
+            self.session.begin_nested()
+            if self.session.in_transaction()
+            else self.session.begin()
+        )
+        async with transaction:
+            async with query_execution_context(self.session):
+                result = await self.session.execute(statement)
+            rows = result.mappings().all()
+
+        return CaseAggregateResponse(
+            groups=[dict(row) for row in rows[: request.limit]],
+            truncated=len(rows) > request.limit,
         )
 
     async def get_task_counts(

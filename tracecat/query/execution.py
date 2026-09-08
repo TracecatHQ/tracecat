@@ -53,7 +53,10 @@ async def query_execution_context(
 
     The timeout is interpolated because PostgreSQL does not support bind parameters
     in ``SET LOCAL``. Validation guarantees that only a positive integer is placed
-    in the statement. The caller owns the surrounding transaction.
+    in the statement. On success, restore the previous timeout so later queries
+    in the same transaction are unaffected. On failure, the caller must roll back
+    the surrounding transaction or savepoint, which also restores the timeout;
+    issuing cleanup SQL in an aborted transaction would hide the original error.
 
     Args:
         session: Session whose current transaction will execute the query.
@@ -71,10 +74,15 @@ async def query_execution_context(
     _validate_statement_timeout_ms(resolved_timeout_ms)
 
     try:
+        previous_timeout = await session.scalar(text("SHOW statement_timeout"))
         await session.execute(
             text(f"SET LOCAL statement_timeout = {resolved_timeout_ms}")
         )
         yield
+        await session.execute(
+            text("SELECT set_config('statement_timeout', :timeout, true)"),
+            {"timeout": previous_timeout},
+        )
     except DBAPIError as exc:
         if _has_driver_error(exc.orig, QueryCanceledError):
             raise TracecatQueryTimeoutError from exc

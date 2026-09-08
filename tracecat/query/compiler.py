@@ -377,8 +377,9 @@ def _compile_row_count(
 ) -> ColumnElement[int]:
     if has_multi_valued_join:
         assert entity_id is not None
-        return sa.func.count(sa.distinct(entity_id))
-    return sa.func.count()
+        return sa.func.count(sa.distinct(entity_id), type_=sa.BigInteger())
+    # Match PostgreSQL's return type so HAVING thresholds bind as BIGINT too.
+    return sa.func.count(type_=sa.BigInteger())
 
 
 def _resolve_ordering(spec: AggregationSpec) -> tuple[str, SortDirection]:

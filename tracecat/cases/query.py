@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
 from enum import Enum
 from typing import Any, assert_never, cast
 from uuid import UUID
@@ -10,13 +9,18 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.sql.elements import ColumnElement
-from sqlalchemy.sql.selectable import FromClause, TableClause
+from sqlalchemy.sql.selectable import TableClause
 
 from tracecat.cases.constants import RESERVED_CASE_FIELDS
 from tracecat.cases.enums import (
     CaseFieldKind,
     CasePriority,
     CaseSeverity,
+)
+from tracecat.cases.types import (
+    CaseFieldJoinSpec,
+    CustomFieldDefinition,
+    ResolvedCaseAggregationField,
 )
 from tracecat.db.models import Case
 from tracecat.exceptions import TracecatValidationError
@@ -115,34 +119,6 @@ _SEVERITY_RANKS: Mapping[CaseSeverity, int] = {
 }
 _RANGE_OPS = frozenset({FilterOp.GT, FilterOp.GTE, FilterOp.LT, FilterOp.LTE})
 _CUSTOM_FIELD_RESERVED_NAMES = frozenset(RESERVED_CASE_FIELDS)
-
-
-@dataclass(frozen=True, slots=True)
-class CaseFieldJoinSpec:
-    """A join required to use a case field in an aggregation."""
-
-    key: str
-    target: FromClause
-    onclause: ColumnElement[bool]
-    is_outer: bool = True
-
-
-@dataclass(frozen=True, slots=True)
-class ResolvedCaseAggregationField:
-    """A case aggregation field and its optional backing-table join."""
-
-    field: ResolvedAggregationField
-    join: CaseFieldJoinSpec | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class _CustomFieldDefinition:
-    """Validated custom-field metadata used to construct SQL expressions."""
-
-    name: str
-    physical_name: str
-    sql_type: SqlType
-    kind: CaseFieldKind | None
 
 
 _FIXED_FILTER_FIELDS: Mapping[str, ResolvedField] = {
@@ -273,9 +249,7 @@ class CaseFieldResolver:
             )
         return None
 
-    def _resolve_custom_field_address(
-        self, field: str
-    ) -> _CustomFieldDefinition | None:
+    def _resolve_custom_field_address(self, field: str) -> CustomFieldDefinition | None:
         if not field.startswith(CUSTOM_FIELD_PREFIX):
             return None
         name = field.removeprefix(CUSTOM_FIELD_PREFIX)
@@ -293,7 +267,7 @@ class CaseFieldResolver:
 
     def _custom_field_expression(
         self,
-        field: _CustomFieldDefinition,
+        field: CustomFieldDefinition,
     ) -> tuple[ColumnElement[Any], FieldKind, frozenset[FilterOp]]:
         column = self._custom_fields_table.c[field.physical_name]
 
@@ -332,8 +306,8 @@ class CaseFieldResolver:
 
 def _parse_custom_field_schema(
     field_schema: Mapping[str, object],
-) -> dict[str, _CustomFieldDefinition]:
-    parsed: dict[str, _CustomFieldDefinition] = {}
+) -> dict[str, CustomFieldDefinition]:
+    parsed: dict[str, CustomFieldDefinition] = {}
     for name, metadata in field_schema.items():
         try:
             physical_name = validate_identifier(name)
@@ -372,7 +346,7 @@ def _parse_custom_field_schema(
             raise TracecatValidationError(
                 f"Case custom field {name!r} has invalid kind {raw_kind!r}"
             ) from exc
-        parsed[name] = _CustomFieldDefinition(
+        parsed[name] = CustomFieldDefinition(
             name=name,
             physical_name=sanitize_identifier(name),
             sql_type=sql_type,
@@ -465,7 +439,7 @@ def _custom_field_predicate_factory(
 
 
 def _invalid_custom_field(
-    field: _CustomFieldDefinition,
+    field: CustomFieldDefinition,
     message: str,
 ) -> TracecatValidationError:
     return TracecatValidationError(
