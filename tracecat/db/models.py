@@ -5711,32 +5711,3 @@ class OrganizationMembership(Base):
 
     user_id: Mapped[uuid.UUID]
     organization_id: Mapped[uuid.UUID]
-
-
-# Physical tables the app no longer reads or writes. Kept so the previous app
-# version runs during rollout; the stacked follow-up revision drops them.
-class LegacyMembership(Base):
-    __tablename__ = "membership"
-    __table_args__ = (
-        Index("ix_membership_workspace_id", "workspace_id"),
-        Index("ix_membership_workspace_user", "workspace_id", "user_id"),
-    )
-
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID, ForeignKey("user.id"), primary_key=True
-    )
-    workspace_id: Mapped[uuid.UUID] = mapped_column(
-        UUID, ForeignKey("workspace.id", ondelete="CASCADE"), primary_key=True
-    )
-
-
-class LegacyOrganizationMembership(Base, TimestampMixin):
-    __tablename__ = "organization_membership"
-    __table_args__ = (Index("ix_org_membership_org_id", "organization_id"),)
-
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID, ForeignKey("user.id", ondelete="CASCADE"), primary_key=True
-    )
-    organization_id: Mapped[uuid.UUID] = mapped_column(
-        UUID, ForeignKey("organization.id", ondelete="CASCADE"), primary_key=True
-    )
