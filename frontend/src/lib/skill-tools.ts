@@ -1,4 +1,12 @@
-import { isMap, isSeq, parseDocument, type YAMLMap } from "yaml"
+import {
+  isMap,
+  isNode,
+  isSeq,
+  type Node,
+  parseDocument,
+  visit,
+  type YAMLMap,
+} from "yaml"
 import type { MCPIntegrationRead, RegistryActionReadMinimal } from "@/client"
 import { isAgentToolSelectable } from "@/lib/agent-tools"
 
@@ -61,6 +69,27 @@ export function readSkillFrontmatterTools(
   }
 
   const tools = metadata.get("tools", true)
+  const editedNodes = new Set<Node>([metadata])
+  if (isNode(tools)) {
+    visit(tools, (_, node) => {
+      if (isNode(node)) editedNodes.add(node)
+    })
+  }
+  let hasReferencedValue = false
+  visit(document, {
+    Alias(_, alias) {
+      const target = alias.resolve(document)
+      if (target && editedNodes.has(target)) {
+        hasReferencedValue = true
+        return visit.BREAK
+      }
+    },
+  })
+  if (hasReferencedValue) {
+    return invalidToolsState(
+      "Edit tools in the YAML editor when other values reference metadata or its tools."
+    )
+  }
   if (tools === undefined || tools === null) {
     return { valid: true, tools: [] }
   }

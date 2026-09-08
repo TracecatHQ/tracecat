@@ -187,16 +187,16 @@ it("omits MCP options that cannot form canonical tool IDs", () => {
   ])
 })
 
-it("preserves anchors referenced outside the tools list", () => {
-  const updated = updateSkillFrontmatterTools(
-    "name: example\nmetadata:\n  tools: &allowed [core.old]\ncopy: *allowed",
-    ["core.new"]
+it.each([
+  "metadata:\n  tools: &allowed [core.old]\ncopy: *allowed",
+  "metadata: &metadata {tools: [core.old]}\ncopy: *metadata",
+  "metadata: &metadata {owner: team}\ncopy: *metadata",
+  "metadata: {tools: [&tool core.old]}\ncopy: *tool",
+])("requires raw editing for aliased values: %s", (source) => {
+  expect(readSkillFrontmatterTools(source).valid).toBe(false)
+  expect(() => updateSkillFrontmatterTools(source, ["core.new"])).toThrow(
+    "Edit tools in the YAML editor"
   )
-  expect(parseDocument(updated).toJS()).toEqual({
-    name: "example",
-    metadata: { tools: ["core.new"] },
-    copy: ["core.new"],
-  })
 })
 
 it("offers only whole-server grants for stdio integrations", () => {
@@ -286,10 +286,11 @@ it.each([
 
 it("preserves CRLF and block sequence anchors", () => {
   const source =
-    "name: example\r\nmetadata:\r\n  tools: &allowed\r\n    - core.old\r\ncopy: *allowed"
+    "name: example\r\nmetadata:\r\n  tools: &allowed\r\n    - core.old\r\n"
   const updated = updateSkillFrontmatterTools(source, ["core.new"])
   expect(updated.replace(/\r\n/g, "")).not.toContain("\n")
-  expect(parseDocument(updated).toJS().copy).toEqual(["core.new"])
+  expect(updated).toContain("&allowed")
+  expect(parseDocument(updated).toJS().metadata.tools).toEqual(["core.new"])
 })
 
 it.each([
