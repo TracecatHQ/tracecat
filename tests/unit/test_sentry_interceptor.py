@@ -11,6 +11,7 @@ import sentry_sdk
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from opentelemetry import trace
+from opentelemetry.propagate import get_global_textmap, set_global_textmap
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from sentry_sdk.client import Client
 from sentry_sdk.envelope import Envelope
@@ -966,9 +967,13 @@ def test_gateway_excludes_typed_dependency_failures(
 
 @pytest.mark.parametrize("component", ["api", "action_gateway"])
 def test_request_trace_survives_span_unwind(
+    request: pytest.FixtureRequest,
     monkeypatch: pytest.MonkeyPatch,
     component: str,
 ) -> None:
+    previous_propagator = get_global_textmap()
+    # Register cleanup before initialization so setup failures restore it too.
+    request.addfinalizer(lambda: set_global_textmap(previous_propagator))
     shutdown_platform_tracing()
     monkeypatch.setattr(sentry_module.config, "TRACECAT__PLATFORM_OTEL_ENABLED", True)
     service = "tracecat-api" if component == "api" else "tracecat-executor"
