@@ -85,5 +85,6 @@ class SMTPTransport:
             # customer infrastructure or addresses.
             raise EmailDeliveryError(
                 f"SMTP delivery failed on port {self.port}: {type(error).__name__}",
-                retryable=isinstance(error, aiosmtplib.SMTPConnectError | OSError),
+                # Disconnects and read timeouts can follow acceptance of DATA.
+                retryable=isinstance(error, aiosmtplib.SMTPConnectError),
             ) from None
