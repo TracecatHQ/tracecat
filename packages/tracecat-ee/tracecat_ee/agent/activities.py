@@ -367,14 +367,18 @@ class AgentActivities:
                 # are recorded in the effective approval map.
                 for tool_name, tool_def in user_mcp_tools.items():
                     parsed = UserMCPClient.parse_user_mcp_tool_name(tool_name)
+                    server_name, remote_tool_name = parsed or (None, None)
                     if (
-                        parsed is not None
-                        and (allowed_names := explicit_tools_by_server.get(parsed[0]))
+                        server_name is not None
+                        and remote_tool_name is not None
+                        and (allowed_names := explicit_tools_by_server.get(server_name))
                         is not None
-                        and parsed[1] not in allowed_names
+                        and remote_tool_name not in allowed_names
                     ):
                         continue
-                    has_dotted_remote_name = parsed is not None and "." in parsed[1]
+                    has_dotted_remote_name = (
+                        remote_tool_name is not None and "." in remote_tool_name
+                    )
                     # Unlike registry/internal tools, user MCP tool names are
                     # registered with the trusted MCP server verbatim (see
                     # ``build_token_scoped_tools``), so a dotted remote name
@@ -389,7 +393,7 @@ class AgentActivities:
                         logger.warning(
                             "Skipping user MCP tool with unsupported dotted name",
                             tool_name=tool_name,
-                            remote_tool_name=parsed[1] if parsed else None,
+                            remote_tool_name=remote_tool_name,
                         )
                         continue
                     policy = _stored_user_mcp_tool_policy(

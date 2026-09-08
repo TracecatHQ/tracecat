@@ -2660,6 +2660,9 @@ export const $AgentPresetRead = {
       title: "Enable Internet Access",
       default: false,
     },
+    tool_policy: {
+      $ref: "#/components/schemas/AgentPresetToolPolicyRead",
+    },
     id: {
       type: "string",
       format: "uuid",
@@ -3008,6 +3011,91 @@ export const $AgentPresetTagCreate = {
   required: ["tag_id"],
   title: "AgentPresetTagCreate",
   description: "Payload for adding a tag to an agent preset.",
+} as const
+
+export const $AgentPresetToolPolicyPreview = {
+  properties: {
+    actions: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Actions",
+    },
+    namespaces: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Namespaces",
+    },
+    mcp_integrations: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Mcp Integrations",
+    },
+    skill_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      title: "Skill Ids",
+    },
+    tool_approvals: {
+      additionalProperties: {
+        type: "boolean",
+      },
+      type: "object",
+      title: "Tool Approvals",
+    },
+  },
+  type: "object",
+  title: "AgentPresetToolPolicyPreview",
+  description:
+    "Unsaved tool selections to evaluate using the runtime policy pipeline.",
+} as const
+
+export const $AgentPresetToolPolicyRead = {
+  properties: {
+    actions: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Actions",
+    },
+    requires_internet_access: {
+      type: "boolean",
+      title: "Requires Internet Access",
+      default: false,
+    },
+    has_approvals: {
+      type: "boolean",
+      title: "Has Approvals",
+      default: false,
+    },
+    blocked_tools: {
+      items: {
+        $ref: "#/components/schemas/PresetToolSourceRead",
+      },
+      type: "array",
+      title: "Blocked Tools",
+    },
+    internet_sources: {
+      items: {
+        $ref: "#/components/schemas/PresetToolSourceRead",
+      },
+      type: "array",
+      title: "Internet Sources",
+    },
+  },
+  type: "object",
+  title: "AgentPresetToolPolicyRead",
+  description:
+    "Non-secret effective policy for rendering preset configuration.",
 } as const
 
 export const $AgentPresetUpdate = {
@@ -3464,6 +3552,9 @@ export const $AgentPresetVersionRead = {
       type: "boolean",
       title: "Enable Internet Access",
       default: false,
+    },
+    tool_policy: {
+      $ref: "#/components/schemas/AgentPresetToolPolicyRead",
     },
     id: {
       type: "string",
@@ -20162,6 +20253,42 @@ export const $Position = {
   },
   type: "object",
   title: "Position",
+} as const
+
+export const $PresetToolSourceRead = {
+  properties: {
+    tool_id: {
+      type: "string",
+      title: "Tool Id",
+    },
+    skill_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Skill Id",
+    },
+    skill_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Skill Name",
+    },
+  },
+  type: "object",
+  required: ["tool_id"],
+  title: "PresetToolSourceRead",
+  description: "The authored or skill origin of a policy-affected tool.",
 } as const
 
 export const $PriorityChangedEventRead = {

@@ -26,6 +26,7 @@ from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
     AgentPresetSkillBindingBase,
     AgentPresetSkillBindingRead,
+    AgentPresetToolPolicyPreview,
     AgentPresetUpdate,
 )
 from tracecat.agent.preset.service import AgentPresetService
@@ -4317,3 +4318,106 @@ class TestAgentPresetService:
         update_params = AgentPresetUpdate(tool_approvals=None)
         updated_preset = await agent_preset_service.update_preset(preset, update_params)
         assert updated_preset.tool_approvals is None
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("server_type", ["stdio", "http"])
+async def test_skill_dependency_policy_is_shared_by_reads_and_runtime(
+    server_type: str,
+    configure_minio_for_skills: None,
+    session: AsyncSession,
+    svc_role: Role,
+    agent_preset_service: AgentPresetService,
+    agent_preset_create_params: AgentPresetCreate,
+) -> None:
+    """A new skill head affects policy reporting without changing the preset."""
+    integration = MCPIntegration(
+        workspace_id=svc_role.workspace_id,
+        name="Synthetic",
+        slug="synthetic",
+        server_type=server_type,
+        auth_type=MCPAuthType.NONE,
+        server_uri="https://mcp.example.test",
+        stdio_command="npx",
+        stdio_args=["@tracecat/test-mcp-server"],
+        tools=[
+            {
+                "name": "write",
+                "enabled": True,
+                "status": "available",
+                "requires_approval": True,
+            }
+        ],
+    )
+    session.add(integration)
+    await session.flush()
+    skills = SkillService(session, role=svc_role)
+    skill = await skills.create_skill(SkillCreate(name="policy-skill"))
+    await skills.publish_skill(skill.id)
+    agent_preset_create_params.skills = [AgentPresetSkillBindingBase(skill_id=skill.id)]
+    agent_preset_create_params.enable_internet_access = False
+    preset = await agent_preset_service.create_preset(agent_preset_create_params)
+    version = await agent_preset_service.get_current_version_for_preset(preset)
+    assert not preset.enable_internet_access
+    draft = await skills.get_draft(skill.id)
+    assert draft is not None
+    tool = "mcp.synthetic" if server_type == "stdio" else "mcp.synthetic.write"
+    await skills.patch_draft(
+        skill_id=skill.id,
+        params=SkillDraftPatch(
+            base_revision=draft.draft_revision,
+            operations=[
+                SkillDraftUpsertTextFileOp(
+                    path="SKILL.md",
+                    content=f"---\nname: policy-skill\nmetadata:\n  tools:\n    - {tool}\n---\nUse the tool.\n",
+                )
+            ],
+        ),
+    )
+    await skills.publish_skill(skill.id)
+    read = await agent_preset_service.build_preset_read(preset)
+    listed = (
+        await agent_preset_service.build_preset_list_reads(
+            await agent_preset_service.list_presets()
+        )
+    )[0]
+    preview = await agent_preset_service.preview_tool_policy(
+        AgentPresetToolPolicyPreview(skill_ids=[skill.id])
+    )
+    assert preview == read.tool_policy
+    runtime = await agent_preset_service._version_to_agent_config(version)
+    pinned = await agent_preset_service._version_to_agent_config(
+        version, resolve_dependencies_from_heads=False
+    )
+    assert not pinned.enable_internet_access
+    assert not pinned.tool_approvals
+    if server_type == "stdio":
+        assert read.tool_policy.requires_internet_access
+        assert read.enable_internet_access and runtime.enable_internet_access
+        assert "internet_access" in listed.capabilities
+        updated = await agent_preset_service.update_preset(
+            preset,
+            AgentPresetUpdate(
+                skills=[AgentPresetSkillBindingBase(skill_id=skill.id)],
+                enable_internet_access=False,
+            ),
+        )
+        assert updated.enable_internet_access
+    else:
+        assert read.tool_policy.has_approvals
+        assert runtime.tool_approvals == {"mcp.Synthetic.write": True}
+        assert "approvals" in listed.capabilities
+        assert not listed.current_version_subagent_eligibility.eligible
+        with pytest.raises(TracecatValidationError, match="uses manual approvals"):
+            await agent_preset_service.create_preset(
+                agent_preset_create_params.model_copy(
+                    update={
+                        "name": "Policy parent",
+                        "slug": "policy-parent",
+                        "skills": [],
+                        "agents": AgentSubagentsConfig.model_validate(
+                            {"subagents": [{"preset": preset.slug}]}
+                        ),
+                    }
+                )
+            )
