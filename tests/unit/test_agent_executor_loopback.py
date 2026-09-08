@@ -21,6 +21,7 @@ from tracecat.agent.common.stream_types import (
     ToolCallContent,
     UnifiedStreamEvent,
 )
+from tracecat.agent.error_policy import agent_executor_unavailable
 from tracecat.agent.executor.loopback import (
     AgentStreamSink,
     FanoutStreamSink,
@@ -35,6 +36,7 @@ from tracecat.artifacts.schemas import CaseArtifact
 from tracecat.auth.types import Role
 from tracecat.cases.enums import CaseSeverity, CaseStatus
 from tracecat.db.models import AgentSessionHistory
+from tracecat.observability.types import PlatformErrorCapture
 from tracecat.runtime.errors import (
     RetryDisposition,
     RuntimeErrorKind,
@@ -809,15 +811,25 @@ async def test_process_runtime_events_fails_zero_work_completion() -> None:
 
 
 @pytest.mark.anyio
-async def test_process_runtime_events_classifies_disconnect_and_marks_streamed() -> (
-    None
-):
+async def test_process_runtime_events_classifies_disconnect_and_marks_streamed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     handler = _make_handler()
     stream = _FakeStream()
     handler._stream_sink = stream
 
+    receipt = PlatformErrorCapture.for_error("a" * 32, agent_executor_unavailable())
+    capture = MagicMock(return_value=receipt)
+    monkeypatch.setattr(loopback_module, "capture_activity_failure", capture)
+
     await handler._process_runtime_events(_reader_for_envelopes())
 
+    capture.assert_called_once()
+    error, classification = capture.call_args.args
+    assert isinstance(error, asyncio.IncompleteReadError)
+    assert error.__traceback__ is not None
+    assert classification == handler._result.classification
+    assert handler._result.sentry_capture == receipt
     assert handler._result.classification is not None
     assert handler._result.classification.owner is RuntimeErrorOwner.PLATFORM
     assert (

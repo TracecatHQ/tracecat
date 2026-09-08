@@ -621,12 +621,15 @@ class LoopbackHandler:
                 _msg_type, payload_bytes = await read_message(
                     reader, expected_type=MessageType.EVENT
                 )
-            except asyncio.IncompleteReadError:
+            except asyncio.IncompleteReadError as error:
                 logger.warning(
                     "Runtime connection closed unexpectedly during execution"
                 )
                 self._result.error = "Runtime disconnected during execution"
                 self._result.classification = agent_executor_unavailable()
+                self._result.sentry_capture = capture_activity_failure(
+                    error, self._result.classification
+                )
                 if self._stream_sink is not None:
                     await self._emit_terminal_stream_error(
                         self._stream_sink,
