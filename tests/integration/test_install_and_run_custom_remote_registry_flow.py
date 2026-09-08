@@ -32,7 +32,6 @@ from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import (
     Organization,
-    OrganizationMembership,
     User,
     UserRoleAssignment,
 )
@@ -90,20 +89,6 @@ async def _ensure_test_user_access(
         user.is_active = True
         user.is_verified = True
         user.is_superuser = True
-
-        membership = await db_session.scalar(
-            select(OrganizationMembership).where(
-                OrganizationMembership.user_id == user.id,
-                OrganizationMembership.organization_id == organization_id,
-            )
-        )
-        if membership is None:
-            db_session.add(
-                OrganizationMembership(
-                    user_id=user.id,
-                    organization_id=organization_id,
-                )
-            )
 
         owner_role = await db_session.scalar(
             select(DBRole).where(
