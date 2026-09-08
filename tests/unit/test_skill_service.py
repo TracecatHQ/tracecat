@@ -4346,6 +4346,34 @@ metadata:
         assert exc_info.value.detail["code"] == "skill_draft_tool_validation_failed"
         assert exc_info.value.detail["errors"][0]["code"] == "unknown_skill_tools"
 
+    async def test_malformed_tool_declaration_saves_draft_but_cannot_publish(
+        self, skill_service: SkillService
+    ) -> None:
+        created = await skill_service.create_skill(SkillCreate(name="draft-tools"))
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+        await skill_service.patch_draft(
+            skill_id=created.id,
+            params=SkillDraftPatch(
+                base_revision=draft.draft_revision,
+                operations=[
+                    SkillDraftUpsertTextFileOp(
+                        path="SKILL.md",
+                        content="---\nname: draft-tools\nmetadata: {tools: not-a-list}\n---\n",
+                        content_type="text/markdown",
+                    )
+                ],
+            ),
+        )
+        with pytest.raises(TracecatValidationError) as exc_info:
+            await skill_service.publish_skill(created.id)
+        assert exc_info.value.detail is not None
+        assert exc_info.value.detail["code"] == "skill_publish_validation_failed"
+        assert (
+            exc_info.value.detail["errors"][0]["code"]
+            == "invalid_skill_tool_declaration"
+        )
+
     async def test_dispatch_treats_absent_projection_rows_as_empty(
         self,
         session: AsyncSession,
