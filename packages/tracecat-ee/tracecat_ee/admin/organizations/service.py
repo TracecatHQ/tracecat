@@ -31,7 +31,7 @@ from tracecat.db.models import (
 from tracecat.db.models import Role as DBRole
 from tracecat.exceptions import TracecatValidationError
 from tracecat.invitations.enums import InvitationStatus
-from tracecat.invitations.resend import validate_invitation_resendable
+from tracecat.invitations.service import reset_invitation_email
 from tracecat.organization.domains import normalize_domain
 from tracecat.organization.management import (
     create_organization_with_defaults,
@@ -368,13 +368,8 @@ class AdminOrgService(BasePlatformService):
     ) -> AdminOrgInvitationRead:
         """Re-enter a pending platform-created invitation into the email outbox."""
         invitation = await self._get_platform_invitation(org_id, invitation_id)
-        validate_invitation_resendable(invitation)
-
-        invitation.email_claimed_at = None
-        invitation.email_sent_at = None
-        invitation.email_attempts = 0
+        await reset_invitation_email(self.session, invitation)
         await self.session.commit()
-        await self.session.refresh(invitation)
         return self._serialize_invitation(invitation)
 
     async def _get_org_invitation_role(
