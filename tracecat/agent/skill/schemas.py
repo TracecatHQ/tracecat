@@ -289,10 +289,6 @@ class SkillVersionRead(Schema):
     description: str | None = Field(default=None)
     created_at: datetime
     updated_at: datetime
-    registry_tool_ids: list[str] = Field(
-        default_factory=list,
-        description="Registry tools declared by this published version.",
-    )
     files: list[SkillFileEntry] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)

@@ -7579,10 +7579,6 @@ export type SkillVersionRead = {
   description?: string | null
   created_at: string
   updated_at: string
-  /**
-   * Registry tools declared by this published version.
-   */
-  registry_tool_ids?: Array<string>
   files?: Array<SkillFileEntry>
 }
 
