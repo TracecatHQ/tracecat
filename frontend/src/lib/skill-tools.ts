@@ -143,6 +143,9 @@ export function buildSkillToolOptions(
       tagLabel: "All tools",
       tagGroup: integration.name,
     }
+    if (integration.server_type === "stdio") {
+      return [integrationOption]
+    }
     const toolOptions = (integration.tools ?? [])
       .filter(
         (tool) =>

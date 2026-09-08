@@ -196,3 +196,12 @@ it("preserves anchors referenced outside the tools list", () => {
     copy: ["core.new"],
   })
 })
+
+it("offers only whole-server grants for stdio integrations", () => {
+  expect(
+    buildSkillToolOptions(
+      [],
+      [{ ...mcpIntegration, server_type: "stdio" }]
+    ).map((option) => option.value)
+  ).toEqual(["mcp.slack"])
+})
