@@ -661,6 +661,15 @@ class TableRead(TypedDict):
     columns: list[TableColumnRead]
 
 
+class AggregateResponse(TypedDict):
+    """Flat aggregation groups and whether additional groups were omitted."""
+
+    # Group keys are caller-defined aliases, so fixed TypedDict fields cannot
+    # describe them. Dates, timestamps, and exact decimal keys arrive as strings.
+    groups: list[dict[str, str | bool | int | float | None]]
+    truncated: bool
+
+
 class TableSearchResponse(TypedDict):
     """Cursor-paginated table row search response."""
 

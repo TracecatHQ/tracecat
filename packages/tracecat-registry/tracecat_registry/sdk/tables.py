@@ -18,6 +18,37 @@ class TablesClient:
     def __init__(self, client: TracecatClient) -> None:
         self._client = client
 
+    async def aggregate_rows(
+        self, table_name: str, spec: dict[str, Any]
+    ) -> types.AggregateResponse:
+        """Aggregate table rows using the server's JSON query specification.
+
+        Args:
+            table_name: Name of the workspace table.
+            spec: Plain JSON filters, grouping, calculations, and result options.
+                The server owns validation; its recursive models cannot be
+                imported or mirrored by the standalone registry package.
+
+        Returns:
+            Flat groups and whether additional groups were omitted.
+
+        Raises:
+            ValueError: If the table name is not a single identifier.
+        """
+        # Validate before URL construction: path separators, percent escapes,
+        # queries, and fragments could redirect this read action to a write route.
+        # Match the server's identifier alphabet, including Unicode letters.
+        if (
+            not table_name
+            or not (table_name[0].isalpha() or table_name[0] == "_")
+            or not all(char.isalnum() or char == "_" for char in table_name)
+        ):
+            raise ValueError(
+                "Table name must start with a letter or underscore and contain "
+                "only letters, numbers, and underscores"
+            )
+        return await self._client.post(f"/tables/{table_name}/aggregate", json=spec)
+
     async def list_tables(self) -> list[types.Table]:
         """List tables in the workspace."""
         return await self._client.get("/tables")

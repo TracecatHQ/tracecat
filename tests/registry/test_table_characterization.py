@@ -17,12 +17,14 @@ from typing import get_args
 
 import httpx
 import pytest
+import sqlalchemy as sa
 from httpx import ASGITransport
 from pydantic import TypeAdapter
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry import types
 from tracecat_registry.context import RegistryContext, clear_context, set_context
 from tracecat_registry.core.table import (
+    aggregate_rows,
     create_table,
     delete_row,
     download,
@@ -36,7 +38,12 @@ from tracecat_registry.core.table import (
     search_rows,
     update_row,
 )
+from tracecat_registry.sdk.exceptions import (
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 
+from tracecat import config
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
@@ -44,6 +51,7 @@ from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import get_async_session
 from tracecat.db.models import Workspace
 from tracecat.executor.action_gateway.app import create_app as create_action_gateway_app
+from tracecat.tables.service import TablesService
 
 _ACTION_GATEWAY_SOCKET = "/tmp/tracecat-test-action-gateway.sock"
 app = create_action_gateway_app()
@@ -112,6 +120,190 @@ async def table_ctx(
 async def test_table_name() -> str:
     """Generate a unique table name for each test."""
     return f"test_table_{uuid.uuid4().hex[:8]}"
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db", "table_ctx")
+class TestAggregateRows:
+    async def test_omitted_limit_uses_server_default(
+        self, test_table_name: str
+    ) -> None:
+        """Also run with default=2 and max=50 to detect a hardcoded action limit."""
+        await create_table(
+            name=test_table_name, columns=[{"name": "category", "type": "TEXT"}]
+        )
+        await insert_rows(
+            table=test_table_name,
+            rows_data=[{"category": color} for color in ["blue", "green", "red"]],
+        )
+        result = await aggregate_rows(
+            table=test_table_name,
+            group_by=["category"],
+            order_by="category",
+            sort="asc",
+        )
+        expected_count = min(config.TRACECAT__LIMIT_AGG_GROUPS_DEFAULT, 3)
+        assert result == {
+            "groups": [
+                {"category": color, "count": 1}
+                for color in ["blue", "green", "red"][:expected_count]
+            ],
+            "truncated": expected_count < 3,
+        }
+        assert await aggregate_rows(
+            table=test_table_name,
+            group_by=["category"],
+            limit=1,
+            order_by="category",
+            sort="asc",
+        ) == {"groups": [{"category": "blue", "count": 1}], "truncated": True}
+
+    async def test_filtered_totals_null_groups_and_truncation(
+        self, test_table_name: str
+    ) -> None:
+        await create_table(
+            name=test_table_name,
+            columns=[
+                {"name": "category", "type": "TEXT", "nullable": True},
+                {"name": "amount", "type": "INTEGER"},
+            ],
+        )
+        await insert_rows(
+            table=test_table_name,
+            rows_data=[
+                {"category": "red", "amount": 10},
+                {"category": "red", "amount": 20},
+                {"category": "blue", "amount": 5},
+                {"category": None, "amount": 15},
+            ],
+        )
+        result = await aggregate_rows(
+            table=test_table_name,
+            group_by=["category"],
+            filters={"field": "amount", "op": "gte", "value": 10},
+            aggs=[{"function": "count"}, {"function": "sum", "field": "amount"}],
+        )
+        assert result == {
+            "groups": [
+                {"category": "red", "count": 2, "sum_amount": 30.0},
+                {"category": None, "count": 1, "sum_amount": 15.0},
+            ],
+            "truncated": False,
+        }
+        assert isinstance(result["groups"][0]["sum_amount"], float)
+        assert isinstance(result["groups"][0]["count"], int)
+        assert await aggregate_rows(table=test_table_name, group_by=[]) == {
+            "groups": [{"count": 4}],
+            "truncated": False,
+        }
+        assert await aggregate_rows(
+            table=test_table_name, group_by=["category"], min_count=2, limit=1
+        ) == {"groups": [{"category": "red", "count": 2}], "truncated": False}
+        assert await aggregate_rows(
+            table=test_table_name, group_by=["category"], limit=1
+        ) == {"groups": [{"category": "red", "count": 2}], "truncated": True}
+
+    async def test_decimal_group_keys_remain_distinct(
+        self, test_table_name: str
+    ) -> None:
+        await create_table(
+            name=test_table_name, columns=[{"name": "amount", "type": "NUMERIC"}]
+        )
+        await insert_rows(
+            table=test_table_name,
+            rows_data=[
+                {"amount": "9007199254740992.1"},
+                {"amount": "9007199254740992.2"},
+            ],
+        )
+        result = await aggregate_rows(
+            table=test_table_name,
+            group_by=["amount"],
+            order_by="amount",
+            sort="asc",
+        )
+        assert result == {
+            "groups": [
+                {"amount": "9007199254740992.1", "count": 1},
+                {"amount": "9007199254740992.2", "count": 1},
+            ],
+            "truncated": False,
+        }
+
+    async def test_time_buckets_default_to_chronological_order(
+        self, test_table_name: str
+    ) -> None:
+        await create_table(
+            name=test_table_name,
+            columns=[{"name": "observed_at", "type": "TIMESTAMPTZ"}],
+        )
+        await insert_rows(
+            table=test_table_name,
+            rows_data=[
+                {"observed_at": "2026-01-02T12:00:00Z"},
+                {"observed_at": "2026-01-02T13:00:00Z"},
+                {"observed_at": "2026-01-01T12:00:00Z"},
+            ],
+        )
+        assert await aggregate_rows(
+            table=test_table_name,
+            group_by=[{"field": "observed_at", "bucket": "day"}],
+        ) == {
+            "groups": [
+                {"observed_at": "2026-01-01T00:00:00Z", "count": 1},
+                {"observed_at": "2026-01-02T00:00:00Z", "count": 2},
+            ],
+            "truncated": False,
+        }
+
+    async def test_validation_and_missing_table_errors(
+        self, test_table_name: str
+    ) -> None:
+        with pytest.raises(TracecatNotFoundError) as missing:
+            await aggregate_rows(table=test_table_name, group_by=[])
+        assert missing.value.status_code == 404
+
+        await create_table(name=test_table_name)
+        with pytest.raises(TracecatValidationError) as semantic:
+            await aggregate_rows(table=test_table_name, group_by=["missing_column"])
+        assert semantic.value.status_code == 400
+
+        with pytest.raises(TracecatValidationError) as structural:
+            await aggregate_rows(table=test_table_name, group_by=[], aggs=[])
+        assert structural.value.status_code == 422
+
+    async def test_database_timeout_preserves_structured_sdk_error(
+        self,
+        test_table_name: str,
+        session: AsyncSession,
+        table_ctx: Role,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        await create_table(
+            name=test_table_name, columns=[{"name": "amount", "type": "INTEGER"}]
+        )
+        service = TablesService(session, role=table_ctx)
+        physical_table = sa.table(
+            test_table_name,
+            sa.column("amount", sa.BigInteger()),
+            schema=service._get_schema_name(),
+        )
+        await session.execute(
+            sa.insert(physical_table).from_select(
+                ["amount"], sa.select(sa.func.generate_series(1, 200_000))
+            )
+        )
+        monkeypatch.setattr(config, "TRACECAT__AGG_STATEMENT_TIMEOUT_MS", 1)
+
+        with pytest.raises(TracecatValidationError) as timeout:
+            await aggregate_rows(
+                table=test_table_name,
+                group_by=[],
+                aggs=[{"function": "median", "field": "amount"}],
+            )
+        assert timeout.value.status_code == 422
+        assert isinstance(timeout.value.detail, dict)
+        assert timeout.value.detail["code"] == "query_timeout"
 
 
 # =============================================================================

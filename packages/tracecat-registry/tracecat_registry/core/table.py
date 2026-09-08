@@ -7,6 +7,120 @@ from tracecat_registry import config, ctx, registry, types
 from tracecat_registry.sdk.exceptions import TracecatConflictError
 
 
+# Query inputs deliberately remain plain data: action schema consumers cannot
+# resolve recursive filter models, and the registry cannot import server models.
+@registry.register(
+    default_title="Aggregate rows",
+    description=(
+        "Filter, group, and summarize table rows. Returns groups and a truncated "
+        "flag indicating whether more groups exist than the requested limit."
+    ),
+    display_group="Tables",
+    namespace="core.table",
+)
+async def aggregate_rows(
+    table: Annotated[str, Doc("The name of the workspace table to aggregate.")],
+    group_by: Annotated[
+        list[str | dict[str, Any]],
+        Doc(
+            "Up to 3 grouping fields, as names or objects with field, bucket, "
+            "timezone, and alias. Example: ['category', {'field': 'created_at', "
+            "'bucket': 'day'}]. Use [] for a single grand total. DATE and "
+            "TIMESTAMPTZ fields require an hour/day/week/month bucket; weeks "
+            "start Monday. Timestamp buckets accept an IANA timezone (default "
+            "UTC) and return UTC instants. DATE buckets return YYYY-MM-DD, "
+            "reject timezone, and have only date precision even with hour. "
+            "System created_at/updated_at are available. TEXT, SELECT, INTEGER, "
+            "NUMERIC, and BOOLEAN can group directly. JSONB, MULTI_SELECT, id, "
+            "and internal columns are unsupported. Null keys form a group. "
+            "TEXT/SELECT keys use the first 256 characters; longer values with "
+            "the same prefix merge. NUMERIC keys are exact decimal strings. "
+            "Aliases default to field names and must be unique across all "
+            "outputs and at most 63 UTF-8 bytes."
+        ),
+    ],
+    filters: Annotated[
+        dict[str, Any] | None,
+        Doc(
+            "Filter rows before grouping. Use {field, op, value}, or combine "
+            "conditions with {'and': [...]}, {'or': [...]}, or {'not': {...}}. "
+            "Example: {'field': 'amount', 'op': 'gte', 'value': 10}. Operators: "
+            "eq, ne, in, not_in, gt, gte, lt, lte, contains, starts_with, is_null. "
+            "in/not_in take lists; is_null takes no value. TEXT supports "
+            "eq/ne/in/not_in/is_null and case-insensitive literal contains/"
+            "starts_with. Numbers support comparisons and membership; dates "
+            "support comparisons; SELECT supports eq/ne/in/not_in/is_null; "
+            "BOOLEAN supports eq/ne/is_null. ne/not_in exclude null values, "
+            "except empty not_in matches all rows; empty in matches none. "
+            "Use strings for exact decimal values and ISO strings for dates "
+            "and timestamps. Maximum depth 4, 50 conditions, and 1000 total "
+            "values. None means no filtering. Shapes are validated at runtime."
+        ),
+    ] = None,
+    aggs: Annotated[
+        list[dict[str, Any]] | None,
+        Doc(
+            "Up to 8 calculations: {function, field, alias}. Functions: count, "
+            "count_distinct, sum, mean, median, min, max. Example: "
+            "[{'function': 'sum', 'field': 'amount', 'alias': 'total'}]. "
+            "None defaults to count; [] is invalid. count without field counts "
+            "rows; count with field counts non-null values. Other functions "
+            "require field. Numbers support every function; TEXT and temporal "
+            "fields support count, count_distinct, min, max; BOOLEAN/SELECT "
+            "support count and count_distinct. Aliases default to count or "
+            "function_field and must be unique and at most 63 UTF-8 bytes. "
+            "Counts are integers. INTEGER/NUMERIC sums, all means/medians, "
+            "and NUMERIC min/max are floating-point JSON numbers, with possible "
+            "precision loss; NUMERIC grouping keys remain exact strings."
+        ),
+    ] = None,
+    limit: Annotated[
+        int | None,
+        Doc(
+            "Maximum groups to return, from 1 to 1000, subject to the server's "
+            "configured maximum. Omit to use the server default (normally 100). "
+            "Excess groups set truncated."
+        ),
+    ] = None,
+    min_count: Annotated[
+        int | None, Doc("Only return groups with at least this many rows (minimum 1).")
+    ] = None,
+    order_by: Annotated[
+        str | None,
+        Doc(
+            "Group or calculation output name to sort by. Defaults to the first "
+            "time bucket if present, otherwise the first calculation."
+        ),
+    ] = None,
+    sort: Annotated[
+        Literal["asc", "desc"] | None,
+        Doc(
+            "Sort direction. Defaults to asc when automatically ordering by a "
+            "time bucket; otherwise desc, including when order_by is explicit. "
+            "Nulls sort last; group keys break ties."
+        ),
+    ] = None,
+) -> types.AggregateResponse:
+    if limit is not None and limit > config.TRACECAT__LIMIT_AGG_GROUPS_MAX:
+        raise ValueError(
+            f"Limit cannot be greater than {config.TRACECAT__LIMIT_AGG_GROUPS_MAX}"
+        )
+
+    # The recursive query remains plain JSON; only an omitted limit is removed
+    # so the server can apply its configured default and maximum.
+    spec: dict[str, Any] = {
+        "filters": filters,
+        "group_by": group_by,
+        "aggs": aggs,
+        "min_count": min_count,
+        "order_by": order_by,
+        "sort": sort,
+    }
+    if limit is not None:
+        spec["limit"] = limit
+    return await ctx.tables.aio.aggregate_rows(table_name=table, spec=spec)
+
+
 @registry.register(
     default_title="Lookup row",
     description="Get a single row from a table corresponding to the given column and value.",

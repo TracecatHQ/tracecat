@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from tracecat_registry import config
 from tracecat_registry.core.table import (
+    aggregate_rows,
     create_table,
     delete_row,
     download,
@@ -25,6 +26,99 @@ from tracecat_registry.core.table import (
     search_rows,
     update_row,
 )
+
+from tracecat.registry.repository import Repository
+from tracecat.validation.common import json_schema_to_pydantic
+
+
+@pytest.mark.anyio
+class TestCoreAggregateRows:
+    async def test_forwards_query_and_returns_entire_response(
+        self, mock_tables_client: AsyncMock
+    ) -> None:
+        response = {
+            "groups": [{"category": None, "total": 12.5}],
+            "truncated": True,
+        }
+        mock_tables_client.aggregate_rows.return_value = response
+        result = await aggregate_rows(
+            table="sample_rows",
+            group_by=["category", {"field": "created_at", "bucket": "day"}],
+            filters={"not": {"field": "amount", "op": "lt", "value": "1.25"}},
+            aggs=[{"function": "sum", "field": "amount", "alias": "total"}],
+            limit=1000,
+            min_count=2,
+            order_by="total",
+            sort="asc",
+        )
+        assert result is response
+        mock_tables_client.aggregate_rows.assert_awaited_once_with(
+            table_name="sample_rows",
+            spec={
+                "group_by": ["category", {"field": "created_at", "bucket": "day"}],
+                "filters": {"not": {"field": "amount", "op": "lt", "value": "1.25"}},
+                "aggs": [{"function": "sum", "field": "amount", "alias": "total"}],
+                "limit": 1000,
+                "min_count": 2,
+                "order_by": "total",
+                "sort": "asc",
+            },
+        )
+
+    @pytest.mark.parametrize("aggs", [None, []])
+    async def test_preserves_defaults_and_empty_inputs(
+        self, mock_tables_client: AsyncMock, aggs: list[dict[str, str]] | None
+    ) -> None:
+        await aggregate_rows(table="sample_rows", group_by=[], aggs=aggs)
+        mock_tables_client.aggregate_rows.assert_awaited_once_with(
+            table_name="sample_rows",
+            spec={
+                "group_by": [],
+                "filters": None,
+                "aggs": aggs,
+                "min_count": None,
+                "order_by": None,
+                "sort": None,
+            },
+        )
+
+    @pytest.mark.parametrize("limit", [None, 0, 1])
+    async def test_optional_limit_is_omitted_only_when_none(
+        self, mock_tables_client: AsyncMock, limit: int | None
+    ) -> None:
+        await aggregate_rows(table="sample_rows", group_by=[], limit=limit)
+        spec = mock_tables_client.aggregate_rows.await_args.kwargs["spec"]
+        if limit is None:
+            assert "limit" not in spec
+        else:
+            assert spec["limit"] == limit
+
+    async def test_rejects_limit_above_cap(self, mock_tables_client: AsyncMock) -> None:
+        with pytest.raises(ValueError, match="Limit cannot be greater than 1000"):
+            await aggregate_rows(table="sample_rows", group_by=[], limit=1001)
+        mock_tables_client.aggregate_rows.assert_not_awaited()
+
+
+def test_aggregate_action_schema_supports_pre_run_validation() -> None:
+    """Plain nested query inputs survive action-schema materialization."""
+    repo = Repository()
+    repo._register_udf_from_function(aggregate_rows, name="aggregate_rows")
+    action = repo.get("core.table.aggregate_rows")
+    schema = action.get_interface()["expects"]
+    model = json_schema_to_pydantic(schema)
+    args = {
+        "table": "sample_rows",
+        "group_by": ["category", {"field": "created_at", "bucket": "day"}],
+        "filters": {
+            "and": [
+                {"field": "amount", "op": "gte", "value": "1.25"},
+                {"not": {"field": "category", "op": "is_null"}},
+            ]
+        },
+        "aggs": [{"function": "sum", "field": "amount"}],
+    }
+    model.model_validate(args)
+    assert action.validate_args(args=args)["filters"] == args["filters"]
 
 
 @pytest.fixture
