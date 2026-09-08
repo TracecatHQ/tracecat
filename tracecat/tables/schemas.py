@@ -1,12 +1,16 @@
 import re
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from tracecat import config
 from tracecat.core.schemas import Schema
 from tracecat.identifiers import TableColumnID, TableID, TableRowID
+from tracecat.query.aggregations import AggregationSpec
+from tracecat.query.filters import Filter
 from tracecat.tables.common import (
     coerce_multi_select_value,
     coerce_select_value,
@@ -188,6 +192,36 @@ class TableRowBatchUpdateResponse(BaseModel):
     """Response for batch update operation."""
 
     rows_updated: int
+
+
+type TableAggregateValue = str | bool | int | float | Decimal | datetime | date | None
+
+
+class TableAggregateRequest(AggregationSpec):
+    """Filter and aggregate rows in one workspace table.
+
+    ``sum`` over INTEGER or NUMERIC, every ``mean`` and ``median``, and
+    ``min``/``max`` over NUMERIC are widened to float8 JSON numbers. TEXT and
+    SELECT group keys use their first 256 characters, so longer values with the
+    same prefix collapse into one group. NUMERIC group keys serialize as decimal
+    strings so distinct values retain their exact identities.
+    """
+
+    filters: Filter | None = Field(default=None)
+    limit: int = Field(
+        default=config.TRACECAT__LIMIT_AGG_GROUPS_DEFAULT,
+        ge=1,
+        le=config.TRACECAT__LIMIT_AGG_GROUPS_MAX,
+    )
+
+
+class AggregateResponse(BaseModel):
+    """Flat aggregation groups and whether the configured limit was exceeded."""
+
+    # Output keys are caller-defined aliases, so a fixed object model cannot
+    # describe each group. Values remain a closed union of supported SQL types.
+    groups: list[dict[str, TableAggregateValue]]
+    truncated: bool
 
 
 class TableReadMinimal(Schema):
