@@ -292,7 +292,6 @@ async def test_non_retryable_failure_leaves_the_row_claimed_forever(
         monkeypatch,
         FakeTransport(error=EmailDeliveryError("rejected", retryable=False)),
     )
-    # The tick rolls back on a non-retryable failure, expiring this instance.
     invitation_id = invitation.id
 
     assert await run_invitation_email_tick(session) == 1
@@ -301,6 +300,41 @@ async def test_non_retryable_failure_leaves_the_row_claimed_forever(
     assert row.email_claimed_at is not None
     assert row.email_sent_at is None
     assert row.email_attempts == 1
+    assert await run_invitation_email_tick(session) == 0
+
+
+@pytest.mark.anyio
+async def test_failed_delivery_does_not_strand_remaining_batch(
+    session: AsyncSession,
+    org: Organization,
+    org_role: DBRole,
+    inviter: User,
+    smtp_configured: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    invitations = [
+        await _add_invitation(session, org, org_role, inviter) for _ in range(3)
+    ]
+    invitation_ids = [invitation.id for invitation in invitations]
+
+    class FailFirstTransport(FakeTransport):
+        failed = False
+
+        async def send(self, message: OutboundEmail) -> None:
+            if not self.failed:
+                self.failed = True
+                raise EmailDeliveryError("ambiguous delivery")
+            await super().send(message)
+
+    transport = FailFirstTransport()
+    _patch_transport(monkeypatch, transport)
+
+    assert await run_invitation_email_tick(session) == 3
+    assert len(transport.sent) == 2
+    rows = [await _reload(session, row_id) for row_id in invitation_ids]
+    assert all(row.email_claimed_at is not None for row in rows)
+    assert all(row.email_attempts == 1 for row in rows)
+    assert sum(row.email_sent_at is not None for row in rows) == 2
     assert await run_invitation_email_tick(session) == 0
 
 
