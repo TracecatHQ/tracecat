@@ -466,7 +466,7 @@ def _compile_condition(
     normalized = _normalize_value(
         condition, resolved.kind, column_expression.type, value
     )
-    return _compile_expression(condition, column_expression, normalized)
+    return compile_predicate(column_expression, condition.op, normalized)
 
 
 def _validate_value_shape(condition: Condition) -> FilterValue | None:
@@ -655,12 +655,13 @@ def _parse_iso_datetime(value: str) -> datetime:
     return datetime.fromisoformat(text)
 
 
-def _compile_expression(
-    condition: Condition,
+def compile_predicate(
     expression: ColumnElement[Any],
-    value: object | list[object] | None,
+    op: FilterOp,
+    value: NormalizedFilterValue | None,
 ) -> ColumnElement[bool]:
-    match condition.op:
+    """Compile a normalized filter operation against a SQL expression."""
+    match op:
         case FilterOp.EQ:
             return expression == value
         case FilterOp.NE:
