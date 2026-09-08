@@ -2492,6 +2492,67 @@ class TestClaudeAgentRuntimePreToolUseHook:
         runtime.client.interrupt.assert_awaited()
 
     @pytest.mark.anyio
+    @pytest.mark.parametrize("requires_approval", [False, True])
+    async def test_child_stdio_approval_policy_is_enforced(
+        self,
+        mock_socket_writer: MagicMock,
+        mock_claude_sdk_client: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+        requires_approval: bool,
+    ) -> None:
+        child = SandboxSubagentConfig(
+            alias="analyst",
+            description="Analyze synthetic data.",
+            prompt="Analyze synthetic data.",
+            config=sample_init_payload.config.model_copy(
+                update={
+                    "mcp_servers": [
+                        {
+                            "type": "stdio",
+                            "name": "local-tools",
+                            "command": "synthetic-mcp",
+                            "tools": [
+                                {
+                                    "name": "write",
+                                    "requires_approval": requires_approval,
+                                }
+                            ],
+                        }
+                    ],
+                    "tool_approvals": {},
+                }
+            ),
+            mcp_auth_token="synthetic-child-token",
+        )
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: MagicMock()
+        )
+        with patch(
+            "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+            return_value=mock_claude_sdk_client,
+        ):
+            await runtime.run(replace(sample_init_payload, subagents=[child]))
+        tool_name = "mcp__subagent-analyst-local-tools__write"
+        with patch.object(
+            runtime, "_handle_approval_request", new=AsyncMock()
+        ) as approve:
+            result = await runtime._pre_tool_use_hook(
+                input_data=make_hook_input(
+                    tool_name=tool_name,
+                    tool_input={},
+                    tool_use_id="synthetic-call",
+                    agent_id="synthetic-child",
+                    agent_type="analyst",
+                ),
+                tool_use_id="synthetic-call",
+                context=make_hook_context(),
+            )
+        assert get_hook_output(result).get("permissionDecision") == (
+            "deny" if requires_approval else "allow"
+        )
+        approve.assert_not_awaited()
+
+    @pytest.mark.anyio
     async def test_stdio_mcp_tool_with_approval_is_hard_denied(
         self,
         mock_socket_writer: MagicMock,
