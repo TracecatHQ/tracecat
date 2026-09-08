@@ -13,6 +13,7 @@ from tracecat.agent.skill.types import (
     SkillMcpGrant,
     SkillToolGrants,
 )
+from tracecat.agent.skill.validation import get_mcp_grant_support_error
 from tracecat.db.models import SkillVersion
 from tracecat.exceptions import TracecatValidationError
 from tracecat.integrations.schemas import MCPToolSummary
@@ -31,7 +32,7 @@ class SkillToolGrantService(BaseWorkspaceService):
     async def compile_tool_grants(
         self,
         *,
-        preset_version_id: uuid.UUID,
+        preset_version_id: uuid.UUID | None = None,
         resolved_skills: Sequence[ResolvedSkillRef],
     ) -> SkillToolGrants:
         """Compile grants for the same versions selected by head resolution."""
@@ -39,6 +40,9 @@ class SkillToolGrantService(BaseWorkspaceService):
         if not resolved_skills:
             return SkillToolGrants()
 
+        preset_context = (
+            str(preset_version_id) if preset_version_id is not None else None
+        )
         version_ids = [skill.skill_version_id for skill in resolved_skills]
         stmt = (
             select(SkillVersion)
@@ -64,7 +68,7 @@ class SkillToolGrantService(BaseWorkspaceService):
                 detail={
                     "code": "skill_versions_unavailable",
                     "skill_version_ids": missing_version_ids,
-                    "preset_version_id": str(preset_version_id),
+                    "preset_version_id": preset_context,
                 },
             )
 
@@ -86,7 +90,7 @@ class SkillToolGrantService(BaseWorkspaceService):
                     detail={
                         "code": "skill_registry_tools_unavailable",
                         "tool_ids": sorted(missing),
-                        "preset_version_id": str(preset_version_id),
+                        "preset_version_id": preset_context,
                     },
                 )
 
@@ -100,7 +104,7 @@ class SkillToolGrantService(BaseWorkspaceService):
                 detail={
                     "code": "skill_mcp_integrations_unavailable",
                     "tool_ids": null_integration_tool_ids,
-                    "preset_version_id": str(preset_version_id),
+                    "preset_version_id": preset_context,
                 },
             )
 
@@ -131,7 +135,7 @@ class SkillToolGrantService(BaseWorkspaceService):
                     "mcp_integration_ids": sorted(
                         str(integration_id) for integration_id in missing_integrations
                     ),
-                    "preset_version_id": str(preset_version_id),
+                    "preset_version_id": preset_context,
                 },
             )
 
@@ -144,12 +148,23 @@ class SkillToolGrantService(BaseWorkspaceService):
             if row.tool_name is None:
                 grants_by_integration[integration_id] = None
                 continue
-            if (
-                integration_id in grants_by_integration
-                and grants_by_integration[integration_id] is None
-            ):
-                continue
+            # Every explicit dependency must remain available, even when another
+            # declaration grants the whole integration. Validate before unioning
+            # so row or skill ordering cannot change whether resolution succeeds.
             integration = integrations_by_id[integration_id]
+            if support_error := get_mcp_grant_support_error(
+                server_type=integration.server_type,
+                tool_name=row.tool_name,
+                tool_id=row.tool_id,
+            ):
+                raise TracecatValidationError(
+                    support_error.message,
+                    detail={
+                        "code": support_error.code,
+                        "tool_ids": [row.tool_id],
+                        "preset_version_id": preset_context,
+                    },
+                )
             policies = MCPToolSummary.validate_stored(
                 integration.tools,
                 mcp_integration_id=integration.id,
@@ -171,7 +186,7 @@ class SkillToolGrantService(BaseWorkspaceService):
                 detail={
                     "code": "skill_mcp_tools_unavailable",
                     "tool_ids": sorted(unavailable_tool_ids),
-                    "preset_version_id": str(preset_version_id),
+                    "preset_version_id": preset_context,
                 },
             )
 

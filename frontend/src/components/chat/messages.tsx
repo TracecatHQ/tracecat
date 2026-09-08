@@ -20,7 +20,7 @@ import {
 
 /**
  * Model message part types for the legacy chat messages component.
- * These types represent the internal pydantic-ai model message format.
+ * These types represent the persisted legacy model-message format.
  */
 type TextPart = {
   part_kind: "text"

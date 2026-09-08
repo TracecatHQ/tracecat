@@ -3399,6 +3399,60 @@ async def test_create_table_accepts_columns(monkeypatch):
 
 
 @pytest.mark.anyio
+async def test_create_column_adds_column_to_table(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    table_id = uuid.uuid4()
+    column_id = uuid.uuid4()
+    fake_table = SimpleNamespace(id=table_id, name="iocs")
+    captured = {}
+
+    async def _get_table(parsed_table_id):
+        assert parsed_table_id == table_id
+        return fake_table
+
+    async def _create_column(table, params):
+        captured["table"] = table
+        captured["params"] = params
+        return SimpleNamespace(
+            id=column_id,
+            name=params.name,
+            type=params.type.value,
+            nullable=params.nullable,
+            default=params.default,
+            options=params.options,
+        )
+
+    table_service = SimpleNamespace(get_table=_get_table, create_column=_create_column)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        "tracecat.tables.service.TablesService.with_session",
+        lambda role: _AsyncContext(table_service),
+    )
+
+    result = await _tool(mcp_server.create_column)(
+        workspace_id=str(uuid.uuid4()),
+        table_id=str(table_id),
+        column=mcp_server.TableColumnCreate(
+            name="severity",
+            type=mcp_server.SqlType.SELECT,
+            options=["low", "high"],
+        ),
+    )
+
+    payload = _payload(result)
+    assert payload["id"] == str(column_id)
+    assert payload["name"] == "severity"
+    assert payload["type"] == "SELECT"
+    assert payload["options"] == ["low", "high"]
+    assert payload["is_index"] is False
+    assert captured["table"] is fake_table
+    assert captured["params"].name == "severity"
+
+
+@pytest.mark.anyio
 async def test_get_action_context_includes_configuration(monkeypatch):
     async def _resolve(_workspace_id):
         return uuid.uuid4(), SimpleNamespace()
@@ -8339,10 +8393,12 @@ async def test_get_agent_preset_returns_full_configuration(
         (None, "0-0"),
     ],
 )
+@pytest.mark.parametrize("requested_preset_version", [3, None])
 async def test_run_agent_preset_uses_session_stream_cursor(
     monkeypatch: pytest.MonkeyPatch,
     last_stream_id: str | None,
     expected_start_id: str,
+    requested_preset_version: int | None,
 ) -> None:
     workspace_id = uuid.uuid4()
     role = SimpleNamespace(workspace_id=workspace_id)
@@ -8365,7 +8421,7 @@ async def test_run_agent_preset_uses_session_stream_cursor(
             preset_version: int | None = None,
         ) -> SimpleNamespace:
             assert slug == "triage"
-            assert preset_version is None
+            assert preset_version == requested_preset_version
             return version
 
     class _SessionService:
@@ -8412,10 +8468,16 @@ async def test_run_agent_preset_uses_session_stream_cursor(
     )
     monkeypatch.setattr(mcp_server, "_collect_agent_response", _collect)
 
+    version_kwargs = (
+        {"preset_version": requested_preset_version}
+        if requested_preset_version is not None
+        else {}
+    )
     result = await _tool(mcp_server.run_agent_preset)(
         workspace_id=str(workspace_id),
         preset_slug="triage",
         prompt="check alerts",
+        **version_kwargs,
     )
 
     assert result == "agent response"
@@ -8428,6 +8490,21 @@ async def test_run_agent_preset_uses_session_stream_cursor(
     # Producer (run_turn) and consumer (_collect) must share the minted id.
     assert captured["stream_id"] is not None
     assert captured["stream_id"] == captured["active_stream_id"]
+
+
+@pytest.mark.anyio
+async def test_run_agent_preset_marks_numeric_version_deprecated() -> None:
+    tool = next(
+        tool
+        for tool in await mcp_server.mcp.list_tools()
+        if tool.name == "run_agent_preset"
+    )
+
+    preset_version_schema = tool.parameters["properties"]["preset_version"]
+
+    assert preset_version_schema["deprecated"] is True
+    assert "Deprecated compatibility input" in preset_version_schema["description"]
+    assert "current head" in preset_version_schema["description"]
 
 
 @pytest.mark.anyio
@@ -10653,7 +10730,14 @@ async def test_publish_skill_uses_workspace_skill_service(
 
 
 def _prompt_source_text() -> str:
-    return "\n".join([mcp_server._MCP_INSTRUCTIONS, mcp_server._DSL_REFERENCE_TEXT])
+    return "\n".join(
+        [
+            mcp_server._MCP_INSTRUCTIONS_RENDERED,
+            mcp_server._DSL_REFERENCE_TEXT,
+            mcp_server._AUTHORING_GUIDE_TEXT,
+            inspect.cleandoc(mcp_server.edit_workflow.__doc__ or ""),
+        ]
+    )
 
 
 def _prompt_fenced_blocks(language: str) -> list[str]:
@@ -10805,10 +10889,22 @@ def test_prompt_expressions_respect_prompt_action_result_shapes() -> None:
 
 
 def test_mcp_instruction_text_stays_within_context_budget() -> None:
-    assert len(mcp_server._MCP_INSTRUCTIONS) <= 14500, (
-        "MCP instructions exceeded the prompt budget. Compress existing guidance "
-        "or intentionally raise this ceiling with a clear reason."
+    # The rendered skill-transfer warning is longer than its placeholder and is
+    # required guidance for clients that cannot read local skill directories.
+    assert len(mcp_server._MCP_INSTRUCTIONS_RENDERED) <= 10000, (
+        "MCP instructions exceeded the prompt budget. Always-on instructions "
+        "carry only rules that fail hard when violated; move long-form guidance "
+        "into the `tracecat://platform/authoring-guide` resource or a tool "
+        "docstring, or intentionally raise this ceiling with a clear reason."
     )
+
+
+def test_mcp_instruction_named_placeholders_are_all_rendered() -> None:
+    assert not re.findall(
+        r"\{_[A-Z][A-Z0-9_]*\}",
+        mcp_server._MCP_INSTRUCTIONS_RENDERED,
+    )
+    assert mcp_server._SKILL_FILE_WARNING in mcp_server._MCP_INSTRUCTIONS_RENDERED
 
 
 def test_dsl_reference_text_stays_within_context_budget() -> None:

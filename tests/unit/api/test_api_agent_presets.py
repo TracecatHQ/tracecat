@@ -6,11 +6,26 @@ from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException, status
+from fastapi.routing import APIRoute
 
 from tracecat.agent.preset import internal_router as agent_preset_internal_router
 from tracecat.agent.preset import router as agent_preset_router
 from tracecat.auth.types import Role
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+
+
+def test_delete_preset_documents_not_found_response() -> None:
+    route = next(
+        route
+        for route in agent_preset_router.router.routes
+        if isinstance(route, APIRoute)
+        and route.path == "/agent/presets/{preset_id}"
+        and "DELETE" in (route.methods or set())
+    )
+
+    assert route.responses == {
+        status.HTTP_404_NOT_FOUND: {"description": "Agent preset not found"}
+    }
 
 
 @pytest.mark.anyio

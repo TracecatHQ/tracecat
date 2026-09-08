@@ -5601,7 +5601,6 @@ export const agentPresetsUpdateAgentPreset = (
  * @param data The data for the request.
  * @param data.presetId
  * @param data.workspaceId
- * @param data.confirmUnlink Confirm unlinking this preset from active parent agents.
  * @returns void Successful Response
  * @throws ApiError
  */
@@ -5615,10 +5614,8 @@ export const agentPresetsDeleteAgentPreset = (
       preset_id: data.presetId,
       workspace_id: data.workspaceId,
     },
-    query: {
-      confirm_unlink: data.confirmUnlink,
-    },
     errors: {
+      404: "Agent preset not found",
       422: "Validation Error",
     },
   })
@@ -6327,7 +6324,6 @@ export const agentSkillsGetSkill = (
  * @param data The data for the request.
  * @param data.skillId
  * @param data.workspaceId
- * @param data.unlinkFromPresets Unlink this skill from active agent presets before archiving.
  * @returns void Successful Response
  * @throws ApiError
  */
@@ -6340,9 +6336,6 @@ export const agentSkillsArchiveSkill = (
     path: {
       skill_id: data.skillId,
       workspace_id: data.workspaceId,
-    },
-    query: {
-      unlink_from_presets: data.unlinkFromPresets,
     },
     errors: {
       422: "Validation Error",

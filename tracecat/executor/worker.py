@@ -62,6 +62,13 @@ with workflow.unsafe.imports_passed_through():
         shutdown_executor_backend,
     )
     from tracecat.logger import logger
+    from tracecat.observability.otel import (
+        initialize_platform_tracing,
+        shutdown_platform_tracing,
+    )
+    from tracecat.observability.sentry import (
+        initialize_worker_sentry_from_environment,
+    )
     from tracecat.registry.sync.workflow import (
         RegistryArtifactsBackfillWorkflow,
         RegistrySyncActivities,
@@ -125,6 +132,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
         threadpool_max_workers=threadpool_max_workers,
         executor_backend=config.TRACECAT__EXECUTOR_BACKEND,
     )
+    initialize_platform_tracing("tracecat-executor")
     action_gateway = ActionGateway()
 
     try:
@@ -148,6 +156,8 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
         await initialize_executor_backend()
 
         client = await get_temporal_client()
+
+        initialize_worker_sentry_from_environment()
 
         # Collect all activities from executor and registry sync
         activities = [
@@ -200,6 +210,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
         await shutdown_executor_backend()
         await close_storage_client_cache()
         await action_gateway.stop()
+        shutdown_platform_tracing()
 
 
 if __name__ == "__main__":

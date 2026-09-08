@@ -544,17 +544,9 @@ export function useRestoreSkillVersion(workspaceId: string) {
  */
 export function useDeleteSkill(workspaceId: string) {
   const queryClient = useQueryClient()
-  const mutation = useMutation<
-    void,
-    TracecatApiError,
-    { skillId: string; unlinkFromPresets?: boolean }
-  >({
-    mutationFn: async ({ skillId, unlinkFromPresets }) =>
-      await agentSkillsArchiveSkill({
-        workspaceId,
-        skillId,
-        unlinkFromPresets,
-      }),
+  const mutation = useMutation<void, TracecatApiError, { skillId: string }>({
+    mutationFn: async ({ skillId }) =>
+      await agentSkillsArchiveSkill({ workspaceId, skillId }),
     onSuccess: (_result, variables) => {
       queryClient.invalidateQueries({ queryKey: ["skills", workspaceId] })
       queryClient.removeQueries({
@@ -573,16 +565,9 @@ export function useDeleteSkill(workspaceId: string) {
     },
     onError: (error) => {
       const detail = getApiErrorDetail(error)
-      const isInUse =
-        typeof error.body === "object" &&
-        error.body !== null &&
-        "code" in error.body &&
-        error.body.code === "skill_in_use"
       toast({
-        title: isInUse ? "Skill in use" : "Delete failed",
-        description: isInUse
-          ? "Confirm deletion to permanently unlink this skill from its agents."
-          : (detail ?? "Failed to delete skill."),
+        title: "Delete failed",
+        description: detail ?? "Failed to delete skill.",
         variant: "destructive",
       })
     },

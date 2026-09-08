@@ -4,6 +4,15 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+from enum import StrEnum
+from typing import Literal
+
+
+class SkillOrigin(StrEnum):
+    """Authority that owns a skill, independent of its portable name."""
+
+    PLATFORM = "platform"
+    WORKSPACE = "workspace"
 
 
 @dataclass(frozen=True, slots=True)
@@ -14,6 +23,7 @@ class ResolvedSkillRef:
     skill_name: str
     skill_version_id: uuid.UUID
     manifest_sha256: str
+    origin: Literal[SkillOrigin.WORKSPACE] = SkillOrigin.WORKSPACE
 
 
 @dataclass(frozen=True, slots=True)

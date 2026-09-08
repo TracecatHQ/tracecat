@@ -16,7 +16,7 @@ from pydantic import (
     field_validator,
 )
 
-from tracecat.agent.skill.schemas import NewSkillName
+from tracecat.agent.skill.schemas import SkillName
 
 MAX_SKILL_TOOLS = 64
 MCP_TOOL_ID_RE = re.compile(r"^mcp\.[a-z0-9_-]+(?:\.[A-Za-z0-9_-]+)?$")
@@ -69,7 +69,7 @@ class SkillFrontmatter(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    name: NewSkillName
+    name: SkillName
     description: str | None = Field(default=None)
     metadata: SkillMetadata = Field(default_factory=SkillMetadata)
 

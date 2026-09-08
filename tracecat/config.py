@@ -227,6 +227,16 @@ TRACECAT__AGENT_SKILL_CACHE_DIR = os.environ.get(
 )
 """Directory for caching extracted published skills on executor workers."""
 
+TRACECAT__COPILOT_SKILLS_DIR = (
+    os.environ.get("TRACECAT__COPILOT_SKILLS_DIR") or "/var/lib/tracecat/copilot-skills"
+)
+"""Directory holding the built-in workspace-chat skills vendored from the public
+`tracecat-plugins` repository at image build time.
+
+Deliberately outside the Python package tree. These are markdown the agent reads,
+not code that gets imported, and keeping them out of `packages/` means neither the
+wheel build nor a development bind mount can serve a stale copy."""
+
 TRACECAT__AGENT_SKILL_CACHE_MAX_CONCURRENT_DOWNLOADS = int(
     os.environ.get("TRACECAT__AGENT_SKILL_CACHE_MAX_CONCURRENT_DOWNLOADS") or 8
 )
@@ -668,11 +678,14 @@ TRACECAT__SANDBOX_PYPI_EXTRA_INDEX_URLS = [
 """Additional PyPI index URLs (comma-separated). Used as fallback sources for package installation."""
 
 
-def env_networks(name: str) -> tuple[IPv4Network | IPv6Network, ...]:
+def env_networks(
+    name: str, *, default: tuple[IPv4Network | IPv6Network, ...] = ()
+) -> tuple[IPv4Network | IPv6Network, ...]:
     """Parse a comma-separated environment variable into validated IP networks.
 
     Args:
         name: Environment variable name.
+        default: Networks returned when the variable is unset or blank.
 
     Returns:
         Parsed IPv4 and IPv6 networks in configured order.
@@ -681,6 +694,8 @@ def env_networks(name: str) -> tuple[IPv4Network | IPv6Network, ...]:
         ValueError: If any configured value is not a valid CIDR or IP address.
     """
     raw_value = os.environ.get(name, "")
+    if not raw_value.strip():
+        return default
     networks: list[IPv4Network | IPv6Network] = []
     for value in raw_value.split(","):
         stripped = value.strip()
@@ -714,6 +729,22 @@ def env_ports(name: str, *, default: tuple[int, ...]) -> tuple[int, ...]:
             ports.append(port)
     return tuple(ports)
 
+
+TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS = env_networks(
+    "TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS",
+    default=(
+        ip_network("127.0.0.0/8"),
+        ip_network("::1/128"),
+        ip_network("10.0.0.0/8"),
+        ip_network("172.16.0.0/12"),
+        ip_network("192.168.0.0/16"),
+        ip_network("169.254.0.0/16"),
+        ip_network("fc00::/7"),
+    ),
+)
+"""CIDRs of proxies behind which the API runs (Caddy, the UI container, a load
+balancer). X-Forwarded-For entries from these hops are skipped when resolving
+the client IP for audit attribution."""
 
 TRACECAT__SANDBOX_INSTALL_ALLOWED_EGRESS_CIDRS = env_networks(
     "TRACECAT__SANDBOX_INSTALL_ALLOWED_EGRESS_CIDRS"
@@ -994,6 +1025,16 @@ TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES = int(
 )
 """The maximum size of a payload in bytes the executor can return. Defaults to 1MB"""
 
+TRACECAT__SANDBOX_PACKAGE_CACHE_MAX_BYTES = int(
+    os.environ.get("TRACECAT__SANDBOX_PACKAGE_CACHE_MAX_BYTES") or 5 * 1024**3
+)
+"""Maximum aggregate bytes promoted from a sandbox package cache."""
+
+TRACECAT__SANDBOX_PACKAGE_CACHE_MAX_ENTRIES = int(
+    os.environ.get("TRACECAT__SANDBOX_PACKAGE_CACHE_MAX_ENTRIES") or 200_000
+)
+"""Maximum entries promoted from a sandbox package cache."""
+
 TRACECAT__MAX_FILE_SIZE_BYTES = int(
     os.environ.get("TRACECAT__MAX_FILE_SIZE_BYTES") or 20 * 1024 * 1024  # Default 20MB
 )
@@ -1054,6 +1095,32 @@ TRACECAT__S3_CONCURRENCY_LIMIT = int(
 # === API List/Search Limits === #
 TRACECAT__LIMIT_MIN = 1
 """Minimum list/search page size."""
+
+TRACECAT__LIMIT_AGG_GROUPS_MAX = bound_env(
+    "TRACECAT__LIMIT_AGG_GROUPS_MAX",
+    1000,
+    lower=1,
+)
+"""Maximum number of groups returned by an aggregation query."""
+
+TRACECAT__LIMIT_AGG_GROUPS_DEFAULT = bound_env(
+    "TRACECAT__LIMIT_AGG_GROUPS_DEFAULT",
+    100,
+    lower=1,
+    upper=TRACECAT__LIMIT_AGG_GROUPS_MAX,
+)
+"""Default number of groups returned by an aggregation query."""
+
+POSTGRES_STATEMENT_TIMEOUT_MAX_MS = 2_147_483_647
+"""Largest PostgreSQL statement timeout accepted in milliseconds."""
+
+TRACECAT__AGG_STATEMENT_TIMEOUT_MS = bound_env(
+    "TRACECAT__AGG_STATEMENT_TIMEOUT_MS",
+    30_000,
+    lower=1,
+    upper=POSTGRES_STATEMENT_TIMEOUT_MAX_MS,
+)
+"""PostgreSQL statement timeout for aggregation queries, in milliseconds."""
 
 TRACECAT__LIMIT_DEFAULT = 20
 """Default list/search page size."""

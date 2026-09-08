@@ -55,7 +55,7 @@ import type {
   AgentPresetReadMinimal,
   AgentPresetSubagentEligibility,
   AgentPresetUpdate,
-  AttachedSubagentRef,
+  AnyAttachedSubagentRef,
   MCPIntegrationRead,
   SkillReadMinimal,
 } from "@/client"
@@ -230,6 +230,7 @@ const agentPresetSchema = z
         z.object({
           preset: z.string().default(""),
           presetId: z.string().default(""),
+          presetVersionId: z.string().default(""),
           name: z.string().default(""),
           description: z.string().max(1000).default(""),
           maxTurns: z.string().default(""),
@@ -1737,6 +1738,7 @@ function AgentPresetForm({
     appendSubagent({
       preset: "",
       presetId: "",
+      presetVersionId: "",
       name: "",
       description: "",
       maxTurns: "",
@@ -2781,6 +2783,7 @@ function AgentPresetSubagentsPanel({
                 const selectedSubagent = selectedSubagents[index] ?? {
                   preset: selectedPreset,
                   presetId: "",
+                  presetVersionId: "",
                   name: "",
                   description: "",
                   maxTurns: "",
@@ -2821,6 +2824,10 @@ function AgentPresetSubagentsPanel({
                                   form.setValue(
                                     `subagents.${index}.presetId`,
                                     selected?.id ?? ""
+                                  )
+                                  form.setValue(
+                                    `subagents.${index}.presetVersionId`,
+                                    selected?.current_version_id ?? ""
                                   )
                                 }}
                                 disabled={isSaving}
@@ -3631,6 +3638,8 @@ function presetToFormValues(preset: AgentPresetRead): AgentPresetFormValues {
   const subagents = (agents?.subagents ?? []).map((subagent) => ({
     preset: subagent.preset,
     presetId: "preset_id" in subagent ? subagent.preset_id : "",
+    presetVersionId:
+      "preset_version_id" in subagent ? subagent.preset_version_id : "",
     name: subagent.name ?? "",
     description: subagent.description ?? "",
     maxTurns:
@@ -3729,16 +3738,25 @@ function formValuesToAgentsPayload(
   values: AgentPresetFormValues
 ): AgentPresetCreate["agents"] {
   const subagents = values.subagents
-    .map((subagent): AttachedSubagentRef | null => {
+    .map((subagent): AnyAttachedSubagentRef | null => {
       const preset = subagent.preset.trim()
       if (!preset) {
         return null
       }
 
-      const payload: AttachedSubagentRef = { preset }
       const name = normalizeOptional(subagent.name)
       const description = normalizeOptional(subagent.description)
       const maxTurns = parseOptionalPositiveInteger(subagent.maxTurns)
+      const presetId = normalizeOptional(subagent.presetId)
+      const presetVersionId = normalizeOptional(subagent.presetVersionId)
+
+      // Keep the immutable identifiers when we know both, so the parent
+      // stays bound to the exact child preset version instead of
+      // re-resolving a slug that may have been renamed or reused.
+      const payload: AnyAttachedSubagentRef =
+        presetId !== null && presetVersionId !== null
+          ? { preset, preset_id: presetId, preset_version_id: presetVersionId }
+          : { preset }
 
       if (name !== null) {
         payload.name = name
@@ -3751,7 +3769,7 @@ function formValuesToAgentsPayload(
       }
       return payload
     })
-    .filter((subagent): subagent is AttachedSubagentRef => subagent !== null)
+    .filter((subagent): subagent is AnyAttachedSubagentRef => subagent !== null)
 
   return {
     subagents,

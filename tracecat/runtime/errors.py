@@ -64,6 +64,7 @@ class RuntimeErrorKind(StrEnum):
     EXECUTOR_REGISTRY_CAPACITY_EXHAUSTED = "executor.registry.capacity_exhausted"
     EXECUTOR_REGISTRY_EXTRACTION_FAILED = "executor.registry.extraction_failed"
     EXECUTOR_SANDBOX_INFRASTRUCTURE_FAILED = "executor.sandbox.infrastructure_failed"
+    SANDBOX_RESOURCE_LIMIT_EXCEEDED = "sandbox.resource_limit_exceeded"
     WORKFLOW_DEFINITION_NOT_FOUND = "workflow.definition.not_found"
     WORKFLOW_DEFINITION_LOOKUP_UNAVAILABLE = "workflow.definition.lookup_unavailable"
     WORKFLOW_DEFINITION_INVALID_DATA = "workflow.definition.invalid_data"
@@ -77,6 +78,14 @@ class RuntimeErrorKind(StrEnum):
     WORKFLOW_RUNTIME_INVARIANT_VIOLATION = "workflow.runtime.invariant_violation"
     WORKFLOW_AGENT_INPUT_INVALID = "workflow.agent.input_invalid"
     WORKFLOW_AGENT_PREPARATION_FAILED = "workflow.agent.preparation_failed"
+    AGENT_CONFIGURATION_INVALID = "agent.configuration.invalid"
+    AGENT_PREPARATION_FAILED = "agent.preparation.failed"
+    AGENT_SESSION_INITIALIZATION_FAILED = "agent.session.initialization_failed"
+    AGENT_EXECUTION_FAILED = "agent.execution.failed"
+    AGENT_EXECUTOR_UNAVAILABLE = "agent.executor.unavailable"
+    AGENT_EXECUTOR_TIMED_OUT = "agent.executor.timed_out"
+    AGENT_EXECUTOR_PROTOCOL_FAILED = "agent.executor.protocol_failed"
+    AGENT_WORKFLOW_INTERNAL_ERROR = "agent.workflow.internal_error"
 
 
 class RuntimeErrorClassification(BaseModel):

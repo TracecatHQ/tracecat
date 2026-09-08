@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Mapping
-from typing import Annotated
+from typing import Annotated, Any
 
 from pydantic import (
     BaseModel,
@@ -13,6 +13,7 @@ from pydantic import (
     StringConstraints,
     TypeAdapter,
     ValidationError,
+    model_validator,
 )
 
 AgentAlias = Annotated[
@@ -69,22 +70,43 @@ class ResolvedAttachedSubagentRef(AttachedSubagentRef):
 type AnyAttachedSubagentRef = ResolvedAttachedSubagentRef | AttachedSubagentRef
 
 
+def normalize_deprecated_agents_enabled(data: Any) -> Any:
+    """Keep serialized configs readable by older app versions without a toggle."""
+    if isinstance(data, Mapping):
+        return {**data, "enabled": True}
+    return data
+
+
 class AgentSubagentsConfig(BaseModel):
     """User-facing preset-backed subagents."""
 
-    # Ignore the removed ``enabled`` toggle when reading legacy JSON payloads.
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
+    enabled: bool = Field(
+        default=True, deprecated="Always enabled; this field is ignored."
+    )
     subagents: list[AnyAttachedSubagentRef] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_legacy_enabled(cls, data: Any) -> Any:
+        return normalize_deprecated_agents_enabled(data)
 
 
 class ResolvedAgentsConfig(BaseModel):
     """Persisted immutable resolved child refs."""
 
-    # Ignore the removed ``enabled`` toggle in persisted legacy bindings.
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
+    enabled: bool = Field(
+        default=True, deprecated="Always enabled; this field is ignored."
+    )
     subagents: list[ResolvedAttachedSubagentRef] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_legacy_enabled(cls, data: Any) -> Any:
+        return normalize_deprecated_agents_enabled(data)
 
 
 def validate_subagent_alias(alias: str) -> None:

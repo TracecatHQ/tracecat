@@ -38,6 +38,7 @@ from tracecat.agent.skill.schemas import (
 from tracecat.agent.skill.service import SkillService
 from tracecat.agent.subagents import (
     AgentSubagentsConfig,
+    AttachedSubagentRef,
     ResolvedAgentsConfig,
     ResolvedAttachedSubagentRef,
 )
@@ -58,6 +59,7 @@ from tracecat.db.models import (
     RegistryRepository,
     RegistryVersion,
     Skill,
+    SkillVersion,
     Workspace,
 )
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
@@ -891,6 +893,29 @@ class TestAgentPresetService:
         assert preset_read.enable_thinking is False
         assert version_read.enable_thinking is False
 
+    @pytest.mark.parametrize("enabled", [None, False])
+    async def test_publishing_existing_head_normalizes_enabled(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+        enabled: bool | None,
+    ) -> None:
+        preset = await agent_preset_service.create_preset(agent_preset_create_params)
+        # Simulate persisted JSON from before the deprecated field default.
+        preset.agents = (
+            {"subagents": []}
+            if enabled is None
+            else {"subagents": [], "enabled": enabled}
+        )
+        await agent_preset_service.session.commit()
+
+        updated = await agent_preset_service.update_preset(
+            preset, AgentPresetUpdate(instructions="Updated instructions")
+        )
+        version = await agent_preset_service.get_current_version_for_preset(updated)
+        assert updated.agents["enabled"] is True
+        assert version.agents["enabled"] is True
+
     async def test_create_preset_creates_initial_version(
         self,
         agent_preset_service: AgentPresetService,
@@ -984,9 +1009,7 @@ class TestAgentPresetService:
         created_preset = await agent_preset_service.create_preset(
             agent_preset_create_params.model_copy(
                 update={
-                    "agents": AgentSubagentsConfig.model_validate(
-                        {"enabled": True, "subagents": []}
-                    )
+                    "agents": AgentSubagentsConfig.model_validate({"subagents": []})
                 }
             )
         )
@@ -1128,8 +1151,10 @@ class TestAgentPresetService:
         finally:
             await concurrent_engine.dispose()
 
+    @pytest.mark.parametrize("delete_replacement", [False, True])
     async def test_non_skill_update_preserves_concurrent_skill_replacement(
         self,
+        delete_replacement: bool,
         configure_minio_for_skills,
         agent_preset_create_params: AgentPresetCreate,
         svc_role: Role,
@@ -1174,6 +1199,8 @@ class TestAgentPresetService:
 
             observed_stale_membership = asyncio.Event()
             replacement_committed = asyncio.Event()
+            replacement_read = asyncio.Event()
+            deletion_done = asyncio.Event()
 
             async def update_instructions() -> None:
                 async with session_factory() as update_session:
@@ -1182,19 +1209,38 @@ class TestAgentPresetService:
                     assert loaded is not None
                     original_resolve = service._current_skill_binding_specs
                     first_call = True
+                    original_membership = service._get_head_skill_binding_specs
+
+                    async def pause_after_replacement_read(
+                        preset_id: uuid.UUID,
+                    ) -> list[SkillBindingSpec]:
+                        bindings = await original_membership(preset_id)
+                        if (
+                            delete_replacement
+                            and not replacement_read.is_set()
+                            and any(
+                                binding.skill_id == skill_b.id for binding in bindings
+                            )
+                        ):
+                            replacement_read.set()
+                            await deletion_done.wait()
+                        return bindings
+
+                    monkeypatch.setattr(
+                        service,
+                        "_get_head_skill_binding_specs",
+                        pause_after_replacement_read,
+                    )
 
                     async def pause_after_membership_read(
-                        skill_ids: Sequence[uuid.UUID], *, for_update: bool = False
+                        skill_ids: Sequence[uuid.UUID], **kwargs: Any
                     ) -> list[SkillBindingSpec]:
                         nonlocal first_call
                         if first_call:
                             first_call = False
                             observed_stale_membership.set()
                             await replacement_committed.wait()
-                        return await original_resolve(
-                            skill_ids,
-                            for_update=for_update,
-                        )
+                        return await original_resolve(skill_ids, **kwargs)
 
                     monkeypatch.setattr(
                         service,
@@ -1224,7 +1270,23 @@ class TestAgentPresetService:
                 finally:
                     replacement_committed.set()
 
-            await asyncio.gather(update_instructions(), replace_skill())
+            async def delete_new_skill() -> None:
+                if not delete_replacement:
+                    return
+                await replacement_read.wait()
+                try:
+                    async with session_factory() as delete_session:
+                        service = SkillService(delete_session, role=role)
+                        await service.archive_skill(skill_b.id)
+                finally:
+                    deletion_done.set()
+
+            await asyncio.wait_for(
+                asyncio.gather(
+                    update_instructions(), replace_skill(), delete_new_skill()
+                ),
+                timeout=20,
+            )
 
             async with session_factory() as verification_session:
                 current = await verification_session.scalar(
@@ -1249,8 +1311,21 @@ class TestAgentPresetService:
 
             assert current is not None
             assert current.instructions == "Keep the replacement"
-            assert head_skill_id == skill_b.id
-            assert version_skill_id == skill_b.id
+            expected_skill_id = None if delete_replacement else skill_b.id
+            assert head_skill_id == expected_skill_id
+            assert version_skill_id == expected_skill_id
+            if delete_replacement:
+                async with session_factory() as check_session:
+                    assert (
+                        await check_session.scalar(
+                            select(sa.func.count())
+                            .select_from(AgentPresetVersionSkill)
+                            .where(
+                                AgentPresetVersionSkill.skill_id == skill_b.id,
+                            )
+                        )
+                        == 0
+                    )
         finally:
             await concurrent_engine.dispose()
 
@@ -1292,7 +1367,6 @@ class TestAgentPresetService:
                             "slug": "lock-parent",
                             "agents": AgentSubagentsConfig.model_validate(
                                 {
-                                    "enabled": True,
                                     "subagents": [{"preset": child.slug}],
                                 }
                             ),
@@ -1336,7 +1410,6 @@ class TestAgentPresetService:
                                 instructions="Concurrent parent update",
                                 agents=AgentSubagentsConfig.model_validate(
                                     {
-                                        "enabled": True,
                                         "subagents": [{"preset": child.slug}],
                                     }
                                 ),
@@ -1350,20 +1423,20 @@ class TestAgentPresetService:
                     service = AgentPresetService(delete_session, role=role)
                     loaded_child = await service.get_preset(child.id)
                     assert loaded_child is not None
-                    original_lock = service._lock_preset_deletion_dependencies
+                    original_lock = service._lock_preset_row
 
                     async def synchronized_lock(
-                        preset: AgentPreset,
-                    ) -> list[AgentPreset]:
+                        preset_id: uuid.UUID,
+                    ) -> None:
                         await wait_for_competing_lock()
-                        return await original_lock(preset)
+                        await original_lock(preset_id)
 
                     monkeypatch.setattr(
                         service,
-                        "_lock_preset_deletion_dependencies",
+                        "_lock_preset_row",
                         synchronized_lock,
                     )
-                    await service.delete_preset(loaded_child, confirm_unlink=True)
+                    await service.delete_preset(loaded_child)
 
             await asyncio.wait_for(
                 asyncio.gather(update_parent(), delete_child()),
@@ -1379,10 +1452,12 @@ class TestAgentPresetService:
                 refreshed_parent = await verification_service.get_preset(parent.id)
                 assert refreshed_parent is not None
                 assert (
-                    AgentSubagentsConfig.model_validate(
-                        refreshed_parent.agents
-                    ).subagents
-                    == []
+                    len(
+                        AgentSubagentsConfig.model_validate(
+                            refreshed_parent.agents
+                        ).subagents
+                    )
+                    == 0
                 )
         finally:
             await concurrent_engine.dispose()
@@ -1474,6 +1549,50 @@ class TestAgentPresetService:
         assert len(version_read.skills) == 1
         assert version_read.skills[0].skill_version_id == skill_version.id
         assert version_read.skills[0].skill_version == 1
+
+    async def test_exact_skill_resolution_rejects_mismatched_version_owner(
+        self,
+        configure_minio_for_skills,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+    ) -> None:
+        """Exact-version resolution cannot cross from one Skill to another."""
+
+        skill_service = SkillService(session=session, role=svc_role)
+        bound_skill = await skill_service.create_skill(SkillCreate(name="bound-skill"))
+        await skill_service.publish_skill(bound_skill.id)
+        other_skill = await skill_service.create_skill(SkillCreate(name="other-skill"))
+        other_version = await skill_service.publish_skill(other_skill.id)
+
+        preset = await agent_preset_service.create_preset(
+            AgentPresetCreate(
+                name="Corrupt exact-version preset",
+                instructions="Use the bound skill",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                skills=[AgentPresetSkillBindingBase(skill_id=bound_skill.id)],
+            )
+        )
+        preset_version = await agent_preset_service.get_current_version_for_preset(
+            preset
+        )
+        version_binding = await session.scalar(
+            select(AgentPresetVersionSkill).where(
+                AgentPresetVersionSkill.workspace_id
+                == agent_preset_service.workspace_id,
+                AgentPresetVersionSkill.preset_version_id == preset_version.id,
+            )
+        )
+        assert version_binding is not None
+        version_binding.skill_version_id = other_version.id
+        await session.flush()
+
+        resolved = await agent_preset_service.skills.get_resolved_skill_refs_for_preset_version(
+            preset_version.id
+        )
+
+        assert resolved == []
 
     async def test_create_preset_skill_binding_without_version_stores_current_version(
         self,
@@ -1654,6 +1773,81 @@ class TestAgentPresetService:
         assert detail["code"] == "skill_not_published"
         assert detail["skill_id"] == str(created_skill.id)
 
+    async def test_create_preset_rejects_duplicate_skill_binding(
+        self,
+        configure_minio_for_skills,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+    ) -> None:
+        """Authoring rejects a payload that binds the same Skill twice."""
+
+        skill_service = SkillService(session=session, role=svc_role)
+        created_skill = await skill_service.create_skill(
+            SkillCreate(name="duplicate-create-binding")
+        )
+        await skill_service.publish_skill(created_skill.id)
+
+        with pytest.raises(TracecatValidationError) as exc_info:
+            await agent_preset_service.create_preset(
+                AgentPresetCreate(
+                    name="Duplicate skill create preset",
+                    instructions="Use the selected skill",
+                    model_name="gpt-4o-mini",
+                    model_provider="openai",
+                    skills=[
+                        AgentPresetSkillBindingBase(skill_id=created_skill.id),
+                        AgentPresetSkillBindingBase(skill_id=created_skill.id),
+                    ],
+                )
+            )
+
+        detail = exc_info.value.detail
+        assert detail is not None
+        assert detail["code"] == "duplicate_skill_binding"
+
+    async def test_update_preset_rejects_duplicate_skill_binding(
+        self,
+        configure_minio_for_skills,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+    ) -> None:
+        """Updates reject a duplicate binding instead of silently deduping it."""
+
+        skill_service = SkillService(session=session, role=svc_role)
+        created_skill = await skill_service.create_skill(
+            SkillCreate(name="duplicate-update-binding")
+        )
+        await skill_service.publish_skill(created_skill.id)
+        created_preset = await agent_preset_service.create_preset(
+            AgentPresetCreate(
+                name="Duplicate skill update preset",
+                instructions="No skills yet",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+            )
+        )
+
+        with pytest.raises(TracecatValidationError) as exc_info:
+            await agent_preset_service.update_preset(
+                created_preset,
+                AgentPresetUpdate(
+                    skills=[
+                        AgentPresetSkillBindingBase(skill_id=created_skill.id),
+                        AgentPresetSkillBindingBase(skill_id=created_skill.id),
+                    ]
+                ),
+            )
+
+        detail = exc_info.value.detail
+        assert detail is not None
+        assert detail["code"] == "duplicate_skill_binding"
+        assert (
+            await agent_preset_service._list_head_skill_bindings(created_preset.id)
+            == []
+        )
+
     async def test_resolve_config_uses_latest_skill_versions(
         self,
         configure_minio_for_skills,
@@ -1712,22 +1906,24 @@ class TestAgentPresetService:
         assert resolved_skill.skill_version_id == skill_version_two.id
         assert resolved_skill.skill_name == "latest-skill-v2"
 
-    async def test_resolve_config_rejects_archived_skill_from_head_resolution(
+    @pytest.mark.parametrize("resolve_dependencies_from_heads", [True, False])
+    async def test_resolve_config_omits_deleted_skill(
         self,
         configure_minio_for_skills,
         session: AsyncSession,
         svc_role: Role,
         agent_preset_service: AgentPresetService,
+        resolve_dependencies_from_heads: bool,
     ) -> None:
-        """Fresh resolution refuses archived skills in historical memberships."""
+        """Deleted Skills are removed from both current and historical reads."""
         skill_service = SkillService(session=session, role=svc_role)
         created_skill = await skill_service.create_skill(
-            SkillCreate(name="latest-archived-skill")
+            SkillCreate(name="archived-membership-skill")
         )
         await skill_service.publish_skill(created_skill.id)
         created_preset = await agent_preset_service.create_preset(
             AgentPresetCreate(
-                name="Latest archived skill preset",
+                name="Archived skill preset",
                 description="Preset with a historical skill binding",
                 instructions="Use the selected skill",
                 model_name="gpt-4o-mini",
@@ -1748,64 +1944,96 @@ class TestAgentPresetService:
         )
         await skill_service.archive_skill(created_skill.id)
 
-        with pytest.raises(TracecatValidationError) as exc_info:
-            await agent_preset_service.resolve_agent_preset_config(
-                preset_id=created_preset.id,
-                preset_version_id=historical_version.id,
-            )
+        config = await agent_preset_service.resolve_agent_preset_config(
+            preset_id=created_preset.id,
+            preset_version_id=historical_version.id,
+            resolve_dependencies_from_heads=resolve_dependencies_from_heads,
+        )
 
-        detail = exc_info.value.detail
-        assert detail is not None
-        assert detail["code"] == "skill_archived"
-        assert str(created_skill.id) in str(detail["skills"])
+        assert config.resolved_skills is not None
+        assert config.resolved_skills == []
 
-    async def test_resolve_snapshot_rejects_archived_skill(
+    async def test_update_preset_unrelated_field_keeps_deleted_skill_unlinked(
         self,
         configure_minio_for_skills,
         session: AsyncSession,
         svc_role: Role,
         agent_preset_service: AgentPresetService,
     ) -> None:
-        """Exact run-snapshot reconstruction refuses archived dependencies."""
+        """Deletion removes bindings without blocking subsequent edits."""
+
         skill_service = SkillService(session=session, role=svc_role)
         created_skill = await skill_service.create_skill(
-            SkillCreate(name="pinned-archived-skill")
+            SkillCreate(name="archived-bound-skill")
         )
         await skill_service.publish_skill(created_skill.id)
         created_preset = await agent_preset_service.create_preset(
             AgentPresetCreate(
-                name="Pinned archived skill preset",
-                description="Preset with a historical skill binding",
+                name="Archived bound skill preset",
+                description="Preset that keeps a binding to an archived skill",
                 instructions="Use the selected skill",
                 model_name="gpt-4o-mini",
                 model_provider="openai",
-                skills=[
-                    AgentPresetSkillBindingBase(
-                        skill_id=created_skill.id,
-                    )
-                ],
+                skills=[AgentPresetSkillBindingBase(skill_id=created_skill.id)],
             )
         )
-        historical_version = await agent_preset_service.get_current_version_for_preset(
-            created_preset
-        )
-        await agent_preset_service.update_preset(
+        await skill_service.archive_skill(created_skill.id)
+
+        updated = await agent_preset_service.update_preset(
             created_preset,
-            AgentPresetUpdate(skills=None),
+            AgentPresetUpdate(instructions="changed"),
+        )
+
+        assert updated.instructions == "changed"
+        head_bindings = (
+            (
+                await session.execute(
+                    select(
+                        AgentPresetSkill.skill_id,
+                        AgentPresetSkill.skill_version_id,
+                    ).where(AgentPresetSkill.preset_id == created_preset.id)
+                )
+            )
+            .tuples()
+            .all()
+        )
+        assert head_bindings == []
+
+    async def test_update_preset_rejects_newly_attached_archived_skill(
+        self,
+        configure_minio_for_skills,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+    ) -> None:
+        """Deleted Skills cannot be attached."""
+
+        skill_service = SkillService(session=session, role=svc_role)
+        created_skill = await skill_service.create_skill(
+            SkillCreate(name="archived-attach-skill")
+        )
+        await skill_service.publish_skill(created_skill.id)
+        created_preset = await agent_preset_service.create_preset(
+            AgentPresetCreate(
+                name="Archived attach preset",
+                description="Preset with no skill bindings",
+                instructions="Use no skills",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+            )
         )
         await skill_service.archive_skill(created_skill.id)
 
         with pytest.raises(TracecatValidationError) as exc_info:
-            await agent_preset_service.resolve_agent_preset_config(
-                preset_id=created_preset.id,
-                preset_version_id=historical_version.id,
-                resolve_dependencies_from_heads=False,
+            await agent_preset_service.update_preset(
+                created_preset,
+                AgentPresetUpdate(
+                    skills=[AgentPresetSkillBindingBase(skill_id=created_skill.id)]
+                ),
             )
 
-        detail = exc_info.value.detail
-        assert detail is not None
-        assert detail["code"] == "skill_archived"
-        assert str(created_skill.id) in str(detail["skills"])
+        assert exc_info.value.detail is not None
+        assert exc_info.value.detail["code"] == "skill_not_found"
 
     async def test_list_versions_returns_metadata_without_skill_lookups(
         self,
@@ -2028,8 +2256,41 @@ class TestAgentPresetService:
 
         assert version_read.skills[0].skill_version_id == skill_version_one.id
         assert version_read.skills[0].skill_name == "version-one"
+        assert version_read.restore_skills[0].skill_version_id == skill_version_two.id
+        assert version_read.restore_skills[0].skill_name == "version-two"
         assert head_bindings[0].skill_version_id == skill_version_two.id
         assert head_bindings[0].skill_name == "version-two"
+
+    async def test_build_version_read_omits_deleted_skill(
+        self,
+        configure_minio_for_skills,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+    ) -> None:
+        """Saved versions no longer include deleted Skill references."""
+
+        skill_service = SkillService(session=session, role=svc_role)
+        skill = await skill_service.create_skill(SkillCreate(name="archived-reference"))
+        await skill_service.publish_skill(skill.id)
+        preset = await agent_preset_service.create_preset(
+            AgentPresetCreate(
+                name="Archived Skill reference",
+                instructions="Use the existing Skill",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                skills=[AgentPresetSkillBindingBase(skill_id=skill.id)],
+            )
+        )
+        preset_version = await agent_preset_service.get_current_version_for_preset(
+            preset
+        )
+
+        await skill_service.archive_skill(skill.id)
+
+        version_read = await agent_preset_service.build_version_read(preset_version)
+        assert version_read.skills == []
+        assert version_read.restore_skills == []
 
     async def test_non_skill_update_refreshes_head_and_version_skill_bindings(
         self,
@@ -2107,24 +2368,16 @@ class TestAgentPresetService:
         await skill_service.publish_skill(skill_a.id)
 
         skill_b = await skill_service.create_skill(SkillCreate(name="skill-b-current"))
-        await skill_service.publish_skill(skill_b.id)
+        skill_b_version = await skill_service.publish_skill(skill_b.id)
 
-        draft_b = await skill_service.get_draft(skill_b.id)
-        assert draft_b is not None
-        await skill_service.patch_draft(
-            skill_id=skill_b.id,
-            params=SkillDraftPatch(
-                base_revision=draft_b.draft_revision,
-                operations=[
-                    SkillDraftUpsertTextFileOp(
-                        path="SKILL.md",
-                        content="---\nname: shared-name\n---\n\n# shared-name\n",
-                        content_type="text/markdown; charset=utf-8",
-                    )
-                ],
-            ),
+        # Simulate duplicate published names left by an older release. New
+        # publications reject this state at the Skill service boundary.
+        await session.execute(
+            sa.update(SkillVersion)
+            .where(SkillVersion.id == skill_b_version.id)
+            .values(name="shared-name")
         )
-        await skill_service.publish_skill(skill_b.id)
+        await session.commit()
 
         with pytest.raises(
             TracecatValidationError,
@@ -2184,9 +2437,12 @@ class TestAgentPresetService:
         calls: list[tuple[str, object]] = []
 
         async def instrumented_resolve(
-            skill_ids: Sequence[uuid.UUID], *, for_update: bool = False
+            skill_ids: Sequence[uuid.UUID],
+            *,
+            for_update: bool = False,
+            **kwargs: Any,
         ) -> list[SkillBindingSpec]:
-            specs = await original_resolve(skill_ids, for_update=for_update)
+            specs = await original_resolve(skill_ids, for_update=for_update, **kwargs)
             calls.append(("resolve_locked" if for_update else "resolve", specs))
             return specs
 
@@ -2297,24 +2553,16 @@ class TestAgentPresetService:
         await skill_service.publish_skill(skill_a.id)
 
         skill_b = await skill_service.create_skill(SkillCreate(name="skill-b-current"))
-        await skill_service.publish_skill(skill_b.id)
+        skill_b_version = await skill_service.publish_skill(skill_b.id)
 
-        draft_b = await skill_service.get_draft(skill_b.id)
-        assert draft_b is not None
-        await skill_service.patch_draft(
-            skill_id=skill_b.id,
-            params=SkillDraftPatch(
-                base_revision=draft_b.draft_revision,
-                operations=[
-                    SkillDraftUpsertTextFileOp(
-                        path="SKILL.md",
-                        content="---\nname: shared-name\n---\n\n# shared-name\n",
-                        content_type="text/markdown; charset=utf-8",
-                    )
-                ],
-            ),
+        # Simulate duplicate published names left by an older release. New
+        # publications reject this state at the Skill service boundary.
+        await session.execute(
+            sa.update(SkillVersion)
+            .where(SkillVersion.id == skill_b_version.id)
+            .values(name="shared-name")
         )
-        skill_b_shared = await skill_service.publish_skill(skill_b.id)
+        await session.commit()
 
         preset = await agent_preset_service.create_preset(
             AgentPresetCreate(
@@ -2338,7 +2586,7 @@ class TestAgentPresetService:
                 workspace_id=agent_preset_service.workspace_id,
                 preset_version_id=preset_version.id,
                 skill_id=skill_b.id,
-                skill_version_id=skill_b_shared.id,
+                skill_version_id=skill_b_version.id,
             )
         )
         await session.commit()
@@ -2382,11 +2630,13 @@ class TestAgentPresetService:
             skill_ids: Sequence[uuid.UUID],
             *,
             for_update: bool = False,
+            **kwargs: Any,
         ) -> list[SkillBindingSpec]:
             captured_for_update.append(for_update)
             return await original_current_skill_binding_specs(
                 skill_ids,
                 for_update=for_update,
+                **kwargs,
             )
 
         monkeypatch.setattr(
@@ -2493,11 +2743,13 @@ class TestAgentPresetService:
             skill_ids: Sequence[uuid.UUID],
             *,
             for_update: bool = False,
+            **kwargs: Any,
         ) -> list[SkillBindingSpec]:
             captured_for_update.append(for_update)
             return await original_current_skill_binding_specs(
                 skill_ids,
                 for_update=for_update,
+                **kwargs,
             )
 
         monkeypatch.setattr(
@@ -2558,11 +2810,10 @@ class TestAgentPresetService:
 
         async def instrumented_skill_lock(
             skill_ids: Sequence[uuid.UUID],
-            *,
-            for_update: bool = False,
+            **kwargs: Any,
         ) -> list[SkillBindingSpec]:
             call_order.append("lock_skills")
-            return await original_skill_lock(skill_ids, for_update=for_update)
+            return await original_skill_lock(skill_ids, **kwargs)
 
         async def instrumented_get_specs(
             preset_id: uuid.UUID,
@@ -2793,7 +3044,7 @@ class TestAgentPresetService:
         with pytest.raises(TracecatValidationError, match="not found"):
             await agent_preset_service.restore_version(created_preset, version_1)
 
-    async def test_restore_version_rejects_soft_deleted_subagent_bindings(
+    async def test_restore_version_keeps_deleted_subagents_unlinked_after_slug_reuse(
         self,
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
@@ -2811,7 +3062,6 @@ class TestAgentPresetService:
                     "slug": "restored-parent",
                     "agents": AgentSubagentsConfig.model_validate(
                         {
-                            "enabled": True,
                             "subagents": [{"preset": child.slug}],
                         }
                     ),
@@ -2831,15 +3081,17 @@ class TestAgentPresetService:
 
         await agent_preset_service.delete_preset(child)
 
-        with pytest.raises(
-            TracecatValidationError,
-            match="soft-deleted or missing subagent",
-        ):
-            await agent_preset_service.restore_version(parent, version_with_child)
+        replacement = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Replacement Child", "slug": child.slug}
+            )
+        )
+        assert replacement.id != child.id
+        await agent_preset_service.restore_version(parent, version_with_child)
 
         await agent_preset_service.session.refresh(parent)
-        assert parent.current_version_id == version_without_child.id
-        assert parent.agents == {"subagents": []}
+        assert parent.current_version_id != version_without_child.id
+        assert parent.agents == {"enabled": True, "subagents": []}
 
     async def test_restore_version_locks_skill_bindings_during_validation(
         self,
@@ -2889,11 +3141,13 @@ class TestAgentPresetService:
             skill_ids: Sequence[uuid.UUID],
             *,
             for_update: bool = False,
+            **kwargs: Any,
         ) -> list[SkillBindingSpec]:
             captured_for_update.append(for_update)
             return await original_current_skill_binding_specs(
                 skill_ids,
                 for_update=for_update,
+                **kwargs,
             )
 
         monkeypatch.setattr(
@@ -3219,52 +3473,51 @@ class TestAgentPresetService:
         with pytest.raises(TracecatNotFoundError, match="not found"):
             await agent_preset_service._create_version_from_preset(created_preset)
 
-    async def test_delete_preset_locks_target_and_parents_together(
+    async def test_delete_preset_locks_only_target(
         self,
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Preset deletion locks its complete dependency set before checking refs."""
+        """Soft deletion locks only the preset being deleted."""
         created_preset = await agent_preset_service.create_preset(
             agent_preset_create_params
         )
         call_order: list[str] = []
-        original_lock = agent_preset_service._lock_preset_deletion_dependencies
+        original_lock = agent_preset_service._lock_preset_row
 
-        async def instrumented_lock(preset: AgentPreset) -> list[AgentPreset]:
-            call_order.append("lock_dependencies")
-            return await original_lock(preset)
+        async def instrumented_lock(preset_id: uuid.UUID) -> None:
+            call_order.append("lock_target")
+            await original_lock(preset_id)
 
         monkeypatch.setattr(
             agent_preset_service,
-            "_lock_preset_deletion_dependencies",
+            "_lock_preset_row",
             instrumented_lock,
         )
 
         await agent_preset_service.delete_preset(created_preset)
 
-        assert call_order == ["lock_dependencies"]
+        assert call_order == ["lock_target"]
 
-    async def test_delete_preset_blocks_when_referenced_as_subagent_in_head(
+    async def test_delete_preset_unlinks_parent_and_saved_versions(
         self,
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
     ) -> None:
-        """Deleting a preset is blocked while another preset head references it."""
+        """Deletion removes dependencies from current and historical versions."""
         child = await agent_preset_service.create_preset(
             agent_preset_create_params.model_copy(
                 update={"name": "Child Agent", "slug": "child-agent"}
             )
         )
-        await agent_preset_service.create_preset(
+        parent = await agent_preset_service.create_preset(
             agent_preset_create_params.model_copy(
                 update={
                     "name": "Parent Agent",
                     "slug": "parent-agent",
                     "agents": AgentSubagentsConfig.model_validate(
                         {
-                            "enabled": True,
                             "subagents": [{"preset": child.slug}],
                         }
                     ),
@@ -3272,62 +3525,73 @@ class TestAgentPresetService:
             )
         )
 
-        with pytest.raises(
-            TracecatValidationError,
-            match="still referenced as a subagent",
-        ) as exc_info:
-            await agent_preset_service.delete_preset(child)
+        original_parent_version_id = parent.current_version_id
 
-        assert exc_info.value.detail == {
-            "code": "preset_in_use_as_subagent",
-            "head_reference_count": 1,
-        }
-        assert await agent_preset_service.get_preset(child.id) is not None
+        await agent_preset_service.delete_preset(child)
 
-    async def test_delete_preset_with_confirmation_unlinks_and_publishes_parent(
+        refreshed_parent = await agent_preset_service.get_preset(parent.id)
+        assert refreshed_parent is not None
+        assert refreshed_parent.current_version_id == original_parent_version_id
+        refs = AgentSubagentsConfig.model_validate(refreshed_parent.agents).subagents
+        assert refs == []
+        assert await agent_preset_service.get_preset(child.id) is None
+        config = await agent_preset_service.resolve_agent_preset_config(
+            preset_id=parent.id
+        )
+        assert config.agents.subagents == []
+
+    async def test_delete_subagent_cleans_deleted_parents_and_all_versions(
         self,
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
     ) -> None:
-        """Confirmed deletion publishes parent membership removal atomically."""
-
         child = await agent_preset_service.create_preset(
             agent_preset_create_params.model_copy(
-                update={"name": "Confirmed Child", "slug": "confirmed-child"}
+                update={"name": "Removed child", "slug": "removed-child"}
+            )
+        )
+        kept = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Kept child", "slug": "kept-child"}
             )
         )
         parent = await agent_preset_service.create_preset(
             agent_preset_create_params.model_copy(
                 update={
-                    "name": "Confirmed Parent",
-                    "slug": "confirmed-parent",
+                    "name": "Deleted parent",
+                    "slug": "deleted-parent",
                     "agents": AgentSubagentsConfig.model_validate(
-                        {
-                            "enabled": True,
-                            "subagents": [{"preset": child.slug}],
-                        }
+                        {"subagents": [{"preset": kept.slug}, {"preset": child.slug}]}
                     ),
                 }
             )
         )
-        original_parent_version_id = parent.current_version_id
-
-        await agent_preset_service.delete_preset(child, confirm_unlink=True)
-
-        refreshed_parent = await agent_preset_service.get_preset(parent.id)
-        assert refreshed_parent is not None
-        assert refreshed_parent.current_version_id != original_parent_version_id
-        assert (
-            AgentSubagentsConfig.model_validate(refreshed_parent.agents).subagents == []
+        first = await agent_preset_service.get_current_version_for_preset(parent)
+        await agent_preset_service.update_preset(
+            parent, AgentPresetUpdate(instructions="Second version")
         )
-        assert await agent_preset_service.get_preset(child.id) is None
+        second = await agent_preset_service.get_current_version_for_preset(parent)
+        await agent_preset_service.delete_preset(parent)
+        await agent_preset_service.delete_preset(child)
+        deleted_parent = await agent_preset_service.get_preset(
+            parent.id, include_deleted=True
+        )
+        assert deleted_parent is not None
+        for snapshot in (deleted_parent, first, second):
+            await agent_preset_service.session.refresh(snapshot)
+            refs = AgentSubagentsConfig.model_validate(snapshot.agents).subagents
+            assert len(refs) == 1
+            assert isinstance(refs[0], ResolvedAttachedSubagentRef)
+            assert refs[0].preset_id == kept.id
+        assert first.instructions == agent_preset_create_params.instructions
+        assert second.instructions == "Second version"
 
     async def test_delete_preset_soft_deletes_when_only_referenced_as_subagent_in_history(
         self,
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
     ) -> None:
-        """Historical subagent references do not block soft-delete or remain runnable."""
+        """Deletion removes links even when only historical versions use them."""
         child = await agent_preset_service.create_preset(
             agent_preset_create_params.model_copy(
                 update={"name": "Historical Child", "slug": "historical-child"}
@@ -3340,7 +3604,6 @@ class TestAgentPresetService:
                     "slug": "historical-parent",
                     "agents": AgentSubagentsConfig.model_validate(
                         {
-                            "enabled": True,
                             "subagents": [{"preset": child.slug}],
                         }
                     ),
@@ -3355,14 +3618,14 @@ class TestAgentPresetService:
         await agent_preset_service.delete_preset(child)
 
         assert await agent_preset_service.get_preset(child.id) is None
-        with pytest.raises(TracecatNotFoundError):
-            await resolve_agents_config(
-                agent_preset_service,
-                agents=AgentSubagentsConfig.model_validate(parent_v1.agents),
-                parent_preset_id=parent.id,
-                parent_slug=parent.slug,
-                include_runtime_config=True,
-            )
+        resolved = await resolve_agents_config(
+            agent_preset_service,
+            agents=AgentSubagentsConfig.model_validate(parent_v1.agents),
+            parent_preset_id=parent.id,
+            parent_slug=parent.slug,
+            include_runtime_config=True,
+        )
+        assert resolved.subagents == []
 
         with pytest.raises(TracecatNotFoundError):
             await agent_preset_service.create_preset(
@@ -3372,7 +3635,6 @@ class TestAgentPresetService:
                         "slug": "new-parent",
                         "agents": AgentSubagentsConfig.model_validate(
                             {
-                                "enabled": True,
                                 "subagents": [{"preset": child.slug}],
                             }
                         ),
@@ -3398,7 +3660,6 @@ class TestAgentPresetService:
                     "slug": "referencing-parent",
                     "agents": AgentSubagentsConfig.model_validate(
                         {
-                            "enabled": True,
                             "subagents": [{"preset": original_child.slug}],
                         }
                     ),
@@ -3425,11 +3686,8 @@ class TestAgentPresetService:
             )
             is not None
         )
-        with pytest.raises(
-            TracecatValidationError,
-            match="still referenced as a subagent",
-        ):
-            await agent_preset_service.delete_preset(original_child)
+        await agent_preset_service.delete_preset(original_child)
+        assert await agent_preset_service.get_preset(original_child.id) is None
 
     async def test_get_preset_by_slug(
         self,
@@ -3631,16 +3889,43 @@ class TestAgentPresetService:
 
     async def test_preset_to_agent_config_conversion(
         self,
+        configure_minio_for_skills: None,
+        session: AsyncSession,
+        svc_role: Role,
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
         registry_actions: list[RegistryAction],
     ) -> None:
         """Test conversion of a preset version into executable config."""
-        # Create a preset with comprehensive configuration
-        agent_preset_create_params.actions = ["tools.test.test_action"]
-        agent_preset_create_params.namespaces = ["tools.test", "core"]
+        # A real published skill grants a tool outside the preset namespace.
+        skill_service = SkillService(session=session, role=svc_role)
+        skill = await skill_service.create_skill(SkillCreate(name="independent-tool"))
+        await skill_service.patch_draft(
+            skill_id=skill.id,
+            params=SkillDraftPatch(
+                base_revision=skill.draft_revision,
+                operations=[
+                    SkillDraftUpsertTextFileOp(
+                        path="SKILL.md",
+                        content=(
+                            "---\nname: independent-tool\nmetadata:\n  tools:\n"
+                            "    - tools.test.test_action\n---\nUse the granted tool.\n"
+                        ),
+                    )
+                ],
+            ),
+        )
+        skill_version = await skill_service.publish_skill(skill.id)
+        agent_preset_create_params.skills = [
+            AgentPresetSkillBindingBase(skill_id=skill.id)
+        ]
+        agent_preset_create_params.actions = [
+            "core.http_request",
+            "tools.test.another_action",
+        ]
+        agent_preset_create_params.namespaces = ["core"]
         agent_preset_create_params.output_type = "list[str]"
-        agent_preset_create_params.tool_approvals = {"tools.test.test_action": False}
+        agent_preset_create_params.tool_approvals = {"core.http_request": False}
 
         preset = await agent_preset_service.create_preset(agent_preset_create_params)
         version = await agent_preset_service.get_current_version_for_preset(preset)
@@ -3654,10 +3939,23 @@ class TestAgentPresetService:
         assert agent_config.base_url == preset.base_url
         assert agent_config.instructions == preset.instructions
         assert agent_config.output_type == preset.output_type
-        assert agent_config.actions == preset.actions
-        # Namespace filtering is compiled into the authored action list so that
-        # independently granted skill actions are not filtered a second time.
-        assert agent_config.namespaces is None
+        assert agent_config.actions == ["core.http_request"]
+        assert agent_config.resolved_skills is not None
+        assert [ref.skill_version_id for ref in agent_config.resolved_skills] == [
+            skill_version.id
+        ]
+        # The preset policy also limits registry tools granted by skills.
+        assert agent_config.namespaces == ["core"]
+
+        # Removing the policy restores authored and skill-granted actions.
+        version.namespaces = None
+        unrestricted = await agent_preset_service._version_to_agent_config(version)
+        assert unrestricted.actions == [
+            "core.http_request",
+            "tools.test.another_action",
+            "tools.test.test_action",
+        ]
+        assert unrestricted.namespaces is None
         assert agent_config.tool_approvals == preset.tool_approvals
         assert agent_config.retries == preset.retries
         assert agent_config.model_settings == {"parallel_tool_calls": False}
@@ -3698,7 +3996,6 @@ class TestAgentPresetService:
                 "slug": "parent-agent",
                 "agents": AgentSubagentsConfig.model_validate(
                     {
-                        "enabled": True,
                         "subagents": [{"preset": child.slug}],
                     }
                 ),
@@ -3751,7 +4048,6 @@ class TestAgentPresetService:
                         "slug": "race-parent",
                         "agents": AgentSubagentsConfig.model_validate(
                             {
-                                "enabled": True,
                                 "subagents": [{"preset": child.slug}],
                             }
                         ),
@@ -3783,7 +4079,6 @@ class TestAgentPresetService:
                     "slug": "reused-slug",
                     "agents": AgentSubagentsConfig.model_validate(
                         {
-                            "enabled": True,
                             "subagents": [
                                 {
                                     "preset": "reused-slug",
@@ -3827,7 +4122,6 @@ class TestAgentPresetService:
                     "slug": "latest-parent",
                     "agents": AgentSubagentsConfig.model_validate(
                         {
-                            "enabled": True,
                             "subagents": [{"preset": child.slug}],
                         }
                     ),
@@ -3854,6 +4148,58 @@ class TestAgentPresetService:
         assert resolved_subagent.preset_id == child.id
         assert resolved_subagent.preset_version_id == child_version_two.id
         assert resolved_subagent.preset_version == child_version_two.version
+
+    async def test_same_subagent_declaration_does_not_publish_parent_version(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """A newer child head does not turn unchanged topology into a parent edit."""
+
+        child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Stable child", "slug": "stable-child"}
+            )
+        )
+        parent = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={
+                    "name": "Stable parent",
+                    "slug": "stable-parent",
+                    "agents": AgentSubagentsConfig(
+                        subagents=[
+                            AttachedSubagentRef(
+                                preset=child.slug,
+                                name="specialist",
+                                max_turns=2,
+                            )
+                        ]
+                    ),
+                }
+            )
+        )
+        original_parent_version_id = parent.current_version_id
+        await agent_preset_service.update_preset(
+            child,
+            AgentPresetUpdate(instructions="Publish a newer child head"),
+        )
+
+        updated_parent = await agent_preset_service.update_preset(
+            parent,
+            AgentPresetUpdate(
+                agents=AgentSubagentsConfig(
+                    subagents=[
+                        AttachedSubagentRef(
+                            preset=child.slug,
+                            name="specialist",
+                            max_turns=2,
+                        )
+                    ]
+                )
+            ),
+        )
+
+        assert updated_parent.current_version_id == original_parent_version_id
 
     async def test_update_parent_rejects_subagent_with_tool_approvals(
         self,
@@ -3889,7 +4235,6 @@ class TestAgentPresetService:
                 AgentPresetUpdate(
                     agents=AgentSubagentsConfig.model_validate(
                         {
-                            "enabled": True,
                             "subagents": [{"preset": child.slug}],
                         }
                     )
@@ -3936,7 +4281,6 @@ class TestAgentPresetService:
                 AgentPresetUpdate(
                     agents=AgentSubagentsConfig.model_validate(
                         {
-                            "enabled": True,
                             "subagents": [{"preset": child.slug}],
                         }
                     )

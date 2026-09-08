@@ -10,6 +10,7 @@ services:
     environment:
       - BASE_DOMAIN=${BASE_DOMAIN}
       - ADDRESS=${ADDRESS}
+      - TRACECAT__TRUSTED_PROXY_CIDRS=${TRACECAT__TRUSTED_PROXY_CIDRS:-127.0.0.1/32}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
 
@@ -22,10 +23,13 @@ services:
       - core-db
     environment:
       # App
+      TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS: ${TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS:-}
       LOG_LEVEL: ${LOG_LEVEL}
       TRACECAT__LOG_FORMAT: ${TRACECAT__LOG_FORMAT:-console}
       TRACECAT__PLATFORM_OTEL_ENABLED: ${TRACECAT__PLATFORM_OTEL_ENABLED:-false}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4318}
+      OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_traceidratio}
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1.0}
       OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
       TRACECAT__ALLOW_ORIGINS: ${TRACECAT__ALLOW_ORIGINS}
       TRACECAT__API_ROOT_PATH: ${TRACECAT__API_ROOT_PATH}
@@ -44,6 +48,7 @@ services:
       TRACECAT__PUBLIC_APP_URL: ${TRACECAT__PUBLIC_APP_URL}
       TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY} # Sensitive
       TRACECAT__SERVICE_NAME: api
+      SENTRY_DSN: ${SENTRY_DSN:-}
       TRACECAT__AGENT_SANDBOX_TIMEOUT: ${TRACECAT__AGENT_SANDBOX_TIMEOUT:-3600}
       TRACECAT__DB_POOL_TIMEOUT: ${TRACECAT__DB_POOL_TIMEOUT:-30}
       TRACECAT__DB_AUTH_POOL_SIZE: ${TRACECAT__DB_AUTH_POOL_SIZE:-5}
@@ -121,6 +126,8 @@ services:
       TRACECAT__LOG_FORMAT: ${TRACECAT__LOG_FORMAT:-console}
       TRACECAT__PLATFORM_OTEL_ENABLED: ${TRACECAT__PLATFORM_OTEL_ENABLED:-false}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4318}
+      OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_traceidratio}
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1.0}
       OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
       TRACECAT__API_ROOT_PATH: ${TRACECAT__API_ROOT_PATH}
       TRACECAT__API_URL: ${TRACECAT__API_URL}
@@ -131,6 +138,7 @@ services:
       TRACECAT__DB_SSLMODE: ${TRACECAT__DB_SSLMODE}
       TRACECAT__DB_URI: ${TRACECAT__DB_URI} # Sensitive
       TRACECAT__PUBLIC_API_URL: ${TRACECAT__PUBLIC_API_URL}
+      TRACECAT__PUBLIC_APP_URL: ${TRACECAT__PUBLIC_APP_URL}
       TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY} # Sensitive
       TRACECAT__SERVICE_NAME: worker
       TRACECAT__AGENT_SANDBOX_TIMEOUT: ${TRACECAT__AGENT_SANDBOX_TIMEOUT:-3600}
@@ -189,6 +197,12 @@ services:
   executor:
     image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0-beta.50}
     restart: unless-stopped
+
+    # Container-level fork-bomb bound: in-jail RLIMIT_NPROC is bypassable
+    # via nested user namespaces (fresh per-userns fork counter), so the
+    # cgroup pids limit is the reliable bound. 4096 leaves headroom above
+    # the in-jail 64-process caps at executor default concurrency (16 x 64 = 1024).
+    pids_limit: 4096
     networks:
       - core
       - core-db
@@ -207,6 +221,8 @@ services:
       TRACECAT__LOG_FORMAT: ${TRACECAT__LOG_FORMAT:-console}
       TRACECAT__PLATFORM_OTEL_ENABLED: ${TRACECAT__PLATFORM_OTEL_ENABLED:-false}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4318}
+      OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_traceidratio}
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1.0}
       TRACECAT__APP_ENV: production
       TRACECAT__AWS_ASSUME_ROLE_ACCOUNT_ID: ${TRACECAT__AWS_ASSUME_ROLE_ACCOUNT_ID:-}
       TRACECAT__AWS_ASSUME_ROLE_PRINCIPAL_ARN: ${TRACECAT__AWS_ASSUME_ROLE_PRINCIPAL_ARN:-}
@@ -270,6 +286,8 @@ services:
       TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES: ${TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES:-16}
       TRACECAT__EXECUTOR_THREADPOOL_MAX_WORKERS: ${TRACECAT__EXECUTOR_THREADPOOL_MAX_WORKERS:-16}
       TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY: ${TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY:-4}
+      # Sentry
+      SENTRY_DSN: ${SENTRY_DSN:-}
       # Redis
       REDIS_URL: ${REDIS_URL}
       # Blob storage (MinIO/S3)
@@ -305,6 +323,11 @@ services:
         # Common
         LOG_LEVEL: ${LOG_LEVEL}
         TRACECAT__LOG_FORMAT: ${TRACECAT__LOG_FORMAT:-console}
+        TRACECAT__PLATFORM_OTEL_ENABLED: ${TRACECAT__PLATFORM_OTEL_ENABLED:-false}
+        OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4318}
+        OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_traceidratio}
+        OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1.0}
+        OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
         TRACECAT__APP_ENV: production
         TRACECAT__AWS_ASSUME_ROLE_ACCOUNT_ID: ${TRACECAT__AWS_ASSUME_ROLE_ACCOUNT_ID:-}
         TRACECAT__AWS_ASSUME_ROLE_PRINCIPAL_ARN: ${TRACECAT__AWS_ASSUME_ROLE_PRINCIPAL_ARN:-}
@@ -402,6 +425,12 @@ services:
   agent-executor:
       image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0-beta.50}
       restart: unless-stopped
+
+      # Container-level fork-bomb bound: in-jail RLIMIT_NPROC is bypassable
+      # via nested user namespaces (fresh per-userns fork counter), so the
+      # cgroup pids limit is the reliable bound. 4096 leaves headroom above
+      # the in-jail 64-process caps at executor default concurrency (16 x 64 = 1024).
+      pids_limit: 4096
       networks:
         - core
         - core-db
@@ -418,6 +447,10 @@ services:
         # Common
         LOG_LEVEL: ${LOG_LEVEL}
         TRACECAT__LOG_FORMAT: ${TRACECAT__LOG_FORMAT:-console}
+        TRACECAT__PLATFORM_OTEL_ENABLED: ${TRACECAT__PLATFORM_OTEL_ENABLED:-false}
+        OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4318}
+        OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_traceidratio}
+        OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1.0}
         TRACECAT__APP_ENV: production
         TRACECAT__AWS_ASSUME_ROLE_ACCOUNT_ID: ${TRACECAT__AWS_ASSUME_ROLE_ACCOUNT_ID:-}
         TRACECAT__AWS_ASSUME_ROLE_PRINCIPAL_ARN: ${TRACECAT__AWS_ASSUME_ROLE_PRINCIPAL_ARN:-}
@@ -517,6 +550,7 @@ services:
       - core-db
       - temporal
     environment:
+      TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS: ${TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS:-}
       LOG_LEVEL: ${LOG_LEVEL}
       TRACECAT__LOG_FORMAT: ${TRACECAT__LOG_FORMAT:-console}
       TRACECAT__APP_ENV: production
@@ -647,6 +681,7 @@ services:
       - POSTGRES_USER=${TEMPORAL__POSTGRES_USER}
       - POSTGRES_PWD=${TEMPORAL__POSTGRES_PASSWORD} # Sensitive
       - POSTGRES_SEEDS=temporal_postgres_db
+      - DEFAULT_NAMESPACE_RETENTION=${TEMPORAL__DEFAULT_NAMESPACE_RETENTION:-24h}
       - LOG_LEVEL=warn
       - BIND_ON_IP=0.0.0.0
       - TEMPORAL_BROADCAST_ADDRESS=127.0.0.1

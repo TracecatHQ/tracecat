@@ -5,7 +5,7 @@ inside an NSJail sandbox without database access. All I/O happens via Unix socke
 
 Key design principles:
 - No database imports (no SQLAlchemy, no DB services)
-- No pydantic-ai imports
+- Minimal runtime imports
 - Minimal import footprint for fast cold start
 """
 
@@ -54,9 +54,13 @@ from tracecat.agent.common.config import (
     TRACECAT__AGENT_MCP_BRIDGE_PORT,
     TRACECAT__DISABLE_NSJAIL,
 )
-from tracecat.agent.common.exceptions import AgentSandboxValidationError
+from tracecat.agent.common.exceptions import (
+    AgentSandboxProcessExitError,
+    AgentSandboxValidationError,
+)
 from tracecat.agent.common.output_format import build_sdk_output_format
 from tracecat.agent.common.protocol import RuntimeInitPayload
+from tracecat.agent.common.socket_io import MAX_PAYLOAD_SIZE
 from tracecat.agent.common.stream_types import (
     StreamEventType,
     ToolCallContent,
@@ -72,6 +76,10 @@ from tracecat.agent.common.types import (
     MCPStdioServerConfig,
     MCPToolDefinition,
     requires_sandbox_internet_access,
+)
+from tracecat.agent.error_policy import (
+    AGENT_SANDBOX_RESOURCE_LIMIT_EXIT_CODES,
+    agent_runtime_failure,
 )
 from tracecat.agent.llm_routing import get_litellm_route_model
 from tracecat.agent.mcp.metadata import (
@@ -93,10 +101,21 @@ from tracecat.agent.runtime.claude_code.session_lines import (
     is_model_context_session_line,
     is_synthetic_session_line,
 )
+from tracecat.agent.runtime.claude_code.transport import SandboxedCLITransport
 from tracecat.integrations.mcp_validation import sanitize_mcp_command_args
 from tracecat.logger import logger
+from tracecat.runtime.errors import RuntimeErrorClassification
+from tracecat.sandbox.exceptions import SandboxFileSafetyError
+from tracecat.sandbox.file_io import (
+    atomic_write_file_beneath,
+    read_complete_lines_beneath,
+    regular_file_size_beneath,
+)
 
 CLAUDE_PROJECT_DIR_MAX_LENGTH = 200
+# Headroom reserved for session-envelope metadata when checking whether a
+# serialized session line still fits inside a MAX_PAYLOAD_SIZE socket frame.
+_SESSION_FRAME_MARGIN = 4096
 CLAUDE_PROJECT_DIR_SANITIZE_RE = re.compile(r"[^a-zA-Z0-9]")
 LOG_PREVIEW_CHARS = 8000
 
@@ -149,14 +168,44 @@ class RuntimeEventWriter(Protocol):
     ) -> None:
         """Send the final Claude result."""
 
-    async def send_error(self, error: str) -> None:
-        """Send a terminal runtime error."""
+    async def send_error(
+        self,
+        error: str,
+        *,
+        classification: RuntimeErrorClassification | None = None,
+    ) -> None:
+        """Send a terminal runtime error with optional trusted attribution."""
 
     async def send_done(self) -> None:
         """Signal that the runtime turn is complete."""
 
     async def send_log(self, level: str, message: str, **extra: object) -> None:
         """Send a structured runtime log event."""
+
+
+def _sandbox_process_exit_error(
+    transport: Transport | None,
+) -> AgentSandboxProcessExitError | None:
+    """Rebuild the typed process failure the SDK erased from its exception.
+
+    Only a resource-limit exit code counts. Rebuilding for any other code would
+    replace the propagating exception's type without changing its
+    classification, so a genuinely typed failure raised late in the turn --
+    ``AgentSandboxValidationError``, say -- would reach the activity as a
+    process exit and lose its own attribution.
+    """
+    if TRACECAT__DISABLE_NSJAIL:
+        # Without a jail no rlimit was installed, so the exit code carries no
+        # resource-limit meaning. A direct process that aborts or that the host
+        # OOM-kills is a platform failure, and attributing it to the caller
+        # would name a cap this deployment never enforced.
+        return None
+    if not isinstance(transport, SandboxedCLITransport):
+        return None
+    exit_code = transport.exit_code
+    if exit_code is None or exit_code not in AGENT_SANDBOX_RESOURCE_LIMIT_EXIT_CODES:
+        return None
+    return AgentSandboxProcessExitError(exit_code)
 
 
 @dataclass(frozen=True, slots=True)
@@ -661,8 +710,8 @@ class ClaudeAgentRuntime:
             },
         }
 
-    def _get_session_file_path(self, sdk_session_id: str) -> Path:
-        """Derive the session file path from SDK session ID.
+    def _get_session_file_location(self, sdk_session_id: str) -> tuple[Path, Path]:
+        """Derive the session root and relative path from an SDK session ID.
 
         The Claude SDK stores sessions at:
         ~/.claude/projects/{encoded-cwd}/{session_id}.jsonl
@@ -683,8 +732,15 @@ class ClaudeAgentRuntime:
             raise RuntimeError("Runtime working directory is not configured")
         encoded_cwd = _claude_project_dir_name(self._cwd)
         claude_home_dir = self._session_home_dir or Path.home()
-        claude_dir = claude_home_dir / ".claude" / "projects" / encoded_cwd
-        return claude_dir / f"{sdk_session_id}.jsonl"
+        relative_path = (
+            Path(".claude") / "projects" / encoded_cwd / f"{sdk_session_id}.jsonl"
+        )
+        return claude_home_dir, relative_path
+
+    def _get_session_file_path(self, sdk_session_id: str) -> Path:
+        """Derive the absolute session file path from an SDK session ID."""
+        root, relative_path = self._get_session_file_location(sdk_session_id)
+        return root / relative_path
 
     async def _write_session_file(
         self,
@@ -692,14 +748,15 @@ class ClaudeAgentRuntime:
         sdk_session_data: str,
     ) -> Path:
         """Write session data to local filesystem for SDK resume."""
-        session_file_path = self._get_session_file_path(sdk_session_id)
+        session_root, relative_path = self._get_session_file_location(sdk_session_id)
+        session_file_path = session_root / relative_path
         sdk_session_data = self._session_data_for_disk(sdk_session_data)
-
-        def _write() -> None:
-            session_file_path.parent.mkdir(parents=True, exist_ok=True)
-            session_file_path.write_text(sdk_session_data, encoding="utf-8")
-
-        await asyncio.to_thread(_write)
+        await asyncio.to_thread(
+            atomic_write_file_beneath,
+            session_root,
+            relative_path,
+            sdk_session_data.encode("utf-8"),
+        )
         logger.debug("Wrote session file", path=str(session_file_path))
         return session_file_path
 
@@ -902,13 +959,16 @@ class ClaudeAgentRuntime:
         self._sdk_session_id = sdk_session_id
 
         if previous is None and resume_session_id and fork_session:
-            session_file = self._get_session_file_path(sdk_session_id)
-            try:
-                stat = session_file.stat()
-            except FileNotFoundError:
-                pass
-            else:
-                self._last_seen_byte_offset = stat.st_size
+            session_root, relative_path = self._get_session_file_location(
+                sdk_session_id
+            )
+            size = await asyncio.to_thread(
+                regular_file_size_beneath,
+                session_root,
+                relative_path,
+            )
+            if size is not None:
+                self._last_seen_byte_offset = size
 
         logger.debug(
             "Captured SDK session ID",
@@ -959,58 +1019,71 @@ class ClaudeAgentRuntime:
                 return
 
             sdk_session_id = self._sdk_session_id
-            session_file = self._get_session_file_path(sdk_session_id)
-            start_offset = self._last_seen_byte_offset
+            session_root, relative_path = self._get_session_file_location(
+                sdk_session_id
+            )
+            while True:
+                start_offset = self._last_seen_byte_offset
+                chunk = await asyncio.to_thread(
+                    read_complete_lines_beneath,
+                    session_root,
+                    relative_path,
+                    max_bytes=MAX_PAYLOAD_SIZE,
+                    offset=start_offset,
+                )
+                if chunk is None:
+                    return
 
-            def _read_tail() -> bytes | None:
-                try:
-                    with session_file.open("rb") as file:
-                        file.seek(start_offset)
-                        return file.read()
-                except FileNotFoundError:
-                    return None
+                tail, _ = chunk
+                if not tail:
+                    return
 
-            tail = await asyncio.to_thread(_read_tail)
-            if not tail:
-                return
+                line_offset = start_offset
+                for raw_line in tail.splitlines(keepends=True):
+                    next_offset = line_offset + len(raw_line)
+                    line_bytes = raw_line.rstrip(b"\r\n")
+                    if not line_bytes.strip():
+                        self._last_seen_byte_offset = next_offset
+                        line_offset = next_offset
+                        continue
 
-            line_offset = start_offset
-            for raw_line in tail.splitlines(keepends=True):
-                if not raw_line.endswith(b"\n"):
-                    break
+                    # Parse to determine visibility, but send raw line for SDK resume
+                    try:
+                        line = line_bytes.decode("utf-8")
+                        line_data = orjson.loads(line)
+                    except (UnicodeDecodeError, orjson.JSONDecodeError):
+                        logger.debug(
+                            "Stopping at incomplete session line, will retry",
+                            byte_offset=line_offset,
+                        )
+                        return
 
-                next_offset = line_offset + len(raw_line)
-                line_bytes = raw_line.rstrip(b"\r\n")
-                if not line_bytes.strip():
+                    # The line parsed as JSON, so re-escaping it into the session
+                    # envelope grows it at most ~2x. Reject a line whose
+                    # serialized form cannot fit the socket frame instead of
+                    # failing the same doomed send on every flush.
+                    if (
+                        2 * len(line_bytes) + _SESSION_FRAME_MARGIN > MAX_PAYLOAD_SIZE
+                        and len(orjson.dumps(line)) + _SESSION_FRAME_MARGIN
+                        > MAX_PAYLOAD_SIZE
+                    ):
+                        raise SandboxFileSafetyError(
+                            "Session line exceeds the socket frame limit"
+                        )
+
+                    internal = self._is_internal_session_line(line_data) or (
+                        is_approval_continuation
+                        and is_approval_continuation_prompt_line(line_data)
+                    )
+
+                    await self._event_writer.send_session_line(
+                        sdk_session_id, line, internal=internal
+                    )
+
+                    # Only advance the offset after successfully sending the line,
+                    # so a failed send never causes duplicate re-sends on retry.
                     self._last_seen_byte_offset = next_offset
                     line_offset = next_offset
-                    continue
-
-                # Parse to determine visibility, but send raw line for SDK resume
-                try:
-                    line = line_bytes.decode("utf-8")
-                    line_data = orjson.loads(line)
-                except (UnicodeDecodeError, orjson.JSONDecodeError):
-                    # Stop at the first decode failure - this line may be incomplete
-                    # because the SDK is still writing it. We'll retry on the next pass.
-                    logger.debug(
-                        "Stopping at incomplete session line, will retry",
-                        byte_offset=line_offset,
-                    )
-                    break
-
-                internal = self._is_internal_session_line(line_data) or (
-                    is_approval_continuation
-                    and is_approval_continuation_prompt_line(line_data)
-                )
-
-                await self._event_writer.send_session_line(
-                    sdk_session_id, line, internal=internal
-                )
-
-                # Only advance the offset after successfully processing the line.
-                self._last_seen_byte_offset = next_offset
-                line_offset = next_offset
 
     async def _handle_approval_request(
         self,
@@ -1654,6 +1727,7 @@ class ClaudeAgentRuntime:
         )
 
         session_flush_task: asyncio.Task[None] | None = None
+        transport: Transport | None = None
 
         # Stable per-session working directory for the Claude Code CLI.
         # IMPORTANT: Must be deterministic per session_id. The CLI indexes
@@ -1866,14 +1940,29 @@ class ClaudeAgentRuntime:
             log_benchmark_phase("runtime_complete")
 
         except Exception as e:
-            await self._event_writer.send_log(
-                "error",
-                "Runtime error",
-                error_type=type(e).__name__,
-                error_message=str(e),
+            # The SDK reports a dead sandbox process as a plain Exception, so
+            # recover the exit code the transport recorded before attributing.
+            error: Exception = _sandbox_process_exit_error(transport) or e
+            failure = agent_runtime_failure(error, fallback_message=str(e))
+            # Log the attributed error's own type and message together, so the
+            # two never describe different exceptions. When attribution
+            # replaced the SDK's exception, its text is kept alongside as the
+            # cause rather than being passed off as the attributed error's.
+            log_fields: dict[str, object] = {
+                "error_type": type(error).__name__,
+                "error_message": str(error),
+            }
+            if error is not e:
+                log_fields["cause_type"] = type(e).__name__
+                log_fields["cause_message"] = str(e)
+            await self._event_writer.send_log("error", "Runtime error", **log_fields)
+            await self._event_writer.send_error(
+                failure.message,
+                classification=failure.classification,
             )
-            await self._event_writer.send_error(str(e))
-            raise
+            if error is e:
+                raise
+            raise error from e
         finally:
             if session_flush_task is not None:
                 session_flush_task.cancel()

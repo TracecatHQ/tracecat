@@ -31,12 +31,12 @@ class CorrelatedAgentPresets(NamedTuple):
 
 
 class AgentPresetCatalogReference(NamedTuple):
-    """One preset version referencing a deployment-local source catalog UUID."""
+    """One preset head referencing a deployment-local source catalog UUID."""
 
     path: str
     preset_slug: str
     preset_name: str
-    version_number: int
+    version_number: int | None
     model_key: ModelKey
 
 
@@ -64,12 +64,12 @@ class McpIntegrationCorrelationKey:
 
 @dataclass(frozen=True, slots=True)
 class AgentPresetMcpIntegrationReference:
-    """One preset version referencing a workspace-local source MCP integration."""
+    """One preset head referencing a workspace-local source MCP integration."""
 
     path: str
     preset_slug: str
     preset_name: str
-    version_number: int
+    version_number: int | None
     meta: McpIntegrationHint | None
 
 

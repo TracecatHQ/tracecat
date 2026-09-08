@@ -407,7 +407,9 @@ class RegistrySyncSandbox:
 
         if not result.success:
             detail = result.error or result.stderr or "Unknown ssh-keyscan error"
-            raise RegistryError(f"Sandboxed SSH host key scan failed: {detail[:2000]}")
+            raise RegistryError(
+                f"Sandboxed SSH host key scan failed: {str(detail)[:2000]}"
+            )
         if not isinstance(result.output, str) or not result.output.strip():
             raise RegistryError("Sandboxed SSH host key scan returned no host keys")
 
@@ -547,7 +549,7 @@ class RegistrySyncSandbox:
 
         if not result.success:
             detail = result.error or result.stderr or "Unknown Git clone error"
-            raise RegistryError(f"Sandboxed Git clone failed: {detail[:2000]}")
+            raise RegistryError(f"Sandboxed Git clone failed: {str(detail)[:2000]}")
         try:
             clone_result = RegistryCloneResult.model_validate(result.output)
         except ValidationError as exc:
@@ -595,7 +597,7 @@ class RegistrySyncSandbox:
         if not result.success:
             detail = result.error or result.stderr or "Unknown installation error"
             raise RegistryArtifactBuildError(
-                f"Sandboxed registry package installation failed: {detail[:2000]}"
+                f"Sandboxed registry package installation failed: {str(detail)[:2000]}"
             )
         _validate_installed_site_packages(site_packages)
         return site_packages
@@ -654,7 +656,7 @@ class RegistrySyncSandbox:
         if not result.success:
             detail = result.error or result.stderr or "Unknown packaging error"
             raise RegistryArtifactBuildError(
-                f"Sandboxed registry packaging failed: {detail[:2000]}"
+                f"Sandboxed registry packaging failed: {str(detail)[:2000]}"
             )
 
         sandbox_artifact = job_dir / "site-packages.squashfs"

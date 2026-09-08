@@ -253,11 +253,25 @@ async def test_drain_surfaces_completed_task_errors_once(
 
     supervisor = LifespanTaskSupervisor(drain_timeout=5.0)
     logged_errors: list[tuple[str, dict[str, object]]] = []
+    captured_failures: list[tuple[BaseException, str]] = []
 
     def capture_error(message: str, **kwargs: object) -> None:
         logged_errors.append((message, kwargs))
 
     monkeypatch.setattr(lifespan_module.logger, "error", capture_error)
+
+    def capture_failure(
+        error: BaseException,
+        *,
+        task_name: str,
+    ) -> None:
+        captured_failures.append((error, task_name))
+
+    monkeypatch.setattr(
+        lifespan_module,
+        "capture_api_background_task_failure",
+        capture_failure,
+    )
 
     async def failing_task() -> None:
         raise ValueError("boom")
@@ -272,3 +286,7 @@ async def test_drain_surfaces_completed_task_errors_once(
     assert message == "Supervised lifespan task failed"
     assert context["task"] == "failing_task"
     assert isinstance(context["err"], ValueError)
+    assert len(captured_failures) == 1
+    captured_error, task_name = captured_failures[0]
+    assert captured_error is context["err"]
+    assert task_name == "failing_task"

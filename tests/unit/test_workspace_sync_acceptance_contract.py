@@ -568,7 +568,7 @@ async def test_duplicate_skill_slug_is_validation_diagnostic(
     skill.update(
         {
             "id": "qa-enrichment-skill-copy",
-            "name": "QA enrichment skill copy",
+            "name": "qa-enrichment-skill-copy",
             "current_version": None,
             "files": [],
         }
@@ -761,7 +761,7 @@ async def test_import_selected_fixture_reconciles_supported_non_workflow_resourc
         )
     )
     assert parent_preset is not None
-    assert "enabled" not in parent_preset.agents
+    assert parent_preset.agents["enabled"] is True
     assert parent_preset.agents["subagents"][0]["preset"] == "qa-evidence-child"
     assert parent_preset.base_url == "https://models.example.test/v1"
     assert parent_preset.output_type == {"type": "json_schema", "name": "qa_triage"}
@@ -812,7 +812,7 @@ async def test_import_selected_fixture_reconciles_supported_non_workflow_resourc
         )
     )
     assert skill_version is not None
-    assert skill_version.name == "QA enrichment skill"
+    assert skill_version.name == "qa-enrichment-skill"
     draft_paths = list(
         (
             await session.scalars(
@@ -1206,7 +1206,7 @@ async def test_agent_preset_import_resolves_subagent_to_active_preset(
         )
     )
     assert parent_preset is not None
-    assert "enabled" not in parent_preset.agents
+    assert parent_preset.agents["enabled"] is True
     assert [
         subagent["preset_id"] for subagent in parent_preset.agents["subagents"]
     ] == [str(active_child.id)]
@@ -1798,7 +1798,7 @@ async def test_round_trip_preserves_head_owned_skill_topology(
             )
         ).all()
     }
-    assert skill_versions == {1: "Skill A current"}
+    assert skill_versions == {1: "skill-a-current"}
     # Both mutable preset heads point to the imported skill's current version.
     binding_rows = await session.execute(
         select(AgentPreset.slug, SkillVersion.version)
@@ -2338,7 +2338,7 @@ async def test_project_workspace_preserves_skill_source_id_after_rename(
     skill_spec = yaml.safe_load(projection.files[old_path])
     assert skill_spec["id"] == "qa-enrichment-skill"
     assert skill_spec["slug"] == "qa-enrichment-restored"
-    assert skill_spec["name"] == "QA enrichment skill"
+    assert skill_spec["name"] == "qa-enrichment-skill"
 
 
 @pytest.mark.anyio
@@ -2878,6 +2878,10 @@ async def test_pull_older_skill_content_rolls_forward_a_new_version(
     svc_role: Role,
 ) -> None:
     service = WorkspaceSyncService(session=session, role=svc_role)
+    older_content = (
+        "---\nname: qa-enrichment-skill\n"
+        "description: Deterministic enrichment helper\n---\nOlder instructions\n"
+    )
     older_files = {
         MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
         f"{SKILL_ROOT}/qa-enrichment-skill/skill.yml": _yaml(
@@ -2886,11 +2890,17 @@ async def test_pull_older_skill_content_rolls_forward_a_new_version(
                 "type": "skill",
                 "id": "qa-enrichment-skill",
                 "slug": "qa-enrichment-skill",
-                "name": "QA enrichment skill",
+                "name": "qa-enrichment-skill",
                 "description": "Deterministic enrichment helper",
-                "files": [],
+                "files": [
+                    {
+                        "path": "SKILL.md",
+                        "sha256": hashlib.sha256(older_content.encode()).hexdigest(),
+                    }
+                ],
             }
         ),
+        f"{SKILL_ROOT}/qa-enrichment-skill/files/SKILL.md": older_content,
     }
     transport = AsyncMock()
     transport.read_files.side_effect = [
@@ -2900,7 +2910,7 @@ async def test_pull_older_skill_content_rolls_forward_a_new_version(
             files=_skill_git_tree(
                 source_id="qa-enrichment-skill",
                 slug="qa-enrichment-skill",
-                name="QA enrichment skill",
+                name="qa-enrichment-skill",
             ),
         ),
         VcsTreeSnapshot(
@@ -2955,7 +2965,73 @@ async def test_pull_older_skill_content_rolls_forward_a_new_version(
     assert skill is not None
     assert skill.current_version_id is not None
     assert skill.current_version_id != first_version_id
-    assert await draft_paths_for(skill.id) == []
+    assert await draft_paths_for(skill.id) == ["SKILL.md"]
+
+
+@pytest.mark.anyio
+async def test_pull_unchanged_skill_ignores_inferred_content_type(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    git_tree = _skill_git_tree(
+        source_id="qa-enrichment-skill",
+        slug="qa-enrichment-skill",
+        name="qa-enrichment-skill",
+    )
+    transport = AsyncMock()
+    transport.read_files.side_effect = [
+        VcsTreeSnapshot(
+            commit_sha="f" * 40,
+            tree_sha="tree-1",
+            files=git_tree,
+        ),
+        VcsTreeSnapshot(
+            commit_sha="g" * 40,
+            tree_sha="tree-2",
+            files=git_tree,
+        ),
+    ]
+    service._workspace_git_url = AsyncMock(
+        return_value=GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
+    )
+
+    with patch(
+        "tracecat.workspace_sync.service.vcs_transport_for_provider",
+        return_value=transport,
+    ):
+        first_result = await service.pull(options=PullOptions(commit_sha="f" * 40))
+        skill = await session.scalar(
+            select(Skill).where(
+                Skill.workspace_id == svc_role.workspace_id,
+                Skill.slug == "qa-enrichment-skill",
+            )
+        )
+        assert skill is not None
+        assert skill.current_version_id is not None
+        first_version_id = skill.current_version_id
+
+        with patch(
+            "tracecat.agent.skill.service.SkillService._guess_content_type",
+            return_value="application/octet-stream",
+        ):
+            second_result = await service.pull(options=PullOptions(commit_sha="g" * 40))
+
+    assert first_result.success is True
+    assert second_result.success is True
+    await session.refresh(skill)
+    assert skill.current_version_id == first_version_id
+    version_ids = list(
+        (
+            await session.scalars(
+                select(SkillVersion.id).where(
+                    SkillVersion.workspace_id == svc_role.workspace_id,
+                    SkillVersion.skill_id == skill.id,
+                )
+            )
+        ).all()
+    )
+    assert version_ids == [first_version_id]
 
 
 @pytest.mark.anyio
@@ -3053,7 +3129,7 @@ async def test_pull_skill_slug_rename_reuses_source_id_mapping(
             files=_skill_git_tree(
                 source_id="qa-enrichment-skill",
                 slug="qa-enrichment-skill",
-                name="QA enrichment skill",
+                name="qa-enrichment-skill",
             ),
         ),
         VcsTreeSnapshot(
@@ -3062,7 +3138,7 @@ async def test_pull_skill_slug_rename_reuses_source_id_mapping(
             files=_skill_git_tree(
                 source_id="qa-enrichment-skill",
                 slug="qa-enrichment-restored",
-                name="QA enrichment restored",
+                name="qa-enrichment-restored",
             ),
         ),
     ]
@@ -3098,7 +3174,7 @@ async def test_pull_skill_slug_rename_reuses_source_id_mapping(
     assert len(skills) == 1
     assert skills[0].id == first_skill_id
     assert skills[0].slug == "qa-enrichment-restored"
-    assert skills[0].name == "QA enrichment restored"
+    assert skills[0].name == "qa-enrichment-restored"
     version = await session.scalar(
         select(SkillVersion).where(
             SkillVersion.workspace_id == svc_role.workspace_id,
@@ -3107,7 +3183,7 @@ async def test_pull_skill_slug_rename_reuses_source_id_mapping(
         )
     )
     assert version is not None
-    assert version.name == "QA enrichment skill"
+    assert version.name == "qa-enrichment-skill"
     current_version = await session.scalar(
         select(SkillVersion).where(
             SkillVersion.workspace_id == svc_role.workspace_id,
@@ -3116,7 +3192,7 @@ async def test_pull_skill_slug_rename_reuses_source_id_mapping(
     )
     assert current_version is not None
     assert current_version.version == 2
-    assert current_version.name == "QA enrichment restored"
+    assert current_version.name == "qa-enrichment-restored"
 
 
 @pytest.mark.anyio
@@ -3129,7 +3205,7 @@ async def test_import_skill_rejects_missing_declared_file_content(
             "qa-enrichment-skill": SkillResourceSpec(
                 id="qa-enrichment-skill",
                 slug="qa-enrichment-skill",
-                name="QA enrichment skill",
+                name="qa-enrichment-skill",
                 files=[
                     SkillFileSpec(
                         path="SKILL.md",
@@ -3253,21 +3329,25 @@ async def test_project_workspace_preserves_binary_skill_file(
     binary_content = b"\x89PNG\r\n\x1a\n\xff\x00"
     encoded_content = base64.b64encode(binary_content).decode("ascii")
     binary_sha256 = hashlib.sha256(binary_content).hexdigest()
+    skill_content = "---\nname: binary-skill\n---\nBinary asset instructions\n"
+    skill_sha256 = hashlib.sha256(skill_content.encode()).hexdigest()
     spec = WorkspaceSpec(
         skills={
             "binary-skill": SkillResourceSpec(
                 id="binary-skill",
                 slug="binary-skill",
-                name="Binary skill",
+                name="binary-skill",
                 files=[
+                    SkillFileSpec(path="SKILL.md", sha256=skill_sha256),
                     SkillFileSpec(
                         path="assets/logo.png",
                         sha256=binary_sha256,
                         encoding="base64",
-                    )
+                    ),
                 ],
                 file_contents={
-                    "assets/logo.png": f"{encoded_content[:4]}\n{encoded_content[4:]}\n"
+                    "SKILL.md": skill_content,
+                    "assets/logo.png": f"{encoded_content[:4]}\n{encoded_content[4:]}\n",
                 },
             )
         }
@@ -3286,20 +3366,23 @@ async def test_project_workspace_preserves_binary_skill_file(
     skill_path = f"{SKILL_ROOT}/binary-skill/skill.yml"
     file_path = f"{SKILL_ROOT}/binary-skill/files/assets/logo.png"
     projected_spec = yaml.safe_load(projection.files[skill_path])
-    assert projected_spec["files"] == [
+    assert sorted(projected_spec["files"], key=lambda item: item["path"]) == [
+        {"path": "SKILL.md", "sha256": skill_sha256},
         {
             "path": "assets/logo.png",
             "sha256": binary_sha256,
             "encoding": "base64",
-        }
+        },
     ]
     assert projection.files[file_path] == encoded_content
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("conflicting_names", [False, True])
 async def test_pull_skill_slug_swap_reuses_source_id_mappings(
     session: AsyncSession,
     svc_role: Role,
+    conflicting_names: bool,
 ) -> None:
     service = WorkspaceSyncService(session=session, role=svc_role)
     transport = AsyncMock()
@@ -3311,12 +3394,12 @@ async def test_pull_skill_slug_swap_reuses_source_id_mappings(
                 _skill_git_tree(
                     source_id="skill-a",
                     slug="alpha-skill",
-                    name="Alpha skill",
+                    name="alpha-skill",
                 ),
                 _skill_git_tree(
                     source_id="skill-b",
                     slug="beta-skill",
-                    name="Beta skill",
+                    name="beta-skill",
                 ),
             ),
         ),
@@ -3327,12 +3410,12 @@ async def test_pull_skill_slug_swap_reuses_source_id_mappings(
                 _skill_git_tree(
                     source_id="skill-a",
                     slug="beta-skill",
-                    name="Beta skill",
+                    name="alpha-skill" if conflicting_names else "beta-skill",
                 ),
                 _skill_git_tree(
                     source_id="skill-b",
                     slug="alpha-skill",
-                    name="Alpha skill",
+                    name="alpha-skill",
                 ),
             ),
         ),
@@ -3358,10 +3441,15 @@ async def test_pull_skill_slug_swap_reuses_source_id_mappings(
                 Skill.slug == "beta-skill",
             )
         )
+        previous_heads = dict(
+            (await session.execute(select(Skill.id, Skill.current_version_id)))
+            .tuples()
+            .all()
+        )
         second_result = await service.pull(options=PullOptions(commit_sha="t" * 40))
 
     assert first_result.success is True
-    assert second_result.success is True
+    assert second_result.success is not conflicting_names
     assert alpha_id is not None
     assert beta_id is not None
     skills = {
@@ -3372,7 +3460,18 @@ async def test_pull_skill_slug_swap_reuses_source_id_mappings(
             )
         ).all()
     }
-    assert skills == {"alpha-skill": beta_id, "beta-skill": alpha_id}
+    if conflicting_names:
+        assert skills == {"alpha-skill": alpha_id, "beta-skill": beta_id}
+        assert (
+            dict(
+                (await session.execute(select(Skill.id, Skill.current_version_id)))
+                .tuples()
+                .all()
+            )
+            == previous_heads
+        )
+    else:
+        assert skills == {"alpha-skill": beta_id, "beta-skill": alpha_id}
 
 
 @pytest.mark.anyio
@@ -4054,7 +4153,7 @@ async def test_agent_preset_import_resolves_parent_before_child_order(
     assert parent is not None
     assert child is not None
     assert child.current_version_id is not None
-    assert "enabled" not in parent.agents
+    assert parent.agents["enabled"] is True
     assert parent.agents["subagents"][0]["preset_version_id"] == str(
         child.current_version_id
     )
@@ -4543,7 +4642,7 @@ async def test_agent_preset_sync_requires_an_ambiguous_catalog_choice_per_pull(
         assert {candidate.catalog_id for candidate in requirement.candidates} == {
             row.id for row in catalog_rows
         }
-        assert [affected.version for affected in requirement.affected_presets] == [1]
+        assert [affected.version for affected in requirement.affected_presets] == [None]
         assert (
             await session.scalar(
                 select(AgentPreset).where(
@@ -5098,7 +5197,7 @@ async def test_mcp_integration_hint_mismatch_requires_a_mapping_choice(
         slug_match.id,
         other.id,
     ]
-    assert [affected.version for affected in requirement.affected_presets] == [1]
+    assert [affected.version for affected in requirement.affected_presets] == [None]
     assert [
         diagnostic.details["code"]
         for diagnostic in prepared.diagnostics
@@ -7709,7 +7808,11 @@ def _skill_git_tree(
     slug: str,
     name: str,
 ) -> dict[str, str]:
-    content = "# QA Enrichment Skill\n"
+    content = (
+        f"---\nname: {name}\n"
+        "description: Deterministic enrichment helper\n---\n"
+        "# QA Enrichment Skill\n"
+    )
     return {
         MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
         f"{SKILL_ROOT}/{source_id}/skill.yml": _yaml(
@@ -7734,7 +7837,11 @@ def _skill_git_tree(
 
 def _versioned_agent_skill_git_tree() -> dict[str, str]:
     """Build desired head state where two presets attach the same skill head."""
-    skill_content = "# Skill A\n\nCurrent behavior.\n"
+    skill_content = (
+        "---\nname: skill-a-current\n"
+        "description: Versioned skill fixture\n---\n"
+        "# Skill A\n\nCurrent behavior.\n"
+    )
 
     def preset(source_id: str, name: str) -> dict[str, str]:
         return {
@@ -7762,7 +7869,7 @@ def _versioned_agent_skill_git_tree() -> dict[str, str]:
                 "type": "skill",
                 "id": "skill-a",
                 "slug": "skill-a",
-                "name": "Skill A current",
+                "name": "skill-a-current",
                 "description": "Versioned skill fixture",
                 "files": [
                     {
@@ -7820,7 +7927,11 @@ def _head_subagent_git_tree() -> dict[str, str]:
 
 def _workflow_agent_head_git_tree() -> dict[str, str]:
     """Build desired head state for a workflow and its preset dependencies."""
-    skill_content = "# Skill A\n\nCurrent behavior.\n"
+    skill_content = (
+        "---\nname: skill-a-current\n"
+        "description: Desired skill head fixture\n---\n"
+        "# Skill A\n\nCurrent behavior.\n"
+    )
 
     return dict(
         sorted(
@@ -7864,7 +7975,7 @@ def _workflow_agent_head_git_tree() -> dict[str, str]:
                         "type": "skill",
                         "id": "skill-a",
                         "slug": "skill-a",
-                        "name": "Skill A current",
+                        "name": "skill-a-current",
                         "description": "Desired skill head fixture",
                         "files": [
                             {
@@ -8003,6 +8114,8 @@ def _simple_resource_rename_git_tree(
 def _expanded_full_git_tree(*, include_schedules: bool) -> dict[str, str]:
     skill_files = {
         "SKILL.md": (
+            "---\nname: qa-enrichment-skill\n"
+            "description: Deterministic enrichment helper\n---\n"
             "# QA Enrichment Skill\n\n"
             "Use deterministic enrichment helpers for workspace sync QA.\n"
         ),
@@ -8330,7 +8443,7 @@ def _skill_spec(skill_files: dict[str, str]) -> dict[str, Any]:
         "type": "skill",
         "id": "qa-enrichment-skill",
         "slug": "qa-enrichment-skill",
-        "name": "QA enrichment skill",
+        "name": "qa-enrichment-skill",
         "description": "Deterministic enrichment helper",
         "files": [
             {

@@ -18,6 +18,23 @@ from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.tiers.enums import Entitlement
 
 
+def validate_no_duplicate_skill_ids(skill_ids: Sequence[uuid.UUID]) -> None:
+    """Reject a binding payload that names the same Skill more than once.
+
+    Args:
+        skill_ids: Requested Skill IDs, in the order the caller supplied them.
+
+    Raises:
+        TracecatValidationError: If any Skill ID appears more than once.
+    """
+
+    if len(set(skill_ids)) != len(skill_ids):
+        raise TracecatValidationError(
+            "Duplicate skills are not allowed on a preset",
+            detail={"code": "duplicate_skill_binding"},
+        )
+
+
 class SkillBindingService(BaseWorkspaceService):
     """Validate mutable Skill bindings and resolve preset-version references."""
 
@@ -35,29 +52,14 @@ class SkillBindingService(BaseWorkspaceService):
         if not normalized_ids:
             return {}
 
-        if not for_update:
-            stmt = select(Skill).where(
-                Skill.workspace_id == self.workspace_id,
-                Skill.id.in_(normalized_ids),
-                Skill.deleted_at.is_(None),
-                Skill.archived_at.is_(None),
-            )
-            return {
-                skill.id: skill
-                for skill in (await self.session.execute(stmt)).scalars().all()
-            }
-
-        stmt = (
-            select(Skill)
-            .where(
-                Skill.workspace_id == self.workspace_id,
-                Skill.id.in_(normalized_ids),
-                Skill.deleted_at.is_(None),
-                Skill.archived_at.is_(None),
-            )
-            .order_by(Skill.id)
-            .with_for_update()
+        stmt = select(Skill).where(
+            Skill.workspace_id == self.workspace_id,
+            Skill.id.in_(normalized_ids),
+            Skill.deleted_at.is_(None),
+            Skill.archived_at.is_(None),
         )
+        if for_update:
+            stmt = stmt.order_by(Skill.id).with_for_update()
         return {
             skill.id: skill
             for skill in (await self.session.execute(stmt)).scalars().all()
@@ -74,13 +76,8 @@ class SkillBindingService(BaseWorkspaceService):
 
         if not bindings:
             return
-        if len({binding.skill_id for binding in bindings}) != len(bindings):
-            raise TracecatValidationError(
-                "Duplicate skills are not allowed on a preset",
-                detail={"code": "duplicate_skill_binding"},
-            )
-
         skill_ids = [binding.skill_id for binding in bindings]
+        validate_no_duplicate_skill_ids(skill_ids)
         skills = await self._get_bindable_skills(skill_ids, for_update=for_update)
         missing = [str(skill_id) for skill_id in skill_ids if skill_id not in skills]
         if missing:
@@ -122,7 +119,11 @@ class SkillBindingService(BaseWorkspaceService):
             )
             .join(
                 SkillVersion,
-                AgentPresetVersionSkill.skill_version_id == SkillVersion.id,
+                sa.and_(
+                    AgentPresetVersionSkill.workspace_id == SkillVersion.workspace_id,
+                    AgentPresetVersionSkill.skill_id == SkillVersion.skill_id,
+                    AgentPresetVersionSkill.skill_version_id == SkillVersion.id,
+                ),
             )
             .join(
                 Skill,
@@ -139,19 +140,15 @@ class SkillBindingService(BaseWorkspaceService):
         )
         rows = (await self.session.execute(with_deleted(stmt))).tuples().all()
         resolved: list[ResolvedSkillRef] = []
-        archived_skills: list[str] = []
         for (
             skill_id,
             skill_name,
             skill_version_id,
             manifest_sha256,
-            deleted_at,
-            archived_at,
+            _deleted_at,
+            _archived_at,
         ) in rows:
             if skill_name is None:
-                continue
-            if deleted_at is not None or archived_at is not None:
-                archived_skills.append(f"{skill_name} ({skill_id})")
                 continue
             resolved.append(
                 ResolvedSkillRef(
@@ -161,24 +158,7 @@ class SkillBindingService(BaseWorkspaceService):
                     manifest_sha256=manifest_sha256,
                 )
             )
-        self._raise_if_archived_skills(archived_skills, preset_version_id)
         return resolved
-
-    @staticmethod
-    def _raise_if_archived_skills(
-        archived_skills: list[str], preset_version_id: uuid.UUID
-    ) -> None:
-        """Reject resolution when any referenced Skill is archived."""
-
-        if archived_skills:
-            raise TracecatValidationError(
-                "Some skills are archived and cannot be resolved",
-                detail={
-                    "code": "skill_archived",
-                    "skills": sorted(archived_skills),
-                    "preset_version_id": str(preset_version_id),
-                },
-            )
 
     async def _get_latest_skill_refs_for_preset_version(
         self, preset_version_id: uuid.UUID
@@ -222,20 +202,16 @@ class SkillBindingService(BaseWorkspaceService):
         )
         rows = (await self.session.execute(with_deleted(stmt))).tuples().all()
         resolved: list[ResolvedSkillRef] = []
-        archived_skills: list[str] = []
         missing_current: list[str] = []
         for (
             skill_id,
             skill_name,
             current_version_id,
-            deleted_at,
-            archived_at,
+            _deleted_at,
+            _archived_at,
             current_version_name,
             manifest_sha256,
         ) in rows:
-            if deleted_at is not None or archived_at is not None:
-                archived_skills.append(f"{skill_name} ({skill_id})")
-                continue
             if current_version_id is None:
                 missing_current.append(f"{skill_name} ({skill_id})")
                 continue
@@ -250,7 +226,6 @@ class SkillBindingService(BaseWorkspaceService):
                 )
             )
 
-        self._raise_if_archived_skills(archived_skills, preset_version_id)
         if missing_current:
             raise TracecatValidationError(
                 "Some skills have no current published version",

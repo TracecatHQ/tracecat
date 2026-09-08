@@ -24,16 +24,25 @@ import orjson
 from fastapi import HTTPException
 
 from tracecat import config as app_config
+from tracecat.agent.common.exceptions import AgentSandboxValidationError
+from tracecat.agent.error_policy import (
+    agent_executor_protocol_failed,
+    agent_executor_timed_out,
+    agent_executor_unavailable,
+    user_agent_execution_failed,
+)
 from tracecat.agent.observability import get_load_tracker
 from tracecat.agent.service import AgentManagementService
 from tracecat.auth.types import Role
+from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.logger import logger
+from tracecat.runtime.errors import RuntimeErrorClassification
 
 # Strip a trailing "/vN" segment (with optional trailing slash) from a
 # passthrough upstream URL. The contract for stored ``base_url`` is the
 # OpenAI-compatible "/v1" form (so catalog discovery can hit
 # ``{base_url}/models`` → ``/v1/models``). In passthrough mode the SDK
-# clients (Claude Code SDK, pydantic-ai) emit fully-qualified paths like
+# clients such as the Claude Code SDK emit fully-qualified paths like
 # ``/v1/messages``, so we strip the version suffix from direct route ``base_url``
 # to avoid producing ``/v1/v1/messages``, which the upstream rejects with
 # a 404 "model not found".
@@ -54,11 +63,42 @@ _NON_CRITICAL_PATHS = frozenset(
 )
 
 # User-friendly error messages by status code
+_ALLOWED_HTTP_METHODS = frozenset({"GET", "POST"})
+"""Methods the jailed runtime may use through the LLM socket proxy.
+
+Inference is POST and provider/catalog discovery is GET. Rejecting
+DELETE/PUT/PATCH/CONNECT/etc. prevents in-jail code from exercising gateway
+administration or destructive endpoints with the host-attached credentials.
+"""
+
+_POST_PATH_ALLOWLIST = frozenset(
+    {
+        "/v1/messages",
+        "/v1/messages/count_tokens",
+        "/v1/responses",
+        "/v1/chat/completions",
+        "/v1/completions",
+        "/v1/embeddings",
+        "/api/event_logging/batch",
+    }
+)
+"""POST paths the jailed Claude runtime may send through the proxy.
+
+Covers inference, token counting, OpenAI-compatible passthrough routes, and
+the CLI's event-log batching. Every other POST path is rejected before the
+gateway so jailed code cannot reach administrative or billing endpoints
+with the host-attached credentials.
+"""
+
+_GET_PATH_ALLOWLIST = frozenset({"/v1/models", "/models"})
+"""GET paths the jailed runtime may use: provider/model discovery only."""
+
 _ERROR_MESSAGES = {
     400: "Invalid request to LLM provider",
     401: "Authentication failed - check your API credentials",
     403: "Access denied - check your API permissions",
     404: "Model not found - check your model configuration",
+    405: "HTTP method not allowed by the LLM socket proxy",
     429: "Rate limit exceeded - please try again later",
     500: "LLM provider internal error",
     502: "LLM provider unavailable",
@@ -104,6 +144,47 @@ class ParsedRequest(TypedDict):
     path: str
     headers: dict[str, str]
     body: bytes
+
+
+@dataclass(frozen=True, slots=True)
+class LLMProxyError:
+    """One terminal proxy error with source-owned runtime attribution."""
+
+    message: str
+    classification: RuntimeErrorClassification
+
+
+def _http_error_classification(
+    status_code: int,
+    *,
+    route_is_direct: bool,
+) -> RuntimeErrorClassification:
+    if status_code == 429:
+        if route_is_direct:
+            return user_agent_execution_failed(retryable=True)
+        return agent_executor_unavailable()
+    if status_code in {401, 403} and not route_is_direct:
+        return agent_executor_unavailable()
+    if route_is_direct:
+        return user_agent_execution_failed(retryable=status_code in {408, 504})
+    if status_code in {408, 504}:
+        return agent_executor_timed_out()
+    if status_code >= 500:
+        return agent_executor_unavailable()
+    return user_agent_execution_failed()
+
+
+def _transport_error_classification(
+    error: httpx.TransportError,
+    *,
+    route_is_direct: bool,
+    timed_out: bool,
+) -> RuntimeErrorClassification:
+    if route_is_direct:
+        return user_agent_execution_failed(error, retryable=True)
+    if timed_out:
+        return agent_executor_timed_out(error)
+    return agent_executor_unavailable(error)
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,7 +263,12 @@ class LLMRoute:
         if not self.is_direct:
             return None
         if self.catalog_id is not None:
-            creds = await svc.get_catalog_credentials(self.catalog_id)
+            try:
+                creds = await svc.get_catalog_credentials(self.catalog_id)
+            except TracecatAuthorizationError as exc:
+                raise AgentSandboxValidationError(
+                    "Custom model provider is not available for this workspace."
+                ) from exc
         else:
             creds = await svc.get_runtime_provider_credentials(
                 "custom-model-provider",
@@ -544,7 +630,7 @@ class LLMSocketProxy:
         self,
         socket_path: Path,
         routing_plan: LLMRoutingPlan,
-        on_error: Callable[[str], None] | None = None,
+        on_error: Callable[[LLMProxyError], None] | None = None,
     ):
         """Initialize the LLM socket proxy.
 
@@ -629,13 +715,22 @@ class LLMSocketProxy:
         async for chunk in chunks:
             yield chunk
 
-    def _emit_error(self, message: str) -> None:
+    def _emit_error(
+        self,
+        message: str,
+        classification: RuntimeErrorClassification,
+    ) -> None:
         """Emit error via callback (only once)."""
         if not self._error_emitted:
             self._error_emitted = True
             logger.error("LLM proxy error", error=message, **_load_fields())
             if self._on_error:
-                self._on_error(message)
+                self._on_error(
+                    LLMProxyError(
+                        message=message,
+                        classification=classification,
+                    )
+                )
 
     @staticmethod
     def _is_client_disconnect_error(exc: Exception) -> bool:
@@ -682,7 +777,10 @@ class LLMSocketProxy:
                 logger.debug("Proxy error during shutdown (ignored)", error=str(e))
             else:
                 logger.exception("LLM proxy error", error=str(e))
-                self._emit_error(f"Proxy error: {e}")
+                self._emit_error(
+                    f"Proxy error: {e}",
+                    agent_executor_protocol_failed(e),
+                )
         finally:
             _proxy_load_tracker.end_connection()
             try:
@@ -709,12 +807,18 @@ class LLMSocketProxy:
             request_line_str = request_line.decode("utf-8").strip()
             parts = request_line_str.split(" ", 2)
             if len(parts) < 2:
-                self._emit_error("Malformed request line")
+                self._emit_error(
+                    "Malformed request line",
+                    agent_executor_protocol_failed(),
+                )
                 return None
             method = parts[0]
             path = parts[1]
         except (UnicodeDecodeError, ValueError):
-            self._emit_error("Invalid request encoding")
+            self._emit_error(
+                "Invalid request encoding",
+                agent_executor_protocol_failed(),
+            )
             return None
 
         # Read headers
@@ -743,7 +847,7 @@ class LLMSocketProxy:
                 content_length=content_length,
                 max_size=MAX_BODY_SIZE,
             )
-            self._emit_error("Request body too large")
+            self._emit_error("Request body too large", user_agent_execution_failed())
             return None
 
         # Read body if present
@@ -772,7 +876,36 @@ class LLMSocketProxy:
         trace_request_id = _get_or_create_trace_request_id(headers)
 
         try:
+            # Method allowlist: the socket is reachable by untrusted in-jail
+            # code, so it must not be able to reach host gateway credentials
+            # for destructive or administrative operations. LLM inference is
+            # POST (streaming + completions) and provider/catalog discovery is
+            # GET; anything else (DELETE/PUT/PATCH/CONNECT/...) is rejected
+            # before it ever reaches the gateway.
+            if method not in _ALLOWED_HTTP_METHODS:
+                await self._write_error_response(
+                    writer,
+                    status_code=405,
+                    detail="HTTP method not allowed by the LLM socket proxy",
+                    request_counter=request_counter,
+                    trace_request_id=trace_request_id,
+                )
+                return
+
             path_without_query = request["path"].split("?", 1)[0]
+            allowed_paths = (
+                _GET_PATH_ALLOWLIST if method == "GET" else _POST_PATH_ALLOWLIST
+            )
+            if path_without_query not in allowed_paths:
+                await self._write_error_response(
+                    writer,
+                    status_code=404,
+                    detail="Path not allowed by the LLM socket proxy",
+                    request_counter=request_counter,
+                    trace_request_id=trace_request_id,
+                )
+                return
+
             if path_without_query == "/api/event_logging/batch":
                 await self._write_response(
                     writer,
@@ -824,7 +957,10 @@ class LLMSocketProxy:
                 request_counter=request_counter,
                 trace_request_id=trace_request_id,
             )
-            self._emit_error("LiteLLM proxy not initialized")
+            self._emit_error(
+                "LiteLLM proxy not initialized",
+                agent_executor_unavailable(),
+            )
             return
 
         path = request["path"]
@@ -867,7 +1003,11 @@ class LLMSocketProxy:
                             reason_phrase=response.reason_phrase,
                             body=error_body,
                             trace_request_id=trace_request_id,
-                        )
+                        ),
+                        _http_error_classification(
+                            response.status_code,
+                            route_is_direct=route.is_direct,
+                        ),
                     )
                     body_chunks = [error_body]
                 else:
@@ -884,27 +1024,31 @@ class LLMSocketProxy:
                     request_counter=request_counter,
                     method=method,
                     path=path,
+                    route_is_direct=route.is_direct,
                 )
-        except httpx.ConnectError as exc:
+        except httpx.TransportError as exc:
+            timed_out = isinstance(exc, httpx.TimeoutException)
             await self._write_error_response(
                 writer,
-                status_code=502,
-                detail="LiteLLM unavailable",
+                status_code=504 if timed_out else 502,
+                detail="Gateway timeout" if timed_out else "LiteLLM unavailable",
                 request_counter=request_counter,
                 trace_request_id=trace_request_id,
             )
             if not _is_non_critical_path(path):
-                self._emit_error(f"LiteLLM unavailable: {exc}")
-        except httpx.TimeoutException as exc:
-            await self._write_error_response(
-                writer,
-                status_code=504,
-                detail="Gateway timeout",
-                request_counter=request_counter,
-                trace_request_id=trace_request_id,
-            )
-            if not _is_non_critical_path(path):
-                self._emit_error(f"Gateway timeout ({type(exc).__name__}): {exc}")
+                message = (
+                    f"Gateway timeout ({type(exc).__name__}): {exc}"
+                    if timed_out
+                    else f"LiteLLM unavailable: {exc}"
+                )
+                self._emit_error(
+                    message,
+                    _transport_error_classification(
+                        exc,
+                        route_is_direct=route.is_direct,
+                        timed_out=timed_out,
+                    ),
+                )
 
     async def _write_response(
         self,
@@ -919,6 +1063,7 @@ class LLMSocketProxy:
         request_counter: int | None = None,
         method: str | None = None,
         path: str | None = None,
+        route_is_direct: bool = False,
     ) -> None:
         """Write an HTTP response head and stream the response body."""
         content_type = next(
@@ -980,7 +1125,10 @@ class LLMSocketProxy:
             # so the client can surface it.  This covers HTTPException from
             # the proxy layer and RuntimeError from upstream provider errors
             # (e.g. _raise_stream_http_error on 4xx/5xx).
-            if is_streaming_response and not writer.is_closing():
+            if writer.is_closing():
+                logger.debug("Client disconnected while reading response body")
+                return
+            if is_streaming_response:
                 if isinstance(exc, httpx.ReadTimeout):
                     status_code = 504
                     timeout_duration = _format_timeout_duration(
@@ -1007,7 +1155,22 @@ class LLMSocketProxy:
                     trace_request_id=trace_request_id,
                 )
                 if path is not None and not _is_non_critical_path(path):
-                    self._emit_error(surfaced_error)
+                    classification = (
+                        _transport_error_classification(
+                            exc,
+                            route_is_direct=route_is_direct,
+                            timed_out=isinstance(exc, httpx.TimeoutException),
+                        )
+                        if isinstance(exc, httpx.TransportError)
+                        else _http_error_classification(
+                            status_code,
+                            route_is_direct=route_is_direct,
+                        )
+                    )
+                    self._emit_error(
+                        surfaced_error,
+                        classification,
+                    )
                 error_payload = orjson.dumps(
                     {
                         "type": "error",
@@ -1023,6 +1186,23 @@ class LLMSocketProxy:
                 except Exception:
                     logger.debug(
                         "Failed to send SSE error event, client likely disconnected"
+                    )
+            elif isinstance(exc, httpx.TransportError):
+                status_code = 504 if isinstance(exc, httpx.TimeoutException) else 502
+                logger.warning(
+                    "Response body transport error after headers sent",
+                    status_code=status_code,
+                    error_type=type(exc).__name__,
+                    trace_request_id=trace_request_id,
+                )
+                if path is not None and not _is_non_critical_path(path):
+                    self._emit_error(
+                        f"LiteLLM response failed: {str(exc)[:512]}",
+                        _transport_error_classification(
+                            exc,
+                            route_is_direct=route_is_direct,
+                            timed_out=isinstance(exc, httpx.TimeoutException),
+                        ),
                     )
             else:
                 raise
@@ -1048,13 +1228,14 @@ class LLMSocketProxy:
             }
         )
         reason = _ERROR_MESSAGES.get(status_code, detail)
+        # RFC 9110: 405 responses must advertise the accepted methods.
+        allow_header = "Allow: GET, POST\r\n" if status_code == 405 else ""
         response_head = (
             f"HTTP/1.1 {status_code} {reason}\r\n"
             "Content-Type: application/json\r\n"
             f"Content-Length: {len(body)}\r\n"
             f"X-Request-ID: {trace_request_id}\r\n"
-            "Connection: close\r\n"
-            "\r\n"
+            "Connection: close\r\n" + allow_header + "\r\n"
         )
         writer.write(response_head.encode("utf-8") + body)
         await writer.drain()

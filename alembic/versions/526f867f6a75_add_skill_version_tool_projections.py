@@ -1,7 +1,7 @@
 """Add skill version tool projections.
 
 Revision ID: 526f867f6a75
-Revises: 44d7e75b6f4c
+Revises: c3a17be4d902
 Create Date: 2026-08-26 21:54:17.760352
 
 """
@@ -18,7 +18,7 @@ from tracecat.db.tenant_rls import (
 
 # revision identifiers, used by Alembic.
 revision: str = "526f867f6a75"
-down_revision: str | None = "44d7e75b6f4c"
+down_revision: str | None = "c3a17be4d902"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

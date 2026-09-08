@@ -269,7 +269,7 @@ function SkillsDashboardContent({ workspaceId }: { workspaceId: string }) {
       return
     }
     try {
-      await deleteSkill({ skillId: skillToDelete.id, unlinkFromPresets: true })
+      await deleteSkill({ skillId: skillToDelete.id })
       setSkillToDelete(null)
     } catch {
       // The mutation hook reports delete failures.

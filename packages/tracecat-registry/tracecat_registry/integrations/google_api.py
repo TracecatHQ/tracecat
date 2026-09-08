@@ -310,9 +310,10 @@ AccessToken = Annotated[
         ...,
         description=(
             "OAuth access token from a Tracecat OAuth integration, e.g. "
-            "`${{ SECRETS.google_drive_oauth.GOOGLE_DRIVE_USER_TOKEN || "
-            "SECRETS.google_drive_oauth.GOOGLE_DRIVE_SERVICE_TOKEN }}`. When "
-            "set it is used as-is and `scopes`/`subject` are ignored."
+            "`${{ SECRETS.google_drive_oauth.GOOGLE_DRIVE_USER_TOKEN }}`. Use "
+            "the secret key for the configured grant; a fallback expression is "
+            "valid only when both grants are connected. When set it is used "
+            "as-is and `scopes`/`subject` are ignored."
         ),
     ),
 ]

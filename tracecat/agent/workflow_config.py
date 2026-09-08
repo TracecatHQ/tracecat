@@ -129,6 +129,7 @@ def _resolved_skill_to_payload(skill: ResolvedSkillRef) -> ResolvedSkillRefPaylo
     """Convert a resolved skill ref into a workflow-safe payload."""
 
     return ResolvedSkillRefPayload(
+        origin=skill.origin,
         skill_id=skill.skill_id,
         skill_name=skill.skill_name,
         skill_version_id=skill.skill_version_id,
@@ -140,6 +141,7 @@ def _resolved_skill_from_payload(skill: ResolvedSkillRefPayload) -> ResolvedSkil
     """Convert a workflow-safe skill ref back into a runtime dataclass."""
 
     return ResolvedSkillRef(
+        origin=skill.origin,
         skill_id=skill.skill_id,
         skill_name=skill.skill_name,
         skill_version_id=skill.skill_version_id,
