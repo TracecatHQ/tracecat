@@ -5565,6 +5565,7 @@ export const agentPresetsPreviewToolPolicy = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
+      400: "Invalid tool policy selections",
       422: "Validation Error",
     },
   })

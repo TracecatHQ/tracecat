@@ -16748,6 +16748,10 @@ export type $OpenApiTs = {
          */
         200: AgentPresetToolPolicyRead
         /**
+         * Invalid tool policy selections
+         */
+        400: unknown
+        /**
          * Validation Error
          */
         422: HTTPValidationError

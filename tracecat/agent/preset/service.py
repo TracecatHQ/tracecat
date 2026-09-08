@@ -294,12 +294,21 @@ class AgentPresetService(BaseWorkspaceService):
             else binding.skill_version_id
         )
         stmt = (
-            select(owner, version_id)
+            select(owner, SkillVersion.id)
+            .select_from(binding)
             .join(
                 Skill,
                 sa.and_(
                     Skill.id == binding.skill_id,
                     Skill.workspace_id == binding.workspace_id,
+                ),
+            )
+            .join(
+                SkillVersion,
+                sa.and_(
+                    SkillVersion.workspace_id == binding.workspace_id,
+                    SkillVersion.skill_id == binding.skill_id,
+                    SkillVersion.id == version_id,
                 ),
             )
             .where(

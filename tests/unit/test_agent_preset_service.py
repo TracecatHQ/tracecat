@@ -61,6 +61,7 @@ from tracecat.db.models import (
     RegistryVersion,
     Skill,
     SkillVersion,
+    SkillVersionTool,
     Workspace,
 )
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
@@ -1586,6 +1587,13 @@ class TestAgentPresetService:
             )
         )
         assert version_binding is not None
+        session.add(
+            SkillVersionTool(
+                workspace_id=svc_role.workspace_id,
+                skill_version_id=other_version.id,
+                tool_id="tools.synthetic.read",
+            )
+        )
         version_binding.skill_version_id = other_version.id
         await session.flush()
 
@@ -1594,6 +1602,24 @@ class TestAgentPresetService:
         )
 
         assert resolved == []
+        policy = await agent_preset_service.resolve_preset_tool_policy(
+            preset_version, use_latest_skill_versions=False
+        )
+        assert "tools.synthetic.read" not in policy.actions
+
+        # A malformed current-version pointer must not leak grants into head reads.
+        skill_row = await session.scalar(
+            select(Skill).where(Skill.id == bound_skill.id)
+        )
+        assert skill_row is not None
+        skill_row.current_version_id = other_version.id
+        await session.flush()
+        policies = await agent_preset_service.resolve_tool_policies([preset])
+        assert "tools.synthetic.read" not in policies[preset.id].actions
+        latest_policy = await agent_preset_service.resolve_preset_tool_policy(
+            preset_version, use_latest_skill_versions=True
+        )
+        assert "tools.synthetic.read" not in latest_policy.actions
 
     async def test_create_preset_skill_binding_without_version_stores_current_version(
         self,
