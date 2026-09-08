@@ -283,10 +283,6 @@ async def add_temporal_search_attributes():
                 namespace=namespace,
                 exc=e,
             )
-                "Skipping automatic Temporal search attribute registration: "
-                "operator access denied; provision search attributes externally",
-                namespace=namespace,
-            )
             return
         logger.error(
             "Error adding temporal search attributes",
