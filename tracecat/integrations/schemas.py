@@ -859,6 +859,23 @@ class MCPToolSummary(BaseModel):
                 )
         return validated
 
+    @classmethod
+    def index_stored(
+        cls, tools: list[Any] | None, *, mcp_integration_id: object | None = None
+    ) -> dict[str, Self]:
+        """Index stored tool entries by tool name, dropping malformed records.
+
+        Callers that look tools up by name should build this index once per
+        integration instead of re-validating the stored JSON per lookup.
+        """
+        return {
+            tool.name: tool
+            for tool in cls.validate_stored(
+                tools, mcp_integration_id=mcp_integration_id
+            )
+            or ()
+        }
+
 
 class MCPToolPolicyUpdate(BaseModel):
     """Per-tool policy update for a stored MCP integration tool."""

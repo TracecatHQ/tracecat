@@ -30,7 +30,6 @@ from tracecat.agent.skill.bindings import SkillBindingService
 from tracecat.agent.skill.dependencies import SkillToolDependencyService
 from tracecat.agent.skill.frontmatter import (
     MAX_SKILL_TOOLS,
-    SkillFrontmatter,
     normalize_skill_markdown,
     parse_skill_markdown,
     split_skill_markdown_frontmatter,
@@ -126,21 +125,11 @@ SKILL_SLUG_ADAPTER = TypeAdapter(SkillName)
 class ManifestValidationResult:
     """Result of validating a skill draft or published manifest."""
 
-    frontmatter: SkillFrontmatter | None = None
+    name: str | None = None
+    description: str | None = None
+    declared_tools: tuple[str, ...] = ()
     tool_projection: SkillToolProjection | None = None
     errors: list[SkillValidationErrorDetail] = field(default_factory=list)
-
-    @property
-    def name(self) -> str | None:
-        """Return the validated skill name, if frontmatter was present."""
-
-        return self.frontmatter.name if self.frontmatter is not None else None
-
-    @property
-    def description(self) -> str | None:
-        """Return the validated skill description, if present."""
-
-        return self.frontmatter.description if self.frontmatter is not None else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1169,14 +1158,16 @@ class SkillService(SkillBindingService):
                 )
             )
             return
-        result.frontmatter = parsed
+        result.name = parsed.name
+        result.description = parsed.description
+        result.declared_tools = tuple(parsed.metadata.tools)
 
     async def _validate_declared_tools(self, result: ManifestValidationResult) -> None:
         """Resolve declared tool IDs through actor-scoped availability indexes."""
 
-        if result.frontmatter is None or result.errors:
+        if result.name is None or result.errors:
             return
-        tool_ids = result.frontmatter.metadata.tools
+        tool_ids = result.declared_tools
         registry_tool_ids = [
             tool_id for tool_id in tool_ids if not tool_id.startswith("mcp.")
         ]
@@ -1185,13 +1176,9 @@ class SkillService(SkillBindingService):
         missing_registry_tools: set[str] = set()
         if registry_tool_ids:
             registry_service = RegistryActionsService(self.session, role=self.role)
-            index_entries = await registry_service.list_actions_from_index(
-                include_keys=set(registry_tool_ids)
+            missing_registry_tools = await registry_service.find_unavailable_action_ids(
+                registry_tool_ids
             )
-            available_registry_tools = {
-                f"{entry.namespace}.{entry.name}" for entry, _ in index_entries
-            }
-            missing_registry_tools = set(registry_tool_ids) - available_registry_tools
 
         integrations = (
             await IntegrationService(
@@ -1203,6 +1190,8 @@ class SkillService(SkillBindingService):
         integrations_by_slug = {
             integration.slug: integration for integration in integrations
         }
+        # Validate stored tool JSON once per integration, not once per tool ID.
+        tools_by_integration: dict[uuid.UUID, dict[str, MCPToolSummary]] = {}
         resolved_mcp_tools: list[ResolvedSkillMcpTool] = []
         missing_mcp_tools: set[str] = set()
         unavailable_mcp_tools: set[str] = set()
@@ -1221,14 +1210,13 @@ class SkillService(SkillBindingService):
                 result.errors.append(support_error)
                 continue
             if tool_name is not None:
-                stored_tools = MCPToolSummary.validate_stored(
-                    integration.tools,
-                    mcp_integration_id=integration.id,
-                )
-                stored_tool = next(
-                    (tool for tool in stored_tools or () if tool.name == tool_name),
-                    None,
-                )
+                if (stored := tools_by_integration.get(integration.id)) is None:
+                    stored = tools_by_integration[integration.id] = (
+                        MCPToolSummary.index_stored(
+                            integration.tools, mcp_integration_id=integration.id
+                        )
+                    )
+                stored_tool = stored.get(tool_name)
                 if stored_tool is None:
                     missing_mcp_tools.add(tool_id)
                     continue
@@ -1598,16 +1586,18 @@ class SkillService(SkillBindingService):
     ) -> None:
         """Stage immutable tool projection rows for one skill version."""
 
-        for tool_id in projection.registry_tool_ids:
-            self.session.add(
+        self.session.add_all(
+            [
                 SkillVersionTool(
                     workspace_id=self.workspace_id,
                     skill_version_id=skill_version_id,
                     tool_id=tool_id,
                 )
-            )
-        for mcp_tool in projection.mcp_tools:
-            self.session.add(
+                for tool_id in projection.registry_tool_ids
+            ]
+        )
+        self.session.add_all(
+            [
                 SkillVersionMcpTool(
                     workspace_id=self.workspace_id,
                     skill_version_id=skill_version_id,
@@ -1615,7 +1605,9 @@ class SkillService(SkillBindingService):
                     mcp_integration_id=mcp_tool.mcp_integration_id,
                     tool_name=mcp_tool.tool_name,
                 )
-            )
+                for mcp_tool in projection.mcp_tools
+            ]
+        )
 
     async def publish_version_from_blob_refs(
         self,
@@ -3267,7 +3259,6 @@ class SkillService(SkillBindingService):
         if version.name is None:
             self._raise_missing_version_name(skill_version_id=version.id)
         rows = await self._list_version_rows(version.id)
-        await self.session.refresh(version, attribute_names=["tools", "mcp_tools"])
         dependencies = SkillToolDependencyService(self.session, role=self.role)
         metadata = await dependencies.load_metadata([version.id])
         await dependencies.validate_dependencies(
@@ -3284,19 +3275,19 @@ class SkillService(SkillBindingService):
         # Restore the accepted snapshot, including its original projection UUIDs.
         # Historical frontmatter may not satisfy today's authoring schema; these
         # canonical fields have already been persisted by the original publisher.
+        loaded_version = metadata.versions[version.id]
         validation = ManifestValidationResult(
-            frontmatter=SkillFrontmatter.model_construct(
-                name=version.name, description=version.description
-            ),
+            name=version.name,
+            description=version.description,
             tool_projection=SkillToolProjection(
-                registry_tool_ids=tuple(tool.tool_id for tool in version.tools),
+                registry_tool_ids=tuple(tool.tool_id for tool in loaded_version.tools),
                 mcp_tools=tuple(
                     ResolvedSkillMcpTool(
                         tool_id=tool.tool_id,
                         mcp_integration_id=tool.mcp_integration_id,
                         tool_name=tool.tool_name,
                     )
-                    for tool in version.mcp_tools
+                    for tool in loaded_version.mcp_tools
                     if tool.mcp_integration_id is not None
                 ),
             ),

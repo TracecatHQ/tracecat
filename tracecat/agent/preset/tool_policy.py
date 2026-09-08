@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 
 from tracecat.agent.mcp.utils import REGISTRY_MCP_SERVER_NAME, normalize_mcp_tool_name
 from tracecat.agent.preset.types import (
@@ -11,42 +11,10 @@ from tracecat.agent.preset.types import (
     PresetToolInputs,
     PresetToolSource,
 )
-from tracecat.agent.skill.dependencies import SkillToolDependencyService
 from tracecat.agent.skill.types import SkillMcpGrant
 from tracecat.agent.tools import EXCLUDED_AGENT_ACTIONS
 from tracecat.db.models import MCPIntegration, SkillVersion
 from tracecat.integrations.schemas import MCPToolSummary
-from tracecat.service import BaseWorkspaceService
-
-
-class PresetToolPolicyService(BaseWorkspaceService):
-    """Batch metadata loading shared by runtime, authoring, and API reporting.
-
-    This resolves policy, not credentials or remote tool discovery. Runtime
-    dependency validation and execution-time policy guards remain authoritative.
-    """
-
-    service_name = "preset_tool_policy"
-
-    async def resolve_many(
-        self, inputs: Sequence[PresetToolInputs]
-    ) -> dict[uuid.UUID, EffectivePresetTools]:
-        if not inputs:
-            return {}
-        metadata = await SkillToolDependencyService(
-            self.session, role=self.role
-        ).load_metadata(
-            list({vid for item in inputs for vid in item.skill_version_ids}),
-            mcp_integration_ids=[
-                mid for item in inputs for mid in item.mcp_integrations
-            ],
-        )
-        return {
-            item.key: resolve_tool_policy(
-                item, metadata.versions, metadata.integrations
-            )
-            for item in inputs
-        }
 
 
 def resolve_tool_policy(
@@ -117,12 +85,10 @@ def resolve_tool_policy(
         # Stdio policy is enforced by the local transport, not HTTP discovery.
         if integration is None or integration.server_type == "stdio":
             continue
-        for tool in (
-            MCPToolSummary.validate_stored(
-                integration.tools, mcp_integration_id=integration.id
-            )
-            or ()
-        ):
+        tools_by_name = MCPToolSummary.index_stored(
+            integration.tools, mcp_integration_id=integration.id
+        )
+        for tool in tools_by_name.values():
             if (
                 tool.enabled
                 and tool.status == "available"

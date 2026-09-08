@@ -8,12 +8,16 @@ from cryptography.fernet import Fernet
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
-from tracecat.agent.preset.schemas import AgentPresetToolPolicyPreview
+from tracecat.agent.preset.schemas import (
+    AgentPresetToolPolicyPreview,
+    AgentPresetUpdate,
+)
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.preset.tool_policy import resolve_tool_policy
 from tracecat.agent.preset.types import PresetToolInputs
 from tracecat.auth.types import Role
 from tracecat.db.models import (
+    AgentPreset,
     AgentPresetVersion,
     MCPIntegration,
     SkillVersion,
@@ -32,7 +36,6 @@ def test_namespace_policy_preserves_blocked_tool_provenance() -> None:
     version.mcp_tools = []
     policy = resolve_tool_policy(
         PresetToolInputs(
-            uuid.uuid4(),
             ["core.cases.read", "tools.example.read"],
             ["core"],
             [],
@@ -64,7 +67,6 @@ def test_stdio_requirement_is_independent_of_source(direct: bool) -> None:
     ]
     policy = resolve_tool_policy(
         PresetToolInputs(
-            uuid.uuid4(),
             [],
             [],
             [str(integration_id)] if direct else [],
@@ -128,7 +130,6 @@ def test_mcp_approvals_apply_only_to_selected_available_tools(
     ]
     policy = resolve_tool_policy(
         PresetToolInputs(
-            uuid.uuid4(),
             [],
             [],
             [str(integration_id)] if whole_integration else [],
@@ -242,3 +243,66 @@ async def test_preview_rejects_invalid_direct_selections(
     )
     with pytest.raises(TracecatValidationError):
         await service.preview_tool_policy(params)
+
+
+@pytest.mark.anyio
+async def test_update_preset_loads_direct_mcp_metadata_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One preset write loads MCP metadata once, not once per policy resolution."""
+    monkeypatch.setattr(
+        config, "TRACECAT__DB_ENCRYPTION_KEY", Fernet.generate_key().decode()
+    )
+    workspace_id, integration_id = uuid.uuid4(), uuid.uuid4()
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=workspace_id,
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"agent:update"}),
+    )
+    integration = MCPIntegration(
+        id=integration_id,
+        workspace_id=workspace_id,
+        name="Synthetic",
+        slug="synthetic",
+        server_type="http",
+        server_uri="https://mcp.example.test",
+        tools=[],
+    )
+    preset = AgentPreset(
+        id=uuid.uuid4(),
+        workspace_id=workspace_id,
+        slug="synthetic",
+        name="Synthetic",
+        model_name="synthetic",
+        model_provider="custom",
+        instructions="",
+        actions=[],
+        namespaces=[],
+        tool_approvals={},
+        mcp_integrations=[],
+        agents={},
+        retries=3,
+        enable_thinking=False,
+        enable_internet_access=False,
+    )
+    service = AgentPresetService(AsyncMock(spec=AsyncSession), role=role)
+    monkeypatch.setattr(service, "require_entitlement", AsyncMock())
+    monkeypatch.setattr(
+        service, "_lock_update_skill_bindings", AsyncMock(return_value=([], []))
+    )
+    publish = AsyncMock()
+    monkeypatch.setattr(service, "publish_preset_head", publish)
+    load = AsyncMock(return_value=[integration])
+    monkeypatch.setattr(IntegrationService, "list_mcp_integrations", load)
+
+    await service.update_preset(
+        preset, AgentPresetUpdate(mcp_integrations=[str(integration_id)])
+    )
+
+    assert preset.mcp_integrations == [str(integration_id)]
+    load.assert_awaited_once()
+    publish.assert_awaited_once()
+    assert publish.await_args is not None
+    assert publish.await_args.kwargs["policy"] is not None

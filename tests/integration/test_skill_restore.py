@@ -7,7 +7,6 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.agent.skill.frontmatter import SkillFrontmatter
 from tracecat.agent.skill.schemas import SkillCreate
 from tracecat.agent.skill.service import (
     ManifestValidationResult,
@@ -43,7 +42,7 @@ async def _publish_snapshot(
             ("SKILL.md", SkillFileBlobRef(blob=blob, content_type="text/markdown"))
         ],
         validation=ManifestValidationResult(
-            frontmatter=SkillFrontmatter(name="restore-skill"),
+            name="restore-skill",
             tool_projection=projection,
         ),
     )

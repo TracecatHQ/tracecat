@@ -30,7 +30,6 @@ class PresetToolSource:
 class PresetToolInputs:
     """Authored inputs and exact skill versions for one policy evaluation."""
 
-    key: uuid.UUID
     actions: Sequence[str]
     namespaces: Sequence[str]
     mcp_integrations: Sequence[str]

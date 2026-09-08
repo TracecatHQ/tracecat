@@ -8,7 +8,6 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from tests.database import TEST_DB_CONFIG
-from tracecat.agent.skill.frontmatter import SkillFrontmatter
 from tracecat.agent.skill.service import ManifestValidationResult, SkillService
 from tracecat.agent.skill.types import ResolvedSkillMcpTool, SkillToolProjection
 from tracecat.auth.types import Role
@@ -66,7 +65,7 @@ async def test_deletion_rechecks_references_after_concurrent_publication(
                 skill=published_skill,
                 file_refs=[],
                 validation=ManifestValidationResult(
-                    frontmatter=SkillFrontmatter(name="concurrent-skill"),
+                    name="concurrent-skill",
                     tool_projection=SkillToolProjection(
                         mcp_tools=(
                             ResolvedSkillMcpTool(

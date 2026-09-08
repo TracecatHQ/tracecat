@@ -99,6 +99,12 @@ def split_skill_markdown_frontmatter(
     return None
 
 
+def parse_skill_frontmatter(frontmatter_yaml: str) -> SkillFrontmatter:
+    """Parse and validate already-split root SKILL.md frontmatter."""
+
+    return SkillFrontmatter.model_validate(yaml.safe_load(frontmatter_yaml))
+
+
 def parse_skill_markdown(skill_markdown: str) -> SkillFrontmatter | None:
     """Parse and validate the single authoritative SKILL.md frontmatter model.
 
@@ -110,6 +116,4 @@ def parse_skill_markdown(skill_markdown: str) -> SkillFrontmatter | None:
     parts = split_skill_markdown_frontmatter(normalized)
     if parts is None:
         return None
-    frontmatter_yaml, _ = parts
-    loaded = yaml.safe_load(frontmatter_yaml)
-    return SkillFrontmatter.model_validate(loaded)
+    return parse_skill_frontmatter(parts[0])

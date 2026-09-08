@@ -10,7 +10,7 @@ import yaml
 from tracecat.agent.skill.builtin import PLATFORM_SKILL_PLUGIN_NAME, PLATFORM_SKILLS
 from tracecat.agent.skill.frontmatter import (
     normalize_skill_markdown,
-    parse_skill_markdown,
+    parse_skill_frontmatter,
     split_skill_markdown_frontmatter,
 )
 
@@ -32,9 +32,9 @@ def stage_platform_skill_plugin(
         markdown = normalize_skill_markdown(
             (source / "SKILL.md").read_text(encoding="utf-8")
         )
-        frontmatter = parse_skill_markdown(markdown)
         parts = split_skill_markdown_frontmatter(markdown)
-        if frontmatter is None or parts is None or frontmatter.name != skill.asset_name:
+        frontmatter = parse_skill_frontmatter(parts[0]) if parts is not None else None
+        if parts is None or frontmatter is None or frontmatter.name != skill.asset_name:
             raise ValueError(f"Invalid platform skill manifest: {skill.asset_name}")
         destination = plugin_root / "skills" / skill.skill_name
         shutil.copytree(source, destination)
