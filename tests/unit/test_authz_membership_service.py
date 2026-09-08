@@ -4,15 +4,18 @@ import uuid
 
 import pytest
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tests.support.membership import grant_workspace_membership
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import ADMIN_SCOPES, EDITOR_SCOPES
 from tracecat.authz.seeding import seed_system_scopes
 from tracecat.authz.service import MembershipService
 from tracecat.db.models import (
+    Group,
+    GroupMember,
+    GroupRoleAssignment,
     Membership,
     Organization,
     RoleScope,
@@ -22,7 +25,7 @@ from tracecat.db.models import (
     Workspace,
 )
 from tracecat.db.models import Role as DBRole
-from tracecat.exceptions import TracecatAuthorizationError
+from tracecat.exceptions import TracecatAuthorizationError, TracecatConflictError
 from tracecat.workspaces.schemas import WorkspaceMembershipCreate
 
 pytestmark = [pytest.mark.anyio, pytest.mark.usefixtures("db")]
@@ -143,12 +146,6 @@ async def test_delete_membership_removes_membership_and_assignment(
 ) -> None:
     """Deleting membership should also delete workspace direct role assignment."""
     session.add(
-        Membership(
-            user_id=member_user.id,
-            workspace_id=workspace.id,
-        )
-    )
-    session.add(
         UserRoleAssignment(
             organization_id=organization.id,
             user_id=member_user.id,
@@ -217,56 +214,7 @@ async def test_delete_membership_removes_orphan_assignment(
     assert assignment is None
 
 
-async def test_create_membership_heals_stale_workspace_assignment(
-    session: AsyncSession,
-    membership_service: MembershipService,
-    organization: Organization,
-    workspace: Workspace,
-    member_user: User,
-    actor_user: User,
-    workspace_editor_role: DBRole,
-) -> None:
-    """Create should succeed when only a stale workspace assignment exists."""
-    session.add(
-        UserRoleAssignment(
-            organization_id=organization.id,
-            user_id=member_user.id,
-            workspace_id=workspace.id,
-            role_id=workspace_editor_role.id,
-            assigned_by=actor_user.id,
-        )
-    )
-    await session.commit()
-
-    await membership_service.create_membership(
-        workspace_id=workspace.id,
-        params=WorkspaceMembershipCreate(user_id=member_user.id),
-    )
-
-    membership = await session.scalar(
-        select(Membership).where(
-            Membership.workspace_id == workspace.id,
-            Membership.user_id == member_user.id,
-        )
-    )
-    assignments = (
-        await session.execute(
-            select(UserRoleAssignment).where(
-                UserRoleAssignment.workspace_id == workspace.id,
-                UserRoleAssignment.user_id == member_user.id,
-            )
-        )
-    ).scalars()
-    assignment_list = list(assignments)
-
-    assert membership is not None
-    assert len(assignment_list) == 1
-    assert assignment_list[0].organization_id == organization.id
-    assert assignment_list[0].role_id == workspace_editor_role.id
-    assert assignment_list[0].assigned_by == actor_user.id
-
-
-async def test_create_membership_duplicate_raises_integrity_error(
+async def test_create_membership_duplicate_raises_conflict(
     session: AsyncSession,
     membership_service: MembershipService,
     workspace: Workspace,
@@ -275,15 +223,15 @@ async def test_create_membership_duplicate_raises_integrity_error(
 ) -> None:
     """Creating an existing membership should raise an integrity conflict."""
     assert workspace_editor_role.slug == "workspace-editor"
-    session.add(
-        Membership(
-            user_id=member_user.id,
-            workspace_id=workspace.id,
-        )
+    await grant_workspace_membership(
+        session,
+        user_id=member_user.id,
+        organization_id=workspace.organization_id,
+        workspace_id=workspace.id,
     )
     await session.commit()
 
-    with pytest.raises(IntegrityError):
+    with pytest.raises(TracecatConflictError):
         await membership_service.create_membership(
             workspace_id=workspace.id,
             params=WorkspaceMembershipCreate(user_id=member_user.id),
@@ -421,3 +369,51 @@ async def test_create_membership_allows_admin_inviter(
         )
     ).scalar_one_or_none()
     assert membership is not None
+
+
+async def test_list_workspace_members_reports_each_path_once(
+    session: AsyncSession,
+    membership_service: MembershipService,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    actor_user: User,
+    workspace_editor_role: DBRole,
+) -> None:
+    """One row per member; a direct assignment outranks a group grant."""
+    group_role = DBRole(
+        name="Reviewer",
+        slug=None,
+        description=None,
+        organization_id=organization.id,
+    )
+    group = Group(name="Reviewers", organization_id=organization.id)
+    session.add_all([group_role, group])
+    await session.flush()
+    # actor_user: group only. member_user: group and direct.
+    session.add_all(
+        [
+            GroupMember(group_id=group.id, user_id=actor_user.id),
+            GroupMember(group_id=group.id, user_id=member_user.id),
+            GroupRoleAssignment(
+                organization_id=organization.id,
+                group_id=group.id,
+                workspace_id=workspace.id,
+                role_id=group_role.id,
+            ),
+        ]
+    )
+    await grant_workspace_membership(
+        session,
+        user_id=member_user.id,
+        organization_id=organization.id,
+        workspace_id=workspace.id,
+    )
+    await session.commit()
+
+    members = await membership_service.list_workspace_members(workspace.id)
+
+    by_user = {m.user_id: m.role_name for m in members}
+    assert len(members) == len(by_user) == 2
+    assert by_user[actor_user.id] == "Reviewer"
+    assert by_user[member_user.id] == workspace_editor_role.name

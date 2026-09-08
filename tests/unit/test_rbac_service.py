@@ -9,6 +9,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.rbac.service import RBACService
 
+from tests.support.membership import (
+    grant_org_membership_via_group,
+)
 from tracecat.auth.types import Role
 from tracecat.authz.enums import ScopeSource
 from tracecat.authz.scopes import ORG_ADMIN_SCOPES
@@ -18,7 +21,6 @@ from tracecat.db.models import (
     GroupMember,
     GroupRoleAssignment,
     Organization,
-    OrganizationMembership,
     RoleScope,
     Scope,
     User,
@@ -55,12 +57,10 @@ async def user(session: AsyncSession, org: Organization) -> User:
     session.add(user)
     await session.flush()
 
-    # Add org membership
-    membership = OrganizationMembership(
-        user_id=user.id,
-        organization_id=org.id,
+    # Presence through a group keeps the direct org-wide slot free for tests.
+    await grant_org_membership_via_group(
+        session, user_id=user.id, organization_id=org.id
     )
-    session.add(membership)
     await session.commit()
     await session.refresh(user)
     return user
@@ -142,7 +142,6 @@ async def role(
     )
     session.add(admin_user)
     await session.flush()
-    session.add(OrganizationMembership(user_id=admin_user.id, organization_id=org.id))
 
     admin_role = DBRole(
         name="Test Org Admin",
@@ -743,11 +742,8 @@ class TestRBACServiceUserAssignments:
         )
         session.add(other_org)
         await session.flush()
-        session.add(
-            OrganizationMembership(
-                user_id=user.id,
-                organization_id=other_org.id,
-            )
+        await grant_org_membership_via_group(
+            session, user_id=user.id, organization_id=other_org.id
         )
         await session.commit()
 
