@@ -320,7 +320,7 @@ export function MultiTagCommandInput({
                   {!disabled && (
                     <button
                       type="button"
-                      aria-label={`Remove ${tag.text}`}
+                      aria-label={`Remove ${tag.group ? `${tag.group} · ` : ""}${tag.text}`}
                       onClick={(e) => {
                         e.stopPropagation()
                         handleRemoveTag(tag.value)

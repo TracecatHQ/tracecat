@@ -259,3 +259,25 @@ describe("MultiTagCommandInput", () => {
     })
   })
 })
+
+it("distinguishes removal buttons for whole-server grants", () => {
+  const onChange = jest.fn()
+  render(
+    <MultiTagCommandInput
+      value={["mcp.alpha", "mcp.beta"]}
+      searchKeys={["value", "label"]}
+      onChange={onChange}
+      suggestions={["alpha", "beta"].map((slug) => ({
+        id: slug,
+        value: `mcp.${slug}`,
+        label: "All tools",
+        tagLabel: "All tools",
+        tagGroup: slug,
+      }))}
+    />
+  )
+  fireEvent.click(
+    screen.getByRole("button", { name: "Remove beta · All tools" })
+  )
+  expect(onChange).toHaveBeenCalledWith(["mcp.alpha"])
+})
