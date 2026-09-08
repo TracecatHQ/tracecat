@@ -10,6 +10,7 @@ from temporalio.api.operatorservice.v1 import (
     ListSearchAttributesRequest,
     RemoveSearchAttributesRequest,
 )
+from temporalio.service import RPCError, RPCStatusCode
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -273,6 +274,15 @@ async def add_temporal_search_attributes():
             )
         )
     except Exception as e:
+        if isinstance(e, RPCError) and e.status == RPCStatusCode.PERMISSION_DENIED:
+            # Cloud runtime credentials may lack operator-service access.
+            # Attributes must be provisioned externally in these deployments.
+            logger.warning(
+                "Skipping automatic Temporal search attribute registration: "
+                "operator access denied; provision search attributes externally",
+                namespace=namespace,
+            )
+            return
         logger.error(
             "Error adding temporal search attributes",
             exc=e,
