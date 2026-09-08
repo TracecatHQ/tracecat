@@ -539,6 +539,9 @@ export function OrgAgentOtelSettings() {
               <p className="text-sm font-medium">Resource attributes</p>
               <p className="text-xs text-muted-foreground">
                 Attached to every exported signal, for example service.name.
+                Every agent run also carries tracecat.session_id,
+                tracecat.workspace_id, tracecat.organization_id, and
+                tracecat.user_id, so tracecat.* names are reserved.
               </p>
             </div>
             {form.resourceAttributes.length > 0 && (

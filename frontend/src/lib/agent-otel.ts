@@ -376,6 +376,12 @@ function serializeResourceAttributes(
     .join(",")
 }
 
+/**
+ * Resource attribute namespace Tracecat stamps per agent run, so org config
+ * cannot shadow the identifiers that tie telemetry back to a session.
+ */
+export const RESERVED_ATTRIBUTE_PREFIX = "tracecat."
+
 function parseResourceAttributes(value: string): Record<string, string> {
   // Null prototype so attribute names like `toString` or `__proto__` are
   // stored as own properties instead of colliding with Object.prototype.
@@ -583,7 +589,14 @@ function envValueIssues(spec: OTelEnvSpec, value: string): string[] {
   }
   if (spec.key === "OTEL_RESOURCE_ATTRIBUTES") {
     try {
-      parseResourceAttributes(value)
+      for (const key of Object.keys(parseResourceAttributes(value))) {
+        if (key.startsWith(RESERVED_ATTRIBUTE_PREFIX)) {
+          issues.push(
+            `${key} is reserved; ${RESERVED_ATTRIBUTE_PREFIX}* attributes are ` +
+              "set per agent run."
+          )
+        }
+      }
     } catch (error) {
       issues.push(
         error instanceof Error

@@ -396,6 +396,16 @@ describe("validateForm / validateEnvMap", () => {
     ])
   })
 
+  it("rejects resource attribute names in the reserved namespace", () => {
+    expect(
+      validateEnvMap({
+        OTEL_RESOURCE_ATTRIBUTES: "tracecat.session_id=spoofed",
+      })
+    ).toEqual([
+      "tracecat.session_id is reserved; tracecat.* attributes are set per agent run.",
+    ])
+  })
+
   it("accepts resource attribute names shadowing Object.prototype members", () => {
     expect(
       validateEnvMap({

@@ -1,7 +1,9 @@
 import re
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Annotated, Any, Literal, Self
 from urllib.parse import quote
+from uuid import UUID
 
 from pydantic import (
     AfterValidator,
@@ -15,8 +17,16 @@ from pydantic import (
     model_validator,
 )
 
+from tracecat.identifiers import OrganizationID, UserID, WorkspaceID
+
 OtelProtocol = Literal["grpc", "http/json", "http/protobuf"]
 MetricsTemporality = Literal["delta", "cumulative"]
+
+# Claude Code's own `session.id` and `user.id` identify its process and its
+# per-install anonymous identity, neither of which a workspace can resolve back
+# to anything it configured. Tracecat's own identifiers travel under this
+# reserved namespace instead, so org config may not define keys under it.
+RESERVED_ATTRIBUTE_PREFIX = "tracecat."
 
 
 def _reject_endpoint_credentials(value: HttpUrl) -> HttpUrl:
@@ -116,6 +126,11 @@ class AgentOtelConfig(BaseModel):
                 raise ValueError("resource attribute names cannot be empty")
             if not attribute_value:
                 raise ValueError(f"resource attribute {key} cannot be empty")
+            if key.startswith(RESERVED_ATTRIBUTE_PREFIX):
+                raise ValueError(
+                    f"resource attribute {key} is reserved; "
+                    f"{RESERVED_ATTRIBUTE_PREFIX}* names are set per agent run"
+                )
         return value
 
     @model_validator(mode="after")
@@ -168,6 +183,37 @@ class AgentOtelConfig(BaseModel):
         return env
 
 
+@dataclass(frozen=True, slots=True)
+class AgentRunIdentity:
+    """Tracecat identifiers stamped onto one agent run's telemetry.
+
+    ``session_id`` is the same identifier a workflow reads back from an agent
+    action result, so exported telemetry joins to the run that produced it.
+    """
+
+    session_id: UUID
+    workspace_id: WorkspaceID
+    organization_id: OrganizationID | None = None
+    user_id: UserID | None = None
+
+    def to_resource_attributes(self) -> dict[str, str]:
+        """Serialize the identity as OTel resource attributes.
+
+        Returns:
+            Attribute names under the reserved Tracecat namespace, omitting
+            identifiers the run has no value for.
+        """
+        attributes = {
+            "tracecat.session_id": str(self.session_id),
+            "tracecat.workspace_id": str(self.workspace_id),
+        }
+        if self.organization_id is not None:
+            attributes["tracecat.organization_id"] = str(self.organization_id)
+        if self.user_id is not None:
+            attributes["tracecat.user_id"] = str(self.user_id)
+        return attributes
+
+
 class ResolvedAgentOtelConfig(BaseModel):
     """Single source of truth used by the agent runtime."""
 
@@ -183,12 +229,15 @@ def resolve_agent_otel_config(
     *,
     org_config: AgentOtelConfig | None,
     org_headers: Mapping[str, str] | None,
+    run_identity: AgentRunIdentity | None = None,
 ) -> ResolvedAgentOtelConfig:
     """Resolve org OTel inputs into one runtime config.
 
     `sandbox_env` never carries a collector endpoint: the in-sandbox shim
     points the exporter at its local bridge, and the collector details stay
-    host-side in `collector_env`.
+    host-side in `collector_env`. When a run identity is supplied its
+    attributes are merged into the sandbox resource attributes, which Claude
+    Code attaches to every metric datapoint, event record, and span.
     """
     config_value = org_config or AgentOtelConfig()
     headers = secret_otel_headers(org_headers)
@@ -199,6 +248,13 @@ def resolve_agent_otel_config(
     collector_env = config_value.to_env()
     sandbox_env = _build_sandbox_env(collector_env)
     sandbox_env["CLAUDE_CODE_ENABLE_TELEMETRY"] = "1"
+    if run_identity is not None:
+        sandbox_env["OTEL_RESOURCE_ATTRIBUTES"] = _serialize_resource_attributes(
+            {
+                **config_value.resource_attributes,
+                **run_identity.to_resource_attributes(),
+            }
+        )
     return ResolvedAgentOtelConfig(
         enabled=True,
         sandbox_env=sandbox_env,
