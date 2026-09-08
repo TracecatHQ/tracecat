@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 from pydantic import BaseModel, Field, model_validator
 
+from tracecat.agent.preset.types import EffectivePresetTools
 from tracecat.agent.subagents import (
     AgentSubagentsConfig,
     AttachedSubagentRef,
@@ -27,6 +28,10 @@ if TYPE_CHECKING:
 
 
 class AgentPresetResolutionService(Protocol):
+    def resolve_preset_tool_policy(
+        self, version: AgentPresetVersion, *, use_latest_skill_versions: bool = True
+    ) -> Awaitable[EffectivePresetTools]: ...
+
     def resolve_agent_preset_version(
         self,
         *,
@@ -202,7 +207,10 @@ async def resolve_agents_config(
             raise TracecatValidationError(
                 f"Subagent preset '{ref.preset}' cannot define its own agents in v1"
             )
-        if has_manual_tool_approvals(version.tool_approvals):
+        tool_policy = await service.resolve_preset_tool_policy(
+            version, use_latest_skill_versions=follow_latest_versions
+        )
+        if has_manual_tool_approvals(tool_policy.tool_approvals):
             raise TracecatValidationError(
                 f"Subagent preset '{ref.preset}' uses manual approvals, "
                 "which are not supported for subagents yet."

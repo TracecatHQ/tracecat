@@ -9,11 +9,12 @@ from tracecat.agent.preset.schemas import (
     AgentPresetMoveToFolder,
     AgentPresetRead,
     AgentPresetReadMinimal,
+    AgentPresetToolPolicyPreview,
+    AgentPresetToolPolicyRead,
     AgentPresetUpdate,
     AgentPresetVersionDiff,
     AgentPresetVersionRead,
     AgentPresetVersionReadMinimal,
-    build_agent_preset_read_minimal,
 )
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
@@ -35,7 +36,22 @@ async def list_agent_presets(
     """List all agent presets for the current workspace."""
     service = AgentPresetService(session, role=role)
     presets = await service.list_presets()
-    return [build_agent_preset_read_minimal(preset) for preset in presets]
+    return await service.build_preset_list_reads(presets)
+
+
+@router.post("/tool-policy", response_model=AgentPresetToolPolicyRead)
+@require_scope("agent:read")
+async def preview_tool_policy(
+    *,
+    params: AgentPresetToolPolicyPreview,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+) -> AgentPresetToolPolicyRead:
+    """Evaluate unsaved tool selections without changing a preset."""
+    try:
+        return await AgentPresetService(session, role=role).preview_tool_policy(params)
+    except TracecatValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post(
