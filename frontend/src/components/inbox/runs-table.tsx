@@ -20,6 +20,7 @@ import {
 } from "lucide-react"
 import { useMemo, useState } from "react"
 import type { InboxGroup } from "@/client"
+import { CopyButton } from "@/components/copy-button"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -123,13 +124,13 @@ const STATUS_GROUPS: Record<StatusGroup, StatusGroupConfig> = {
 // horizontally once the pane narrows the inset. Without this the title wraps
 // vertically and the actions column slides offscreen, leaving Delete approval
 // unreachable.
-const GRID_COLS = "grid-cols-[minmax(12rem,1fr)_7rem_10rem_8rem_8rem]"
+const GRID_COLS = "grid-cols-[minmax(12rem,1fr)_11rem_7rem_10rem_8rem_8rem]"
 const GRID_COLS_WITH_ACTIONS =
-  "grid-cols-[minmax(12rem,1fr)_7rem_10rem_8rem_8rem_2rem]"
+  "grid-cols-[minmax(12rem,1fr)_11rem_7rem_10rem_8rem_8rem_2rem]"
 
 // Applied to the header and the scroll body so both share one horizontal
 // scroll context and stay column-aligned when the table overflows its inset.
-const GRID_SCROLL = "min-w-[48rem]"
+const GRID_SCROLL = "min-w-[59rem]"
 
 function getSourceType(entityType: string): SourceType {
   switch (entityType) {
@@ -256,6 +257,25 @@ function TimestampCell({ value, label }: { value: string; label: string }) {
   )
 }
 
+function SessionIdCell({ value }: { value: string }) {
+  return (
+    <div className="flex min-w-0 items-center gap-1.5">
+      <code
+        className="truncate font-mono text-[11px] text-muted-foreground"
+        title={value}
+      >
+        {value}
+      </code>
+      <CopyButton
+        value={value}
+        toastMessage="Session ID copied"
+        tooltipMessage="Copy session ID"
+        className="size-5 shrink-0"
+      />
+    </div>
+  )
+}
+
 interface RunRowProps {
   session: InboxSessionItem
   isSelected: boolean
@@ -300,6 +320,7 @@ function RunRow({
       <span className="block truncate pl-10 text-xs">
         {getDisplayName(session)}
       </span>
+      <SessionIdCell value={session.id} />
       <Badge
         variant="secondary"
         className="h-5 w-fit gap-1 px-1.5 py-0 text-[10px] font-normal"
@@ -423,6 +444,7 @@ export function RunsTable({
         )}
       >
         <PlainHead label="Title" className="pl-10" />
+        <PlainHead label="Session ID" />
         <PlainHead label="Source" />
         <PlainHead label="Created by" />
         <SortableHead
