@@ -99,7 +99,9 @@ license: MIT`
       ["core.cases.get_case"]
     )
 
-    expect(updated).toContain("\r\nmetadata:\r\n  tools:\r\n")
+    expect(updated).toContain(
+      'metadata: { tools: ["core.cases.get_case"] }\r\n'
+    )
     expect(readSkillFrontmatterTools(updated)).toEqual({
       valid: true,
       tools: ["core.cases.get_case"],
@@ -260,4 +262,32 @@ it("disambiguates duplicate integration names in options and chips", () => {
     group: "Slack (slack-2)",
     tagGroup: "Slack (slack-2)",
   })
+})
+
+it.each([
+  "name: example\nmetadata: { revision: 0123, tools: [core.old] }",
+  "name: example\nmetadata: { revision: 0123 }",
+  "name: example\nrevision: 0123",
+  "{ name: example, revision: 0123 }",
+  "name: example\nmetadata:\n  revision: 0123\n  tools:\n    - core.old\nother: yes",
+  "name: example\nmetadata:\n  revision: 0123\nother: yes",
+  "name: example\nmetadata: {}",
+])("preserves untouched YAML scalar source: %s", (source) => {
+  const updated = updateSkillFrontmatterTools(source, ["core.new"])
+  if (source.includes("revision: 0123")) {
+    expect(updated).toContain("revision: 0123")
+  }
+  expect(readSkillFrontmatterTools(updated)).toEqual({
+    valid: true,
+    tools: ["core.new"],
+  })
+  if (source.includes("other: yes")) expect(updated).toContain("other: yes")
+})
+
+it("preserves CRLF and block sequence anchors", () => {
+  const source =
+    "name: example\r\nmetadata:\r\n  tools: &allowed\r\n    - core.old\r\ncopy: *allowed"
+  const updated = updateSkillFrontmatterTools(source, ["core.new"])
+  expect(updated.replace(/\r\n/g, "")).not.toContain("\n")
+  expect(parseDocument(updated).toJS().copy).toEqual(["core.new"])
 })

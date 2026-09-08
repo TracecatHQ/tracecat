@@ -1,4 +1,4 @@
-import { isMap, isSeq, parseDocument } from "yaml"
+import { isMap, isSeq, parseDocument, type YAMLMap } from "yaml"
 import type { MCPIntegrationRead, RegistryActionReadMinimal } from "@/client"
 import { isAgentToolSelectable } from "@/lib/agent-tools"
 
@@ -88,8 +88,7 @@ export function readSkillFrontmatterTools(
 }
 
 /**
- * Replace only `metadata.tools` while preserving unrelated YAML keys and
- * comments held by the parsed YAML document.
+ * Replace only `metadata.tools` while preserving unrelated YAML source.
  */
 export function updateSkillFrontmatterTools(
   frontmatter: string,
@@ -109,16 +108,58 @@ export function updateSkillFrontmatterTools(
 
   const document = parseDocument(frontmatter, { keepSourceTokens: true })
   const existing = document.getIn(["metadata", "tools"], true)
-  if (isSeq(existing)) {
-    existing.items = normalized.map((tool) => document.createNode(tool))
-  } else {
-    document.setIn(["metadata", "tools"], normalized)
+  const serialized = JSON.stringify(normalized)
+  const newline = frontmatter.includes("\r\n") ? "\r\n" : "\n"
+  if (isSeq(existing) && existing.range) {
+    // Node ranges exclude the sequence's anchor. Keep it and all source
+    // outside the tools value verbatim, including YAML 1.1 scalar spellings.
+    const [start, end] = existing.range
+    const suffix = frontmatter.slice(start, end).endsWith("\n") ? newline : ""
+    return (
+      frontmatter.slice(0, start) + serialized + suffix + frontmatter.slice(end)
+    )
   }
 
-  const serialized = document.toString().replace(/\n$/, "")
-  return frontmatter.includes("\r\n")
-    ? serialized.replace(/\n/g, "\r\n")
-    : serialized
+  const metadata = document.get("metadata", true)
+  if (isMap(metadata)) {
+    return insertMappingEntry(
+      frontmatter,
+      metadata,
+      `tools: ${serialized}`,
+      newline
+    )
+  }
+  if (isMap(document.contents)) {
+    return insertMappingEntry(
+      frontmatter,
+      document.contents,
+      `metadata: { tools: ${serialized} }`,
+      newline
+    )
+  }
+  throw new Error("Frontmatter must be a YAML mapping.")
+}
+
+/** Insert a new key without serializing any existing YAML nodes. */
+function insertMappingEntry(
+  source: string,
+  mapping: YAMLMap,
+  entry: string,
+  newline: string
+): string {
+  if (!mapping.range) {
+    throw new Error("Cannot locate the YAML mapping in the source.")
+  }
+  const start = mapping.range[0]
+  if (mapping.flow) {
+    const separator = mapping.items.length > 0 ? ", " : ""
+    return (
+      source.slice(0, start + 1) + entry + separator + source.slice(start + 1)
+    )
+  }
+  const token = mapping.srcToken
+  const indent = " ".repeat(token && "indent" in token ? token.indent : 0)
+  return source.slice(0, start) + entry + newline + indent + source.slice(start)
 }
 
 /**
