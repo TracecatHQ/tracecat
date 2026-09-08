@@ -8,6 +8,8 @@ from pathlib import Path
 import pytest
 
 
+@pytest.mark.dbtest
+@pytest.mark.slow
 @pytest.mark.parametrize(("default", "maximum"), [(2, 50), (1200, 2000)])
 def test_server_limit_overrides(default: int, maximum: int) -> None:
     # A fresh interpreter loads the real configured request schema and gateway.

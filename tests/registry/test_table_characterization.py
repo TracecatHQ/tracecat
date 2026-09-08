@@ -125,6 +125,7 @@ async def test_table_name() -> str:
 
 
 @pytest.mark.anyio
+@pytest.mark.dbtest
 @pytest.mark.usefixtures("db", "table_ctx")
 class TestAggregateRows:
     @pytest.mark.parametrize("suffix", ["-legacy", " legacy", "café", "表格"])
