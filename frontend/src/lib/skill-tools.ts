@@ -44,6 +44,11 @@ export function readSkillFrontmatterTools(
   }
 
   const metadata = document.get("metadata", true)
+  if (document.contents.has("<<") || (isMap(metadata) && metadata.has("<<"))) {
+    return invalidToolsState(
+      "Edit tools in the YAML editor when metadata uses merge keys."
+    )
+  }
   if (metadata === undefined || metadata === null) {
     return { valid: true, tools: [] }
   }

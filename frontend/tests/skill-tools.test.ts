@@ -205,3 +205,13 @@ it("offers only whole-server grants for stdio integrations", () => {
     ).map((option) => option.value)
   ).toEqual(["mcp.slack"])
 })
+
+it.each([
+  "defaults: &defaults\n  metadata: { tools: [core.old], revision: 1 }\n<<: *defaults",
+  "defaults: &defaults { tools: [core.old], revision: 1 }\nmetadata:\n  <<: *defaults",
+])("blocks structured edits of merged metadata", (source) => {
+  expect(readSkillFrontmatterTools(source)).toMatchObject({ valid: false })
+  expect(() => updateSkillFrontmatterTools(source, ["core.new"])).toThrow(
+    "merge keys"
+  )
+})
