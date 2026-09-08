@@ -5,99 +5,9 @@ from __future__ import annotations
 from typing import cast
 from unittest.mock import AsyncMock, MagicMock
 
-import httpx
-import orjson
 import pytest
-from tracecat_registry.sdk.client import TracecatClient
 from tracecat_registry.sdk.tables import TablesClient
 from tracecat_registry.types import TableSearchResponse
-
-
-@pytest.mark.anyio
-@pytest.mark.parametrize(
-    ("table_name", "encoded_name"),
-    [
-        ("sample_rows", "sample_rows"),
-        ("legacy-name", "legacy-name"),
-        ("legacy name", "legacy%20name"),
-        ("café", "caf%C3%A9"),
-        ("表格", "%E8%A1%A8%E6%A0%BC"),
-    ],
-)
-async def test_aggregate_rows_preserves_json_and_internal_gateway_path(
-    monkeypatch: pytest.MonkeyPatch,
-    table_name: str,
-    encoded_name: str,
-) -> None:
-    """Exercise the real SDK URL construction and wire serialization."""
-    requests: list[httpx.Request] = []
-
-    def respond(request: httpx.Request) -> httpx.Response:
-        requests.append(request)
-        return httpx.Response(
-            200,
-            json={
-                "groups": [{"amount": "9007199254740992.1", "count": 2}],
-                "truncated": True,
-            },
-        )
-
-    def transport(*, uds: str) -> httpx.MockTransport:
-        assert uds == "/tmp/aggregate-test.sock"
-        return httpx.MockTransport(respond)
-
-    monkeypatch.setattr(httpx, "AsyncHTTPTransport", transport)
-    client = TracecatClient(
-        action_gateway_socket="/tmp/aggregate-test.sock",
-        workspace_id="test-workspace",
-    )
-    # Plain JSON is intentional: the server owns the recursive query shape.
-    spec = {
-        "group_by": [],
-        "filters": {"and": [{"field": "amount", "op": "in", "value": []}]},
-        "aggs": None,
-        "limit": 1,
-        "sort": None,
-    }
-    result = await client.tables.aggregate_rows(table_name, spec)
-
-    assert len(requests) == 1
-    assert requests[0].method == "POST"
-    assert str(requests[0].url) == (
-        f"http://tracecat-action-gateway/internal/tables/{encoded_name}/aggregate"
-    )
-    assert orjson.loads(requests[0].content) == spec
-    assert result == {
-        "groups": [{"amount": "9007199254740992.1", "count": 2}],
-        "truncated": True,
-    }
-
-
-@pytest.mark.anyio
-@pytest.mark.parametrize(
-    "table_name",
-    [
-        "../workflows/00000000-0000-4000-8000-000000000001/publish#",
-        "%2e%2e%2fworkflows%2fpublish%23",
-        "sample_rows?redirect=/workflows",
-        "sample_rows#fragment",
-        "sample_rows/../other",
-        "sample_rows\\other",
-        "sample_rows\n",
-        ".",
-        "..",
-        "sample_rows\x7f",
-        "",
-    ],
-)
-async def test_aggregate_rows_rejects_url_syntax_before_request(
-    table_name: str,
-    tables_client: TablesClient,
-    mock_tracecat_client: MagicMock,
-) -> None:
-    with pytest.raises(ValueError, match="Table name must"):
-        await tables_client.aggregate_rows(table_name, {"group_by": []})
-    mock_tracecat_client.post.assert_not_awaited()
 
 
 @pytest.fixture

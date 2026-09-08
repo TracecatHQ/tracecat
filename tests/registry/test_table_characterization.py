@@ -12,7 +12,11 @@ Test Strategy:
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 import uuid
+from pathlib import Path
 from typing import get_args
 
 import httpx
@@ -51,9 +55,11 @@ from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import get_async_session
 from tracecat.db.models import Workspace
 from tracecat.executor.action_gateway.app import create_app as create_action_gateway_app
+from tracecat.registry.repository import Repository
 from tracecat.tables.common import sanitize_identifier
 from tracecat.tables.schemas import TableCreate
 from tracecat.tables.service import TablesService
+from tracecat.validation.common import json_schema_to_pydantic
 
 _ACTION_GATEWAY_SOCKET = "/tmp/tracecat-test-action-gateway.sock"
 app = create_action_gateway_app()
@@ -73,9 +79,15 @@ async def table_test_role(svc_workspace: Workspace) -> Role:
 
 
 @pytest.fixture
+def gateway_requests() -> list[httpx.Request]:
+    return []
+
+
+@pytest.fixture
 async def table_ctx(
     table_test_role: Role,
     session: AsyncSession,
+    gateway_requests: list[httpx.Request],
     monkeypatch: pytest.MonkeyPatch,
 ):
     """Set up the ctx_role and registry context for table UDF tests.
@@ -91,9 +103,14 @@ async def table_ctx(
     set_context(registry_ctx)
     monkeypatch.setenv("TRACECAT__ACTION_GATEWAY_SOCKET", _ACTION_GATEWAY_SOCKET)
 
+    class RecordingTransport(ASGITransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            gateway_requests.append(request)
+            return await super().handle_async_request(request)
+
     def create_gateway_transport(*, uds: str) -> ASGITransport:
         assert uds == _ACTION_GATEWAY_SOCKET
-        return ASGITransport(app=app)
+        return RecordingTransport(app=app)
 
     monkeypatch.setattr(httpx, "AsyncHTTPTransport", create_gateway_transport)
 
@@ -128,11 +145,30 @@ async def test_table_name() -> str:
 @pytest.mark.dbtest
 @pytest.mark.usefixtures("db", "table_ctx")
 class TestAggregateRows:
-    @pytest.mark.parametrize("suffix", ["-legacy", " legacy", "café", "表格"])
-    async def test_exact_legacy_names(
-        self, test_table_name: str, session: AsyncSession, table_ctx: Role, suffix: str
+    async def test_routing_syntax_never_reaches_gateway(
+        self, gateway_requests: list[httpx.Request]
     ) -> None:
-        legacy_name = f"{test_table_name}{suffix}"
+        for name in [
+            "../workflows/00000000-0000-4000-8000-000000000001/publish#",
+            "%2e%2e%2fworkflows%2fpublish%23",
+            "rows?redirect=/workflows",
+            "rows#fragment",
+            "rows/../other",
+            "rows\\other",
+            "rows\n",
+            ".",
+            "..",
+            "rows\x7f",
+            "",
+        ]:
+            with pytest.raises(ValueError, match="Table name must"):
+                await aggregate_rows(table=name, group_by=[])
+        assert gateway_requests == []
+
+    async def test_exact_legacy_names(
+        self, test_table_name: str, session: AsyncSession, table_ctx: Role
+    ) -> None:
+        legacy_name = f"{test_table_name}-legacy café表格"
         service = TablesService(session, role=table_ctx)
         # Simulate stored metadata from before the ASCII creation restriction.
         # The physical table still follows the service's legacy normalization.
@@ -191,40 +227,75 @@ class TestAggregateRows:
             )
         assert above_maximum.value.status_code == 422
 
-    async def test_filtered_totals_null_groups_and_truncation(
-        self, test_table_name: str
+    async def test_registered_action_summarizes_filtered_rows(
+        self, test_table_name: str, gateway_requests: list[httpx.Request]
     ) -> None:
         await create_table(
             name=test_table_name,
             columns=[
                 {"name": "category", "type": "TEXT", "nullable": True},
                 {"name": "amount", "type": "INTEGER"},
+                {"name": "observed_at", "type": "TIMESTAMPTZ"},
             ],
         )
         await insert_rows(
             table=test_table_name,
             rows_data=[
-                {"category": "red", "amount": 10},
-                {"category": "red", "amount": 20},
-                {"category": "blue", "amount": 5},
-                {"category": None, "amount": 15},
+                {
+                    "category": "red",
+                    "amount": 10,
+                    "observed_at": "2026-01-02T12:00:00Z",
+                },
+                {
+                    "category": "red",
+                    "amount": 20,
+                    "observed_at": "2026-01-02T13:00:00Z",
+                },
+                {
+                    "category": "blue",
+                    "amount": 5,
+                    "observed_at": "2026-01-01T12:00:00Z",
+                },
+                {"category": None, "amount": 15, "observed_at": "2026-01-02T14:00:00Z"},
             ],
         )
-        result = await aggregate_rows(
-            table=test_table_name,
-            group_by=["category"],
-            filters={"field": "amount", "op": "gte", "value": 10},
-            aggs=[{"function": "count"}, {"function": "sum", "field": "amount"}],
+        repo = Repository()
+        repo._register_udf_from_function(aggregate_rows, name="aggregate_rows")
+        action = repo.get("core.table.aggregate_rows")
+        model = json_schema_to_pydantic(action.get_interface()["expects"])
+        args = model.model_validate(
+            {
+                "table": test_table_name,
+                "group_by": ["category"],
+                "filters": {
+                    "and": [
+                        {"field": "amount", "op": "gt", "value": 0},
+                        {"not": {"field": "amount", "op": "lt", "value": 10}},
+                    ]
+                },
+                "aggs": [
+                    {"function": "count"},
+                    {"function": "sum", "field": "amount", "alias": "total"},
+                ],
+                "order_by": "total",
+                "sort": "desc",
+            }
         )
+        result = await action.fn(**action.validate_args(args.model_dump()))
         assert result == {
             "groups": [
-                {"category": "red", "count": 2, "sum_amount": 30.0},
-                {"category": None, "count": 1, "sum_amount": 15.0},
+                {"category": "red", "count": 2, "total": 30.0},
+                {"category": None, "count": 1, "total": 15.0},
             ],
             "truncated": False,
         }
-        assert isinstance(result["groups"][0]["sum_amount"], float)
+        assert isinstance(result["groups"][0]["total"], float)
         assert isinstance(result["groups"][0]["count"], int)
+        assert gateway_requests[-1].method == "POST"
+        assert (
+            gateway_requests[-1].url.path
+            == f"/internal/tables/{test_table_name}/aggregate"
+        )
         assert await aggregate_rows(table=test_table_name, group_by=[]) == {
             "groups": [{"count": 4}],
             "truncated": False,
@@ -235,6 +306,24 @@ class TestAggregateRows:
         assert await aggregate_rows(
             table=test_table_name, group_by=["category"], limit=1
         ) == {"groups": [{"category": "red", "count": 2}], "truncated": True}
+        time_args = model.model_validate(
+            {
+                "table": test_table_name,
+                "group_by": [{"field": "observed_at", "bucket": "day"}],
+            }
+        )
+        assert await action.fn(**action.validate_args(time_args.model_dump())) == {
+            "groups": [
+                {"observed_at": "2026-01-01T00:00:00Z", "count": 1},
+                {"observed_at": "2026-01-02T00:00:00Z", "count": 3},
+            ],
+            "truncated": False,
+        }
+        assert await aggregate_rows(
+            table=test_table_name,
+            group_by=[],
+            filters={"field": "amount", "op": "in", "value": []},
+        ) == {"groups": [{"count": 0}], "truncated": False}
 
     async def test_decimal_group_keys_remain_distinct(
         self, test_table_name: str
@@ -263,32 +352,6 @@ class TestAggregateRows:
             "truncated": False,
         }
 
-    async def test_time_buckets_default_to_chronological_order(
-        self, test_table_name: str
-    ) -> None:
-        await create_table(
-            name=test_table_name,
-            columns=[{"name": "observed_at", "type": "TIMESTAMPTZ"}],
-        )
-        await insert_rows(
-            table=test_table_name,
-            rows_data=[
-                {"observed_at": "2026-01-02T12:00:00Z"},
-                {"observed_at": "2026-01-02T13:00:00Z"},
-                {"observed_at": "2026-01-01T12:00:00Z"},
-            ],
-        )
-        assert await aggregate_rows(
-            table=test_table_name,
-            group_by=[{"field": "observed_at", "bucket": "day"}],
-        ) == {
-            "groups": [
-                {"observed_at": "2026-01-01T00:00:00Z", "count": 1},
-                {"observed_at": "2026-01-02T00:00:00Z", "count": 2},
-            ],
-            "truncated": False,
-        }
-
     async def test_validation_and_missing_table_errors(
         self, test_table_name: str
     ) -> None:
@@ -304,6 +367,9 @@ class TestAggregateRows:
         with pytest.raises(TracecatValidationError) as structural:
             await aggregate_rows(table=test_table_name, group_by=[], aggs=[])
         assert structural.value.status_code == 422
+        with pytest.raises(TracecatValidationError) as invalid_limit:
+            await aggregate_rows(table=test_table_name, group_by=[], limit=0)
+        assert invalid_limit.value.status_code == 422
 
     async def test_database_timeout_preserves_structured_sdk_error(
         self,
@@ -337,6 +403,42 @@ class TestAggregateRows:
         assert timeout.value.status_code == 422
         assert isinstance(timeout.value.detail, dict)
         assert timeout.value.detail["code"] == "query_timeout"
+
+
+@pytest.mark.dbtest
+@pytest.mark.slow
+@pytest.mark.parametrize(("default", "maximum"), [(2, 50), (1200, 2000)])
+def test_server_limit_overrides(default: int, maximum: int) -> None:
+    # A fresh interpreter loads the real configured request schema and gateway.
+    # The child runs only the contract test, so this cannot recursively spawn.
+    # tests.database gives each process its own randomly named database.
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "tests/registry/test_table_characterization.py::TestAggregateRows::test_omitted_limit_uses_server_default",
+            "-o",
+            "addopts=",
+            "-n",
+            "0",
+            "-q",
+            "--tb=short",
+            "-p",
+            "no:cacheprovider",
+        ],
+        cwd=Path(__file__).resolve().parents[2],
+        env={
+            **os.environ,
+            "TRACECAT__LIMIT_AGG_GROUPS_DEFAULT": str(default),
+            "TRACECAT__LIMIT_AGG_GROUPS_MAX": str(maximum),
+        },
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 # =============================================================================
