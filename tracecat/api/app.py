@@ -121,6 +121,7 @@ from tracecat.integrations.router import (
 from tracecat.integrations.router import (
     oauth_router as integrations_oauth_router,
 )
+from tracecat.invitations.consumer import start_invitation_email_consumer
 from tracecat.logger import logger
 from tracecat.mcp.oidc import router as mcp_oidc_router
 from tracecat.mcp.personal_access_tokens.router import (
@@ -259,6 +260,11 @@ async def lifespan(app: FastAPI):
     supervisor.spawn_stoppable(
         start_case_duration_sync_consumer,
         name="case_duration_sync_consumer",
+    )
+
+    supervisor.spawn_stoppable(
+        start_invitation_email_consumer,
+        name="invitation_email_consumer",
     )
 
     logger.info(
