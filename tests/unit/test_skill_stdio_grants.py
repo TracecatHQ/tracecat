@@ -9,10 +9,10 @@ from cryptography.fernet import Fernet
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
+from tracecat.agent.skill.dependencies import SkillToolDependencyService
 from tracecat.agent.skill.frontmatter import SkillFrontmatter, SkillMetadata
-from tracecat.agent.skill.grants import SkillToolGrantService
 from tracecat.agent.skill.service import ManifestValidationResult, SkillService
-from tracecat.agent.skill.types import ResolvedSkillRef, SkillMcpGrant
+from tracecat.agent.skill.types import ResolvedSkillRef
 from tracecat.agent.skill.validation import STDIO_MCP_TOOL_SUBSET_UNSUPPORTED
 from tracecat.auth.types import Role
 from tracecat.db.models import MCPIntegration, SkillVersion, SkillVersionMcpTool
@@ -105,7 +105,7 @@ async def test_authoring_rejects_only_unsupported_stdio_declarations(
 @pytest.mark.parametrize(
     "tool_names", [(None,), ("search",), (None, "search"), ("search", None)]
 )
-async def test_compilation_rechecks_existing_immutable_stdio_grants(
+async def test_validation_rechecks_existing_immutable_stdio_grants(
     grant_context: GrantContext,
     monkeypatch: pytest.MonkeyPatch,
     server_type: str,
@@ -121,20 +121,19 @@ async def test_compilation_rechecks_existing_immutable_stdio_grants(
         )
         for name in tool_names
     ]
-    service = SkillToolGrantService(ctx.session, role=ctx.role)
+    service = SkillToolDependencyService(ctx.session, role=ctx.role)
     monkeypatch.setattr(service, "require_entitlement", AsyncMock())
 
+    metadata = await service.load_metadata([ctx.resolved.skill_version_id])
     if server_type == "stdio" and "search" in tool_names:
         with pytest.raises(TracecatValidationError) as exc:
-            await service.compile_tool_grants(resolved_skills=[ctx.resolved])
+            await service.validate_dependencies(
+                metadata=metadata, resolved_skills=[ctx.resolved]
+            )
         assert exc.value.detail is not None
         assert exc.value.detail["code"] == STDIO_MCP_TOOL_SUBSET_UNSUPPORTED
         assert exc.value.detail["tool_ids"] == ["mcp.synthetic.search"]
     else:
-        grants = await service.compile_tool_grants(resolved_skills=[ctx.resolved])
-        assert grants.mcp_grants == (
-            SkillMcpGrant(
-                ctx.integration.id,
-                None if None in tool_names else frozenset({"search"}),
-            ),
+        await service.validate_dependencies(
+            metadata=metadata, resolved_skills=[ctx.resolved]
         )

@@ -1,17 +1,25 @@
 """Policy is independent of whether a tool is authored or skill-derived."""
 
 import uuid
+from unittest.mock import AsyncMock
 
 import pytest
+from cryptography.fernet import Fernet
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat import config
+from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.preset.tool_policy import resolve_tool_policy
 from tracecat.agent.preset.types import PresetToolInputs
+from tracecat.auth.types import Role
 from tracecat.db.models import (
+    AgentPresetVersion,
     MCPIntegration,
     SkillVersion,
     SkillVersionMcpTool,
     SkillVersionTool,
 )
+from tracecat.integrations.service import IntegrationService
 
 
 def test_namespace_policy_preserves_blocked_tool_provenance() -> None:
@@ -129,3 +137,56 @@ def test_mcp_approvals_apply_only_to_selected_available_tools(
     )
     assert policy.tool_approvals == expected
     assert not policy.requires_internet_access
+
+
+@pytest.mark.anyio
+async def test_runtime_loads_direct_mcp_metadata_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        config, "TRACECAT__DB_ENCRYPTION_KEY", Fernet.generate_key().decode()
+    )
+    workspace_id, integration_id = uuid.uuid4(), uuid.uuid4()
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=workspace_id,
+        organization_id=uuid.uuid4(),
+    )
+    integration = MCPIntegration(
+        id=integration_id,
+        workspace_id=workspace_id,
+        name="Synthetic",
+        slug="synthetic",
+        server_type="http",
+        server_uri="https://mcp.example.test",
+        tools=[],
+    )
+    version = AgentPresetVersion(
+        id=uuid.uuid4(),
+        preset_id=uuid.uuid4(),
+        workspace_id=workspace_id,
+        model_name="synthetic",
+        model_provider="custom",
+        instructions="",
+        actions=[],
+        namespaces=[],
+        tool_approvals={},
+        mcp_integrations=[str(integration_id)],
+        agents={},
+        retries=3,
+        enable_thinking=False,
+        enable_internet_access=False,
+    )
+    service = AgentPresetService(AsyncMock(spec=AsyncSession), role=role)
+    monkeypatch.setattr(
+        service.skills,
+        "get_resolved_skill_refs_for_preset_version",
+        AsyncMock(return_value=[]),
+    )
+    monkeypatch.setattr(service.skill_tools, "require_entitlement", AsyncMock())
+    load = AsyncMock(return_value=[integration])
+    monkeypatch.setattr(IntegrationService, "list_mcp_integrations", load)
+    result = await service._version_to_agent_config(version)
+    assert result.mcp_servers and result.mcp_servers[0].get("id") == str(integration_id)
+    load.assert_awaited_once()

@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
+
+if TYPE_CHECKING:
+    from tracecat.db.models import MCPIntegration, SkillVersion
 
 
 class SkillOrigin(StrEnum):
@@ -56,8 +60,8 @@ class SkillMcpGrant:
 
 
 @dataclass(frozen=True, slots=True)
-class SkillToolGrants:
-    """Actor-authorized effective tool grants compiled from attached skills."""
+class SkillToolMetadata:
+    """Loaded declarations and integrations shared within one policy evaluation."""
 
-    registry_tool_ids: tuple[str, ...] = ()
-    mcp_grants: tuple[SkillMcpGrant, ...] = ()
+    versions: Mapping[uuid.UUID, SkillVersion]
+    integrations: Mapping[uuid.UUID, MCPIntegration]
