@@ -14,8 +14,20 @@ from tracecat_registry.types import TableSearchResponse
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("table_name", "encoded_name"),
+    [
+        ("sample_rows", "sample_rows"),
+        ("legacy-name", "legacy-name"),
+        ("legacy name", "legacy%20name"),
+        ("café", "caf%C3%A9"),
+        ("表格", "%E8%A1%A8%E6%A0%BC"),
+    ],
+)
 async def test_aggregate_rows_preserves_json_and_internal_gateway_path(
     monkeypatch: pytest.MonkeyPatch,
+    table_name: str,
+    encoded_name: str,
 ) -> None:
     """Exercise the real SDK URL construction and wire serialization."""
     requests: list[httpx.Request] = []
@@ -47,12 +59,12 @@ async def test_aggregate_rows_preserves_json_and_internal_gateway_path(
         "limit": 1,
         "sort": None,
     }
-    result = await client.tables.aggregate_rows("sample_rows", spec)
+    result = await client.tables.aggregate_rows(table_name, spec)
 
     assert len(requests) == 1
     assert requests[0].method == "POST"
     assert str(requests[0].url) == (
-        "http://tracecat-action-gateway/internal/tables/sample_rows/aggregate"
+        f"http://tracecat-action-gateway/internal/tables/{encoded_name}/aggregate"
     )
     assert orjson.loads(requests[0].content) == spec
     assert result == {
@@ -72,6 +84,9 @@ async def test_aggregate_rows_preserves_json_and_internal_gateway_path(
         "sample_rows/../other",
         "sample_rows\\other",
         "sample_rows\n",
+        ".",
+        "..",
+        "sample_rows\x7f",
         "",
     ],
 )
@@ -83,19 +98,6 @@ async def test_aggregate_rows_rejects_url_syntax_before_request(
     with pytest.raises(ValueError, match="Table name must"):
         await tables_client.aggregate_rows(table_name, {"group_by": []})
     mock_tracecat_client.post.assert_not_awaited()
-
-
-@pytest.mark.anyio
-@pytest.mark.parametrize("table_name", ["sample_rows", "_rows2", "café", "表格"])
-async def test_aggregate_rows_accepts_server_identifiers(
-    table_name: str,
-    tables_client: TablesClient,
-    mock_tracecat_client: MagicMock,
-) -> None:
-    await tables_client.aggregate_rows(table_name, {"group_by": []})
-    mock_tracecat_client.post.assert_awaited_once_with(
-        f"/tables/{table_name}/aggregate", json={"group_by": []}
-    )
 
 
 @pytest.fixture

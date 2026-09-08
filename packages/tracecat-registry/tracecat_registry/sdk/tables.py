@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal, cast
+from urllib.parse import quote
 
 from tracecat_registry import types
 from tracecat_registry.sdk.types import UNSET, Unset, is_set
@@ -35,19 +36,19 @@ class TablesClient:
         Raises:
             ValueError: If the table name is not a single identifier.
         """
-        # Validate before URL construction: path separators, percent escapes,
-        # queries, and fragments could redirect this read action to a write route.
-        # Match the server's identifier alphabet, including Unicode letters.
+        # Legacy metadata names may contain punctuation or Unicode. Reject URL
+        # routing syntax, not names that fail today's table-creation rules.
         if (
             not table_name
-            or not (table_name[0].isalpha() or table_name[0] == "_")
-            or not all(char.isalnum() or char == "_" for char in table_name)
-        ):
-            raise ValueError(
-                "Table name must start with a letter or underscore and contain "
-                "only letters, numbers, and underscores"
+            or table_name in {".", ".."}
+            or any(
+                char in "/\\%?#" or ord(char) < 32 or ord(char) == 127
+                for char in table_name
             )
-        return await self._client.post(f"/tables/{table_name}/aggregate", json=spec)
+        ):
+            raise ValueError("Table name must be a single URL path segment")
+        encoded_name = quote(table_name, safe="")
+        return await self._client.post(f"/tables/{encoded_name}/aggregate", json=spec)
 
     async def list_tables(self) -> list[types.Table]:
         """List tables in the workspace."""

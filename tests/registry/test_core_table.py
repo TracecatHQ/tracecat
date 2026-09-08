@@ -82,7 +82,7 @@ class TestCoreAggregateRows:
             },
         )
 
-    @pytest.mark.parametrize("limit", [None, 0, 1])
+    @pytest.mark.parametrize("limit", [None, 0, 1, 1500])
     async def test_optional_limit_is_omitted_only_when_none(
         self, mock_tables_client: AsyncMock, limit: int | None
     ) -> None:
@@ -92,11 +92,6 @@ class TestCoreAggregateRows:
             assert "limit" not in spec
         else:
             assert spec["limit"] == limit
-
-    async def test_rejects_limit_above_cap(self, mock_tables_client: AsyncMock) -> None:
-        with pytest.raises(ValueError, match="Limit cannot be greater than 1000"):
-            await aggregate_rows(table="sample_rows", group_by=[], limit=1001)
-        mock_tables_client.aggregate_rows.assert_not_awaited()
 
 
 def test_aggregate_action_schema_supports_pre_run_validation() -> None:

@@ -51,6 +51,8 @@ from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import get_async_session
 from tracecat.db.models import Workspace
 from tracecat.executor.action_gateway.app import create_app as create_action_gateway_app
+from tracecat.tables.common import sanitize_identifier
+from tracecat.tables.schemas import TableCreate
 from tracecat.tables.service import TablesService
 
 _ACTION_GATEWAY_SOCKET = "/tmp/tracecat-test-action-gateway.sock"
@@ -125,10 +127,28 @@ async def test_table_name() -> str:
 @pytest.mark.anyio
 @pytest.mark.usefixtures("db", "table_ctx")
 class TestAggregateRows:
+    @pytest.mark.parametrize("suffix", ["-legacy", " legacy", "café", "表格"])
+    async def test_exact_legacy_names(
+        self, test_table_name: str, session: AsyncSession, table_ctx: Role, suffix: str
+    ) -> None:
+        legacy_name = f"{test_table_name}{suffix}"
+        service = TablesService(session, role=table_ctx)
+        # Simulate stored metadata from before the ASCII creation restriction.
+        # The physical table still follows the service's legacy normalization.
+        table = await service.create_table(
+            TableCreate.model_construct(name=sanitize_identifier(legacy_name))
+        )
+        table.name = legacy_name
+        await session.flush()
+        assert await aggregate_rows(table=legacy_name, group_by=[]) == {
+            "groups": [{"count": 0}],
+            "truncated": False,
+        }
+
     async def test_omitted_limit_uses_server_default(
         self, test_table_name: str
     ) -> None:
-        """Also run with default=2 and max=50 to detect a hardcoded action limit."""
+        """The override tests rerun this gateway contract with fresh server settings."""
         await create_table(
             name=test_table_name, columns=[{"name": "category", "type": "TEXT"}]
         )
@@ -157,6 +177,18 @@ class TestAggregateRows:
             order_by="category",
             sort="asc",
         ) == {"groups": [{"category": "blue", "count": 1}], "truncated": True}
+        assert await aggregate_rows(
+            table=test_table_name,
+            group_by=[],
+            limit=config.TRACECAT__LIMIT_AGG_GROUPS_MAX,
+        ) == {"groups": [{"count": 3}], "truncated": False}
+        with pytest.raises(TracecatValidationError) as above_maximum:
+            await aggregate_rows(
+                table=test_table_name,
+                group_by=[],
+                limit=config.TRACECAT__LIMIT_AGG_GROUPS_MAX + 1,
+            )
+        assert above_maximum.value.status_code == 422
 
     async def test_filtered_totals_null_groups_and_truncation(
         self, test_table_name: str

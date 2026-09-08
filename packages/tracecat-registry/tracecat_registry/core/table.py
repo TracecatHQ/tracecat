@@ -77,8 +77,9 @@ async def aggregate_rows(
     limit: Annotated[
         int | None,
         Doc(
-            "Maximum groups to return, from 1 to 1000, subject to the server's "
-            "configured maximum. Omit to use the server default (normally 100). "
+            "Maximum groups to return, at least 1 and subject to the server's "
+            "configured maximum (normally 1000). Omit to use the server default "
+            "(normally 100). "
             "Excess groups set truncated."
         ),
     ] = None,
@@ -101,11 +102,6 @@ async def aggregate_rows(
         ),
     ] = None,
 ) -> types.AggregateResponse:
-    if limit is not None and limit > config.TRACECAT__LIMIT_AGG_GROUPS_MAX:
-        raise ValueError(
-            f"Limit cannot be greater than {config.TRACECAT__LIMIT_AGG_GROUPS_MAX}"
-        )
-
     # The recursive query remains plain JSON; only an omitted limit is removed
     # so the server can apply its configured default and maximum.
     spec: dict[str, Any] = {
