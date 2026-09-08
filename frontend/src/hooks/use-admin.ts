@@ -372,6 +372,8 @@ export function useAdminOrgInvitations(orgId: string) {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey })
       },
+      // Callers toast on the awaited result, including the 409 cooldown.
+      meta: { suppressErrorToast: true },
     })
 
   function goToNextPage() {

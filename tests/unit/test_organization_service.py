@@ -46,8 +46,8 @@ from tracecat.exceptions import (
     TracecatNotFoundError,
     TracecatValidationError,
 )
-from tracecat.invitations.consumer import RESEND_COOLDOWN
 from tracecat.invitations.enums import InvitationStatus
+from tracecat.invitations.service import RESEND_COOLDOWN
 from tracecat.organization.service import OrgService, accept_invitation_for_user
 
 
@@ -1662,18 +1662,27 @@ class TestOrganizationServiceInvitations:
         invitation.email_attempts = 2
         await session.commit()
 
-        resent = await service.resend_invitation(invitation.id)
+        invitation_id = invitation.id
+        token, expires_at = invitation.token, invitation.expires_at
+        role_name, role_slug = org1_member_role.name, org1_member_role.slug
+        # A fresh request cannot reuse the role loaded while creating the invitation.
+        session.expunge_all()
+        resent = await service.resend_invitation(invitation_id)
 
         assert resent.email_claimed_at is None
         assert resent.email_sent_at is None
         assert resent.email_attempts == 0
+        assert resent.token == token
+        assert resent.expires_at == expires_at
+        assert resent.role_obj.name == role_name
+        assert resent.role_obj.slug == role_slug
 
         # The reset must be committed, not just flushed, or the poller never sees it.
         await session.rollback()
-        await session.refresh(invitation)
-        assert invitation.email_claimed_at is None
-        assert invitation.email_sent_at is None
-        assert invitation.email_attempts == 0
+        await session.refresh(resent)
+        assert resent.email_claimed_at is None
+        assert resent.email_sent_at is None
+        assert resent.email_attempts == 0
 
     @pytest.mark.anyio
     async def test_resend_invitation_unknown_id_raises(
@@ -1756,6 +1765,7 @@ class TestOrganizationServiceInvitations:
             await service.resend_invitation(invitation.id)
 
     @pytest.mark.anyio
+    @pytest.mark.parametrize("recently_sent", [False, True])
     async def test_resend_invitation_within_cooldown_raises(
         self,
         session: AsyncSession,
@@ -1763,15 +1773,20 @@ class TestOrganizationServiceInvitations:
         admin_in_org1: User,
         org1_member_role: DBRole,
         smtp_configured: None,
+        recently_sent: bool,
     ):
-        """Test resend_invitation rejects a claim inside the cooldown window."""
+        """Test resend rejects a recent claim or send after a long batch wait."""
         role = create_admin_role(org1.id, admin_in_org1.id)
         service = OrgService(session, role=role)
 
         invitation = await service.create_invitation(
             email="cooldown-resend@example.com", role_id=org1_member_role.id
         )
-        invitation.email_claimed_at = datetime.now(UTC) - (RESEND_COOLDOWN / 2)
+        invitation.email_claimed_at = datetime.now(UTC) - (
+            RESEND_COOLDOWN * 2 if recently_sent else RESEND_COOLDOWN / 2
+        )
+        if recently_sent:
+            invitation.email_sent_at = datetime.now(UTC)
         await session.commit()
 
         with pytest.raises(TracecatConflictError):

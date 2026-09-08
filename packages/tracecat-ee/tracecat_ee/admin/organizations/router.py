@@ -265,10 +265,7 @@ async def resend_organization_invitation(
             detail="Invitation not found",
         ) from e
     except TracecatConflictError as e:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Invitation email was sent less than a minute ago",
-        ) from e
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
     except TracecatValidationError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

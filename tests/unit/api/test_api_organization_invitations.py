@@ -182,9 +182,7 @@ async def test_resend_invitation_cooldown_returns_409(
         response = client.post(f"/organization/invitations/{uuid.uuid4()}/resend")
 
     assert response.status_code == status.HTTP_409_CONFLICT
-    assert (
-        response.json()["detail"] == "Invitation email was sent less than a minute ago"
-    )
+    assert response.json()["detail"] == "too soon"
 
 
 @pytest.mark.anyio
