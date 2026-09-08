@@ -21,6 +21,7 @@ from tracecat.cases.enums import (
 from tracecat.db.models import Case
 from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers.workflow import WorkspaceUUID
+from tracecat.query.compiler import compile_predicate
 from tracecat.query.filters import FilterOp
 from tracecat.query.resolver import (
     FieldKind,
@@ -392,7 +393,7 @@ def _ranked_enum_field[
         value: NormalizedFilterValue | None,
     ) -> ColumnElement[bool]:
         if op not in _RANGE_OPS:
-            return _compile_predicate(column.expression, op, value)
+            return compile_predicate(column.expression, op, value)
 
         if not isinstance(value, Enum):
             raise TracecatValidationError(
@@ -407,7 +408,7 @@ def _ranked_enum_field[
             *((column == member, rank) for member, rank in ranks.items()),
             else_=None,
         )
-        return _compile_predicate(rank_expression, op, ranks[ranked_value])
+        return compile_predicate(rank_expression, op, ranks[ranked_value])
 
     return ResolvedField(
         expr=predicate,
@@ -451,7 +452,7 @@ def _custom_field_predicate_factory(
             .select_from(table)
             .where(
                 table.c.case_id == Case.id,
-                _compile_predicate(expression, op, value),
+                compile_predicate(expression, op, value),
             )
             .correlate(Case)
         )
@@ -461,44 +462,6 @@ def _custom_field_predicate_factory(
         return sa.case((has_non_null_value, matches), else_=None)
 
     return predicate
-
-
-def _compile_predicate(
-    expression: ColumnElement[Any],
-    op: FilterOp,
-    value: NormalizedFilterValue | None,
-) -> ColumnElement[bool]:
-    match op:
-        case FilterOp.EQ:
-            return expression == value
-        case FilterOp.NE:
-            return expression != value
-        case FilterOp.IN:
-            assert isinstance(value, list)
-            return expression.in_(value)
-        case FilterOp.NOT_IN:
-            assert isinstance(value, list)
-            return expression.not_in(value)
-        case FilterOp.GT:
-            return expression > value
-        case FilterOp.GTE:
-            return expression >= value
-        case FilterOp.LT:
-            return expression < value
-        case FilterOp.LTE:
-            return expression <= value
-        case FilterOp.CONTAINS:
-            assert isinstance(value, str)
-            return expression.ilike(f"%{_escape_like(value)}%", escape="\\")
-        case FilterOp.STARTS_WITH:
-            assert isinstance(value, str)
-            return expression.ilike(f"{_escape_like(value)}%", escape="\\")
-        case FilterOp.IS_NULL:
-            return expression.is_(None)
-
-
-def _escape_like(value: str) -> str:
-    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 def _invalid_custom_field(
