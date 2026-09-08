@@ -4,7 +4,7 @@ import asyncio
 import uuid
 
 import pytest
-from sqlalchemy import select, text
+from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from tests.database import TEST_DB_CONFIG
@@ -118,4 +118,11 @@ async def test_deletion_rechecks_references_after_concurrent_publication(
             )
             assert projected_id == integration_id
     finally:
-        await engine.dispose()
+        try:
+            async with factory() as cleanup:
+                await cleanup.execute(
+                    delete(Workspace).where(Workspace.id == role.workspace_id)
+                )
+                await cleanup.commit()
+        finally:
+            await engine.dispose()
