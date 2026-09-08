@@ -48,7 +48,8 @@ export type SkillFrontmatterToolsState =
  * Read tool declarations without changing the user's raw frontmatter YAML.
  */
 export function readSkillFrontmatterTools(
-  frontmatter: string
+  frontmatter: string,
+  mcpIntegrations: MCPIntegrationRead[] = []
 ): SkillFrontmatterToolsState {
   const document = parseDocument(frontmatter, { keepSourceTokens: true })
   if (document.errors.length > 0 || !isMap(document.contents)) {
@@ -117,7 +118,18 @@ export function readSkillFrontmatterTools(
   const normalized = Array.from(
     new Set<string>(values.map((value) => value.trim()))
   )
-  const invalid = normalized.filter((value) => !isCanonicalToolId(value))
+  const stdioSlugs = new Set(
+    mcpIntegrations
+      .filter((integration) => integration.server_type === "stdio")
+      .map((integration) => integration.slug)
+  )
+  const invalid = normalized.filter((value) => {
+    const [namespace, slug, tool] = value.split(".")
+    return (
+      !isCanonicalToolId(value) ||
+      (namespace === "mcp" && tool !== undefined && stdioSlugs.has(slug))
+    )
+  })
   if (invalid.length > 0) {
     return {
       valid: false,

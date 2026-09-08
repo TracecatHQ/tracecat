@@ -40,8 +40,8 @@ export function SkillToolsDropdown({
   const { mcpIntegrations, mcpIntegrationsIsLoading, mcpIntegrationsError } =
     useListMcpIntegrations(workspaceId)
   const toolsState = useMemo(
-    () => readSkillFrontmatterTools(frontmatter),
-    [frontmatter]
+    () => readSkillFrontmatterTools(frontmatter, mcpIntegrations ?? []),
+    [frontmatter, mcpIntegrations]
   )
   const suggestions = useMemo<Suggestion[]>(
     () =>
