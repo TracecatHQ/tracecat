@@ -39,7 +39,13 @@ async def list_agent_presets(
     return await service.build_preset_list_reads(presets)
 
 
-@router.post("/tool-policy", response_model=AgentPresetToolPolicyRead)
+@router.post(
+    "/tool-policy",
+    response_model=AgentPresetToolPolicyRead,
+    responses={
+        status.HTTP_400_BAD_REQUEST: {"description": "Invalid tool policy selections"},
+    },
+)
 @require_scope("agent:read")
 async def preview_tool_policy(
     *,
