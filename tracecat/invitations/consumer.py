@@ -26,8 +26,9 @@ async def claim_invitation_batch(
     *,
     limit: int = CLAIM_BATCH_SIZE,
 ) -> list[OrganizationInvitation]:
-    """Claim up to `limit` unsent invitations, incrementing their attempt count.
+    """Claim unsent invitations and return detached delivery snapshots.
 
+    Claims up to `limit` rows, incrementing their attempt count.
     Claiming before sending makes delivery at-most-once: a crashed pod leaves
     the row claimed and unsent rather than risking a duplicate email.
     """
@@ -53,6 +54,10 @@ async def claim_invitation_batch(
         .returning(OrganizationInvitation)
     )
     rows = list(claimed.scalars().all())
+    # Commit keeps rows attached; a later rollback expires them all.
+    # Detach now so one failed delivery cannot break the rest of the batch.
+    for row in rows:
+        session.expunge(row)
     await session.commit()
     return rows
 
@@ -67,7 +72,7 @@ async def deliver_invitation(
     A retryable failure releases the claim so a later tick retries; any other
     failure leaves the row claimed and unsent, and the error surfaces.
     """
-    # Read every field up front: the commits below expire the instance.
+    # Claimed invitations are detached snapshots of the delivery fields.
     invitation_id = invitation.id
     attempts = invitation.email_attempts
     organization_name = await session.scalar(
@@ -126,7 +131,6 @@ async def run_invitation_email_tick(session: AsyncSession) -> int:
 
     invitations = await claim_invitation_batch(session)
     for invitation in invitations:
-        # Read the id up front: a rollback below expires the instance.
         invitation_id = invitation.id
         # Each row commits its own outcome so one failure never blocks the batch.
         try:
