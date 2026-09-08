@@ -80,7 +80,11 @@ def test_stdio_requirement_is_independent_of_source(direct: bool) -> None:
 
 
 @pytest.mark.parametrize(
-    "whole_integration, expected", [(False, {}), (True, {"mcp.Synthetic.write": True})]
+    "whole_integration, expected",
+    [
+        (False, {}),
+        (True, {"mcp.Synthetic.write": True, "mcp.Synthetic.issue.get": True}),
+    ],
 )
 def test_mcp_approvals_apply_only_to_selected_available_tools(
     whole_integration: bool, expected: dict[str, bool]
