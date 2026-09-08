@@ -5305,6 +5305,23 @@ class OrganizationInvitation(InvitationMixin, TimestampMixin, Base):
         server_default=text("false"),
         doc="Whether the invitation was created by a platform admin",
     )
+    # The invitation row is its own delivery outbox: a NULL claim means unsent
+    # and eligible, and claiming before sending makes delivery at-most-once.
+    email_claimed_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        doc="When a poller claimed this row for delivery",
+    )
+    email_sent_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        doc="When the invitation email was delivered",
+    )
+    email_attempts: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default=text("0"),
+        doc="Number of delivery attempts made",
+    )
 
     # Relationships
     organization: Mapped[Organization] = relationship("Organization")
