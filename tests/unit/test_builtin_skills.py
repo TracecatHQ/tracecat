@@ -48,8 +48,10 @@ class TestSkillOrigin:
 
     def test_platform_origin_is_explicit(self):
         assert all(skill.origin is SkillOrigin.PLATFORM for skill in PLATFORM_SKILLS)
-        assert PLATFORM_SKILLS[0].skill_name == "workspace-chat"
-        assert PLATFORM_SKILLS[0].qualified_name == "tracecat:workspace-chat"
+        workspace_chat = next(
+            skill for skill in PLATFORM_SKILLS if skill.skill_name == "workspace-chat"
+        )
+        assert workspace_chat.qualified_name == "tracecat:workspace-chat"
 
 
 class TestBuiltinSkillsConstant:
