@@ -240,7 +240,12 @@ jobs:
             TRACECAT__DB_MAX_OVERFLOW=9 \
             uv run pytest tests/temporal -m "requires_api and not live_secret" -ra -o faulthandler_timeout=300
           else
-            uv run pytest tests/${{ matrix.test_group }} -m "not live_secret" -n auto -ra -o faulthandler_timeout=300
+            test_paths=("tests/${{ matrix.test_group }}")
+            if [ "${{ matrix.test_group }}" = "unit" ]; then
+              # These gateway/query integration suites use the same core services.
+              test_paths+=(tests/integration/test_case_aggregation.py tests/integration/test_query_execution_integration.py)
+            fi
+            uv run pytest "${test_paths[@]}" -m "not live_secret" -n auto -ra -o faulthandler_timeout=300
           fi
 
       - name: Show Docker logs on failure

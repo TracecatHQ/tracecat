@@ -13,20 +13,16 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
-from tracecat.api.common import (
-    query_overflow_exception_handler,
-    query_timeout_exception_handler,
-)
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
 from tracecat.auth.types import Role
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
-from tracecat.cases.internal_router import router
-from tracecat.cases.schemas import CaseAggregateRequest
 from tracecat.cases.service import CasesService
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session
-from tracecat.db.models import Case, CaseFields, Organization, Workspace
-from tracecat.query.errors import TracecatQueryOverflowError, TracecatQueryTimeoutError
+from tracecat.db.models import Case, CaseFields, Organization, User, Workspace
+from tracecat.executor.action_gateway.app import create_app
+
+pytestmark = pytest.mark.anyio
 
 
 @pytest.fixture
@@ -43,7 +39,7 @@ async def aggregate_service(
         service_id="tracecat-executor",
         organization_id=workspace.organization_id,
         workspace_id=workspace.id,
-        scopes=frozenset({"case:read"}),
+        scopes=frozenset({"case:read", "table:read", "table:create"}),
     )
     token = ctx_role.set(role)
     try:
@@ -53,17 +49,10 @@ async def aggregate_service(
 
 
 @pytest.fixture
-async def aggregate_client(
-    aggregate_service: CasesService,
-) -> AsyncIterator[httpx.AsyncClient]:
-    app = FastAPI()
-    app.include_router(router)
-    app.add_exception_handler(
-        TracecatQueryTimeoutError, query_timeout_exception_handler
-    )
-    app.add_exception_handler(
-        TracecatQueryOverflowError, query_overflow_exception_handler
-    )
+async def aggregate_app(aggregate_service: CasesService) -> FastAPI:
+    # Use production routing, middleware, scope checks, and exception handlers.
+    # Only the authenticated identity and database session are test dependencies.
+    app = create_app()
 
     async def role() -> Role:
         return aggregate_service.role
@@ -73,8 +62,14 @@ async def aggregate_client(
 
     app.dependency_overrides[get_args(ExecutorWorkspaceRole)[1].dependency] = role
     app.dependency_overrides[get_async_session] = session
+    return app
+
+
+@pytest.fixture
+async def aggregate_client(aggregate_app: FastAPI) -> AsyncIterator[httpx.AsyncClient]:
     async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test"
+        transport=httpx.ASGITransport(app=aggregate_app, raise_app_exceptions=False),
+        base_url="http://test",
     ) as client:
         yield client
 
@@ -156,7 +151,6 @@ async def custom_cases(aggregate_service: CasesService) -> sa.Table:
     return table
 
 
-@pytest.mark.anyio
 async def test_custom_nulls_and_negation(
     aggregate_service: CasesService,
     aggregate_client: httpx.AsyncClient,
@@ -208,7 +202,6 @@ async def test_custom_nulls_and_negation(
         assert response.json()["groups"] == [{"count": expected}]
 
 
-@pytest.mark.anyio
 @pytest.mark.parametrize(
     ("field", "expected"),
     [
@@ -240,25 +233,65 @@ async def test_numeric_aggregates_without_custom_group(
     assert isinstance(response.json()["groups"][0]["sum"], float)
 
 
-@pytest.mark.anyio
-async def test_custom_join_reused_and_filter_correlated(
-    aggregate_client: httpx.AsyncClient, custom_cases: sa.Table
+async def test_custom_report_preserves_wire_types_and_reuses_join(
+    aggregate_service: CasesService,
+    aggregate_client: httpx.AsyncClient,
+    custom_cases: sa.Table,
 ):
+    user = User(email="assignee@example.com", hashed_password="unused", is_active=True)
+    aggregate_service.session.add(user)
+    await aggregate_service.session.flush()
+    await aggregate_service.session.execute(
+        sa.update(Case)
+        .where(
+            Case.id.in_(
+                sa.select(custom_cases.c.case_id).where(
+                    custom_cases.c.region == "alpha"
+                )
+            )
+        )
+        .values(assignee_id=user.id)
+    )
     response = await aggregate_client.post(
         "/internal/cases/aggregate",
         json={
-            "group_by": ["fields.region", "fields.flag"],
+            "group_by": ["assignee_id", "fields.region", "fields.flag"],
             "aggs": [{"function": "sum", "field": "fields.quantity"}],
             "filters": {"field": "fields.region", "op": "eq", "value": "alpha"},
         },
     )
     assert response.status_code == 200, response.text
     assert response.json()["groups"] == [
-        {"fields.region": "alpha", "fields.flag": True, "sum_quantity": 1.0}
+        {
+            "assignee_id": str(user.id),
+            "fields.region": "alpha",
+            "fields.flag": True,
+            "sum_quantity": 1.0,
+        }
     ]
+    await aggregate_service.session.execute(
+        sa.text("SET LOCAL TIME ZONE 'Pacific/Honolulu'")
+    )
+    response = await aggregate_client.post(
+        "/internal/cases/aggregate",
+        json={
+            "group_by": ["fields.choice", {"field": "fields.day", "bucket": "month"}],
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["groups"] == [
+        {"fields.choice": "first", "fields.day": "2026-03-01", "count": 3},
+        {"fields.choice": None, "fields.day": None, "count": 1},
+    ]
+    response = await aggregate_client.post(
+        "/internal/cases/aggregate",
+        json={
+            "group_by": [{"field": "fields.day", "bucket": "day", "timezone": "UTC"}],
+        },
+    )
+    assert response.status_code == 400
 
 
-@pytest.mark.anyio
 async def test_precision_text_and_url(
     aggregate_service: CasesService,
     aggregate_client: httpx.AsyncClient,
@@ -310,7 +343,6 @@ async def test_precision_text_and_url(
         assert response.json()["groups"] == expected
 
 
-@pytest.mark.anyio
 @pytest.mark.parametrize("field", ["priority", "severity", "status"])
 async def test_enum_order(
     aggregate_service: CasesService, aggregate_client: httpx.AsyncClient, field: str
@@ -332,7 +364,6 @@ async def test_enum_order(
     ]
 
 
-@pytest.mark.anyio
 async def test_severity_range_and_workspace_isolation(
     aggregate_service: CasesService, aggregate_client: httpx.AsyncClient
 ):
@@ -363,7 +394,6 @@ async def test_severity_range_and_workspace_isolation(
     ]
 
 
-@pytest.mark.anyio
 @pytest.mark.parametrize(
     ("bucket", "instants", "expected"),
     [
@@ -417,31 +447,69 @@ async def test_time_buckets(
     ]
 
 
-@pytest.mark.anyio
-async def test_limits_and_totals(
-    aggregate_service: CasesService, aggregate_client: httpx.AsyncClient
+@pytest.mark.parametrize("resource", ["cases", "tables"])
+async def test_reporting_limits_validation_and_transaction_reuse(
+    aggregate_service: CasesService,
+    aggregate_client: httpx.AsyncClient,
+    resource: str,
 ):
-    assert (
-        await aggregate_service.aggregate_cases(CaseAggregateRequest(group_by=[]))
-    ).groups == [{"count": 0}]
+    path, field = "/internal/cases/aggregate", "priority"
+    if resource == "tables":
+        response = await aggregate_client.post(
+            "/internal/tables",
+            json={
+                "name": "report",
+                "columns": [{"name": "priority", "type": "TEXT"}],
+            },
+        )
+        assert response.status_code == 201, response.text
+        path = "/internal/tables/report/aggregate"
+    response = await aggregate_client.post(path, json={"group_by": []})
+    assert response.status_code == 200, response.text
+    assert response.json() == {"groups": [{"count": 0}], "truncated": False}
     for priority in [CasePriority.LOW, CasePriority.HIGH, CasePriority.HIGH]:
-        await add_case(aggregate_service, priority=priority)
+        if resource == "cases":
+            await add_case(aggregate_service, priority=priority)
+        else:
+            response = await aggregate_client.post(
+                "/internal/tables/report/rows", json={"data": {field: priority.value}}
+            )
+            assert response.status_code == 201, response.text
+    await aggregate_service.session.execute(
+        sa.text("SET LOCAL statement_timeout = '5min'")
+    )
+    all_groups = [{field: "high", "count": 2}, {field: "low", "count": 1}]
     for extra, expected, truncated in [
-        ({"limit": 1}, [{"priority": "high", "count": 2}], True),
-        (
-            {"limit": 2},
-            [{"priority": "high", "count": 2}, {"priority": "low", "count": 1}],
-            False,
-        ),
-        ({"min_count": 2}, [{"priority": "high", "count": 2}], False),
+        ({"limit": 1}, all_groups[:1], True),
+        ({"limit": 2}, all_groups, False),
+        ({"limit": config.TRACECAT__LIMIT_AGG_GROUPS_MAX}, all_groups, False),
+        ({"min_count": 2}, all_groups[:1], False),
+        ({"min_count": 2**31}, [], False),
+        ({"min_count": 2**63 - 1}, [], False),
     ]:
         response = await aggregate_client.post(
-            "/internal/cases/aggregate", json={"group_by": ["priority"], **extra}
+            path, json={"group_by": [field], **extra}
         )
+        assert response.status_code == 200, response.text
         assert response.json() == {"groups": expected, "truncated": truncated}
+    for extra in [
+        {"limit": 0},
+        {"limit": config.TRACECAT__LIMIT_AGG_GROUPS_MAX + 1},
+        {"min_count": 2**63},
+        {"aggs": []},
+        {"order_by": "missing"},
+    ]:
+        response = await aggregate_client.post(path, json={"group_by": [], **extra})
+        assert response.status_code == 422, response.text
+    response = await aggregate_client.post(path, json={"group_by": []})
+    assert response.status_code == 200, response.text
+    assert response.json()["groups"] == [{"count": 3}]
+    assert (
+        await aggregate_service.session.scalar(sa.text("SHOW statement_timeout"))
+        == "5min"
+    )
 
 
-@pytest.mark.anyio
 @pytest.mark.parametrize(
     "payload",
     [
@@ -468,36 +536,6 @@ async def test_semantic_errors_without_custom_schema(
     assert response.status_code == 400, response.text
 
 
-@pytest.mark.anyio
-async def test_date_and_select_groups(
-    aggregate_service: CasesService,
-    aggregate_client: httpx.AsyncClient,
-    custom_cases: sa.Table,
-):
-    await aggregate_service.session.execute(
-        sa.text("SET LOCAL TIME ZONE 'Pacific/Honolulu'")
-    )
-    response = await aggregate_client.post(
-        "/internal/cases/aggregate",
-        json={
-            "group_by": ["fields.choice", {"field": "fields.day", "bucket": "month"}]
-        },
-    )
-    assert response.status_code == 200, response.text
-    assert response.json()["groups"] == [
-        {"fields.choice": "first", "fields.day": "2026-03-01", "count": 3},
-        {"fields.choice": None, "fields.day": None, "count": 1},
-    ]
-    response = await aggregate_client.post(
-        "/internal/cases/aggregate",
-        json={
-            "group_by": [{"field": "fields.day", "bucket": "day", "timezone": "UTC"}]
-        },
-    )
-    assert response.status_code == 400
-
-
-@pytest.mark.anyio
 async def test_custom_overflow_preserves_error_contract(
     aggregate_service: CasesService,
     aggregate_client: httpx.AsyncClient,
@@ -513,40 +551,23 @@ async def test_custom_overflow_preserves_error_contract(
     assert response.status_code == 400, response.text
     assert response.json()["detail"]["code"] == "query_numeric_overflow"
     # Rolling back the failed query's savepoint leaves the caller's session usable.
-    result = await aggregate_service.aggregate_cases(CaseAggregateRequest(group_by=[]))
-    assert result.groups == [{"count": 4}]
-
-
-@pytest.mark.anyio
-@pytest.mark.parametrize("min_count", [2**31, 2**63 - 1])
-async def test_min_count_above_int32_returns_empty_groups(
-    aggregate_service: CasesService,
-    aggregate_client: httpx.AsyncClient,
-    min_count: int,
-) -> None:
-    await add_case(aggregate_service)
     response = await aggregate_client.post(
-        "/internal/cases/aggregate", json={"group_by": [], "min_count": min_count}
+        "/internal/cases/aggregate", json={"group_by": []}
     )
-    assert response.status_code == 200
-    assert response.json() == {"groups": [], "truncated": False}
-
-
-@pytest.mark.anyio
-async def test_aggregation_restores_outer_transaction_timeout(
-    aggregate_service: CasesService,
-) -> None:
-    await aggregate_service.session.execute(
-        sa.text("SET LOCAL statement_timeout = '5min'")
+    assert response.status_code == 200, response.text
+    assert response.json()["groups"] == [{"count": 4}]
+    # Missing physical storage produces a real programming error, not a mocked exception.
+    connection = await aggregate_service.session.connection()
+    await connection.run_sync(custom_cases.drop)
+    response = await aggregate_client.post(
+        "/internal/cases/aggregate", json={"group_by": ["fields.region"]}
     )
-    await aggregate_service.aggregate_cases(CaseAggregateRequest(group_by=[]))
-    assert (
-        await aggregate_service.session.scalar(sa.text("SHOW statement_timeout"))
-        == "5min"
-    )
+    assert response.status_code == 500
+    assert response.json() == {
+        "message": "An unexpected error occurred. Please try again later."
+    }
 
 
-@pytest.mark.anyio
 async def test_real_timeout_through_endpoint(
     aggregate_service: CasesService,
     aggregate_client: httpx.AsyncClient,
@@ -579,11 +600,17 @@ async def test_real_timeout_through_endpoint(
     assert response.status_code == 422, response.text
     assert response.json()["detail"]["code"] == "query_timeout"
     monkeypatch.setattr(config, "TRACECAT__AGG_STATEMENT_TIMEOUT_MS", 30_000)
-    result = await aggregate_service.aggregate_cases(CaseAggregateRequest(group_by=[]))
-    assert result.groups == [{"count": 1}]
+    assert (
+        await aggregate_service.session.scalar(sa.text("SHOW statement_timeout"))
+        == "5min"
+    )
+    response = await aggregate_client.post(
+        "/internal/cases/aggregate", json={"group_by": []}
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["groups"] == [{"count": 1}]
 
 
-@pytest.mark.anyio
 async def test_custom_fields_do_not_cross_workspaces(
     aggregate_service: CasesService,
     aggregate_client: httpx.AsyncClient,
@@ -610,7 +637,6 @@ async def test_custom_fields_do_not_cross_workspaces(
     )
 
 
-@pytest.mark.anyio
 @pytest.mark.parametrize("field", ["raw_json", "multi"])
 async def test_unsupported_custom_types(
     aggregate_service: CasesService, aggregate_client: httpx.AsyncClient, field: str
@@ -631,3 +657,26 @@ async def test_unsupported_custom_types(
             "/internal/cases/aggregate", json=payload
         )
         assert response.status_code == 400, response.text
+
+
+async def test_gateway_scope_enforcement_and_schema_visibility(
+    aggregate_app: FastAPI,
+    aggregate_client: httpx.AsyncClient,
+    aggregate_service: CasesService,
+):
+    await add_case(aggregate_service)
+    restricted = aggregate_service.role.model_copy(update={"scopes": frozenset()})
+    dependency = get_args(ExecutorWorkspaceRole)[1].dependency
+    aggregate_app.dependency_overrides[dependency] = lambda: restricted
+    response = await aggregate_client.post(
+        "/internal/cases/aggregate", json={"group_by": []}
+    )
+    assert response.status_code == 403, response.text
+    assert response.json()["error"]["code"] == "insufficient_scope"
+    aggregate_app.dependency_overrides[dependency] = lambda: aggregate_service.role
+    response = await aggregate_client.post(
+        "/internal/cases/aggregate", json={"group_by": []}
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["groups"] == [{"count": 1}]
+    assert "/internal/cases/aggregate" not in aggregate_app.openapi()["paths"]
