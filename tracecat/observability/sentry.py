@@ -15,11 +15,14 @@ from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sentry_sdk.integrations.starlette import StarletteIntegration
 from sentry_sdk.transport import Transport
 from sentry_sdk.types import Event, Hint
+from temporalio.exceptions import ActivityError
+from temporalio.exceptions import TimeoutError as TemporalTimeoutError
 
 from tracecat import __version__ as APP_VERSION
 from tracecat import config
 from tracecat.logger import logger
 from tracecat.runtime.errors import RuntimeErrorClassification
+from tracecat.temporal.errors import iter_error_chain
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,10 +50,12 @@ class SentryTag(StrEnum):
     API_ROUTE = "http.route"
     SERVICE_TASK_NAME = "tracecat.service.task.name"
     COMPONENT = "tracecat.component"
+    ACTIVITY_TIMEOUT_TYPE = "temporal.activity.timeout_type"
 
 
 _WORKER_ALLOWED_TAGS = frozenset(
     {
+        SentryTag.ACTIVITY_TIMEOUT_TYPE.value,
         SentryTag.SERVICE_NAME.value,
         SentryTag.ERROR_OWNER.value,
         SentryTag.ERROR_KIND.value,
@@ -139,7 +144,21 @@ def capture_platform_failure(
         if not client.is_active() or client.options.get("dsn") is None:
             return
 
+        timeout_type = next(
+            (
+                cause.type
+                for current in iter_error_chain(error, include_implicit_context=False)
+                if isinstance(current, ActivityError)
+                and isinstance(cause := current.cause, TemporalTimeoutError)
+                and cause.type is not None
+            ),
+            None,
+        )
         with sentry_sdk.isolation_scope() as scope:
+            if timeout_type is not None:
+                scope.set_tag(
+                    SentryTag.ACTIVITY_TIMEOUT_TYPE.value, timeout_type.name.lower()
+                )
             scope.fingerprint = [
                 "tracecat-runtime-v1",
                 classification.kind.value,
