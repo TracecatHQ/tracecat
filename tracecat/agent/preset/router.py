@@ -39,7 +39,13 @@ async def list_agent_presets(
     return await service.build_preset_list_reads(presets)
 
 
-@router.post("/tool-policy", response_model=AgentPresetToolPolicyRead)
+@router.post(
+    "/tool-policy",
+    response_model=AgentPresetToolPolicyRead,
+    responses={
+        status.HTTP_400_BAD_REQUEST: {"description": "Invalid tool policy selections"},
+    },
+)
 @require_scope("agent:read")
 async def preview_tool_policy(
     *,
@@ -51,7 +57,10 @@ async def preview_tool_policy(
     try:
         return await AgentPresetService(session, role=role).preview_tool_policy(params)
     except TracecatValidationError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=exc.detail if exc.detail is not None else str(exc),
+        ) from exc
 
 
 @router.post(
