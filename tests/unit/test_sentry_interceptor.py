@@ -21,6 +21,7 @@ from sentry_sdk.integrations.starlette import StarletteIntegration
 from sentry_sdk.transport import Transport
 from sentry_sdk.types import Event, Hint
 from sqlalchemy import create_engine
+from sqlalchemy.exc import IntegrityError, OperationalError, ProgrammingError
 from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 from sqlalchemy.pool import QueuePool
 from starlette.requests import Request
@@ -973,10 +974,15 @@ def test_gateway_excludes_typed_dependency_failures(
 
 
 @pytest.mark.parametrize("component", ["api", "action_gateway"])
-def test_auth_pool_exhaustion_captures_once_with_safe_request_metadata(
+@pytest.mark.parametrize(
+    "failure_kind",
+    ["auth_pool", "main_pool", "operational", "programming", "integrity"],
+)
+def test_unexpected_database_failures_capture_once_with_safe_request_metadata(
     request: pytest.FixtureRequest,
     monkeypatch: pytest.MonkeyPatch,
     component: str,
+    failure_kind: str,
 ) -> None:
     events: list[Event] = request.getfixturevalue(
         "api_sentry_events" if component == "api" else "executor_sentry_events"
@@ -1004,9 +1010,24 @@ def test_auth_pool_exhaustion_captures_once_with_safe_request_metadata(
     )
 
     async def exhausted_dependency() -> None:
+        # These are unexpected exceptions escaping the request; handled domain
+        # conflicts remain covered by the quiet HTTP exception tests above.
+        error_types = {
+            "operational": OperationalError,
+            "programming": ProgrammingError,
+            "integrity": IntegrityError,
+        }
+        if error_type := error_types.get(failure_kind):
+            raise error_type(
+                _SENSITIVE_VALUE,
+                {"secret": _SENSITIVE_VALUE},
+                RuntimeError(_SENSITIVE_VALUE),
+            )
         try:
             connection = pool.connect()
         except SQLAlchemyTimeoutError as error:
+            if failure_kind == "main_pool":
+                raise
             raise AuthPoolExhaustedError(_SENSITIVE_VALUE) from error
         else:
             connection.close()
@@ -1026,8 +1047,9 @@ def test_auth_pool_exhaustion_captures_once_with_safe_request_metadata(
                 headers={"Authorization": f"Bearer {_SENSITIVE_VALUE}"},
             )
         sentry_sdk.flush()
-        assert response.status_code == 503
-        assert response.json()["detail"]["code"] == "auth_database_unavailable"
+        assert response.status_code == (503 if failure_kind == "auth_pool" else 500)
+        if failure_kind == "auth_pool":
+            assert response.json()["detail"]["code"] == "auth_database_unavailable"
         [event] = events
         assert "tags" in event
         assert "exception" in event
@@ -1036,10 +1058,14 @@ def test_auth_pool_exhaustion_captures_once_with_safe_request_metadata(
         assert event["tags"][SentryTag.API_ROUTE.value] == "/protected"
         assert _SENSITIVE_VALUE not in json.dumps(event)
         assert "request" not in event
-        assert [value["type"] for value in event["exception"]["values"]] == [
-            "TimeoutError",
-            "AuthPoolExhaustedError",
-        ]
+        expected_type = {
+            "auth_pool": "AuthPoolExhaustedError",
+            "main_pool": "TimeoutError",
+            "operational": "OperationalError",
+            "programming": "ProgrammingError",
+            "integrity": "IntegrityError",
+        }[failure_kind]
+        assert event["exception"]["values"][-1]["type"] == expected_type
     finally:
         held.close()
         recovered = pool.connect()
