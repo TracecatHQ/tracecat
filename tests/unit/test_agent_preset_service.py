@@ -3939,14 +3939,23 @@ class TestAgentPresetService:
         assert agent_config.base_url == preset.base_url
         assert agent_config.instructions == preset.instructions
         assert agent_config.output_type == preset.output_type
-        assert agent_config.actions == ["core.http_request", "tools.test.test_action"]
+        assert agent_config.actions == ["core.http_request"]
         assert agent_config.resolved_skills is not None
         assert [ref.skill_version_id for ref in agent_config.resolved_skills] == [
             skill_version.id
         ]
-        # Namespace filtering is compiled into the authored action list so that
-        # independently granted skill actions are not filtered a second time.
-        assert agent_config.namespaces is None
+        # The preset policy also limits registry tools granted by skills.
+        assert agent_config.namespaces == ["core"]
+
+        # Removing the policy restores authored and skill-granted actions.
+        version.namespaces = None
+        unrestricted = await agent_preset_service._version_to_agent_config(version)
+        assert unrestricted.actions == [
+            "core.http_request",
+            "tools.test.another_action",
+            "tools.test.test_action",
+        ]
+        assert unrestricted.namespaces is None
         assert agent_config.tool_approvals == preset.tool_approvals
         assert agent_config.retries == preset.retries
         assert agent_config.model_settings == {"parallel_tool_calls": False}

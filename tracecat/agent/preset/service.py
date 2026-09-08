@@ -2184,15 +2184,15 @@ class AgentPresetService(BaseWorkspaceService):
                     "preset_version_id": str(version.id),
                 },
             )
-        preset_actions = [
+        declared_actions = dict.fromkeys(
+            [*(version.actions or ()), *skill_tool_grants.registry_tool_ids]
+        )
+        effective_actions = [
             action
-            for action in version.actions or ()
+            for action in declared_actions
             if not version.namespaces
             or any(action.startswith(namespace) for namespace in version.namespaces)
         ]
-        effective_actions = list(
-            dict.fromkeys([*preset_actions, *skill_tool_grants.registry_tool_ids])
-        )
         # Only disable parallel tool calls if tools will be present
         if effective_actions or mcp_servers:
             model_settings["parallel_tool_calls"] = False
@@ -2217,9 +2217,9 @@ class AgentPresetService(BaseWorkspaceService):
             instructions=version.instructions,
             output_type=cast(OutputType | None, version.output_type),
             actions=effective_actions or None,
-            # Namespace filters apply to authored preset actions, not independent
-            # capabilities declared by attached skills.
-            namespaces=None,
+            # Keep the policy at the tool-build boundary as well as applying it
+            # to the combined preset and skill grants above.
+            namespaces=version.namespaces,
             tool_approvals=version.tool_approvals,
             mcp_servers=mcp_servers,
             agents=agents,
