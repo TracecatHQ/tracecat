@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import socket
 from email.message import EmailMessage
 from unittest.mock import AsyncMock
 
+import aiosmtplib
 import pytest
 from aiosmtplib.response import SMTPResponse
 
@@ -220,3 +222,39 @@ async def test_send_succeeds_when_no_recipient_is_refused(
     )
 
     await transport.send(_outbound())
+
+
+@pytest.mark.parametrize(
+    ("error", "retryable"),
+    [
+        (aiosmtplib.SMTPConnectError("refused"), True),
+        (ConnectionRefusedError("refused"), True),
+        (socket.gaierror("name resolution failed"), True),
+        (aiosmtplib.SMTPAuthenticationError(535, "bad credentials"), False),
+        (aiosmtplib.SMTPRecipientsRefused([]), False),
+        (RuntimeError("boom"), False),
+    ],
+)
+@pytest.mark.anyio
+async def test_smtp_transport_marks_pre_send_failures_retryable(
+    monkeypatch: pytest.MonkeyPatch, error: Exception, retryable: bool
+) -> None:
+    monkeypatch.setattr(
+        transport_module.aiosmtplib, "send", AsyncMock(side_effect=error)
+    )
+    transport = SMTPTransport(
+        host="smtp.example.com",
+        port=587,
+        username="relay",
+        password="secret",
+        from_addr="Tracecat <no-reply@example.com>",
+    )
+
+    with pytest.raises(EmailDeliveryError) as exc_info:
+        await transport.send(_outbound())
+
+    assert exc_info.value.retryable is retryable
+
+
+def test_email_delivery_error_defaults_to_non_retryable() -> None:
+    assert EmailDeliveryError("failed").retryable is False
