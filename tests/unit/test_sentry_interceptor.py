@@ -11,6 +11,7 @@ import sentry_sdk
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from opentelemetry import trace
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from sentry_sdk.client import Client
 from sentry_sdk.envelope import Envelope
 from sentry_sdk.integrations.atexit import AtexitIntegration
@@ -44,6 +45,11 @@ from tracecat.exceptions import EntitlementRequired, ScopeDeniedError
 from tracecat.executor.action_gateway import app as gateway_module
 from tracecat.logger import logger
 from tracecat.observability import sentry as sentry_module
+from tracecat.observability.otel import (
+    initialize_platform_tracing,
+    instrument_fastapi_app,
+    shutdown_platform_tracing,
+)
 from tracecat.observability.sentry import (
     SentryTag,
     WorkflowFailureEventContext,
@@ -956,3 +962,70 @@ def test_gateway_excludes_typed_dependency_failures(
     assert response.status_code == status_code
     assert response_marker in response.text
     assert executor_sentry_events == []
+
+
+@pytest.mark.parametrize("component", ["api", "action_gateway"])
+def test_request_trace_survives_span_unwind(
+    monkeypatch: pytest.MonkeyPatch,
+    component: str,
+) -> None:
+    shutdown_platform_tracing()
+    monkeypatch.setattr(sentry_module.config, "TRACECAT__PLATFORM_OTEL_ENABLED", True)
+    service = "tracecat-api" if component == "api" else "tracecat-executor"
+    monkeypatch.setattr(sentry_module.config, "TRACECAT__SERVICE_NAME", service)
+    exporter = InMemorySpanExporter()
+    initialize_platform_tracing(service, exporter=exporter)
+    transport = _InMemoryTransport()
+    initializer = (
+        initialize_api_sentry if component == "api" else initialize_executor_sentry
+    )
+    initializer(
+        dsn="https://public@example.com/1",
+        environment="test-eu",
+        release="tracecat@test",
+        transport=transport,
+    )
+    try:
+        if component == "api":
+            app = FastAPI()
+            instrument_fastapi_app(app, service_name=service)
+        else:
+            monkeypatch.setattr(
+                gateway_module, "_include_internal_routers", lambda app: None
+            )
+            app = gateway_module.create_app()
+
+        async def failing_route(item_id: str) -> None:
+            raise RuntimeError(f"{_SENSITIVE_VALUE}:{item_id}")
+
+        app.add_api_route("/items/{item_id}", failing_route)
+        with TestClient(app, raise_server_exceptions=False) as client:
+            for _ in range(2):
+                response = client.get(
+                    f"/items/{_SENSITIVE_VALUE}?token={_SENSITIVE_VALUE}"
+                )
+                assert response.status_code == 500
+        sentry_sdk.flush()
+        assert not trace.get_current_span().get_span_context().is_valid
+        assert len(transport.events) == 2
+        spans = exporter.get_finished_spans()
+        assert len(spans) == 2
+        captured_ids: list[str] = []
+        for event, span in zip(transport.events, spans, strict=True):
+            assert "contexts" in event
+            span_context = span.get_span_context()
+            assert span_context is not None
+            assert event["contexts"]["tracecat_otel"] == {
+                "trace_id": f"{span_context.trace_id:032x}",
+                "span_id": f"{span_context.span_id:016x}",
+            }
+            captured_id = event["contexts"]["tracecat_otel"]["trace_id"]
+            assert isinstance(captured_id, str)
+            captured_ids.append(captured_id)
+            assert _SENSITIVE_VALUE not in json.dumps(event)
+        assert captured_ids[0] != captured_ids[1]
+    finally:
+        shutdown_platform_tracing()
+        sentry_sdk.init(
+            dsn=None, default_integrations=False, auto_enabling_integrations=False
+        )

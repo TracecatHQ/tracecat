@@ -397,8 +397,8 @@ def _sanitize_api_event(
     tags[SentryTag.ERROR_OWNER.value] = "platform"
     tags[SentryTag.COMPONENT.value] = component
     span_context = trace.get_current_span().get_span_context()
-    if span_context.is_valid:
-        contexts = event.setdefault("contexts", {})
+    contexts = event.setdefault("contexts", {})
+    if span_context.is_valid and "tracecat_otel" not in contexts:
         contexts["tracecat_otel"] = {
             "trace_id": f"{span_context.trace_id:032x}",
             "span_id": f"{span_context.span_id:016x}",

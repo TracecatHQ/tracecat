@@ -17,6 +17,7 @@ from threading import Lock
 from typing import TYPE_CHECKING, Final, Protocol
 from uuid import UUID
 
+import sentry_sdk
 from opentelemetry import context as otel_context
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
@@ -446,6 +447,18 @@ def current_trace_id() -> str | None:
 
 def _sanitize_server_span(span: Span, scope: Scope) -> None:
     """Replace raw URLs with a credential-safe route template."""
+    # Sentry's outer ASGI wrapper reports after this span has ended. Save
+    # identifiers on its request isolation scope while the span is available.
+    # Non-recording (unsampled) spans still provide useful correlation IDs.
+    span_context = span.get_span_context()
+    if span_context.is_valid:
+        sentry_sdk.set_context(
+            "tracecat_otel",
+            {
+                "trace_id": f"{span_context.trace_id:032x}",
+                "span_id": f"{span_context.span_id:016x}",
+            },
+        )
     if not span.is_recording():
         return
     route_path = getattr(scope.get("route"), "path", None)
