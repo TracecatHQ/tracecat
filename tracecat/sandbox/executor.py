@@ -124,6 +124,12 @@ def _nsjail_failure_hint(stderr: str) -> str | None:
 
 _NSJAIL_LAUNCH_FAILURE_EXIT_CODE = 0xFF
 _NSJAIL_POLICY_VIOLATION_EXIT_CODES = {128 + signal.SIGSYS}
+# SIGABRT (134) is deliberately absent. A Python workload reports allocation
+# failure in-band as MemoryError, which the wrapper and minimal runner turn
+# into a structured ``resource_limit_exceeded`` envelope code. A SIGABRT from
+# Python has other structural causes (os.abort(), native assertion failures,
+# glibc heap-corruption checks), and the exit code alone cannot separate them
+# without inspecting stderr text, which this codebase forbids.
 _NSJAIL_RESOURCE_LIMIT_EXIT_CODES = {
     128 + signal.SIGKILL,
     128 + signal.SIGXCPU,

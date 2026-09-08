@@ -911,20 +911,31 @@ class LoopbackHandler:
         self._result.result_usage = usage
         self._result.result_num_turns = num_turns
 
-    async def _handle_error(self, error: str) -> bool:
+    async def _handle_error(
+        self,
+        error: str,
+        *,
+        classification: RuntimeErrorClassification | None = None,
+    ) -> bool:
         """Handle a terminal runtime error."""
         stream_sink = await self.prepare()
         logger.error("Runtime error", error=error)
         await self._emit_terminal_stream_error(stream_sink, error)
         self._result.error = error
-        # Top-level runtime errors are emitted by the runtime's unexpected-error
-        # boundary and carry no trusted ownership metadata.
-        self._result.classification = agent_executor_unavailable()
+        # A classification is trusted only when the host-side runtime hands it
+        # over in-process. Error envelopes arriving over the sandbox socket
+        # carry no ownership metadata by design, so those stay platform-owned.
+        self._result.classification = classification or agent_executor_unavailable()
         return True
 
-    async def send_error(self, error: str) -> None:
+    async def send_error(
+        self,
+        error: str,
+        *,
+        classification: RuntimeErrorClassification | None = None,
+    ) -> None:
         """Handle a terminal runtime error."""
-        await self._handle_error(error)
+        await self._handle_error(error, classification=classification)
 
     async def _handle_done(self) -> bool:
         """Handle runtime completion."""
