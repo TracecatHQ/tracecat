@@ -1,4 +1,4 @@
-"""Isolated regressions for immutable skill grant compilation."""
+"""Isolated regressions for immutable skill dependency validation."""
 
 import uuid
 from unittest.mock import AsyncMock, MagicMock
@@ -8,8 +8,8 @@ from cryptography.fernet import Fernet
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
-from tracecat.agent.skill.grants import SkillToolGrantService
-from tracecat.agent.skill.types import ResolvedSkillRef, SkillMcpGrant
+from tracecat.agent.skill.dependencies import SkillToolDependencyService
+from tracecat.agent.skill.types import ResolvedSkillRef
 from tracecat.auth.types import Role
 from tracecat.db.models import MCPIntegration, SkillVersion, SkillVersionMcpTool
 from tracecat.exceptions import TracecatValidationError
@@ -62,7 +62,7 @@ async def test_explicit_requirements_are_validated_before_union(
         "list_mcp_integrations",
         AsyncMock(return_value=[integration]),
     )
-    service = SkillToolGrantService(session=session, role=role)
+    service = SkillToolDependencyService(session=session, role=role)
     monkeypatch.setattr(service, "require_entitlement", AsyncMock())
     resolved = [
         ResolvedSkillRef(
@@ -73,16 +73,18 @@ async def test_explicit_requirements_are_validated_before_union(
         )
     ]
 
+    metadata = await service.load_metadata([version_id])
     if not available:
         with pytest.raises(TracecatValidationError) as exc_info:
-            await service.compile_tool_grants(
-                preset_version_id=uuid.uuid4(), resolved_skills=resolved
+            await service.validate_dependencies(
+                metadata=metadata,
+                preset_version_id=uuid.uuid4(),
+                resolved_skills=resolved,
             )
         assert exc_info.value.detail is not None
         assert exc_info.value.detail["code"] == "skill_mcp_tools_unavailable"
         assert exc_info.value.detail["tool_ids"] == ["mcp.synthetic.read"]
     else:
-        grants = await service.compile_tool_grants(
-            preset_version_id=uuid.uuid4(), resolved_skills=resolved
+        await service.validate_dependencies(
+            metadata=metadata, preset_version_id=uuid.uuid4(), resolved_skills=resolved
         )
-        assert grants.mcp_grants == (SkillMcpGrant(integration_id, None),)

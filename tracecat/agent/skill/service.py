@@ -27,6 +27,7 @@ from sqlalchemy.orm import selectinload
 
 from tracecat import config
 from tracecat.agent.skill.bindings import SkillBindingService
+from tracecat.agent.skill.dependencies import SkillToolDependencyService
 from tracecat.agent.skill.frontmatter import (
     MAX_SKILL_TOOLS,
     SkillFrontmatter,
@@ -34,7 +35,6 @@ from tracecat.agent.skill.frontmatter import (
     parse_skill_markdown,
     split_skill_markdown_frontmatter,
 )
-from tracecat.agent.skill.grants import SkillToolGrantService
 from tracecat.agent.skill.schemas import (
     SkillCreate,
     SkillDownloadPreparedFile,
@@ -3268,7 +3268,10 @@ class SkillService(SkillBindingService):
             self._raise_missing_version_name(skill_version_id=version.id)
         rows = await self._list_version_rows(version.id)
         await self.session.refresh(version, attribute_names=["tools", "mcp_tools"])
-        await SkillToolGrantService(self.session, role=self.role).compile_tool_grants(
+        dependencies = SkillToolDependencyService(self.session, role=self.role)
+        metadata = await dependencies.load_metadata([version.id])
+        await dependencies.validate_dependencies(
+            metadata=metadata,
             resolved_skills=[
                 ResolvedSkillRef(
                     skill_id=skill.id,
@@ -3276,7 +3279,7 @@ class SkillService(SkillBindingService):
                     skill_version_id=version.id,
                     manifest_sha256=version.manifest_sha256,
                 )
-            ]
+            ],
         )
         # Restore the accepted snapshot, including its original projection UUIDs.
         # Historical frontmatter may not satisfy today's authoring schema; these

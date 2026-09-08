@@ -1,4 +1,4 @@
-"""Compile tool grants from resolved immutable skill versions."""
+"""Load and validate tool dependencies of immutable skill versions."""
 
 from __future__ import annotations
 
@@ -10,8 +10,7 @@ from sqlalchemy.orm import selectinload
 
 from tracecat.agent.skill.types import (
     ResolvedSkillRef,
-    SkillMcpGrant,
-    SkillToolGrants,
+    SkillToolMetadata,
 )
 from tracecat.agent.skill.validation import get_mcp_grant_support_error
 from tracecat.db.models import SkillVersion
@@ -23,42 +22,68 @@ from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.tiers.enums import Entitlement
 
 
-class SkillToolGrantService(BaseWorkspaceService):
+class SkillToolDependencyService(BaseWorkspaceService):
     """Load and authorize projections for already-resolved skill versions."""
 
-    service_name = "skill_tool_grant"
+    service_name = "skill_tool_dependency"
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
-    async def compile_tool_grants(
+    async def load_metadata(
         self,
+        skill_version_ids: Sequence[uuid.UUID],
         *,
-        preset_version_id: uuid.UUID | None = None,
-        resolved_skills: Sequence[ResolvedSkillRef],
-    ) -> SkillToolGrants:
-        """Compile grants for the same versions selected by head resolution."""
-
-        if not resolved_skills:
-            return SkillToolGrants()
-
-        preset_context = (
-            str(preset_version_id) if preset_version_id is not None else None
-        )
-        version_ids = [skill.skill_version_id for skill in resolved_skills]
+        mcp_integration_ids: Sequence[str] = (),
+    ) -> SkillToolMetadata:
+        """Load a shared metadata view without credentials or remote discovery."""
         stmt = (
             select(SkillVersion)
             .where(
                 SkillVersion.workspace_id == self.workspace_id,
-                SkillVersion.id.in_(version_ids),
+                SkillVersion.id.in_(skill_version_ids),
             )
             .options(
                 selectinload(SkillVersion.tools),
                 selectinload(SkillVersion.mcp_tools),
             )
         )
-        versions_by_id = {
-            version.id: version
-            for version in (await self.session.execute(stmt)).scalars().all()
-        }
+        versions_by_id = (
+            {
+                version.id: version
+                for version in (await self.session.execute(stmt)).scalars().all()
+            }
+            if skill_version_ids
+            else {}
+        )
+        needs_mcp = bool(mcp_integration_ids) or any(
+            version.mcp_tools for version in versions_by_id.values()
+        )
+        integrations = (
+            await IntegrationService(
+                self.session, role=self.role
+            ).list_mcp_integrations()
+            if needs_mcp
+            else []
+        )
+        return SkillToolMetadata(
+            versions=versions_by_id,
+            integrations={integration.id: integration for integration in integrations},
+        )
+
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
+    async def validate_dependencies(
+        self,
+        *,
+        resolved_skills: Sequence[ResolvedSkillRef],
+        metadata: SkillToolMetadata,
+        preset_version_id: uuid.UUID | None = None,
+    ) -> None:
+        """Validate original declarations before policy combines their grants."""
+        if not resolved_skills:
+            return
+        preset_context = (
+            str(preset_version_id) if preset_version_id is not None else None
+        )
+        version_ids = [skill.skill_version_id for skill in resolved_skills]
+        versions_by_id = metadata.versions
         missing_version_ids = sorted(
             str(version_id) for version_id in set(version_ids) - versions_by_id.keys()
         )
@@ -113,18 +138,7 @@ class SkillToolGrantService(BaseWorkspaceService):
             for tool in mcp_rows
             if tool.mcp_integration_id is not None
         }
-        available_integrations = (
-            await IntegrationService(
-                self.session, role=self.role
-            ).list_mcp_integrations()
-            if requested_integration_ids
-            else []
-        )
-        integrations_by_id = {
-            integration.id: integration
-            for integration in available_integrations
-            if integration.id in requested_integration_ids
-        }
+        integrations_by_id = metadata.integrations
         if missing_integrations := (
             requested_integration_ids - integrations_by_id.keys()
         ):
@@ -139,14 +153,12 @@ class SkillToolGrantService(BaseWorkspaceService):
                 },
             )
 
-        grants_by_integration: dict[uuid.UUID, set[str] | None] = {}
         unavailable_tool_ids: list[str] = []
         for row in mcp_rows:
             integration_id = row.mcp_integration_id
             if integration_id is None:
                 continue
             if row.tool_name is None:
-                grants_by_integration[integration_id] = None
                 continue
             # Every explicit dependency must remain available, even when another
             # declaration grants the whole integration. Validate before unioning
@@ -176,9 +188,6 @@ class SkillToolGrantService(BaseWorkspaceService):
             if policy is None or not policy.enabled or policy.status != "available":
                 unavailable_tool_ids.append(row.tool_id)
                 continue
-            tool_names = grants_by_integration.setdefault(integration_id, set())
-            if tool_names is not None:
-                tool_names.add(row.tool_name)
 
         if unavailable_tool_ids:
             raise TracecatValidationError(
@@ -189,18 +198,3 @@ class SkillToolGrantService(BaseWorkspaceService):
                     "preset_version_id": preset_context,
                 },
             )
-
-        return SkillToolGrants(
-            registry_tool_ids=registry_tool_ids,
-            mcp_grants=tuple(
-                SkillMcpGrant(
-                    mcp_integration_id=integration_id,
-                    tool_names=(
-                        frozenset(tool_names) if tool_names is not None else None
-                    ),
-                )
-                for integration_id, tool_names in sorted(
-                    grants_by_integration.items(), key=lambda item: item[0]
-                )
-            ),
-        )

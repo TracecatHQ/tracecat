@@ -4379,13 +4379,17 @@ metadata:
                 preset_version.id
             )
         )
-        grants = await preset_service.skill_tools.compile_tool_grants(
+        metadata = await preset_service.skill_tools.load_metadata(
+            [skill.skill_version_id for skill in resolved_skills]
+        )
+        await preset_service.skill_tools.validate_dependencies(
+            metadata=metadata,
             preset_version_id=preset_version.id,
             resolved_skills=resolved_skills,
         )
 
-        assert grants.registry_tool_ids == ()
-        assert grants.mcp_grants == ()
+        assert metadata.versions[resolved_skills[0].skill_version_id].tools == []
+        assert metadata.versions[resolved_skills[0].skill_version_id].mcp_tools == []
         download_file.assert_not_awaited()
 
     async def test_registry_tool_projection_follows_selected_resolution_mode(
