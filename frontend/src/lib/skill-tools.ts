@@ -100,7 +100,12 @@ export function updateSkillFrontmatterTools(
   }
 
   const document = parseDocument(frontmatter, { keepSourceTokens: true })
-  document.setIn(["metadata", "tools"], normalized)
+  const existing = document.getIn(["metadata", "tools"], true)
+  if (isSeq(existing)) {
+    existing.items = normalized.map((tool) => document.createNode(tool))
+  } else {
+    document.setIn(["metadata", "tools"], normalized)
+  }
 
   const serialized = document.toString().replace(/\n$/, "")
   return frontmatter.includes("\r\n")

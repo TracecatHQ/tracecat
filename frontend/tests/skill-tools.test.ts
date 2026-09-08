@@ -1,3 +1,4 @@
+import { parseDocument } from "yaml"
 import type { MCPIntegrationRead, RegistryActionReadMinimal } from "@/client"
 import {
   buildSkillToolOptions,
@@ -182,4 +183,16 @@ it("omits MCP options that cannot form canonical tool IDs", () => {
     "mcp.slack",
     "mcp.slack.issue_get",
   ])
+})
+
+it("preserves anchors referenced outside the tools list", () => {
+  const updated = updateSkillFrontmatterTools(
+    "name: example\nmetadata:\n  tools: &allowed [core.old]\ncopy: *allowed",
+    ["core.new"]
+  )
+  expect(parseDocument(updated).toJS()).toEqual({
+    name: "example",
+    metadata: { tools: ["core.new"] },
+    copy: ["core.new"],
+  })
 })
