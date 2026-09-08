@@ -1615,7 +1615,9 @@ class TestAgentPresetService:
         assert skill_row is not None
         skill_row.current_version_id = other_version.id
         await session.flush()
-        policies = await agent_preset_service.resolve_tool_policies([preset])
+        policies = await agent_preset_service.resolve_tool_policies(
+            [preset], heads=True
+        )
         assert "tools.synthetic.read" not in policies[preset.id].actions
         latest_policy = await agent_preset_service.resolve_preset_tool_policy(
             preset_version, use_latest_skill_versions=True

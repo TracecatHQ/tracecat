@@ -426,6 +426,15 @@ class RegistryActionsService(BaseOrgService):
             entries, include_locked=include_locked
         )
 
+    async def find_unavailable_action_ids(self, action_ids: Iterable[str]) -> set[str]:
+        """Return the requested ``namespace.name`` IDs missing from the index."""
+
+        requested = set(action_ids)
+        if not requested:
+            return set()
+        entries = await self.list_actions_from_index(include_keys=requested)
+        return requested - {f"{entry.namespace}.{entry.name}" for entry, _ in entries}
+
     async def list_actions_from_index_by_repository(
         self,
         repository_id: uuid.UUID,

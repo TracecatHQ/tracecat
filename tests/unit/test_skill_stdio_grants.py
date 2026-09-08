@@ -10,7 +10,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.agent.skill.dependencies import SkillToolDependencyService
-from tracecat.agent.skill.frontmatter import SkillFrontmatter, SkillMetadata
 from tracecat.agent.skill.service import ManifestValidationResult, SkillService
 from tracecat.agent.skill.types import ResolvedSkillRef
 from tracecat.agent.skill.validation import STDIO_MCP_TOOL_SUBSET_UNSUPPORTED
@@ -78,11 +77,7 @@ async def test_authoring_rejects_only_unsupported_stdio_declarations(
     tool_ids = [
         f"mcp.synthetic.{name}" if name else "mcp.synthetic" for name in tool_names
     ]
-    result = ManifestValidationResult(
-        frontmatter=SkillFrontmatter(
-            name="synthetic", metadata=SkillMetadata(tools=tool_ids)
-        )
-    )
+    result = ManifestValidationResult(name="synthetic", declared_tools=tuple(tool_ids))
     service = SkillService(ctx.session, role=ctx.role)
     await service._validate_declared_tools(result)
 

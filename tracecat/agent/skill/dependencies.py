@@ -31,7 +31,7 @@ class SkillToolDependencyService(BaseWorkspaceService):
         self,
         skill_version_ids: Sequence[uuid.UUID],
         *,
-        mcp_integration_ids: Sequence[str] = (),
+        include_mcp: bool = False,
     ) -> SkillToolMetadata:
         """Load a shared metadata view without credentials or remote discovery."""
         stmt = (
@@ -53,7 +53,7 @@ class SkillToolDependencyService(BaseWorkspaceService):
             if skill_version_ids
             else {}
         )
-        needs_mcp = bool(mcp_integration_ids) or any(
+        needs_mcp = include_mcp or any(
             version.mcp_tools for version in versions_by_id.values()
         )
         integrations = (
@@ -103,13 +103,9 @@ class SkillToolDependencyService(BaseWorkspaceService):
         )
         if registry_tool_ids:
             registry_service = RegistryActionsService(self.session, role=self.role)
-            available_entries = await registry_service.list_actions_from_index(
-                include_keys=set(registry_tool_ids)
-            )
-            available_tool_ids = {
-                f"{entry.namespace}.{entry.name}" for entry, _ in available_entries
-            }
-            if missing := set(registry_tool_ids) - available_tool_ids:
+            if missing := await registry_service.find_unavailable_action_ids(
+                registry_tool_ids
+            ):
                 raise TracecatValidationError(
                     "Attached skills require unavailable registry tools",
                     detail={
@@ -153,6 +149,8 @@ class SkillToolDependencyService(BaseWorkspaceService):
                 },
             )
 
+        # Validate stored tool JSON once per integration, not once per row.
+        tools_by_integration: dict[uuid.UUID, dict[str, MCPToolSummary]] = {}
         unavailable_tool_ids: list[str] = []
         for row in mcp_rows:
             integration_id = row.mcp_integration_id
@@ -177,14 +175,14 @@ class SkillToolDependencyService(BaseWorkspaceService):
                         "preset_version_id": preset_context,
                     },
                 )
-            policies = MCPToolSummary.validate_stored(
-                integration.tools,
-                mcp_integration_id=integration.id,
-            )
-            policy = next(
-                (tool for tool in policies or () if tool.name == row.tool_name),
-                None,
-            )
+            if (policies := tools_by_integration.get(integration_id)) is None:
+                policies = tools_by_integration[integration_id] = (
+                    MCPToolSummary.index_stored(
+                        integration.tools,
+                        mcp_integration_id=integration.id,
+                    )
+                )
+            policy = policies.get(row.tool_name)
             if policy is None or not policy.enabled or policy.status != "available":
                 unavailable_tool_ids.append(row.tool_id)
                 continue
