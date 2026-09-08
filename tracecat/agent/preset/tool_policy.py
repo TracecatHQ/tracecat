@@ -5,20 +5,17 @@ from __future__ import annotations
 import uuid
 from collections.abc import Mapping, Sequence
 
-from sqlalchemy import select
-from sqlalchemy.orm import selectinload
-
 from tracecat.agent.mcp.utils import REGISTRY_MCP_SERVER_NAME, normalize_mcp_tool_name
 from tracecat.agent.preset.types import (
     EffectivePresetTools,
     PresetToolInputs,
     PresetToolSource,
 )
+from tracecat.agent.skill.dependencies import SkillToolDependencyService
 from tracecat.agent.skill.types import SkillMcpGrant
 from tracecat.agent.tools import EXCLUDED_AGENT_ACTIONS
 from tracecat.db.models import MCPIntegration, SkillVersion
 from tracecat.integrations.schemas import MCPToolSummary
-from tracecat.integrations.service import IntegrationService
 from tracecat.service import BaseWorkspaceService
 
 
@@ -36,39 +33,18 @@ class PresetToolPolicyService(BaseWorkspaceService):
     ) -> dict[uuid.UUID, EffectivePresetTools]:
         if not inputs:
             return {}
-        version_ids = {vid for item in inputs for vid in item.skill_version_ids}
-        versions: dict[uuid.UUID, SkillVersion] = {}
-        if version_ids:
-            stmt = (
-                select(SkillVersion)
-                .where(
-                    SkillVersion.workspace_id == self.workspace_id,
-                    SkillVersion.id.in_(version_ids),
-                )
-                .options(
-                    selectinload(SkillVersion.tools),
-                    selectinload(SkillVersion.mcp_tools),
-                )
-            )
-            versions = {
-                version.id: version
-                for version in (await self.session.scalars(stmt)).all()
-            }
-        needs_mcp = any(item.mcp_integrations for item in inputs) or any(
-            version.mcp_tools for version in versions.values()
+        metadata = await SkillToolDependencyService(
+            self.session, role=self.role
+        ).load_metadata(
+            list({vid for item in inputs for vid in item.skill_version_ids}),
+            mcp_integration_ids=[
+                mid for item in inputs for mid in item.mcp_integrations
+            ],
         )
-        integrations = (
-            await IntegrationService(
-                self.session, role=self.role
-            ).list_mcp_integrations()
-            if needs_mcp
-            else []
-        )
-        integrations_by_id = {
-            integration.id: integration for integration in integrations
-        }
         return {
-            item.key: resolve_tool_policy(item, versions, integrations_by_id)
+            item.key: resolve_tool_policy(
+                item, metadata.versions, metadata.integrations
+            )
             for item in inputs
         }
 

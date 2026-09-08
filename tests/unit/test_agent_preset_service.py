@@ -66,6 +66,7 @@ from tracecat.db.models import (
 )
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.integrations.enums import MCPAuthType
+from tracecat.integrations.service import IntegrationService
 from tracecat.pagination import BaseCursorPaginator, CursorPaginationParams
 from tracecat.registry.actions.schemas import RegistryActionType
 from tracecat.registry.versions.schemas import (
@@ -4350,6 +4351,7 @@ class TestAgentPresetService:
 @pytest.mark.parametrize("server_type", ["stdio", "http"])
 async def test_skill_dependency_policy_is_shared_by_reads_and_runtime(
     server_type: str,
+    monkeypatch: pytest.MonkeyPatch,
     configure_minio_for_skills: None,
     session: AsyncSession,
     svc_role: Role,
@@ -4411,7 +4413,18 @@ async def test_skill_dependency_policy_is_shared_by_reads_and_runtime(
         AgentPresetToolPolicyPreview(skill_ids=[skill.id])
     )
     assert preview == read.tool_policy
-    runtime = await agent_preset_service._version_to_agent_config(version)
+    integration_loads = 0
+    original_load = IntegrationService.list_mcp_integrations
+
+    async def counted_load(service: IntegrationService) -> Sequence[MCPIntegration]:
+        nonlocal integration_loads
+        integration_loads += 1
+        return await original_load(service)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(IntegrationService, "list_mcp_integrations", counted_load)
+        runtime = await agent_preset_service._version_to_agent_config(version)
+    assert integration_loads == 1
     pinned = await agent_preset_service._version_to_agent_config(
         version, resolve_dependencies_from_heads=False
     )
