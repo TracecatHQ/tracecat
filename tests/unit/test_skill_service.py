@@ -4462,6 +4462,7 @@ metadata:
             ),
         )
         first_version = await skill_service.publish_skill(created.id)
+        assert first_version.registry_tool_ids == ["core.http_request"]
 
         projection = (
             await session.execute(
@@ -4506,7 +4507,13 @@ metadata:
                 ],
             ),
         )
-        await skill_service.publish_skill(created.id)
+        second_version = await skill_service.publish_skill(created.id)
+        assert second_version.registry_tool_ids == []
+        # Warning data comes from this exact published version, not the new head.
+        first_version_read = await skill_service.get_version_read(
+            skill_id=created.id, version_id=first_version.id
+        )
+        assert first_version_read.registry_tool_ids == ["core.http_request"]
 
         latest_config = await preset_service._version_to_agent_config(
             pinned_preset_version

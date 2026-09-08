@@ -3200,6 +3200,16 @@ class SkillService(SkillBindingService):
         if version is None:
             raise TracecatNotFoundError(f"Skill version '{version_id}' not found")
         rows = await self._list_version_rows(version.id)
+        registry_tool_ids = (
+            await self.session.scalars(
+                select(SkillVersionTool.tool_id)
+                .where(
+                    SkillVersionTool.workspace_id == self.workspace_id,
+                    SkillVersionTool.skill_version_id == version.id,
+                )
+                .order_by(SkillVersionTool.tool_id)
+            )
+        ).all()
         return SkillVersionRead(
             id=version.id,
             skill_id=version.skill_id,
@@ -3212,6 +3222,7 @@ class SkillService(SkillBindingService):
             description=version.description,
             created_at=version.created_at,
             updated_at=version.updated_at,
+            registry_tool_ids=list(registry_tool_ids),
             files=[
                 SkillFileEntry(
                     path=version_file.path,

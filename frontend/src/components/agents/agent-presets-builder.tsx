@@ -59,6 +59,7 @@ import type {
   MCPIntegrationRead,
   SkillReadMinimal,
 } from "@/client"
+import { AgentNamespacePolicyWarnings } from "@/components/agents/agent-namespace-policy-warnings"
 import { AgentPresetDetailActions } from "@/components/agents/agent-preset-detail-actions"
 import { AgentPresetVersionSelect } from "@/components/agents/agent-preset-version-select"
 import { SlackChannelPanel } from "@/components/agents/external-channels/slack-channel-panel"
@@ -2106,6 +2107,7 @@ function AgentPresetRightPanel({
 
           <TabsContent value="configuration" className="mt-0 h-full">
             <AgentPresetConfigurationPanel
+              workspaceId={workspaceId}
               form={form}
               isSaving={isSaving}
               actionSuggestions={actionSuggestions}
@@ -2160,6 +2162,7 @@ function AgentPresetRightPanel({
 }
 
 function AgentPresetConfigurationPanel({
+  workspaceId,
   form,
   isSaving,
   actionSuggestions,
@@ -2173,6 +2176,7 @@ function AgentPresetConfigurationPanel({
   onAddToolApproval,
   onRemoveToolApproval,
 }: {
+  workspaceId: string
   form: UseFormReturn<AgentPresetFormValues>
   isSaving: boolean
   actionSuggestions: Suggestion[]
@@ -2186,6 +2190,9 @@ function AgentPresetConfigurationPanel({
   onAddToolApproval: () => void
   onRemoveToolApproval: (index: number) => void
 }) {
+  const namespaces = form.watch("namespaces")
+  const skills = form.watch("skills")
+  const actions = form.watch("actions")
   const catalogId = form.watch("catalog_id")
   const sourceId = form.watch("source_id")
   const modelProvider = form.watch("model_provider")
@@ -2541,7 +2548,13 @@ function AgentPresetConfigurationPanel({
             name="namespaces"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Tool namespaces</FormLabel>
+                <FormLabel>Tool namespace policy</FormLabel>
+                <FormDescription>
+                  Restrict registry tools from this preset and its attached
+                  skills to these namespace prefixes. This filters selected
+                  tools; it does not add tools. MCP tools are configured
+                  separately.
+                </FormDescription>
                 <FormControl>
                   <MultiTagCommandInput
                     value={field.value}
@@ -2555,6 +2568,12 @@ function AgentPresetConfigurationPanel({
                 </FormControl>
               </FormItem>
             )}
+          />
+          <AgentNamespacePolicyWarnings
+            workspaceId={workspaceId}
+            namespaces={namespaces}
+            skills={skills}
+            actions={actions}
           />
         </section>
 
@@ -3042,6 +3061,7 @@ function AgentPresetSkillsPanel({
   onRemoveSkillBinding: (index: number) => void
 }) {
   const [isPickerOpen, setIsPickerOpen] = useState(false)
+  const namespaces = form.watch("namespaces")
   const selectedSkills = form.watch("skills")
   const { skills, skillsLoading, skillsError } = useSkills(workspaceId)
   const attachedSkillIds = useMemo(
@@ -3091,6 +3111,11 @@ function AgentPresetSkillsPanel({
               Add skill
             </Button>
           </div>
+          <AgentNamespacePolicyWarnings
+            workspaceId={workspaceId}
+            namespaces={namespaces}
+            skills={selectedSkills}
+          />
           {skillsError ? (
             <Alert variant="destructive">
               <AlertCircle className="size-4" />

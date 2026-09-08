@@ -25211,6 +25211,14 @@ export const $SkillVersionRead = {
       format: "date-time",
       title: "Updated At",
     },
+    registry_tool_ids: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Registry Tool Ids",
+      description: "Registry tools declared by this published version.",
+    },
     files: {
       items: {
         $ref: "#/components/schemas/SkillFileEntry",
