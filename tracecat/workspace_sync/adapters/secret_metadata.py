@@ -6,6 +6,7 @@ import sqlalchemy as sa
 from pydantic import BaseModel, SecretStr
 from sqlalchemy import select
 
+from tracecat import config
 from tracecat.db.models import Secret
 from tracecat.secrets.enums import SecretType
 from tracecat.secrets.schemas import SecretKeyValue
@@ -210,6 +211,7 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
                     environment=spec.environment,
                     tags=tags,
                     description=spec.description,
+                    backend=config.TRACECAT__SECRETS_BACKEND,
                 )
             else:
                 # Matched an existing row: update it in place to the spec.

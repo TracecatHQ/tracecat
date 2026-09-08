@@ -46,14 +46,22 @@ async def test_auth_sandbox_with_secrets(mocker: pytest_mock.MockFixture, test_r
         tags={},
     )
 
-    mock_get_secrets = mocker.patch.object(
-        AuthSandbox, "_get_secrets", return_value=[mock_secret]
+    # The database backend fetches encrypted rows and decrypts them.
+    mock_secrets_service = mocker.AsyncMock(spec=SecretsService)
+    mock_secrets_service.search_secrets.return_value = [mock_secret]
+    mocker.patch(
+        "tracecat.secrets.backends.database.SecretsService.with_session",
+        return_value=mocker.AsyncMock(
+            __aenter__=mocker.AsyncMock(return_value=mock_secrets_service)
+        ),
     )
 
     async with AuthSandbox(secrets=["my_secret"]) as sandbox:
         assert sandbox.secrets == {"my_secret": {"SECRET_KEY": "my_secret_key"}}
 
-    mock_get_secrets.assert_called_once()
+    mock_secrets_service.search_secrets.assert_called_once_with(
+        SecretSearch(names={"my_secret"}, environment="default")
+    )
 
 
 @pytest.mark.anyio
@@ -81,7 +89,7 @@ async def test_auth_sandbox_missing_secret(mocker: pytest_mock.MockFixture, test
     mock_secrets_service = mocker.AsyncMock(spec=SecretsService)
     mock_secrets_service.search_secrets.return_value = []
     mocker.patch(
-        "tracecat.auth.sandbox.SecretsService.with_session",
+        "tracecat.secrets.backends.database.SecretsService.with_session",
         return_value=mocker.AsyncMock(
             __aenter__=mocker.AsyncMock(return_value=mock_secrets_service)
         ),
@@ -236,7 +244,7 @@ async def test_auth_sandbox_optional_secrets(
     mock_secrets_service = mocker.AsyncMock(spec=SecretsService)
     mock_secrets_service.search_secrets.return_value = [required_secret]
     mocker.patch(
-        "tracecat.auth.sandbox.SecretsService.with_session",
+        "tracecat.secrets.backends.database.SecretsService.with_session",
         return_value=mocker.AsyncMock(
             __aenter__=mocker.AsyncMock(return_value=mock_secrets_service)
         ),
@@ -323,7 +331,7 @@ async def test_auth_sandbox_all_secrets_present(
         optional_secret,
     ]
     mocker.patch(
-        "tracecat.auth.sandbox.SecretsService.with_session",
+        "tracecat.secrets.backends.database.SecretsService.with_session",
         return_value=mocker.AsyncMock(
             __aenter__=mocker.AsyncMock(return_value=mock_secrets_service)
         ),
@@ -380,7 +388,7 @@ async def test_auth_sandbox_optional_secret_with_all_keys(
     mock_secrets_service = mocker.AsyncMock(spec=SecretsService)
     mock_secrets_service.search_secrets.return_value = [optional_secret]
     mocker.patch(
-        "tracecat.auth.sandbox.SecretsService.with_session",
+        "tracecat.secrets.backends.database.SecretsService.with_session",
         return_value=mocker.AsyncMock(
             __aenter__=mocker.AsyncMock(return_value=mock_secrets_service)
         ),
@@ -407,7 +415,7 @@ async def test_auth_sandbox_missing_optional_secret(
     mock_secrets_service = mocker.AsyncMock(spec=SecretsService)
     mock_secrets_service.search_secrets.return_value = []
     mocker.patch(
-        "tracecat.auth.sandbox.SecretsService.with_session",
+        "tracecat.secrets.backends.database.SecretsService.with_session",
         return_value=mocker.AsyncMock(
             __aenter__=mocker.AsyncMock(return_value=mock_secrets_service)
         ),
@@ -449,7 +457,7 @@ async def test_auth_sandbox_optional_secret_missing_optional_key(
     mock_secrets_service = mocker.AsyncMock(spec=SecretsService)
     mock_secrets_service.search_secrets.return_value = [partial_optional_secret]
     mocker.patch(
-        "tracecat.auth.sandbox.SecretsService.with_session",
+        "tracecat.secrets.backends.database.SecretsService.with_session",
         return_value=mocker.AsyncMock(
             __aenter__=mocker.AsyncMock(return_value=mock_secrets_service)
         ),
