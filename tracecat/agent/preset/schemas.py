@@ -339,6 +339,7 @@ class AgentPresetVersionRead(AgentPresetExecutionConfig):
         default_factory=AgentPresetSubagentEligibility
     )
     skills: list[AgentPresetSkillBindingRead] = Field(default_factory=list)
+    restore_skills: list[AgentPresetSkillBindingRead]
     created_at: datetime
     updated_at: datetime
 

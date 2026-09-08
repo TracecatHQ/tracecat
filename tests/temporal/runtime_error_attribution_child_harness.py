@@ -592,7 +592,8 @@ async def run_concurrent_sibling_cancellation_preserves_causal_owner(
     test_worker_factory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> ScenarioObservation:
-    """A fanout aggregates a causal leaf failure with a cancelled sibling."""
+    """A raw custom-action failure remains causal through sibling cancellation."""
+    action_name = "custom_actions.synthetic.fetch_data"
     leaf_wf_id = WorkflowUUID.new_uuid4()
     intermediary_wf_id = WorkflowUUID.new_uuid4()
     intermediary_dsl = fanout_dsl(
@@ -618,6 +619,7 @@ async def run_concurrent_sibling_cancellation_preserves_causal_owner(
                 return prepared_fanout(
                     child_wf_id=leaf_wf_id,
                     modes=["user", "slow"],
+                    action_name=action_name,
                 )
             case _:
                 raise AssertionError(f"Unexpected subflow task: {input.task.ref}")

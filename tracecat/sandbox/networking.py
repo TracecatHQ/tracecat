@@ -368,6 +368,12 @@ def build_sandbox_dns_config(
     original loopback address on port 53. Unlike Pasta's gateway mapping, this
     does not expose arbitrary parent-loopback ports.
 
+    Accepted limitation: when the parent resolver is a container-network DNS
+    service (e.g. Docker's embedded DNS on 127.0.0.11), redirected queries can
+    resolve internal service names inside the jail. Outbound connections to
+    those addresses are still subject to the egress policy (private ranges are
+    rejected), so this leaks topology names/addresses but not reachability.
+
     Args:
         host_resolv_path: Parent namespace resolver configuration.
 

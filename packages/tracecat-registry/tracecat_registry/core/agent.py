@@ -5,11 +5,7 @@ from typing import Annotated, Any
 from pydantic import Field
 from typing_extensions import Doc
 
-from tracecat_registry import (
-    RegistrySecret,
-    RegistrySecretType,
-    registry,
-)
+from tracecat_registry import registry
 from tracecat_registry._internal.exceptions import ActionIsInterfaceError
 from tracecat_registry.fields import (
     ActionType,
@@ -20,208 +16,6 @@ from tracecat_registry.fields import (
     TextArea,
 )
 from tracecat_registry.sdk.agents import OutputType
-
-anthropic_secret = RegistrySecret(
-    name="anthropic",
-    optional_keys=["ANTHROPIC_API_KEY"],
-    optional=True,
-)
-"""Anthropic API key.
-
-- name: `anthropic`
-- optional_keys:
-    - `ANTHROPIC_API_KEY`: Optional Anthropic API key.
-"""
-
-openai_secret = RegistrySecret(
-    name="openai",
-    optional_keys=["OPENAI_API_KEY"],
-    optional=True,
-)
-"""OpenAI API key.
-
-- name: `openai`
-- optional_keys:
-    - `OPENAI_API_KEY`: Optional OpenAI API key.
-"""
-
-gemini_secret = RegistrySecret(
-    name="gemini",
-    optional_keys=["GEMINI_API_KEY"],
-    optional=True,
-)
-"""Gemini API key.
-
-- name: `gemini`
-- optional_keys:
-    - `GEMINI_API_KEY`: Optional Gemini API key.
-"""
-
-mistral_secret = RegistrySecret(
-    name="mistral",
-    optional_keys=["MISTRAL_API_KEY"],
-    optional=True,
-)
-"""Mistral API key.
-
-- name: `mistral`
-- optional_keys:
-    - `MISTRAL_API_KEY`: Optional Mistral API key.
-"""
-
-
-bedrock_secret = RegistrySecret(
-    name="amazon_bedrock",
-    optional_keys=[
-        "AWS_ACCESS_KEY_ID",
-        "AWS_SECRET_ACCESS_KEY",
-        "AWS_REGION",
-        "AWS_ROLE_ARN",
-        "AWS_ROLE_SESSION_NAME",
-        "AWS_SESSION_TOKEN",
-        "AWS_BEARER_TOKEN_BEDROCK",
-        "AWS_MODEL_ID",
-        "AWS_INFERENCE_PROFILE_ID",
-    ],
-    optional=True,
-)
-"""AWS Bedrock credentials.
-
-- name: `amazon_bedrock`
-- optional_keys:
-    Authentication (one of):
-        - `AWS_ROLE_ARN`
-        - `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY`
-        - `AWS_BEARER_TOKEN_BEDROCK`
-    Optional role settings:
-        - `AWS_ROLE_SESSION_NAME`: Audit session name for AssumeRole requests.
-    Region:
-        - `AWS_REGION`: AWS region (e.g., us-east-1)
-
-Model selection (inference profile ID or direct model ID) is configured per
-catalog entry under Organization settings → Models, not via these credentials.
-
-Tracecat automatically injects the workspace-scoped external ID required for
-cross-account AssumeRole requests.
-"""
-
-
-google_secret = RegistrySecret(
-    name="google",
-    optional_keys=["GOOGLE_API_CREDENTIALS"],
-    optional=True,
-)
-"""Google API credentials.
-
-- name: `google`
-- optional_keys:
-    - `GOOGLE_API_CREDENTIALS`: Optional Google API credentials.
-
-Note: `GOOGLE_API_CREDENTIALS` should be a JSON string of the service account credentials.
-"""
-
-
-custom_model_provider_secret = RegistrySecret(
-    name="custom-model-provider",
-    optional_keys=[
-        "CUSTOM_MODEL_PROVIDER_API_KEY",
-        "CUSTOM_MODEL_PROVIDER_MODEL_NAME",
-        "CUSTOM_MODEL_PROVIDER_BASE_URL",
-    ],
-    optional=True,
-)
-"""Custom model provider credentials.
-
-- name: `custom-model-provider`
-- optional_keys:
-    - `CUSTOM_MODEL_PROVIDER_API_KEY`: Optional custom model provider API key.
-    - `CUSTOM_MODEL_PROVIDER_MODEL_NAME`: Optional custom model provider model name.
-    - `CUSTOM_MODEL_PROVIDER_BASE_URL`: Optional custom model provider base URL.
-"""
-
-azure_openai_secret = RegistrySecret(
-    name="azure_openai",
-    optional_keys=[
-        "AZURE_API_BASE",
-        "AZURE_API_VERSION",
-        "AZURE_DEPLOYMENT_NAME",
-        "AZURE_API_KEY",
-        "AZURE_AD_TOKEN",
-        "AZURE_TENANT_ID",
-        "AZURE_CLIENT_ID",
-        "AZURE_CLIENT_SECRET",
-    ],
-    optional=True,
-)
-"""Azure OpenAI credentials.
-
-- name: `azure_openai`
-- optional_keys:
-    - `AZURE_API_BASE`: Azure OpenAI endpoint (e.g., https://<resource>.openai.azure.com).
-    - `AZURE_API_VERSION`: Azure OpenAI API version.
-    - `AZURE_API_KEY`: Azure OpenAI API key. Required if not using Entra authentication.
-    - `AZURE_AD_TOKEN`: Azure Entra (AD) token. Required if not using API key or client credentials.
-    - `AZURE_TENANT_ID`: Azure Entra tenant ID for client-credential auth.
-    - `AZURE_CLIENT_ID`: Azure Entra application client ID for client-credential auth.
-    - `AZURE_CLIENT_SECRET`: Azure Entra application client secret for client-credential auth.
-
-The deployment name is configured per catalog entry under Organization settings →
-Models, not via these credentials.
-"""
-
-azure_ai_secret = RegistrySecret(
-    name="azure_ai",
-    optional_keys=[
-        "AZURE_API_BASE",
-        "AZURE_API_KEY",
-        "AZURE_AD_TOKEN",
-        "AZURE_TENANT_ID",
-        "AZURE_CLIENT_ID",
-        "AZURE_CLIENT_SECRET",
-        "AZURE_API_VERSION",
-        "AZURE_AI_MODEL_NAME",
-    ],
-    optional=True,
-)
-"""Azure AI credentials.
-
-- name: `azure_ai`
-- optional_keys:
-    - `AZURE_API_BASE`: Azure AI endpoint (e.g., https://<resource>.services.ai.azure.com/anthropic).
-    - `AZURE_API_KEY`: Azure AI API key. Required if not using Entra authentication.
-    - `AZURE_AD_TOKEN`: Azure Entra (AD) token. Required if not using API key or client credentials.
-    - `AZURE_TENANT_ID`: Azure Entra tenant ID for client-credential auth.
-    - `AZURE_CLIENT_ID`: Azure Entra application client ID for client-credential auth.
-    - `AZURE_CLIENT_SECRET`: Azure Entra application client secret for client-credential auth.
-    - `AZURE_API_VERSION`: Optional Azure AI API version appended as the api-version query parameter.
-
-The Azure AI model name is configured per catalog entry under Organization
-settings → Models, not via these credentials.
-"""
-
-litellm_secret = RegistrySecret(
-    name="litellm",
-    keys=["LITELLM_BASE_URL"],
-    optional=True,
-)
-"""LiteLLM credentials.
-
-- name: `litellm`
-- keys:
-    - `LITELLM_BASE_URL`: LiteLLM base URL.
-"""
-
-PYDANTIC_AI_REGISTRY_SECRETS: list[RegistrySecretType] = [
-    anthropic_secret,
-    openai_secret,
-    gemini_secret,
-    mistral_secret,
-    bedrock_secret,
-    custom_model_provider_secret,
-    azure_openai_secret,
-    azure_ai_secret,
-    litellm_secret,
-]
 
 LEGACY_MODEL_FIELD_DEPRECATION_MESSAGE = "Use `model` instead."
 """Deprecation message for raw model selection fields."""
@@ -241,7 +35,6 @@ LEGACY_PRESET_VERSION_SCHEMA_EXTRA: dict[str, Any] = {
     description="AI agent with tool calling capabilities. Returns the output and full message history.",
     display_group="AI",
     doc_url="https://docs.tracecat.com/agents/ai-agent",
-    secrets=[*PYDANTIC_AI_REGISTRY_SECRETS],
     namespace="ai",
 )
 async def agent(
@@ -323,7 +116,6 @@ async def agent(
     default_title="Run agent preset",
     description="Run an AI agent using a saved agent preset.",
     display_group="AI",
-    secrets=[*PYDANTIC_AI_REGISTRY_SECRETS],
     namespace="ai",
     required_entitlements=["agent_addons"],
 )
@@ -382,7 +174,6 @@ async def preset_agent(
     display_group="AI",
     doc_url="https://docs.tracecat.com/agents/ai-action",
     namespace="ai",
-    secrets=[*PYDANTIC_AI_REGISTRY_SECRETS],
 )
 async def action(
     user_prompt: Annotated[

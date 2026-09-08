@@ -365,9 +365,14 @@ class TestActionRunner:
 
     @pytest.mark.anyio
     async def test_execute_action_sets_sdk_context_env(
-        self, temp_cache_dir, mock_run_action_input, mock_role
+        self,
+        temp_cache_dir,
+        mock_run_action_input,
+        mock_role,
+        monkeypatch: pytest.MonkeyPatch,
     ):
         """Test direct subprocess execution sets SDK auth/context env vars."""
+        monkeypatch.setenv("SENTRY_DSN", "https://public@example.com/1")
         runner = ActionRunner(cache_dir=temp_cache_dir)
         base_dir = temp_cache_dir / "base"
         base_dir.mkdir()
@@ -429,6 +434,7 @@ class TestActionRunner:
             == mock_run_action_input.run_context.environment
         )
         assert captured_env["TRACECAT__EXECUTOR_TOKEN"] == "test-executor-token"
+        assert "SENTRY_DSN" not in captured_env
 
     @pytest.mark.anyio
     async def test_execute_action_sets_action_gateway_env(

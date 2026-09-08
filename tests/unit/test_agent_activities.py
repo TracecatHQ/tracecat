@@ -17,6 +17,19 @@ from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from opentelemetry import context as otel_context
+from opentelemetry import trace
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+    InMemorySpanExporter,
+)
+from opentelemetry.trace import (
+    NonRecordingSpan,
+    SpanContext,
+    StatusCode,
+    TraceFlags,
+    TraceState,
+)
+from pydantic import HttpUrl
 from temporalio.exceptions import ApplicationError
 from tracecat_ee.agent import activities as agent_activities
 from tracecat_ee.agent.activities import (
@@ -24,25 +37,42 @@ from tracecat_ee.agent.activities import (
     BuildAgentScopeToolDefsArgs,
     BuildAgentToolDefsArgs,
     BuildToolDefsArgs,
+    BuildToolDefsResult,
     EmitSessionDoneInputs,
     EmitSessionErrorInputs,
 )
 
+from tracecat import config
 from tracecat.agent.common.config import build_agent_runtime_uv_env
 from tracecat.agent.common.fs import force_rmtree
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.common.types import MCPToolDefinition
+from tracecat.agent.error_policy import (
+    agent_executor_timed_out,
+    user_agent_execution_failed,
+)
 from tracecat.agent.executor.activity import (
     AgentExecutorInput,
     AgentExecutorResult,
+    AgentOtelInputs,
     SandboxedAgentExecutor,
     _cancel_task_with_timeout,
     _hydrate_sdk_session_history,
     run_agent_activity,
 )
-from tracecat.agent.executor.loopback import LoopbackResult
+from tracecat.agent.executor.loopback import (
+    LoopbackHandler,
+    LoopbackInput,
+    LoopbackResult,
+)
+from tracecat.agent.otel_config import AgentOtelConfig, ResolvedAgentOtelConfig
+from tracecat.agent.runtime.claude_code.broker import (
+    ClaudeTurnRequest,
+    ConcurrentSessionTurnError,
+)
 from tracecat.agent.runtime.session_paths import job_uv_state_dir
+from tracecat.agent.sandbox.llm_proxy import LLMProxyError, LLMSocketProxy
 from tracecat.agent.schemas import ToolFilters
 from tracecat.agent.session.activities import (
     CreateSessionInput,
@@ -67,10 +97,20 @@ from tracecat.agent.types import AgentConfig, Tool, clamp_agent_timeout_seconds
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.chat.schemas import ChatMessage
-from tracecat.exceptions import BuiltinRegistryHasNoSelectionError
+from tracecat.exceptions import BuiltinRegistryHasNoSelectionError, EntitlementRequired
 from tracecat.integrations.schemas import MCPToolSummary
+from tracecat.observability.otel import (
+    initialize_platform_tracing,
+    shutdown_platform_tracing,
+)
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorKind,
+    RuntimeErrorOwner,
+)
+from tracecat.temporal.errors import extract_error_classification
 
 
 @pytest.fixture
@@ -155,6 +195,42 @@ class TestSessionActivities:
 
 class TestBuildToolDefinitionsActivity:
     @pytest.mark.anyio
+    async def test_classifies_tool_approval_entitlement_denial(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_role: Role,
+    ) -> None:
+        class _TierContext:
+            async def __aenter__(self) -> object:
+                return object()
+
+            async def __aexit__(
+                self, exc_type: object, exc: object, tb: object
+            ) -> None:
+                return None
+
+        monkeypatch.setattr(
+            agent_activities.TierService,
+            "with_session",
+            lambda: _TierContext(),
+        )
+        monkeypatch.setattr(
+            agent_activities.EntitlementService,
+            "check_entitlement",
+            AsyncMock(side_effect=EntitlementRequired("agent_addons")),
+        )
+
+        with pytest.raises(ApplicationError) as exc_info:
+            await AgentActivities._check_tool_approval_entitlement(mock_role)
+
+        classification = extract_error_classification(exc_info.value)
+        assert classification is not None
+        assert classification.owner is RuntimeErrorOwner.USER
+        assert classification.kind is RuntimeErrorKind.TENANT_ENTITLEMENT_DENIED
+        assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+        assert exc_info.value.non_retryable is True
+
+    @pytest.mark.anyio
     async def test_maps_tool_definition_errors_to_application_error(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -175,9 +251,13 @@ class TestBuildToolDefinitionsActivity:
             await AgentActivities().build_tool_definitions(args)
 
         app_error = exc_info.value
-        assert app_error.type == "AgentToolDefinitionError"
+        classification = extract_error_classification(app_error)
+        assert classification is not None
+        assert classification.owner is RuntimeErrorOwner.USER
+        assert classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
         assert app_error.non_retryable is True
-        assert app_error.message == "Cannot request more than 100 tools"
+        assert app_error.message == "Agent configuration is invalid"
+        assert "Cannot request more than 100 tools" not in str(app_error)
 
     @pytest.mark.anyio
     async def test_maps_builtin_sync_pending_to_application_error(
@@ -224,6 +304,51 @@ class TestBuildToolDefinitionsActivity:
         assert app_error.type == "BuiltinRegistryHasNoSelectionError"
         assert app_error.non_retryable is False
         assert app_error.details[0] == {"origin": "tracecat_registry"}
+
+    @pytest.mark.anyio
+    async def test_classifies_custom_registry_entitlement_denial(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        async def mock_build_agent_tools(**_kwargs: Any) -> BuildToolsResult:
+            return BuildToolsResult(tools=[], collected_secrets=set())
+
+        class _LockService:
+            async def resolve_lock_with_bindings(self, _actions: set[str]) -> None:
+                raise EntitlementRequired("custom_registry")
+
+        class _AsyncContext:
+            async def __aenter__(self) -> _LockService:
+                return _LockService()
+
+            async def __aexit__(
+                self, exc_type: object, exc: object, tb: object
+            ) -> None:
+                return None
+
+        monkeypatch.setattr(
+            agent_activities, "build_agent_tools", mock_build_agent_tools
+        )
+        monkeypatch.setattr(
+            RegistryLockService,
+            "with_session",
+            lambda: _AsyncContext(),
+        )
+
+        args = BuildToolDefsArgs(
+            role=Role(type="service", service_id="tracecat-api"),
+            tool_filters=ToolFilters(actions=[]),
+        )
+
+        with pytest.raises(ApplicationError) as exc_info:
+            await AgentActivities().build_tool_definitions(args)
+
+        classification = extract_error_classification(exc_info.value)
+        assert classification is not None
+        assert classification.owner is RuntimeErrorOwner.USER
+        assert classification.kind is RuntimeErrorKind.TENANT_ENTITLEMENT_DENIED
+        assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+        assert exc_info.value.non_retryable is True
 
     @pytest.mark.anyio
     async def test_strict_mcp_discovery_failure_fails_scope_compilation(
@@ -292,10 +417,11 @@ class TestBuildToolDefinitionsActivity:
             await AgentActivities().build_tool_definitions(args)
 
         assert discover_fail_flags == [True]
-        assert exc_info.value.message == (
-            "Failed to discover configured MCP tools for agent scope"
-        )
-        assert exc_info.value.type == "AgentToolDefinitionError"
+        classification = extract_error_classification(exc_info.value)
+        assert classification is not None
+        assert classification.owner is RuntimeErrorOwner.USER
+        assert classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
+        assert exc_info.value.message == "Agent configuration is invalid"
         assert exc_info.value.non_retryable is True
 
     @pytest.mark.anyio
@@ -648,6 +774,42 @@ class TestBuildToolDefinitionsActivity:
         assert set(result.scopes["analyst"].tool_definitions) == {"core.child"}
         assert build_calls == [["core.root"], ["core.child"]]
 
+    @pytest.mark.anyio
+    async def test_duplicate_compile_scope_is_platform_invariant(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_role: Role,
+    ) -> None:
+        activities = AgentActivities()
+        monkeypatch.setattr(
+            activities,
+            "_build_scope_tool_definitions",
+            AsyncMock(
+                return_value=BuildToolDefsResult(
+                    tool_definitions={},
+                    registry_lock=RegistryLock(origins={}, actions={}),
+                )
+            ),
+        )
+        duplicate_scope = BuildAgentScopeToolDefsArgs(
+            scope="root",
+            tool_filters=ToolFilters(),
+        )
+
+        with pytest.raises(ApplicationError) as exc_info:
+            await activities.build_agent_tool_definitions(
+                BuildAgentToolDefsArgs(
+                    role=mock_role,
+                    scopes=[duplicate_scope, duplicate_scope],
+                )
+            )
+
+        classification = extract_error_classification(exc_info.value)
+        assert classification is not None
+        assert classification.owner is RuntimeErrorOwner.PLATFORM
+        assert classification.kind is RuntimeErrorKind.AGENT_PREPARATION_FAILED
+        assert exc_info.value.non_retryable is True
+
 
 class TestCreateSessionActivity:
     """Tests for create_session_activity."""
@@ -715,10 +877,10 @@ class TestCreateSessionActivity:
 
     @pytest.mark.anyio
     @patch("tracecat.agent.session.activities.AgentSessionService.with_session")
-    async def test_backfills_disabled_agents_binding_for_legacy_existing_session(
+    async def test_backfills_empty_agents_binding_for_existing_session(
         self, mock_with_session, mock_role: Role, mock_session_id: uuid.UUID
     ):
-        """Legacy NULL bindings are persisted as the disabled binding."""
+        """A missing binding is persisted as an empty resolved binding."""
         agents_binding = ResolvedAgentsConfig()
         input = CreateSessionInput(
             role=mock_role,
@@ -764,7 +926,7 @@ class TestCreateSessionActivity:
         ),
         [
             pytest.param(
-                ResolvedAgentsConfig.model_validate({"enabled": True, "subagents": []}),
+                ResolvedAgentsConfig.model_validate({"subagents": []}),
                 None,
                 None,
                 None,
@@ -773,26 +935,26 @@ class TestCreateSessionActivity:
                 id="fresh-null-backfills-resolved-agents",
             ),
             pytest.param(
-                ResolvedAgentsConfig.model_validate({"enabled": True, "subagents": []}),
+                ResolvedAgentsConfig.model_validate({"subagents": []}),
                 None,
                 "sdk-session-1",
                 None,
                 True,
                 False,
-                id="resumable-null-ignores-legacy-enabled",
+                id="resumable-null-remains-unset",
             ),
             pytest.param(
-                ResolvedAgentsConfig.model_validate({"enabled": True, "subagents": []}),
+                ResolvedAgentsConfig.model_validate({"subagents": []}),
                 None,
                 None,
                 uuid.UUID("00000000-0000-0000-0000-000000000001"),
                 True,
                 False,
-                id="fork-null-ignores-legacy-enabled",
+                id="fork-null-remains-unset",
             ),
             pytest.param(
                 ResolvedAgentsConfig(),
-                {"enabled": False},
+                {},
                 "sdk-session-1",
                 None,
                 True,
@@ -800,22 +962,22 @@ class TestCreateSessionActivity:
                 id="default-equivalent-jsonb",
             ),
             pytest.param(
-                ResolvedAgentsConfig.model_validate({"enabled": True, "subagents": []}),
-                {"enabled": False},
+                ResolvedAgentsConfig.model_validate({"subagents": []}),
+                {},
                 None,
                 None,
                 True,
                 False,
-                id="legacy-enabled-values-are-equivalent",
+                id="empty-bindings-are-equivalent",
             ),
             pytest.param(
                 None,
-                {"enabled": True, "subagents": []},
+                {"subagents": []},
                 None,
                 None,
                 True,
                 False,
-                id="missing-incoming-matches-legacy-empty-binding",
+                id="missing-incoming-matches-empty-binding",
             ),
             pytest.param(
                 ResolvedAgentsConfig(
@@ -840,6 +1002,7 @@ class TestCreateSessionActivity:
     )
     @pytest.mark.anyio
     @patch("tracecat.agent.session.activities.AgentSessionService.with_session")
+    @pytest.mark.parametrize("enforce_session_agents_binding", [True, False])
     async def test_existing_session_agents_binding_must_match(
         self,
         mock_with_session,
@@ -851,14 +1014,16 @@ class TestCreateSessionActivity:
         parent_session_id: uuid.UUID | None,
         expected_success: bool,
         expected_backfill: bool,
+        enforce_session_agents_binding: bool,
     ):
-        """Existing sessions reject binding changes once SDK/fork resume state exists."""
+        """Only legacy activity inputs enforce session-wide bindings."""
         input = CreateSessionInput(
             role=mock_role,
             session_id=mock_session_id,
             entity_type=AgentSessionEntity.AGENT_PRESET,
             entity_id=uuid.uuid4(),
             agents_binding=incoming_agents_binding,
+            enforce_session_agents_binding=enforce_session_agents_binding,
         )
 
         mock_agent_session = MagicMock()
@@ -877,19 +1042,21 @@ class TestCreateSessionActivity:
         mock_ctx.__aenter__.return_value = mock_service
         mock_with_session.return_value = mock_ctx
 
-        if expected_success:
+        if expected_success or not enforce_session_agents_binding:
             result = await create_session_activity(input)
             assert result.success is True
             assert result.error is None
         else:
             with pytest.raises(ApplicationError) as exc_info:
                 await create_session_activity(input)
-            assert exc_info.value.message == (
-                "Agent session was created with a different agents binding"
-            )
+            classification = extract_error_classification(exc_info.value)
+            assert classification is not None
+            assert classification.owner is RuntimeErrorOwner.USER
+            assert classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
+            assert exc_info.value.message == "Agent configuration is invalid"
             assert exc_info.value.non_retryable is True
 
-        if expected_backfill:
+        if expected_backfill and enforce_session_agents_binding:
             assert incoming_agents_binding is not None
             assert (
                 mock_agent_session.agents_binding
@@ -956,7 +1123,12 @@ class TestCreateSessionActivity:
         with pytest.raises(ApplicationError) as exc_info:
             await create_session_activity(input)
 
-        assert str(mock_session_id) in exc_info.value.message
+        classification = extract_error_classification(exc_info.value)
+        assert classification is not None
+        assert classification.owner is RuntimeErrorOwner.USER
+        assert classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
+        assert exc_info.value.message == "Agent configuration is invalid"
+        assert str(mock_session_id) not in str(exc_info.value)
         assert exc_info.value.non_retryable is True
         mock_service.get_session.assert_awaited_once_with(mock_session_id)
         mock_service.get_or_create_session.assert_not_called()
@@ -1130,9 +1302,7 @@ class TestLoadSessionActivity:
         )
 
         mock_agent_session = MagicMock()
-        agents_binding = ResolvedAgentsConfig.model_validate(
-            {"enabled": True, "subagents": []}
-        )
+        agents_binding = ResolvedAgentsConfig.model_validate({"subagents": []})
         mock_agent_session.agents_binding = agents_binding.model_dump(mode="json")
         mock_agent_session.sdk_session_id = "sdk-session-123"
         mock_agent_session.parent_session_id = None
@@ -1257,6 +1427,7 @@ class TestRunAgentActivity:
         return AgentExecutorInput(
             session_id=mock_session_id,
             workspace_id=mock_role.workspace_id or uuid.uuid4(),
+            curr_run_id=uuid.uuid4(),
             user_prompt="Test prompt",
             config=mock_agent_config,
             role=mock_role,
@@ -1280,6 +1451,9 @@ class TestRunAgentActivity:
         with (
             patch("tracecat.agent.executor.activity.activity") as mock_activity,
             patch(
+                "tracecat.agent.executor.activity.set_current_span_attributes"
+            ) as set_span_attributes,
+            patch(
                 "tracecat.agent.executor.activity.SandboxedAgentExecutor"
             ) as mock_executor_cls,
         ):
@@ -1294,6 +1468,18 @@ class TestRunAgentActivity:
             mock_executor_cls.assert_called_once_with(
                 input=mock_executor_input,
                 timeout_seconds=1800,
+            )
+            set_span_attributes.assert_called_once_with(
+                {
+                    "tracecat.organization.id": str(
+                        mock_executor_input.role.organization_id
+                    ),
+                    "tracecat.workspace.id": str(mock_executor_input.workspace_id),
+                    "tracecat.agent.session.id": str(mock_executor_input.session_id),
+                    "tracecat.agent.run.id": str(mock_executor_input.curr_run_id),
+                    "temporal.activity.attempt": mock_activity.info.return_value.attempt,
+                    "temporal.task_queue": mock_activity.info.return_value.task_queue,
+                }
             )
 
     def test_timeout_above_deployment_ceiling_is_clamped_not_rejected(
@@ -1415,6 +1601,7 @@ class TestRunAgentActivity:
         expected_result = AgentExecutorResult(
             success=False,
             error="Agent execution failed: timeout",
+            classification=user_agent_execution_failed(),
         )
 
         with (
@@ -1431,6 +1618,67 @@ class TestRunAgentActivity:
             result = await run_agent_activity(mock_executor_input)
 
             assert result.success is False
+            assert result.classification == user_agent_execution_failed()
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        ("result", "expected_outcome", "expected_status"),
+        [
+            (AgentExecutorResult(success=True), "success", StatusCode.UNSET),
+            (
+                AgentExecutorResult(success=True, approval_requested=True),
+                "approval",
+                StatusCode.UNSET,
+            ),
+            (
+                AgentExecutorResult(success=False, cancelled=True),
+                "cancelled",
+                StatusCode.UNSET,
+            ),
+            (AgentExecutorResult(success=False), "failure", StatusCode.ERROR),
+        ],
+    )
+    async def test_runtime_span_records_terminal_outcome(
+        self,
+        mock_executor_input: AgentExecutorInput,
+        monkeypatch: pytest.MonkeyPatch,
+        result: AgentExecutorResult,
+        expected_outcome: str,
+        expected_status: StatusCode,
+    ) -> None:
+        exporter = InMemorySpanExporter()
+        shutdown_platform_tracing()
+        monkeypatch.setattr(config, "TRACECAT__PLATFORM_OTEL_ENABLED", True)
+        runtime = initialize_platform_tracing(
+            "tracecat-agent-executor", exporter=exporter
+        )
+        assert runtime is not None
+        try:
+            with (
+                patch("tracecat.agent.executor.activity.activity") as mock_activity,
+                patch(
+                    "tracecat.agent.executor.activity.SandboxedAgentExecutor"
+                ) as mock_executor_cls,
+            ):
+                mock_activity.heartbeat = MagicMock()
+                mock_executor = MagicMock()
+                mock_executor.run = AsyncMock(return_value=result)
+                mock_executor_cls.return_value = mock_executor
+
+                await run_agent_activity(mock_executor_input)
+        finally:
+            shutdown_platform_tracing()
+
+        runtime_spans = [
+            span
+            for span in exporter.get_finished_spans()
+            if span.name == "tracecat.agent.runtime"
+        ]
+        assert len(runtime_spans) == 1
+        runtime_span = runtime_spans[0]
+        assert runtime_span.attributes is not None
+        assert runtime_span.attributes["tracecat.agent.outcome"] == expected_outcome
+        assert runtime_span.status.status_code is expected_status
 
     @pytest.mark.anyio
     async def test_sends_heartbeats(self, mock_executor_input: AgentExecutorInput):
@@ -1541,6 +1789,213 @@ class TestSandboxedAgentExecutorHelpers:
 
         assert result.success is False
         assert result.error == "runtime failed"
+        assert result.terminal_stream_error_emitted is True
+
+    async def _run_broker_leaf(
+        self,
+        *,
+        executor: SandboxedAgentExecutor,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        concurrent: bool = False,
+    ) -> AgentExecutorResult:
+        executor._job_dir = tmp_path
+        executor._llm_proxy = cast(
+            LLMSocketProxy,
+            SimpleNamespace(start=AsyncMock()),
+        )
+        handler = LoopbackHandler(
+            input=LoopbackInput(
+                session_id=executor.input.session_id,
+                workspace_id=executor.input.workspace_id,
+            )
+        )
+        monkeypatch.setattr(
+            handler,
+            "emit_terminal_error",
+            AsyncMock(return_value=True),
+        )
+
+        class FakeBroker:
+            @asynccontextmanager
+            async def session_turn_lease(self, _session_id: str):
+                if concurrent:
+                    raise ConcurrentSessionTurnError("active turn")
+                yield
+
+            async def run_turn_in_session_lease(
+                self, _request: Any, _handler: Any
+            ) -> None:
+                await asyncio.Event().wait()
+
+            async def cancel_turn(self, _session_id: str) -> None:
+                return None
+
+        async def wait_for_cancel_signal(**_kwargs: Any) -> None:
+            await asyncio.Event().wait()
+
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.get_claude_runtime_broker",
+            lambda: FakeBroker(),
+        )
+        monkeypatch.setattr(executor, "_watch_cancel_signal", wait_for_cancel_signal)
+
+        result = AgentExecutorResult(
+            success=False,
+            terminal_stream_error_emitted=False,
+        )
+        await executor._run_with_broker(
+            result=result,
+            handler=handler,
+            init_payload=executor._build_runtime_init_payload(),
+            socket_dir=tmp_path / "sockets",
+            llm_socket_path=tmp_path / "sockets" / "llm.sock",
+            artifact_working_set=None,
+            otel_socket_path=None,
+        )
+        return result
+
+    @pytest.mark.anyio
+    async def test_otel_receiver_start_failure_disables_telemetry_and_runs_turn(
+        self,
+        executor_input: AgentExecutorInput,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """An OTel bind failure clears relay state without failing the turn."""
+        executor = SandboxedAgentExecutor(input=executor_input)
+        executor._job_dir = tmp_path
+        executor._llm_proxy = cast(
+            LLMSocketProxy,
+            SimpleNamespace(start=AsyncMock()),
+        )
+        executor._otel_receiver = cast(
+            Any,
+            SimpleNamespace(start=AsyncMock(side_effect=OSError("bind failed"))),
+        )
+        handler = LoopbackHandler(
+            input=LoopbackInput(
+                session_id=executor.input.session_id,
+                workspace_id=executor.input.workspace_id,
+            )
+        )
+        requests: list[ClaudeTurnRequest] = []
+
+        class FakeBroker:
+            @asynccontextmanager
+            async def session_turn_lease(self, _session_id: str):
+                yield
+
+            async def run_turn_in_session_lease(
+                self,
+                request: ClaudeTurnRequest,
+                turn_handler: LoopbackHandler,
+            ) -> None:
+                requests.append(request)
+                turn_handler._result = LoopbackResult(success=True)
+
+            async def cancel_turn(self, _session_id: str) -> None:
+                raise AssertionError("cancel_turn should not be called")
+
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.get_claude_runtime_broker",
+            lambda: FakeBroker(),
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity._agent_fs_persistence_enabled",
+            lambda: False,
+        )
+        init_payload = executor._build_runtime_init_payload()
+        init_payload.agent_otel_sandbox_env = {"CLAUDE_CODE_ENABLE_TELEMETRY": "1"}
+        result = AgentExecutorResult(
+            success=False,
+            terminal_stream_error_emitted=False,
+        )
+
+        await executor._run_with_broker(
+            result=result,
+            handler=handler,
+            init_payload=init_payload,
+            socket_dir=tmp_path / "sockets",
+            llm_socket_path=tmp_path / "sockets" / "llm.sock",
+            artifact_working_set=None,
+            otel_socket_path=tmp_path / "sockets" / "otel.sock",
+        )
+
+        assert result.success is True
+        assert executor._otel_receiver is None
+        assert init_payload.agent_otel_sandbox_env is None
+        assert len(requests) == 1
+        assert requests[0].otel_socket_path is None
+
+    @pytest.mark.anyio
+    async def test_fatal_proxy_classification_reaches_executor_result(
+        self,
+        executor_input: AgentExecutorInput,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        executor = SandboxedAgentExecutor(input=executor_input)
+        executor._fatal_error = LLMProxyError(
+            message="raw gateway timeout",
+            classification=agent_executor_timed_out(TimeoutError("secret")),
+        )
+        executor._fatal_error_event.set()
+
+        result = await self._run_broker_leaf(
+            executor=executor,
+            monkeypatch=monkeypatch,
+            tmp_path=tmp_path,
+        )
+
+        assert result.classification is not None
+        assert result.classification.owner is RuntimeErrorOwner.PLATFORM
+        assert result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_TIMED_OUT
+        assert result.classification.retry_disposition is RetryDisposition.RETRYABLE
+        assert "secret" not in result.classification.message
+        assert result.terminal_stream_error_emitted is True
+
+    @pytest.mark.anyio
+    async def test_elapsed_deadline_is_platform_timeout(
+        self,
+        executor_input: AgentExecutorInput,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        executor = SandboxedAgentExecutor(input=executor_input, timeout_seconds=0)
+
+        result = await self._run_broker_leaf(
+            executor=executor,
+            monkeypatch=monkeypatch,
+            tmp_path=tmp_path,
+        )
+
+        assert result.classification is not None
+        assert result.classification.owner is RuntimeErrorOwner.PLATFORM
+        assert result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_TIMED_OUT
+        assert result.classification.retry_disposition is RetryDisposition.RETRYABLE
+        assert result.terminal_stream_error_emitted is True
+
+    @pytest.mark.anyio
+    async def test_concurrent_turn_is_platform_unavailable(
+        self,
+        executor_input: AgentExecutorInput,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        executor = SandboxedAgentExecutor(input=executor_input)
+
+        result = await self._run_broker_leaf(
+            executor=executor,
+            monkeypatch=monkeypatch,
+            tmp_path=tmp_path,
+            concurrent=True,
+        )
+
+        assert result.classification is not None
+        assert result.classification.owner is RuntimeErrorOwner.PLATFORM
+        assert result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+        assert result.classification.retry_disposition is RetryDisposition.RETRYABLE
         assert result.terminal_stream_error_emitted is True
 
     @pytest.mark.anyio
@@ -1723,12 +2178,17 @@ class TestSandboxedAgentExecutorCancellation:
             executor,
             monkeypatch=monkeypatch,
             tmp_path=tmp_path,
-            loopback_result=LoopbackResult(success=False, error="runtime crashed"),
+            loopback_result=LoopbackResult(
+                success=False,
+                error="runtime crashed",
+                classification=user_agent_execution_failed(),
+            ),
         )
 
         assert result.cancelled is True
         assert result.cancelled_reason == "user_cancel"
         assert result.error == "runtime crashed"
+        assert result.classification == user_agent_execution_failed()
         assert result.success is False
 
     @pytest.mark.anyio
@@ -1929,6 +2389,11 @@ class TestSandboxedAgentExecutorFilesystemPersistence:
         )
         monkeypatch.setattr(executor, "_cleanup", AsyncMock())
         monkeypatch.setattr(
+            executor,
+            "_load_artifact_working_set",
+            AsyncMock(return_value=None),
+        )
+        monkeypatch.setattr(
             "tracecat.agent.executor.activity._agent_fs_persistence_enabled",
             lambda: False,
         )
@@ -2030,6 +2495,11 @@ class TestSandboxedAgentExecutorFilesystemPersistence:
         )
         monkeypatch.setattr(executor, "_cleanup", AsyncMock())
         monkeypatch.setattr(
+            executor,
+            "_load_artifact_working_set",
+            AsyncMock(return_value=None),
+        )
+        monkeypatch.setattr(
             "tracecat.agent.executor.activity._agent_fs_persistence_enabled",
             lambda: True,
         )
@@ -2121,6 +2591,11 @@ class TestSandboxedAgentExecutorFilesystemPersistence:
             fake_create_llm_socket_proxy,
         )
         monkeypatch.setattr(executor, "_cleanup", AsyncMock())
+        monkeypatch.setattr(
+            executor,
+            "_load_artifact_working_set",
+            AsyncMock(return_value=None),
+        )
         monkeypatch.setattr(
             "tracecat.agent.executor.activity._agent_fs_persistence_enabled",
             lambda: True,
@@ -2219,6 +2694,11 @@ class TestSandboxedAgentExecutorFilesystemPersistence:
         )
         monkeypatch.setattr(executor, "_cleanup", AsyncMock())
         monkeypatch.setattr(
+            executor,
+            "_load_artifact_working_set",
+            AsyncMock(return_value=None),
+        )
+        monkeypatch.setattr(
             "tracecat.agent.executor.activity._agent_fs_persistence_enabled",
             lambda: True,
         )
@@ -2282,8 +2762,6 @@ class TestSandboxedAgentExecutorFilesystemPersistence:
     def test_build_sandbox_env_injects_receiver_bearer_jwt(self) -> None:
         """The host injects OTEL_EXPORTER_OTLP_HEADERS so Claude's exporter
         attaches the receiver JWT for the OtelSocketReceiver to verify."""
-        from tracecat.agent.otel_config import ResolvedAgentOtelConfig
-
         resolved = ResolvedAgentOtelConfig(
             enabled=True,
             sandbox_env={
@@ -2299,6 +2777,294 @@ class TestSandboxedAgentExecutorFilesystemPersistence:
         assert "OTEL_EXPORTER_OTLP_ENDPOINT" not in env
         assert env["OTEL_EXPORTER_OTLP_HEADERS"] == "Authorization=Bearer receiver-jwt"
         assert env["OTEL_LOGS_EXPORTER"] == "otlp"
+
+    def test_platform_only_sandbox_env_enables_content_free_native_traces(
+        self,
+    ) -> None:
+        env = SandboxedAgentExecutor._build_sandbox_env(
+            ResolvedAgentOtelConfig(enabled=False),
+            otel_auth_token="receiver-jwt",
+            platform_tracing=True,
+        )
+
+        assert env["CLAUDE_CODE_ENABLE_TELEMETRY"] == "1"
+        assert env["CLAUDE_CODE_ENHANCED_TELEMETRY_BETA"] == "1"
+        assert env["OTEL_TRACES_EXPORTER"] == "otlp"
+        assert env["OTEL_METRICS_EXPORTER"] == "none"
+        assert env["OTEL_LOGS_EXPORTER"] == "none"
+        assert env["OTEL_LOG_USER_PROMPTS"] == "0"
+        assert env["OTEL_LOG_TOOL_DETAILS"] == "0"
+        assert env["OTEL_LOG_TOOL_CONTENT"] == "0"
+
+    @pytest.mark.anyio
+    async def test_run_builds_tenant_otel_receiver_from_org_settings(
+        self,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        mock_agent_config: AgentConfig,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Org settings become a tenant route and receiver-backed sandbox env."""
+        executor = SandboxedAgentExecutor(
+            input=AgentExecutorInput(
+                session_id=mock_session_id,
+                workspace_id=mock_role.workspace_id or uuid.uuid4(),
+                user_prompt="Test prompt",
+                config=mock_agent_config,
+                role=mock_role,
+                mcp_auth_token="mock-jwt-token",
+                llm_gateway_auth_token="mock-llm-token",
+                agent_otel_auth_token="receiver-jwt",
+            )
+        )
+        job_dir = tmp_path / "job"
+        captured_payloads: list[RuntimeInitPayload] = []
+        captured_socket_paths: list[Path | None] = []
+
+        async def fake_run_with_broker(
+            *_args: object,
+            **kwargs: object,
+        ) -> None:
+            captured_payloads.append(cast(RuntimeInitPayload, kwargs["init_payload"]))
+            captured_socket_paths.append(cast(Path | None, kwargs["otel_socket_path"]))
+            cast(AgentExecutorResult, kwargs["result"]).success = True
+
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.load_org_agent_otel_inputs",
+            AsyncMock(
+                return_value=AgentOtelInputs(
+                    config=AgentOtelConfig(
+                        enabled=True,
+                        endpoint=HttpUrl("https://collector.example.com"),
+                        metrics_enabled=False,
+                        logs_enabled=False,
+                        traces_enabled=True,
+                    ),
+                    headers={"Authorization": "Bearer synthetic-tenant-token"},
+                )
+            ),
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.platform_otel_collector_env",
+            lambda: {},
+        )
+        monkeypatch.setattr(
+            executor,
+            "_create_job_directory",
+            AsyncMock(return_value=job_dir),
+        )
+        monkeypatch.setattr(
+            executor,
+            "_create_llm_socket_proxy",
+            AsyncMock(return_value=AsyncMock()),
+        )
+        monkeypatch.setattr(
+            executor,
+            "_load_artifact_working_set",
+            AsyncMock(return_value=None),
+        )
+        monkeypatch.setattr(executor, "_run_with_broker", fake_run_with_broker)
+        monkeypatch.setattr(executor, "_cleanup", AsyncMock())
+
+        result = await executor.run()
+
+        assert result.success is True
+        assert executor._otel_receiver is not None
+        assert executor._otel_receiver._plan.tenant is not None
+        assert executor._otel_receiver._plan.platform_endpoint is None
+        assert captured_socket_paths == [job_dir / "sockets" / "otel.sock"]
+        assert len(captured_payloads) == 1
+        sandbox_env = captured_payloads[0].agent_otel_sandbox_env
+        assert sandbox_env is not None
+        assert sandbox_env["OTEL_EXPORTER_OTLP_HEADERS"] == (
+            "Authorization=Bearer receiver-jwt"
+        )
+        assert "OTEL_EXPORTER_OTLP_ENDPOINT" not in sandbox_env
+
+    @pytest.mark.parametrize(
+        ("guard", "warning_message"),
+        [
+            pytest.param(
+                "missing-token",
+                "Agent OTel enabled but auth token is missing; running without telemetry",
+                id="missing-token",
+            ),
+            pytest.param(
+                "missing-organization",
+                "Agent OTel enabled but organization context is missing; running without telemetry",
+                id="missing-organization",
+            ),
+        ],
+    )
+    @pytest.mark.anyio
+    async def test_run_skips_otel_receiver_when_required_context_is_missing(
+        self,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        mock_agent_config: AgentConfig,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        guard: str,
+        warning_message: str,
+    ) -> None:
+        """Missing receiver auth or organization context disables telemetry."""
+        role = mock_role
+        token: str | None = "receiver-jwt"
+        if guard == "missing-token":
+            token = None
+        else:
+            role = role.model_copy(update={"organization_id": None})
+        executor = SandboxedAgentExecutor(
+            input=AgentExecutorInput(
+                session_id=mock_session_id,
+                workspace_id=mock_role.workspace_id or uuid.uuid4(),
+                user_prompt="Test prompt",
+                config=mock_agent_config,
+                role=role,
+                mcp_auth_token="mock-jwt-token",
+                llm_gateway_auth_token="mock-llm-token",
+                agent_otel_auth_token=token,
+            )
+        )
+        captured_payloads: list[RuntimeInitPayload] = []
+        captured_socket_paths: list[Path | None] = []
+        warning = MagicMock()
+
+        async def fake_run_with_broker(
+            *_args: object,
+            **kwargs: object,
+        ) -> None:
+            captured_payloads.append(cast(RuntimeInitPayload, kwargs["init_payload"]))
+            captured_socket_paths.append(cast(Path | None, kwargs["otel_socket_path"]))
+            cast(AgentExecutorResult, kwargs["result"]).success = True
+
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.load_org_agent_otel_inputs",
+            AsyncMock(
+                return_value=AgentOtelInputs(
+                    config=AgentOtelConfig(
+                        enabled=True,
+                        endpoint=HttpUrl("https://collector.example.com"),
+                        metrics_enabled=False,
+                        logs_enabled=False,
+                        traces_enabled=True,
+                    ),
+                    headers={"Authorization": "Bearer synthetic-tenant-token"},
+                )
+            ),
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.platform_otel_collector_env",
+            lambda: {},
+        )
+        monkeypatch.setattr("tracecat.agent.executor.activity.logger.warning", warning)
+        monkeypatch.setattr(
+            executor,
+            "_create_job_directory",
+            AsyncMock(return_value=tmp_path / "job"),
+        )
+        monkeypatch.setattr(
+            executor,
+            "_create_llm_socket_proxy",
+            AsyncMock(return_value=AsyncMock()),
+        )
+        monkeypatch.setattr(
+            executor,
+            "_load_artifact_working_set",
+            AsyncMock(return_value=None),
+        )
+        monkeypatch.setattr(executor, "_run_with_broker", fake_run_with_broker)
+        monkeypatch.setattr(executor, "_cleanup", AsyncMock())
+
+        result = await executor.run()
+
+        assert result.success is True
+        assert executor._otel_receiver is None
+        assert captured_socket_paths == [None]
+        assert len(captured_payloads) == 1
+        assert captured_payloads[0].agent_otel_sandbox_env is None
+        warning.assert_called_once_with(
+            warning_message,
+            session_id=executor.input.session_id,
+        )
+
+    @pytest.mark.anyio
+    async def test_resolve_agent_otel_config_fails_open(
+        self,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        mock_agent_config: AgentConfig,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Organization OTel lookup failures return a disabled configuration."""
+        warning = MagicMock()
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.load_org_agent_otel_inputs",
+            AsyncMock(side_effect=OSError("settings unavailable")),
+        )
+        monkeypatch.setattr("tracecat.agent.executor.activity.logger.warning", warning)
+        executor = SandboxedAgentExecutor(
+            input=AgentExecutorInput(
+                session_id=mock_session_id,
+                workspace_id=mock_role.workspace_id or uuid.uuid4(),
+                user_prompt="Test prompt",
+                config=mock_agent_config,
+                role=mock_role,
+                mcp_auth_token="mock-jwt-token",
+                llm_gateway_auth_token="mock-llm-token",
+            )
+        )
+
+        resolved = await executor._resolve_agent_otel_config()
+
+        assert resolved == ResolvedAgentOtelConfig(enabled=False)
+        warning.assert_called_once_with(
+            "Failed to resolve Agent OTel config; running without telemetry",
+            error_type="OSError",
+        )
+
+    def test_platform_trace_parent_carries_agent_correlation(
+        self,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        mock_agent_config: AgentConfig,
+    ) -> None:
+        run_id = uuid.uuid4()
+        executor = SandboxedAgentExecutor(
+            input=AgentExecutorInput(
+                session_id=mock_session_id,
+                workspace_id=mock_role.workspace_id or uuid.uuid4(),
+                curr_run_id=run_id,
+                user_prompt="Synthetic prompt",
+                config=mock_agent_config,
+                role=mock_role,
+                mcp_auth_token="mock-jwt-token",
+                llm_gateway_auth_token="mock-llm-token",
+            )
+        )
+        span_context = SpanContext(
+            trace_id=0x1234567890ABCDEF1234567890ABCDEF,
+            span_id=0x1234567890ABCDEF,
+            is_remote=False,
+            trace_flags=TraceFlags(TraceFlags.SAMPLED),
+            trace_state=TraceState(),
+        )
+        token = otel_context.attach(
+            trace.set_span_in_context(NonRecordingSpan(span_context))
+        )
+        try:
+            parent = executor._platform_trace_parent()
+        finally:
+            otel_context.detach(token)
+
+        assert parent is not None
+        assert parent.trace_id == span_context.trace_id.to_bytes(16, "big")
+        assert parent.span_id == span_context.span_id.to_bytes(8, "big")
+        assert parent.resource_attributes["tracecat.agent.session.id"] == str(
+            mock_session_id
+        )
+        assert parent.resource_attributes["tracecat.agent.run.id"] == str(run_id)
 
 
 class TestSandboxedAgentExecutorSkillCaching:

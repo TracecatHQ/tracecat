@@ -61,8 +61,12 @@ export function AgentPresetDeleteDialog({
           <AlertDialogDescription>
             This action permanently removes{" "}
             {normalizedPresetName ? `"${normalizedPresetName}"` : "the agent"}{" "}
-            and cannot be undone. If other agents use it as a subagent, it will
-            also be permanently unlinked from them.
+            and cannot be undone.
+          </AlertDialogDescription>
+          <AlertDialogDescription>
+            It will also be removed as a subagent from every agent that uses it,
+            including saved versions. Restoring an older agent version will not
+            bring this subagent back.
           </AlertDialogDescription>
           <AlertDialogDescription>
             Type <b>{confirmationTarget}</b> to confirm deletion.

@@ -50,6 +50,64 @@ describe("getApiErrorDetail", () => {
       })
     )
   })
+
+  it("shows every validation message with its file path without JSON metadata", () => {
+    const error = Object.assign(new Error("Bad Request"), {
+      body: {
+        detail: {
+          code: "skill_draft_tool_validation_failed",
+          errors: [
+            {
+              code: "unknown_skill_tools",
+              path: "SKILL.md",
+              message: "Tool not found.",
+            },
+            {
+              code: "invalid_path",
+              path: "notes.txt",
+              message: "File is invalid.",
+            },
+            null,
+            { message: 42 },
+            { message: " " },
+          ],
+        },
+      },
+    })
+
+    expect(getApiErrorDetail(error)).toBe(
+      "SKILL.md: Tool not found.\nnotes.txt: File is invalid."
+    )
+  })
+
+  it("reads request validation arrays and structured message details", () => {
+    const error = Object.assign(new Error("Unprocessable Entity"), {
+      body: {
+        detail: [
+          { loc: ["body", "name"], msg: "Name is required.", type: "missing" },
+        ],
+      },
+    })
+    expect(getApiErrorDetail(error)).toBe("Name is required.")
+
+    const messageError = Object.assign(new Error("Bad Request"), {
+      body: {
+        detail: {
+          code: "invalid_skill",
+          message: "Fix the skill before publishing.",
+        },
+      },
+    })
+    expect(getApiErrorDetail(messageError)).toBe(
+      "Fix the skill before publishing."
+    )
+  })
+
+  it("preserves the fallback for structured details without readable messages", () => {
+    const detail = { code: "invalid_skill", errors: [{ message: null }] }
+    const error = Object.assign(new Error("Bad Request"), { body: { detail } })
+    expect(getApiErrorDetail(error)).toBe(JSON.stringify(detail))
+  })
 })
 
 describe("chainError", () => {

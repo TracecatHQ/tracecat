@@ -54,6 +54,7 @@ class _FaultPoint(StrEnum):
     EXECUTOR_BACKEND = "get_executor_backend"
     EXECUTOR_DISPATCH = "dispatch_action"
     RESULT_PERSISTENCE = "object_storage.store"
+    ERROR_HANDLER_LOOKUP = "get_error_handler_workflow_id"
     DEFINITION_SERVICE = "get_definition_by_workflow_id"
     DEFINITION_DESERIALIZATION = "definition_deserialization"
     CHILD_EXECUTION = "child_dispatch"
@@ -419,7 +420,7 @@ ATTRIBUTION_SCENARIOS: tuple[_AttributionScenario, ...] = (
         id="subflows.concurrent_cancellation.preserves_causal_owner",
         topology=_Topology.FANOUT,
         fault_point=_FaultPoint.CHILD_EXECUTION,
-        fault="user leaf failure + cancelled sibling",
+        fault="raw custom-action failure + cancelled sibling",
         root=_ExecutionExpectation(_FAILED, RuntimeErrorOwner.USER),
         children=(
             _ExecutionExpectation(_FAILED, RuntimeErrorOwner.USER),
@@ -445,6 +446,20 @@ ATTRIBUTION_SCENARIOS: tuple[_AttributionScenario, ...] = (
         retry_disposition=RetryDisposition.RETRYABLE,
         runner=_monkeypatch_runner(
             child_harness.run_successful_error_handler_does_not_inherit_terminal_owner
+        ),
+    ),
+    _AttributionScenario(
+        id="error_handler.missing_alias.preserves_original_failure",
+        topology=_Topology.ERROR_HANDLER,
+        fault_point=_FaultPoint.ERROR_HANDLER_LOOKUP,
+        fault="raw custom-action failure + missing handler alias",
+        root=_ExecutionExpectation(_FAILED, RuntimeErrorOwner.USER),
+        envelope_owners=frozenset({RuntimeErrorOwner.USER}),
+        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
+        retry_disposition=RetryDisposition.RETRYABLE,
+        attempts=1,
+        runner=_basic_runner(
+            harness.run_missing_error_handler_preserves_original_action_failure
         ),
     ),
     _AttributionScenario(

@@ -8,7 +8,6 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from pydantic_ai.messages import ToolCallPart
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.agent.activities import (
@@ -26,6 +25,7 @@ from tracecat_ee.agent.approvals.service import (
 from tracecat_ee.agent.context import AgentContext
 
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.auth.types import Role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import AgentSession, Approval, User
@@ -87,18 +87,18 @@ async def approval_manager(svc_role: Role, agent_context) -> ApprovalManager:
 
 
 @pytest.fixture
-def sample_tool_calls() -> list[ToolCallPart]:
+def sample_tool_calls() -> list[ToolCallContent]:
     """Sample tool calls requiring approval."""
     return [
-        ToolCallPart(
-            tool_name="dangerous_tool",
-            args={"action": "delete", "target": "production"},
-            tool_call_id="call_123",
+        ToolCallContent(
+            id="call_123",
+            name="dangerous_tool",
+            input={"action": "delete", "target": "production"},
         ),
-        ToolCallPart(
-            tool_name="sensitive_tool",
-            args={"data": "confidential"},
-            tool_call_id="call_456",
+        ToolCallContent(
+            id="call_456",
+            name="sensitive_tool",
+            input={"data": "confidential"},
         ),
     ]
 
@@ -108,7 +108,7 @@ class TestApprovalManager:
     async def test_prepare_initializes_approvals(
         self,
         approval_manager: ApprovalManager,
-        sample_tool_calls: list[ToolCallPart],
+        sample_tool_calls: list[ToolCallContent],
         mock_agent_session: AgentSession,
         session: AsyncSession,
         svc_role: Role,
@@ -126,13 +126,11 @@ class TestApprovalManager:
     async def test_validate_responses_success(
         self,
         approval_manager: ApprovalManager,
-        sample_tool_calls: list[ToolCallPart],
+        sample_tool_calls: list[ToolCallContent],
     ) -> None:
         """Test successful validation when all required approvals are provided."""
         # Set up expected tool calls
-        approval_manager._expected_tool_calls = {
-            tc.tool_call_id: tc for tc in sample_tool_calls
-        }
+        approval_manager._expected_tool_calls = {tc.id: tc for tc in sample_tool_calls}
 
         # Provide valid approvals for all expected tool calls
         approvals: ApprovalMap = {
@@ -146,12 +144,10 @@ class TestApprovalManager:
     async def test_validate_responses_accepts_partial_approvals(
         self,
         approval_manager: ApprovalManager,
-        sample_tool_calls: list[ToolCallPart],
+        sample_tool_calls: list[ToolCallContent],
     ) -> None:
         """Partial submissions are valid: approvals are decided one by one."""
-        approval_manager._expected_tool_calls = {
-            tc.tool_call_id: tc for tc in sample_tool_calls
-        }
+        approval_manager._expected_tool_calls = {tc.id: tc for tc in sample_tool_calls}
 
         # Provide only partial approvals
         approvals: ApprovalMap = {
@@ -165,12 +161,10 @@ class TestApprovalManager:
     async def test_validate_responses_unexpected_approvals(
         self,
         approval_manager: ApprovalManager,
-        sample_tool_calls: list[ToolCallPart],
+        sample_tool_calls: list[ToolCallContent],
     ) -> None:
         """Test validation fails when unexpected approval responses are provided."""
-        approval_manager._expected_tool_calls = {
-            tc.tool_call_id: tc for tc in sample_tool_calls
-        }
+        approval_manager._expected_tool_calls = {tc.id: tc for tc in sample_tool_calls}
 
         # Provide approvals including unexpected ones
         approvals: ApprovalMap = {
@@ -185,12 +179,10 @@ class TestApprovalManager:
     async def test_validate_responses_none_value(
         self,
         approval_manager: ApprovalManager,
-        sample_tool_calls: list[ToolCallPart],
+        sample_tool_calls: list[ToolCallContent],
     ) -> None:
         """Test validation fails when approval response is None."""
-        approval_manager._expected_tool_calls = {
-            tc.tool_call_id: tc for tc in sample_tool_calls
-        }
+        approval_manager._expected_tool_calls = {tc.id: tc for tc in sample_tool_calls}
 
         approvals = {
             "call_123": None,  # Invalid None value
@@ -203,12 +195,10 @@ class TestApprovalManager:
     async def test_validate_responses_empty_approvals(
         self,
         approval_manager: ApprovalManager,
-        sample_tool_calls: list[ToolCallPart],
+        sample_tool_calls: list[ToolCallContent],
     ) -> None:
         """Test validation fails when approval responses are empty."""
-        approval_manager._expected_tool_calls = {
-            tc.tool_call_id: tc for tc in sample_tool_calls
-        }
+        approval_manager._expected_tool_calls = {tc.id: tc for tc in sample_tool_calls}
 
         with pytest.raises(ValueError, match="cannot be empty"):
             approval_manager.validate_responses({})
@@ -255,12 +245,10 @@ class TestApprovalManager:
     async def test_set_accumulates_partial_decisions(
         self,
         approval_manager: ApprovalManager,
-        sample_tool_calls: list[ToolCallPart],
+        sample_tool_calls: list[ToolCallContent],
     ) -> None:
         """Parallel approvals decided one by one only resume when complete."""
-        approval_manager._expected_tool_calls = {
-            tc.tool_call_id: tc for tc in sample_tool_calls
-        }
+        approval_manager._expected_tool_calls = {tc.id: tc for tc in sample_tool_calls}
         first_approver = uuid.uuid4()
         second_approver = uuid.uuid4()
 
@@ -281,12 +269,10 @@ class TestApprovalManager:
     async def test_set_resubmission_overwrites_decision(
         self,
         approval_manager: ApprovalManager,
-        sample_tool_calls: list[ToolCallPart],
+        sample_tool_calls: list[ToolCallContent],
     ) -> None:
         """Re-deciding the same tool call is idempotent (last write wins)."""
-        approval_manager._expected_tool_calls = {
-            tc.tool_call_id: tc for tc in sample_tool_calls
-        }
+        approval_manager._expected_tool_calls = {tc.id: tc for tc in sample_tool_calls}
 
         approval_manager.set({"call_123": True})
         approval_manager.set({"call_123": False})
@@ -297,16 +283,14 @@ class TestApprovalManager:
     async def test_handle_decisions_emits_unique_tool_call_ids(
         self,
         approval_manager: ApprovalManager,
-        sample_tool_calls: list[ToolCallPart],
+        sample_tool_calls: list[ToolCallContent],
     ) -> None:
         """The persistence upsert cannot carry one conflict key twice.
 
         Resubmitting a decision is the only way a duplicate could plausibly
         reach the activity, so drive that and assert the payload collapses it.
         """
-        approval_manager._expected_tool_calls = {
-            tc.tool_call_id: tc for tc in sample_tool_calls
-        }
+        approval_manager._expected_tool_calls = {tc.id: tc for tc in sample_tool_calls}
         approval_manager.set({"call_123": True})
         approval_manager.set({"call_123": False})
         approval_manager.set({"call_456": True})

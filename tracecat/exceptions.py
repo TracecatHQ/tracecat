@@ -120,6 +120,10 @@ class TracecatNotFoundError(TracecatException):
     """Raised when a resource is not found in the Tracecat database."""
 
 
+class WorkflowAliasResolutionError(TracecatNotFoundError):
+    """Raised when a configured workflow alias does not resolve."""
+
+
 class TracecatServiceError(TracecatException):
     """Tracecat generic user-facing service error"""
 

@@ -33,6 +33,7 @@ from tracecat.db.models import (
     Skill,
     SkillVersion,
 )
+from tracecat.db.soft_delete import with_deleted
 from tracecat.dsl.enums import PlatformAction
 from tracecat.exceptions import TracecatValidationError
 from tracecat.sync import (
@@ -400,7 +401,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                     path=self.source_path(source_id),
                     preset_slug=preset.slug,
                     preset_name=preset.name,
-                    version_number=1,
+                    version_number=None,
                     model_key=ModelKey(
                         preset.model_provider,
                         preset.model_name,
@@ -787,9 +788,14 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         """Append per-reference diagnostics when no candidate is available."""
         for reference in references:
             if isinstance(reference, AgentPresetCatalogReference):
+                preset_revision = (
+                    "head"
+                    if reference.version_number is None
+                    else f"version {reference.version_number}"
+                )
                 message = (
-                    f"Agent preset {reference.preset_slug!r} version "
-                    f"{reference.version_number} requires model "
+                    f"Agent preset {reference.preset_slug!r} {preset_revision} "
+                    "requires model "
                     f"{reference.model_key.model_provider!r} / "
                     f"{reference.model_key.model_name!r}, but no matching "
                     "enabled model is configured for this workspace."
@@ -884,7 +890,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                         path=self.source_path(source_id),
                         preset_slug=preset.slug,
                         preset_name=preset.name,
-                        version_number=1,
+                        version_number=None,
                         meta=meta,
                     )
                 )
@@ -1275,6 +1281,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         # Compute the parent-after-subagent order up front so pass 2 can resolve
         # subagent refs once their child presets already exist.
         import_order = self._preset_import_order(presets)
+        await self._lock_import_dependencies(workspace_service, presets)
         swap = await self.plan_name_swap(
             workspace_service,
             targets={source_id: spec.slug for source_id, spec in presets.items()},
@@ -1312,7 +1319,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                     name=spec.name,
                     model_name=DEFAULT_AGENT_MODEL_NAME,
                     model_provider=DEFAULT_AGENT_MODEL_PROVIDER,
-                    agents={"subagents": []},
+                    agents=AgentSubagentsConfig().model_dump(mode="json"),
                 )
             else:
                 preset.slug = spec.slug
@@ -1356,6 +1363,45 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             )
             imported.append(self.imported_resource(source_id, preset.id))
         return imported
+
+    async def _lock_import_dependencies(
+        self,
+        workspace_service: SyncMappingService,
+        presets: Mapping[str, AgentPresetResourceSpec],
+    ) -> None:
+        """Lock Skills before presets, matching saves and dependency deletion.
+
+        Acquire preset rows in UUID order before name swaps or metadata writes;
+        source-id import order need not match deletion's workspace lock order.
+        """
+        if not presets:
+            return
+        skill_slugs = {
+            binding.slug for spec in presets.values() for binding in spec.skills
+        }
+        if skill_slugs:
+            await workspace_service.session.execute(
+                select(Skill.id)
+                .where(
+                    Skill.workspace_id == workspace_service.workspace_id,
+                    Skill.deleted_at.is_(None),
+                    Skill.archived_at.is_(None),
+                    sa.or_(
+                        Skill.slug.in_(skill_slugs),
+                        sa.and_(Skill.slug.is_(None), Skill.name.in_(skill_slugs)),
+                    ),
+                )
+                .order_by(Skill.id)
+                .with_for_update()
+            )
+        await workspace_service.session.execute(
+            with_deleted(
+                select(AgentPreset.id)
+                .where(AgentPreset.workspace_id == workspace_service.workspace_id)
+                .order_by(AgentPreset.id)
+                .with_for_update()
+            )
+        )
 
     def _preset_import_order(
         self,

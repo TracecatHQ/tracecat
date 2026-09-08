@@ -3,11 +3,14 @@ from __future__ import annotations
 import uuid
 
 import sqlalchemy as sa
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, ValidationError, model_validator
 from sqlalchemy import select
 from temporalio import activity
-from temporalio.exceptions import ApplicationError
 
+from tracecat.agent.error_policy import (
+    agent_preparation_failed,
+    invalid_agent_configuration,
+)
 from tracecat.agent.preset.resolver import (
     ResolvedAgentsRuntimeConfig,
     resolve_agents_config,
@@ -19,6 +22,12 @@ from tracecat.agent.workflow_config import agent_config_to_payload
 from tracecat.agent.workflow_schemas import AgentConfigPayload
 from tracecat.auth.types import Role
 from tracecat.db.models import AgentCatalog
+from tracecat.exceptions import (
+    TracecatAuthorizationError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
+from tracecat.temporal.errors import raise_application_error_from_classification
 
 
 class ResolveAgentPresetConfigActivityInput(BaseModel):
@@ -64,14 +73,17 @@ class ResolveAgentsConfigActivityInput(BaseModel):
 async def resolve_agent_preset_config_activity(
     args: ResolveAgentPresetConfigActivityInput,
 ) -> AgentConfigPayload:
-    async with AgentManagementService.with_session(role=args.role) as service:
-        async with service.with_preset_config(
-            preset_id=args.preset_id,
-            slug=args.preset_slug,
-            preset_version_id=args.preset_version_id,
-            preset_version=args.preset_version,
-        ) as config:
-            return agent_config_to_payload(config)
+    try:
+        async with AgentManagementService.with_session(role=args.role) as service:
+            async with service.with_preset_config(
+                preset_id=args.preset_id,
+                slug=args.preset_slug,
+                preset_version_id=args.preset_version_id,
+                preset_version=args.preset_version,
+            ) as config:
+                return agent_config_to_payload(config)
+    except (TracecatNotFoundError, TracecatValidationError) as exc:
+        raise_application_error_from_classification(invalid_agent_configuration(exc))
 
 
 @activity.defn
@@ -92,20 +104,27 @@ async def resolve_agent_preset_version_ref_activity(
 async def resolve_agents_config_activity(
     args: ResolveAgentsConfigActivityInput,
 ) -> ResolvedAgentsRuntimeConfig:
-    async with AgentPresetService.with_session(role=args.role) as service:
-        # ``False`` is reserved for rebuilding an already-resolved session
-        # binding. Fresh executions (including legacy payloads with ``None``)
-        # always follow child heads.
-        follow_latest_versions = args.follow_latest_versions is not False
-        resolved = await resolve_agents_config(
-            service,
-            agents=args.agents,
-            parent_preset_id=args.parent_preset_id,
-            parent_slug=args.parent_slug,
-            include_runtime_config=True,
-            follow_latest_versions=follow_latest_versions,
+    try:
+        async with AgentPresetService.with_session(role=args.role) as service:
+            # ``False`` is reserved for rebuilding an already-resolved session
+            # binding. Fresh executions (including legacy payloads with ``None``)
+            # always follow child heads.
+            follow_latest_versions = args.follow_latest_versions is not False
+            resolved = await resolve_agents_config(
+                service,
+                agents=args.agents,
+                parent_preset_id=args.parent_preset_id,
+                parent_slug=args.parent_slug,
+                include_runtime_config=True,
+                follow_latest_versions=follow_latest_versions,
+            )
+            return resolved.to_runtime_config()
+    except ValidationError as exc:
+        raise_application_error_from_classification(
+            agent_preparation_failed(exc, retryable=False)
         )
-        return resolved.to_runtime_config()
+    except (TracecatNotFoundError, TracecatValidationError) as exc:
+        raise_application_error_from_classification(invalid_agent_configuration(exc))
 
 
 class CustomModelProviderConfigResult(BaseModel):
@@ -142,14 +161,19 @@ async def resolve_custom_model_provider_config_activity(
 
     role = role if isinstance(role, Role) else Role.model_validate(role)
     async with AgentManagementService.with_session(role) as svc:
-        creds = await _load_custom_model_provider_creds(
-            svc,
-            catalog_id=catalog_id,
-        )
+        try:
+            creds = await _load_custom_model_provider_creds(
+                svc,
+                catalog_id=catalog_id,
+            )
+        except TracecatAuthorizationError as exc:
+            raise_application_error_from_classification(
+                invalid_agent_configuration(exc)
+            )
 
     if creds is None:
         activity.logger.error("Custom model provider credentials not found")
-        raise ApplicationError("Invalid custom model provider credentials")
+        raise_application_error_from_classification(invalid_agent_configuration())
     if not (base_url := creds.get("CUSTOM_MODEL_PROVIDER_BASE_URL")):
         activity.logger.error(
             "Custom model provider base URL missing",
@@ -160,7 +184,7 @@ async def resolve_custom_model_provider_config_activity(
                 "has_api_key": bool(creds.get("CUSTOM_MODEL_PROVIDER_API_KEY")),
             },
         )
-        raise ApplicationError("Custom model provider base URL is required")
+        raise_application_error_from_classification(invalid_agent_configuration())
     passthrough = creds.get("CUSTOM_MODEL_PROVIDER_PASSTHROUGH", "").lower() in {
         "1",
         "true",

@@ -1,0 +1,475 @@
+"""Accept/reject cases for the PR-title checker.
+
+Every reject case asserts a violation `code`, never a message: the codes are the
+stable contract that CI and hooks branch on, and the messages are free to be
+reworded.
+"""
+
+from __future__ import annotations
+
+import pytest
+from check_pr_title import (
+    EXIT_CONFIG,
+    EXIT_INVALID,
+    EXIT_OK,
+    _revert_suggestion,
+    check_title,
+    main,
+)
+from commit_conventions import Conventions, load_conventions
+
+CONVENTIONS: Conventions = load_conventions()
+
+ACCEPT = [
+    "feat(ui): replace preset button with @ mentions",
+    "fix: return 404 for missing workspaces",
+    "feat(api)!: drop the v1 webhook payload",
+    "feat(ui+api): case comment replies",
+    "[codex] chore(deps): bump orjson",
+    "revert(agents): stopgap resolution of tracecat registry alias",
+    "release: 1.0.0-beta.49",
+    "deprecation(integrations): tools.x.list_signals in favour of tools.x.search_alerts",
+    "build(deps): patch dependabot alerts",
+    "feat(actions): add a table lookup action",
+    "fix(functions): regex_extract corner case",
+    "feat(cases+actions): add a case linking action",
+    "feat(audit): stream audit logs via webhook",
+    "ci: pin actions to immutable SHAs",
+    "fix(engine): retry backoff",
+]
+
+REJECT: list[tuple[str, str]] = [
+    ("feat(cases) ENG-1597: add team scoped agent session reads", "missing-prefix"),
+    ("style: reformat", "unknown-type"),
+    ("tests: init ux smoke testing", "unknown-type"),
+    ("feat(integration): add Okta event hooks", "unknown-scope"),
+    ("feat(jira): add issue search", "unknown-scope"),
+    ("refactor(app): update case filtering", "ambiguous-scope"),
+    ("ci(workflows): pin actions to immutable SHAs", "ambiguous-scope"),
+    ("deps: bump orjson", "unknown-type"),
+    ("deprecation(registry): remove old thing", "depr-no-replacement"),
+    ("feat(ui+api+ee): x", "too-many-scopes"),
+    ("feat(ui, api): x", "scope-format"),
+    ("feat(UI): x", "scope-format"),
+    ("feat(ui+ui): x", "duplicate-scope"),
+    ("feat:no space", "missing-space"),
+    ("feat(ui): x.", "trailing-period"),
+    ("feat(): x", "empty-scope"),
+    ("feat(ui):", "empty-description"),
+    ("feat(core): add a table lookup action", "unknown-scope"),
+    ("feat(udfs): add a table lookup action", "unknown-scope"),
+    ("feat(udf): add a table lookup action", "unknown-scope"),
+    ("feat(core-actions): add a table lookup action", "unknown-scope"),
+    ("  feat(ui): x", "leading-whitespace"),
+    (
+        'Revert "fix(agents): stopgap resolution of tracecat registry alias"',
+        "revert-wrapper",
+    ),
+]
+
+
+@pytest.mark.parametrize("title", ACCEPT)
+def test_accepts_valid_titles(title: str) -> None:
+    report = check_title(title, CONVENTIONS)
+    assert report.ok, report.codes
+
+
+@pytest.mark.parametrize(
+    ("title", "code"), REJECT, ids=[f"{c}-{t.split(':')[0]}" for t, c in REJECT]
+)
+def test_rejects_invalid_titles(title: str, code: str) -> None:
+    assert code in check_title(title, CONVENTIONS).codes
+
+
+@pytest.mark.parametrize(
+    ("title", "hint"),
+    [
+        ("feat(integration): add Okta event hooks", "integrations"),
+        ("feat(jira): add issue search", "integrations"),
+        ("deps: bump orjson", "build(deps)"),
+        ("feat(core): add a table lookup action", "actions"),
+        ("feat(udfs): add a table lookup action", "actions"),
+        ("feat(udf): add a table lookup action", "actions"),
+        ("feat(core-actions): add a table lookup action", "actions"),
+        ('Revert "fix(agents): stopgap resolution"', "revert(agents)"),
+    ],
+)
+def test_hint_names_the_replacement(title: str, hint: str) -> None:
+    messages = " ".join(v.message for v in check_title(title, CONVENTIONS).violations)
+    assert hint in messages
+
+
+def test_retired_app_scope_explains_itself() -> None:
+    messages = " ".join(
+        v.message for v in check_title("refactor(app): x", CONVENTIONS).violations
+    )
+    assert "retired" in messages
+    assert "backend" in messages
+    for candidate in ("api", "engine", "cases"):
+        assert f"`{candidate}`" in messages
+
+
+def test_rejected_workflows_scope_names_both_readings() -> None:
+    """The message is the whole user-facing value of rejecting this scope.
+
+    Neither reading is a rewrite of the other: GitHub Actions work drops the
+    scope entirely, engine work replaces it. A message naming only one of the
+    two sends half the authors to the wrong place.
+    """
+    messages = " ".join(
+        v.message
+        for v in check_title("ci(workflows): pin actions", CONVENTIONS).violations
+    )
+    assert "GitHub Actions" in messages
+    assert "`ci:`" in messages
+    assert "`engine`" in messages
+    # The bare-`ci:` guidance has to trail the candidate list. Read before it,
+    # "pick the area you changed: `engine`" contradicts "write no scope at all".
+    assert messages.index("`engine`") < messages.index("`ci:`")
+
+
+@pytest.mark.parametrize("scope", sorted(CONVENTIONS.ambiguous_scope_notes))
+def test_an_ambiguous_note_is_a_sentence_after_the_candidates(scope: str) -> None:
+    """Notes are appended, so a fragment reads as a run-on against the list."""
+    note = CONVENTIONS.ambiguous_scope_notes[scope]
+    assert note[:1].isupper(), note
+    assert note.endswith("."), note
+    messages = " ".join(
+        v.message for v in check_title(f"fix({scope}): x", CONVENTIONS).violations
+    )
+    assert messages.endswith(note)
+
+
+def test_all_violations_are_reported_not_just_the_first() -> None:
+    report = check_title("style(app): x.", CONVENTIONS)
+    assert set(report.codes) == {"unknown-type", "ambiguous-scope", "trailing-period"}
+
+
+def test_compound_scope_resolves_to_both_area_labels() -> None:
+    """`feat(cases+actions)` is the worked example in CONTRIBUTING.md."""
+    title = "feat(cases+actions): add a case linking action"
+    assert check_title(title, CONVENTIONS).ok
+    assert CONVENTIONS.scope_label("cases") == "cases"
+    assert CONVENTIONS.scope_label("actions") == "actions"
+    assert CONVENTIONS.scope_label("functions") == "functions"
+
+
+def test_audit_is_canonical_not_an_alias_for_api() -> None:
+    """`audit` was an alias to `api` until 2026-09-01, so this is the regression.
+
+    Nine merged pull requests about security audit logs were filed under `api`
+    because of it. The checker used to reject the title below outright.
+    """
+    result = check_title("fix(audit): preserve client attribution", CONVENTIONS)
+    assert result.ok, [v.message for v in result.violations]
+    assert "audit" not in CONVENTIONS.scope_aliases
+    assert CONVENTIONS.scope_label("audit") == "audit"
+    # The distinction the scope exists to draw.
+    assert CONVENTIONS.scope_label("logging") == "logging"
+
+
+def _suggestion_cases() -> list[tuple[str, str]]:
+    """(source, title) for every replacement the checker tells an author to write."""
+    cases: list[tuple[str, str]] = []
+
+    def described(suggest: str) -> str:
+        # A `deprecation:` title must name a replacement, so a generic
+        # description would fail for reasons that have nothing to do with the
+        # suggestion being valid.
+        if suggest.split("(")[0] == CONVENTIONS.deprecation_type:
+            return f"{suggest}: tools.x in favour of tools.y"
+        return f"{suggest}: example change"
+
+    for name, suggest in CONVENTIONS.type_aliases.items():
+        if suggest:
+            cases.append((f"type_aliases.{name}", described(suggest)))
+    for name, legacy in CONVENTIONS.legacy_types.items():
+        if legacy.suggest:
+            cases.append((f"legacy_types.{name}", described(legacy.suggest)))
+    for name, legacy in CONVENTIONS.legacy_scopes.items():
+        if legacy.suggest:
+            cases.append((f"legacy_scopes.{name}", f"feat({legacy.suggest}): example"))
+    return cases
+
+
+SUGGESTION_CASES: list[tuple[str, str]] = _suggestion_cases()
+
+
+@pytest.mark.parametrize(
+    ("source", "title"),
+    SUGGESTION_CASES,
+    ids=[source for source, _ in SUGGESTION_CASES],
+)
+def test_every_suggestion_is_itself_valid(source: str, title: str) -> None:
+    """An error message that names an invalid replacement sends the author round twice.
+
+    `legacy_types.helm` suggested `infra(helm)`, and `helm` is an alias for
+    `infra`, so following the message produced a second, different error.
+    """
+    report = check_title(title, CONVENTIONS)
+    assert report.ok, f"{source} suggests {title!r}, which fails: {report.codes}"
+
+
+def test_over_length_warns_but_does_not_fail() -> None:
+    title = f"feat(ui): {'x' * CONVENTIONS.max_length}"
+    report = check_title(title, CONVENTIONS)
+    assert report.ok
+    assert [w.code for w in report.warnings] == ["too-long"]
+
+
+def test_revert_wrapper_is_rejected_on_its_own_terms() -> None:
+    """`Revert "fix(x): y"` has no colon where a prefix would put one.
+
+    Falling through to the generic parsing would report `missing-prefix`, whose
+    message names a missing colon after the scope -- a different mistake, and a
+    fix that does not apply here. The length warning is dropped with it: the
+    wrapper is long by construction, and the author is being told to write a
+    different title anyway.
+    """
+    inner = "feat(integrations): " + "x" * CONVENTIONS.max_length
+    report = check_title(f'Revert "{inner}"', CONVENTIONS)
+    assert report.codes == ("revert-wrapper",)
+    assert not report.warnings
+
+
+@pytest.mark.parametrize(
+    ("title", "suggestion"),
+    [
+        (
+            'Revert "fix(agents): stopgap resolution of tracecat registry alias"',
+            "`revert(agents): stopgap resolution of tracecat registry alias`",
+        ),
+        (
+            'Revert "fix: return 404 for missing workspaces"',
+            "`revert: return 404 for missing workspaces`",
+        ),
+        ('Revert "an unparseable title"', "`revert(<scope>): <description>`"),
+        (
+            'Revert "feat(registry): add a saved search export"',
+            "`revert(integrations): add a saved search export`",
+        ),
+        (
+            'Revert "feat(udfs): add a table lookup action"',
+            "`revert(actions): add a table lookup action`",
+        ),
+        (
+            'Revert "feat(registry+integration): add a saved search export"',
+            "`revert(integrations): add a saved search export`",
+        ),
+        (
+            'Revert "refactor(app): update case filtering"',
+            "`revert(<scope>): update case filtering`",
+        ),
+        (
+            'Revert "feat(jira): add issue search"',
+            "`revert(<scope>): add issue search`",
+        ),
+        ('Revert "feat(ui+api+ee): x"', "`revert(<scope>): x`"),
+        ('Revert "feat(ui): x."', "`revert(<scope>): <description>`"),
+    ],
+    ids=[
+        "scoped",
+        "unscoped",
+        "unparseable",
+        "alias-resolves",
+        "retired-scope-resolves",
+        "two-spellings-of-one-area-collapse",
+        "ambiguous-scope-is-the-authors-to-pick",
+        "vendor-scope-is-the-authors-to-pick",
+        "too-many-scopes-survive-canonicalisation",
+        "unusable-description",
+    ],
+)
+def test_revert_wrapper_hands_over_the_replacement(title: str, suggestion: str) -> None:
+    """The reverted title carries the scope, so the author gets it back.
+
+    A message that only named the shape would make every revert a lookup, and
+    the answer is already sitting inside the quotes. The scope is canonicalised
+    on the way through: the quoted title merged before the cutoff, so it may
+    spell an area the way nobody is allowed to spell it any more.
+    """
+    messages = " ".join(v.message for v in check_title(title, CONVENTIONS).violations)
+    assert suggestion in messages
+
+
+@pytest.mark.parametrize("inner", [*ACCEPT, *(title for title, _ in REJECT)])
+def test_every_revert_suggestion_is_itself_valid(inner: str) -> None:
+    """The runtime half of `test_every_suggestion_is_itself_valid`.
+
+    That test covers the replacements written into the conventions file. This
+    one covers the replacement assembled from the quoted title, which merged
+    before the cutoff and was therefore never checked: `Revert "feat(registry):
+    add x"` used to name `revert(registry): add x`, which fails
+    `unknown-scope`. Either the suggestion is a title the author can paste, or
+    it visibly asks for a scope -- never a third thing that looks usable and
+    fails.
+    """
+    suggestion = _revert_suggestion(inner, CONVENTIONS)
+    if suggestion.startswith("revert(<scope>): "):
+        return
+    report = check_title(suggestion, CONVENTIONS)
+    assert report.ok, f"{inner!r} suggests {suggestion!r}, which fails: {report.codes}"
+
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        "Okta event hooks now retry",
+        "GitHub Actions pinning",
+        "add a Jira lookup",
+    ],
+)
+def test_description_capitalisation_is_not_enforced(description: str) -> None:
+    """Many descriptions start with a proper noun; capitalisation is not a signal."""
+    assert check_title(f"feat(integrations): {description}", CONVENTIONS).ok
+
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        "old thing in favour of new thing",
+        "old thing in favor of new thing",
+        "old thing replaced by new thing",
+        "old thing superseded by new thing",
+        "drop old thing, use new thing",
+        "old thing with no replacement",
+    ],
+)
+def test_deprecation_replacement_markers(description: str) -> None:
+    assert check_title(f"deprecation(integrations): {description}", CONVENTIONS).ok
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "deprecation(api): reuse old endpoint",
+        "deprecation(api): misuse the old field",
+    ],
+)
+def test_deprecation_replacement_markers_require_word_boundaries(title: str) -> None:
+    assert "depr-no-replacement" in check_title(title, CONVENTIONS).codes
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "deprecation(api): use tools.y instead",
+        "deprecation(api): x in favour of y",
+        "deprecation(api): drop x with no replacement",
+    ],
+)
+def test_deprecation_replacement_markers_match_complete_words(title: str) -> None:
+    assert check_title(title, CONVENTIONS).ok
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "deprecation(api): use",
+        "deprecation(api): old endpoint replaced by",
+        "deprecation(api): x superseded by",
+    ],
+)
+def test_deprecation_marker_must_be_followed_by_something(title: str) -> None:
+    """A marker naming nothing is the failure mode the rule exists to catch."""
+    assert "depr-no-replacement" in check_title(title, CONVENTIONS).codes
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "deprecation(api): x replaced by ?",
+        "deprecation(api): use !",
+        "deprecation(api): use ,",
+        "deprecation(api): use ;",
+    ],
+)
+def test_deprecation_marker_must_be_followed_by_a_word(title: str) -> None:
+    """A bare punctuation mark points at nothing, and `\\S` accepted one.
+
+    `deprecation(api): use .` is not a case here: it fails on `trailing-period`
+    whatever this rule does, so it would pass the test with the rule removed.
+    """
+    assert "depr-no-replacement" in check_title(title, CONVENTIONS).codes
+
+
+def test_terminal_marker_needs_nothing_after_it() -> None:
+    """`with no replacement` is the whole statement, so it is exempt."""
+    assert check_title(
+        "deprecation(api): drop the v1 payload with no replacement", CONVENTIONS
+    ).ok
+
+
+def test_terminal_marker_only_exempts_the_end_of_the_description() -> None:
+    """`with no replacement yet` is a promise, not a statement of fact."""
+    report = check_title(
+        "deprecation(api): drop the v1 payload with no replacement yet", CONVENTIONS
+    )
+    assert "depr-no-replacement" in report.codes
+
+
+def test_leading_whitespace_fails_but_trailing_whitespace_does_not() -> None:
+    """The autolabeler anchors at `^` only, so the two ends are not symmetric.
+
+    GitHub stores a title verbatim -- #2856 is stored as
+    `"fix(agents): custom model name resolution "` -- so a leading space costs
+    the pull request every label and its release-notes heading, while a
+    trailing one is trimmed by the `^(- .*?)[ \\t]+$` replacer before a reader
+    sees it.
+    """
+    assert "leading-whitespace" in check_title("  feat(ui): x", CONVENTIONS).codes
+    assert check_title("feat(ui): x ", CONVENTIONS).ok
+
+
+def test_main_reads_the_title_from_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PR_TITLE", "feat(ui): a valid title")
+    assert main([]) == EXIT_OK
+    monkeypatch.setenv("PR_TITLE", "nonsense")
+    assert main([]) == EXIT_INVALID
+
+
+def test_main_prefers_the_file_over_the_environment(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PR_TITLE", "feat(ui): a valid title")
+    message = tmp_path / "COMMIT_EDITMSG"
+    message.write_text("# a comment\nstyle: reformat\n", encoding="utf-8")
+    assert main([str(message)]) == EXIT_INVALID
+
+
+def test_main_prefers_the_flag_over_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PR_TITLE", "style: reformat")
+    assert main(["--title", "feat(ui): a valid title"]) == EXIT_OK
+
+
+def test_main_without_a_title_is_a_usage_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("PR_TITLE", raising=False)
+    assert main([]) == EXIT_CONFIG
+
+
+def test_main_with_a_broken_config_is_a_config_error(tmp_path) -> None:
+    broken = tmp_path / "commit-conventions.toml"
+    broken.write_text('[scope_aliases]\nfoo = "nope"\n', encoding="utf-8")
+    assert main(["--config", str(broken), "--title", "feat: x"]) == EXIT_CONFIG
+
+
+def test_list_prints_the_taxonomy(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["--list"]) == EXIT_OK
+    out = capsys.readouterr().out
+    for scope in CONVENTIONS.canonical_scopes:
+        assert scope in out
+
+
+def test_step_summary_is_written_when_set(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    summary = tmp_path / "summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+    assert main(["--title", "style: reformat"]) == EXIT_INVALID
+    assert "unknown-type" in summary.read_text(encoding="utf-8")

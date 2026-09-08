@@ -37,6 +37,7 @@ from tracecat_ee.agent.workflows.durable import (
 from tests.conftest import AGENT_TASK_QUEUE
 from tracecat import config
 from tracecat.agent.common.stream_types import ToolCallContent
+from tracecat.agent.error_policy import user_agent_execution_failed
 from tracecat.agent.executor.activity import (
     AgentExecutorInput,
     AgentExecutorResult,
@@ -61,6 +62,7 @@ from tracecat.dsl.common import RETRY_POLICIES
 from tracecat.dsl.worker import new_sandbox_runner
 from tracecat.redis.client import get_redis_client
 from tracecat.storage.object import InlineObject
+from tracecat.temporal.errors import extract_error_classification
 
 # Use worker-specific queue from conftest for pytest-xdist isolation
 TEST_AGENT_QUEUE = AGENT_TASK_QUEUE
@@ -377,6 +379,7 @@ class TestAgentWorkerSingleTenant:
             return AgentExecutorResult(
                 success=False,
                 error="Simulated agent error",
+                classification=user_agent_execution_failed(),
             )
 
         activities = create_activities_with_mock_executor(mock_executor)
@@ -412,8 +415,9 @@ class TestAgentWorkerSingleTenant:
             with pytest.raises(WorkflowFailureError) as exc_info:
                 await wf_handle.result()
 
-            # The error message is in the cause chain
-            assert "Simulated agent error" in str(exc_info.value.cause)
+            classification = extract_error_classification(exc_info.value.cause)
+            assert classification == user_agent_execution_failed()
+            assert "Simulated agent error" not in str(exc_info.value.cause)
 
     @pytest.mark.anyio
     @pytest.mark.integration

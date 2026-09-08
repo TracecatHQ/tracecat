@@ -1,7 +1,7 @@
-from dataclasses import asdict, is_dataclass
+from contextlib import suppress
 from typing import Any
 
-from temporalio import activity, workflow
+from temporalio import workflow
 from temporalio.exceptions import (
     ApplicationError,
     TerminatedError,
@@ -16,16 +16,17 @@ from temporalio.worker import (
 )
 
 with workflow.unsafe.imports_passed_through():
-    import sentry_sdk as sentry
-    from pydantic import BaseModel
-
-    from tracecat.contexts import ctx_role
-    from tracecat.dsl.common import DSLRunArgs, get_trigger_type
+    from tracecat.dsl.common import get_trigger_type
     from tracecat.logger import logger
+    from tracecat.observability.sentry import (
+        WorkflowFailureEventContext,
+        capture_platform_failure,
+    )
     from tracecat.runtime.errors import (
         RetryDisposition,
         RuntimeErrorClassification,
         RuntimeErrorKind,
+        RuntimeErrorOwner,
         select_error_classification,
     )
     from tracecat.temporal.errors import (
@@ -34,18 +35,12 @@ with workflow.unsafe.imports_passed_through():
         iter_error_chain,
     )
     from tracecat.temporal.patches import WorkflowPatch
-    from tracecat.workflow.executions.enums import TemporalSearchAttr, TriggerType
-
-
-class _SentryWrappedWorkflowError(ApplicationError):
-    """Mark Sentry's internal wrapper without changing its Temporal payload."""
+    from tracecat.workflow.executions.enums import TemporalSearchAttr
 
 
 def _unclassified_retry_disposition(error: BaseException) -> RetryDisposition:
     """Preserve explicit Temporal retryability without guessing for raw errors."""
     for current in iter_error_chain(error, include_implicit_context=False):
-        if isinstance(current, _SentryWrappedWorkflowError):
-            continue
         if isinstance(current, ApplicationError):
             return (
                 RetryDisposition.NON_RETRYABLE
@@ -57,118 +52,38 @@ def _unclassified_retry_disposition(error: BaseException) -> RetryDisposition:
     return RetryDisposition.NON_RETRYABLE
 
 
-def _set_common_workflow_tags(info: workflow.Info | activity.Info) -> None:
-    sentry.set_tag("temporal.workflow.type", info.workflow_type)
-    sentry.set_tag("temporal.workflow.id", info.workflow_id)
-
-
-def _set_fingerprint(
-    scope: sentry.Scope,
-    input: ExecuteWorkflowInput,
-    info: workflow.Info,
-    trigger_type: TriggerType,
+def _report_terminal_failure(
+    error: BaseException,
+    classification: RuntimeErrorClassification,
 ) -> None:
-    if len(input.args) > 0 and isinstance(input.args[0], DSLRunArgs):
-        arg = input.args[0]
-        wf_id = arg.wf_id.short()
-        logger.info("Using workflow ID for fingerprint", workflow_id=wf_id)
-        scope.fingerprint = [wf_id, trigger_type.value]
-        sentry.set_tag("tracecat.workflow_id", wf_id)
-
-        # Set additional tags for the workflow from its DSLRunArgs
-        if parent_run_context := arg.parent_run_context:
-            sentry.set_tag("tracecat.parent.workflow_id", str(parent_run_context.wf_id))
-            sentry.set_tag(
-                "tracecat.parent.workflow_exec_id", parent_run_context.wf_exec_id
-            )
-        if dsl := arg.dsl:
-            sentry.set_tag("tracecat.dsl.title", dsl.title)
-            sentry.set_tag("tracecat.dsl.description", dsl.description)
-            sentry.set_tag("tracecat.dsl.error_handler", dsl.error_handler)
-            sentry.set_tag("tracecat.dsl.config.timeout", dsl.config.timeout)
-    else:
-        logger.warning(
-            "Couldn't find DSLRunArgs, deriving workflow ID from execution ID for fingerprint"
+    """Emit the bounded terminal log and optional platform Sentry event."""
+    info = workflow.info()
+    trigger_type = get_trigger_type(info)
+    terminal_logger = logger.bind(
+        event="workflow_terminal_failure",
+        owner=classification.owner.value,
+        kind=classification.kind.value,
+        retry_disposition=classification.retry_disposition.value,
+        cause_type=classification.cause_type,
+        workflow_type=info.workflow_type,
+        workflow_run_id=info.run_id,
+        workflow_attempt=info.attempt,
+        trigger_type=trigger_type.value,
+    )
+    if classification.owner is RuntimeErrorOwner.PLATFORM:
+        terminal_logger.error("Terminal platform workflow failure")
+        capture_platform_failure(
+            error,
+            classification,
+            WorkflowFailureEventContext(
+                run_id=info.run_id,
+                workflow_type=info.workflow_type,
+                attempt=info.attempt,
+                trigger_type=trigger_type.value,
+            ),
         )
-        wf_exec_id = info.workflow_id
-        try:
-            scope.fingerprint = [wf_exec_id.split("/")[0], trigger_type.value]
-        except Exception as e:
-            logger.warning(
-                "Failed to derive workflow ID for fingerprint, falling back to execution ID",
-                error=str(e),
-            )
-            scope.fingerprint = [wf_exec_id, trigger_type.value]
-
-
-class _SentryWorkflowInterceptor(WorkflowInboundInterceptor):
-    async def execute_workflow(self, input: ExecuteWorkflowInput) -> Any:
-        # https://docs.sentry.io/platforms/python/troubleshooting/#addressing-concurrency-issues
-        with sentry.isolation_scope() as scope:
-            sentry.set_tag("temporal.execution_type", "workflow")
-            sentry.set_tag(
-                "module", input.run_fn.__module__ + "." + input.run_fn.__qualname__
-            )
-            info = workflow.info()
-            _set_common_workflow_tags(info)
-            sentry.set_user({"id": info.namespace})
-            sentry.set_tag("temporal.workflow.task_queue", info.task_queue)
-            sentry.set_tag("temporal.workflow.namespace", info.namespace)
-            sentry.set_tag("temporal.workflow.run_id", info.run_id)
-            trigger_type = get_trigger_type(info)
-            if (role := ctx_role.get()) and role.workspace_id:
-                sentry.set_tag("tracecat.workspace_id", str(role.workspace_id))
-            sentry.set_tag("tracecat.trigger_type", trigger_type.value)
-            # Fingerprint to each workflow ID
-            _set_fingerprint(scope, input, info, trigger_type)
-            try:
-                return await super().execute_workflow(input)
-            except ApplicationError as e:
-                logger.warning("Caught application level workflow error", error=str(e))
-                # We want to raise the error so that the workflow can be retried
-                # We want to log the error if this is a scheduled workflow
-                # Get the temporal search attribute for TracecatTriggerType
-                match trigger_type:
-                    case TriggerType.SCHEDULED:
-                        logger.info("Reporting scheduled workflow error")
-                        if not workflow.unsafe.is_replaying():
-                            # NOTE: We log here instead of capturing the exception because of metaclass issues with ApplicationError
-                            # Related issue: https://temporalio.slack.com/archives/CTT84RS0P/p1720730740608279?thread_ts=1720727238.727909&cid=CTT84RS0P
-                            logger.error("Scheduled workflow error", error=str(e))
-                    case TriggerType.WEBHOOK:
-                        logger.info("Reporting webhook workflow error")
-                        if not workflow.unsafe.is_replaying():
-                            # See note above
-                            logger.error("Webhook workflow error", error=str(e))
-                    case _:
-                        logger.info("Not a scheduled workflow, skipping reporting")
-                raise e
-            except Exception as e:
-                if extract_error_classifications(
-                    e,
-                    include_implicit_context=False,
-                ):
-                    raise
-                logger.warning("Caught platform level workflow error", error=str(e))
-                if len(input.args) >= 1:
-                    arg = input.args[0]
-                    if is_dataclass(arg) and not isinstance(arg, type):
-                        sentry.set_context("temporal.workflow.input", asdict(arg))
-                    elif isinstance(arg, BaseModel):
-                        sentry.set_context("temporal.workflow.input", arg.model_dump())
-                sentry.set_context("temporal.workflow.info", workflow.info().__dict__)
-
-                if not workflow.unsafe.is_replaying():
-                    # NOTE: We log here instead of capturing the exception because of metaclass issues with ApplicationError
-                    # Related issue: https://temporalio.slack.com/archives/CTT84RS0P/p1720730740608279?thread_ts=1720727238.727909&cid=CTT84RS0P
-                    logger.error(
-                        "Unexpected workflow error, likely a platform issue",
-                        error=str(e),
-                    )
-                logger.debug(
-                    "Reraising exception as ApplicationError to fail workflow gracefully"
-                )
-                raise _SentryWrappedWorkflowError(str(e)) from e
+    else:
+        terminal_logger.warning("Terminal user workflow failure")
 
 
 class _RuntimeErrorAttributionWorkflowInterceptor(WorkflowInboundInterceptor):
@@ -189,21 +104,20 @@ class _RuntimeErrorAttributionWorkflowInterceptor(WorkflowInboundInterceptor):
             ):
                 raise
 
-            # Old histories must retain their original terminal command. The
-            # interceptor only owns failures from executions that record this
-            # patch marker.
+            classifications = extract_error_classifications(
+                error,
+                include_implicit_context=False,
+            )
+
             if not workflow.patched(
                 WorkflowPatch.RUNTIME_ERROR_ATTRIBUTION_INTERCEPTOR
             ):
                 raise
 
-            classifications = extract_error_classifications(
-                error,
-                include_implicit_context=False,
-            )
             if classifications:
                 classification = select_error_classification(classifications)
                 self._stamp_owner(classification)
+                self._report_failure(error, classification)
                 raise
 
             classification = RuntimeErrorClassification.platform(
@@ -213,29 +127,33 @@ class _RuntimeErrorAttributionWorkflowInterceptor(WorkflowInboundInterceptor):
                 cause=error,
             )
             self._stamp_owner(classification)
-            if not workflow.unsafe.is_replaying():
-                logger.error(
-                    "Terminal workflow failure reached the attribution fallback",
-                    workflow_type=workflow.info().workflow_type,
-                    error_type=type(error).__name__,
-                    error_kind=classification.kind.value,
-                )
+            self._report_failure(error, classification)
             raise application_error_from_classification(classification) from None
+
+    @staticmethod
+    def _report_failure(
+        error: BaseException,
+        classification: RuntimeErrorClassification,
+    ) -> None:
+        if workflow.unsafe.is_replaying():
+            return
+        try:
+            _report_terminal_failure(error, classification)
+        except Exception as reporting_error:
+            with suppress(Exception):
+                logger.warning(
+                    "Terminal workflow failure reporting failed",
+                    event="workflow_terminal_failure_reporting_failed",
+                    error_type=type(reporting_error).__name__,
+                    owner=classification.owner.value,
+                    kind=classification.kind.value,
+                )
 
     @staticmethod
     def _stamp_owner(classification: RuntimeErrorClassification) -> None:
         workflow.upsert_search_attributes(
             [TemporalSearchAttr.ERROR_OWNER.key.value_set(classification.owner.value)]
         )
-
-
-class SentryInterceptor(Interceptor):
-    """Temporal Interceptor class which will report workflow & activity exceptions to Sentry"""
-
-    def workflow_interceptor_class(
-        self, input: WorkflowInterceptorClassInput
-    ) -> type[WorkflowInboundInterceptor] | None:
-        return _SentryWorkflowInterceptor
 
 
 class RuntimeErrorAttributionInterceptor(Interceptor):

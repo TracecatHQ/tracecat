@@ -18,13 +18,16 @@ from tracecat.auth.dependencies import ExecutorWorkspaceRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import Table, TableColumn
-from tracecat.exceptions import TracecatNotFoundError
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.expressions.functions import tabulate
 from tracecat.logger import logger
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
+from tracecat.query.errors import TracecatQueryOverflowError
 from tracecat.tables.common import coerce_optional_to_utc_datetime
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import (
+    AggregateResponse,
+    TableAggregateRequest,
     TableColumnCreate,
     TableColumnRead,
     TableColumnUpdate,
@@ -393,6 +396,43 @@ async def lookup_rows(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Table lookup failed: {exc}",
+        ) from exc
+
+
+@router.post(
+    "/{table_name}/aggregate",
+    response_model=AggregateResponse,
+    description=(
+        "Filter and aggregate rows in one PostgreSQL query. sum over INTEGER or "
+        "NUMERIC, every mean and median, and min/max over NUMERIC are widened to "
+        "float8 JSON numbers. TEXT and SELECT group keys use their first 256 "
+        "characters, so longer values with the same prefix collapse into one group. "
+        "NUMERIC group keys are returned as lossless decimal strings."
+    ),
+)
+@require_scope("table:read")
+async def aggregate_rows(
+    *,
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
+    table_name: str,
+    params: TableAggregateRequest,
+) -> AggregateResponse:
+    """Filter, group, and aggregate rows in a workspace table."""
+    service = TablesService(session, role=role)
+    try:
+        return await service.aggregate_rows(table_name, params)
+    except TracecatNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except TracecatQueryOverflowError:
+        raise
+    except (ValueError, TracecatValidationError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
         ) from exc
 
 

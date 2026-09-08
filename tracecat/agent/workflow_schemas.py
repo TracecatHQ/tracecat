@@ -11,6 +11,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Discriminator, Field, model_validator
 
+from tracecat.agent.skill.types import SkillOrigin
 from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.integrations.schemas import MCPToolStatus
 
@@ -92,6 +93,7 @@ class ResolvedSkillRefPayload(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    origin: Literal[SkillOrigin.WORKSPACE] = Field(default=SkillOrigin.WORKSPACE)
     skill_id: uuid.UUID
     skill_name: str
     skill_version_id: uuid.UUID

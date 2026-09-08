@@ -30,6 +30,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.cases.agent_invocations.types import (
         CaseCommentAgentInvocationErrorKind,
     )
+    from tracecat.concurrency import drain_future_through_cancellation
     from tracecat.dsl.common import RETRY_POLICIES
     from tracecat.logger import logger
 
@@ -83,7 +84,7 @@ class CaseCommentAgentInvocationWorkflow:
                 start_to_close_timeout=timedelta(seconds=60),
                 retry_policy=RETRY_POLICIES["activity:fail_slow"],
             )
-        except BaseException as exc:
+        except (Exception, asyncio.CancelledError) as exc:
             kind = "cancelled" if is_cancelled_exception(exc) else stage
             await self._record_failure(input, kind, str(exc))
             raise
@@ -95,34 +96,22 @@ class CaseCommentAgentInvocationWorkflow:
         error: str,
     ) -> None:
         """Persist failure without replacing the workflow's original exception."""
-        task = asyncio.create_task(
-            workflow.execute_activity(
-                fail_comment_agent_invocation_activity,
-                FailCommentAgentInvocationInput(
-                    role=input.role,
-                    invocation_id=input.invocation_id,
-                    kind=kind,
-                    error=error,
-                ),
-                start_to_close_timeout=timedelta(seconds=30),
-                retry_policy=RETRY_POLICIES["activity:fail_slow"],
-            )
+        handle = workflow.start_activity(
+            fail_comment_agent_invocation_activity,
+            FailCommentAgentInvocationInput(
+                role=input.role,
+                invocation_id=input.invocation_id,
+                kind=kind,
+                error=error,
+            ),
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=RETRY_POLICIES["activity:fail_slow"],
         )
-        try:
-            await asyncio.shield(task)
-        except BaseException as cleanup_error:
-            if is_cancelled_exception(cleanup_error):
-                try:
-                    await asyncio.shield(task)
-                except BaseException as retry_error:
-                    logger.error(
-                        "Failed to persist cancelled comment agent invocation",
-                        invocation_id=str(input.invocation_id),
-                        error=str(retry_error),
-                    )
-            else:
-                logger.error(
-                    "Failed to persist comment agent invocation failure",
-                    invocation_id=str(input.invocation_id),
-                    error=str(cleanup_error),
-                )
+        cleanup_error = await drain_future_through_cancellation(handle)
+        if cleanup_error is not None:
+            logger.error(
+                "Failed to persist comment agent invocation failure",
+                invocation_id=str(input.invocation_id),
+                kind=kind,
+                error=repr(cleanup_error),
+            )

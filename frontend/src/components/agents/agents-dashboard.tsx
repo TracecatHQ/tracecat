@@ -1280,9 +1280,10 @@ function AgentPresetDeleteDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>Delete agent</AlertDialogTitle>
           <AlertDialogDescription>
-            This permanently deletes the agent preset. If other agents use it as
-            a subagent, it will also be permanently unlinked from them. This
-            cannot be undone.
+            Are you sure you want to delete this agent? It will also be removed
+            as a subagent from every agent that uses it, including saved
+            versions. Restoring an older agent version will not bring this
+            subagent back. This cannot be undone.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <div className="my-4">
@@ -1303,7 +1304,6 @@ function AgentPresetDeleteDialog({
                   await deleteAgentPreset({
                     presetId: preset.id,
                     presetName: preset.name,
-                    confirmUnlink: true,
                   })
                 } catch {
                   // toast handled by hook

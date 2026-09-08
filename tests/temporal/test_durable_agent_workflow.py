@@ -13,15 +13,17 @@ import uuid
 from collections.abc import AsyncIterator, Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
-from typing import Any
+from typing import Any, Literal
+from unittest.mock import AsyncMock, MagicMock
 
 import orjson
 import pytest
 import tracecat_ee.agent.workflows.durable as durable_workflow_module
 
+from tracecat.temporal.patches import DurableAgentWorkflowPatch
+
 pytestmark = [pytest.mark.temporal, pytest.mark.usefixtures("db")]
 
-from pydantic_ai.tools import ToolApproved, ToolDenied
 from temporalio import activity
 from temporalio import workflow as temporal_workflow
 from temporalio.api.enums.v1 import EventType
@@ -31,7 +33,6 @@ from temporalio.client import (
     WorkflowHandle,
     WorkflowHistory,
 )
-from temporalio.exceptions import ApplicationError
 from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 from tracecat_ee.agent.activities import (
     AgentActivities,
@@ -52,8 +53,6 @@ from tracecat_ee.agent.approvals.service import (
 )
 from tracecat_ee.agent.types import AgentWorkflowID
 from tracecat_ee.agent.workflows.durable import (
-    APPROVAL_STREAM_V2_PATCH,
-    PRESERVE_RESUMED_AGENT_BINDINGS_PATCH,
     AgentWorkflowArgs,
     DurableAgentWorkflow,
     WorkflowApprovalSubmission,
@@ -62,6 +61,7 @@ from tracecat_ee.agent.workflows.durable import (
 
 from tests.shared import recorded_patch_ids
 from tracecat import config
+from tracecat.agent import internal_router
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.agent.common.types import MCPToolDefinition
@@ -75,7 +75,11 @@ from tracecat.agent.preset.resolver import (
     ResolvedAgentsRuntimeConfig,
     ResolvedSubagentConfig,
 )
-from tracecat.agent.schemas import RunAgentArgs
+from tracecat.agent.schemas import (
+    AgentConfigSchema,
+    InternalRunAgentRequest,
+    RunAgentArgs,
+)
 from tracecat.agent.session.activities import (
     CreateSessionInput,
     CreateSessionResult,
@@ -95,13 +99,14 @@ from tracecat.agent.session.activities import (
 )
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.skill.types import ResolvedSkillRef
 from tracecat.agent.subagents import (
     AgentSubagentsConfig,
     ResolvedAgentsConfig,
     ResolvedAttachedSubagentRef,
 )
 from tracecat.agent.tokens import UserMCPServerClaim
-from tracecat.agent.types import AgentConfig
+from tracecat.agent.types import AgentConfig, ToolApproved, ToolDenied
 from tracecat.agent.workflow_config import agent_config_to_payload
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
@@ -112,7 +117,9 @@ from tracecat.db.models import AgentSessionHistory, User
 from tracecat.dsl.common import RETRY_POLICIES
 from tracecat.dsl.schemas import RunActionInput
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.runtime.errors import RuntimeErrorKind
 from tracecat.storage.object import InlineObject
+from tracecat.temporal.errors import extract_error_classification
 from tracecat.tiers import defaults as tier_defaults
 
 
@@ -583,186 +590,6 @@ async def agent_worker_factory(threadpool, monkeypatch: pytest.MonkeyPatch):
 
 @pytest.mark.anyio
 @pytest.mark.integration
-async def test_agent_workflow_streams_tool_definition_error(
-    temporal_client: Client,
-    agent_worker_factory,
-    agent_workflow_args: AgentWorkflowArgs,
-    mock_session_id: uuid.UUID,
-) -> None:
-    queue = f"test-agent-queue-{mock_session_id}"
-    emitted_errors: list[EmitSessionErrorInputs] = []
-
-    @activity.defn(name="build_agent_tool_definitions")
-    async def mock_build_tool_definitions(
-        args: BuildAgentToolDefsArgs,
-    ) -> BuildAgentToolDefsResult:
-        del args
-        raise ApplicationError(
-            "Cannot request more than 100 tools",
-            type="AgentToolDefinitionError",
-            non_retryable=True,
-        )
-
-    @activity.defn(name="emit_session_error")
-    async def mock_emit_session_error(args: EmitSessionErrorInputs) -> None:
-        emitted_errors.append(args)
-
-    activities = [
-        create_mock_create_session_activity(),
-        create_mock_load_session_activity(),
-        mock_build_tool_definitions,
-        mock_emit_session_error,
-        create_mock_finalize_turn_activity(),
-        create_mock_emit_session_done_activity(),
-    ]
-
-    async with agent_worker_factory(
-        temporal_client, task_queue=queue, custom_activities=activities
-    ):
-        with pytest.raises(WorkflowFailureError) as exc_info:
-            await temporal_client.execute_workflow(
-                DurableAgentWorkflow.run,
-                agent_workflow_args,
-                id=AgentWorkflowID(mock_session_id),
-                task_queue=queue,
-                retry_policy=RETRY_POLICIES["workflow:fail_fast"],
-                execution_timeout=timedelta(seconds=30),
-            )
-
-    assert isinstance(exc_info.value.cause, ApplicationError)
-    assert "Cannot request more than 100 tools" in str(exc_info.value.cause)
-    assert len(emitted_errors) == 1
-    assert emitted_errors[0].session_id == mock_session_id
-    assert emitted_errors[0].message == "Cannot request more than 100 tools"
-
-
-@pytest.mark.anyio
-@pytest.mark.integration
-async def test_agent_workflow_persists_runtime_terminal_error_without_streaming(
-    temporal_client: Client,
-    agent_worker_factory,
-    agent_workflow_args: AgentWorkflowArgs,
-    mock_session_id: uuid.UUID,
-) -> None:
-    """A runtime failure that already streamed its error persists last_error only.
-
-    ``terminal_stream_error_emitted=True`` means the loopback already pushed the
-    error event onto the SSE stream, so ``emit_session_error`` runs with
-    ``should_stream=False`` to record the durable last_error signal. The workflow
-    emits END separately after finalization.
-    """
-    queue = f"test-agent-queue-{mock_session_id}"
-    emitted_errors: list[EmitSessionErrorInputs] = []
-    emitted_done: list[EmitSessionDoneInputs] = []
-    call_order: list[str] = []
-
-    def runtime_failure(
-        call_count: int, input: AgentExecutorInput
-    ) -> AgentExecutorResult:
-        del call_count
-        return AgentExecutorResult(
-            success=False,
-            error="runtime exploded",
-            terminal_stream_error_emitted=True,
-        )
-
-    @activity.defn(name="emit_session_error")
-    async def mock_emit_session_error(args: EmitSessionErrorInputs) -> None:
-        emitted_errors.append(args)
-        call_order.append("persist_error")
-
-    activities = [
-        *create_activities_with_mock_executor(
-            runtime_failure,
-            done_inputs=emitted_done,
-            done_call_order=call_order,
-        ),
-        mock_emit_session_error,
-    ]
-
-    async with agent_worker_factory(
-        temporal_client, task_queue=queue, custom_activities=activities
-    ):
-        with pytest.raises(WorkflowFailureError) as exc_info:
-            await temporal_client.execute_workflow(
-                DurableAgentWorkflow.run,
-                agent_workflow_args,
-                id=AgentWorkflowID(mock_session_id),
-                task_queue=queue,
-                retry_policy=RETRY_POLICIES["workflow:fail_fast"],
-                execution_timeout=timedelta(seconds=30),
-            )
-
-    assert isinstance(exc_info.value.cause, ApplicationError)
-    assert "Agent execution failed: runtime exploded" in str(exc_info.value.cause)
-    # Persist-only: exactly one emit, carrying last_error, with error streaming
-    # off so the already-emitted inline error is not duplicated.
-    assert len(emitted_errors) == 1
-    assert emitted_errors[0].session_id == mock_session_id
-    assert emitted_errors[0].message == "Agent execution failed: runtime exploded"
-    assert emitted_errors[0].should_stream is False
-    assert len(emitted_done) == 1
-    assert call_order == ["persist_error", "emit_session_done"]
-
-
-@pytest.mark.anyio
-@pytest.mark.integration
-async def test_agent_workflow_streams_executor_pre_stream_failure(
-    temporal_client: Client,
-    agent_worker_factory,
-    agent_workflow_args: AgentWorkflowArgs,
-    mock_session_id: uuid.UUID,
-) -> None:
-    queue = f"test-agent-queue-{mock_session_id}"
-    emitted_errors: list[EmitSessionErrorInputs] = []
-    emitted_done: list[EmitSessionDoneInputs] = []
-
-    def setup_failure(
-        call_count: int, input: AgentExecutorInput
-    ) -> AgentExecutorResult:
-        del call_count
-        return AgentExecutorResult(
-            success=False,
-            error="executor setup failed",
-            terminal_stream_error_emitted=False,
-        )
-
-    @activity.defn(name="emit_session_error")
-    async def mock_emit_session_error(args: EmitSessionErrorInputs) -> None:
-        emitted_errors.append(args)
-
-    activities = [
-        *create_activities_with_mock_executor(
-            setup_failure,
-            done_inputs=emitted_done,
-        ),
-        mock_emit_session_error,
-    ]
-
-    async with agent_worker_factory(
-        temporal_client, task_queue=queue, custom_activities=activities
-    ):
-        with pytest.raises(WorkflowFailureError) as exc_info:
-            await temporal_client.execute_workflow(
-                DurableAgentWorkflow.run,
-                agent_workflow_args,
-                id=AgentWorkflowID(mock_session_id),
-                task_queue=queue,
-                retry_policy=RETRY_POLICIES["workflow:fail_fast"],
-                execution_timeout=timedelta(seconds=30),
-            )
-
-    assert isinstance(exc_info.value.cause, ApplicationError)
-    assert "Agent execution failed: executor setup failed" in str(exc_info.value.cause)
-    assert len(emitted_errors) == 1
-    assert emitted_errors[0].session_id == mock_session_id
-    assert emitted_errors[0].message == "Agent execution failed: executor setup failed"
-    assert emitted_errors[0].should_stream is True
-    assert len(emitted_done) == 1
-
-
-@pytest.mark.anyio
-@pytest.mark.integration
 async def test_agent_workflow_simple_execution(
     svc_role: Role,
     temporal_client: Client,
@@ -809,6 +636,75 @@ async def test_agent_workflow_simple_execution(
         assert result.message_history == session_messages
 
     assert [input.session_id for input in message_load_inputs] == [mock_session_id]
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
+async def test_internal_agent_runner_executes_durable_workflow(
+    svc_role: Role,
+    temporal_client: Client,
+    agent_worker_factory,
+    mock_session_id: uuid.UUID,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queue = f"test-internal-agent-queue-{mock_session_id}"
+    executor_inputs: list[AgentExecutorInput] = []
+
+    def mock_executor(
+        call_count: int,
+        input: AgentExecutorInput,
+    ) -> AgentExecutorResult:
+        del call_count
+        executor_inputs.append(input)
+        return AgentExecutorResult(
+            success=True,
+            output={"status": "ranked"},
+            result_num_turns=1,
+            result_usage={"input_tokens": 7, "output_tokens": 3},
+        )
+
+    async def get_test_temporal_client() -> Client:
+        return temporal_client
+
+    activities = create_activities_with_mock_executor(mock_executor)
+    monkeypatch.setattr(config, "TRACECAT__AGENT_QUEUE", queue)
+    monkeypatch.setattr(
+        internal_router,
+        "get_temporal_client",
+        get_test_temporal_client,
+    )
+    workflow_args = internal_router.build_agent_workflow_args(
+        InternalRunAgentRequest(
+            user_prompt="Rank the incident",
+            config=AgentConfigSchema(
+                model_name="test-model",
+                model_provider="test-provider",
+                actions=[],
+            ),
+            max_requests=6,
+            max_tool_calls=0,
+        ),
+        role=svc_role,
+        session_id=mock_session_id,
+    )
+    async with agent_worker_factory(
+        temporal_client,
+        task_queue=queue,
+        custom_activities=activities,
+    ):
+        result = await internal_router._execute_agent_workflow(
+            workflow_args,
+            session_id=mock_session_id,
+        )
+
+    assert result.output == {"status": "ranked"}
+    assert result.session_id == mock_session_id
+    assert result.usage is not None
+    assert result.usage.requests == 1
+    assert result.usage.input_tokens == 7
+    assert len(executor_inputs) == 1
+    assert executor_inputs[0].user_prompt == "Rank the incident"
+    assert executor_inputs[0].config.model_name == "test-model"
 
 
 @pytest.mark.anyio
@@ -1017,7 +913,7 @@ async def test_agent_workflow_replays_approval_stream_v2_patch_history(
             )
 
     await wf_handle.terminate(reason="Replay regression history captured")
-    assert APPROVAL_STREAM_V2_PATCH in await recorded_patch_ids(
+    assert DurableAgentWorkflowPatch.APPROVAL_STREAM_V2 in await recorded_patch_ids(
         temporal_client,
         marked_history,
     )
@@ -1398,13 +1294,41 @@ async def test_approval_wait_cancellation_defers_end_until_marker_and_finalize(
 
 @pytest.mark.anyio
 @pytest.mark.integration
-async def test_agent_workflow_replays_and_preserves_stored_subagent_binding_on_resume(
+@pytest.mark.parametrize(
+    ("legacy", "stored_has_agents", "incoming_has_agents", "session_activity"),
+    [
+        (True, True, True, "stub"),
+        (True, True, True, "current"),
+        (True, True, True, "previous"),
+        (False, True, True, "stub"),
+        (False, True, False, "stub"),
+        (False, False, True, "stub"),
+        (False, True, True, "current"),
+        (False, True, True, "previous"),
+    ],
+    ids=[
+        "compatibility-pinned",
+        "compatibility-current-activity",
+        "compatibility-previous-activity",
+        "new-version",
+        "removed",
+        "added",
+        "current-session-activity",
+        "previous-session-activity-rejects-new-binding",
+    ],
+)
+async def test_agent_workflow_resolves_turn_bindings_and_replays(
     svc_role: Role,
     temporal_client: Client,
     agent_worker_factory,
     mock_session_id: uuid.UUID,
+    monkeypatch: pytest.MonkeyPatch,
+    legacy: bool,
+    stored_has_agents: bool,
+    incoming_has_agents: bool,
+    session_activity: Literal["stub", "current", "previous"],
 ) -> None:
-    """A resumed history keeps its exact subagent binding across replay."""
+    """Compatibility turns work on both activities; activation needs the new one."""
     queue = f"test-agent-queue-{mock_session_id}"
     child_preset_id = uuid.uuid4()
     stored_version_id = uuid.uuid4()
@@ -1421,11 +1345,31 @@ async def test_agent_workflow_replays_and_preserves_stored_subagent_binding_on_r
         preset_id=child_preset_id,
         preset_version_id=latest_version_id,
     )
-    stored_binding = ResolvedAgentsConfig(subagents=[stored_ref])
-    latest_agents_config = AgentSubagentsConfig(subagents=[latest_ref])
+    stored_binding = ResolvedAgentsConfig(
+        subagents=[stored_ref] if stored_has_agents else []
+    )
+    latest_agents_config = AgentSubagentsConfig(
+        subagents=[latest_ref] if incoming_has_agents else []
+    )
+    expected_refs = (
+        [stored_ref] if legacy else ([latest_ref] if incoming_has_agents else [])
+    )
     resolve_inputs: list[ResolveAgentsConfigActivityInput] = []
     create_inputs: list[CreateSessionInput] = []
     agent_inputs: list[AgentExecutorInput] = []
+    approval_done = asyncio.Event()
+    approval_continuation = (
+        not legacy
+        and stored_has_agents
+        and incoming_has_agents
+        and session_activity == "stub"
+    )
+    skill_ref = ResolvedSkillRef(
+        skill_id=uuid.uuid4(),
+        skill_name="analysis",
+        skill_version_id=uuid.uuid4(),
+        manifest_sha256="a" * 64,
+    )
 
     @activity.defn(name="load_session_activity")
     async def mock_load_session_activity(
@@ -1444,17 +1388,17 @@ async def test_agent_workflow_replays_and_preserves_stored_subagent_binding_on_r
         input: ResolveAgentsConfigActivityInput,
     ) -> ResolvedAgentsRuntimeConfig:
         resolve_inputs.append(input)
-        assert input.follow_latest_versions is False
+        assert input.follow_latest_versions is (False if legacy else None)
         assert len(input.agents.subagents) == 1
         resolved_ref = input.agents.subagents[0]
         assert isinstance(resolved_ref, ResolvedAttachedSubagentRef)
-        assert resolved_ref.preset_version_id == stored_version_id
+        assert resolved_ref == expected_refs[0]
 
         return ResolvedAgentsRuntimeConfig(
             subagents=[
                 ResolvedSubagentConfig(
-                    binding=stored_ref,
-                    description="Stored analyst",
+                    binding=expected_refs[0],
+                    description="Resolved analyst",
                     prompt="Complete the delegated analysis.",
                     config=agent_config_to_payload(
                         AgentConfig(
@@ -1467,12 +1411,39 @@ async def test_agent_workflow_replays_and_preserves_stored_subagent_binding_on_r
             ],
         )
 
+    if session_activity != "stub":
+        # Keep real activity validation; only database/Redis I/O is mocked.
+        stored_session = MagicMock()
+        stored_session.agents_binding = stored_binding.model_dump(mode="json")
+        stored_session.sdk_session_id = "sdk-session"
+        service = AsyncMock()
+        service.get_or_create_session.return_value = (stored_session, False)
+        service.session = MagicMock()
+        service.session.commit = AsyncMock()
+        context = AsyncMock()
+        context.__aenter__.return_value = service
+        monkeypatch.setattr(AgentSessionService, "with_session", lambda **kw: context)
+        monkeypatch.setattr(
+            "tracecat.agent.session.activities.AgentStream.new", AsyncMock()
+        )
+
     @activity.defn(name="create_session_activity")
     async def mock_create_session_activity(
         input: CreateSessionInput,
     ) -> CreateSessionResult:
         create_inputs.append(input)
-        assert input.agents_binding == stored_binding
+        assert input.agents_binding == ResolvedAgentsConfig(subagents=expected_refs)
+        assert input.enforce_session_agents_binding is legacy
+        if session_activity == "previous":
+            # Simulate the previous Pydantic schema ignoring the unknown flag.
+            # The retained legacy branch enforces the old binding comparison.
+            # This is a contract simulation, not execution of an old binary.
+            input = CreateSessionInput.model_validate(
+                input.model_dump(exclude={"enforce_session_agents_binding"})
+            )
+            assert input.enforce_session_agents_binding is True
+        if session_activity != "stub":
+            return await create_session_activity(input)
         return CreateSessionResult(session_id=input.session_id, success=True)
 
     @activity.defn(name="run_agent_activity")
@@ -1480,7 +1451,35 @@ async def test_agent_workflow_replays_and_preserves_stored_subagent_binding_on_r
         input: AgentExecutorInput,
     ) -> AgentExecutorResult:
         agent_inputs.append(input)
+        if approval_continuation and len(agent_inputs) == 1:
+            return AgentExecutorResult(
+                success=True,
+                approval_requested=True,
+                approval_items=[
+                    ToolCallContent(
+                        id="call-frozen-turn",
+                        name="core__http_request",
+                        input={"url": "https://example.com", "method": "GET"},
+                    )
+                ],
+            )
         return AgentExecutorResult(success=True, output={"status": "ok"})
+
+    @activity.defn(name="record_approval_requests")
+    async def mock_record_approval_requests(
+        input: PersistApprovalsActivityInputs,
+    ) -> None:
+        del input
+
+    @activity.defn(name="apply_approval_decisions")
+    async def mock_apply_approval_decisions(
+        input: ApplyApprovalResultsActivityInputs,
+    ) -> None:
+        del input
+
+    @activity.defn(name="emit_session_error")
+    async def mock_emit_session_error(input: EmitSessionErrorInputs) -> None:
+        del input
 
     workflow_args = AgentWorkflowArgs(
         role=svc_role,
@@ -1492,6 +1491,7 @@ async def test_agent_workflow_replays_and_preserves_stored_subagent_binding_on_r
                 model_provider="anthropic",
                 actions=[],
                 agents=latest_agents_config,
+                resolved_skills=[skill_ref],
             ),
         ),
         entity_type=AgentSessionEntity.WORKFLOW,
@@ -1508,9 +1508,23 @@ async def test_agent_workflow_replays_and_preserves_stored_subagent_binding_on_r
         create_mock_execute_action_activity(),
         create_mock_reconcile_tool_results_activity(),
         create_mock_finalize_turn_activity(),
-        create_mock_emit_session_done_activity(),
-        *ApprovalManager.get_activities(),
+        create_mock_emit_session_done_activity(done_event=approval_done),
+        mock_record_approval_requests,
+        mock_apply_approval_decisions,
+        mock_emit_session_error,
     ]
+
+    compatibility_gate = durable_workflow_module._use_per_turn_agent_bindings
+    if not legacy:
+        # Simulate the activation release after compatibility workers are live.
+        # The compatibility release must also replay these activated histories.
+        monkeypatch.setattr(
+            durable_workflow_module,
+            "_use_per_turn_agent_bindings",
+            lambda: temporal_workflow.patched(
+                DurableAgentWorkflowPatch.RESOLVE_AGENTS_PER_TURN
+            ),
+        )
 
     async with agent_worker_factory(
         temporal_client, task_queue=queue, custom_activities=activities
@@ -1523,26 +1537,82 @@ async def test_agent_workflow_replays_and_preserves_stored_subagent_binding_on_r
             retry_policy=RETRY_POLICIES["workflow:fail_fast"],
             execution_timeout=timedelta(seconds=30),
         )
-        result = await handle.result()
+        if approval_continuation:
+            await asyncio.wait_for(approval_done.wait(), timeout=10)
+            suspended_history = await handle.fetch_history()
+            with monkeypatch.context() as rollback:
+                rollback.setattr(
+                    durable_workflow_module,
+                    "_use_per_turn_agent_bindings",
+                    compatibility_gate,
+                )
+                await replay_durable_agent_workflow_history(
+                    temporal_client, suspended_history
+                )
+            await handle.execute_update(
+                DurableAgentWorkflow.set_approvals,
+                WorkflowApprovalSubmission(
+                    approvals={"call-frozen-turn": True},
+                    approved_by=svc_role.user_id,
+                ),
+            )
+        result = None
+        if session_activity == "previous" and not legacy:
+            with pytest.raises(WorkflowFailureError) as exc_info:
+                await handle.result()
+            classification = extract_error_classification(exc_info.value.cause)
+            assert classification is not None
+            assert classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
+        else:
+            result = await handle.result()
         completed_history = await handle.fetch_history()
-        assert PRESERVE_RESUMED_AGENT_BINDINGS_PATCH in await recorded_patch_ids(
-            temporal_client,
-            completed_history,
+        patch_ids = await recorded_patch_ids(temporal_client, completed_history)
+        assert (
+            DurableAgentWorkflowPatch.PRESERVE_RESUMED_AGENT_BINDINGS
+            if legacy
+            else DurableAgentWorkflowPatch.RESOLVE_AGENTS_PER_TURN
+        ) in patch_ids
+        if legacy:
+            assert DurableAgentWorkflowPatch.RESOLVE_AGENTS_PER_TURN not in patch_ids
+        # Restore the actual compatibility release before replaying either
+        # compatibility or activation history (including approval continuation).
+        monkeypatch.setattr(
+            durable_workflow_module, "_use_per_turn_agent_bindings", compatibility_gate
         )
         await replay_durable_agent_workflow_history(
             temporal_client,
             completed_history,
         )
 
+    if session_activity == "previous" and not legacy:
+        assert len(resolve_inputs) == 1
+        assert len(create_inputs) == 1
+        assert create_inputs[0].enforce_session_agents_binding is False
+        assert not agent_inputs  # Rejected before the model can run.
+        return
+    assert result is not None
     assert result.session_id == mock_session_id
     assert result.output == {"status": "ok"}
-    assert len(resolve_inputs) == 1
-    assert resolve_inputs[0].agents.subagents == [stored_ref]
+    assert len(resolve_inputs) == bool(expected_refs)
+    if expected_refs:
+        assert resolve_inputs[0].agents.subagents == expected_refs
     assert len(create_inputs) == 1
-    assert create_inputs[0].agents_binding == stored_binding
-    assert len(agent_inputs) == 1
+    assert create_inputs[0].agents_binding == ResolvedAgentsConfig(
+        subagents=expected_refs
+    )
+    assert len(agent_inputs) == (2 if approval_continuation else 1)
     assert agent_inputs[0].sdk_session_id == "sdk-session"
-    assert [subagent.alias for subagent in agent_inputs[0].subagents] == ["analyst"]
+    assert [subagent.alias for subagent in agent_inputs[0].subagents] == (
+        ["analyst"] if expected_refs else []
+    )
+    if approval_continuation:
+        # Approval may refresh credentials, but it must not resolve dependencies
+        # again or replace the recorded Skill version/configuration.
+        assert agent_inputs[0].config == agent_inputs[1].config
+        assert agent_inputs[0].config.resolved_skills == [skill_ref]
+        assert (
+            agent_inputs[0].subagents[0].config == agent_inputs[1].subagents[0].config
+        )
 
 
 @pytest.mark.anyio
@@ -3207,9 +3277,4 @@ class TestAgentWorkflowStateManagement:
     async def test_workflow_tracks_turns(self) -> None:
         """Test that workflow properly increments turn counter."""
         # This would be tested in full integration tests
-        pass
-
-    async def test_workflow_handles_max_turns(self) -> None:
-        """Test that workflow respects max turns limit (when implemented)."""
-        # Feature not yet implemented but should be tested when added
         pass
