@@ -140,16 +140,27 @@ export function buildSkillToolOptions(
       tagGroup: action.display_group || action.namespace,
     }))
 
+  const nameCounts = new Map<string, number>()
+  for (const integration of mcpIntegrations) {
+    nameCounts.set(
+      integration.name,
+      (nameCounts.get(integration.name) ?? 0) + 1
+    )
+  }
   const mcpOptions = mcpIntegrations.flatMap<SkillToolOption>((integration) => {
+    const integrationLabel =
+      (nameCounts.get(integration.name) ?? 0) > 1
+        ? `${integration.name} (${integration.slug})`
+        : integration.name
     const integrationOption: SkillToolOption = {
       value: `mcp.${integration.slug}`,
       label: "All tools",
       description:
         integration.description || `Allow every tool from ${integration.name}.`,
-      group: integration.name,
+      group: integrationLabel,
       kind: "mcp-integration",
       tagLabel: "All tools",
-      tagGroup: integration.name,
+      tagGroup: integrationLabel,
     }
     if (integration.server_type === "stdio") {
       return [integrationOption]
@@ -165,10 +176,10 @@ export function buildSkillToolOptions(
         value: `mcp.${integration.slug}.${tool.name}`,
         label: tool.name,
         description: tool.description || undefined,
-        group: integration.name,
+        group: integrationLabel,
         kind: "mcp-tool",
         tagLabel: tool.name,
-        tagGroup: integration.name,
+        tagGroup: integrationLabel,
       }))
 
     return [integrationOption, ...toolOptions]

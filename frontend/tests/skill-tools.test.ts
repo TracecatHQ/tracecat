@@ -237,3 +237,27 @@ it("checks the raw declaration count before deduplicating", () => {
     message: "metadata.tools supports at most 64 tool IDs.",
   })
 })
+
+it("disambiguates duplicate integration names in options and chips", () => {
+  const options = buildSkillToolOptions(
+    [],
+    [
+      mcpIntegration,
+      {
+        ...mcpIntegration,
+        id: "integration-2",
+        slug: "slack-2",
+      },
+    ]
+  )
+  expect(options.find((option) => option.value === "mcp.slack")).toMatchObject({
+    group: "Slack (slack)",
+    tagGroup: "Slack (slack)",
+  })
+  expect(
+    options.find((option) => option.value === "mcp.slack-2.post_message")
+  ).toMatchObject({
+    group: "Slack (slack-2)",
+    tagGroup: "Slack (slack-2)",
+  })
+})
