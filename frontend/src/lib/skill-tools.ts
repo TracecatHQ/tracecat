@@ -13,7 +13,11 @@ function isCanonicalToolId(value: string): boolean {
   const pattern = value.startsWith("mcp.")
     ? MCP_TOOL_ID_RE
     : REGISTRY_TOOL_ID_RE
-  return value.length >= 3 && value.length <= 255 && pattern.test(value)
+  return (
+    value.length >= 3 &&
+    value.length <= 255 &&
+    pattern.exec(value)?.[0] === value
+  )
 }
 
 /** Tool option shown in the Skills Studio frontmatter picker. */
@@ -30,7 +34,7 @@ export interface SkillToolOption {
 /** Parsed `metadata.tools` state from raw skill frontmatter YAML. */
 export type SkillFrontmatterToolsState =
   | { valid: true; tools: string[] }
-  | { valid: false; message: string; tools: [] }
+  | { valid: false; message: string; tools: string[]; canRemove?: boolean }
 
 /**
  * Read tool declarations without changing the user's raw frontmatter YAML.
@@ -81,10 +85,19 @@ export function readSkillFrontmatterTools(
     )
   }
 
-  return {
-    valid: true,
-    tools: Array.from(new Set(values.map((value) => value.trim()))),
+  const normalized = Array.from(
+    new Set<string>(values.map((value) => value.trim()))
+  )
+  const invalid = normalized.filter((value) => !isCanonicalToolId(value))
+  if (invalid.length > 0) {
+    return {
+      valid: false,
+      message: `Invalid tool IDs: ${invalid.join(", ")}. Remove them or fix them in the YAML editor.`,
+      tools: normalized,
+      canRemove: true,
+    }
   }
+  return { valid: true, tools: normalized }
 }
 
 /**
@@ -95,7 +108,14 @@ export function updateSkillFrontmatterTools(
   tools: string[]
 ): string {
   const state = readSkillFrontmatterTools(frontmatter)
-  if (!state.valid) {
+  if (
+    !state.valid &&
+    !(
+      state.canRemove &&
+      tools.length < state.tools.length &&
+      tools.every((tool) => state.tools.includes(tool))
+    )
+  ) {
     throw new Error(state.message)
   }
 
@@ -104,6 +124,10 @@ export function updateSkillFrontmatterTools(
   )
   if (normalized.length > MAX_SKILL_TOOLS) {
     throw new Error(`Skills support at most ${MAX_SKILL_TOOLS} tools.`)
+  }
+
+  if (state.valid && normalized.some((tool) => !isCanonicalToolId(tool))) {
+    throw new Error("Tools must use canonical registry or MCP IDs.")
   }
 
   const document = parseDocument(frontmatter, { keepSourceTokens: true })

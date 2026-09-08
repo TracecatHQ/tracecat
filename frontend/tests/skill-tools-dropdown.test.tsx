@@ -76,3 +76,22 @@ metadata:
     ).toBeInTheDocument()
   })
 })
+
+it("shows malformed IDs and lets users remove them", () => {
+  const onChange = jest.fn()
+  render(
+    <SkillToolsDropdown
+      workspaceId="workspace-1"
+      frontmatter='metadata: { tools: ["not-a-tool", "core.cases.get_case"] }'
+      onChange={onChange}
+    />
+  )
+  expect(screen.getByText(/Invalid tool IDs: not-a-tool/)).toBeInTheDocument()
+  fireEvent.focus(screen.getByRole("textbox", { name: "Tools" }))
+  expect(screen.queryByRole("option")).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole("button", { name: "Remove not-a-tool" }))
+  expect(readSkillFrontmatterTools(onChange.mock.calls[0][0])).toEqual({
+    valid: true,
+    tools: ["core.cases.get_case"],
+  })
+})

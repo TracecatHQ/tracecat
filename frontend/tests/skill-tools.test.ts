@@ -291,3 +291,33 @@ it("preserves CRLF and block sequence anchors", () => {
   expect(updated.replace(/\r\n/g, "")).not.toContain("\n")
   expect(parseDocument(updated).toJS().copy).toEqual(["core.new"])
 })
+
+it.each([
+  "not-a-tool",
+  "mcp.server.issue.get",
+  "core.Upper",
+  "core." + "x".repeat(256),
+])("keeps malformed IDs visible and removable: %s", (id) => {
+  const source = `metadata: { tools: ${JSON.stringify([id, "core.ok"])} }`
+  expect(readSkillFrontmatterTools(source)).toMatchObject({
+    valid: false,
+    canRemove: true,
+    tools: [id, "core.ok"],
+  })
+  expect(
+    readSkillFrontmatterTools(updateSkillFrontmatterTools(source, ["core.ok"]))
+  ).toEqual({ valid: true, tools: ["core.ok"] })
+  expect(() =>
+    updateSkillFrontmatterTools(source, [id, "core.ok", "core.new"])
+  ).toThrow("Invalid tool IDs")
+})
+
+it("allows removing malformed IDs one at a time", () => {
+  const source = 'metadata: { tools: ["bad-one", "bad-two", "core.ok"] }'
+  const updated = updateSkillFrontmatterTools(source, ["bad-two", "core.ok"])
+  expect(readSkillFrontmatterTools(updated)).toMatchObject({
+    valid: false,
+    canRemove: true,
+    tools: ["bad-two", "core.ok"],
+  })
+})

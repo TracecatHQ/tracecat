@@ -83,7 +83,7 @@ export function SkillToolsDropdown({
         value={toolsState.tools}
         inputId={inputId}
         onChange={(nextTools) => {
-          if (!toolsState.valid) {
+          if (!toolsState.valid && !toolsState.canRemove) {
             return
           }
           onChange(updateSkillFrontmatterTools(frontmatter, nextTools))
@@ -92,8 +92,9 @@ export function SkillToolsDropdown({
         placeholder={
           suggestionsLoading ? "Loading tools..." : "Search tools..."
         }
-        disabled={!toolsState.valid}
-        maxTags={MAX_SKILL_TOOLS}
+        disabled={!toolsState.valid && !toolsState.canRemove}
+        disableSuggestions={!toolsState.valid}
+        maxTags={toolsState.valid ? MAX_SKILL_TOOLS : toolsState.tools.length}
         searchKeys={TOOL_SEARCH_KEYS}
       />
       {!toolsState.valid ? (
