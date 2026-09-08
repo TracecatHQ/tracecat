@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from slugify import slugify
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import JSONB, aggregate_order_by
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import load_only, selectinload
 
 from tracecat.agent.access.service import AgentModelAccessService
 from tracecat.agent.channels.service import AgentChannelService
@@ -1647,9 +1647,30 @@ class AgentPresetService(BaseWorkspaceService):
     ) -> CursorPaginatedResponse[AgentPresetVersionReadMinimal]:
         """List immutable preset version metadata ordered newest first."""
         paginator = BaseCursorPaginator(self.session)
-        stmt = select(AgentPresetVersion).where(
-            AgentPresetVersion.workspace_id == self.workspace_id,
-            AgentPresetVersion.preset_id == preset_id,
+        # Load only the columns the minimal read and tool policy need; skip
+        # ``instructions`` and other large execution fields for list rows.
+        stmt = (
+            select(AgentPresetVersion)
+            .options(
+                load_only(
+                    AgentPresetVersion.id,
+                    AgentPresetVersion.preset_id,
+                    AgentPresetVersion.workspace_id,
+                    AgentPresetVersion.version,
+                    AgentPresetVersion.actions,
+                    AgentPresetVersion.namespaces,
+                    AgentPresetVersion.mcp_integrations,
+                    AgentPresetVersion.tool_approvals,
+                    AgentPresetVersion.agents,
+                    AgentPresetVersion.enable_internet_access,
+                    AgentPresetVersion.created_at,
+                    AgentPresetVersion.updated_at,
+                )
+            )
+            .where(
+                AgentPresetVersion.workspace_id == self.workspace_id,
+                AgentPresetVersion.preset_id == preset_id,
+            )
         )
         if params.cursor:
             try:

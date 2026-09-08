@@ -1416,6 +1416,9 @@ class ClaudeAgentRuntime:
                 name_prefix=f"subagent-{subagent.alias}",
                 existing_names={registry_server_name},
             )
+            self._stdio_approval_blocked_tools.update(
+                stdio_mcp_spec.blocked_approval_tools
+            )
             mcp_server_configs.extend(
                 {server_name: server_config}
                 for server_name, server_config in stdio_mcp_spec.servers.items()
