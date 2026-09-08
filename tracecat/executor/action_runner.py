@@ -53,7 +53,7 @@ from tracecat.sandbox.utils import (
     communicate_process_group,
     terminate_supervised_process,
 )
-from tracecat.secrets.common import apply_masks, apply_masks_object
+from tracecat.secrets.common import apply_masks_object
 
 if TYPE_CHECKING:
     from tracecat.auth.types import Role
@@ -503,37 +503,33 @@ class ActionRunner:
             )
         # Check for subprocess crash
         if proc.returncode != 0:
-            stderr_text = apply_masks(
-                stderr.decode(errors="replace"),
-                masks=secret_projection.mask_values,
-            )
             logger.error(
                 "Subprocess failed",
                 action=input.task.action,
                 returncode=proc.returncode,
-                stderr=stderr_text,
+                stderr_bytes=len(stderr),
             )
             return ExecutorActionErrorInfo(
                 type="SubprocessError",
-                message=f"Subprocess exited with code {proc.returncode}: {stderr_text[:500]}",
+                message=f"Subprocess exited with code {proc.returncode}",
                 action_name=input.task.action,
                 filename="<subprocess>",
                 function="execute_action",
             )
 
-        # Parse result from stdout
+        # Parse result from stdout. Child-controlled bytes are never logged.
         try:
             result_data = orjson.loads(stdout)
         except orjson.JSONDecodeError as e:
             logger.error(
                 "Failed to parse subprocess output",
                 action=input.task.action,
-                stdout=stdout.decode()[:500],
-                error=str(e),
+                stdout_bytes=len(stdout),
+                parser_position=e.pos,
             )
             return ExecutorActionErrorInfo(
                 type="ProtocolError",
-                message=f"Failed to parse subprocess output: {e}",
+                message=f"Failed to parse subprocess output at byte {e.pos}",
                 action_name=input.task.action,
                 filename="<subprocess>",
                 function="execute_action",

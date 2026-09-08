@@ -121,6 +121,17 @@ Common role types:
 - In `tracecat/config.py`, prefer `int(os.environ.get("VAR") or default)` for
   numeric config so empty environment variables do not break parsing.
 - Prefer `orjson` over stdlib `json` when the dependency is available.
+- Expression errors can carry secret plaintext: failing operations echo their
+  operand, and `repr()` escaping means exact-string masking will not match it.
+  `Expression.result()` withholds the error when the parse tree references a
+  secret. Callers that evaluate templates against a secret-bearing operand wrap
+  the call themselves and mask with the secrets in that operand — see the
+  `call_with_masked_errors()` sites.
+- A sanitized replacement exception must be raised only after the handler has
+  exited: `raise ... from None` clears `__cause__` but not `__context__`, so
+  raising in place leaves the plaintext original attached. Use
+  `call_with_masked_errors()` / `await_with_masked_errors()`, which own that
+  capture-then-raise dance, instead of hand-rolling it.
 
 ## Readability rules
 

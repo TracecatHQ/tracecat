@@ -390,7 +390,11 @@ def test_redact_secret_expressions_rejects_secret_dependent_keys() -> None:
     with pytest.raises(TracecatExpressionError) as exc_info:
         _redact(value)
 
-    assert exc_info.value.detail == {"code": "secret_expression_in_key"}
+    assert "Details withheld:" in str(exc_info.value)
+    assert exc_info.value.detail == {
+        "expression": "SECRETS.api.KEY",
+        "secret_dependent": True,
+    }
 
 
 def test_redact_secret_expressions_recurses_through_values() -> None:
@@ -730,7 +734,11 @@ def test_secret_dependent_input_key_is_rejected_only_at_sink() -> None:
             {"payload": "${{ inputs.context }}"},
         )
 
-    assert exc_info.value.detail == {"code": "secret_expression_in_key"}
+    assert "Details withheld:" in str(exc_info.value)
+    assert exc_info.value.detail == {
+        "expression": "inputs.context",
+        "secret_dependent": True,
+    }
 
 
 def test_compound_dependency_propagates_across_template_boundaries() -> None:
