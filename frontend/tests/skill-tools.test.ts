@@ -229,3 +229,11 @@ it.each(["", "   "])(
     )
   }
 )
+
+it("checks the raw declaration count before deduplicating", () => {
+  const source = `metadata: { tools: ${JSON.stringify(Array(65).fill("core.example"))} }`
+  expect(readSkillFrontmatterTools(source)).toMatchObject({
+    valid: false,
+    message: "metadata.tools supports at most 64 tool IDs.",
+  })
+})
