@@ -45,6 +45,7 @@ from tracecat.exceptions import (
 )
 from tracecat.executor import registry_resolver
 from tracecat.executor.backends.base import ExecutorBackend
+from tracecat.executor.error_policy import chained_error_classification
 from tracecat.executor.schemas import (
     ExecutorActionErrorInfo,
     ExecutorResultSuccess,
@@ -73,6 +74,7 @@ from tracecat.logger import logger
 from tracecat.registry.actions.schemas import TemplateActionDefinition
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.runtime.errors import RuntimeErrorClassification, RuntimeErrorOwner
 from tracecat.secrets import secrets_manager
 from tracecat.secrets.common import (
     apply_masks_object,
@@ -89,11 +91,17 @@ type ArgsT = Mapping[str, Any]
 type ExecutionResult = Any | ExecutorActionErrorInfo
 
 
-def _withhold_error_info(info: ExecutorActionErrorInfo) -> ExecutorActionErrorInfo:
-    """Return a copy without free text that may contain derived secrets."""
+def _withhold_error_info(
+    info: ExecutorActionErrorInfo,
+    classification: RuntimeErrorClassification | None,
+) -> ExecutorActionErrorInfo:
+    """Replace unsafe diagnostics, retaining policy-authored platform messages."""
     return info.model_copy(
         update={
-            "message": "The action failed. Details withheld: secrets may be in scope.",
+            "message": classification.message
+            if classification is not None
+            and classification.owner is RuntimeErrorOwner.PLATFORM
+            else "The action failed. Details withheld: secrets may be in scope.",
             "loop_vars": None,
         }
     )
@@ -418,7 +426,11 @@ async def _invoke_template_step(
     except ExecutionError as e:
         if e.info is None or step_ref not in taint.tainted_steps:
             raise
-        error = ExecutionError(info=_withhold_error_info(e.info))
+        classification = chained_error_classification(e)
+        error = ExecutionError(
+            info=_withhold_error_info(e.info, classification),
+            classification=classification,
+        )
     except Exception as e:
         logger.error(
             "Template step failed",
@@ -427,9 +439,10 @@ async def _invoke_template_step(
             error_type=type(e).__name__,
         )
         info = ExecutorActionErrorInfo.from_exc(e, action_name=step_action)
+        classification = chained_error_classification(e)
         if step_ref in taint.tainted_steps:
-            info = _withhold_error_info(info)
-        error = ExecutionError(info=info)
+            info = _withhold_error_info(info, classification)
+        error = ExecutionError(info=info, classification=classification)
     raise error
 
 
@@ -865,14 +878,19 @@ async def invoke_once(
         _attach_loop_context(e.info, iteration)
         if not _error_may_contain_secrets(input.task.args, mask_values):
             raise
-        safe_error = ExecutionError(info=_withhold_error_info(e.info))
+        classification = chained_error_classification(e)
+        safe_error = ExecutionError(
+            info=_withhold_error_info(e.info, classification),
+            classification=classification,
+        )
     except Exception as e:
         # Infrastructure errors need to be wrapped for consistent error handling
         exec_result = ExecutorActionErrorInfo.from_exc(e, action_name=action_name)
+        classification = chained_error_classification(e)
         _attach_loop_context(exec_result, iteration)
         if _error_may_contain_secrets(input.task.args, mask_values):
-            exec_result = _withhold_error_info(exec_result)
-        # Log only the withheld message when secrets may be in scope.
+            exec_result = _withhold_error_info(exec_result, classification)
+        # Log only the safe diagnostic when secrets may be in scope.
         logger.error(
             "Backend execution failed",
             action=action_name,
@@ -883,7 +901,7 @@ async def invoke_once(
         # Drop the cause AND the context even with no masks: secret-derived
         # ACTIONS/var inputs mean the original can carry plaintext, and a
         # chained __cause__/__context__ is re-serialized downstream.
-        safe_error = ExecutionError(info=exec_result)
+        safe_error = ExecutionError(info=exec_result, classification=classification)
     else:
         # Apply secret masking at root level only. Large action results can make
         # this CPU-bound traversal expensive, so keep it off the activity event

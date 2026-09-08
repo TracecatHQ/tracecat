@@ -36,15 +36,20 @@ from tracecat.temporal.errors import (
 from tracecat.temporal.exceptions import UserError
 
 
-def _chained_error_classification(
+def chained_error_classification(
     error: BaseException,
 ) -> RuntimeErrorClassification | None:
-    """Classify the first known executor or sandbox failure in the chain.
+    """Extract preserved metadata or classify a known failure before dropping its chain.
+
+    The returned message must be sanitized before attaching it to a new error.
+    Unknown failures return None so each boundary keeps its existing fallback.
 
     ``RegistryArtifactCacheLeaseContentionError`` subclasses
     ``RegistryArtifactCacheCapacityError``, so it must be matched first.
     """
     for cause in iter_error_chain(error):
+        if isinstance(cause, ExecutionError) and cause.classification is not None:
+            return cause.classification
         if isinstance(cause, EntitlementRequired):
             return RuntimeErrorClassification.user(
                 kind=RuntimeErrorKind.TENANT_ENTITLEMENT_DENIED,
@@ -110,7 +115,7 @@ def _execution_error_classification(
     error: ExecutionError,
 ) -> RuntimeErrorClassification:
     """Classify one executor invocation failure."""
-    return _chained_error_classification(error) or RuntimeErrorClassification.user(
+    return chained_error_classification(error) or RuntimeErrorClassification.user(
         kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
         message=str(error),
         retry_disposition=RetryDisposition.RETRYABLE,
@@ -206,7 +211,7 @@ def classify_execute_action_error(
         return _loop_error_classification(error)
     if isinstance(error, ApplicationError):
         return _application_error_classification(error)
-    return _chained_error_classification(error) or RuntimeErrorClassification.platform(
+    return chained_error_classification(error) or RuntimeErrorClassification.platform(
         kind=RuntimeErrorKind.RUNTIME_UNCLASSIFIED,
         message="Tracecat could not execute the action",
         retry_disposition=RetryDisposition.NON_RETRYABLE,
