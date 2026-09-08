@@ -15,6 +15,7 @@ import {
   type AdminOrgInvitationCreate,
   type AdminRegistryGetRegistryStatusResponse,
   type AdminRegistryListRegistryVersionsResponse,
+  type AdminResendOrganizationInvitationResponse,
   type AdminTestAuditWebhookData,
   type AdminUserCreate,
   type AdminUserRead,
@@ -54,6 +55,7 @@ import {
   adminRegistryStartRegistryArtifactsBackfill,
   adminRegistrySyncAllRepositories,
   adminRegistrySyncRepository,
+  adminResendOrganizationInvitation,
   adminRevokeOrganizationInvitation,
   adminSyncOrgRepository,
   adminTestAuditWebhook,
@@ -363,6 +365,15 @@ export function useAdminOrgInvitations(orgId: string) {
       },
     })
 
+  const { mutateAsync: resendInvitation, isPending: resendPending } =
+    useMutation<AdminResendOrganizationInvitationResponse, Error, string>({
+      mutationFn: (invitationId) =>
+        adminResendOrganizationInvitation({ orgId, invitationId }),
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey })
+      },
+    })
+
   function goToNextPage() {
     if (!invitationsPage?.next_cursor) return
     setPagination((previous) => ({
@@ -390,6 +401,8 @@ export function useAdminOrgInvitations(orgId: string) {
     getInvitationToken,
     revokeInvitation,
     revokePending,
+    resendInvitation,
+    resendPending,
     goToNextPage,
     goToPreviousPage,
     hasNextPage: invitationsPage?.has_more ?? false,
