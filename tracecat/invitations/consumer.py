@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import timedelta
 from typing import Final
 
 from sqlalchemy import bindparam, func, select, update
@@ -18,6 +19,9 @@ from tracecat.logger import logger
 POLL_INTERVAL_SECONDS: Final = 2.0
 CLAIM_BATCH_SIZE: Final = 20
 MAX_EMAIL_ATTEMPTS: Final = 3
+# A manual resend clears the claim, so this bounds how often a user can
+# re-enter a row into the outbox.
+RESEND_COOLDOWN: Final = timedelta(seconds=60)
 
 
 async def deliver_next_invitation(

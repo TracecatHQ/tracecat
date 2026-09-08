@@ -15,7 +15,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from tests.database import TEST_DB_CONFIG
-from tracecat import config
 from tracecat.auth.schemas import UserRole
 from tracecat.db.models import Organization, OrganizationInvitation, User
 from tracecat.db.models import Role as DBRole
@@ -53,25 +52,6 @@ def tick_session(session: AsyncSession, monkeypatch: pytest.MonkeyPatch) -> None
         "tracecat.invitations.consumer.get_async_session_bypass_rls_context_manager",
         fake_session_context,
     )
-
-
-@pytest.fixture
-def smtp_configured(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(config, "TRACECAT__SMTP_HOST", "smtp.example.com")
-    monkeypatch.setattr(config, "TRACECAT__SMTP_PORT", 587)
-    monkeypatch.setattr(config, "TRACECAT__SMTP_USER", "relay")
-    monkeypatch.setattr(config, "TRACECAT__SMTP_PASSWORD", "secret")
-    monkeypatch.setattr(
-        config, "TRACECAT__EMAIL_FROM", "Tracecat <no-reply@example.com>"
-    )
-
-
-@pytest.fixture
-def smtp_unconfigured(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(config, "TRACECAT__SMTP_HOST", None)
-    monkeypatch.setattr(config, "TRACECAT__SMTP_USER", None)
-    monkeypatch.setattr(config, "TRACECAT__SMTP_PASSWORD", None)
-    monkeypatch.setattr(config, "TRACECAT__EMAIL_FROM", None)
 
 
 def _patch_transport(monkeypatch: pytest.MonkeyPatch, transport: FakeTransport) -> None:

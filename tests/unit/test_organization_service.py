@@ -42,9 +42,11 @@ from tracecat.db.models import (
 )
 from tracecat.exceptions import (
     TracecatAuthorizationError,
+    TracecatConflictError,
     TracecatNotFoundError,
     TracecatValidationError,
 )
+from tracecat.invitations.consumer import RESEND_COOLDOWN
 from tracecat.invitations.enums import InvitationStatus
 from tracecat.organization.service import OrgService, accept_invitation_for_user
 
@@ -1638,6 +1640,167 @@ class TestOrganizationServiceInvitations:
 
         with pytest.raises(NoResultFound):
             await service.revoke_invitation(org2_invitation.id)
+
+    @pytest.mark.anyio
+    async def test_resend_invitation_clears_delivery_state(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+        org1_member_role: DBRole,
+        smtp_configured: None,
+    ):
+        """Test resend_invitation re-enters the row into the outbox."""
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = OrgService(session, role=role)
+
+        invitation = await service.create_invitation(
+            email="resend@example.com", role_id=org1_member_role.id
+        )
+        invitation.email_claimed_at = datetime.now(UTC) - timedelta(minutes=5)
+        invitation.email_sent_at = datetime.now(UTC) - timedelta(minutes=5)
+        invitation.email_attempts = 2
+        await session.commit()
+
+        resent = await service.resend_invitation(invitation.id)
+
+        assert resent.email_claimed_at is None
+        assert resent.email_sent_at is None
+        assert resent.email_attempts == 0
+
+        # The reset must be committed, not just flushed, or the poller never sees it.
+        await session.rollback()
+        await session.refresh(invitation)
+        assert invitation.email_claimed_at is None
+        assert invitation.email_sent_at is None
+        assert invitation.email_attempts == 0
+
+    @pytest.mark.anyio
+    async def test_resend_invitation_unknown_id_raises(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+        smtp_configured: None,
+    ):
+        """Test resend_invitation raises for an unknown invitation."""
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = OrgService(session, role=role)
+
+        with pytest.raises(NoResultFound):
+            await service.resend_invitation(uuid.uuid4())
+
+    @pytest.mark.anyio
+    async def test_resend_invitation_not_pending_raises(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+        org1_member_role: DBRole,
+        smtp_configured: None,
+    ):
+        """Test resend_invitation rejects a non-pending invitation."""
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = OrgService(session, role=role)
+
+        invitation = await service.create_invitation(
+            email="revoked-resend@example.com", role_id=org1_member_role.id
+        )
+        await service.revoke_invitation(invitation.id)
+
+        with pytest.raises(TracecatValidationError, match="Cannot resend invitation"):
+            await service.resend_invitation(invitation.id)
+
+    @pytest.mark.anyio
+    async def test_resend_invitation_expired_raises(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+        org1_member_role: DBRole,
+        smtp_configured: None,
+    ):
+        """Test resend_invitation rejects an expired invitation."""
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = OrgService(session, role=role)
+
+        invitation = await service.create_invitation(
+            email="expired-resend@example.com", role_id=org1_member_role.id
+        )
+        invitation.expires_at = datetime.now(UTC) - timedelta(minutes=1)
+        await session.commit()
+
+        with pytest.raises(TracecatValidationError, match="expired invitation"):
+            await service.resend_invitation(invitation.id)
+
+    @pytest.mark.anyio
+    async def test_resend_invitation_without_smtp_raises(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+        org1_member_role: DBRole,
+        smtp_unconfigured: None,
+    ):
+        """Test resend_invitation rejects when email delivery is unconfigured."""
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = OrgService(session, role=role)
+
+        invitation = await service.create_invitation(
+            email="nosmtp-resend@example.com", role_id=org1_member_role.id
+        )
+
+        with pytest.raises(
+            TracecatValidationError, match="Email delivery is not configured"
+        ):
+            await service.resend_invitation(invitation.id)
+
+    @pytest.mark.anyio
+    async def test_resend_invitation_within_cooldown_raises(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+        org1_member_role: DBRole,
+        smtp_configured: None,
+    ):
+        """Test resend_invitation rejects a claim inside the cooldown window."""
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = OrgService(session, role=role)
+
+        invitation = await service.create_invitation(
+            email="cooldown-resend@example.com", role_id=org1_member_role.id
+        )
+        invitation.email_claimed_at = datetime.now(UTC) - (RESEND_COOLDOWN / 2)
+        await session.commit()
+
+        with pytest.raises(TracecatConflictError):
+            await service.resend_invitation(invitation.id)
+
+    @pytest.mark.anyio
+    async def test_resend_invitation_outside_cooldown_succeeds(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+        org1_member_role: DBRole,
+        smtp_configured: None,
+    ):
+        """Test resend_invitation accepts a claim older than the cooldown."""
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = OrgService(session, role=role)
+
+        invitation = await service.create_invitation(
+            email="past-cooldown-resend@example.com", role_id=org1_member_role.id
+        )
+        invitation.email_claimed_at = datetime.now(UTC) - (
+            RESEND_COOLDOWN + timedelta(seconds=1)
+        )
+        await session.commit()
+
+        resent = await service.resend_invitation(invitation.id)
+
+        assert resent.email_claimed_at is None
 
     @pytest.mark.anyio
     async def test_accept_invitation(
