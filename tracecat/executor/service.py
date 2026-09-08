@@ -71,6 +71,7 @@ from tracecat.expressions.policy import (
 )
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
+from tracecat.observability.sentry import capture_activity_failure
 from tracecat.registry.actions.schemas import TemplateActionDefinition
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.lock.types import RegistryLock
@@ -430,6 +431,7 @@ async def _invoke_template_step(
         error = ExecutionError(
             info=_withhold_error_info(e.info, classification),
             classification=classification,
+            sentry_capture=e.sentry_capture,
         )
     except Exception as e:
         logger.error(
@@ -442,7 +444,15 @@ async def _invoke_template_step(
         classification = chained_error_classification(e)
         if step_ref in taint.tainted_steps:
             info = _withhold_error_info(info, classification)
-        error = ExecutionError(info=info, classification=classification)
+        error = ExecutionError(
+            info=info,
+            classification=classification,
+            sentry_capture=(
+                capture_activity_failure(e, classification)
+                if classification is not None
+                else None
+            ),
+        )
     raise error
 
 
@@ -882,6 +892,7 @@ async def invoke_once(
         safe_error = ExecutionError(
             info=_withhold_error_info(e.info, classification),
             classification=classification,
+            sentry_capture=e.sentry_capture,
         )
     except Exception as e:
         # Infrastructure errors need to be wrapped for consistent error handling
@@ -901,7 +912,15 @@ async def invoke_once(
         # Drop the cause AND the context even with no masks: secret-derived
         # ACTIONS/var inputs mean the original can carry plaintext, and a
         # chained __cause__/__context__ is re-serialized downstream.
-        safe_error = ExecutionError(info=exec_result, classification=classification)
+        safe_error = ExecutionError(
+            info=exec_result,
+            classification=classification,
+            sentry_capture=(
+                capture_activity_failure(e, classification)
+                if classification is not None
+                else None
+            ),
+        )
     else:
         # Apply secret masking at root level only. Large action results can make
         # this CPU-bound traversal expensive, so keep it off the activity event

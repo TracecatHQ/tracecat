@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from pydantic_core import ValidationError
 
     from tracecat.executor.schemas import ExecutorActionErrorInfo
+    from tracecat.observability.types import PlatformErrorCapture
     from tracecat.registry.actions.schemas import RegistryActionValidationErrorInfo
     from tracecat.registry.sync.schemas import SyncErrorCode
     from tracecat.runtime.errors import RuntimeErrorClassification
@@ -207,8 +208,10 @@ class ExecutionError(TracecatException):
         info: ExecutorActionErrorInfo,
         *,
         classification: RuntimeErrorClassification | None = None,
+        sentry_capture: PlatformErrorCapture | None = None,
     ):
         self.info = info
+        self.sentry_capture = sentry_capture
         # Host-derived metadata, never decoded from a backend error payload.
         # Platform messages are neutral and policy-authored; user messages must
         # follow the diagnostic's sanitization rather than retain old plaintext.

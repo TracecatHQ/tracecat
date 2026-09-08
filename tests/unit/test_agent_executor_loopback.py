@@ -1289,3 +1289,25 @@ async def test_duplicate_approval_request_events_are_deduped() -> None:
 
     result = handler.build_result()
     assert [item.id for item in result.approval_items] == ["call-1"]
+
+
+@pytest.mark.anyio
+async def test_host_runtime_capture_uses_original_exception_before_stream_failure(
+    monkeypatch: pytest.MonkeyPatch, loopback_input: LoopbackInput
+) -> None:
+    handler = LoopbackHandler(input=loopback_input)
+    original = RuntimeError("synthetic source failure")
+    capture = MagicMock(return_value=None)
+    monkeypatch.setattr(loopback_module, "capture_activity_failure", capture)
+    monkeypatch.setattr(handler, "prepare", AsyncMock())
+    monkeypatch.setattr(
+        handler, "_emit_terminal_stream_error", AsyncMock(side_effect=OSError())
+    )
+    with pytest.raises(OSError):
+        await handler.send_error("runtime failed", cause=original)
+    result = handler.build_result()
+    assert result.classification is not None
+    capture.assert_called_once_with(
+        original, result.classification, existing_capture=None
+    )
+    assert result.error == "runtime failed"

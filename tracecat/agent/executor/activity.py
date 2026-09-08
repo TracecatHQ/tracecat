@@ -118,6 +118,8 @@ from tracecat.observability.otel import (
     platform_span,
     set_current_span_attributes,
 )
+from tracecat.observability.sentry import capture_activity_failure
+from tracecat.observability.types import PlatformErrorCapture
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.runtime.errors import RuntimeErrorClassification
 from tracecat.settings.service import SettingsService
@@ -245,6 +247,7 @@ class AgentExecutorResult(BaseModel):
     # Typed terminal attribution produced by the trusted executor boundary.
     # None keeps activity results recorded before this field replayable.
     classification: RuntimeErrorClassification | None = None
+    sentry_capture: PlatformErrorCapture | None = Field(default=None, exclude=True)
     # None means a legacy activity result did not carry this field. The
     # workflow treats unknown failed results as already terminal-emitted so old
     # histories keep their original command shape.
@@ -695,6 +698,9 @@ class SandboxedAgentExecutor:
             failure = agent_runtime_failure(e, fallback_message=str(e))
             result.error = failure.message
             result.classification = failure.classification
+            result.sentry_capture = capture_activity_failure(
+                e, failure.classification, existing_capture=result.sentry_capture
+            )
         except Exception as e:
             logger.exception("Unexpected error in agent executor", error=str(e))
             failure = agent_runtime_failure(
@@ -702,6 +708,9 @@ class SandboxedAgentExecutor:
             )
             result.error = failure.message
             result.classification = failure.classification
+            result.sentry_capture = capture_activity_failure(
+                e, failure.classification, existing_capture=result.sentry_capture
+            )
         finally:
             await self._cleanup()
 
@@ -770,6 +779,7 @@ class SandboxedAgentExecutor:
         result.success = loopback_result.success
         result.error = loopback_result.error
         result.classification = loopback_result.classification
+        result.sentry_capture = loopback_result.sentry_capture
         result.approval_requested = loopback_result.approval_requested
         result.approval_items = loopback_result.approval_items or None
         result.terminal_stream_error_emitted = (
@@ -946,6 +956,11 @@ class SandboxedAgentExecutor:
             failure = agent_runtime_failure(e, fallback_message=str(e))
             result.error = failure.message
             result.classification = failure.classification
+            result.sentry_capture = capture_activity_failure(
+                e,
+                failure.classification,
+                existing_capture=handler.build_result().sentry_capture,
+            )
             result.terminal_stream_error_emitted = await handler.emit_terminal_error(
                 result.error
             )
