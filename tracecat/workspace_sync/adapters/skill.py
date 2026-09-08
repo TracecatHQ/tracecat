@@ -16,7 +16,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from tracecat.agent.skill.service import (
-    ManifestValidationResult,
     SkillFileBlobRef,
     SkillService,
 )
@@ -430,13 +429,40 @@ class SkillAdapter(DirectoryManifestAdapter):
                     spec,
                     prior_file_refs=prior_file_refs,
                 )
+                validation = await skill_service._validate_manifest_rows(
+                    [(path, file_ref.blob) for path, file_ref in file_refs.items()]
+                )
+                if validation.errors:
+                    raise TracecatValidationError(
+                        "Workspace-synced skill failed validation",
+                        detail={
+                            "code": "workspace_sync_skill_validation_failed",
+                            "errors": [
+                                error.model_dump(mode="json")
+                                for error in validation.errors
+                            ],
+                        },
+                    )
+                mismatched_fields = [
+                    field
+                    for field, desired, actual in (
+                        ("name", spec.name, validation.name),
+                        ("description", spec.description, validation.description),
+                    )
+                    if desired != actual
+                ]
+                if mismatched_fields:
+                    raise TracecatValidationError(
+                        "Skill metadata must match root SKILL.md frontmatter",
+                        detail={
+                            "code": "workspace_sync_skill_metadata_mismatch",
+                            "fields": mismatched_fields,
+                        },
+                    )
                 current = await skill_service.publish_version_from_blob_refs(
                     skill=skill,
                     file_refs=list(file_refs.items()),
-                    validation=ManifestValidationResult(
-                        name=spec.name,
-                        description=spec.description,
-                    ),
+                    validation=validation,
                     head_name=spec.name,
                 )
             else:

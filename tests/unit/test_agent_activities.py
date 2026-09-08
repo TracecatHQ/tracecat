@@ -456,6 +456,11 @@ class TestBuildToolDefinitionsActivity:
                     description="Delete issue",
                     parameters_json_schema={"type": "object"},
                 ),
+                "mcp__Jira__updateIssue": MCPToolDefinition(
+                    name="mcp__Jira__updateIssue",
+                    description="Update issue",
+                    parameters_json_schema={"type": "object"},
+                ),
             }
 
         class _PresetService:
@@ -474,6 +479,7 @@ class TestBuildToolDefinitionsActivity:
                             name="deleteIssue",
                             enabled=False,
                         ),
+                        "updateIssue": MCPToolSummary(name="updateIssue"),
                     }
                 }
 
@@ -549,6 +555,12 @@ class TestBuildToolDefinitionsActivity:
                         "name": "Jira",
                         "url": "https://mcp.example.com/mcp",
                         "id": str(integration_id),
+                        "tools": [
+                            {
+                                "name": "getIssue",
+                                "description": "Get issue",
+                            }
+                        ],
                     }
                 ],
             )

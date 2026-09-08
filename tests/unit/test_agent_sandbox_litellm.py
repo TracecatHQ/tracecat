@@ -13,7 +13,7 @@ import tempfile
 import uuid
 import zipfile
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from ipaddress import IPv4Address, IPv4Network, ip_address, ip_network
 from pathlib import Path
 from types import SimpleNamespace
@@ -22,6 +22,7 @@ from typing import Any, TypedDict, cast
 import orjson
 import pytest
 from claude_agent_sdk import ClaudeAgentOptions
+from claude_agent_sdk.types import SdkPluginConfig
 
 import tracecat.agent.executor.activity as executor_activity
 import tracecat.agent.runtime.claude_code.broker as broker_module
@@ -260,6 +261,7 @@ class _FakeClaudeOptions:
     mcp_servers: object = None
     agents: object = None
     settings: str | None = None
+    plugins: list[SdkPluginConfig] = field(default_factory=list)
 
 
 def _agent_config(**kwargs: Any) -> AgentConfig:

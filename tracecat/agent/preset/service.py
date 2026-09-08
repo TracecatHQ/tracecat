@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
 
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from slugify import slugify
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import JSONB, aggregate_order_by
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import load_only, selectinload
 
 from tracecat.agent.access.service import AgentModelAccessService
 from tracecat.agent.channels.service import AgentChannelService
@@ -27,28 +27,44 @@ from tracecat.agent.preset.resolver import resolve_agents_config
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
     AgentPresetRead,
+    AgentPresetReadMinimal,
     AgentPresetSkillBindingBase,
     AgentPresetSkillBindingChange,
     AgentPresetSkillBindingRead,
+    AgentPresetToolPolicyPreview,
+    AgentPresetToolPolicyRead,
     AgentPresetUpdate,
     AgentPresetVersionDiff,
     AgentPresetVersionRead,
     AgentPresetVersionReadMinimal,
+    PresetToolSourceRead,
     ScalarFieldChange,
     StringListFieldChange,
     ToolApprovalFieldChange,
     _agent_preset_capabilities,
+    build_agent_preset_read_minimal,
     build_subagent_eligibility,
 )
-from tracecat.agent.preset.types import SkillBindingSpec
+from tracecat.agent.preset.tool_policy import (
+    PresetToolPolicyService,
+    resolve_tool_policy,
+)
+from tracecat.agent.preset.types import (
+    EffectivePresetTools,
+    PresetToolInputs,
+    SkillBindingSpec,
+)
 from tracecat.agent.skill.bindings import (
     SkillBindingService,
     validate_no_duplicate_skill_ids,
 )
+from tracecat.agent.skill.dependencies import SkillToolDependencyService
+from tracecat.agent.skill.types import SkillMcpGrant
 from tracecat.agent.subagents import (
     AgentSubagentsConfig,
     ResolvedAgentsConfig,
     ResolvedAttachedSubagentRef,
+    has_manual_tool_approvals,
 )
 from tracecat.agent.types import (
     AgentConfig,
@@ -124,6 +140,8 @@ class AgentPresetService(BaseWorkspaceService):
     def __init__(self, session: AsyncSession, role: Role | None = None):
         super().__init__(session, role=role)
         self.skills = SkillBindingService(session, role=self.role)
+        self.skill_tools = SkillToolDependencyService(session, role=self.role)
+        self.tool_policy = PresetToolPolicyService(session, role=self.role)
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def list_presets(self) -> Sequence[AgentPreset]:
@@ -229,9 +247,154 @@ class AgentPresetService(BaseWorkspaceService):
             for skill_id, skill_name, skill_version_id, skill_version in rows
         ]
 
+    @staticmethod
+    def _tool_inputs(
+        preset: AgentPreset | AgentPresetVersion,
+        skill_version_ids: Sequence[uuid.UUID],
+    ) -> PresetToolInputs:
+        return PresetToolInputs(
+            key=preset.id,
+            actions=preset.actions or (),
+            namespaces=preset.namespaces or (),
+            mcp_integrations=preset.mcp_integrations or (),
+            tool_approvals=preset.tool_approvals or {},
+            skill_version_ids=skill_version_ids,
+        )
+
+    @staticmethod
+    def _tool_policy_read(policy: EffectivePresetTools) -> AgentPresetToolPolicyRead:
+        return AgentPresetToolPolicyRead(
+            actions=list(policy.actions),
+            requires_internet_access=policy.requires_internet_access,
+            has_approvals=has_manual_tool_approvals(policy.tool_approvals),
+            blocked_tools=[
+                PresetToolSourceRead.model_validate(source, from_attributes=True)
+                for source in policy.blocked_tools
+            ],
+            internet_sources=[
+                PresetToolSourceRead.model_validate(source, from_attributes=True)
+                for source in policy.internet_sources
+            ],
+        )
+
+    async def resolve_tool_policies(
+        self,
+        presets: Sequence[AgentPreset] | Sequence[AgentPresetVersion],
+        *,
+        use_latest_skill_versions: bool = True,
+    ) -> dict[uuid.UUID, EffectivePresetTools]:
+        """Batch-resolve the same policy used by runtime for API reporting."""
+        if not presets:
+            return {}
+        is_head = isinstance(presets[0], AgentPreset)
+        binding = AgentPresetSkill if is_head else AgentPresetVersionSkill
+        owner = (
+            AgentPresetSkill.preset_id
+            if is_head
+            else AgentPresetVersionSkill.preset_version_id
+        )
+        version_id = (
+            Skill.current_version_id
+            if use_latest_skill_versions
+            else binding.skill_version_id
+        )
+        stmt = (
+            select(owner, SkillVersion.id)
+            .select_from(binding)
+            .join(
+                Skill,
+                sa.and_(
+                    Skill.id == binding.skill_id,
+                    Skill.workspace_id == binding.workspace_id,
+                ),
+            )
+            .join(
+                SkillVersion,
+                sa.and_(
+                    SkillVersion.workspace_id == binding.workspace_id,
+                    SkillVersion.skill_id == binding.skill_id,
+                    SkillVersion.id == version_id,
+                ),
+            )
+            .where(
+                binding.workspace_id == self.workspace_id,
+                owner.in_([preset.id for preset in presets]),
+            )
+            .order_by(owner, binding.skill_id)
+        )
+        ids: dict[uuid.UUID, list[uuid.UUID]] = {}
+        for owner_id, skill_version_id in (
+            await self.session.execute(with_deleted(stmt))
+        ).tuples():
+            if skill_version_id is not None:
+                ids.setdefault(owner_id, []).append(skill_version_id)
+        return await self.tool_policy.resolve_many(
+            [self._tool_inputs(preset, ids.get(preset.id, [])) for preset in presets]
+        )
+
+    async def resolve_preset_tool_policy(
+        self, version: AgentPresetVersion, *, use_latest_skill_versions: bool = True
+    ) -> EffectivePresetTools:
+        return (
+            await self.resolve_tool_policies(
+                [version], use_latest_skill_versions=use_latest_skill_versions
+            )
+        )[version.id]
+
+    async def preview_tool_policy(
+        self, params: AgentPresetToolPolicyPreview
+    ) -> AgentPresetToolPolicyRead:
+        bindings = [
+            AgentPresetSkillBindingBase(skill_id=skill_id)
+            for skill_id in params.skill_ids
+        ]
+        await self.skills.validate_binding_inputs(bindings)
+        specs = await self._binding_specs_from_inputs(bindings, for_update=False)
+        if params.actions:
+            await self._validate_actions(params.actions)
+        inputs = PresetToolInputs(
+            key=uuid.uuid4(),
+            actions=params.actions,
+            namespaces=params.namespaces,
+            mcp_integrations=params.mcp_integrations,
+            tool_approvals=params.tool_approvals,
+            skill_version_ids=[spec.skill_version_id for spec in specs],
+        )
+        metadata = await self.skill_tools.load_metadata(
+            inputs.skill_version_ids, mcp_integration_ids=inputs.mcp_integrations
+        )
+        self._select_mcp_integrations(
+            inputs.mcp_integrations, list(metadata.integrations.values())
+        )
+        policy = resolve_tool_policy(inputs, metadata.versions, metadata.integrations)
+        return self._tool_policy_read(policy)
+
+    async def build_preset_list_reads(
+        self, presets: Sequence[AgentPreset]
+    ) -> list[AgentPresetReadMinimal]:
+        policies = await self.resolve_tool_policies(presets)
+        return [
+            build_agent_preset_read_minimal(preset).model_copy(
+                update={
+                    "capabilities": _agent_preset_capabilities(
+                        agents_config=preset.agents,
+                        tool_approvals=policies[preset.id].tool_approvals,
+                        enable_internet_access=preset.enable_internet_access
+                        or policies[preset.id].requires_internet_access,
+                    ),
+                    "current_version_subagent_eligibility": build_subagent_eligibility(
+                        agents_config=preset.agents,
+                        tool_approvals=policies[preset.id].tool_approvals,
+                    ),
+                }
+            )
+            for preset in presets
+        ]
+
     async def build_preset_read(self, preset: AgentPreset) -> AgentPresetRead:
         """Build the response model for a preset."""
 
+        policy = (await self.resolve_tool_policies([preset]))[preset.id]
         agents = AgentSubagentsConfig.model_validate(preset.agents)
         return AgentPresetRead(
             id=preset.id,
@@ -254,7 +417,9 @@ class AgentPresetService(BaseWorkspaceService):
             agents=agents,
             retries=preset.retries,
             enable_thinking=preset.enable_thinking,
-            enable_internet_access=preset.enable_internet_access,
+            enable_internet_access=preset.enable_internet_access
+            or policy.requires_internet_access,
+            tool_policy=self._tool_policy_read(policy),
             created_at=preset.created_at,
             updated_at=preset.updated_at,
             skills=await self._list_head_skill_bindings(preset.id),
@@ -265,6 +430,9 @@ class AgentPresetService(BaseWorkspaceService):
     ) -> AgentPresetVersionRead:
         """Build the response model for an immutable preset version."""
 
+        policy = await self.resolve_preset_tool_policy(
+            version, use_latest_skill_versions=False
+        )
         agents = AgentSubagentsConfig.model_validate(version.agents)
         return AgentPresetVersionRead(
             id=version.id,
@@ -284,15 +452,18 @@ class AgentPresetService(BaseWorkspaceService):
             agents=agents,
             retries=version.retries,
             enable_thinking=version.enable_thinking,
-            enable_internet_access=version.enable_internet_access,
+            enable_internet_access=version.enable_internet_access
+            or policy.requires_internet_access,
+            tool_policy=self._tool_policy_read(policy),
             capabilities=_agent_preset_capabilities(
                 agents_config=agents,
-                tool_approvals=version.tool_approvals,
-                enable_internet_access=version.enable_internet_access,
+                tool_approvals=policy.tool_approvals,
+                enable_internet_access=version.enable_internet_access
+                or policy.requires_internet_access,
             ),
             subagent_eligibility=build_subagent_eligibility(
                 agents_config=agents,
-                tool_approvals=version.tool_approvals,
+                tool_approvals=policy.tool_approvals,
             ),
             created_at=version.created_at,
             updated_at=version.updated_at,
@@ -317,9 +488,7 @@ class AgentPresetService(BaseWorkspaceService):
         )
         if params.actions:
             await self._validate_actions(params.actions)
-        requires_internet_access = await self._has_stdio_mcp_integration(
-            params.mcp_integrations
-        )
+        await self.load_selected_mcp_integrations(params.mcp_integrations)
         if params.skills:
             await self.skills.validate_binding_inputs(
                 params.skills,
@@ -353,9 +522,7 @@ class AgentPresetService(BaseWorkspaceService):
             mcp_integrations=params.mcp_integrations,
             agents=AgentSubagentsConfig().model_dump(mode="json"),
             enable_thinking=params.enable_thinking,
-            enable_internet_access=(
-                params.enable_internet_access or requires_internet_access
-            ),
+            enable_internet_access=params.enable_internet_access,
             retries=params.retries,
         )
         self.session.add(preset)
@@ -462,25 +629,10 @@ class AgentPresetService(BaseWorkspaceService):
 
         if "mcp_integrations" in set_fields:
             mcp_integrations = set_fields.pop("mcp_integrations")
-            requires_internet_access = await self._has_stdio_mcp_integration(
-                mcp_integrations
-            )
+            await self.load_selected_mcp_integrations(mcp_integrations)
             if preset.mcp_integrations != mcp_integrations:
                 preset.mcp_integrations = mcp_integrations
                 execution_changed = True
-        else:
-            requires_internet_access = False
-            if (
-                set_fields.get("enable_internet_access") is False
-                or not preset.enable_internet_access
-            ):
-                requires_internet_access = await self._has_stdio_mcp_integration(
-                    preset.mcp_integrations,
-                    raise_on_missing=False,
-                )
-
-        if requires_internet_access:
-            set_fields["enable_internet_access"] = True
 
         if "agents" in set_fields:
             agents = await self._resolve_preset_subagent_configs(
@@ -510,6 +662,18 @@ class AgentPresetService(BaseWorkspaceService):
             catalog_entry = await self._get_enabled_catalog_entry(effective_catalog_id)
             set_fields["model_name"] = catalog_entry.model_name
             set_fields["model_provider"] = catalog_entry.model_provider
+
+        policy = (
+            await self.tool_policy.resolve_many(
+                [
+                    self._tool_inputs(
+                        preset, [binding.skill_version_id for binding in publish_specs]
+                    )
+                ]
+            )
+        )[preset.id]
+        if policy.requires_internet_access:
+            set_fields["enable_internet_access"] = True
 
         # Update remaining fields
         for field, value in set_fields.items():
@@ -742,6 +906,21 @@ class AgentPresetService(BaseWorkspaceService):
         if not mcp_integrations:
             return []
 
+        available = await IntegrationService(
+            self.session, role=self.role
+        ).list_mcp_integrations()
+        return self._select_mcp_integrations(
+            mcp_integrations, available, raise_on_missing=raise_on_missing
+        )
+
+    def _select_mcp_integrations(
+        self,
+        mcp_integrations: Sequence[str],
+        available_mcp_integrations: Sequence[MCPIntegration],
+        *,
+        raise_on_missing: bool = True,
+    ) -> list[MCPIntegration]:
+        """Validate authored selections against already-loaded workspace metadata."""
         # Convert string IDs to UUIDs for validation
         mcp_integration_ids = set()
         for mcp_id in mcp_integrations:
@@ -752,8 +931,6 @@ class AgentPresetService(BaseWorkspaceService):
                     f"Invalid MCP integration ID format: {mcp_id}"
                 ) from err
 
-        integrations_service = IntegrationService(self.session, role=self.role)
-        available_mcp_integrations = await integrations_service.list_mcp_integrations()
         available_mcp_integration_ids = {
             mcp_integration.id for mcp_integration in available_mcp_integrations
         }
@@ -776,22 +953,6 @@ class AgentPresetService(BaseWorkspaceService):
             for mcp_integration in available_mcp_integrations
             if mcp_integration.id in mcp_integration_ids
         ]
-
-    async def _has_stdio_mcp_integration(
-        self,
-        mcp_integrations: list[str] | None,
-        *,
-        raise_on_missing: bool = True,
-    ) -> bool:
-        """Return whether any selected MCP integration uses stdio transport."""
-        selected_integrations = await self.load_selected_mcp_integrations(
-            mcp_integrations,
-            raise_on_missing=raise_on_missing,
-        )
-        return any(
-            mcp_integration.server_type == "stdio"
-            for mcp_integration in selected_integrations
-        )
 
     async def _resolve_preset_subagent_configs(
         self,
@@ -1073,7 +1234,14 @@ class AgentPresetService(BaseWorkspaceService):
         integrations_service = IntegrationService(self.session, role=self.role)
         available = await integrations_service.list_mcp_integrations()
         by_id = {integration.id: integration for integration in available}
+        return self._mcp_integration_refs(mcp_integrations, by_id)
 
+    def _mcp_integration_refs(
+        self,
+        mcp_integrations: Sequence[str],
+        by_id: Mapping[uuid.UUID, MCPIntegration],
+    ) -> list[MCPServerConfig]:
+        """Materialize secret-free transport references from loaded integrations."""
         refs: list[MCPServerConfig] = []
         for mcp_id_str in mcp_integrations:
             try:
@@ -1203,10 +1371,21 @@ class AgentPresetService(BaseWorkspaceService):
         integrations_service = IntegrationService(self.session, role=self.role)
         available = await integrations_service.list_mcp_integrations()
 
+        return self._mcp_tool_policies(
+            [
+                integration
+                for integration in available
+                if integration.id in requested_ids
+            ]
+        )
+
+    @staticmethod
+    def _mcp_tool_policies(
+        integrations: Sequence[MCPIntegration],
+    ) -> dict[uuid.UUID, dict[str, MCPToolSummary]]:
+        """Index stored tool policy without loading integration metadata again."""
         policies: dict[uuid.UUID, dict[str, MCPToolSummary]] = {}
-        for mcp_integration in available:
-            if mcp_integration.id not in requested_ids:
-                continue
+        for mcp_integration in integrations:
             tools = MCPToolSummary.validate_stored(
                 mcp_integration.tools,
                 mcp_integration_id=mcp_integration.id,
@@ -1216,6 +1395,54 @@ class AgentPresetService(BaseWorkspaceService):
             policies[mcp_integration.id] = {tool.name: tool for tool in tools}
 
         return policies
+
+    def _resolve_tool_mcp_grants(
+        self,
+        grants: Sequence[SkillMcpGrant],
+        integrations: Mapping[uuid.UUID, MCPIntegration],
+    ) -> list[MCPServerConfig] | None:
+        """Materialize the combined MCP selection without secrets."""
+        if not grants:
+            return None
+        merged: list[MCPServerConfig] = []
+        resolved = self._mcp_integration_refs(
+            [str(grant.mcp_integration_id) for grant in grants], integrations
+        )
+        resolved_by_id = {
+            uuid.UUID(config_id): config
+            for config in resolved or ()
+            if (config_id := config.get("id")) is not None
+        }
+        policies_by_id = self._mcp_tool_policies(
+            [
+                integrations[grant.mcp_integration_id]
+                for grant in grants
+                if grant.mcp_integration_id in integrations
+            ]
+        )
+        for grant in grants:
+            config = resolved_by_id.get(grant.mcp_integration_id)
+            if config is None:
+                raise TracecatValidationError(
+                    "Selected MCP integration could not be resolved",
+                    detail={
+                        "code": "skill_mcp_integrations_unavailable",
+                        "mcp_integration_id": str(grant.mcp_integration_id),
+                    },
+                )
+            projected_config = cast(MCPServerConfig, {**config})
+            if grant.tool_names is not None:
+                policies = policies_by_id.get(grant.mcp_integration_id, {})
+                projected_config["tools"] = cast(
+                    list[MCPServerToolSummary],
+                    [
+                        policy.model_dump(exclude_none=True)
+                        for tool_name in sorted(grant.tool_names)
+                        if (policy := policies.get(tool_name)) is not None
+                    ],
+                )
+            merged.append(projected_config)
+        return merged
 
     async def resolve_mcp_integration_secrets(
         self, mcp_integration_id: uuid.UUID
@@ -1430,19 +1657,30 @@ class AgentPresetService(BaseWorkspaceService):
     ) -> CursorPaginatedResponse[AgentPresetVersionReadMinimal]:
         """List immutable preset version metadata ordered newest first."""
         paginator = BaseCursorPaginator(self.session)
-        stmt = select(
-            AgentPresetVersion.id,
-            AgentPresetVersion.preset_id,
-            AgentPresetVersion.workspace_id,
-            AgentPresetVersion.version,
-            AgentPresetVersion.agents,
-            AgentPresetVersion.tool_approvals,
-            AgentPresetVersion.enable_internet_access,
-            AgentPresetVersion.created_at,
-            AgentPresetVersion.updated_at,
-        ).where(
-            AgentPresetVersion.workspace_id == self.workspace_id,
-            AgentPresetVersion.preset_id == preset_id,
+        # Load only the columns the minimal read and tool policy need; skip
+        # ``instructions`` and other large execution fields for list rows.
+        stmt = (
+            select(AgentPresetVersion)
+            .options(
+                load_only(
+                    AgentPresetVersion.id,
+                    AgentPresetVersion.preset_id,
+                    AgentPresetVersion.workspace_id,
+                    AgentPresetVersion.version,
+                    AgentPresetVersion.actions,
+                    AgentPresetVersion.namespaces,
+                    AgentPresetVersion.mcp_integrations,
+                    AgentPresetVersion.tool_approvals,
+                    AgentPresetVersion.agents,
+                    AgentPresetVersion.enable_internet_access,
+                    AgentPresetVersion.created_at,
+                    AgentPresetVersion.updated_at,
+                )
+            )
+            .where(
+                AgentPresetVersion.workspace_id == self.workspace_id,
+                AgentPresetVersion.preset_id == preset_id,
+            )
         )
         if params.cursor:
             try:
@@ -1486,35 +1724,30 @@ class AgentPresetService(BaseWorkspaceService):
             )
         stmt = stmt.limit(params.limit + 1)
         result = await self.session.execute(stmt)
+        rows = result.scalars().all()
+        policies = await self.resolve_tool_policies(
+            rows, use_latest_skill_versions=False
+        )
         versions = [
             AgentPresetVersionReadMinimal(
-                id=version_id,
-                preset_id=row_preset_id,
-                workspace_id=workspace_id,
-                version=version_number,
+                id=row.id,
+                preset_id=row.preset_id,
+                workspace_id=row.workspace_id,
+                version=row.version,
+                created_at=row.created_at,
+                updated_at=row.updated_at,
                 capabilities=_agent_preset_capabilities(
-                    agents_config=agents,
-                    tool_approvals=tool_approvals,
-                    enable_internet_access=enable_internet_access,
+                    agents_config=row.agents,
+                    tool_approvals=policies[row.id].tool_approvals,
+                    enable_internet_access=row.enable_internet_access
+                    or policies[row.id].requires_internet_access,
                 ),
                 subagent_eligibility=build_subagent_eligibility(
-                    agents_config=agents,
-                    tool_approvals=tool_approvals,
+                    agents_config=row.agents,
+                    tool_approvals=policies[row.id].tool_approvals,
                 ),
-                created_at=created_at,
-                updated_at=updated_at,
             )
-            for (
-                version_id,
-                row_preset_id,
-                workspace_id,
-                version_number,
-                agents,
-                tool_approvals,
-                enable_internet_access,
-                created_at,
-                updated_at,
-            ) in result.tuples().all()
+            for row in rows
         ]
         has_more = len(versions) > params.limit
         items = versions[: params.limit]
@@ -2103,12 +2336,29 @@ class AgentPresetService(BaseWorkspaceService):
         # AgentConfig is safe to cross Temporal boundaries. Trusted callers
         # (build_tool_definitions, trusted MCP server) re-resolve secrets
         # per use via resolve_mcp_integration_secrets.
-        mcp_servers = await self.resolve_mcp_integration_refs(version.mcp_integrations)
-        model_settings: dict[str, Any] = {}
         resolved_skills = await self.skills.get_resolved_skill_refs_for_preset_version(
             version.id,
             use_latest_versions=resolve_dependencies_from_heads,
         )
+        inputs = self._tool_inputs(
+            version, [skill.skill_version_id for skill in resolved_skills]
+        )
+        metadata = await self.skill_tools.load_metadata(
+            inputs.skill_version_ids, mcp_integration_ids=inputs.mcp_integrations
+        )
+        self._select_mcp_integrations(
+            inputs.mcp_integrations, list(metadata.integrations.values())
+        )
+        await self.skill_tools.validate_dependencies(
+            preset_version_id=version.id,
+            resolved_skills=resolved_skills,
+            metadata=metadata,
+        )
+        policy = resolve_tool_policy(inputs, metadata.versions, metadata.integrations)
+        mcp_servers = self._resolve_tool_mcp_grants(
+            policy.mcp_grants, metadata.integrations
+        )
+        model_settings: dict[str, Any] = {}
         duplicate_skill_names = sorted(
             name
             for name, count in Counter(
@@ -2125,8 +2375,9 @@ class AgentPresetService(BaseWorkspaceService):
                     "preset_version_id": str(version.id),
                 },
             )
+        effective_actions = list(policy.actions)
         # Only disable parallel tool calls if tools will be present
-        if version.actions or mcp_servers:
+        if effective_actions or mcp_servers:
             model_settings["parallel_tool_calls"] = False
         agents = AgentSubagentsConfig.model_validate(version.agents)
         if resolve_dependencies_from_heads:
@@ -2148,15 +2399,18 @@ class AgentPresetService(BaseWorkspaceService):
             base_url=version.base_url,
             instructions=version.instructions,
             output_type=cast(OutputType | None, version.output_type),
-            actions=version.actions,
+            actions=effective_actions or None,
+            # Keep the policy at the tool-build boundary as well as applying it
+            # to the combined preset and skill grants above.
             namespaces=version.namespaces,
-            tool_approvals=version.tool_approvals,
+            tool_approvals=policy.tool_approvals or None,
             mcp_servers=mcp_servers,
             agents=agents,
             retries=version.retries,
             model_settings=model_settings,
             enable_thinking=version.enable_thinking,
-            enable_internet_access=version.enable_internet_access,
+            enable_internet_access=version.enable_internet_access
+            or policy.requires_internet_access,
             resolved_skills=resolved_skills,
         )
 
@@ -2256,6 +2510,22 @@ class AgentPresetService(BaseWorkspaceService):
                 preset.id,
                 for_update=True,
             )
+        )
+        policy = (
+            await self.tool_policy.resolve_many(
+                [
+                    self._tool_inputs(
+                        preset,
+                        [
+                            binding.skill_version_id
+                            for binding in resolved_binding_specs
+                        ],
+                    )
+                ]
+            )
+        )[preset.id]
+        preset.enable_internet_access = (
+            preset.enable_internet_access or policy.requires_internet_access
         )
         await self._validate_unique_skill_binding_names(
             resolved_binding_specs,

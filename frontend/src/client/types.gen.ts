@@ -694,6 +694,7 @@ export type AgentPresetRead = {
   retries?: number
   enable_thinking?: boolean
   enable_internet_access?: boolean
+  tool_policy?: AgentPresetToolPolicyRead
   id: string
   workspace_id: string
   name: string
@@ -776,6 +777,30 @@ export type AgentPresetTagCreate = {
 }
 
 /**
+ * Unsaved tool selections to evaluate using the runtime policy pipeline.
+ */
+export type AgentPresetToolPolicyPreview = {
+  actions?: Array<string>
+  namespaces?: Array<string>
+  mcp_integrations?: Array<string>
+  skill_ids?: Array<string>
+  tool_approvals?: {
+    [key: string]: boolean
+  }
+}
+
+/**
+ * Non-secret effective policy for rendering preset configuration.
+ */
+export type AgentPresetToolPolicyRead = {
+  actions?: Array<string>
+  requires_internet_access?: boolean
+  has_approvals?: boolean
+  blocked_tools?: Array<PresetToolSourceRead>
+  internet_sources?: Array<PresetToolSourceRead>
+}
+
+/**
  * Payload for updating an existing agent preset.
  */
 export type AgentPresetUpdate = {
@@ -839,6 +864,7 @@ export type AgentPresetVersionRead = {
   retries?: number
   enable_thinking?: boolean
   enable_internet_access?: boolean
+  tool_policy?: AgentPresetToolPolicyRead
   id: string
   preset_id: string
   workspace_id: string
@@ -5195,6 +5221,7 @@ export type MCPHttpServerConfig = {
   transport?: "http" | "sse"
   timeout?: number
   id?: string
+  tools?: Array<MCPServerToolSummary>
 }
 
 export type transport = "http" | "sse"
@@ -6035,6 +6062,15 @@ export type PlatformRegistrySettingsUpdate = {
 export type Position = {
   x?: number
   y?: number
+}
+
+/**
+ * The authored or skill origin of a policy-affected tool.
+ */
+export type PresetToolSourceRead = {
+  tool_id: string
+  skill_id?: string | null
+  skill_name?: string | null
 }
 
 /**
@@ -7435,6 +7471,7 @@ export type SkillFileEntry = {
 export type SkillRead = {
   id: string
   workspace_id: string
+  origin?: "workspace"
   name: string
   slug: string
   description?: string | null
@@ -7459,6 +7496,7 @@ export type SkillRead = {
 export type SkillReadMinimal = {
   id: string
   workspace_id: string
+  origin?: "workspace"
   name: string
   slug: string
   description?: string | null
@@ -11601,6 +11639,13 @@ export type AgentPresetsCreateAgentPresetData = {
 }
 
 export type AgentPresetsCreateAgentPresetResponse = AgentPresetRead
+
+export type AgentPresetsPreviewToolPolicyData = {
+  requestBody: AgentPresetToolPolicyPreview
+  workspaceId: string
+}
+
+export type AgentPresetsPreviewToolPolicyResponse = AgentPresetToolPolicyRead
 
 export type AgentPresetsGetAgentPresetData = {
   presetId: string
@@ -16679,6 +16724,25 @@ export type $OpenApiTs = {
          * Successful Response
          */
         201: AgentPresetRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/presets/tool-policy": {
+    post: {
+      req: AgentPresetsPreviewToolPolicyData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentPresetToolPolicyRead
+        /**
+         * Invalid tool policy selections
+         */
+        400: unknown
         /**
          * Validation Error
          */

@@ -2492,6 +2492,149 @@ class TestClaudeAgentRuntimePreToolUseHook:
         runtime.client.interrupt.assert_awaited()
 
     @pytest.mark.anyio
+    @pytest.mark.parametrize("requires_approval", [False, True])
+    @pytest.mark.parametrize("root_collision", [False, True])
+    async def test_child_stdio_approval_policy_is_enforced(
+        self,
+        mock_socket_writer: MagicMock,
+        mock_claude_sdk_client: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+        requires_approval: bool,
+        root_collision: bool,
+    ) -> None:
+        child = SandboxSubagentConfig(
+            alias="analyst",
+            description="Analyze synthetic data.",
+            prompt="Analyze synthetic data.",
+            config=sample_init_payload.config.model_copy(
+                update={
+                    "mcp_servers": [
+                        {
+                            "type": "stdio",
+                            "name": "local-tools",
+                            "command": "synthetic-mcp",
+                            "tools": [
+                                {
+                                    "name": "write",
+                                    "requires_approval": requires_approval,
+                                }
+                            ],
+                        }
+                    ],
+                    "tool_approvals": {},
+                }
+            ),
+            mcp_auth_token="synthetic-child-token",
+        )
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: MagicMock()
+        )
+        root_config = sample_init_payload.config.model_copy(deep=True)
+        if root_collision:
+            root_config.mcp_servers = [
+                {
+                    "type": "stdio",
+                    "name": "subagent-analyst-local-tools",
+                    "command": "synthetic-root",
+                    "tools": [
+                        {"name": "write", "requires_approval": not requires_approval}
+                    ],
+                }
+            ]
+        with patch(
+            "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+            return_value=mock_claude_sdk_client,
+        ) as client_ctor:
+            await runtime.run(
+                replace(sample_init_payload, config=root_config, subagents=[child])
+            )
+        child_server = (
+            "subagent-analyst-local-tools-2"
+            if root_collision
+            else "subagent-analyst-local-tools"
+        )
+        tool_name = f"mcp__{child_server}__write"
+        options = client_ctor.call_args.kwargs["options"]
+        assert tool_name in options.agents["analyst"].tools
+
+        with patch.object(
+            runtime, "_handle_approval_request", new=AsyncMock()
+        ) as approve:
+            result = await runtime._pre_tool_use_hook(
+                input_data=make_hook_input(
+                    tool_name=tool_name,
+                    tool_input={},
+                    tool_use_id="synthetic-call",
+                    agent_id="synthetic-child",
+                    agent_type="analyst",
+                ),
+                tool_use_id="synthetic-call",
+                context=make_hook_context(),
+            )
+        assert get_hook_output(result).get("permissionDecision") == (
+            "deny" if requires_approval else "allow"
+        )
+        approve.assert_not_awaited()
+
+        if root_collision:
+            result = await runtime._pre_tool_use_hook(
+                input_data=make_hook_input(
+                    tool_name="mcp__subagent-analyst-local-tools__write",
+                    tool_input={},
+                    tool_use_id="synthetic-root-call",
+                ),
+                tool_use_id="synthetic-root-call",
+                context=make_hook_context(),
+            )
+            assert get_hook_output(result).get("permissionDecision") == (
+                "allow" if requires_approval else "deny"
+            )
+
+    def test_sibling_stdio_server_names_are_unique(
+        self,
+        mock_socket_writer: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+    ) -> None:
+        children = [
+            SandboxSubagentConfig(
+                alias=alias,
+                description="Synthetic child",
+                prompt="Synthetic task",
+                config=sample_init_payload.config.model_copy(
+                    update={
+                        "mcp_servers": [
+                            {
+                                "type": "stdio",
+                                "name": name,
+                                "command": "synthetic-mcp",
+                                "tools": [
+                                    {"name": "write", "requires_approval": approval}
+                                ],
+                            }
+                        ],
+                    }
+                ),
+                mcp_auth_token="synthetic-token",
+            )
+            for alias, name, approval in [
+                ("analyst", "local-tools", True),
+                ("analyst-local", "tools", False),
+            ]
+        ]
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: MagicMock()
+        )
+        definitions = runtime._build_agent_definitions(
+            payload=replace(sample_init_payload, subagents=children)
+        )
+        assert definitions is not None
+        blocked = "mcp__subagent-analyst-local-tools__write"
+        ordinary = "mcp__subagent-analyst-local-tools-2__write"
+        assert blocked in (definitions["analyst"].tools or [])
+        assert ordinary in (definitions["analyst-local"].tools or [])
+        assert runtime._stdio_approval_blocked_tools == {blocked}
+
+    @pytest.mark.anyio
     async def test_stdio_mcp_tool_with_approval_is_hard_denied(
         self,
         mock_socket_writer: MagicMock,

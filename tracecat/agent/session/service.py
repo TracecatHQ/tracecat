@@ -443,10 +443,9 @@ class AgentSessionService(BaseWorkspaceService):
     async def _resolve_builtin_workspace_chat_skills(self) -> list[str] | None:
         """Always-on platform skills staged for entitled workspace-chat sessions.
 
-        Returns the reserved-prefix skill names to stage into the copilot's
-        skills directory, or ``None`` when the org is not entitled to Workspace
-        Chat or the Enterprise package is unavailable. Names only — the executor
-        resolves each to a packaged skill directory at stage time.
+        Returns server-owned image asset keys, or ``None`` when the org is not
+        entitled. The executor resolves each through the platform catalog and
+        stages it in the namespaced plugin, separately from workspace skills.
         """
 
         if not await is_workspace_chat_entitled(self.session, self.role):
