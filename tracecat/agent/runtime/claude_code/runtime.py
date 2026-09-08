@@ -1395,10 +1395,20 @@ class ClaudeAgentRuntime:
         self,
         *,
         payload: RuntimeInitPayload,
+        existing_mcp_names: set[str] | None = None,
     ) -> dict[str, AgentDefinition] | None:
         if not payload.subagents:
             return None
 
+        used_mcp_names = set(existing_mcp_names or ())
+        used_mcp_names.update(
+            name
+            for child in payload.subagents
+            for name in (
+                self._subagent_registry_server_name(child.alias),
+                f"{LEGACY_REGISTRY_MCP_SERVER_NAME}-{child.alias}",
+            )
+        )
         definitions: dict[str, AgentDefinition] = {}
         for subagent in payload.subagents:
             registry_server_name = self._subagent_registry_server_name(subagent.alias)
@@ -1414,8 +1424,9 @@ class ClaudeAgentRuntime:
             stdio_mcp_spec = self._stdio_mcp_server_spec(
                 source_configs=subagent.config.mcp_servers,
                 name_prefix=f"subagent-{subagent.alias}",
-                existing_names={registry_server_name},
+                existing_names=used_mcp_names,
             )
+            used_mcp_names.update(stdio_mcp_spec.servers)
             self._stdio_approval_blocked_tools.update(
                 stdio_mcp_spec.blocked_approval_tools
             )
@@ -1770,7 +1781,9 @@ class ClaudeAgentRuntime:
             self._stdio_approval_blocked_tools = stdio_mcp_spec.blocked_approval_tools
             stdio_mcp_servers = stdio_mcp_spec.servers
             mcp_servers.update(stdio_mcp_servers)
-            agent_definitions = self._build_agent_definitions(payload=payload)
+            agent_definitions = self._build_agent_definitions(
+                payload=payload, existing_mcp_names=set(mcp_servers)
+            )
 
             def handle_claude_stderr(line: str) -> None:
                 """Forward Claude CLI stderr to loopback via queue."""
