@@ -348,21 +348,23 @@ class AgentPresetService(BaseWorkspaceService):
         ]
         await self.skills.validate_binding_inputs(bindings)
         specs = await self._binding_specs_from_inputs(bindings, for_update=False)
-        key = uuid.uuid4()
-        policy = (
-            await self.tool_policy.resolve_many(
-                [
-                    PresetToolInputs(
-                        key=key,
-                        actions=params.actions,
-                        namespaces=params.namespaces,
-                        mcp_integrations=params.mcp_integrations,
-                        tool_approvals=params.tool_approvals,
-                        skill_version_ids=[spec.skill_version_id for spec in specs],
-                    )
-                ]
-            )
-        )[key]
+        if params.actions:
+            await self._validate_actions(params.actions)
+        inputs = PresetToolInputs(
+            key=uuid.uuid4(),
+            actions=params.actions,
+            namespaces=params.namespaces,
+            mcp_integrations=params.mcp_integrations,
+            tool_approvals=params.tool_approvals,
+            skill_version_ids=[spec.skill_version_id for spec in specs],
+        )
+        metadata = await self.skill_tools.load_metadata(
+            inputs.skill_version_ids, mcp_integration_ids=inputs.mcp_integrations
+        )
+        self._select_mcp_integrations(
+            inputs.mcp_integrations, list(metadata.integrations.values())
+        )
+        policy = resolve_tool_policy(inputs, metadata.versions, metadata.integrations)
         return self._tool_policy_read(policy)
 
     async def build_preset_list_reads(
