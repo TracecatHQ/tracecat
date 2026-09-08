@@ -47,6 +47,7 @@ from tracecat.exceptions import (
 )
 from tracecat.identifiers import OrganizationID, SessionID, UserID
 from tracecat.invitations.enums import InvitationStatus
+from tracecat.invitations.resend import validate_invitation_resendable
 from tracecat.organization.management import (
     delete_organization_with_cleanup,
     validate_organization_delete_confirmation,
@@ -818,6 +819,39 @@ class OrgService(BaseOrgService):
             )
 
         invitation.status = InvitationStatus.REVOKED
+        await self.session.commit()
+        await self.session.refresh(invitation)
+        return invitation
+
+    @require_scope("org:member:invite")
+    @audit_log(
+        resource_type="organization_invitation",
+        action="resend",
+        resource_id_attr="invitation_id",
+    )
+    async def resend_invitation(
+        self, invitation_id: uuid.UUID
+    ) -> OrganizationInvitation:
+        """Re-enter a pending invitation into the email outbox.
+
+        Args:
+            invitation_id: The invitation UUID.
+
+        Returns:
+            OrganizationInvitation: The updated invitation record.
+
+        Raises:
+            NoResultFound: If the invitation doesn't exist or belongs to another org.
+            TracecatValidationError: If the invitation is not pending, has expired,
+                or email delivery is not configured.
+            TracecatConflictError: If the invitation was claimed within the cooldown.
+        """
+        invitation = await self.get_invitation(invitation_id)
+        validate_invitation_resendable(invitation)
+
+        invitation.email_claimed_at = None
+        invitation.email_sent_at = None
+        invitation.email_attempts = 0
         await self.session.commit()
         await self.session.refresh(invitation)
         return invitation

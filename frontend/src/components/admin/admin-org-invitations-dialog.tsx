@@ -4,6 +4,7 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   CopyIcon,
+  EnvelopeClosedIcon,
   PlusIcon,
   ReloadIcon,
   TrashIcon,
@@ -49,6 +50,8 @@ import {
 } from "@/components/ui/table"
 import { toast } from "@/components/ui/use-toast"
 import { useAdminOrgInvitations } from "@/hooks/use-admin"
+import { getApiErrorDetail, type TracecatApiError } from "@/lib/errors"
+import { getRelativeTime } from "@/lib/event-history"
 
 type PlatformRoleSlug = NonNullable<AdminOrgInvitationCreate["role_slug"]>
 
@@ -104,6 +107,8 @@ export function AdminOrgInvitationsDialog({
     getInvitationToken,
     revokeInvitation,
     revokePending,
+    resendInvitation,
+    resendPending,
     goToNextPage,
     goToPreviousPage,
     hasNextPage,
@@ -157,6 +162,24 @@ export function AdminOrgInvitationsDialog({
       toast({
         title: "Failed to create invitation",
         description: "Check the email, role, and existing pending invitations.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  async function handleResendInvitation(invitation: AdminOrgInvitationRead) {
+    try {
+      await resendInvitation(invitation.id)
+      toast({ title: "Invitation email resent", description: invitation.email })
+    } catch (error) {
+      const apiError = error as TracecatApiError
+      if (apiError.status === 409) {
+        toast({ title: "Sent less than a minute ago" })
+        return
+      }
+      toast({
+        title: "Failed to resend invitation",
+        description: getApiErrorDetail(apiError) ?? undefined,
         variant: "destructive",
       })
     }
@@ -319,6 +342,13 @@ export function AdminOrgInvitationsDialog({
                           <Badge variant={statusVariant(invitation.status)}>
                             {formatStatus(invitation.status)}
                           </Badge>
+                          {invitation.last_emailed_at && (
+                            <div className="mt-1 text-xs text-muted-foreground">
+                              {`Emailed ${getRelativeTime(
+                                new Date(invitation.last_emailed_at)
+                              )}`}
+                            </div>
+                          )}
                         </TableCell>
                         <TableCell>
                           {new Date(invitation.expires_at).toLocaleDateString()}
@@ -333,6 +363,18 @@ export function AdminOrgInvitationsDialog({
                             >
                               <CopyIcon data-icon="inline-start" />
                               Copy link
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={
+                                invitation.status !== "pending" || resendPending
+                              }
+                              onClick={() => handleResendInvitation(invitation)}
+                            >
+                              <EnvelopeClosedIcon data-icon="inline-start" />
+                              Resend
                             </Button>
                             <Button
                               type="button"

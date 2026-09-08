@@ -87,6 +87,8 @@ import type {
   AdminRegistrySyncAllRepositoriesResponse,
   AdminRegistrySyncRepositoryData,
   AdminRegistrySyncRepositoryResponse,
+  AdminResendOrganizationInvitationData,
+  AdminResendOrganizationInvitationResponse,
   AdminRevokeOrganizationInvitationData,
   AdminRevokeOrganizationInvitationResponse,
   AdminSyncOrgRepositoryData,
@@ -526,6 +528,8 @@ import type {
   OrganizationListOrganizationDomainsResponse,
   OrganizationListOrgMembersResponse,
   OrganizationListSessionsResponse,
+  OrganizationResendInvitationData,
+  OrganizationResendInvitationResponse,
   OrganizationRevokeInvitationData,
   OrganizationRevokeInvitationResponse,
   OrganizationSecretsCreateOrgSecretData,
@@ -4387,6 +4391,29 @@ export const organizationRevokeInvitation = (
 }
 
 /**
+ * Resend Invitation
+ * Queue another delivery of a pending invitation email.
+ * @param data The data for the request.
+ * @param data.invitationId
+ * @returns OrgInvitationRead Successful Response
+ * @throws ApiError
+ */
+export const organizationResendInvitation = (
+  data: OrganizationResendInvitationData
+): CancelablePromise<OrganizationResendInvitationResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/organization/invitations/{invitation_id}/resend",
+    path: {
+      invitation_id: data.invitationId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Get Invitation Token
  * Get the token for a specific invitation (admin only).
  *
@@ -7399,6 +7426,31 @@ export const adminRevokeOrganizationInvitation = (
   return __request(OpenAPI, {
     method: "DELETE",
     url: "/admin/organizations/{org_id}/invitations/{invitation_id}",
+    path: {
+      org_id: data.orgId,
+      invitation_id: data.invitationId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Resend Organization Invitation
+ * Queue another delivery of a pending invitation email.
+ * @param data The data for the request.
+ * @param data.orgId
+ * @param data.invitationId
+ * @returns AdminOrgInvitationRead Successful Response
+ * @throws ApiError
+ */
+export const adminResendOrganizationInvitation = (
+  data: AdminResendOrganizationInvitationData
+): CancelablePromise<AdminResendOrganizationInvitationResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/admin/organizations/{org_id}/invitations/{invitation_id}/resend",
     path: {
       org_id: data.orgId,
       invitation_id: data.invitationId,
