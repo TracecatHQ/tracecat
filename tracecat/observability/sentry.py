@@ -8,6 +8,7 @@ from functools import partial
 from typing import Any, Literal, Protocol, cast
 
 import sentry_sdk
+from opentelemetry import trace
 from sentry_sdk.integrations import Integration
 from sentry_sdk.integrations.atexit import AtexitIntegration
 from sentry_sdk.integrations.fastapi import FastApiIntegration
@@ -45,6 +46,7 @@ class SentryTag(StrEnum):
     API_METHOD = "http.request.method"
     API_ROUTE = "http.route"
     SERVICE_TASK_NAME = "tracecat.service.task.name"
+    COMPONENT = "tracecat.component"
 
 
 _WORKER_ALLOWED_TAGS = frozenset(
@@ -61,6 +63,8 @@ _WORKER_ALLOWED_TAGS = frozenset(
 )
 _API_ALLOWED_TAGS = frozenset(
     {
+        SentryTag.ERROR_OWNER.value,
+        SentryTag.COMPONENT.value,
         SentryTag.SERVICE_NAME.value,
         SentryTag.API_METHOD.value,
         SentryTag.API_ROUTE.value,
@@ -75,6 +79,7 @@ _API_ALLOWED_CONTEXT_FIELDS = {
     "runtime": frozenset({"name", "version"}),
     "tracecat_api_request": frozenset({"method", "route"}),
     "tracecat_service_task": frozenset({"name"}),
+    "tracecat_otel": frozenset({"trace_id", "span_id"}),
 }
 _SAFE_HTTP_METHODS = frozenset(
     {"CONNECT", "DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT", "TRACE"}
@@ -383,11 +388,21 @@ def _sanitize_api_event(
     hint: Hint,
     *,
     service_name: str,
+    component: Literal["api", "action_gateway"] = "api",
 ) -> Event:
     """Strip API events to stable, privacy-reviewed metadata."""
     del hint
     tags = cast(MutableMapping[str, Any], event.get("tags") or {})
     tags[SentryTag.SERVICE_NAME.value] = service_name
+    tags[SentryTag.ERROR_OWNER.value] = "platform"
+    tags[SentryTag.COMPONENT.value] = component
+    span_context = trace.get_current_span().get_span_context()
+    if span_context.is_valid:
+        contexts = event.setdefault("contexts", {})
+        contexts["tracecat_otel"] = {
+            "trace_id": f"{span_context.trace_id:032x}",
+            "span_id": f"{span_context.span_id:016x}",
+        }
     _enrich_api_request_event(event, tags)
     event["tags"] = dict(tags)
     return _sanitize_event(
@@ -446,6 +461,58 @@ def initialize_worker_sentry(
     )
 
 
+def _http_integrations() -> list[Integration]:
+    return [
+        AtexitIntegration(),
+        StarletteIntegration(
+            transaction_style="url",
+            failed_request_status_codes=set(),
+            middleware_spans=False,
+        ),
+        FastApiIntegration(
+            transaction_style="url",
+            failed_request_status_codes=set(),
+            middleware_spans=False,
+        ),
+    ]
+
+
+def _sanitize_executor_event(event: Event, hint: Hint) -> Event | None:
+    """Only framework-captured gateway exceptions bypass runtime attribution."""
+    values = event.get("exception", {}).get("values", [])
+    if any(
+        value.get("mechanism", {}).get("type") == StarletteIntegration.identifier
+        and value.get("mechanism", {}).get("handled") is False
+        for value in values
+    ):
+        return _sanitize_api_event(
+            event,
+            hint,
+            service_name=config.TRACECAT__SERVICE_NAME,
+            component="action_gateway",
+        )
+    return _sanitize_platform_event(event, hint)
+
+
+def initialize_executor_sentry(
+    *,
+    dsn: str,
+    environment: str,
+    release: str,
+    transport: Transport | None = None,
+) -> None:
+    """Capture gateway request exceptions alongside classified runtime failures."""
+    _initialize_sentry(
+        dsn=dsn,
+        environment=environment,
+        release=release,
+        service_name=config.TRACECAT__SERVICE_NAME,
+        integrations=_http_integrations(),
+        before_send=_sanitize_executor_event,
+        transport=transport,
+    )
+
+
 def initialize_api_sentry(
     *,
     dsn: str,
@@ -460,19 +527,7 @@ def initialize_api_sentry(
         environment=environment,
         release=release,
         service_name=service_name,
-        integrations=[
-            AtexitIntegration(),
-            StarletteIntegration(
-                transaction_style="url",
-                failed_request_status_codes=set(),
-                middleware_spans=False,
-            ),
-            FastApiIntegration(
-                transaction_style="url",
-                failed_request_status_codes=set(),
-                middleware_spans=False,
-            ),
-        ],
+        integrations=_http_integrations(),
         before_send=partial(_sanitize_api_event, service_name=service_name),
         transport=transport,
     )
@@ -522,3 +577,8 @@ def initialize_worker_sentry_from_environment() -> None:
 def initialize_api_sentry_from_environment() -> None:
     """Best-effort initialize the API Sentry profile from the environment."""
     _initialize_sentry_from_environment(initialize_api_sentry)
+
+
+def initialize_executor_sentry_from_environment() -> None:
+    """Best-effort initialize Sentry for the executor and its embedded gateway."""
+    _initialize_sentry_from_environment(initialize_executor_sentry)
