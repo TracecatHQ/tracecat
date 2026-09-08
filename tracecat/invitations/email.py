@@ -22,16 +22,12 @@ def render_invitation_email(
     header_safe_name = "".join(char for char in organization_name if char.isprintable())
 
     subject = f"Join {header_safe_name} on Tracecat"
-    # Both invitation services set a 7-day expiry.
     body = (
         "Accept the invitation to join the organization and get started. "
         "If you don't have an account, you'll have to create one before "
         "accepting the invitation."
     )
-    expiry = (
-        "This invitation expires in 7 days. "
-        "If you weren't expecting it, you can ignore this email."
-    )
+    footer = "If you weren't expecting it, you can ignore this email."
     html = f"""\
 <!doctype html>
 <html>
@@ -48,7 +44,7 @@ def render_invitation_email(
                 <td bgcolor="#6f76e0" style="border-radius:6px;"><a href="{safe_url}" style="display:inline-block;padding:11px 20px;font-size:14px;font-weight:600;line-height:1.2;color:#ffffff;text-decoration:none;">Accept invitation</a></td>
               </tr></table>
             </td></tr>
-            <tr><td style="padding:24px 32px 28px 32px;font-size:13px;line-height:1.5;color:#6e6e78;">{expiry}</td></tr>
+            <tr><td style="padding:24px 32px 28px 32px;font-size:13px;line-height:1.5;color:#6e6e78;">{footer}</td></tr>
             <tr><td style="padding:16px 32px 20px 32px;border-top:1px solid #e6e6ea;font-size:12px;line-height:1.5;color:#6e6e78;">If the button doesn't work, paste this link into your browser:<br /><a href="{safe_url}" style="color:#6f76e0;word-break:break-all;">{safe_url}</a></td></tr>
           </table>
         </td>
@@ -64,7 +60,7 @@ Join {organization_name} on Tracecat
 Accept your invitation:
 {accept_url}
 
-{expiry}
+{footer}
 """
     return subject, html, text
 

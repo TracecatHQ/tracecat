@@ -23,8 +23,8 @@ from tracecat.db.models import (
 )
 from tracecat.db.models import Role as DBRole
 from tracecat.exceptions import TracecatConflictError, TracecatValidationError
-from tracecat.invitations.consumer import RESEND_COOLDOWN
 from tracecat.invitations.enums import InvitationStatus
+from tracecat.invitations.service import RESEND_COOLDOWN
 from tracecat.pagination import CursorPaginationParams
 
 
@@ -466,6 +466,13 @@ async def test_resend_organization_invitation_clears_delivery_state(
     resent = await service.resend_organization_invitation(org.id, invitation.id)
 
     assert resent.last_emailed_at is None
+    # The ORM-enabled UPDATE synchronizes the loaded instance without a refresh.
+    assert db_invitation.email_claimed_at is None
+    assert db_invitation.email_sent_at is None
+    assert db_invitation.email_attempts == 0
+
+    # The reset must be committed, not just flushed, or the poller never sees it.
+    await session.rollback()
     await session.refresh(db_invitation)
     assert db_invitation.email_claimed_at is None
     assert db_invitation.email_attempts == 0

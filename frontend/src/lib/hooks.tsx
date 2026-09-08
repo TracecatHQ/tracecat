@@ -2336,6 +2336,8 @@ export function useOrgMembers() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["org-members"] })
     },
+    // Callers toast on the awaited result, including the 409 cooldown.
+    meta: { suppressErrorToast: true },
   })
 
   return {

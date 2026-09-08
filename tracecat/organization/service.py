@@ -47,7 +47,7 @@ from tracecat.exceptions import (
 )
 from tracecat.identifiers import OrganizationID, SessionID, UserID
 from tracecat.invitations.enums import InvitationStatus
-from tracecat.invitations.resend import validate_invitation_resendable
+from tracecat.invitations.service import reset_invitation_email
 from tracecat.organization.management import (
     delete_organization_with_cleanup,
     validate_organization_delete_confirmation,
@@ -623,11 +623,15 @@ class OrgService(BaseOrgService):
         Raises:
             NoResultFound: If the invitation doesn't exist or belongs to another org.
         """
-        statement = select(OrganizationInvitation).where(
-            and_(
-                OrganizationInvitation.id == invitation_id,
-                OrganizationInvitation.organization_id == self.organization_id,
+        statement = (
+            select(OrganizationInvitation)
+            .where(
+                and_(
+                    OrganizationInvitation.id == invitation_id,
+                    OrganizationInvitation.organization_id == self.organization_id,
+                )
             )
+            .options(selectinload(OrganizationInvitation.role_obj))
         )
         result = await self.session.execute(statement)
         return result.scalar_one()
@@ -847,11 +851,6 @@ class OrgService(BaseOrgService):
             TracecatConflictError: If the invitation was claimed within the cooldown.
         """
         invitation = await self.get_invitation(invitation_id)
-        validate_invitation_resendable(invitation)
-
-        invitation.email_claimed_at = None
-        invitation.email_sent_at = None
-        invitation.email_attempts = 0
+        await reset_invitation_email(self.session, invitation)
         await self.session.commit()
-        await self.session.refresh(invitation)
         return invitation
