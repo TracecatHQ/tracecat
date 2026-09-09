@@ -204,3 +204,32 @@ it.each(["loading", "error"])(
     }
   }
 )
+
+it.each(["loading", "error"])(
+  "blocks an open picker when the catalog enters %s",
+  (state) => {
+    const onChange = jest.fn()
+    const props = {
+      workspaceId: "workspace-1",
+      frontmatter: "name: triage",
+      onChange,
+    }
+    const { rerender } = render(<SkillToolsDropdown {...props} />)
+    const input = screen.getByRole("textbox", { name: "Tools" })
+    fireEvent.focus(input)
+    fireEvent.change(input, { target: { value: "case" } })
+    expect(screen.getByRole("option")).toBeInTheDocument()
+    try {
+      mockLoading = state === "loading"
+      mockError = state === "error" ? new Error("Catalog unavailable") : null
+      rerender(<SkillToolsDropdown {...props} />)
+      expect(screen.queryByRole("option")).not.toBeInTheDocument()
+      fireEvent.keyDown(input, { key: "ArrowDown" })
+      fireEvent.keyDown(input, { key: "Enter" })
+      expect(onChange).not.toHaveBeenCalled()
+    } finally {
+      mockLoading = false
+      mockError = null
+    }
+  }
+)

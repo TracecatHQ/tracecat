@@ -118,7 +118,8 @@ export function MultiTagCommandInput({
   allowCustomTags = false,
   disableSuggestions = false,
 }: MultiTagCommandInputProps) {
-  const [open, setOpen] = useState(false)
+  const [requestedOpen, setOpen] = useState(false)
+  const open = requestedOpen && !disabled && !disableSuggestions
   const [inputValue, setInputValue] = useState("")
   const inputRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -182,6 +183,7 @@ export function MultiTagCommandInput({
   const rowCount = filteredSuggestions.length + (showCustomRow ? 1 : 0)
 
   const handleSelect = (suggestion: Suggestion) => {
+    if (disabled || disableSuggestions) return
     if (suggestion.locked) {
       suggestion.onSelect?.()
       return
