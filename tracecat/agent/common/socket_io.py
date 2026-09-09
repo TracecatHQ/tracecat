@@ -191,6 +191,7 @@ class SocketStreamWriter:
         error: str,
         *,
         classification: RuntimeErrorClassification | None = None,
+        cause: BaseException | None = None,
     ) -> None:
         """Send error event to the orchestrator.
 
@@ -200,7 +201,9 @@ class SocketStreamWriter:
         carries no ownership metadata; the orchestrator classifies a socket
         error itself rather than believing what the runtime claims.
         """
-        del classification
+        # Native exceptions and receipts are trusted host-only metadata. Neither
+        # may cross this untrusted runtime socket boundary.
+        del classification, cause
         await self._send(RuntimeEventEnvelope.from_error(error))
 
     async def send_done(self) -> None:

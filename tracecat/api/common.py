@@ -10,6 +10,7 @@ from temporalio.api.operatorservice.v1 import (
     ListSearchAttributesRequest,
     RemoveSearchAttributesRequest,
 )
+from temporalio.service import RPCError, RPCStatusCode
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -25,6 +26,7 @@ from tracecat.dsl.client import get_temporal_client
 from tracecat.exceptions import TracecatException
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
+from tracecat.observability.sentry import capture_auth_pool_exhaustion
 from tracecat.query.errors import (
     TracecatQueryOverflowError,
     TracecatQueryTimeoutError,
@@ -78,6 +80,8 @@ def auth_pool_exhausted_exception_handler(
         if isinstance(exc, AuthPoolExhaustedError)
         else AuthPoolExhaustedError(str(exc))
     )
+    if isinstance(exc, AuthPoolExhaustedError):
+        capture_auth_pool_exhaustion(exc)
     logger.error(
         "Authentication database pool exhausted",
         exc=auth_exc,
@@ -273,6 +277,16 @@ async def add_temporal_search_attributes():
             )
         )
     except Exception as e:
+        if isinstance(e, RPCError) and e.status == RPCStatusCode.PERMISSION_DENIED:
+            # Cloud runtime credentials may lack operator-service access.
+            # Attributes must be provisioned externally in these deployments.
+            logger.warning(
+                "Skipping automatic Temporal search attribute registration: "
+                "operator access denied; provision search attributes externally",
+                namespace=namespace,
+                exc=e,
+            )
+            return
         logger.error(
             "Error adding temporal search attributes",
             exc=e,

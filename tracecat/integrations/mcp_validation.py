@@ -288,13 +288,16 @@ def validate_mcp_env_key(key: str) -> None:
             f"Env key too long: {len(key)} > {MAX_ENV_KEY_LENGTH} characters"
         )
 
-    # Must be valid POSIX env var name
+    # Must be valid POSIX env var name. The key is not echoed: a resolved secret
+    # expression lands here precisely because its plaintext is not a valid name.
+    #
     if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", key):
         raise MCPValidationError(
-            f"Invalid env var name '{key}': must match [A-Za-z_][A-Za-z0-9_]*"
+            "Invalid env var name: must match [A-Za-z_][A-Za-z0-9_]*"
         )
 
-    # Cannot override protected variables
+    # Cannot override protected variables. Safe to name: this key matched the
+    # POSIX pattern above and equals a known constant.
     if key in PROTECTED_ENV_VARS:
         raise MCPValidationError(f"Cannot override protected env var: {key}")
 
@@ -345,16 +348,21 @@ def validate_mcp_env(env: dict[str, str] | None) -> None:
     if not isinstance(env, dict):
         raise MCPValidationError(f"Env must be a dict, got {type(env).__name__}")
 
-    for key, value in env.items():
+    for position, (key, value) in enumerate(env.items(), start=1):
+        # An env key may be a resolved secret expression, so its text is
+        # potentially plaintext. Locate the entry by position rather than by
+        # content: this error reaches probe results and the API.
+        #
+        locator = f"entry {position}"
         try:
             validate_mcp_env_key(key)
         except MCPValidationError as e:
-            raise MCPValidationError(f"Invalid env key '{key}': {e}") from e
+            raise MCPValidationError(f"Invalid env key ({locator}): {e}") from e
 
         try:
             validate_mcp_env_value(value)
         except MCPValidationError as e:
-            raise MCPValidationError(f"Invalid env value for '{key}': {e}") from e
+            raise MCPValidationError(f"Invalid env value for {locator}: {e}") from e
 
 
 def validate_mcp_server_name(name: str) -> None:

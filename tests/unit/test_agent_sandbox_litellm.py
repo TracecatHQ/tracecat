@@ -75,8 +75,10 @@ from tracecat.agent.skill.types import ResolvedSkillRef
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.exceptions import TracecatAuthorizationError
+from tracecat.observability.types import PlatformErrorCapture
 from tracecat.runtime.errors import (
     RetryDisposition,
+    RuntimeErrorClassification,
     RuntimeErrorKind,
     RuntimeErrorOwner,
 )
@@ -3476,3 +3478,54 @@ if __name__ == "__main__":
             "--run-nsjail-skills-smoke|--run-nsjail-mcp-compression-smoke|"
             "--run-nsjail-duckdb-smoke|--run-nsjail-nproc-smoke]"
         )
+
+
+@pytest.mark.anyio
+async def test_broker_deadline_captures_source_before_stream_and_cancellation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    operations: list[str] = []
+    captures: list[PlatformErrorCapture] = []
+
+    def capture(
+        error: BaseException, classification: RuntimeErrorClassification
+    ) -> PlatformErrorCapture:
+        assert isinstance(error, TimeoutError)
+        assert error.__traceback__ is not None
+        assert error.__traceback__.tb_frame.f_code.co_name == "_run_with_broker"
+        assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_TIMED_OUT
+        operations.append("capture")
+        receipt = PlatformErrorCapture.for_error("a" * 32, classification)
+        captures.append(receipt)
+        return receipt
+
+    async def emit_terminal_error(self: _FakeLoopbackHandler, message: str) -> bool:
+        del self
+        assert message == "Agent execution timed out after 0s"
+        operations.append("stream")
+        return True
+
+    async def cancel_turn(self: _FakeBroker, session_id: str) -> None:
+        operations.append("cancel")
+        self.cancelled_session_ids.append(session_id)
+
+    # Reach the explicit deadline deterministically without sleeping.
+    monkeypatch.setattr(executor_activity, "clamp_agent_timeout_seconds", lambda _: 0)
+    monkeypatch.setattr(executor_activity, "capture_activity_failure", capture)
+    monkeypatch.setattr(
+        _FakeLoopbackHandler, "emit_terminal_error", emit_terminal_error
+    )
+    monkeypatch.setattr(_FakeBroker, "cancel_turn", cancel_turn)
+
+    result, _, _, broker = await _run_executor_with_fake_broker(
+        executor_input=_make_executor_input(enable_internet_access=False),
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+    )
+
+    assert operations == ["capture", "stream", "cancel"]
+    assert result.success is False
+    assert result.terminal_stream_error_emitted is True
+    assert result.sentry_capture == captures[0]
+    assert len(broker.cancelled_session_ids) == 1

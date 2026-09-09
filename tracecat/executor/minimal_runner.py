@@ -473,11 +473,11 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
         Dict with 'success', 'result', and optionally 'error'
     """
     action_impl: dict[str, Any] | None = None
+    secret_env: dict[str, str] = input_data.get("secret_env", {})
     try:
         # Extract what we need from resolved_context
         resolved_context = input_data.get("resolved_context", {})
         action_impl = resolved_context.get("action_impl")
-        secret_env = input_data.get("secret_env", {})
         evaluated_args = resolved_context.get("evaluated_args", {})
 
         if not action_impl:
@@ -536,12 +536,18 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
         tb = traceback.extract_tb(e.__traceback__)
         last_frame = tb[-1] if tb else None
 
+        # Action exceptions can echo transformed secrets that exact masking misses.
+        if secret_env:
+            message = "The action failed. Details withheld: this action uses secrets."
+        else:
+            message = str(e)
+
         return {
             "success": False,
             "result": None,
             "error": {
                 "type": type(e).__name__,
-                "message": str(e),
+                "message": message,
                 "action_name": _action_display_name(action_impl),
                 "filename": last_frame.filename if last_frame else "<unknown>",
                 "function": last_frame.name if last_frame else "<unknown>",

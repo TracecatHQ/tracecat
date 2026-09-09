@@ -20,14 +20,18 @@ from datetime import timedelta
 from typing import Any, Literal, Never
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
-from temporalio.exceptions import ApplicationError, FailureError
+from temporalio.exceptions import ApplicationError
 
 from tracecat.logger import logger
+from tracecat.observability.sentry import capture_activity_failure
+from tracecat.observability.types import PlatformErrorCapture
 from tracecat.runtime.errors import (
     RetryDisposition,
     RuntimeErrorClassification,
+    RuntimeErrorOwner,
     TracecatRuntimeError,
 )
+from tracecat.temporal.error_chain import iter_error_chain
 
 ERROR_TRANSPORT_DETAIL_SCHEMA = "tracecat.temporal_error.v1"
 
@@ -123,6 +127,7 @@ def application_error_from_classification(
     classification: RuntimeErrorClassification,
     *details: Any,
     next_retry_delay: timedelta | None = None,
+    capture: PlatformErrorCapture | None = None,
 ) -> ApplicationError:
     """Build an ``ApplicationError`` from a runtime error classification.
 
@@ -137,6 +142,13 @@ def application_error_from_classification(
             *transported_details,
             build_error_transport_detail(classification).model_dump(mode="json"),
         )
+
+    if (
+        capture is not None
+        and capture.classification == classification
+        and not any(_parse_error_capture(detail) == capture for detail in details)
+    ):
+        transported_details = (*transported_details, capture.model_dump(mode="json"))
 
     non_retryable = classification.retry_disposition is RetryDisposition.NON_RETRYABLE
     if non_retryable and next_retry_delay is not None:
@@ -155,6 +167,7 @@ def raise_application_error_from_classification(
     classification: RuntimeErrorClassification,
     *details: Any,
     next_retry_delay: timedelta | None = None,
+    capture: PlatformErrorCapture | None = None,
 ) -> Never:
     """Raise a classified error without serializing the active exception context.
 
@@ -166,6 +179,7 @@ def raise_application_error_from_classification(
         classification,
         *details,
         next_retry_delay=next_retry_delay,
+        capture=capture,
     ) from None
 
 
@@ -220,7 +234,36 @@ def raise_wrapped_application_error(
         classification,
         *wrapped_details,
         next_retry_delay=next_retry_delay,
+        capture=(
+            extract_error_capture(error, classification)
+            or capture_activity_failure(error, classification)
+        ),
     )
+
+
+def _parse_error_capture(value: object) -> PlatformErrorCapture | None:
+    """Accept only the explicitly discriminated telemetry detail."""
+    try:
+        return PlatformErrorCapture.model_validate(value)
+    except ValidationError:
+        return None
+
+
+def extract_error_capture(
+    error: BaseException,
+    classification: RuntimeErrorClassification,
+) -> PlatformErrorCapture | None:
+    """Find a source capture for this exact failure, excluding incidental context."""
+    if classification.owner is not RuntimeErrorOwner.PLATFORM:
+        return None
+    for cause in iter_error_chain(error, include_implicit_context=False):
+        if not isinstance(cause, ApplicationError):
+            continue
+        for detail in cause.details:
+            capture = _parse_error_capture(detail)
+            if capture is not None and capture.classification == classification:
+                return capture
+    return None
 
 
 def extract_error_classification(
@@ -307,7 +350,7 @@ def _classifications_from_payload(
 
 
 def _serialized_detail(detail: Any) -> Any:
-    if isinstance(detail, ErrorTransportDetail):
+    if isinstance(detail, ErrorTransportDetail | PlatformErrorCapture):
         return detail.model_dump(mode="json")
     return detail
 
@@ -320,40 +363,3 @@ def _append_unique_classification(
     if classification not in seen:
         seen.add(classification)
         classifications.append(classification)
-
-
-def iter_error_chain(
-    error: BaseException,
-    *,
-    include_implicit_context: bool = True,
-) -> Iterator[BaseException]:
-    """Walk an exception chain once, following Temporal and Python causes.
-
-    Args:
-        error: The exception to start from.
-        include_implicit_context: Whether to traverse Python's incidental
-            ``__context__`` chain in addition to Temporal and explicit causes.
-    """
-    current: BaseException | None = error
-    seen: set[int] = set()
-    while current is not None:
-        current_id = id(current)
-        if current_id in seen:
-            return
-        seen.add(current_id)
-        yield current
-
-        if isinstance(current, FailureError) and isinstance(
-            current.cause, BaseException
-        ):
-            current = current.cause
-        elif isinstance(current.__cause__, BaseException):
-            current = current.__cause__
-        elif (
-            include_implicit_context
-            and not current.__suppress_context__
-            and isinstance(current.__context__, BaseException)
-        ):
-            current = current.__context__
-        else:
-            current = None
