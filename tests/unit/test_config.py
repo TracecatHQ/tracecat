@@ -59,7 +59,13 @@ REGISTRY_POLICY_ENV_VARS = {
     "TRACECAT__SANDBOX_REGISTRY_ALLOWED_EGRESS_CIDRS",
     "TRACECAT__SANDBOX_REGISTRY_ALLOWED_EGRESS_TCP_PORTS",
 }
-SENTRY_PLATFORM_COMPOSE_SERVICES = ("api", "worker", "agent-worker", "executor")
+SENTRY_PLATFORM_COMPOSE_SERVICES = (
+    "api",
+    "worker",
+    "agent-worker",
+    "executor",
+    "agent-executor",
+)
 
 
 def _config_bool_env_vars() -> set[str]:

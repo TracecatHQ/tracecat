@@ -15,11 +15,15 @@ from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sentry_sdk.integrations.starlette import StarletteIntegration
 from sentry_sdk.transport import Transport
 from sentry_sdk.types import Event, Hint
+from temporalio import activity
 
 from tracecat import __version__ as APP_VERSION
 from tracecat import config
+from tracecat.db.exceptions import AuthPoolExhaustedError
 from tracecat.logger import logger
-from tracecat.runtime.errors import RuntimeErrorClassification
+from tracecat.observability.types import PlatformErrorCapture
+from tracecat.runtime.errors import RuntimeErrorClassification, RuntimeErrorOwner
+from tracecat.temporal.error_chain import iter_error_chain
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,10 +51,18 @@ class SentryTag(StrEnum):
     API_ROUTE = "http.route"
     SERVICE_TASK_NAME = "tracecat.service.task.name"
     COMPONENT = "tracecat.component"
+    CAPTURE_BOUNDARY = "tracecat.capture.boundary"
+    ACTIVITY_TYPE = "temporal.activity.type"
+    ACTIVITY_ATTEMPT = "temporal.activity.attempt"
+    ROOT_CAUSE_TYPE = "tracecat.error.root_cause_type"
 
 
 _WORKER_ALLOWED_TAGS = frozenset(
     {
+        SentryTag.CAPTURE_BOUNDARY.value,
+        SentryTag.ACTIVITY_TYPE.value,
+        SentryTag.ACTIVITY_ATTEMPT.value,
+        SentryTag.ROOT_CAUSE_TYPE.value,
         SentryTag.SERVICE_NAME.value,
         SentryTag.ERROR_OWNER.value,
         SentryTag.ERROR_KIND.value,
@@ -74,6 +86,7 @@ _API_ALLOWED_TAGS = frozenset(
 _WORKER_ALLOWED_CONTEXT_FIELDS = {
     "runtime": frozenset({"name", "version"}),
     "tracecat_workflow": frozenset({"run_id", "type", "attempt", "trigger_type"}),
+    "tracecat_otel": frozenset({"trace_id", "span_id"}),
 }
 _API_ALLOWED_CONTEXT_FIELDS = {
     "runtime": frozenset({"name", "version"}),
@@ -122,6 +135,81 @@ class _SentryInitializer(Protocol):
         release: str,
         transport: Transport | None = None,
     ) -> None: ...
+
+
+def capture_activity_failure(
+    error: BaseException,
+    classification: RuntimeErrorClassification,
+    *,
+    existing_capture: PlatformErrorCapture | None = None,
+) -> PlatformErrorCapture | None:
+    """Capture a platform failure before its activity stack is serialized.
+
+    Activity-attempt events are diagnostic, including attempts that recover.
+    Alert rules must exclude ``tracecat.capture.boundary=activity``. A receipt
+    is returned only when the SDK accepts the event, so disabled/dropped
+    captures never affect terminal workflow reporting. Terminal events remain
+    separate so their paging signal does not depend on attempt diagnostics.
+    """
+    try:
+        if classification.owner is not RuntimeErrorOwner.PLATFORM:
+            return None
+        if (
+            existing_capture is not None
+            and existing_capture.classification == classification
+        ):
+            return existing_capture
+        if not activity.in_activity():
+            return None
+        client = sentry_sdk.get_client()
+        if not client.is_active() or client.options.get("dsn") is None:
+            return None
+        info = activity.info()
+        root = error
+        for cause in iter_error_chain(error, include_implicit_context=False):
+            root = cause
+        with sentry_sdk.isolation_scope() as scope:
+            scope.fingerprint = [
+                "tracecat-activity-v1",
+                classification.kind.value,
+                info.activity_type,
+                type(root).__name__,
+                "{{ default }}",
+            ]
+            scope.set_tag(SentryTag.SERVICE_NAME.value, config.TRACECAT__SERVICE_NAME)
+            scope.set_tag(SentryTag.CAPTURE_BOUNDARY.value, "activity")
+            scope.set_tag(SentryTag.ACTIVITY_TYPE.value, info.activity_type)
+            scope.set_tag(SentryTag.ACTIVITY_ATTEMPT.value, str(info.attempt))
+            scope.set_tag(SentryTag.ERROR_OWNER.value, classification.owner.value)
+            scope.set_tag(SentryTag.ERROR_KIND.value, classification.kind.value)
+            scope.set_tag(
+                SentryTag.ERROR_RETRY_DISPOSITION.value,
+                classification.retry_disposition.value,
+            )
+            scope.set_tag(
+                SentryTag.ERROR_CAUSE_TYPE.value, classification.cause_type or "unknown"
+            )
+            scope.set_tag(SentryTag.ROOT_CAUSE_TYPE.value, type(root).__name__)
+            if info.workflow_type is not None:
+                scope.set_tag(SentryTag.WORKFLOW_TYPE.value, info.workflow_type)
+            span_context = trace.get_current_span().get_span_context()
+            if span_context.is_valid:
+                scope.set_context(
+                    "tracecat_otel",
+                    {
+                        "trace_id": f"{span_context.trace_id:032x}",
+                        "span_id": f"{span_context.span_id:016x}",
+                    },
+                )
+            event_id = sentry_sdk.capture_exception(error)
+        if event_id is not None:
+            return PlatformErrorCapture.for_error(event_id, classification)
+    except Exception as reporting_error:
+        logger.warning(
+            "Failed to capture activity failure in Sentry",
+            reporting_error_type=type(reporting_error).__name__,
+        )
+    return None
 
 
 def capture_platform_failure(
@@ -203,6 +291,17 @@ def capture_api_background_task_failure(
         logger.warning(
             "Failed to capture API background task failure in Sentry",
             task=task_name,
+            reporting_error_type=type(reporting_error).__name__,
+        )
+
+
+def capture_auth_pool_exhaustion(error: AuthPoolExhaustedError) -> None:
+    """Capture the typed capacity failure even though HTTP handles it as 503."""
+    try:
+        sentry_sdk.capture_exception(error)
+    except Exception as reporting_error:
+        logger.warning(
+            "Failed to capture authentication pool exhaustion in Sentry",
             reporting_error_type=type(reporting_error).__name__,
         )
 
@@ -478,8 +577,16 @@ def _http_integrations() -> list[Integration]:
 
 
 def _sanitize_executor_event(event: Event, hint: Hint) -> Event | None:
-    """Only framework-captured gateway exceptions bypass runtime attribution."""
+    """Accept native gateway exceptions and the typed auth-capacity failure."""
     values = event.get("exception", {}).get("values", [])
+    exc_info = hint.get("exc_info")
+    if exc_info is not None and isinstance(exc_info[1], AuthPoolExhaustedError):
+        return _sanitize_api_event(
+            event,
+            hint,
+            service_name=config.TRACECAT__SERVICE_NAME,
+            component="action_gateway",
+        )
     if any(
         value.get("mechanism", {}).get("type") == StarletteIntegration.identifier
         and value.get("mechanism", {}).get("handled") is False

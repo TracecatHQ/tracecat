@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Awaitable, Callable, Iterator, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, cast
 from unittest.mock import Mock
 
@@ -20,10 +20,16 @@ from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sentry_sdk.integrations.starlette import StarletteIntegration
 from sentry_sdk.transport import Transport
 from sentry_sdk.types import Event, Hint
+from sqlalchemy import create_engine
+from sqlalchemy.exc import IntegrityError, OperationalError, ProgrammingError
+from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
+from sqlalchemy.pool import QueuePool
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from temporalio import workflow
+from temporalio.converter import DataConverter
 from temporalio.exceptions import ApplicationError
+from temporalio.testing import ActivityEnvironment
 from temporalio.worker import (
     ExecuteWorkflowInput,
     WorkflowInboundInterceptor,
@@ -35,6 +41,7 @@ from tracecat.agent.error_policy import (
     invalid_agent_configuration,
     user_agent_execution_failed,
 )
+from tracecat.api.common import auth_pool_exhausted_exception_handler
 from tracecat.auth.credentials import _authenticate_executor
 from tracecat.db.exceptions import AuthPoolExhaustedError
 from tracecat.dsl import interceptor as interceptor_module
@@ -56,6 +63,7 @@ from tracecat.observability.sentry import (
     SentryTag,
     WorkflowFailureEventContext,
     _sanitize_platform_event,
+    capture_activity_failure,
     capture_api_background_task_failure,
     capture_platform_failure,
     initialize_api_sentry,
@@ -69,7 +77,11 @@ from tracecat.runtime.errors import (
     RuntimeErrorClassification,
     RuntimeErrorKind,
 )
-from tracecat.temporal.errors import application_error_from_classification
+from tracecat.temporal.errors import (
+    activity_error_boundary,
+    application_error_from_classification,
+    extract_error_capture,
+)
 from tracecat.workflow.executions.enums import TriggerType
 
 _SENSITIVE_VALUE = "synthetic-sensitive-workflow-payload"
@@ -928,11 +940,6 @@ def test_gateway_excludes_request_validation_failure(
             "insufficient_scope",
         ),
         (EntitlementRequired("synthetic-feature"), 403, "EntitlementRequired"),
-        (
-            AuthPoolExhaustedError("synthetic pool exhaustion"),
-            503,
-            "auth_database_unavailable",
-        ),
         (TracecatQueryTimeoutError(), 422, "query_timeout"),
         (TracecatQueryOverflowError(), 400, "query_numeric_overflow"),
     ],
@@ -964,6 +971,106 @@ def test_gateway_excludes_typed_dependency_failures(
     assert response.status_code == status_code
     assert response_marker in response.text
     assert executor_sentry_events == []
+
+
+@pytest.mark.parametrize("component", ["api", "action_gateway"])
+@pytest.mark.parametrize(
+    "failure_kind",
+    ["auth_pool", "main_pool", "operational", "programming", "integrity"],
+)
+def test_unexpected_database_failures_capture_once_with_safe_request_metadata(
+    request: pytest.FixtureRequest,
+    monkeypatch: pytest.MonkeyPatch,
+    component: str,
+    failure_kind: str,
+) -> None:
+    events: list[Event] = request.getfixturevalue(
+        "api_sentry_events" if component == "api" else "executor_sentry_events"
+    )
+    if component == "api":
+        app = FastAPI()
+        app.add_exception_handler(
+            AuthPoolExhaustedError, auth_pool_exhausted_exception_handler
+        )
+    else:
+        monkeypatch.setattr(
+            gateway_module, "_include_internal_routers", lambda app: None
+        )
+        app = gateway_module.create_app()
+        app.dependency_overrides[gateway_module.enforce_agent_script_gateway_access] = (
+            lambda: None
+        )
+
+    pool = create_engine(
+        "sqlite://",
+        poolclass=QueuePool,
+        pool_size=1,
+        max_overflow=0,
+        pool_timeout=0.001,
+    )
+
+    async def exhausted_dependency() -> None:
+        # These are unexpected exceptions escaping the request; handled domain
+        # conflicts remain covered by the quiet HTTP exception tests above.
+        error_types = {
+            "operational": OperationalError,
+            "programming": ProgrammingError,
+            "integrity": IntegrityError,
+        }
+        if error_type := error_types.get(failure_kind):
+            raise error_type(
+                _SENSITIVE_VALUE,
+                {"secret": _SENSITIVE_VALUE},
+                RuntimeError(_SENSITIVE_VALUE),
+            )
+        try:
+            connection = pool.connect()
+        except SQLAlchemyTimeoutError as error:
+            if failure_kind == "main_pool":
+                raise
+            raise AuthPoolExhaustedError(_SENSITIVE_VALUE) from error
+        else:
+            connection.close()
+            pytest.fail("The held private pool must prevent a second checkout")
+
+    async def protected_route() -> None:
+        pytest.fail("An exhausted auth dependency must not reach the route")
+
+    app.add_api_route(
+        "/protected", protected_route, dependencies=[Depends(exhausted_dependency)]
+    )
+    held = pool.connect()
+    try:
+        with TestClient(app, raise_server_exceptions=False) as client:
+            response = client.get(
+                f"/protected?token={_SENSITIVE_VALUE}",
+                headers={"Authorization": f"Bearer {_SENSITIVE_VALUE}"},
+            )
+        sentry_sdk.flush()
+        assert response.status_code == (503 if failure_kind == "auth_pool" else 500)
+        if failure_kind == "auth_pool":
+            assert response.json()["detail"]["code"] == "auth_database_unavailable"
+        [event] = events
+        assert "tags" in event
+        assert "exception" in event
+        assert event["tags"][SentryTag.ERROR_OWNER.value] == "platform"
+        assert event["tags"][SentryTag.COMPONENT.value] == component
+        assert event["tags"][SentryTag.API_ROUTE.value] == "/protected"
+        assert _SENSITIVE_VALUE not in json.dumps(event)
+        assert "request" not in event
+        expected_type = {
+            "auth_pool": "AuthPoolExhaustedError",
+            "main_pool": "TimeoutError",
+            "operational": "OperationalError",
+            "programming": "ProgrammingError",
+            "integrity": "IntegrityError",
+        }[failure_kind]
+        assert event["exception"]["values"][-1]["type"] == expected_type
+    finally:
+        held.close()
+        recovered = pool.connect()
+        recovered.close()
+        pool.dispose()
 
 
 @pytest.mark.parametrize("component", ["api", "action_gateway"])
@@ -1054,3 +1161,132 @@ def test_disabled_sentry_leaves_trace_context_untouched(
         )
         _sanitize_server_span(span, {"type": "http"})
         set_context.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_activity_capture_preserves_source_stack_across_temporal_transport(
+    sentry_events: list[Event],
+    workflow_runtime: _WorkflowInfo,
+) -> None:
+    del workflow_runtime
+    environment = ActivityEnvironment()
+    environment.info = replace(
+        environment.info, activity_type="execute_action", attempt=2
+    )
+    classification = agent_executor_unavailable(RuntimeError())
+
+    async def source_failure() -> None:
+        with activity_error_boundary(lambda _: classification):
+            raise RuntimeError(_SENSITIVE_VALUE)
+
+    with pytest.raises(ApplicationError) as raised:
+        await environment.run(source_failure)
+    capture = extract_error_capture(raised.value, classification)
+    assert capture is not None
+    payloads = await DataConverter.default.encode(raised.value.details)
+    details = await DataConverter.default.decode(payloads)
+    transported = application_error_from_classification(classification, *details)
+    assert extract_error_capture(transported, classification) == capture
+    attribution = _RuntimeErrorAttributionWorkflowInterceptor(
+        _RaisingInbound(transported)
+    )
+    with pytest.raises(ApplicationError):
+        await attribution.execute_workflow(_workflow_input())
+    assert len(sentry_events) == 2
+    event = sentry_events[0]
+    assert "tags" in event
+    assert "exception" in event
+    assert event["tags"]["tracecat.capture.boundary"] == "activity"
+    assert event["tags"][SentryTag.ACTIVITY_ATTEMPT.value] == "2"
+    assert _SENSITIVE_VALUE not in json.dumps(event)
+    assert any(
+        frame["function"] == "source_failure"
+        for exception in event["exception"]["values"]
+        for frame in exception.get("stacktrace", {}).get("frames", [])
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("failure_mode", ["disabled", "dropped", "raises"])
+async def test_activity_capture_failure_keeps_terminal_fallback(
+    sentry_events: list[Event],
+    workflow_runtime: _WorkflowInfo,
+    monkeypatch: pytest.MonkeyPatch,
+    failure_mode: str,
+) -> None:
+    del workflow_runtime
+    classification = agent_executor_unavailable(RuntimeError())
+    environment = ActivityEnvironment()
+    with monkeypatch.context() as patch:
+        if failure_mode == "disabled":
+            patch.setattr(sentry_sdk.get_client(), "is_active", lambda: False)
+        elif failure_mode == "dropped":
+            patch.setattr(sentry_sdk, "capture_exception", lambda _: None)
+        else:
+            patch.setattr(
+                sentry_sdk, "capture_exception", Mock(side_effect=RuntimeError())
+            )
+        capture = environment.run(
+            capture_activity_failure, RuntimeError(), classification
+        )
+    assert capture is None
+    error = application_error_from_classification(classification, capture=capture)
+    attribution = _RuntimeErrorAttributionWorkflowInterceptor(_RaisingInbound(error))
+    with pytest.raises(ApplicationError):
+        await attribution.execute_workflow(_workflow_input())
+    assert len(sentry_events) == 1
+
+
+def test_activity_user_failure_is_quiet(sentry_events: list[Event]) -> None:
+    capture = ActivityEnvironment().run(
+        capture_activity_failure,
+        RuntimeError(_SENSITIVE_VALUE),
+        user_agent_execution_failed(),
+    )
+    assert capture is None
+    assert sentry_events == []
+
+
+def test_activity_attempts_share_group_but_different_roots_do_not(
+    sentry_events: list[Event],
+) -> None:
+    environment = ActivityEnvironment()
+    classification = agent_executor_unavailable()
+    for attempt in (1, 2):
+        environment.info = replace(environment.info, attempt=attempt)
+        environment.run(capture_activity_failure, RuntimeError(), classification)
+    environment.run(capture_activity_failure, OSError(), classification)
+    fingerprints = [event.get("fingerprint") for event in sentry_events]
+    assert len(fingerprints) == 3
+    assert fingerprints[0] == fingerprints[1]
+    assert fingerprints[0] != fingerprints[2]
+
+
+def test_activity_receipt_deduplicates_only_matching_source(
+    sentry_events: list[Event],
+) -> None:
+    environment = ActivityEnvironment()
+    classification = agent_executor_unavailable()
+    receipt = environment.run(capture_activity_failure, RuntimeError(), classification)
+    assert receipt is not None
+    repeated = environment.run(
+        lambda: capture_activity_failure(
+            RuntimeError(), classification, existing_capture=receipt
+        )
+    )
+    assert repeated == receipt
+    assert len(sentry_events) == 1
+    different = classification.model_copy(update={"cause_type": "OSError"})
+    environment.run(
+        lambda: capture_activity_failure(OSError(), different, existing_capture=receipt)
+    )
+    assert len(sentry_events) == 2
+    assert (
+        receipt.for_aggregate(classification, [(classification, receipt)]) is not None
+    )
+    assert (
+        receipt.for_aggregate(
+            classification, [(classification, receipt), (classification, None)]
+        )
+        is None
+    )

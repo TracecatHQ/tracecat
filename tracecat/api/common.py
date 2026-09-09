@@ -26,6 +26,7 @@ from tracecat.dsl.client import get_temporal_client
 from tracecat.exceptions import TracecatException
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
+from tracecat.observability.sentry import capture_auth_pool_exhaustion
 from tracecat.query.errors import (
     TracecatQueryOverflowError,
     TracecatQueryTimeoutError,
@@ -79,6 +80,8 @@ def auth_pool_exhausted_exception_handler(
         if isinstance(exc, AuthPoolExhaustedError)
         else AuthPoolExhaustedError(str(exc))
     )
+    if isinstance(exc, AuthPoolExhaustedError):
+        capture_auth_pool_exhaustion(exc)
     logger.error(
         "Authentication database pool exhausted",
         exc=auth_exc,

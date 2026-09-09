@@ -370,3 +370,20 @@ async def test_sanitized_mixed_loop_preserves_ownership_and_retry_policy(
     assert classification.owner is RuntimeErrorOwner.PLATFORM
     assert classification.kind is RuntimeErrorKind.EXECUTOR_REGISTRY_LEASE_CONTENTION
     assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+
+
+async def test_source_capture_precedes_executor_privacy_boundary(
+    monkeypatch: pytest.MonkeyPatch, action_input: RunActionInput, role: Role
+) -> None:
+    original = SandboxInfrastructureError(CANARY)
+    capture = Mock(return_value=None)
+    monkeypatch.setattr(service, "capture_activity_failure", capture)
+    backend = Mock(execute=AsyncMock(side_effect=original))
+    with pytest.raises(ExecutionError) as caught:
+        await service.invoke_once(
+            backend, action_input, service.DispatchActionContext(role)
+        )
+    capture.assert_called_once_with(original, caught.value.classification)
+    assert original.__traceback__ is not None
+    assert caught.value.__cause__ is None
+    assert caught.value.__context__ is None

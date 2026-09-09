@@ -173,6 +173,7 @@ class RuntimeEventWriter(Protocol):
         error: str,
         *,
         classification: RuntimeErrorClassification | None = None,
+        cause: BaseException | None = None,
     ) -> None:
         """Send a terminal runtime error with optional trusted attribution."""
 
@@ -1975,6 +1976,7 @@ class ClaudeAgentRuntime:
             await self._event_writer.send_error(
                 failure.message,
                 classification=failure.classification,
+                cause=error,
             )
             if error is e:
                 raise
