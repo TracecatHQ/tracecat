@@ -75,6 +75,7 @@ from tracecat.authz.controls import require_scope
 from tracecat.db.models import (
     AgentPresetSkill,
     AgentPresetVersionSkill,
+    MCPIntegration,
     Skill,
     SkillBlob,
     SkillDraftFile,
@@ -1617,6 +1618,43 @@ class SkillService(SkillBindingService):
                 )
             )
 
+    async def _lock_projected_mcp_integrations(
+        self, projection: SkillToolProjection
+    ) -> None:
+        """Keep resolved MCP rows alive until publication commits."""
+        integration_ids = {tool.mcp_integration_id for tool in projection.mcp_tools}
+        if not integration_ids:
+            return
+        # Validation may precede this transaction. Recheck UUIDs under key-share
+        # locks so deletion either wins here or waits for the published references.
+        locked_ids = set(
+            await self.session.scalars(
+                select(MCPIntegration.id)
+                .where(
+                    MCPIntegration.workspace_id == self.workspace_id,
+                    MCPIntegration.id.in_(integration_ids),
+                )
+                .order_by(MCPIntegration.id)
+                .with_for_update(read=True, key_share=True)
+            )
+        )
+        if integration_ids - locked_ids:
+            error = SkillValidationErrorDetail(
+                code="unknown_skill_tools",
+                message=(
+                    "MCP integrations were deleted before publication. "
+                    "Validate the skill again."
+                ),
+                path="SKILL.md",
+            )
+            raise TracecatValidationError(
+                "Skill draft failed validation",
+                detail={
+                    "code": "skill_publish_validation_failed",
+                    "errors": [error.model_dump(mode="json")],
+                },
+            )
+
     async def publish_version_from_blob_refs(
         self,
         *,
@@ -1641,6 +1679,7 @@ class SkillService(SkillBindingService):
                 "Skill tool declarations were not projected",
                 detail={"code": "skill_tools_not_projected"},
             )
+        await self._lock_projected_mcp_integrations(validation.tool_projection)
         manifest_name = validation.name
         await self.validate_publication_names({skill.id: manifest_name})
         sorted_file_refs = sorted(file_refs, key=lambda item: item[0])
