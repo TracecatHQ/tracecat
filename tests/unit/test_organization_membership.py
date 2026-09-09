@@ -1,4 +1,4 @@
-"""Tests for derived membership and related functionality."""
+"""Tests for OrganizationMembership model and related functionality."""
 
 import uuid
 
@@ -6,7 +6,6 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tests.support.membership import grant_org_membership
 from tracecat.auth.credentials import get_role_from_user
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
@@ -18,11 +17,11 @@ from tracecat.db.models import (
 
 
 class TestOrganizationMembershipModel:
-    """Tests for organization membership derived from role assignments."""
+    """Tests for the OrganizationMembership model."""
 
     @pytest.mark.anyio
     async def test_create_organization_membership(self, session: AsyncSession):
-        """An org-wide role assignment makes the user an organization member."""
+        """Test creating an OrganizationMembership record."""
         # Create organization
         org = Organization(
             id=uuid.uuid4(),
@@ -46,7 +45,11 @@ class TestOrganizationMembershipModel:
         await session.flush()
 
         # Create organization membership
-        await grant_org_membership(session, user_id=user.id, organization_id=org.id)
+        membership = OrganizationMembership(
+            user_id=user.id,
+            organization_id=org.id,
+        )
+        session.add(membership)
         await session.commit()
 
         # Verify membership was created
@@ -59,6 +62,8 @@ class TestOrganizationMembershipModel:
         fetched = result.scalar_one()
         assert fetched.user_id == user.id
         assert fetched.organization_id == org.id
+        assert fetched.created_at is not None
+        assert fetched.updated_at is not None
 
     @pytest.mark.anyio
     async def test_organization_membership_with_admin_user(self, session: AsyncSession):
@@ -83,7 +88,11 @@ class TestOrganizationMembershipModel:
         session.add(user)
         await session.flush()
 
-        await grant_org_membership(session, user_id=user.id, organization_id=org.id)
+        membership = OrganizationMembership(
+            user_id=user.id,
+            organization_id=org.id,
+        )
+        session.add(membership)
         await session.commit()
 
         result = await session.execute(
@@ -121,7 +130,11 @@ class TestOrganizationMembershipModel:
         await session.flush()
         user_id = user.id
 
-        await grant_org_membership(session, user_id=user.id, organization_id=org.id)
+        membership = OrganizationMembership(
+            user_id=user.id,
+            organization_id=org.id,
+        )
+        session.add(membership)
         await session.commit()
 
         # Delete user
@@ -162,7 +175,11 @@ class TestOrganizationMembershipModel:
         session.add(user)
         await session.flush()
 
-        await grant_org_membership(session, user_id=user.id, organization_id=org.id)
+        membership = OrganizationMembership(
+            user_id=user.id,
+            organization_id=org.id,
+        )
+        session.add(membership)
         await session.commit()
 
         # Delete organization
@@ -206,8 +223,15 @@ class TestOrganizationMembershipModel:
         session.add(user)
         await session.flush()
 
-        await grant_org_membership(session, user_id=user.id, organization_id=org1.id)
-        await grant_org_membership(session, user_id=user.id, organization_id=org2.id)
+        membership1 = OrganizationMembership(
+            user_id=user.id,
+            organization_id=org1.id,
+        )
+        membership2 = OrganizationMembership(
+            user_id=user.id,
+            organization_id=org2.id,
+        )
+        session.add_all([membership1, membership2])
         await session.commit()
 
         # Verify both memberships exist
@@ -318,3 +342,106 @@ class TestGetRoleFromUser:
         )
 
         assert role.is_platform_superuser is False
+
+
+class TestOrganizationMembershipRelationships:
+    """Tests for User and Organization relationships via OrganizationMembership."""
+
+    @pytest.mark.anyio
+    async def test_user_organizations_relationship(self, session: AsyncSession):
+        """Test User.organizations relationship returns correct organizations."""
+        org1 = Organization(
+            id=uuid.uuid4(),
+            name="Rel Org 1",
+            slug=f"rel-org1-{uuid.uuid4().hex[:8]}",
+            is_active=True,
+        )
+        org2 = Organization(
+            id=uuid.uuid4(),
+            name="Rel Org 2",
+            slug=f"rel-org2-{uuid.uuid4().hex[:8]}",
+            is_active=True,
+        )
+        session.add_all([org1, org2])
+
+        user = User(
+            id=uuid.uuid4(),
+            email=f"rel-user-{uuid.uuid4().hex[:8]}@example.com",
+            hashed_password="hashed",
+            role=UserRole.BASIC,
+            is_active=True,
+            is_superuser=False,
+            is_verified=True,
+        )
+        session.add(user)
+        await session.flush()
+
+        membership1 = OrganizationMembership(
+            user_id=user.id,
+            organization_id=org1.id,
+        )
+        membership2 = OrganizationMembership(
+            user_id=user.id,
+            organization_id=org2.id,
+        )
+        session.add_all([membership1, membership2])
+        await session.commit()
+
+        # Refresh user to load relationship
+        await session.refresh(user, ["organizations"])
+
+        # Verify relationship
+        assert len(user.organizations) == 2
+        org_ids = {org.id for org in user.organizations}
+        assert org_ids == {org1.id, org2.id}
+
+    @pytest.mark.anyio
+    async def test_organization_members_relationship(self, session: AsyncSession):
+        """Test Organization.members relationship returns correct users."""
+        org = Organization(
+            id=uuid.uuid4(),
+            name="Members Org",
+            slug=f"members-org-{uuid.uuid4().hex[:8]}",
+            is_active=True,
+        )
+        session.add(org)
+
+        user1 = User(
+            id=uuid.uuid4(),
+            email=f"member1-{uuid.uuid4().hex[:8]}@example.com",
+            hashed_password="hashed",
+            role=UserRole.BASIC,
+            is_active=True,
+            is_superuser=False,
+            is_verified=True,
+        )
+        user2 = User(
+            id=uuid.uuid4(),
+            email=f"member2-{uuid.uuid4().hex[:8]}@example.com",
+            hashed_password="hashed",
+            role=UserRole.ADMIN,
+            is_active=True,
+            is_superuser=False,
+            is_verified=True,
+        )
+        session.add_all([user1, user2])
+        await session.flush()
+
+        membership1 = OrganizationMembership(
+            user_id=user1.id,
+            organization_id=org.id,
+        )
+        membership2 = OrganizationMembership(
+            user_id=user2.id,
+            organization_id=org.id,
+        )
+        session.add_all([membership1, membership2])
+        await session.commit()
+
+        # Refresh org to load relationship
+        await session.refresh(org, ["members"])
+
+        # Verify relationship
+        assert len(org.members) == 2
+        user_ids = {u.id for u in org.members}
+        assert user_ids == {user1.id, user2.id}

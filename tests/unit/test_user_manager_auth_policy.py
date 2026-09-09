@@ -12,7 +12,6 @@ from fastapi_users.db import SQLAlchemyUserDatabase
 from fastapi_users.password import PasswordHelper
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tests.support.membership import grant_org_membership
 from tracecat import config
 from tracecat.api.common import bootstrap_role
 from tracecat.auth.enums import AuthType
@@ -21,6 +20,7 @@ from tracecat.db.models import (
     OAuthAccount,
     Organization,
     OrganizationDomain,
+    OrganizationMembership,
     User,
 )
 from tracecat.organization.domains import normalize_domain
@@ -84,8 +84,11 @@ async def _create_user_with_org_membership(
     session.add(user)
     await session.flush()
 
-    await grant_org_membership(
-        session, user_id=user.id, organization_id=organization.id
+    session.add(
+        OrganizationMembership(
+            user_id=user.id,
+            organization_id=organization.id,
+        )
     )
 
     normalized_domain = normalize_domain(email.rpartition("@")[2])
@@ -130,8 +133,11 @@ async def _add_org_membership(
     session.add(organization)
     await session.flush()
 
-    await grant_org_membership(
-        session, user_id=user.id, organization_id=organization.id
+    session.add(
+        OrganizationMembership(
+            user_id=user.id,
+            organization_id=organization.id,
+        )
     )
 
     normalized_domain = normalize_domain(domain)

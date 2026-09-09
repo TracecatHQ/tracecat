@@ -2,25 +2,28 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
+from collections.abc import AsyncIterator
 
 import pytest
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from tracecat_ee.rbac.service import RBACService
 
-from tests.support.membership import (
-    grant_org_membership_via_group,
-)
+from tests.database import TEST_DB_CONFIG
 from tracecat.auth.types import Role
 from tracecat.authz.enums import ScopeSource
+from tracecat.authz.membership import sync_membership
 from tracecat.authz.scopes import ORG_ADMIN_SCOPES
 from tracecat.authz.seeding import seed_system_scopes
 from tracecat.db.models import (
     Group,
     GroupMember,
     GroupRoleAssignment,
+    Membership,
     Organization,
+    OrganizationMembership,
     RoleScope,
     Scope,
     User,
@@ -33,6 +36,194 @@ from tracecat.exceptions import (
     TracecatNotFoundError,
     TracecatValidationError,
 )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("org_wide", [False, True])
+async def test_direct_assignment_dual_writes_membership(
+    session: AsyncSession,
+    role: Role,
+    user: User,
+    workspace: Workspace,
+    org_wide: bool,
+) -> None:
+    service = RBACService(session, role)
+    granted_role = await service.create_role(name="Dual write role", scope_ids=[])
+    workspace_id = None if org_wide else workspace.id
+    statement = (
+        select(OrganizationMembership.user_id).where(
+            OrganizationMembership.organization_id == role.organization_id,
+            OrganizationMembership.user_id == user.id,
+        )
+        if org_wide
+        else select(Membership.user_id).where(
+            Membership.workspace_id == workspace.id, Membership.user_id == user.id
+        )
+    )
+    assignment = await service.create_user_assignment(
+        user_id=user.id, role_id=granted_role.id, workspace_id=workspace_id
+    )
+    assert await session.scalar(statement) == user.id
+    await service.delete_user_assignment(assignment.id)
+    assert await session.scalar(statement) is None
+
+
+@pytest.mark.anyio
+async def test_group_dual_writes_preserve_surviving_paths(
+    session: AsyncSession, role: Role, user: User, workspace: Workspace
+) -> None:
+    service = RBACService(session, role)
+    granted_role = await service.create_role(name="Group mirror role", scope_ids=[])
+    group = await service.create_group(name="Membership mirror group")
+    await service.add_group_member(group.id, user.id)
+    assignment = await service.create_group_role_assignment(
+        group_id=group.id, role_id=granted_role.id, workspace_id=workspace.id
+    )
+    statement = select(Membership.user_id).where(
+        Membership.workspace_id == workspace.id, Membership.user_id == user.id
+    )
+    assert await session.scalar(statement) == user.id
+    direct = await service.create_user_assignment(
+        user_id=user.id, role_id=granted_role.id, workspace_id=workspace.id
+    )
+    await service.delete_group_role_assignment(assignment.id)
+    assert await session.scalar(statement) == user.id
+    await service.delete_user_assignment(direct.id)
+    assert await session.scalar(statement) is None
+
+    # Exercise both assignment-first and member-first group mutations.
+    await service.create_group_role_assignment(
+        group_id=group.id, role_id=granted_role.id, workspace_id=workspace.id
+    )
+    assert await session.scalar(statement) == user.id
+    await service.remove_group_member(group.id, user.id)
+    assert await session.scalar(statement) is None
+    await service.add_group_member(group.id, user.id)
+    assert await session.scalar(statement) == user.id
+    await service.delete_group(group.id)
+    assert await session.scalar(statement) is None
+
+
+class TestMembershipTransactions:
+    @pytest.fixture
+    async def session(self) -> AsyncIterator[AsyncSession]:
+        """Real commits and separate connections, unlike the savepoint fixture."""
+        engine = create_async_engine(TEST_DB_CONFIG.test_url)
+        try:
+            async with AsyncSession(engine, expire_on_commit=False) as session:
+                original_orgs = list(
+                    (await session.scalars(select(Organization.id))).all()
+                )
+                original_users = list(
+                    (await session.scalars(select(User.__table__.c.id))).all()
+                )
+                try:
+                    yield session
+                finally:
+                    await session.rollback()
+                    await session.execute(
+                        delete(Workspace).where(
+                            Workspace.organization_id.not_in(original_orgs)
+                        )
+                    )
+                    await session.execute(
+                        delete(Organization).where(
+                            Organization.id.not_in(original_orgs)
+                        )
+                    )
+                    await session.execute(
+                        delete(User).where(User.__table__.c.id.not_in(original_users))
+                    )
+                    await session.commit()
+        finally:
+            await engine.dispose()
+
+    @pytest.mark.anyio
+    async def test_concurrent_last_path_revocations_remove_membership(
+        self, session: AsyncSession, role: Role, user: User, workspace: Workspace
+    ) -> None:
+        service = RBACService(session, role)
+        granted_role = await service.create_role(name="Concurrent grants", scope_ids=[])
+        group = await service.create_group(name="Concurrent membership")
+        await service.add_group_member(group.id, user.id)
+        inherited = await service.create_group_role_assignment(
+            group_id=group.id, role_id=granted_role.id, workspace_id=workspace.id
+        )
+        direct = await service.create_user_assignment(
+            user_id=user.id, role_id=granted_role.id, workspace_id=workspace.id
+        )
+        ready = asyncio.Barrier(2)
+
+        async def revoke(
+            model: type[UserRoleAssignment] | type[GroupRoleAssignment],
+            assignment_id: uuid.UUID,
+        ) -> None:
+            async with AsyncSession(session.bind) as writer:
+                await writer.execute(delete(model).where(model.id == assignment_id))
+                await ready.wait()
+                await sync_membership(
+                    writer,
+                    organization_id=workspace.organization_id,
+                    user_ids=[user.id],
+                    workspace_id=workspace.id,
+                )
+                await writer.commit()
+
+        await asyncio.wait_for(
+            asyncio.gather(
+                revoke(UserRoleAssignment, direct.id),
+                revoke(GroupRoleAssignment, inherited.id),
+            ),
+            timeout=10,
+        )
+        assert (
+            await session.scalar(
+                select(Membership.user_id).where(
+                    Membership.user_id == user.id,
+                    Membership.workspace_id == workspace.id,
+                )
+            )
+            is None
+        )
+
+    @pytest.mark.anyio
+    async def test_assignment_and_membership_rollback_together(
+        self, session: AsyncSession, role: Role, user: User, workspace: Workspace
+    ) -> None:
+        service = RBACService(session, role)
+        granted_role = await service.create_role(name="Atomic grant", scope_ids=[])
+        user_id, workspace_id = user.id, workspace.id
+        session.add(
+            UserRoleAssignment(
+                organization_id=workspace.organization_id,
+                user_id=user_id,
+                workspace_id=workspace_id,
+                role_id=granted_role.id,
+            )
+        )
+        await sync_membership(
+            session,
+            organization_id=workspace.organization_id,
+            user_ids=[user_id],
+            workspace_id=workspace_id,
+        )
+        statement = select(Membership.user_id).where(
+            Membership.user_id == user_id, Membership.workspace_id == workspace_id
+        )
+        assert await session.scalar(statement) == user_id
+        async with AsyncSession(session.bind) as old_reader:
+            assert await old_reader.scalar(statement) is None
+        await session.rollback()
+        assert await session.scalar(statement) is None
+        assert (
+            await session.scalar(
+                select(UserRoleAssignment.id).where(
+                    UserRoleAssignment.user_id == user_id,
+                    UserRoleAssignment.workspace_id == workspace_id,
+                )
+            )
+            is None
+        )
 
 
 @pytest.fixture
@@ -51,16 +242,18 @@ async def user(session: AsyncSession, org: Organization) -> User:
     """Create a test user with org membership."""
     user = User(
         id=uuid.uuid4(),
-        email="test@example.com",
+        email=f"test-{uuid.uuid4().hex}@example.com",
         hashed_password="test",
     )
     session.add(user)
     await session.flush()
 
-    # Presence through a group keeps the direct org-wide slot free for tests.
-    await grant_org_membership_via_group(
-        session, user_id=user.id, organization_id=org.id
+    # Add org membership
+    membership = OrganizationMembership(
+        user_id=user.id,
+        organization_id=org.id,
     )
+    session.add(membership)
     await session.commit()
     await session.refresh(user)
     return user
@@ -137,11 +330,12 @@ async def role(
     """
     admin_user = User(
         id=uuid.uuid4(),
-        email="admin@example.com",
+        email=f"admin-{uuid.uuid4().hex}@example.com",
         hashed_password="test",
     )
     session.add(admin_user)
     await session.flush()
+    session.add(OrganizationMembership(user_id=admin_user.id, organization_id=org.id))
 
     admin_role = DBRole(
         name="Test Org Admin",
@@ -742,8 +936,11 @@ class TestRBACServiceUserAssignments:
         )
         session.add(other_org)
         await session.flush()
-        await grant_org_membership_via_group(
-            session, user_id=user.id, organization_id=other_org.id
+        session.add(
+            OrganizationMembership(
+                user_id=user.id,
+                organization_id=other_org.id,
+            )
         )
         await session.commit()
 
