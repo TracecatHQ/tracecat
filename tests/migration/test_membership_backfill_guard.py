@@ -2,9 +2,8 @@
 
 The migration exposes ``backfill_assignments`` and ``assert_no_membership_dropped``
 as plain functions over a SQLAlchemy ``Connection`` so the guard can be exercised
-without running alembic end-to-end. The legacy ``membership`` and
-``organization_membership`` tables no longer exist in the model metadata, so each
-test recreates them for the duration of its own transaction.
+without running alembic end-to-end. The legacy membership tables remain in the
+model metadata during this phase.
 """
 
 from __future__ import annotations
@@ -31,28 +30,6 @@ MIGRATION_PATH = (
 
 pytestmark = pytest.mark.usefixtures("db")
 
-CREATE_LEGACY_TABLES = (
-    """
-    CREATE TABLE IF NOT EXISTS membership (
-        user_id uuid NOT NULL,
-        workspace_id uuid NOT NULL,
-        PRIMARY KEY (user_id, workspace_id)
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS organization_membership (
-        user_id uuid NOT NULL,
-        organization_id uuid NOT NULL,
-        PRIMARY KEY (user_id, organization_id)
-    )
-    """,
-)
-
-DROP_LEGACY_TABLES = (
-    "DROP TABLE IF EXISTS membership",
-    "DROP TABLE IF EXISTS organization_membership",
-)
-
 
 @pytest.fixture
 def migration() -> Any:
@@ -67,17 +44,6 @@ def migration() -> Any:
     sys.modules[module_name] = module
     spec.loader.exec_module(module)
     return module
-
-
-@pytest.fixture
-async def legacy_tables(session: AsyncSession):
-    for statement in CREATE_LEGACY_TABLES:
-        await session.execute(sa.text(statement))
-    await session.commit()
-    yield
-    for statement in DROP_LEGACY_TABLES:
-        await session.execute(sa.text(statement))
-    await session.commit()
 
 
 @pytest.fixture
@@ -126,7 +92,6 @@ async def _run_sync(session: AsyncSession, fn, *args):
 async def test_guard_passes_when_backfill_covers_every_membership(
     session: AsyncSession,
     migration: Any,
-    legacy_tables: None,
     org: Organization,
     workspace: Workspace,
     user: User,
@@ -159,7 +124,6 @@ async def test_guard_passes_when_backfill_covers_every_membership(
 async def test_guard_raises_when_org_lacks_system_roles(
     session: AsyncSession,
     migration: Any,
-    legacy_tables: None,
     org: Organization,
     workspace: Workspace,
     user: User,
@@ -190,7 +154,7 @@ async def test_guard_raises_when_org_lacks_system_roles(
 
 @pytest.mark.anyio
 async def test_guard_sql_is_valid_against_the_legacy_schema(
-    session: AsyncSession, migration: Any, legacy_tables: None
+    session: AsyncSession, migration: Any
 ) -> None:
     """The guard statements execute and return zero on an empty legacy schema."""
     for statement in (

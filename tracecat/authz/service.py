@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import delete, literal, or_, select, union_all
+from sqlalchemy import and_, delete, func, literal, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.sql.elements import ColumnElement
@@ -174,6 +175,14 @@ async def _resolve_grantable(
     return role
 
 
+@dataclass
+class MembershipWithOrg:
+    """Membership with organization ID."""
+
+    membership: Membership
+    org_id: OrganizationID
+
+
 class MembershipService(BaseService):
     """Manage workspace memberships.
 
@@ -197,37 +206,29 @@ class MembershipService(BaseService):
     async def list_workspace_members(
         self, workspace_id: WorkspaceID
     ) -> list[WorkspaceMember]:
-        """List workspace members with the role each holds there."""
-        # Membership is the role paths, so read them directly rather than
-        # deriving Membership and joining back to the same tables.
-        paths = union_all(
-            select(
-                UserRoleAssignment.user_id,
-                UserRoleAssignment.role_id,
-                literal(0).label("via_group"),
-            ).where(UserRoleAssignment.workspace_id == workspace_id),
-            select(
-                GroupMember.user_id,
-                GroupRoleAssignment.role_id,
-                literal(1).label("via_group"),
-            )
-            .join_from(
-                GroupRoleAssignment,
-                GroupMember,
-                GroupMember.group_id == GroupRoleAssignment.group_id,
-            )
-            .where(GroupRoleAssignment.workspace_id == workspace_id),
-        ).subquery("paths")
-        # One row per member; a direct assignment wins over group grants.
+        """List all workspace members with their workspace roles from RBAC."""
         statement = (
-            select(User, DBRole.name)
-            .select_from(paths)
-            .join(User, User.id == paths.c.user_id)  # pyright: ignore[reportArgumentType]
-            .join(DBRole, DBRole.id == paths.c.role_id)
-            .distinct(paths.c.user_id)
-            .order_by(paths.c.user_id, paths.c.via_group, DBRole.name)
+            select(
+                User,
+                func.coalesce(DBRole.name, literal("Workspace Editor")).label(
+                    "role_name"
+                ),
+            )
+            .select_from(Membership)
+            .join(User, Membership.user_id == User.id)  # pyright: ignore[reportArgumentType]
+            .join(Workspace, Workspace.id == Membership.workspace_id)
+            .outerjoin(
+                UserRoleAssignment,
+                and_(
+                    UserRoleAssignment.user_id == User.id,  # pyright: ignore[reportArgumentType]
+                    UserRoleAssignment.workspace_id == Membership.workspace_id,
+                    UserRoleAssignment.organization_id == Workspace.organization_id,
+                ),
+            )
+            .outerjoin(DBRole, DBRole.id == UserRoleAssignment.role_id)
+            .where(Membership.workspace_id == workspace_id)
         )
-        rows = (await self.session.execute(statement)).tuples().all()
+        rows = (await self.session.execute(statement)).all()
         return [
             WorkspaceMember(
                 user_id=user.id,
@@ -241,13 +242,22 @@ class MembershipService(BaseService):
 
     async def get_membership(
         self, workspace_id: WorkspaceID, user_id: UserID
-    ) -> Membership | None:
-        """Get a workspace membership."""
-        statement = select(Membership).where(
-            Membership.user_id == user_id,
-            Membership.workspace_id == workspace_id,
+    ) -> MembershipWithOrg | None:
+        """Get a workspace membership with organization ID."""
+        statement = (
+            select(Membership, Workspace.organization_id)
+            .join(Workspace, Membership.workspace_id == Workspace.id)
+            .where(
+                Membership.user_id == user_id,
+                Membership.workspace_id == workspace_id,
+            )
         )
-        return (await self.session.execute(statement)).scalars().first()
+        result = await self.session.execute(statement)
+        row = result.first()
+        if row is None:
+            return None
+        membership, org_id = row
+        return MembershipWithOrg(membership=membership, org_id=org_id)
 
     async def list_user_memberships(self, user_id: UserID) -> Sequence[Membership]:
         """List all workspace memberships for a specific user.
@@ -257,6 +267,21 @@ class MembershipService(BaseService):
         statement = select(Membership).where(Membership.user_id == user_id)
         result = await self.session.execute(statement)
         return result.scalars().all()
+
+    async def list_user_memberships_with_org(
+        self, user_id: UserID
+    ) -> Sequence[MembershipWithOrg]:
+        """List all workspace memberships for a user with organization IDs."""
+        statement = (
+            select(Membership, Workspace.organization_id)
+            .join(Workspace, Membership.workspace_id == Workspace.id)
+            .where(Membership.user_id == user_id)
+        )
+        result = await self.session.execute(statement)
+        return [
+            MembershipWithOrg(membership=membership, org_id=org_id)
+            for membership, org_id in result.all()
+        ]
 
     @require_scope("workspace:member:invite")
     async def create_membership(
@@ -288,15 +313,19 @@ class MembershipService(BaseService):
             raise TracecatValidationError("Workspace or default role not found") from e
         role_id = granted_role.id
 
-        existing_member_stmt = select(Membership.user_id).where(
-            Membership.workspace_id == workspace_id,
-            Membership.user_id == params.user_id,
+        # Heal stale direct assignments left behind by prior failed remove flows.
+        await self.session.execute(
+            delete(UserRoleAssignment).where(
+                UserRoleAssignment.user_id == params.user_id,
+                UserRoleAssignment.workspace_id == workspace_id,
+            )
         )
-        if (
-            await self.session.execute(existing_member_stmt)
-        ).scalar_one_or_none() is not None:
-            raise TracecatConflictError("User is already a member of workspace.")
 
+        membership = Membership(
+            user_id=params.user_id,
+            workspace_id=workspace_id,
+        )
+        self.session.add(membership)
         self.session.add(
             UserRoleAssignment(
                 organization_id=organization_id,
@@ -317,6 +346,34 @@ class MembershipService(BaseService):
         Note: The authorization cache is request-scoped, so changes will be
         reflected in subsequent requests automatically.
         """
+        await self.session.execute(
+            select(User.__table__.c.id)
+            .where(User.__table__.c.id == user_id)
+            .with_for_update(key_share=True)
+        )
+        group_access = (
+            select(GroupMember.user_id)
+            .join(
+                GroupRoleAssignment,
+                GroupRoleAssignment.group_id == GroupMember.group_id,
+            )
+            .where(
+                GroupMember.user_id == user_id,
+                GroupRoleAssignment.workspace_id == workspace_id,
+            )
+            .limit(1)
+        )
+        if (await self.session.execute(group_access)).scalar_one_or_none() is not None:
+            raise TracecatConflictError(
+                "User still has workspace access through a group. "
+                "Remove the group grant first."
+            )
+        await self.session.execute(
+            delete(Membership).where(
+                Membership.workspace_id == workspace_id,
+                Membership.user_id == user_id,
+            )
+        )
         await self.session.execute(
             delete(UserRoleAssignment).where(
                 UserRoleAssignment.workspace_id == workspace_id,

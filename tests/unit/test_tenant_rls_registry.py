@@ -5,7 +5,6 @@ from collections.abc import Iterator
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from sqlalchemy import Table
 
 from tracecat.auth.types import Role
 from tracecat.cases.service import CaseFieldsService
@@ -29,21 +28,23 @@ def workflow_bucket() -> Iterator[None]:
     yield
 
 
-def _schema_tables() -> list[Table]:
-    """Every table the schema declares, mapped or not.
-
-    Subquery-mapped relations (derived membership) never appear here: they are
-    not database objects, and RLS applies through the tables they select from.
-    """
-    return list(Base.metadata.tables.values())
-
-
 def _mapped_table_names() -> set[str]:
-    return {table.name for table in _schema_tables()}
+    table_names: set[str] = set()
+    for mapper in Base.registry.mappers:
+        table_name = getattr(mapper.local_table, "name", None)
+        if isinstance(table_name, str):
+            table_names.add(table_name)
+    return table_names
 
 
 def _mapped_table_names_with_column(column_name: str) -> set[str]:
-    return {table.name for table in _schema_tables() if column_name in table.columns}
+    table_names: set[str] = set()
+    for mapper in Base.registry.mappers:
+        local_table = mapper.local_table
+        table_name = getattr(local_table, "name", None)
+        if isinstance(table_name, str) and column_name in local_table.columns:
+            table_names.add(table_name)
+    return table_names
 
 
 def test_all_workspace_keyed_models_are_registered_for_tenant_rls() -> None:
