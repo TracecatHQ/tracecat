@@ -2,11 +2,20 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
+from unittest.mock import AsyncMock
 
+import httpx
 import pytest
 import yaml
 from litellm.caching.dual_cache import DualCache
+from litellm.exceptions import (
+    AuthenticationError,
+    BudgetExceededError,
+    PermissionDeniedError,
+)
 from litellm.proxy._types import ProxyException, UserAPIKeyAuth
+from litellm.proxy.common_request_processing import ProxyBaseLLMRequestProcessing
+from litellm.proxy.utils import ProxyLogging
 from litellm.router import Router
 from starlette.requests import Request
 
@@ -351,7 +360,19 @@ async def test_user_api_key_auth_rejects_invalid_token(
             api_key="bad-token",
         )
     assert exc_info.value.message == "Invalid or expired token"
+    assert exc_info.value.to_dict()["type"] == "tracecat_llm_token_invalid"
     assert exc_info.value.code == "401"
+
+
+@pytest.mark.parametrize(
+    "provider", ["openai", "anthropic", "gemini", "mistral", "bedrock"]
+)
+def test_missing_provider_credentials_have_distinct_wire_code(provider: str) -> None:
+    with pytest.raises(ProxyException) as exc_info:
+        _inject_provider_credentials({"model": "synthetic-model"}, provider, {})
+
+    assert exc_info.value.code == "401"
+    assert exc_info.value.to_dict()["type"] == "tracecat_llm_provider_auth_failed"
 
 
 @pytest.mark.anyio
@@ -697,3 +718,50 @@ async def test_pre_call_hook_strips_anthropic_beta_payload_fields_for_non_anthro
     assert "context_management" not in result
     assert "output_config" not in result
     assert "output_format" not in result
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("status_code", [401, 403])
+async def test_provider_auth_signal_survives_litellm_serialization(
+    status_code: int,
+) -> None:
+    response = httpx.Response(
+        status_code,
+        request=httpx.Request("POST", "https://provider.example.invalid/v1/messages"),
+    )
+    error_class = AuthenticationError if status_code == 401 else PermissionDeniedError
+    original = error_class(
+        message="synthetic-sensitive-detail",
+        llm_provider="synthetic-provider",
+        model="synthetic-model",
+        response=response,
+    )
+    callback = TracecatCallbackHandler()
+    proxy_logging = AsyncMock(spec=ProxyLogging)
+    proxy_logging.post_call_failure_hook.side_effect = (
+        callback.async_post_call_failure_hook
+    )
+    proxy_logging.post_call_response_headers_hook.return_value = {}
+    processor = ProxyBaseLLMRequestProcessing(data={})
+
+    with pytest.raises(ProxyException) as exc_info:
+        await processor._handle_llm_api_exception(
+            original, UserAPIKeyAuth(), proxy_logging
+        )
+
+    assert exc_info.value.code == str(status_code)
+    wire_error = exc_info.value.to_dict()
+    assert wire_error["type"] == "tracecat_llm_provider_auth_failed"
+    assert "synthetic-sensitive-detail" not in json.dumps(wire_error)
+
+
+@pytest.mark.anyio
+async def test_failure_hook_preserves_budget_exception_for_litellm_auth_handler() -> (
+    None
+):
+    result = await TracecatCallbackHandler().async_post_call_failure_hook(
+        request_data={},
+        original_exception=BudgetExceededError(current_cost=2, max_budget=1),
+        user_api_key_dict=UserAPIKeyAuth(),
+    )
+    assert result is None

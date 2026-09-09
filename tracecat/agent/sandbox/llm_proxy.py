@@ -29,6 +29,10 @@ from tracecat.agent.error_policy import (
     agent_executor_protocol_failed,
     agent_executor_timed_out,
     agent_executor_unavailable,
+    agent_llm_budget_exceeded,
+    agent_llm_gateway_auth_failed,
+    agent_llm_provider_auth_failed,
+    agent_llm_rate_limited,
     agent_llm_read_timeout,
     user_agent_execution_failed,
 )
@@ -107,7 +111,6 @@ _ERROR_MESSAGES = {
     504: "LLM provider request timed out",
     529: "LLM provider is overloaded - please try again shortly",
 }
-_ERROR_BODY_PREVIEW_BYTES = 2048
 _proxy_load_tracker = get_load_tracker("llm_socket_proxy")
 _TRACE_REQUEST_ID_HEADER = "x-request-id"
 _ANTHROPIC_ONLY_FIELDS = (
@@ -190,11 +193,33 @@ def _http_error_classification(
     status_code: int,
     *,
     route_is_direct: bool,
+    body: bytes = b"",
 ) -> RuntimeErrorClassification:
+    # Only machine-readable fields participate in classification. Never infer
+    # budget or auth origin from provider messages (which can contain secrets).
+    try:
+        payload = orjson.loads(body) if body else None
+    except orjson.JSONDecodeError:
+        payload = None
+    match payload:
+        case {"error": {"type": "tracecat_llm_token_invalid"}} if (
+            not route_is_direct and status_code in {401, 403}
+        ):
+            return agent_llm_gateway_auth_failed()
+        case {"error": {"type": "tracecat_llm_provider_auth_failed"}} if (
+            not route_is_direct and status_code in {401, 403}
+        ):
+            return agent_llm_provider_auth_failed()
+        case {"error": {"type": "budget_exceeded" | "insufficient_quota"}} if (
+            status_code in {400, 429}
+        ):
+            return agent_llm_budget_exceeded()
+        case {"error": {"code": "insufficient_quota"}} if status_code == 429:
+            return agent_llm_budget_exceeded()
+    if route_is_direct and status_code in {401, 403}:
+        return agent_llm_provider_auth_failed()
     if status_code == 429:
-        if route_is_direct:
-            return user_agent_execution_failed(retryable=True)
-        return agent_executor_unavailable()
+        return agent_llm_rate_limited(route_is_direct=route_is_direct)
     if status_code in {401, 403} and not route_is_direct:
         return agent_executor_unavailable()
     if route_is_direct:
@@ -592,64 +617,11 @@ def _get_or_create_trace_request_id(headers: dict[str, str]) -> str:
     return str(uuid4())
 
 
-def _is_non_critical_path(path: str) -> bool:
-    return path.split("?", 1)[0] in _NON_CRITICAL_PATHS
-
-
-def _coerce_error_detail(value: object) -> str | None:
-    if isinstance(value, str):
-        detail = value.strip()
-        return detail or None
-    if isinstance(value, dict):
-        for key in ("message", "detail", "error"):
-            if detail := _coerce_error_detail(value.get(key)):
-                return detail
-        return orjson.dumps(value).decode("utf-8")
-    if isinstance(value, list):
-        return orjson.dumps(value).decode("utf-8")
-    return None
-
-
-def _extract_error_detail(body: bytes) -> str | None:
-    if not body:
-        return None
-
-    if len(body) <= _ERROR_BODY_PREVIEW_BYTES:
-        try:
-            parsed = orjson.loads(body)
-        except orjson.JSONDecodeError:
-            parsed = None
-        if isinstance(parsed, dict):
-            for key in ("error", "detail", "message"):
-                if detail := _coerce_error_detail(parsed.get(key)):
-                    return detail
-
-    preview = body[:_ERROR_BODY_PREVIEW_BYTES].decode("utf-8", errors="replace")
-    detail = preview.strip()
-    if not detail:
-        return None
-    if len(body) > _ERROR_BODY_PREVIEW_BYTES:
-        return f"{detail}..."
-    return detail
-
-
-def _format_litellm_http_error(
-    *,
-    status_code: int,
-    reason_phrase: str,
-    body: bytes,
-    trace_request_id: str,
-) -> str:
-    reason = reason_phrase or "Unknown"
-    message = _ERROR_MESSAGES.get(status_code)
-    detail = _extract_error_detail(body)
-    parts = [f"LiteLLM request failed ({status_code} {reason})"]
-    if message:
-        parts.append(message)
-    if detail and detail != message:
-        parts.append(detail)
-    parts.append(f"request_id={trace_request_id}")
-    return ": ".join(parts)
+def _is_non_critical_request(method: str | None, path: str) -> bool:
+    path_without_query = path.split("?", 1)[0]
+    return path_without_query in _NON_CRITICAL_PATHS or (
+        method == "GET" and path_without_query in _GET_PATH_ALLOWLIST
+    )
 
 
 class LLMSocketProxy:
@@ -991,10 +963,11 @@ class LLMSocketProxy:
                 request_counter=request_counter,
                 trace_request_id=trace_request_id,
             )
-            self._emit_error(
-                "LLM proxy not initialized",
-                agent_executor_unavailable(),
-            )
+            if not _is_non_critical_request(request["method"], request["path"]):
+                self._emit_error(
+                    "LLM proxy not initialized",
+                    agent_executor_unavailable(),
+                )
             return
 
         path = request["path"]
@@ -1030,21 +1003,19 @@ class LLMSocketProxy:
                 content=upstream_request.body if upstream_request.body else None,
             ) as response:
                 body_chunks: AsyncIterable[bytes] | list[bytes]
-                if response.status_code >= 400 and not _is_non_critical_path(path):
+                if response.status_code >= 400 and not _is_non_critical_request(
+                    method, path
+                ):
                     response_phase = "error_body"
                     error_body = await response.aread()
-                    self._emit_error(
-                        _format_litellm_http_error(
-                            status_code=response.status_code,
-                            reason_phrase=response.reason_phrase,
-                            body=error_body,
-                            trace_request_id=trace_request_id,
-                        ),
-                        _http_error_classification(
-                            response.status_code,
-                            route_is_direct=route.is_direct,
-                        ),
+                    classification = _http_error_classification(
+                        response.status_code,
+                        route_is_direct=route.is_direct,
+                        body=error_body,
                     )
+                    # Error bodies may echo credentials, budgets or request data.
+                    # Keep durable failure text source-owned and privacy-safe.
+                    self._emit_error(classification.message, classification)
                     body_chunks = [error_body]
                 else:
                     body_chunks = response.aiter_bytes()
@@ -1077,7 +1048,7 @@ class LLMSocketProxy:
                 request_counter=request_counter,
                 trace_request_id=trace_request_id,
             )
-            if not _is_non_critical_path(path):
+            if not _is_non_critical_request(method, path):
                 message = (
                     agent_llm_read_timeout(exc).message
                     if isinstance(exc, httpx.ReadTimeout)
@@ -1212,7 +1183,7 @@ class LLMSocketProxy:
                     error_type=type(exc).__name__,
                     trace_request_id=trace_request_id,
                 )
-                if path is not None and not _is_non_critical_path(path):
+                if path is not None and not _is_non_critical_request(method, path):
                     classification = (
                         _transport_error_classification(
                             exc,
@@ -1253,7 +1224,7 @@ class LLMSocketProxy:
                     error_type=type(exc).__name__,
                     trace_request_id=trace_request_id,
                 )
-                if path is not None and not _is_non_critical_path(path):
+                if path is not None and not _is_non_critical_request(method, path):
                     self._emit_error(
                         agent_llm_read_timeout(exc).message
                         if isinstance(exc, httpx.ReadTimeout)

@@ -127,6 +127,47 @@ def agent_llm_read_timeout(
     )
 
 
+def agent_llm_gateway_auth_failed() -> RuntimeErrorClassification:
+    """Classify a rejected internal gateway credential at its trusted source."""
+    return RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.AGENT_LLM_GATEWAY_AUTH_FAILED,
+        message="Tracecat could not authenticate to the LLM gateway",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+
+
+def agent_llm_provider_auth_failed() -> RuntimeErrorClassification:
+    """Classify rejected upstream provider credentials or permissions."""
+    return RuntimeErrorClassification.user(
+        kind=RuntimeErrorKind.AGENT_LLM_PROVIDER_AUTH_FAILED,
+        message="LLM provider authentication failed; check provider credentials and permissions",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+
+
+def agent_llm_budget_exceeded() -> RuntimeErrorClassification:
+    """Classify an explicit budget denial that needs a limit or billing change."""
+    return RuntimeErrorClassification.user(
+        kind=RuntimeErrorKind.AGENT_LLM_BUDGET_EXCEEDED,
+        message="LLM budget exhausted; check the configured budget or billing limits",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+
+
+def agent_llm_rate_limited(*, route_is_direct: bool) -> RuntimeErrorClassification:
+    """Classify temporary throttling without assuming that a budget ran out."""
+    constructor = (
+        RuntimeErrorClassification.user
+        if route_is_direct
+        else RuntimeErrorClassification.platform
+    )
+    return constructor(
+        kind=RuntimeErrorKind.AGENT_LLM_RATE_LIMITED,
+        message="LLM requests are temporarily rate limited; retry later",
+        retry_disposition=RetryDisposition.RETRYABLE,
+    )
+
+
 def agent_executor_unavailable(
     error: BaseException | None = None,
 ) -> RuntimeErrorClassification:

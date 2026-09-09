@@ -17,6 +17,7 @@ from tracecat.agent.sandbox.llm_proxy import (
     LLMRoute,
     LLMRoutingPlan,
     LLMSocketProxy,
+    _http_error_classification,
 )
 from tracecat.runtime.errors import (
     RetryDisposition,
@@ -297,12 +298,10 @@ async def test_forward_request_emits_error_for_critical_upstream_http_error(
     assert "provider quota exhausted" in response_text
     assert len(errors) == 1
     error = errors[0]
-    assert "LiteLLM request failed (429 Too Many Requests)" in error.message
-    assert "Rate limit exceeded" in error.message
-    assert "provider quota exhausted" in error.message
-    assert "request_id=trace-test-123" in error.message
+    assert error.message == "LLM requests are temporarily rate limited; retry later"
+    assert "provider quota exhausted" not in error.message
     assert error.classification.owner is RuntimeErrorOwner.PLATFORM
-    assert error.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+    assert error.classification.kind is RuntimeErrorKind.AGENT_LLM_RATE_LIMITED
     assert error.classification.retry_disposition is RetryDisposition.RETRYABLE
 
 
@@ -410,7 +409,14 @@ async def test_forward_request_classifies_direct_provider_http_failure_as_user_o
 
     assert len(errors) == 1
     assert errors[0].classification.owner is RuntimeErrorOwner.USER
-    assert errors[0].classification.kind is RuntimeErrorKind.AGENT_EXECUTION_FAILED
+    expected_kind = (
+        RuntimeErrorKind.AGENT_LLM_PROVIDER_AUTH_FAILED
+        if status_code == 403
+        else RuntimeErrorKind.AGENT_LLM_RATE_LIMITED
+        if status_code == 429
+        else RuntimeErrorKind.AGENT_EXECUTION_FAILED
+    )
+    assert errors[0].classification.kind is expected_kind
     assert errors[0].classification.retry_disposition is expected_retry_disposition
 
 
@@ -1640,3 +1646,236 @@ async def test_read_timeout_before_headers_records_route(
     assert errors[0].classification.owner is RuntimeErrorOwner.PLATFORM
     assert "synthetic sensitive diagnostic" not in str(errors)
     assert writer.buffer.startswith(b"HTTP/1.1 504")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("status_code", "error_type", "direct", "kind", "owner", "retryable"),
+    [
+        (
+            401,
+            "tracecat_llm_token_invalid",
+            False,
+            RuntimeErrorKind.AGENT_LLM_GATEWAY_AUTH_FAILED,
+            RuntimeErrorOwner.PLATFORM,
+            False,
+        ),
+        (
+            401,
+            "tracecat_llm_provider_auth_failed",
+            False,
+            RuntimeErrorKind.AGENT_LLM_PROVIDER_AUTH_FAILED,
+            RuntimeErrorOwner.USER,
+            False,
+        ),
+        (
+            401,
+            "tracecat_llm_token_invalid",
+            True,
+            RuntimeErrorKind.AGENT_LLM_PROVIDER_AUTH_FAILED,
+            RuntimeErrorOwner.USER,
+            False,
+        ),
+        (
+            429,
+            "budget_exceeded",
+            False,
+            RuntimeErrorKind.AGENT_LLM_BUDGET_EXCEEDED,
+            RuntimeErrorOwner.USER,
+            False,
+        ),
+        (
+            400,
+            "budget_exceeded",
+            False,
+            RuntimeErrorKind.AGENT_LLM_BUDGET_EXCEEDED,
+            RuntimeErrorOwner.USER,
+            False,
+        ),
+        (
+            429,
+            "budget_exceeded",
+            True,
+            RuntimeErrorKind.AGENT_LLM_BUDGET_EXCEEDED,
+            RuntimeErrorOwner.USER,
+            False,
+        ),
+        (
+            429,
+            "rate_limit_error",
+            False,
+            RuntimeErrorKind.AGENT_LLM_RATE_LIMITED,
+            RuntimeErrorOwner.PLATFORM,
+            True,
+        ),
+        (
+            429,
+            "cooldown",
+            False,
+            RuntimeErrorKind.AGENT_LLM_RATE_LIMITED,
+            RuntimeErrorOwner.PLATFORM,
+            True,
+        ),
+        (
+            401,
+            "auth_error",
+            False,
+            RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE,
+            RuntimeErrorOwner.PLATFORM,
+            True,
+        ),
+        (
+            500,
+            "tracecat_llm_token_invalid",
+            False,
+            RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE,
+            RuntimeErrorOwner.PLATFORM,
+            True,
+        ),
+    ],
+)
+async def test_structured_gateway_http_attribution(
+    tmp_path: Path,
+    status_code: int,
+    error_type: str,
+    direct: bool,
+    kind: RuntimeErrorKind,
+    owner: RuntimeErrorOwner,
+    retryable: bool,
+) -> None:
+    errors: list[LLMProxyError] = []
+    # Deliberately misleading text must never select classification or enter
+    # durable failure text, even when it contains credential-shaped data.
+    body = orjson.dumps(
+        {
+            "error": {
+                "type": error_type,
+                "message": "budget_exceeded invalid JWT Bearer synthetic-secret",
+            }
+        }
+    )
+    proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=_routing_plan(
+            direct_routes={
+                "synthetic-model": LLMRoute(
+                    base_url="https://provider.example",
+                    model_provider="custom-model-provider",
+                )
+            }
+            if direct
+            else None
+        ),
+        on_error=errors.append,
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(status_code, content=body)
+        )
+    ) as client:
+        proxy._client = client
+        writer = _FakeWriter()
+        await proxy._forward_request(
+            {
+                "method": "POST",
+                "path": "/v1/messages",
+                "headers": {},
+                "body": b'{"model":"synthetic-model"}',
+            },
+            cast(asyncio.StreamWriter, writer),
+        )
+    assert len(errors) == 1
+    assert errors[0].classification.kind is kind
+    assert errors[0].classification.owner is owner
+    assert errors[0].classification.retry_disposition is (
+        RetryDisposition.RETRYABLE if retryable else RetryDisposition.NON_RETRYABLE
+    )
+    assert "synthetic-secret" not in errors[0].message
+    assert body in writer.buffer  # SDK still receives the upstream HTTP response.
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("path", ["/models", "/v1/models?limit=10"])
+@pytest.mark.parametrize(
+    "failure", ["auth", "rate_limit", "connect", "headers_timeout", "body_timeout"]
+)
+async def test_failed_discovery_does_not_consume_generation_failure_callback(
+    tmp_path: Path,
+    path: str,
+    failure: str,
+) -> None:
+    errors: list[LLMProxyError] = []
+
+    class StalledBody(httpx.AsyncByteStream):
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            yield b'{"data":'
+            raise httpx.ReadTimeout("synthetic discovery timeout")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            return httpx.Response(
+                401, json={"error": {"type": "tracecat_llm_token_invalid"}}
+            )
+        if failure == "connect":
+            raise httpx.ConnectError("synthetic connection failure")
+        if failure == "headers_timeout":
+            raise httpx.ReadTimeout("synthetic discovery timeout")
+        if failure == "body_timeout":
+            return httpx.Response(200, stream=StalledBody())
+        return httpx.Response(
+            401 if failure == "auth" else 429, json={"error": "synthetic failure"}
+        )
+
+    proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=_routing_plan(),
+        on_error=errors.append,
+    )
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        proxy._client = client
+        await proxy._forward_request(
+            {"method": "GET", "path": path, "headers": {}, "body": b""},
+            cast(asyncio.StreamWriter, _FakeWriter()),
+        )
+        assert errors == []
+        await proxy._forward_request(
+            {"method": "POST", "path": "/v1/messages", "headers": {}, "body": b"{}"},
+            cast(asyncio.StreamWriter, _FakeWriter()),
+        )
+    assert len(errors) == 1
+    assert (
+        errors[0].classification.kind is RuntimeErrorKind.AGENT_LLM_GATEWAY_AUTH_FAILED
+    )
+
+
+@pytest.mark.parametrize(
+    ("body", "expected_kind"),
+    [
+        (
+            b'{"error":{"code":"insufficient_quota"}}',
+            RuntimeErrorKind.AGENT_LLM_BUDGET_EXCEEDED,
+        ),
+        (
+            b'{"error":{"type":"insufficient_quota"}}',
+            RuntimeErrorKind.AGENT_LLM_BUDGET_EXCEEDED,
+        ),
+        (
+            b'{"error":{"message":"budget_exceeded insufficient_quota"}}',
+            RuntimeErrorKind.AGENT_LLM_RATE_LIMITED,
+        ),
+        (
+            b'{"error":{"type":["budget_exceeded"]}}',
+            RuntimeErrorKind.AGENT_LLM_RATE_LIMITED,
+        ),
+        (b"budget_exceeded", RuntimeErrorKind.AGENT_LLM_RATE_LIMITED),
+        (b"", RuntimeErrorKind.AGENT_LLM_RATE_LIMITED),
+    ],
+)
+def test_budget_classification_requires_structured_evidence(
+    body: bytes,
+    expected_kind: RuntimeErrorKind,
+) -> None:
+    assert (
+        _http_error_classification(429, route_is_direct=True, body=body).kind
+        is expected_kind
+    )

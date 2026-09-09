@@ -10,8 +10,9 @@ from urllib.parse import parse_qsl, urlencode
 import boto3
 from aiocache import Cache
 from botocore.exceptions import BotoCoreError, ClientError
-from fastapi import Request
+from fastapi import HTTPException, Request
 from litellm.caching.dual_cache import DualCache
+from litellm.exceptions import AuthenticationError, PermissionDeniedError
 from litellm.integrations.custom_logger import CustomLogger
 from litellm.proxy._types import LitellmUserRoles, ProxyException, UserAPIKeyAuth
 from litellm.types.utils import CallTypesLiteral
@@ -201,6 +202,8 @@ async def _resolve_bedrock_runtime_credentials(
         except (BotoCoreError, ClientError, KeyError) as exc:
             raise ProxyException(
                 message="Failed to assume configured AWS role for Bedrock.",
+                # This broad SDK failure may be transport or service failure,
+                # so it does not establish that provider credentials are invalid.
                 type="auth_error",
                 param=None,
                 code=401,
@@ -216,7 +219,7 @@ async def _resolve_bedrock_runtime_credentials(
     if access_key or secret_key or session_token:
         raise ProxyException(
             message="Bedrock static credentials require AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY.",
-            type="auth_error",
+            type="tracecat_llm_provider_auth_failed",
             param=None,
             code=401,
         )
@@ -226,7 +229,7 @@ async def _resolve_bedrock_runtime_credentials(
 
     raise ProxyException(
         message="Bedrock requires one of AWS_ROLE_ARN, AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY, or AWS_BEARER_TOKEN_BEDROCK.",
-        type="auth_error",
+        type="tracecat_llm_provider_auth_failed",
         param=None,
         code=401,
     )
@@ -311,7 +314,7 @@ async def user_api_key_auth(request: Request, api_key: str | None) -> UserAPIKey
         logger.warning("LLM token validation failed")
         raise ProxyException(
             message="Invalid or expired token",
-            type="auth_error",
+            type="tracecat_llm_token_invalid",
             param=None,
             code=401,
         ) from exc
@@ -354,8 +357,30 @@ async def user_api_key_auth(request: Request, api_key: str | None) -> UserAPIKey
     )
 
 
+class _ProviderAuthHTTPException(HTTPException):
+    """Retain auth origin through LiteLLM's HTTPException serialization."""
+
+    type = "tracecat_llm_provider_auth_failed"
+
+
 class TracecatCallbackHandler(CustomLogger):
     """LiteLLM callback handler that injects provider credentials per request."""
+
+    async def async_post_call_failure_hook(
+        self,
+        request_data: dict[str, Any],
+        original_exception: Exception,
+        user_api_key_dict: UserAPIKeyAuth,
+        traceback_str: str | None = None,
+    ) -> HTTPException | None:
+        """Label typed provider auth failures without copying provider details."""
+        del request_data, user_api_key_dict, traceback_str
+        if isinstance(original_exception, AuthenticationError | PermissionDeniedError):
+            return _ProviderAuthHTTPException(
+                status_code=original_exception.status_code,
+                detail="The LLM provider rejected authentication or access",
+            )
+        return None
 
     async def async_pre_call_hook(
         self,
@@ -418,7 +443,7 @@ class TracecatCallbackHandler(CustomLogger):
         if not creds:
             raise ProxyException(
                 message=f"No {provider} API credentials configured. Add them in workspace settings.",
-                type="credential_error",
+                type="tracecat_llm_provider_auth_failed",
                 param=None,
                 code=401,
             )
@@ -549,7 +574,7 @@ def _inject_provider_credentials(
             if not api_key:
                 raise ProxyException(
                     message="Provider credentials incomplete",
-                    type="auth_error",
+                    type="tracecat_llm_provider_auth_failed",
                     param=None,
                     code=401,
                 )
@@ -564,7 +589,7 @@ def _inject_provider_credentials(
             if not api_key:
                 raise ProxyException(
                     message="Provider credentials incomplete",
-                    type="auth_error",
+                    type="tracecat_llm_provider_auth_failed",
                     param=None,
                     code=401,
                 )
@@ -579,7 +604,7 @@ def _inject_provider_credentials(
             if not api_key:
                 raise ProxyException(
                     message="Provider credentials incomplete",
-                    type="auth_error",
+                    type="tracecat_llm_provider_auth_failed",
                     param=None,
                     code=401,
                 )
@@ -592,7 +617,7 @@ def _inject_provider_credentials(
             if not api_key:
                 raise ProxyException(
                     message="Provider credentials incomplete",
-                    type="auth_error",
+                    type="tracecat_llm_provider_auth_failed",
                     param=None,
                     code=401,
                 )
@@ -633,7 +658,7 @@ def _inject_provider_credentials(
             else:
                 raise ProxyException(
                     message="Bedrock credentials must be resolved before request dispatch.",
-                    type="auth_error",
+                    type="tracecat_llm_provider_auth_failed",
                     param=None,
                     code=401,
                 )
@@ -682,7 +707,7 @@ def _inject_provider_credentials(
             else:
                 raise ProxyException(
                     message="Azure OpenAI requires AZURE_API_KEY, AZURE_AD_TOKEN, or Azure Entra client credentials (AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET).",
-                    type="auth_error",
+                    type="tracecat_llm_provider_auth_failed",
                     param=None,
                     code=401,
                 )
@@ -708,7 +733,7 @@ def _inject_provider_credentials(
             else:
                 raise ProxyException(
                     message="Azure AI requires AZURE_API_KEY, AZURE_AD_TOKEN, or Azure Entra client credentials (AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET).",
-                    type="auth_error",
+                    type="tracecat_llm_provider_auth_failed",
                     param=None,
                     code=401,
                 )
