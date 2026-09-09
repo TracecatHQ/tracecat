@@ -1,7 +1,7 @@
 """Helpers for granting membership in tests.
 
-Tests grant a role and its compatibility membership together, matching the
-transactional application write path.
+Membership is derived from role assignments, so tests grant a role rather than
+insert a membership row.
 """
 
 from __future__ import annotations
@@ -13,7 +13,6 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.authz.membership import sync_membership
 from tracecat.authz.seeding import seed_system_roles_for_org
 from tracecat.db.models import (
     Group,
@@ -78,13 +77,7 @@ async def grant_org_membership(
             index_where=UserRoleAssignment.workspace_id.is_(None),
         )
     )
-    await sync_membership(
-        session,
-        granter_scopes=frozenset({"*"}),
-        organization_id=organization_id,
-        user_ids=[user_id],
-        workspace_id=None,
-    )
+    await session.flush()
 
 
 async def grant_workspace_membership(
@@ -115,13 +108,7 @@ async def grant_workspace_membership(
             ],
         )
     )
-    await sync_membership(
-        session,
-        granter_scopes=frozenset({"*"}),
-        organization_id=organization_id,
-        user_ids=[user_id],
-        workspace_id=workspace_id,
-    )
+    await session.flush()
 
 
 async def grant_org_membership_via_group(
@@ -157,11 +144,5 @@ async def grant_org_membership_via_group(
             role_id=role.id,
         )
     )
-    await sync_membership(
-        session,
-        granter_scopes=frozenset({"*"}),
-        organization_id=organization_id,
-        user_ids=[user_id],
-        workspace_id=None,
-    )
+    await session.flush()
     return group

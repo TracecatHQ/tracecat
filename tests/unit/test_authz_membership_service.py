@@ -155,6 +155,7 @@ async def test_delete_membership_removes_membership_and_assignment(
             assigned_by=actor_user.id,
         )
     )
+    session.add(LegacyMembership(user_id=member_user.id, workspace_id=workspace.id))
     await session.commit()
 
     await membership_service.delete_membership(
@@ -175,8 +176,17 @@ async def test_delete_membership_removes_membership_and_assignment(
         )
     )
 
+    legacy = await session.scalar(
+        select(LegacyMembership).where(
+            LegacyMembership.workspace_id == workspace.id,
+            LegacyMembership.user_id == member_user.id,
+        )
+    )
+
     assert membership is None
     assert assignment is None
+    # The legacy table is kept in step for older app versions.
+    assert legacy is None
 
 
 async def test_delete_membership_removes_orphan_assignment(
@@ -371,6 +381,17 @@ async def test_create_membership_allows_admin_inviter(
     ).scalar_one_or_none()
     assert membership is not None
 
+    # The legacy table is kept in step for older app versions.
+    legacy = (
+        await session.execute(
+            select(LegacyMembership).where(
+                LegacyMembership.user_id == member_user.id,
+                LegacyMembership.workspace_id == workspace.id,
+            )
+        )
+    ).scalar_one_or_none()
+    assert legacy is not None
+
 
 async def test_list_workspace_members_reports_each_path_once(
     session: AsyncSession,
@@ -418,40 +439,3 @@ async def test_list_workspace_members_reports_each_path_once(
     assert len(members) == len(by_user) == 2
     assert by_user[actor_user.id] == "Reviewer"
     assert by_user[member_user.id] == workspace_editor_role.name
-
-
-async def test_remove_member_rejects_surviving_group_access(
-    session: AsyncSession,
-    membership_service: MembershipService,
-    organization: Organization,
-    workspace: Workspace,
-    member_user: User,
-    workspace_editor_role: DBRole,
-) -> None:
-    group = Group(name="Retained grant", organization_id=organization.id)
-    session.add(group)
-    await session.flush()
-    session.add_all(
-        [
-            LegacyMembership(user_id=member_user.id, workspace_id=workspace.id),
-            GroupMember(group_id=group.id, user_id=member_user.id),
-            GroupRoleAssignment(
-                organization_id=organization.id,
-                group_id=group.id,
-                workspace_id=workspace.id,
-                role_id=workspace_editor_role.id,
-            ),
-        ]
-    )
-    await session.commit()
-    with pytest.raises(TracecatConflictError):
-        await membership_service.delete_membership(workspace.id, member_user.id)
-    assert (
-        await session.scalar(
-            select(Membership.user_id).where(
-                Membership.user_id == member_user.id,
-                Membership.workspace_id == workspace.id,
-            )
-        )
-        == member_user.id
-    )

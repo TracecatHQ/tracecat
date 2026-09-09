@@ -1,44 +1,29 @@
-"""Tests for membership admission and rolling-version compatibility."""
+"""Tests for the derived-membership migration.
+
+Revision 4134d4ebdc69 changes no schema and no data: it counts legacy
+membership rows no role assignment covers and reports them. The legacy tables
+stay until the follow-up revision drops them, and the ORM derives membership
+from assignments (see tracecat.db.models).
+"""
 
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import uuid
 from collections.abc import Iterator
-from dataclasses import dataclass
 
 import pytest
-from httpx import ASGITransport, AsyncClient
 from sqlalchemy import Connection, Engine, create_engine, select, text
-from sqlalchemy.exc import ProgrammingError
-from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.orm import Session
 
 from tests.database import TEST_DB_CONFIG
-from tracecat import config
-from tracecat.api.app import app
-from tracecat.auth.credentials import _compute_effective_scopes_cached
-from tracecat.auth.users import current_active_user, optional_current_active_user
-from tracecat.authz.enums import ScopeSource
-from tracecat.db import engine as db_engine
-from tracecat.db.models import (
-    Group,
-    GroupMember,
-    GroupRoleAssignment,
-    LegacyMembership,
-    LegacyOrganizationMembership,
-    Membership,
-    OrganizationMembership,
-    Role,
-    Scope,
-    User,
-    UserRoleAssignment,
-)
+from tracecat.db.models import Membership, OrganizationMembership
 
 MIGRATION_REVISION = "4134d4ebdc69"
-PREVIOUS_REVISION = "526f867f6a75"
-# Columns retained for both deployed and rollback readers.
+PREVIOUS_REVISION = "c3a17be4d902"
+# Columns the migration's uncovered-row SQL reads.
 LEGACY_TABLE_COLUMNS = {
     "membership": {"user_id", "workspace_id"},
     "organization_membership": {"user_id", "organization_id"},
@@ -51,7 +36,8 @@ def workflow_bucket() -> Iterator[None]:
     yield
 
 
-def _run_alembic(db_url: str, *args: str) -> None:
+def _run_alembic(db_url: str, *args: str) -> str:
+    """Run alembic against ``db_url``, returning its combined output."""
     env = os.environ.copy()
     env["TRACECAT__DB_URI"] = db_url
     result = subprocess.run(
@@ -66,6 +52,7 @@ def _run_alembic(db_url: str, *args: str) -> None:
             f"alembic {' '.join(args)} failed:\n"
             f"stdout: {result.stdout}\nstderr: {result.stderr}"
         )
+    return result.stdout + result.stderr
 
 
 def _relkind(conn: Connection, name: str) -> str | None:
@@ -116,7 +103,7 @@ def _engine(url: str) -> Engine:
 
 
 def _seed_org(conn: Connection) -> tuple[uuid.UUID, uuid.UUID]:
-    """One org with representative system roles.
+    """One org with the two system roles.
 
     Returns (org_id, workspace_editor_role_id).
     """
@@ -192,7 +179,7 @@ def _assign(
 
 
 def _presence(session: Session, user_id: uuid.UUID) -> tuple[int, int]:
-    """Membership visible through the read-only compatibility mappings."""
+    """(workspace rows, org rows) the ORM derives for a user."""
     workspaces = session.scalars(
         select(Membership).where(Membership.user_id == user_id)
     ).all()
@@ -203,7 +190,7 @@ def _presence(session: Session, user_id: uuid.UUID) -> tuple[int, int]:
 
 
 def test_upgrade_keeps_legacy_tables(migration_db: str) -> None:
-    """Both legacy tables and their original columns remain available."""
+    """No schema changes: the tables stay, with the columns the guard reads."""
     engine = _engine(migration_db)
     try:
         with engine.connect() as conn:
@@ -223,13 +210,26 @@ def test_upgrade_keeps_legacy_tables(migration_db: str) -> None:
         engine.dispose()
 
 
-def test_upgrade_preserves_legacy_admission_without_repair(previous_db: str) -> None:
-    """Unprivileged membership stays unprivileged; assignment-only users stay blocked."""
+def _row_counts(conn: Connection) -> dict[str, int]:
+    """Row counts for the assignment and legacy tables."""
+    return {
+        table: conn.execute(text(f"SELECT count(*) FROM {table}")).scalar_one()
+        for table in (
+            "user_role_assignment",
+            "group_role_assignment",
+            "membership",
+            "organization_membership",
+        )
+    }
+
+
+def test_upgrade_changes_no_rows(previous_db: str) -> None:
+    """The migration reports; it never inserts, updates or deletes."""
     engine = _engine(previous_db)
     try:
         with engine.begin() as conn:
             org_id, editor_role = _seed_org(conn)
-            listed, drifted = _seed_user(conn), _seed_user(conn)
+            listed, assigned = _seed_user(conn), _seed_user(conn)
             ws_id = _seed_workspace(conn, org_id)
             conn.execute(
                 text("INSERT INTO membership (user_id, workspace_id) VALUES (:u, :w)"),
@@ -242,50 +242,117 @@ def test_upgrade_preserves_legacy_admission_without_repair(previous_db: str) -> 
                 ),
                 {"u": listed, "o": org_id},
             )
-            _assign(conn, org_id, drifted, ws_id, editor_role)
+            _assign(conn, org_id, assigned, ws_id, editor_role)
+        with engine.connect() as conn:
+            before = _row_counts(conn)
 
         _run_alembic(previous_db, "upgrade", MIGRATION_REVISION)
+
+        with engine.connect() as conn:
+            assert _row_counts(conn) == before
         with Session(engine) as session:
-            assert _presence(session, listed) == (1, 1)
-            assert _presence(session, drifted) == (0, 0)
+            # The uncovered legacy row stays invisible; the assignment shows.
+            assert _presence(session, listed) == (0, 0)
+            assert _presence(session, assigned) == (1, 0)
     finally:
         engine.dispose()
 
 
-def test_old_writes_are_visible_to_new_readers(migration_db: str) -> None:
-    """The old invite/provisioning transaction writes membership and assignments."""
-    engine = _engine(migration_db)
+def test_upgrade_reports_uncovered_rows(previous_db: str) -> None:
+    """An uncovered legacy row is counted in a warning, not an error."""
+    engine = _engine(previous_db)
     try:
         with engine.begin() as conn:
-            org_id, role_id = _seed_org(conn)
+            org_id, _ = _seed_org(conn)
             user_id = _seed_user(conn)
             ws_id = _seed_workspace(conn, org_id)
             conn.execute(
-                text("INSERT INTO membership VALUES (:u, :w)"),
+                text("INSERT INTO membership (user_id, workspace_id) VALUES (:u, :w)"),
+                {"u": user_id, "w": ws_id},
+            )
+
+        output = _run_alembic(previous_db, "upgrade", MIGRATION_REVISION)
+
+        assert "1 workspace and 0 organization membership row(s)" in output
+        assert str(user_id) not in output
+        with engine.connect() as conn:
+            assert _relkind(conn, "membership") == "r"
+    finally:
+        engine.dispose()
+
+
+def test_orm_derives_presence_from_assignment_paths(migration_db: str) -> None:
+    """Each path kind lands in exactly the relation it should."""
+    engine = _engine(migration_db)
+    try:
+        with engine.begin() as conn:
+            org_id, editor_role = _seed_org(conn)
+            user_id = _seed_user(conn)
+            ws_a, ws_b = _seed_workspace(conn, org_id), _seed_workspace(conn, org_id)
+            group_id = uuid.uuid4()
+        with Session(engine) as session:
+            conn = session.connection()
+            assert _presence(session, user_id) == (0, 0)
+
+            # A workspace-scoped assignment is workspace presence only.
+            _assign(conn, org_id, user_id, ws_a, editor_role)
+            assert _presence(session, user_id) == (1, 0)
+
+            # An org-wide assignment is org presence only.
+            _assign(conn, org_id, user_id, None, editor_role)
+            assert _presence(session, user_id) == (1, 1)
+
+            # A group grant reaches its members.
+            conn.execute(
+                text(
+                    'INSERT INTO "group" (id, name, organization_id) '
+                    "VALUES (:id, 'Group', :org)"
+                ),
+                {"id": group_id, "org": org_id},
+            )
+            conn.execute(
+                text("INSERT INTO group_member (group_id, user_id) VALUES (:g, :u)"),
+                {"g": group_id, "u": user_id},
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO group_role_assignment "
+                    "(id, organization_id, group_id, workspace_id, role_id) "
+                    "VALUES (gen_random_uuid(), :org, :g, :ws, :role)"
+                ),
+                {"org": org_id, "g": group_id, "ws": ws_b, "role": editor_role},
+            )
+            assert _presence(session, user_id) == (2, 1)
+            session.rollback()
+    finally:
+        engine.dispose()
+
+
+def test_orm_never_reads_the_legacy_tables(migration_db: str) -> None:
+    """A legacy row with no assignment is invisible: the tables are unread."""
+    for statement in (select(Membership), select(OrganizationMembership)):
+        compiled = str(statement.compile())
+        assert (
+            re.search(r"\bFROM (membership|organization_membership)\b", compiled)
+            is None
+        )
+
+    engine = _engine(migration_db)
+    try:
+        with engine.begin() as conn:
+            org_id, _ = _seed_org(conn)
+            user_id = _seed_user(conn)
+            ws_id = _seed_workspace(conn, org_id)
+            conn.execute(
+                text("INSERT INTO membership (user_id, workspace_id) VALUES (:u, :w)"),
                 {"u": user_id, "w": ws_id},
             )
             conn.execute(
                 text(
-                    "INSERT INTO organization_membership (user_id, organization_id) VALUES (:u, :o)"
+                    "INSERT INTO organization_membership (user_id, organization_id) "
+                    "VALUES (:u, :o)"
                 ),
                 {"u": user_id, "o": org_id},
-            )
-            _assign(conn, org_id, user_id, ws_id, role_id)
-            _assign(conn, org_id, user_id, None, role_id)
-        with Session(engine) as session:
-            assert _presence(session, user_id) == (1, 1)
-            assert session.scalar(select(LegacyMembership.user_id)) == user_id
-            assert (
-                session.scalar(select(LegacyOrganizationMembership.user_id)) == user_id
-            )
-        # An old writer revoking membership must also revoke new-reader admission.
-        with engine.begin() as conn:
-            conn.execute(
-                text("DELETE FROM membership WHERE user_id = :u"), {"u": user_id}
-            )
-            conn.execute(
-                text("DELETE FROM organization_membership WHERE user_id = :u"),
-                {"u": user_id},
             )
         with Session(engine) as session:
             assert _presence(session, user_id) == (0, 0)
@@ -293,330 +360,12 @@ def test_old_writes_are_visible_to_new_readers(migration_db: str) -> None:
         engine.dispose()
 
 
-def test_repeat_upgrade_preserves_revocations_and_late_memberships(
-    migration_db: str,
-) -> None:
-    """Rollback and repeated upgrades preserve both revocations and late writes."""
-    engine = _engine(migration_db)
-    try:
-        with engine.begin() as conn:
-            org_id, editor_role = _seed_org(conn)
-            revoked, late = _seed_user(conn), _seed_user(conn)
-            ws_id = _seed_workspace(conn, org_id)
-            for user_id in (revoked, late):
-                conn.execute(
-                    text("INSERT INTO membership VALUES (:u, :w)"),
-                    {"u": user_id, "w": ws_id},
-                )
-                conn.execute(
-                    text(
-                        "INSERT INTO organization_membership (user_id, organization_id) "
-                        "VALUES (:u, :o)"
-                    ),
-                    {"u": user_id, "o": org_id},
-                )
-            _assign(conn, org_id, revoked, ws_id, editor_role)
-            _assign(conn, org_id, revoked, None, editor_role)
-            # The bridge removes assignments and legacy membership together.
-            for table in (
-                "user_role_assignment",
-                "membership",
-                "organization_membership",
-            ):
-                conn.execute(
-                    text(f"DELETE FROM {table} WHERE user_id = :u"), {"u": revoked}
-                )
-
-        # Simulate application rollback and rerunning the additive migration.
-        _run_alembic(migration_db, "downgrade", PREVIOUS_REVISION)
-        with Session(engine) as session:
-            assert _presence(session, revoked) == (0, 0)
-            assert _presence(session, late) == (1, 1)
-            assert (
-                session.scalar(
-                    select(LegacyMembership.user_id).where(
-                        LegacyMembership.user_id == late
-                    )
-                )
-                == late
-            )
-        _run_alembic(migration_db, "upgrade", MIGRATION_REVISION)
-        with Session(engine) as session:
-            assert _presence(session, revoked) == (0, 0)
-            assert _presence(session, late) == (1, 1)
-            assert (
-                session.execute(
-                    text(
-                        "SELECT count(*) FROM user_role_assignment WHERE user_id = :u"
-                    ),
-                    {"u": revoked},
-                ).scalar_one()
-                == 0
-            )
-            assert (
-                session.execute(
-                    text(
-                        "SELECT count(*) FROM user_role_assignment WHERE user_id = :u"
-                    ),
-                    {"u": late},
-                ).scalar_one()
-                == 0
-            )
-    finally:
-        engine.dispose()
-
-
-def test_org_membership_writer_respects_tenant_rls(migration_db: str) -> None:
-    """Org writers can mirror their own workspaces, never another tenant's."""
+def test_downgrade_is_a_no_op(migration_db: str) -> None:
+    _run_alembic(migration_db, "downgrade", PREVIOUS_REVISION)
     engine = _engine(migration_db)
     try:
         with engine.connect() as conn:
-            org_id, _ = _seed_org(conn)
-            other_org, _ = _seed_org(conn)
-            user_id = _seed_user(conn)
-            workspace_id = _seed_workspace(conn, org_id)
-            other_workspace = _seed_workspace(conn, other_org)
-            role_name = f"membership_writer_{uuid.uuid4().hex}"
-            # This test-only role and its grants disappear on transaction rollback.
-            conn.execute(text(f'CREATE ROLE "{role_name}" NOLOGIN'))
-            conn.execute(text(f'GRANT USAGE ON SCHEMA public TO "{role_name}"'))
-            conn.execute(text(f'GRANT SELECT ON workspace TO "{role_name}"'))
-            conn.execute(
-                text(f'GRANT SELECT, INSERT, DELETE ON membership TO "{role_name}"')
-            )
-            conn.execute(text(f'SET LOCAL ROLE "{role_name}"'))
-            conn.execute(
-                text(
-                    "SELECT set_config('app.current_org_id', :org, true), "
-                    "set_config('app.current_workspace_id', '', true), "
-                    "set_config('app.rls_bypass', 'off', true)"
-                ),
-                {"org": str(org_id)},
-            )
-            statement = text("INSERT INTO membership VALUES (:u, :w)")
-            conn.execute(statement, {"u": user_id, "w": workspace_id})
-            assert conn.execute(
-                text("SELECT workspace_id FROM membership")
-            ).scalars().all() == [workspace_id]
-            with conn.begin_nested() as savepoint:
-                with pytest.raises(ProgrammingError):
-                    conn.execute(statement, {"u": user_id, "w": other_workspace})
-                savepoint.rollback()
-            conn.execute(text("DELETE FROM membership"))
-            assert (
-                conn.execute(text("SELECT count(*) FROM membership")).scalar_one() == 0
-            )
-            conn.rollback()
-    finally:
-        engine.dispose()
-
-
-@dataclass(frozen=True, slots=True)
-class AccessCase:
-    name: str
-    workspace_member: bool
-    org_member: bool
-    workspace_role: bool = False
-    org_role: bool = False
-    group_role: bool = False
-    expected_status: int = 200
-    expected_scopes: tuple[str, ...] = ()
-
-
-@pytest.mark.anyio
-async def test_upgrade_preserves_access_without_adding_permissions(
-    previous_db: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Exercise real auth and scope resolution against both legacy and new rows.
-
-    Only login identity and the database connection are substituted. The cases
-    cover the old membership gate independently of direct/group permission paths.
-    """
-    cases = (
-        AccessCase(
-            "direct",
-            True,
-            True,
-            workspace_role=True,
-            expected_scopes=("workspace:read",),
-        ),
-        AccessCase(
-            "group", True, True, group_role=True, expected_scopes=("workspace:read",)
-        ),
-        AccessCase(
-            "inherited", True, True, org_role=True, expected_scopes=("workspace:read",)
-        ),
-        AccessCase("membership_without_permissions", True, True),
-        AccessCase(
-            "blocked_direct", False, True, workspace_role=True, expected_status=403
-        ),
-        AccessCase("blocked_group", False, True, group_role=True, expected_status=403),
-        AccessCase("blocked_org_role", False, True, org_role=True, expected_status=403),
-        AccessCase(
-            "workspace_without_org_membership",
-            True,
-            False,
-            workspace_role=True,
-            expected_scopes=("workspace:read",),
-        ),
-    )
-    engine = _engine(previous_db)
-    accounts: list[tuple[AccessCase, User]] = []
-    try:
-        with engine.begin() as conn:
-            org_id, editor_id = _seed_org(conn)
-            workspace_id = _seed_workspace(conn, org_id)
-        with Session(engine, expire_on_commit=False) as session:
-            read_scope = Scope(
-                name="workspace:read",
-                resource="workspace",
-                action="read",
-                source=ScopeSource.PLATFORM,
-            )
-            update_scope = Scope(
-                name="workspace:update",
-                resource="workspace",
-                action="update",
-                source=ScopeSource.PLATFORM,
-            )
-            reader = Role(name="Reader", organization_id=org_id, scopes=[read_scope])
-            editor = session.get(Role, editor_id)
-            assert editor is not None
-            editor.scopes = [read_scope, update_scope]
-            session.add(reader)
-            session.flush()
-            for case in cases:
-                user = User(
-                    email=f"{case.name}@example.com",
-                    hashed_password="synthetic",
-                    is_active=True,
-                    is_verified=True,
-                    is_superuser=False,
-                )
-                session.add(user)
-                session.flush()
-                accounts.append((case, user))
-                if case.workspace_member:
-                    session.add(
-                        LegacyMembership(user_id=user.id, workspace_id=workspace_id)
-                    )
-                if case.org_member:
-                    session.add(
-                        LegacyOrganizationMembership(
-                            user_id=user.id, organization_id=org_id
-                        )
-                    )
-                if case.workspace_role or case.org_role:
-                    session.add(
-                        UserRoleAssignment(
-                            user_id=user.id,
-                            organization_id=org_id,
-                            workspace_id=None if case.org_role else workspace_id,
-                            role_id=reader.id,
-                        )
-                    )
-                if case.group_role:
-                    group = Group(name=case.name, organization_id=org_id)
-                    session.add(group)
-                    session.flush()
-                    session.add(GroupMember(user_id=user.id, group_id=group.id))
-                    session.add(
-                        GroupRoleAssignment(
-                            group_id=group.id,
-                            organization_id=org_id,
-                            workspace_id=workspace_id,
-                            role_id=reader.id,
-                        )
-                    )
-            session.commit()
-            before_assignments = set(
-                session.execute(
-                    select(UserRoleAssignment.id, UserRoleAssignment.role_id)
-                ).tuples()
-            )
-        _run_alembic(previous_db, "upgrade", MIGRATION_REVISION)
-        with Session(engine) as session:
-            after_assignments = set(
-                session.execute(
-                    select(UserRoleAssignment.id, UserRoleAssignment.role_id)
-                ).tuples()
-            )
-            assert after_assignments == before_assignments, (
-                "An expand migration must not assign default permissions"
-            )
-
-        async_engine = create_async_engine(previous_db.replace("+psycopg", "+asyncpg"))
-        monkeypatch.setattr(db_engine, "_async_engine", async_engine)
-        monkeypatch.setattr(db_engine, "_async_auth_engine", async_engine)
-        monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
-        previous_overrides = app.dependency_overrides.copy()
-        actor = accounts[0][1]
-
-        async def logged_in_user() -> User:
-            return actor
-
-        app.dependency_overrides[current_active_user] = logged_in_user
-        app.dependency_overrides[optional_current_active_user] = logged_in_user
-        try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test.local"
-            ) as client:
-                for case, account in accounts:
-                    actor = account
-                    _compute_effective_scopes_cached.cache_clear()
-                    response = await client.get(
-                        "/users/me/scopes", params={"workspace_id": str(workspace_id)}
-                    )
-                    assert response.status_code == case.expected_status, (
-                        case.name,
-                        response.text,
-                    )
-                    if case.expected_status == 200:
-                        assert response.json()["scopes"] == list(
-                            case.expected_scopes
-                        ), case.name
-
-                    org_response = await client.get("/users/me/scopes")
-                    assert org_response.status_code == (
-                        200 if case.org_member else 400
-                    ), case.name
-                    if case.org_member:
-                        assert org_response.json()["scopes"] == (
-                            ["workspace:read"] if case.org_role else []
-                        ), case.name
-
-                # An old pod can delete only an assignment while leaving membership.
-                inherited = next(
-                    user for case, user in accounts if case.name == "inherited"
-                )
-                with engine.begin() as conn:
-                    _assign(conn, org_id, inherited.id, workspace_id, editor_id)
-                actor = inherited
-                _compute_effective_scopes_cached.cache_clear()
-                response = await client.get(
-                    "/users/me/scopes", params={"workspace_id": str(workspace_id)}
-                )
-                assert response.json()["scopes"] == [
-                    "workspace:read",
-                    "workspace:update",
-                ]
-                with engine.begin() as conn:
-                    conn.execute(
-                        text(
-                            "DELETE FROM user_role_assignment WHERE user_id = :u AND workspace_id = :w"
-                        ),
-                        {"u": actor.id, "w": workspace_id},
-                    )
-                _compute_effective_scopes_cached.cache_clear()
-                response = await client.get(
-                    "/users/me/scopes", params={"workspace_id": str(workspace_id)}
-                )
-                assert response.status_code == 200
-                assert response.json()["scopes"] == ["workspace:read"]
-        finally:
-            app.dependency_overrides.clear()
-            app.dependency_overrides.update(previous_overrides)
-            _compute_effective_scopes_cached.cache_clear()
-            await async_engine.dispose()
+            for name in LEGACY_TABLE_COLUMNS:
+                assert _relkind(conn, name) == "r"
     finally:
         engine.dispose()

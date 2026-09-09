@@ -260,6 +260,8 @@ async def create_workspace_membership(
         # TracecatAuthorizationError intentionally propagates: the API-wide
         # handler maps it to 403, which is correct for a scope-ceiling denial.
         await service.create_membership(workspace_id, params=params)
+    except TracecatConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
     except IntegrityError as e:
         logger.error("INTEGRITY ERROR", error=str(e))
         raise HTTPException(
@@ -309,10 +311,7 @@ async def delete_workspace_membership(
 ) -> None:
     """Delete a workspace membership."""
     service = MembershipService(session, role=role)
-    try:
-        await service.delete_membership(workspace_id, user_id=user_id)
-    except TracecatConflictError as e:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+    await service.delete_membership(workspace_id, user_id=user_id)
 
 
 # === Invitations === #

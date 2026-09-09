@@ -22,7 +22,6 @@ from tracecat.db.models import (
     AccessToken,
     Group,
     GroupMember,
-    LegacyMembership,
     LegacyOrganizationMembership,
     MCPRefreshToken,
     Membership,
@@ -136,7 +135,6 @@ async def admin_in_org1(session: AsyncSession, org1: Organization) -> User:
     )
     session.add(user)
     await session.flush()
-    session.add(LegacyOrganizationMembership(user_id=user.id, organization_id=org1.id))
 
     await seed_system_scopes(session)
     admin_db_role = DBRole(
@@ -457,12 +455,6 @@ class TestOrganizationServiceDeleteMember:
                 token,
                 org1_role_assignment,
                 org2_role_assignment,
-                LegacyMembership(
-                    user_id=user_in_org1.id, workspace_id=workspace_org1.id
-                ),
-                LegacyMembership(
-                    user_id=user_in_org1.id, workspace_id=workspace_org2.id
-                ),
                 org1_group_member,
                 org2_group_member,
             ]
@@ -1458,15 +1450,15 @@ class TestOrganizationServiceInvitations:
         assert membership.user_id == user_in_org2.id
         assert membership.organization_id == org1.id
 
+        # The legacy table is kept in step for older app versions.
         assert (
-            await session.scalar(
-                select(LegacyOrganizationMembership.user_id).where(
+            await session.execute(
+                select(LegacyOrganizationMembership).where(
                     LegacyOrganizationMembership.user_id == user_in_org2.id,
                     LegacyOrganizationMembership.organization_id == org1.id,
                 )
             )
-            == user_in_org2.id
-        )
+        ).scalar_one_or_none() is not None
 
         # Verify invitation is marked as accepted
         await session.refresh(invitation)
