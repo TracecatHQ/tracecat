@@ -256,7 +256,15 @@ async def list_workspace_memberships(
     ]
 
 
-@router.post("/{workspace_id}/memberships", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/{workspace_id}/memberships",
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        status.HTTP_409_CONFLICT: {
+            "description": "User is already a member of the workspace."
+        }
+    },
+)
 @require_scope("workspace:member:invite")
 async def create_workspace_membership(
     *,
@@ -315,6 +323,11 @@ async def get_workspace_membership(
 @router.delete(
     "/{workspace_id}/memberships/{user_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    responses={
+        status.HTTP_409_CONFLICT: {
+            "description": "User remains a member through a group."
+        }
+    },
 )
 @require_scope("workspace:member:remove")
 async def delete_workspace_membership(
@@ -326,7 +339,10 @@ async def delete_workspace_membership(
 ) -> None:
     """Delete a workspace membership."""
     service = MembershipService(session, role=role)
-    await service.delete_membership(workspace_id, user_id=user_id)
+    try:
+        await service.delete_membership(workspace_id, user_id=user_id)
+    except TracecatConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
 
 
 # === Invitations === #

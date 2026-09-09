@@ -12,7 +12,10 @@ from fastapi_users.db import SQLAlchemyUserDatabase
 from fastapi_users.password import PasswordHelper
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tests.support.membership import grant_org_membership
+from tests.support.membership import (
+    grant_org_membership,
+    grant_workspace_membership,
+)
 from tracecat import config
 from tracecat.api.common import bootstrap_role
 from tracecat.auth.enums import AuthType
@@ -22,6 +25,7 @@ from tracecat.db.models import (
     Organization,
     OrganizationDomain,
     User,
+    Workspace,
 )
 from tracecat.organization.domains import normalize_domain
 from tracecat.settings.schemas import SAMLSettingsUpdate
@@ -259,6 +263,84 @@ async def test_authenticate_rejects_password_when_any_membership_enforces_saml(
         domain="secure-acme.com",
         saml_enforced=True,
     )
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__AUTH_TYPES",
+        {AuthType.BASIC, AuthType.SAML},
+    )
+
+    authenticated_user = await user_manager.authenticate(
+        OAuth2PasswordRequestForm(
+            username=user.email,
+            password="password-123456",
+        )
+    )
+
+    assert authenticated_user is None
+
+
+@pytest.mark.anyio
+async def test_authenticate_rejects_password_for_workspace_only_saml_org(
+    session: AsyncSession,
+    user_manager: UserManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A workspace-scoped path alone binds the user to the org's login policy."""
+    organization = Organization(
+        id=uuid.uuid4(),
+        name="Acme",
+        slug=f"acme-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    session.add(organization)
+    await session.flush()
+
+    email = "user@acme-workspace.com"
+    user = User(
+        id=uuid.uuid4(),
+        email=email,
+        hashed_password=PasswordHelper().hash("password-123456"),
+        is_active=True,
+        is_verified=True,
+        is_superuser=False,
+        last_login_at=None,
+    )
+    workspace = Workspace(
+        id=uuid.uuid4(),
+        name="Acme Workspace",
+        organization_id=organization.id,
+    )
+    session.add_all([user, workspace])
+    await session.flush()
+
+    await grant_workspace_membership(
+        session,
+        user_id=user.id,
+        organization_id=organization.id,
+        workspace_id=workspace.id,
+    )
+
+    normalized_domain = normalize_domain(email.rpartition("@")[2])
+    session.add(
+        OrganizationDomain(
+            id=uuid.uuid4(),
+            organization_id=organization.id,
+            domain=normalized_domain.domain,
+            normalized_domain=normalized_domain.normalized_domain,
+            is_primary=True,
+            is_active=True,
+            verification_method="platform_admin",
+        )
+    )
+    await session.commit()
+
+    settings_service = SettingsService(session, role=bootstrap_role(organization.id))
+    await settings_service.init_default_settings()
+    await settings_service.update_saml_settings(
+        SAMLSettingsUpdate(saml_enabled=True, saml_enforced=True)
+    )
+    await session.commit()
+
     monkeypatch.setattr(
         config,
         "TRACECAT__AUTH_TYPES",

@@ -15376,6 +15376,10 @@ export type $OpenApiTs = {
          */
         201: WorkspaceMembershipRead
         /**
+         * User is already a member of the workspace.
+         */
+        409: unknown
+        /**
          * Validation Error
          */
         422: HTTPValidationError
@@ -15403,6 +15407,10 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * User remains a member through a group.
+         */
+        409: unknown
         /**
          * Validation Error
          */
