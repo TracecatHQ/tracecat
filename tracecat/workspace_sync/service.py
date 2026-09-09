@@ -926,6 +926,7 @@ class WorkspaceSyncService(SyncMappingService):
                 self,
                 correlated.presets,
                 correlated.workflows,
+                snapshot.spec.skills,
                 requested_mcp_integration_mappings=requested_mcp_integration_mappings,
             )
         )
@@ -933,6 +934,7 @@ class WorkspaceSyncService(SyncMappingService):
             update={
                 "agent_presets": correlated_mcp.presets,
                 "workflows": correlated_mcp.workflows,
+                "skills": correlated_mcp.skills,
             }
         )
         return PreparedSnapshot(

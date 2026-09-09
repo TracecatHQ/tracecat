@@ -159,6 +159,7 @@ function createMcpMappingRequirement(
     ],
     affected_presets: [],
     affected_workflows: [],
+    affected_skills: [],
   }
 }
 
@@ -1102,6 +1103,14 @@ describe("WorkspaceSyncSettings", () => {
               action_ref: "run_triage_agent",
             },
           ],
+          affected_skills: [
+            {
+              skill_source_id: "incident-triage",
+              skill_name: "Incident triage",
+              path: "skills/incident-triage/skill.yml",
+              tool_ids: ["mcp.shared-mcp.find_issue"],
+            },
+          ],
         },
       ],
     }
@@ -1145,7 +1154,9 @@ describe("WorkspaceSyncSettings", () => {
       screen.getByText("Choose target MCP integrations")
     ).toBeInTheDocument()
     expect(
-      screen.getByText(/Triage version 1, Triage alert action run_triage_agent/)
+      screen.getByText(
+        /Triage version 1, Triage alert action run_triage_agent, Incident triage/
+      )
     ).toBeInTheDocument()
 
     await user.click(

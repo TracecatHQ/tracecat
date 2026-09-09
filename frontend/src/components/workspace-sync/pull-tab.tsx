@@ -656,7 +656,7 @@ function McpIntegrationMappingRequirements({
   return (
     <MappingRequirementsCard
       heading="Choose target MCP integrations"
-      description="These source MCP integrations could not be matched automatically. Your choices apply to every listed preset version and workflow action in this pull."
+      description="These source MCP integrations could not be matched automatically. Your choices apply to every listed preset, workflow, and skill in this pull."
       placeholder="Choose target MCP integration"
       items={items}
       selections={selections}

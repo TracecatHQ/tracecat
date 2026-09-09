@@ -333,6 +333,33 @@ class SkillFileSpec(BaseModel):
     )
 
 
+class SkillMcpIntegrationRef(BaseModel):
+    """Portable source MCP identity for one group of skill tool declarations."""
+
+    model_config = ConfigDict(extra="allow")
+
+    source_mcp_integration_id: uuid.UUID = Field(
+        description="Workspace-local source integration id used for pull correlation."
+    )
+    hint: McpIntegrationHint = Field(
+        description="Portable source integration identity shown by the mapping UI."
+    )
+    tool_ids: list[str] = Field(
+        min_length=1,
+        description="SKILL.md MCP tool declarations backed by this integration.",
+    )
+
+    @field_validator("tool_ids", mode="after")
+    @classmethod
+    def validate_tool_ids(cls, value: list[str]) -> list[str]:
+        """Require unique MCP declarations while preserving file order."""
+        if len(value) != len(set(value)):
+            raise ValueError("tool_ids must not contain duplicates")
+        if any(not tool_id.startswith("mcp.") for tool_id in value):
+            raise ValueError("tool_ids must contain only MCP tool declarations")
+        return value
+
+
 class SkillResourceSpec(BaseModel):
     """Canonical Git-owned desired state for a published skill."""
 
@@ -362,6 +389,34 @@ class SkillResourceSpec(BaseModel):
         exclude=True,
         description="In-memory file contents keyed by path; excluded from serialization.",
     )
+    mcp_integration_refs: list[SkillMcpIntegrationRef] = Field(
+        default_factory=list,
+        exclude_if=lambda value: not value,
+        description=(
+            "Portable source MCP identities used to resolve skill tool declarations "
+            "against destination-local integrations during pull."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def validate_mcp_integration_refs(self) -> SkillResourceSpec:
+        """Reject ambiguous source identities or tool-to-integration mappings."""
+        source_ids = [
+            reference.source_mcp_integration_id
+            for reference in self.mcp_integration_refs
+        ]
+        if len(source_ids) != len(set(source_ids)):
+            raise ValueError("mcp_integration_refs must use unique source ids")
+        tool_ids = [
+            tool_id
+            for reference in self.mcp_integration_refs
+            for tool_id in reference.tool_ids
+        ]
+        if len(tool_ids) != len(set(tool_ids)):
+            raise ValueError(
+                "mcp_integration_refs must map each tool id to one integration"
+            )
+        return self
 
 
 class TableColumnSpec(BaseModel):
