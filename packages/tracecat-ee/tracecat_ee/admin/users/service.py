@@ -11,7 +11,7 @@ from sqlalchemy.orm import Mapped
 from tracecat.audit.logger import audit_log
 from tracecat.auth.schemas import UserCreate, UserRole
 from tracecat.auth.users import get_user_db_context, get_user_manager_context
-from tracecat.db.models import AccessToken, Approval, User, UserRoleAssignment
+from tracecat.db.models import AccessToken, Approval, Membership, User
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.organization.management import (
     ensure_single_tenant_user_defaults_for_session,
@@ -170,9 +170,8 @@ class AdminUserService(BasePlatformService):
                 cast(Mapped[uuid.UUID], AccessToken.user_id) == user_id
             )
         )
-        # Membership is derived, so removing the assignments delists the user.
         await self.session.execute(
-            delete(UserRoleAssignment).where(UserRoleAssignment.user_id == user_id)
+            delete(Membership).where(Membership.user_id == user_id)
         )
         await self.session.execute(
             update(Approval)

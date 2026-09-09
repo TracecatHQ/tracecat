@@ -45,12 +45,11 @@ from tracecat.auth.users import (
 )
 from tracecat.authz.controls import has_scope
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
-from tracecat.authz.service import MembershipService
+from tracecat.authz.service import MembershipService, MembershipWithOrg
 from tracecat.contexts import ctx_agent_session_id, ctx_role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import AuthSession, get_async_session_auth_context_manager
 from tracecat.db.models import (
-    Membership,
     Organization,
     OrganizationMembership,
     ServiceAccount,
@@ -486,7 +485,7 @@ async def _get_membership_with_cache(
     session: AsyncSession,
     workspace_id: uuid.UUID,
     user: User,
-) -> Membership:
+) -> MembershipWithOrg:
     """Resolve workspace membership using cache when available.
 
     Uses request-scoped cache from middleware if present, otherwise falls back
@@ -495,14 +494,14 @@ async def _get_membership_with_cache(
     Raises:
         HTTPException(403): If user is not a member of the workspace.
     """
-    membership_with_org: Membership | None = None
+    membership_with_org: MembershipWithOrg | None = None
     auth_cache = getattr(request.state, "auth_cache", None)
 
     if auth_cache is not None:
         cached_membership = auth_cache["memberships"].get(str(workspace_id))
         # Validate cached membership belongs to requesting user
         if cached_membership is not None and cached_membership.user_id == user.id:
-            # Membership carries organization_id, but the cache collapse is deferred.
+            # Convert cached Membership to MembershipWithOrg by fetching org_id
             svc = MembershipService(session)
             membership_with_org = await svc.get_membership(
                 workspace_id=workspace_id, user_id=user.id

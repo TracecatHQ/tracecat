@@ -13,7 +13,6 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tests.support.membership import grant_org_membership
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.users import UserManager
 from tracecat.authz.seeding import seed_system_roles_for_org
@@ -80,14 +79,10 @@ async def _assert_not_enrolled(
     user_id: uuid.UUID,
     organization_id: uuid.UUID,
 ) -> None:
-    membership = (
-        await session.execute(
-            select(OrganizationMembership).where(
-                OrganizationMembership.user_id == user_id,
-                OrganizationMembership.organization_id == organization_id,
-            )
-        )
-    ).scalar_one_or_none()
+    membership = await session.get(
+        OrganizationMembership,
+        {"user_id": user_id, "organization_id": organization_id},
+    )
     assert membership is None, "account was enrolled into the organization"
     assert (
         await _org_role_assignment_count(
@@ -180,7 +175,8 @@ async def test_existing_member_is_still_repaired(
     org = await _create_org_with_roles(session)
     user = await _create_user(session)
 
-    await grant_org_membership(session, user_id=user.id, organization_id=org.id)
+    session.add(OrganizationMembership(user_id=user.id, organization_id=org.id))
+    await session.flush()
 
     result = await ensure_single_tenant_user_defaults_for_session(
         session=session,
@@ -218,12 +214,8 @@ async def test_superuser_bootstrap_still_enrolls(
     await session.flush()
 
     assert result.organization_id == org.id
-    membership = (
-        await session.execute(
-            select(OrganizationMembership).where(
-                OrganizationMembership.user_id == user.id,
-                OrganizationMembership.organization_id == org.id,
-            )
-        )
-    ).scalar_one_or_none()
+    membership = await session.get(
+        OrganizationMembership,
+        {"user_id": user.id, "organization_id": org.id},
+    )
     assert membership is not None

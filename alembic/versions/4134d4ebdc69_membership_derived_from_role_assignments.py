@@ -1,14 +1,16 @@
-"""membership derived from role assignments
+"""backfill assignments for membership dual writes
 
 Revision ID: 4134d4ebdc69
 Revises: c3a17be4d902
 Create Date: 2026-09-08 17:43:26.780886
 
-Membership becomes a read-only relation the ORM derives from the role-assignment
-tables (see tracecat.db.models), so every existing member must hold an
-assignment first. The `membership` and `organization_membership` tables stay in
-place: the previous app version still writes them during rollout. The stacked
-follow-up revision drops them once nothing references them.
+Phase one retains legacy membership reads and writes while RBAC mutations also
+update membership in the same transaction. Backfill existing memberships before
+enabling those writers. Derived readers and table removal are later releases.
+
+Before cutting over, repeat the backfill after this bridge release is fully
+deployed. Do not drop either table until the deployed app and its supported
+rollback version no longer read or write it.
 """
 
 import logging
@@ -164,12 +166,44 @@ def assert_no_membership_dropped(connection: Connection) -> None:
 def upgrade() -> None:
     connection = op.get_bind()
 
-    # Every member must hold an assignment before readers switch to the
-    # derived relation, or they would silently lose presence.
+    # Serialize the backfill with old membership writers. Ordinary SELECTs
+    # remain available while the migration runs.
+    connection.execute(
+        sa.text(
+            "LOCK TABLE membership, organization_membership IN SHARE ROW EXCLUSIVE MODE"
+        )
+    )
+    # The bridge keeps legacy reads. Cover existing rows before RBAC writers
+    # start maintaining those rows from their surviving assignment paths.
     backfill_assignments(connection)
     assert_no_membership_dropped(connection)
+    # Organization-level RBAC writers must mirror workspace membership without
+    # bypassing RLS. Keep the existing workspace policy and allow the org-only
+    # context to reach workspaces in that same organization.
+    op.execute("""
+        CREATE POLICY rls_policy_membership_org ON membership
+        FOR ALL
+        USING (
+            NULLIF(current_setting('app.current_workspace_id', true), '') IS NULL
+            AND EXISTS (
+                SELECT 1 FROM workspace w
+                WHERE w.id = membership.workspace_id
+                  AND w.organization_id =
+                      NULLIF(current_setting('app.current_org_id', true), '')::uuid
+            )
+        )
+        WITH CHECK (
+            NULLIF(current_setting('app.current_workspace_id', true), '') IS NULL
+            AND EXISTS (
+                SELECT 1 FROM workspace w
+                WHERE w.id = membership.workspace_id
+                  AND w.organization_id =
+                      NULLIF(current_setting('app.current_org_id', true), '')::uuid
+            )
+        )
+    """)
 
 
 def downgrade() -> None:
-    # No schema changed. The backfilled assignments are valid grants and stay.
-    pass
+    # Membership rows remain current for the old app. Backfilled grants stay.
+    op.execute("DROP POLICY rls_policy_membership_org ON membership")
