@@ -102,19 +102,25 @@ async def deliver_next_invitation(
     return True
 
 
-async def run_invitation_email_tick() -> int:
+async def run_invitation_email_tick(
+    stop_event: asyncio.Event | None = None,
+) -> int:
     """Deliver up to one batch. Returns the number of rows sent or given up on.
 
     An unconfigured relay claims nothing, so rows wait until SMTP is set up.
+    A set stop event ends the batch before the next claim, so a drain-deadline
+    cancel cannot strand a row claimed after the stop was signalled.
     """
     transport = SMTPTransport.from_config()
     if transport is None:
         return 0
     delivered = 0
     async with get_async_session_bypass_rls_context_manager() as session:
-        while delivered < CLAIM_BATCH_SIZE and await deliver_next_invitation(
-            session, transport
-        ):
+        while delivered < CLAIM_BATCH_SIZE:
+            if stop_event is not None and stop_event.is_set():
+                break
+            if not await deliver_next_invitation(session, transport):
+                break
             delivered += 1
     return delivered
 
@@ -127,7 +133,7 @@ async def start_invitation_email_consumer(
     logger.info("Starting invitation email consumer")
     while not stop_event.is_set():
         try:
-            await run_invitation_email_tick()
+            await run_invitation_email_tick(stop_event)
         except asyncio.CancelledError:
             raise
         except Exception:
