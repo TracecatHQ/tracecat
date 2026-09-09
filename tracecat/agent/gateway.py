@@ -8,14 +8,21 @@ from typing import Any, TypedDict, cast
 from urllib.parse import parse_qsl, urlencode
 
 import boto3
+import httpx
+import orjson
 from aiocache import Cache
 from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import HTTPException, Request
 from litellm.caching.dual_cache import DualCache
-from litellm.exceptions import AuthenticationError, PermissionDeniedError
+from litellm.exceptions import (
+    AuthenticationError,
+    PermissionDeniedError,
+    RateLimitError,
+)
 from litellm.integrations.custom_logger import CustomLogger
 from litellm.proxy._types import LitellmUserRoles, ProxyException, UserAPIKeyAuth
 from litellm.types.utils import CallTypesLiteral
+from openai import RateLimitError as OpenAIRateLimitError
 
 from tracecat import config as app_config
 from tracecat.agent.litellm_compat import apply_patch
@@ -363,6 +370,53 @@ class _ProviderAuthHTTPException(HTTPException):
     type = "tracecat_llm_provider_auth_failed"
 
 
+class _ProviderQuotaHTTPException(HTTPException):
+    """Retain structured provider quota evidence through gateway serialization."""
+
+    type = "budget_exceeded"
+
+
+def _response_has_provider_quota_code(response: httpx.Response) -> bool:
+    if response.status_code != 429:
+        return False
+    try:
+        body = response.content
+    except httpx.ResponseNotRead:
+        return False
+    # Do not add an unbounded parse of a provider-controlled response.
+    if len(body) > 64 * 1024:
+        return False
+    try:
+        payload = orjson.loads(body)
+    except orjson.JSONDecodeError:
+        return False
+    match payload:
+        case {"error": {"code": "insufficient_quota"}} | {
+            "error": {"type": "insufficient_quota"}
+        }:
+            return True
+    return False
+
+
+def _is_provider_quota_exceeded(error: BaseException) -> bool:
+    # LiteLLM replaces the provider's code and response body, but retains the
+    # original SDK exception in the chain. Inspect only typed codes, never text.
+    current: BaseException | None = error
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, OpenAIRateLimitError) and (
+            current.code == "insufficient_quota" or current.type == "insufficient_quota"
+        ):
+            return True
+        if isinstance(
+            current, httpx.HTTPStatusError
+        ) and _response_has_provider_quota_code(current.response):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
 class TracecatCallbackHandler(CustomLogger):
     """LiteLLM callback handler that injects provider credentials per request."""
 
@@ -373,12 +427,19 @@ class TracecatCallbackHandler(CustomLogger):
         user_api_key_dict: UserAPIKeyAuth,
         traceback_str: str | None = None,
     ) -> HTTPException | None:
-        """Label typed provider auth failures without copying provider details."""
+        """Label typed provider failures without copying provider details."""
         del request_data, user_api_key_dict, traceback_str
         if isinstance(original_exception, AuthenticationError | PermissionDeniedError):
             return _ProviderAuthHTTPException(
                 status_code=original_exception.status_code,
                 detail="The LLM provider rejected authentication or access",
+            )
+        if isinstance(
+            original_exception, RateLimitError
+        ) and _is_provider_quota_exceeded(original_exception):
+            return _ProviderQuotaHTTPException(
+                status_code=429,
+                detail="LLM provider quota exhausted; check billing or usage limits",
             )
         return None
 

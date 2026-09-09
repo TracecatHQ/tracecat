@@ -2,9 +2,10 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import httpx
+import litellm
 import pytest
 import yaml
 from litellm.caching.dual_cache import DualCache
@@ -12,11 +13,14 @@ from litellm.exceptions import (
     AuthenticationError,
     BudgetExceededError,
     PermissionDeniedError,
+    RateLimitError,
 )
+from litellm.llms.custom_httpx.http_handler import AsyncHTTPHandler
 from litellm.proxy._types import ProxyException, UserAPIKeyAuth
 from litellm.proxy.common_request_processing import ProxyBaseLLMRequestProcessing
 from litellm.proxy.utils import ProxyLogging
 from litellm.router import Router
+from openai import AsyncOpenAI
 from starlette.requests import Request
 
 from tracecat.agent.gateway import (
@@ -26,7 +30,13 @@ from tracecat.agent.gateway import (
     _resolve_bedrock_runtime_credentials,
     user_api_key_auth,
 )
+from tracecat.agent.sandbox.llm_proxy import _http_error_classification
 from tracecat.agent.tokens import verify_llm_token
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorKind,
+    RuntimeErrorOwner,
+)
 
 
 def test_gemini_injects_api_key_and_prefixes_model() -> None:
@@ -762,6 +772,117 @@ async def test_failure_hook_preserves_budget_exception_for_litellm_auth_handler(
     result = await TracecatCallbackHandler().async_post_call_failure_hook(
         request_data={},
         original_exception=BudgetExceededError(current_cost=2, max_budget=1),
+        user_api_key_dict=UserAPIKeyAuth(),
+    )
+    assert result is None
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "model", ["openai/synthetic-model", "hosted_vllm/synthetic-model"]
+)
+@pytest.mark.parametrize(
+    ("code", "error_type", "quota_exceeded"),
+    [
+        ("insufficient_quota", "requests", True),
+        (None, "insufficient_quota", True),
+        ("rate_limit_exceeded", "requests", False),
+    ],
+)
+async def test_provider_quota_survives_litellm_request_and_serialization(
+    model: str,
+    code: str | None,
+    error_type: str,
+    quota_exceeded: bool,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def respond(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            429,
+            request=request,
+            json={
+                "error": {
+                    # Text alone must never select quota classification.
+                    "message": "synthetic-sensitive-detail insufficient_quota",
+                    "type": error_type,
+                    "code": code,
+                }
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http_client:
+        monkeypatch.setattr(
+            AsyncHTTPHandler, "create_client", Mock(return_value=http_client)
+        )
+        client = (
+            AsyncOpenAI(api_key="synthetic-key", http_client=http_client, max_retries=0)
+            if model.startswith("openai/")
+            else AsyncHTTPHandler()
+        )
+        with pytest.raises(RateLimitError) as provider_failure:
+            await litellm.acompletion(
+                model=model,
+                messages=[{"role": "user", "content": "synthetic prompt"}],
+                client=client,
+                api_key="synthetic-key",
+                api_base="https://provider.example.invalid/v1",
+                num_retries=0,
+            )
+
+    # The SDK code is gone from the outer error by the time the callback runs.
+    assert provider_failure.value.type == "throttling_error"
+    assert provider_failure.value.code == "429"
+    callback = TracecatCallbackHandler()
+    proxy_logging = AsyncMock(spec=ProxyLogging)
+    proxy_logging.post_call_failure_hook.side_effect = (
+        callback.async_post_call_failure_hook
+    )
+    proxy_logging.post_call_response_headers_hook.return_value = {}
+    processor = ProxyBaseLLMRequestProcessing(data={})
+    with pytest.raises(ProxyException) as wire_failure:
+        await processor._handle_llm_api_exception(
+            provider_failure.value, UserAPIKeyAuth(), proxy_logging
+        )
+
+    wire_body = json.dumps({"error": wire_failure.value.to_dict()}).encode()
+    classification = _http_error_classification(
+        429, route_is_direct=False, body=wire_body
+    )
+    if quota_exceeded:
+        assert classification.kind is RuntimeErrorKind.AGENT_LLM_BUDGET_EXCEEDED
+        assert classification.owner is RuntimeErrorOwner.USER
+        assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+        assert b"synthetic-sensitive-detail" not in wire_body
+    else:
+        assert classification.kind is RuntimeErrorKind.AGENT_LLM_RATE_LIMITED
+        assert classification.owner is RuntimeErrorOwner.PLATFORM
+        assert classification.retry_disposition is RetryDisposition.RETRYABLE
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "body",
+    [
+        b"not-json",
+        b'{"error":{"message":"insufficient_quota"}}',
+        b'{"error":{"code":"insufficient_quota"}}'.ljust(64 * 1024 + 1, b" "),
+    ],
+)
+async def test_quota_callback_ignores_unusable_provider_response(body: bytes) -> None:
+    response = httpx.Response(
+        429,
+        request=httpx.Request("POST", "https://provider.example.invalid/v1/messages"),
+        content=body,
+    )
+    error = RateLimitError(
+        message="synthetic throttling", llm_provider="hosted_vllm", model="synthetic"
+    )
+    error.__cause__ = httpx.HTTPStatusError(
+        "synthetic throttling", request=response.request, response=response
+    )
+    result = await TracecatCallbackHandler().async_post_call_failure_hook(
+        request_data={},
+        original_exception=error,
         user_api_key_dict=UserAPIKeyAuth(),
     )
     assert result is None
