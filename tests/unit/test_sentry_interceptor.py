@@ -84,6 +84,7 @@ from tracecat.temporal.errors import (
     application_error_from_classification,
     build_error_transport_detail,
     extract_error_capture,
+    raise_wrapped_application_error,
 )
 from tracecat.workflow.executions.enums import TriggerType
 
@@ -1386,16 +1387,19 @@ async def test_llm_dimensions_survive_activity_and_workflow_sentry_sanitization(
     diagnostic = LLMErrorDiagnostics(
         route="managed", provider_configuration=provider_configuration
     )
-    receipt = ActivityEnvironment().run(
-        lambda: capture_activity_failure(
-            RuntimeError(_SENSITIVE_VALUE), classification, diagnostics=(diagnostic,)
-        )
-    )
     error = application_error_from_classification(
         classification,
         build_error_transport_detail(classification, diagnostic),
-        capture=receipt,
     )
+    error.__cause__ = RuntimeError(_SENSITIVE_VALUE)
+    with pytest.raises(ApplicationError) as wrapped:
+        ActivityEnvironment().run(
+            lambda: raise_wrapped_application_error(
+                error, fallback_classification=classification
+            )
+        )
+    error = wrapped.value
+    assert extract_error_capture(error, classification) is not None
     attribution = _RuntimeErrorAttributionWorkflowInterceptor(_RaisingInbound(error))
     with pytest.raises(ApplicationError):
         await attribution.execute_workflow(_workflow_input())

@@ -236,7 +236,11 @@ def raise_wrapped_application_error(
         next_retry_delay=next_retry_delay,
         capture=(
             extract_error_capture(error, classification)
-            or capture_activity_failure(error, classification)
+            or capture_activity_failure(
+                error,
+                classification,
+                diagnostics=extract_error_diagnostics(error, classification),
+            )
         ),
     )
 
