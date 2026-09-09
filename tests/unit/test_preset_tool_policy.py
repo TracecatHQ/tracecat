@@ -83,7 +83,7 @@ def test_stdio_requirement_is_independent_of_source(direct: bool) -> None:
     "whole_integration, expected",
     [
         (False, {}),
-        (True, {"mcp.Synthetic.write": True}),
+        (True, {"mcp.synthetic.write": True}),
     ],
 )
 def test_mcp_approvals_apply_only_to_selected_available_tools(
@@ -93,6 +93,7 @@ def test_mcp_approvals_apply_only_to_selected_available_tools(
     integration = MCPIntegration(
         id=integration_id,
         name="Synthetic",
+        slug="synthetic",
         server_type="http",
         tools=[
             {

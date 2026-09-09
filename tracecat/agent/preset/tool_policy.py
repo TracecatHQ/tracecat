@@ -132,7 +132,7 @@ def resolve_tool_policy(
                 and (allowed_names is None or tool.name in allowed_names)
             ):
                 key = normalize_mcp_tool_name(
-                    f"mcp__{REGISTRY_MCP_SERVER_NAME}__mcp__{integration.name}__{tool.name}"
+                    f"mcp__{REGISTRY_MCP_SERVER_NAME}__mcp__{integration.slug}__{tool.name}"
                 )
                 approvals[key] = True
 

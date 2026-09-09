@@ -4444,7 +4444,7 @@ async def test_skill_dependency_policy_is_shared_by_reads_and_runtime(
         assert updated.enable_internet_access
     else:
         assert read.tool_policy.has_approvals
-        assert runtime.tool_approvals == {"mcp.Synthetic.write": True}
+        assert runtime.tool_approvals == {"mcp.synthetic.write": True}
         assert "approvals" in listed.capabilities
         assert not listed.current_version_subagent_eligibility.eligible
         with pytest.raises(TracecatValidationError, match="uses manual approvals"):
