@@ -19,7 +19,9 @@ from tracecat.cases.query import (
     TEXT_OPS,
     UUID_OPS,
     CaseFieldResolver,
+    referenced_dropdown_refs,
 )
+from tracecat.cases.schemas import CaseAggregateRequest
 from tracecat.db.models import Case
 from tracecat.exceptions import TracecatValidationError
 from tracecat.query.compiler import compile_filter
@@ -456,3 +458,66 @@ def test_compiled_filter_is_a_sqlalchemy_boolean_expression() -> None:
     )
 
     assert isinstance(predicate, ColumnElement)
+
+
+@pytest.mark.parametrize(
+    "op", [FilterOp.EQ, FilterOp.NE, FilterOp.NOT_IN, FilterOp.GT, FilterOp.STARTS_WITH]
+)
+def test_tags_reject_non_membership_operations(op: FilterOp) -> None:
+    with pytest.raises(TracecatValidationError, match="not allowed"):
+        _compile(Condition(field="tags", op=op, value="urgent"), _resolver())
+
+
+def test_tag_contains_is_exact_membership() -> None:
+    sql, params = _compile(
+        Condition(field="tags", op=FilterOp.CONTAINS, value="urgent%"), _resolver()
+    )
+    assert "EXISTS" in sql
+    assert "ILIKE" not in sql
+    assert "aggregate_tag.workspace_id =" in sql
+    assert "urgent%" in params.values()
+    assert WORKSPACE_ID in params.values()
+
+
+def test_dropdown_resolution_requires_visible_definition() -> None:
+    resolver = CaseFieldResolver(WORKSPACE_ID, {}, ["verdict"])
+    assert resolver.resolve("dropdowns.verdict") is not None
+    assert resolver.resolve_aggregation("dropdowns.verdict") is not None
+    assert resolver.resolve("dropdowns.absent") is None
+    assert resolver.resolve_aggregation("dropdowns.absent") is None
+    assert _resolver().resolve("dropdowns.verdict") is None
+
+
+def test_dropdown_filters_preserve_nulls_under_negation() -> None:
+    resolver = CaseFieldResolver(WORKSPACE_ID, {}, ["verdict"])
+    sql, params = _compile(
+        NotClause.model_validate(
+            {"not": {"field": "dropdowns.verdict", "op": "eq", "value": "benign"}}
+        ),
+        resolver,
+    )
+    assert "CASE WHEN" in sql
+    assert "dropdown_definition_0.workspace_id =" in sql
+    assert WORKSPACE_ID in params.values()
+
+
+def test_dropdown_metadata_includes_all_request_fields() -> None:
+    request = CaseAggregateRequest.model_validate(
+        {
+            "group_by": ["priority", "dropdowns.verdict"],
+            "aggs": [{"function": "count", "field": "dropdowns.source"}],
+            "filters": {
+                "and": [
+                    {"field": "dropdowns.verdict", "op": "eq", "value": "selected"},
+                    {
+                        "or": [
+                            {"field": "tags", "op": "contains", "value": "urgent"},
+                            {"not": {"field": "dropdowns.team", "op": "is_null"}},
+                        ]
+                    },
+                ]
+            },
+        }
+    )
+    assert referenced_dropdown_refs(request) == {"verdict", "source", "team"}
+    assert referenced_dropdown_refs(CaseAggregateRequest(group_by=[])) == set()
