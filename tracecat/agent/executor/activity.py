@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from time import perf_counter
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
@@ -441,7 +441,39 @@ class SandboxedAgentExecutor:
                 local_provider_cleanup=not self.input.subagents,
             ),
             direct_routes=self._direct_passthrough_routes(),
+            managed_provider_configurations=self._managed_provider_configurations(),
         )
+
+    def _managed_provider_configurations(
+        self,
+    ) -> dict[str, Literal["builtin", "custom"]]:
+        """Index safe provider configuration by the exact runtime model key."""
+        config = self.input.config
+        configurations: dict[str, Literal["builtin", "custom"]] = {}
+        if not config.passthrough:
+            configurations[
+                get_litellm_route_model(
+                    model_provider=config.model_provider, model_name=config.model_name
+                )
+            ] = (
+                "custom"
+                if config.model_provider == "custom-model-provider"
+                else "builtin"
+            )
+        for subagent in self.input.subagents:
+            subagent_config = subagent.config
+            if subagent_config.passthrough:
+                continue
+            request_model = subagent.model_route or get_litellm_route_model(
+                model_provider=subagent_config.model_provider,
+                model_name=subagent_config.model_name,
+            )
+            configurations[request_model] = (
+                "custom"
+                if subagent_config.model_provider == "custom-model-provider"
+                else "builtin"
+            )
+        return configurations
 
     def _direct_passthrough_routes(self) -> dict[str, LLMRoute]:
         """Build direct passthrough routes from each agent's own model config.
@@ -519,6 +551,9 @@ class SandboxedAgentExecutor:
             model_provider=model_provider,
             catalog_id=catalog_id,
             upstream_model_name=upstream_model_name,
+            provider_configuration=(
+                "custom" if model_provider == "custom-model-provider" else "builtin"
+            ),
         )
 
     async def _resolve_agent_otel_config(self) -> ResolvedAgentOtelConfig:

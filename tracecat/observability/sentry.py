@@ -42,6 +42,8 @@ class SentryTag(StrEnum):
     """Stable, privacy-reviewed Sentry tag keys."""
 
     SERVICE_NAME = "tracecat.service.name"
+    LLM_ROUTE = "tracecat.llm.route"
+    LLM_PROVIDER_CONFIGURATION = "tracecat.llm.provider_configuration"
     ERROR_OWNER = "tracecat.error.owner"
     ERROR_KIND = "tracecat.error.kind"
     ERROR_RETRY_DISPOSITION = "tracecat.error.retry_disposition"
@@ -62,6 +64,8 @@ class SentryTag(StrEnum):
 
 _WORKER_ALLOWED_TAGS = frozenset(
     {
+        SentryTag.LLM_ROUTE.value,
+        SentryTag.LLM_PROVIDER_CONFIGURATION.value,
         SentryTag.ACTIVITY_TIMEOUT_TYPE.value,
         SentryTag.CAPTURE_BOUNDARY.value,
         SentryTag.ACTIVITY_TYPE.value,
@@ -184,6 +188,12 @@ def capture_activity_failure(
             scope.set_tag(SentryTag.CAPTURE_BOUNDARY.value, "activity")
             scope.set_tag(SentryTag.ACTIVITY_TYPE.value, info.activity_type)
             scope.set_tag(SentryTag.ACTIVITY_ATTEMPT.value, str(info.attempt))
+            if classification.llm is not None:
+                scope.set_tag(SentryTag.LLM_ROUTE.value, classification.llm.route)
+                scope.set_tag(
+                    SentryTag.LLM_PROVIDER_CONFIGURATION.value,
+                    classification.llm.provider_configuration or "unknown",
+                )
             scope.set_tag(SentryTag.ERROR_OWNER.value, classification.owner.value)
             scope.set_tag(SentryTag.ERROR_KIND.value, classification.kind.value)
             scope.set_tag(
@@ -255,6 +265,12 @@ def capture_platform_failure(
                 SentryTag.SERVICE_NAME.value,
                 config.TRACECAT__SERVICE_NAME,
             )
+            if classification.llm is not None:
+                scope.set_tag(SentryTag.LLM_ROUTE.value, classification.llm.route)
+                scope.set_tag(
+                    SentryTag.LLM_PROVIDER_CONFIGURATION.value,
+                    classification.llm.provider_configuration or "unknown",
+                )
             scope.set_tag(SentryTag.ERROR_OWNER.value, classification.owner.value)
             scope.set_tag(SentryTag.ERROR_KIND.value, classification.kind.value)
             scope.set_tag(

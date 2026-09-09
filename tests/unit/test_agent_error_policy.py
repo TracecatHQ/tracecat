@@ -5,6 +5,7 @@ from collections.abc import Callable
 from typing import cast
 
 import pytest
+from temporalio.converter import DataConverter
 from temporalio.exceptions import (
     ActivityError,
     ApplicationError,
@@ -40,6 +41,7 @@ from tracecat.agent.executor.loopback import (
     LoopbackResult,
 )
 from tracecat.runtime.errors import (
+    LLMErrorMetadata,
     RetryDisposition,
     RuntimeErrorClassification,
     RuntimeErrorKind,
@@ -361,14 +363,22 @@ async def test_loopback_send_error_keeps_trusted_runtime_classification() -> Non
 
 
 def test_llm_read_timeout_survives_executor_activity_boundary() -> None:
-    expected = agent_llm_read_timeout()
+    expected = agent_llm_read_timeout().model_copy(
+        update={
+            "llm": LLMErrorMetadata(route="managed", provider_configuration="custom")
+        }
+    )
     error = _activity_error(application_error_from_classification(expected))
     assert _executor_activity_classification(error) == expected
     assert _agent_activity_classification(error) == expected
 
 
 def test_llm_read_timeout_survives_parent_error_wrapping() -> None:
-    expected = agent_llm_read_timeout()
+    expected = agent_llm_read_timeout().model_copy(
+        update={
+            "llm": LLMErrorMetadata(route="managed", provider_configuration="custom")
+        }
+    )
     error = _activity_error(application_error_from_classification(expected))
     with pytest.raises(ApplicationError) as raised:
         raise_wrapped_application_error(
@@ -376,3 +386,26 @@ def test_llm_read_timeout_survives_parent_error_wrapping() -> None:
             fallback_classification=agent_executor_unavailable(),
         )
     assert extract_error_classification(raised.value) == expected
+
+
+@pytest.mark.anyio
+async def test_llm_metadata_survives_temporal_payload_and_activity_wrapper() -> None:
+    classification = agent_llm_read_timeout().model_copy(
+        update={
+            "llm": LLMErrorMetadata(route="direct", provider_configuration="custom")
+        }
+    )
+    result = AgentExecutorResult(success=False, classification=classification)
+    payloads = await DataConverter.default.encode([result.model_dump(mode="json")])
+    decoded = await DataConverter.default.decode(payloads)
+    restored = AgentExecutorResult.model_validate(decoded[0])
+    assert restored.classification == classification
+    error = application_error_from_classification(classification)
+    payloads = await DataConverter.default.encode(error.details)
+    details = await DataConverter.default.decode(payloads)
+    transported = ApplicationError(
+        error.message, *details, type=error.type, non_retryable=error.non_retryable
+    )
+    assert (
+        _agent_activity_classification(_activity_error(transported)) == classification
+    )

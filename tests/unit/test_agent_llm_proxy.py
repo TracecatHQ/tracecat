@@ -4,7 +4,7 @@ import asyncio
 from collections.abc import AsyncIterator
 from dataclasses import replace
 from pathlib import Path
-from typing import cast
+from typing import Literal, cast
 from unittest.mock import Mock
 
 import httpx
@@ -20,6 +20,7 @@ from tracecat.agent.sandbox.llm_proxy import (
     _http_error_classification,
 )
 from tracecat.runtime.errors import (
+    LLMErrorMetadata,
     RetryDisposition,
     RuntimeErrorKind,
     RuntimeErrorOwner,
@@ -1879,3 +1880,84 @@ def test_budget_classification_requires_structured_evidence(
         _http_error_classification(429, route_is_direct=True, body=body).kind
         is expected_kind
     )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("configuration", ["builtin", "custom", None])
+@pytest.mark.parametrize("direct", [False, True])
+@pytest.mark.parametrize(
+    "failure", ["auth", "budget", "rate", "connect", "headers_timeout", "body_timeout"]
+)
+async def test_llm_metadata_follows_selected_route_on_all_failure_phases(
+    tmp_path: Path,
+    configuration: Literal["builtin", "custom"] | None,
+    direct: bool,
+    failure: str,
+) -> None:
+    errors: list[LLMProxyError] = []
+
+    class StalledBody(httpx.AsyncByteStream):
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            yield b"data: {}\n\n"
+            raise httpx.ReadTimeout("synthetic timeout")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if failure == "connect":
+            raise httpx.ConnectError("synthetic failure")
+        if failure == "headers_timeout":
+            raise httpx.ReadTimeout("synthetic timeout")
+        if failure == "body_timeout":
+            return httpx.Response(
+                200, headers={"Content-Type": "text/event-stream"}, stream=StalledBody()
+            )
+        return httpx.Response(
+            401 if failure == "auth" else 429,
+            json={
+                "error": {
+                    "type": "budget_exceeded"
+                    if failure == "budget"
+                    else "tracecat_llm_token_invalid"
+                    if failure == "auth"
+                    else "rate_limit_error"
+                }
+            },
+        )
+
+    selected_route = LLMRoute(
+        base_url="https://provider.example",
+        model_provider="synthetic-provider",
+        provider_configuration=configuration,
+    )
+    plan = LLMRoutingPlan(
+        managed_route=LLMRoute(
+            base_url="http://gateway", model_provider="root-provider", mode="managed"
+        ),
+        direct_routes={"synthetic-model": selected_route} if direct else {},
+        managed_provider_configurations={"synthetic-model": configuration}
+        if configuration is not None
+        else {},
+    )
+    proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock", routing_plan=plan, on_error=errors.append
+    )
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        proxy._client = client
+        await proxy._forward_request(
+            {
+                "method": "POST",
+                "path": "/v1/messages",
+                "headers": {},
+                "body": b'{"model":"synthetic-model"}',
+            },
+            cast(asyncio.StreamWriter, _FakeWriter()),
+        )
+    assert len(errors) == 1
+    classification = errors[0].classification
+    assert classification.llm == LLMErrorMetadata(
+        route="direct" if direct else "managed", provider_configuration=configuration
+    )
+    assert "provider.example" not in classification.model_dump_json()
+    assert "synthetic-model" not in classification.model_dump_json()
+    if failure in {"headers_timeout", "body_timeout"}:
+        assert classification.owner is RuntimeErrorOwner.PLATFORM
+        assert classification.kind is RuntimeErrorKind.AGENT_LLM_READ_TIMEOUT

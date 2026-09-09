@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from collections.abc import Awaitable, Callable, Iterator, Mapping
 from dataclasses import dataclass, replace
-from typing import Any, cast
+from typing import Any, Literal, cast
 from unittest.mock import Mock
 
 import pytest
@@ -74,6 +74,7 @@ from tracecat.observability.sentry import (
 )
 from tracecat.query.errors import TracecatQueryOverflowError, TracecatQueryTimeoutError
 from tracecat.runtime.errors import (
+    LLMErrorMetadata,
     RetryDisposition,
     RuntimeErrorClassification,
     RuntimeErrorKind,
@@ -723,6 +724,8 @@ async def test_platform_agent_executor_failure_emits_one_sanitized_sentry_event(
         RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE.value
     )
     assert tags[SentryTag.ERROR_OWNER.value] == "platform"
+    assert SentryTag.LLM_ROUTE.value not in tags
+    assert SentryTag.LLM_PROVIDER_CONFIGURATION.value not in tags
     assert _SENSITIVE_VALUE not in json.dumps(event)
 
 
@@ -1315,7 +1318,13 @@ def test_activity_user_failure_is_quiet(sentry_events: list[Event]) -> None:
     capture = ActivityEnvironment().run(
         capture_activity_failure,
         RuntimeError(_SENSITIVE_VALUE),
-        user_agent_execution_failed(),
+        user_agent_execution_failed().model_copy(
+            update={
+                "llm": LLMErrorMetadata(
+                    route="managed", provider_configuration="builtin"
+                )
+            }
+        ),
     )
     assert capture is None
     assert sentry_events == []
@@ -1364,3 +1373,35 @@ def test_activity_receipt_deduplicates_only_matching_source(
         )
         is None
     )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("provider_configuration", ["builtin", "custom", None])
+async def test_llm_dimensions_survive_activity_and_workflow_sentry_sanitization(
+    sentry_events: list[Event],
+    workflow_runtime: _WorkflowInfo,
+    provider_configuration: Literal["builtin", "custom"] | None,
+) -> None:
+    del workflow_runtime
+    classification = agent_executor_unavailable().model_copy(
+        update={
+            "llm": LLMErrorMetadata(
+                route="managed", provider_configuration=provider_configuration
+            )
+        }
+    )
+    receipt = ActivityEnvironment().run(
+        capture_activity_failure, RuntimeError(_SENSITIVE_VALUE), classification
+    )
+    error = application_error_from_classification(classification, capture=receipt)
+    attribution = _RuntimeErrorAttributionWorkflowInterceptor(_RaisingInbound(error))
+    with pytest.raises(ApplicationError):
+        await attribution.execute_workflow(_workflow_input())
+    assert len(sentry_events) == 2
+    for event in sentry_events:
+        assert "tags" in event
+        assert event["tags"][SentryTag.LLM_ROUTE.value] == "managed"
+        assert event["tags"][SentryTag.LLM_PROVIDER_CONFIGURATION.value] == (
+            provider_configuration or "unknown"
+        )
+        assert _SENSITIVE_VALUE not in json.dumps(event)

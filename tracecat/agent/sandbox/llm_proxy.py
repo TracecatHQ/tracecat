@@ -41,7 +41,7 @@ from tracecat.agent.service import AgentManagementService
 from tracecat.auth.types import Role
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.logger import logger
-from tracecat.runtime.errors import RuntimeErrorClassification
+from tracecat.runtime.errors import LLMErrorMetadata, RuntimeErrorClassification
 
 # Strip a trailing "/vN" segment (with optional trailing slash) from a
 # passthrough upstream URL. The contract for stored ``base_url`` is the
@@ -294,6 +294,14 @@ class LLMRoute:
     catalog_id: uuid.UUID | None = None
     authorization: str | None = field(default=None, repr=False)
     local_provider_cleanup: bool = True
+    provider_configuration: Literal["builtin", "custom"] | None = None
+
+    @property
+    def error_metadata(self) -> LLMErrorMetadata:
+        """Return safe configuration context for this selected request route."""
+        return LLMErrorMetadata(
+            route=self.mode, provider_configuration=self.provider_configuration
+        )
 
     @property
     def is_direct(self) -> bool:
@@ -483,6 +491,9 @@ class LLMRoutingPlan:
 
     managed_route: LLMRoute
     direct_routes: dict[str, LLMRoute]
+    managed_provider_configurations: dict[str, Literal["builtin", "custom"]] = field(
+        default_factory=dict
+    )
 
     def __post_init__(self) -> None:
         # Direct routes are stored in catalog-friendly OpenAI-compatible form
@@ -546,6 +557,7 @@ class LLMRoutingPlan:
 
         return LLMRoutingPlan(
             managed_route=replace(self.managed_route, authorization=None),
+            managed_provider_configurations=self.managed_provider_configurations,
             direct_routes={
                 route_key: replace(
                     route, authorization=direct_authorizations.get(route_key)
@@ -567,6 +579,15 @@ class LLMRoutingPlan:
             route := self.direct_routes.get(request_model)
         ):
             return route
+        if isinstance(request_model, str) and (
+            provider_configuration := self.managed_provider_configurations.get(
+                request_model
+            )
+        ):
+            return replace(
+                self.managed_route, provider_configuration=provider_configuration
+            )
+        # An unknown/synthetic model must not inherit the root provider's config.
         return self.managed_route
 
 
@@ -596,6 +617,7 @@ def _normalize_direct_route(route: LLMRoute) -> LLMRoute:
         catalog_id=route.catalog_id,
         authorization=route.authorization,
         local_provider_cleanup=route.local_provider_cleanup,
+        provider_configuration=route.provider_configuration,
     )
 
 
@@ -725,8 +747,12 @@ class LLMSocketProxy:
         self,
         message: str,
         classification: RuntimeErrorClassification,
+        *,
+        llm: LLMErrorMetadata | None = None,
     ) -> None:
         """Emit error via callback (only once)."""
+        if llm is not None:
+            classification = classification.model_copy(update={"llm": llm})
         if not self._error_emitted:
             self._error_emitted = True
             logger.error("LLM proxy error", error=message, **_load_fields())
@@ -1015,7 +1041,9 @@ class LLMSocketProxy:
                     )
                     # Error bodies may echo credentials, budgets or request data.
                     # Keep durable failure text source-owned and privacy-safe.
-                    self._emit_error(classification.message, classification)
+                    self._emit_error(
+                        classification.message, classification, llm=route.error_metadata
+                    )
                     body_chunks = [error_body]
                 else:
                     body_chunks = response.aiter_bytes()
@@ -1032,6 +1060,7 @@ class LLMSocketProxy:
                     method=method,
                     path=path,
                     route_is_direct=route.is_direct,
+                    llm=route.error_metadata,
                 )
         except httpx.TransportError as exc:
             if isinstance(exc, httpx.ReadTimeout):
@@ -1063,6 +1092,7 @@ class LLMSocketProxy:
                         route_is_direct=route.is_direct,
                         timed_out=timed_out,
                     ),
+                    llm=route.error_metadata,
                 )
 
     async def _write_response(
@@ -1079,6 +1109,7 @@ class LLMSocketProxy:
         method: str | None = None,
         path: str | None = None,
         route_is_direct: bool = False,
+        llm: LLMErrorMetadata | None = None,
     ) -> None:
         """Write an HTTP response head and stream the response body."""
         content_type = next(
@@ -1199,6 +1230,7 @@ class LLMSocketProxy:
                     self._emit_error(
                         surfaced_error,
                         classification,
+                        llm=llm,
                     )
                 error_payload = orjson.dumps(
                     {
@@ -1234,6 +1266,7 @@ class LLMSocketProxy:
                             route_is_direct=route_is_direct,
                             timed_out=isinstance(exc, httpx.TimeoutException),
                         ),
+                        llm=llm,
                     )
             else:
                 raise
