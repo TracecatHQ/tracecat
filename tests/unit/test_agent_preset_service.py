@@ -4444,7 +4444,7 @@ async def test_skill_dependency_policy_is_shared_by_reads_and_runtime(
         assert updated.enable_internet_access
     else:
         assert read.tool_policy.has_approvals
-        assert runtime.tool_approvals == {"mcp.Synthetic.write": True}
+        assert runtime.tool_approvals == {"mcp.synthetic.write": True}
         assert "approvals" in listed.capabilities
         assert not listed.current_version_subagent_eligibility.eligible
         with pytest.raises(TracecatValidationError, match="uses manual approvals"):
@@ -4460,3 +4460,60 @@ async def test_skill_dependency_policy_is_shared_by_reads_and_runtime(
                     }
                 )
             )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("operation", ["create", "preview", "runtime", "update"])
+async def test_effective_skill_tool_limit_is_checked_before_execution(
+    operation: str,
+    configure_minio_for_skills: None,
+    session: AsyncSession,
+    svc_role: Role,
+    agent_preset_service: AgentPresetService,
+    agent_preset_create_params: AgentPresetCreate,
+    registry_actions: list[RegistryAction],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    skill_service = SkillService(session=session, role=svc_role)
+    skill = await skill_service.create_skill(SkillCreate(name="extra-tool"))
+    await skill_service.patch_draft(
+        skill_id=skill.id,
+        params=SkillDraftPatch(
+            base_revision=skill.draft_revision,
+            operations=[
+                SkillDraftUpsertTextFileOp(
+                    path="SKILL.md",
+                    content="---\nname: extra-tool\nmetadata: {tools: [tools.test.test_action]}\n---\n",
+                )
+            ],
+        ),
+    )
+    await skill_service.publish_skill(skill.id)
+    agent_preset_create_params.skills = [AgentPresetSkillBindingBase(skill_id=skill.id)]
+    agent_preset_create_params.actions = ["core.http_request"]
+    monkeypatch.setattr(config, "TRACECAT__AGENT_MAX_TOOLS", 2)
+    preset = await agent_preset_service.create_preset(agent_preset_create_params)
+    version = await agent_preset_service.get_current_version_for_preset(preset)
+    monkeypatch.setattr(config, "TRACECAT__AGENT_MAX_TOOLS", 1)
+    with pytest.raises(TracecatValidationError) as exc_info:
+        match operation:
+            case "create":
+                agent_preset_create_params.name = "Over limit"
+                await agent_preset_service.create_preset(agent_preset_create_params)
+            case "preview":
+                await agent_preset_service.preview_tool_policy(
+                    AgentPresetToolPolicyPreview(
+                        actions=["core.http_request"], skill_ids=[skill.id]
+                    )
+                )
+            case "runtime":
+                await agent_preset_service._version_to_agent_config(version)
+            case "update":
+                await agent_preset_service.update_preset(
+                    preset, AgentPresetUpdate(instructions="Updated instructions")
+                )
+    assert exc_info.value.detail == {
+        "code": "agent_tool_limit_exceeded",
+        "tool_count": 2,
+        "max_tools": 1,
+    }

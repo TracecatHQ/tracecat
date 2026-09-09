@@ -36,6 +36,7 @@ from tracecat.agent.mcp.stdio_probe_types import (
     build_stdio_mcp_probe_workflow_id,
     sanitize_stdio_probe_error,
 )
+from tracecat.agent.mcp.utils import is_tracecat_registry_server_name
 from tracecat.agent.workflows.mcp_probe import StdioMCPProbeWorkflow
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.authz.controls import has_scope, require_scope
@@ -2756,6 +2757,9 @@ class IntegrationService(BaseWorkspaceService):
             if slug in catalog_slugs:
                 slug = f"{slug}-custom"
 
+        if is_tracecat_registry_server_name(slug):
+            slug = f"user-{slug}"
+
         # Truncate to max length, leaving room for suffix if needed
         max_base_length = MAX_SERVER_NAME_LENGTH - 4  # Reserve space for "-999"
         if len(slug) > max_base_length:
@@ -4291,6 +4295,11 @@ class IntegrationService(BaseWorkspaceService):
             raise MCPConfigurationError(
                 "Only HTTP MCP servers can be resolved into an HTTP config"
             )
+        if is_tracecat_registry_server_name(mcp_integration.slug):
+            raise MCPConfigurationError(
+                "MCP integration slug conflicts with the built-in registry. "
+                "Recreate the integration to assign a safe slug."
+            )
         if not mcp_integration.server_uri:
             raise MCPConfigurationError("HTTP MCP integration has no server URI")
 
@@ -4350,7 +4359,8 @@ class IntegrationService(BaseWorkspaceService):
 
         server_config: MCPHttpServerConfig = {
             "type": "http",
-            "name": mcp_integration.name,
+            # Display names need not be unique; route by the workspace-unique slug.
+            "name": mcp_integration.slug,
             "url": mcp_integration.server_uri,
             "headers": headers,
             "id": str(mcp_integration.id),
