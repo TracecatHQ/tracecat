@@ -152,13 +152,10 @@ async def accept_invitation_for_user(
             # Shouldn't reach here, but handle gracefully
             raise TracecatAuthorizationError("Invitation is no longer valid")
 
-        # Upsert membership — idempotent if single-tenant defaults already ran.
-        membership_stmt = (
+        # Written for app versions that still read the legacy table.
+        await session.execute(
             pg_insert(LegacyOrganizationMembership)
-            .values(
-                user_id=user_id,
-                organization_id=invitation.organization_id,
-            )
+            .values(user_id=user_id, organization_id=invitation.organization_id)
             .on_conflict_do_nothing(
                 index_elements=[
                     LegacyOrganizationMembership.user_id,
@@ -166,7 +163,6 @@ async def accept_invitation_for_user(
                 ]
             )
         )
-        await session.execute(membership_stmt)
 
         # Upsert the org-wide role assignment to the invitation's role.
         # Uses on_conflict_do_update so a pre-existing organization-member row
@@ -190,8 +186,9 @@ async def accept_invitation_for_user(
             )
         )
         await session.execute(assignment_stmt)
-
         await session.commit()
+
+        # Membership is derived from the assignment just written.
         membership = (
             await session.execute(
                 select(OrganizationMembership).where(
@@ -362,7 +359,6 @@ class OrgService(BaseOrgService):
                 LegacyOrganizationMembership.organization_id == self.organization_id,
             )
         )
-
         await self.session.commit()
 
     @require_scope("org:member:update")
@@ -726,12 +722,20 @@ class OrgService(BaseOrgService):
                 # Shouldn't reach here, but handle gracefully
                 raise TracecatAuthorizationError("Invitation is no longer valid")
 
-            # Preserve membership for old readers and application rollback.
-            legacy_membership = LegacyOrganizationMembership(
-                user_id=self.role.user_id,
-                organization_id=invitation.organization_id,
+            # Written for app versions that still read the legacy table.
+            await self.session.execute(
+                pg_insert(LegacyOrganizationMembership)
+                .values(
+                    user_id=self.role.user_id,
+                    organization_id=invitation.organization_id,
+                )
+                .on_conflict_do_nothing(
+                    index_elements=[
+                        LegacyOrganizationMembership.user_id,
+                        LegacyOrganizationMembership.organization_id,
+                    ]
+                )
             )
-            self.session.add(legacy_membership)
 
             # Create RBAC role assignment from invitation's role_id
             assignment = UserRoleAssignment(
@@ -743,15 +747,6 @@ class OrgService(BaseOrgService):
             self.session.add(assignment)
 
             await self.session.commit()
-            membership = (
-                await self.session.execute(
-                    select(OrganizationMembership).where(
-                        OrganizationMembership.user_id == self.role.user_id,
-                        OrganizationMembership.organization_id
-                        == invitation.organization_id,
-                    )
-                )
-            ).scalar_one()
         except TracecatAuthorizationError:
             # Re-raise auth errors without logging as failure (expected user errors)
             raise
@@ -778,7 +773,16 @@ class OrgService(BaseOrgService):
                 status=AuditEventStatus.SUCCESS,
             )
 
-        return membership
+        # Membership is derived from the assignment just written.
+        return (
+            await self.session.execute(
+                select(OrganizationMembership).where(
+                    OrganizationMembership.user_id == self.role.user_id,
+                    OrganizationMembership.organization_id
+                    == invitation.organization_id,
+                )
+            )
+        ).scalar_one()
 
     @require_scope("org:member:invite")
     @audit_log(
