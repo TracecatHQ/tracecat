@@ -22,6 +22,7 @@ from tracecat.agent.error_policy import (
     agent_executor_protocol_failed,
     agent_executor_timed_out,
     agent_executor_unavailable,
+    agent_llm_read_timeout,
     agent_preparation_failed,
     agent_runtime_failure,
     agent_sandbox_resource_limit_exceeded,
@@ -44,7 +45,11 @@ from tracecat.runtime.errors import (
     RuntimeErrorKind,
     RuntimeErrorOwner,
 )
-from tracecat.temporal.errors import application_error_from_classification
+from tracecat.temporal.errors import (
+    application_error_from_classification,
+    extract_error_classification,
+    raise_wrapped_application_error,
+)
 
 
 def _activity_error(cause: BaseException) -> ActivityError:
@@ -101,6 +106,12 @@ def _activity_error(cause: BaseException) -> ActivityError:
             RetryDisposition.RETRYABLE,
         ),
         (
+            agent_llm_read_timeout,
+            RuntimeErrorOwner.PLATFORM,
+            RuntimeErrorKind.AGENT_LLM_READ_TIMEOUT,
+            RetryDisposition.RETRYABLE,
+        ),
+        (
             agent_executor_timed_out,
             RuntimeErrorOwner.PLATFORM,
             RuntimeErrorKind.AGENT_EXECUTOR_TIMED_OUT,
@@ -142,9 +153,12 @@ def test_agent_classification_factories_are_static_and_sanitized(
     assert secret not in classification.message
 
 
-def test_agent_executor_result_round_trips_typed_classification() -> None:
-    classification = user_agent_execution_failed()
-
+@pytest.mark.parametrize(
+    "classification", [user_agent_execution_failed(), agent_llm_read_timeout()]
+)
+def test_agent_executor_result_round_trips_typed_classification(
+    classification: RuntimeErrorClassification,
+) -> None:
     result = AgentExecutorResult(success=False, classification=classification)
     restored = AgentExecutorResult.model_validate(result.model_dump(mode="json"))
 
@@ -344,3 +358,21 @@ async def test_loopback_send_error_keeps_trusted_runtime_classification() -> Non
 
     assert result.classification == classification
     assert sink.errors == [classification.message]
+
+
+def test_llm_read_timeout_survives_executor_activity_boundary() -> None:
+    expected = agent_llm_read_timeout()
+    error = _activity_error(application_error_from_classification(expected))
+    assert _executor_activity_classification(error) == expected
+    assert _agent_activity_classification(error) == expected
+
+
+def test_llm_read_timeout_survives_parent_error_wrapping() -> None:
+    expected = agent_llm_read_timeout()
+    error = _activity_error(application_error_from_classification(expected))
+    with pytest.raises(ApplicationError) as raised:
+        raise_wrapped_application_error(
+            error,
+            fallback_classification=agent_executor_unavailable(),
+        )
+    assert extract_error_classification(raised.value) == expected

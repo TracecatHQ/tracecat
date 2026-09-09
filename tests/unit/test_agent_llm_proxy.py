@@ -5,6 +5,7 @@ from collections.abc import AsyncIterator
 from dataclasses import replace
 from pathlib import Path
 from typing import cast
+from unittest.mock import Mock
 
 import httpx
 import orjson
@@ -588,7 +589,7 @@ async def test_forward_request_does_not_write_second_response_after_body_failure
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("failure", ["connect", "timeout"])
-async def test_forward_request_classifies_direct_transport_failure_as_user_owned(
+async def test_forward_request_classifies_direct_transport_failure(
     tmp_path: Path,
     failure: str,
 ) -> None:
@@ -630,8 +631,14 @@ async def test_forward_request_classifies_direct_transport_failure_as_user_owned
             await socket_proxy._client.aclose()
 
     assert len(errors) == 1
-    assert errors[0].classification.owner is RuntimeErrorOwner.USER
-    assert errors[0].classification.kind is RuntimeErrorKind.AGENT_EXECUTION_FAILED
+    assert errors[0].classification.owner is (
+        RuntimeErrorOwner.PLATFORM if failure == "timeout" else RuntimeErrorOwner.USER
+    )
+    assert errors[0].classification.kind is (
+        RuntimeErrorKind.AGENT_LLM_READ_TIMEOUT
+        if failure == "timeout"
+        else RuntimeErrorKind.AGENT_EXECUTION_FAILED
+    )
     assert errors[0].classification.retry_disposition is RetryDisposition.RETRYABLE
 
 
@@ -666,7 +673,7 @@ async def test_write_stream_response_emits_error_after_headers_sent(
     assert "event: error" in response_text
     assert "provider stream disconnected" in response_text
     assert [error.message for error in errors] == [
-        "LiteLLM stream failed: provider stream disconnected"
+        "LLM stream failed: provider stream disconnected"
     ]
     assert errors[0].classification.owner is RuntimeErrorOwner.PLATFORM
     assert errors[0].classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
@@ -713,7 +720,7 @@ async def test_write_stream_response_surfaces_friendly_read_timeout(
     assert expected_message in response_text
     assert [error.message for error in errors] == [expected_message]
     assert errors[0].classification.owner is RuntimeErrorOwner.PLATFORM
-    assert errors[0].classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_TIMED_OUT
+    assert errors[0].classification.kind is RuntimeErrorKind.AGENT_LLM_READ_TIMEOUT
 
 
 @pytest.mark.anyio
@@ -749,8 +756,14 @@ async def test_write_stream_response_keeps_direct_transport_failure_retryable(
     )
 
     assert len(errors) == 1
-    assert errors[0].classification.owner is RuntimeErrorOwner.USER
-    assert errors[0].classification.kind is RuntimeErrorKind.AGENT_EXECUTION_FAILED
+    assert errors[0].classification.owner is (
+        RuntimeErrorOwner.PLATFORM if failure == "timeout" else RuntimeErrorOwner.USER
+    )
+    assert errors[0].classification.kind is (
+        RuntimeErrorKind.AGENT_LLM_READ_TIMEOUT
+        if failure == "timeout"
+        else RuntimeErrorKind.AGENT_EXECUTION_FAILED
+    )
     assert errors[0].classification.retry_disposition is RetryDisposition.RETRYABLE
 
 
@@ -1489,3 +1502,141 @@ def test_anthropic_route_preserves_tool_reference_blocks_and_tool_fields() -> No
         data=data,
     )
     assert orjson.loads(request.body) == data
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("direct", [True, False])
+@pytest.mark.parametrize("body_started", [True, False])
+@pytest.mark.parametrize("content_type", ["text/event-stream", "application/json"])
+async def test_read_timeout_records_safe_body_timing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    direct: bool,
+    body_started: bool,
+    content_type: str,
+) -> None:
+    monkeypatch.setattr(
+        "tracecat.agent.sandbox.llm_proxy.app_config.TRACECAT__LLM_PROXY_READ_TIMEOUT",
+        300.0,
+    )
+    errors: list[LLMProxyError] = []
+    proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=_routing_plan(),
+        on_error=errors.append,
+    )
+    log = Mock()
+    monkeypatch.setattr("tracecat.agent.sandbox.llm_proxy.logger", log)
+    now = 12.0
+    monkeypatch.setattr("tracecat.agent.sandbox.llm_proxy.time.monotonic", lambda: now)
+
+    async def stalled_body() -> AsyncIterator[bytes]:
+        nonlocal now
+        yield b""  # Empty chunks must not count as response data.
+        if body_started:
+            yield b"synthetic response content"
+        now = 312.0
+        raise httpx.ReadTimeout("synthetic sensitive diagnostic")
+
+    writer = _FakeWriter()
+    await proxy._write_response(
+        cast(asyncio.StreamWriter, writer),
+        status_code=200,
+        reason_phrase="OK",
+        headers={"Content-Type": content_type},
+        body_chunks=stalled_body(),
+        started_at=10.0,
+        path="/v1/messages",
+        route_is_direct=direct,
+    )
+
+    timeout_log = next(
+        call
+        for call in log.warning.call_args_list
+        if call.args == ("LLM upstream read timed out",)
+    )
+    assert timeout_log.kwargs == {
+        "route": "direct" if direct else "managed",
+        "phase": "response_body",
+        "read_timeout_seconds": 300.0,
+        "response_body_started": body_started,
+        "first_body_chunk_ms": 2000.0 if body_started else None,
+        "time_since_last_chunk_ms": 300000.0 if body_started else None,
+        "elapsed_ms": 302000.0,
+    }
+    assert len(errors) == 1
+    assert errors[0].classification.kind is RuntimeErrorKind.AGENT_LLM_READ_TIMEOUT
+    assert errors[0].classification.owner is RuntimeErrorOwner.PLATFORM
+    assert errors[0].classification.retry_disposition is RetryDisposition.RETRYABLE
+    assert "synthetic sensitive diagnostic" not in str(errors)
+    assert "synthetic sensitive diagnostic" not in str(log.warning.call_args_list)
+    assert writer.buffer.count(b"HTTP/1.1") == 1
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("direct", [True, False])
+@pytest.mark.parametrize("error_response", [True, False])
+async def test_read_timeout_before_headers_records_route(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    direct: bool,
+    error_response: bool,
+) -> None:
+    errors: list[LLMProxyError] = []
+    log = Mock()
+    monkeypatch.setattr("tracecat.agent.sandbox.llm_proxy.logger", log)
+
+    class StalledErrorBody(httpx.AsyncByteStream):
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            yield b"partial error body"
+            raise httpx.ReadTimeout("synthetic sensitive diagnostic")
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if error_response:
+            return httpx.Response(503, stream=StalledErrorBody())
+        raise httpx.ReadTimeout("synthetic sensitive diagnostic", request=request)
+
+    proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=_routing_plan(
+            direct_routes={
+                "synthetic-model": LLMRoute(
+                    base_url="https://provider.example",
+                    model_provider="custom-model-provider",
+                )
+            }
+            if direct
+            else None
+        ),
+        on_error=errors.append,
+    )
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        proxy._client = client
+        writer = _FakeWriter()
+        await proxy._forward_request(
+            {
+                "method": "POST",
+                "path": "/v1/messages",
+                "headers": {},
+                "body": b'{"model":"synthetic-model"}',
+            },
+            cast(asyncio.StreamWriter, writer),
+        )
+    timeout_log = next(
+        call
+        for call in log.warning.call_args_list
+        if call.args == ("LLM upstream read timed out",)
+    )
+    assert timeout_log.kwargs["route"] == ("direct" if direct else "managed")
+    assert timeout_log.kwargs["phase"] == (
+        "error_body" if error_response else "response_headers"
+    )
+    assert timeout_log.kwargs["response_body_started"] is (
+        None if error_response else False
+    )
+    assert timeout_log.kwargs["first_body_chunk_ms"] is None
+    assert len(errors) == 1
+    assert errors[0].classification.kind is RuntimeErrorKind.AGENT_LLM_READ_TIMEOUT
+    assert errors[0].classification.owner is RuntimeErrorOwner.PLATFORM
+    assert "synthetic sensitive diagnostic" not in str(errors)
+    assert writer.buffer.startswith(b"HTTP/1.1 504")

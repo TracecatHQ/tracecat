@@ -29,6 +29,7 @@ from tracecat.agent.error_policy import (
     agent_executor_protocol_failed,
     agent_executor_timed_out,
     agent_executor_unavailable,
+    agent_llm_read_timeout,
     user_agent_execution_failed,
 )
 from tracecat.agent.observability import get_load_tracker
@@ -139,6 +140,37 @@ def _format_timeout_duration(seconds: float) -> str:
     return f"{seconds:g} {unit}"
 
 
+def _log_read_timeout(
+    *,
+    route_is_direct: bool,
+    phase: Literal["response_headers", "response_body", "error_body"],
+    started_at: float | None,
+    first_chunk_at: float | None = None,
+    last_chunk_at: float | None = None,
+) -> None:
+    """Record timing evidence without upstream URLs or request/response content."""
+    now = time.monotonic()
+    logger.warning(
+        "LLM upstream read timed out",
+        route="direct" if route_is_direct else "managed",
+        phase=phase,
+        read_timeout_seconds=app_config.TRACECAT__LLM_PROXY_READ_TIMEOUT,
+        # aread() buffers error bodies internally; partial progress is unknown.
+        response_body_started=(
+            None if phase == "error_body" else first_chunk_at is not None
+        ),
+        first_body_chunk_ms=(
+            (first_chunk_at - started_at) * 1000
+            if first_chunk_at is not None and started_at is not None
+            else None
+        ),
+        time_since_last_chunk_ms=(
+            (now - last_chunk_at) * 1000 if last_chunk_at is not None else None
+        ),
+        elapsed_ms=(now - started_at) * 1000 if started_at is not None else None,
+    )
+
+
 class ParsedRequest(TypedDict):
     method: str
     path: str
@@ -180,6 +212,8 @@ def _transport_error_classification(
     route_is_direct: bool,
     timed_out: bool,
 ) -> RuntimeErrorClassification:
+    if isinstance(error, httpx.ReadTimeout):
+        return agent_llm_read_timeout(error)
     if route_is_direct:
         return user_agent_execution_failed(error, retryable=True)
     if timed_out:
@@ -953,12 +987,12 @@ class LLMSocketProxy:
             await self._write_error_response(
                 writer,
                 status_code=503,
-                detail="LiteLLM proxy not initialized",
+                detail="LLM proxy not initialized",
                 request_counter=request_counter,
                 trace_request_id=trace_request_id,
             )
             self._emit_error(
-                "LiteLLM proxy not initialized",
+                "LLM proxy not initialized",
                 agent_executor_unavailable(),
             )
             return
@@ -987,6 +1021,7 @@ class LLMSocketProxy:
             data=data,
         )
 
+        response_phase: Literal["response_headers", "error_body"] = "response_headers"
         try:
             async with self._client.stream(
                 method=method,
@@ -996,6 +1031,7 @@ class LLMSocketProxy:
             ) as response:
                 body_chunks: AsyncIterable[bytes] | list[bytes]
                 if response.status_code >= 400 and not _is_non_critical_path(path):
+                    response_phase = "error_body"
                     error_body = await response.aread()
                     self._emit_error(
                         _format_litellm_http_error(
@@ -1027,19 +1063,27 @@ class LLMSocketProxy:
                     route_is_direct=route.is_direct,
                 )
         except httpx.TransportError as exc:
+            if isinstance(exc, httpx.ReadTimeout):
+                _log_read_timeout(
+                    route_is_direct=route.is_direct,
+                    phase=response_phase,
+                    started_at=started_at,
+                )
             timed_out = isinstance(exc, httpx.TimeoutException)
             await self._write_error_response(
                 writer,
                 status_code=504 if timed_out else 502,
-                detail="Gateway timeout" if timed_out else "LiteLLM unavailable",
+                detail="Gateway timeout" if timed_out else "LLM upstream unavailable",
                 request_counter=request_counter,
                 trace_request_id=trace_request_id,
             )
             if not _is_non_critical_path(path):
                 message = (
-                    f"Gateway timeout ({type(exc).__name__}): {exc}"
+                    agent_llm_read_timeout(exc).message
+                    if isinstance(exc, httpx.ReadTimeout)
+                    else f"Gateway timeout ({type(exc).__name__}): {exc}"
                     if timed_out
-                    else f"LiteLLM unavailable: {exc}"
+                    else f"LLM upstream unavailable: {exc}"
                 )
                 self._emit_error(
                     message,
@@ -1074,6 +1118,8 @@ class LLMSocketProxy:
             content_type is not None and "text/event-stream" in content_type.lower()
         )
         ttft_logged = False
+        first_chunk_at: float | None = None
+        last_chunk_at: float | None = None
         response_line = f"HTTP/1.1 {status_code} {reason_phrase}\r\n"
         try:
             writer.write(response_line.encode())
@@ -1093,11 +1139,15 @@ class LLMSocketProxy:
 
         try:
             async for chunk in self._iter_body_chunks(body_chunks):
+                if chunk:
+                    last_chunk_at = time.monotonic()
+                    if first_chunk_at is None:
+                        first_chunk_at = last_chunk_at
                 try:
                     if (
                         is_streaming_response
                         and not ttft_logged
-                        and chunk
+                        and first_chunk_at is not None
                         and started_at is not None
                     ):
                         ttft_logged = True
@@ -1107,7 +1157,7 @@ class LLMSocketProxy:
                             method=method,
                             path=path,
                             trace_request_id=trace_request_id,
-                            ttft_ms=(time.monotonic() - started_at) * 1000,
+                            ttft_ms=(first_chunk_at - started_at) * 1000,
                         )
                     writer.write(chunk)
                     await writer.drain()
@@ -1128,6 +1178,14 @@ class LLMSocketProxy:
             if writer.is_closing():
                 logger.debug("Client disconnected while reading response body")
                 return
+            if isinstance(exc, httpx.ReadTimeout):
+                _log_read_timeout(
+                    route_is_direct=route_is_direct,
+                    phase="response_body",
+                    started_at=started_at,
+                    first_chunk_at=first_chunk_at,
+                    last_chunk_at=last_chunk_at,
+                )
             if is_streaming_response:
                 if isinstance(exc, httpx.ReadTimeout):
                     status_code = 504
@@ -1146,7 +1204,7 @@ class LLMSocketProxy:
                         if isinstance(exc, HTTPException)
                         else str(exc)[:512]
                     )
-                    surfaced_error = f"LiteLLM stream failed: {detail}"
+                    surfaced_error = f"LLM stream failed: {detail}"
                 logger.warning(
                     "Stream error after headers sent, emitting SSE error event",
                     status_code=status_code,
@@ -1197,7 +1255,9 @@ class LLMSocketProxy:
                 )
                 if path is not None and not _is_non_critical_path(path):
                     self._emit_error(
-                        f"LiteLLM response failed: {str(exc)[:512]}",
+                        agent_llm_read_timeout(exc).message
+                        if isinstance(exc, httpx.ReadTimeout)
+                        else f"LLM response failed: {str(exc)[:512]}",
                         _transport_error_classification(
                             exc,
                             route_is_direct=route_is_direct,

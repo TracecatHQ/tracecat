@@ -81,6 +81,7 @@ class RuntimeErrorKind(StrEnum):
     AGENT_CONFIGURATION_INVALID = "agent.configuration.invalid"
     AGENT_PREPARATION_FAILED = "agent.preparation.failed"
     AGENT_SESSION_INITIALIZATION_FAILED = "agent.session.initialization_failed"
+    AGENT_LLM_READ_TIMEOUT = "agent.llm.read_timeout"
     AGENT_EXECUTION_FAILED = "agent.execution.failed"
     AGENT_EXECUTOR_UNAVAILABLE = "agent.executor.unavailable"
     AGENT_EXECUTOR_TIMED_OUT = "agent.executor.timed_out"

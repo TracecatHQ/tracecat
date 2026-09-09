@@ -111,6 +111,22 @@ def user_agent_execution_failed(
     )
 
 
+def agent_llm_read_timeout(
+    error: BaseException | None = None,
+) -> RuntimeErrorClassification:
+    """Assign investigation of an ambiguous upstream read stall to Tracecat.
+
+    Operational ownership is not root-cause attribution: a direct route alone
+    cannot distinguish provider, network, or local proxy failures.
+    """
+    return RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.AGENT_LLM_READ_TIMEOUT,
+        message="Timed out waiting for data from the LLM upstream",
+        retry_disposition=RetryDisposition.RETRYABLE,
+        cause=error,
+    )
+
+
 def agent_executor_unavailable(
     error: BaseException | None = None,
 ) -> RuntimeErrorClassification:
