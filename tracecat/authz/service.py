@@ -4,13 +4,13 @@ from collections.abc import Sequence
 from uuid import UUID
 
 from sqlalchemy import delete, literal, or_, select, union_all
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.sql.elements import ColumnElement
 
 from tracecat.auth.types import Role
 from tracecat.authz.controls import ensure_can_grant_scopes, require_scope
-from tracecat.authz.membership import sync_membership
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import SupportsExecute
 from tracecat.db.models import (
@@ -299,6 +299,14 @@ class MembershipService(BaseService):
         ).scalar_one_or_none() is not None:
             raise TracecatConflictError("User is already a member of workspace.")
 
+        # Written for app versions that still read the legacy table.
+        await self.session.execute(
+            pg_insert(LegacyMembership)
+            .values(user_id=params.user_id, workspace_id=workspace_id)
+            .on_conflict_do_nothing(
+                index_elements=[LegacyMembership.user_id, LegacyMembership.workspace_id]
+            )
+        )
         self.session.add(
             UserRoleAssignment(
                 organization_id=organization_id,
@@ -307,17 +315,6 @@ class MembershipService(BaseService):
                 role_id=role_id,
                 assigned_by=self.role.user_id if self.role else None,
             )
-        )
-        await sync_membership(
-            self.session,
-            organization_id=organization_id,
-            user_ids=[params.user_id],
-            workspace_id=workspace_id,
-            granter_scopes=(
-                frozenset({"*"})
-                if self.role.is_platform_superuser
-                else await resolve_granter_scopes(self.session, self.role)
-            ),
         )
         await self.session.commit()
 
@@ -331,39 +328,15 @@ class MembershipService(BaseService):
         reflected in subsequent requests automatically.
         """
         await self.session.execute(
-            select(User.__table__.c.id)
-            .where(User.__table__.c.id == user_id)
-            .with_for_update(key_share=True)
+            delete(LegacyMembership).where(
+                LegacyMembership.workspace_id == workspace_id,
+                LegacyMembership.user_id == user_id,
+            )
         )
-        group_access = (
-            select(GroupMember.user_id)
-            .join(
-                GroupRoleAssignment,
-                GroupRoleAssignment.group_id == GroupMember.group_id,
-            )
-            .where(
-                GroupMember.user_id == user_id,
-                GroupRoleAssignment.workspace_id == workspace_id,
-            )
-            .limit(1)
-        )
-        if (await self.session.execute(group_access)).scalar_one_or_none() is not None:
-            raise TracecatConflictError(
-                "User still has workspace access through a group. "
-                "Remove the group grant first."
-            )
         await self.session.execute(
             delete(UserRoleAssignment).where(
                 UserRoleAssignment.workspace_id == workspace_id,
                 UserRoleAssignment.user_id == user_id,
-            )
-        )
-        # Explicit membership removal revokes admission even if organization
-        # roles still supply workspace permissions.
-        await self.session.execute(
-            delete(LegacyMembership).where(
-                LegacyMembership.workspace_id == workspace_id,
-                LegacyMembership.user_id == user_id,
             )
         )
         await self.session.commit()
