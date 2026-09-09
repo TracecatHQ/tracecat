@@ -15,12 +15,13 @@ from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
 from tracecat.authz.controls import has_scope, require_scope
 from tracecat.authz.enums import OwnerType
-from tracecat.authz.membership import sync_membership
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.authz.service import resolve_grantable_role
 from tracecat.cases.service import CaseFieldsService
 from tracecat.db.models import (
     Invitation,
+    LegacyMembership,
+    LegacyOrganizationMembership,
     Membership,
     OrganizationMembership,
     Ownership,
@@ -476,13 +477,13 @@ class WorkspaceService(BaseOrgService):
         workspace = invitation.workspace
         organization_id = workspace.organization_id
 
-        # Org presence requires an org-wide direct or group assignment; the
-        # workspace assignment created below does not grant it.
+        # A workspace invitation grants organization membership only when the
+        # user is not already an organization member.
         org_assignment_stmt = select(OrganizationMembership.user_id).where(
             OrganizationMembership.user_id == user_id,
             OrganizationMembership.organization_id == organization_id,
         )
-        needs_org_assignment = (
+        needs_org_membership = (
             await self.session.execute(org_assignment_stmt)
         ).scalar_one_or_none() is None
 
@@ -528,7 +529,7 @@ class WorkspaceService(BaseOrgService):
         self.session.add(ws_assignment)
 
         # A user invited straight to a workspace may not be in the org yet.
-        if needs_org_assignment:
+        if needs_org_membership:
             org_member_role_result = await self.session.execute(
                 select(DBRole).where(
                     DBRole.organization_id == organization_id,
@@ -543,24 +544,23 @@ class WorkspaceService(BaseOrgService):
                     workspace_id=None,
                     role_id=org_member_role.id,
                 )
-                self.session.add(org_assignment)
+                self.session.add_all(
+                    [
+                        org_assignment,
+                        LegacyOrganizationMembership(
+                            user_id=user_id, organization_id=organization_id
+                        ),
+                    ]
+                )
 
-        await sync_membership(
-            self.session,
-            organization_id=organization_id,
-            user_ids=[user_id],
-            workspace_id=invitation.workspace_id,
+        # Accepting the durable invitation explicitly grants membership, as it
+        # did before this compatibility release. Keep both records transactional.
+        self.session.add(
+            LegacyMembership(user_id=user_id, workspace_id=invitation.workspace_id)
         )
-        if needs_org_assignment:
-            await sync_membership(
-                self.session,
-                organization_id=organization_id,
-                user_ids=[user_id],
-                workspace_id=None,
-            )
         await self.session.commit()
 
-        # Membership is derived from the assignment just written.
+        # Return the membership through the read-only compatibility mapping.
         return (
             await self.session.execute(
                 select(Membership).where(

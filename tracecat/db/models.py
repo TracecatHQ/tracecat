@@ -36,7 +36,6 @@ from sqlalchemy import (
     func,
     select,
     text,
-    union_all,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.ext.hybrid import hybrid_property
@@ -5636,83 +5635,6 @@ class UserRoleAssignment(Base):
     role: Mapped[Role] = relationship("Role", back_populates="user_assignments")
 
 
-# Membership reads are derived: a user is present at a scope iff they
-# hold a role path there, directly or through a group.
-_role_paths = union_all(
-    select(
-        UserRoleAssignment.user_id,
-        UserRoleAssignment.organization_id,
-        UserRoleAssignment.workspace_id,
-    ),
-    select(
-        GroupMember.user_id,
-        GroupRoleAssignment.organization_id,
-        GroupRoleAssignment.workspace_id,
-    ).join_from(
-        GroupRoleAssignment,
-        GroupMember,
-        GroupMember.group_id == GroupRoleAssignment.group_id,
-    ),
-).subquery("role_paths")
-
-# Workspace rows only, matching the retained `membership` table: org presence is
-# OrganizationMembership below.
-membership_select = (
-    select(
-        _role_paths.c.user_id,
-        _role_paths.c.organization_id,
-        _role_paths.c.workspace_id,
-    )
-    .where(_role_paths.c.workspace_id.is_not(None))
-    .distinct()
-    .subquery("membership_derived")
-)
-
-
-class Membership(Base):
-    """Read-only workspace membership derived from role assignments."""
-
-    __table__ = membership_select
-    __mapper_args__ = {
-        "primary_key": [
-            membership_select.c.user_id,
-            membership_select.c.organization_id,
-            membership_select.c.workspace_id,
-        ]
-    }
-
-    user_id: Mapped[uuid.UUID]
-    organization_id: Mapped[uuid.UUID]
-    workspace_id: Mapped[uuid.UUID]
-
-
-# The NULL-workspace slice reproduces the retained `organization_membership`
-# table exactly: the migration backfills an organization-member assignment for
-# every row that lacked one. Widening this to any role path would grant org
-# access to workspace-only users who never had a row.
-organization_membership_select = (
-    select(_role_paths.c.user_id, _role_paths.c.organization_id)
-    .where(_role_paths.c.workspace_id.is_(None))
-    .distinct()
-    .subquery("organization_membership_derived")
-)
-
-
-class OrganizationMembership(Base):
-    """Read-only organization presence derived from role assignments."""
-
-    __table__ = organization_membership_select
-    __mapper_args__ = {
-        "primary_key": [
-            organization_membership_select.c.user_id,
-            organization_membership_select.c.organization_id,
-        ]
-    }
-
-    user_id: Mapped[uuid.UUID]
-    organization_id: Mapped[uuid.UUID]
-
-
 # Physical tables maintained by compatibility writes for old app readers.
 # Drop only after deployed and supported rollback versions stop using them.
 class LegacyMembership(Base):
@@ -5740,3 +5662,55 @@ class LegacyOrganizationMembership(Base, TimestampMixin):
     organization_id: Mapped[uuid.UUID] = mapped_column(
         UUID, ForeignKey("organization.id", ondelete="CASCADE"), primary_key=True
     )
+
+
+# Keep admission backed by the retained membership tables while old writers can
+# mutate membership and assignments independently. These read-only projections
+# isolate callers from the physical tables for the later assignment cutover.
+membership_select = (
+    select(
+        LegacyMembership.user_id,
+        Workspace.organization_id,
+        LegacyMembership.workspace_id,
+    )
+    .join(Workspace, Workspace.id == LegacyMembership.workspace_id)
+    .subquery("membership_derived")
+)
+
+
+class Membership(Base):
+    """Read-only workspace membership during the compatibility release."""
+
+    __table__ = membership_select
+    __mapper_args__ = {
+        "primary_key": [
+            membership_select.c.user_id,
+            membership_select.c.organization_id,
+            membership_select.c.workspace_id,
+        ]
+    }
+
+    user_id: Mapped[uuid.UUID]
+    organization_id: Mapped[uuid.UUID]
+    workspace_id: Mapped[uuid.UUID]
+
+
+organization_membership_select = select(
+    LegacyOrganizationMembership.user_id,
+    LegacyOrganizationMembership.organization_id,
+).subquery("organization_membership_derived")
+
+
+class OrganizationMembership(Base):
+    """Read-only organization membership during the compatibility release."""
+
+    __table__ = organization_membership_select
+    __mapper_args__ = {
+        "primary_key": [
+            organization_membership_select.c.user_id,
+            organization_membership_select.c.organization_id,
+        ]
+    }
+
+    user_id: Mapped[uuid.UUID]
+    organization_id: Mapped[uuid.UUID]

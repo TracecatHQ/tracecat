@@ -16,6 +16,7 @@ from tracecat.db.engine import SupportsExecute
 from tracecat.db.models import (
     GroupMember,
     GroupRoleAssignment,
+    LegacyMembership,
     Membership,
     RoleScope,
     Scope,
@@ -312,6 +313,11 @@ class MembershipService(BaseService):
             organization_id=organization_id,
             user_ids=[params.user_id],
             workspace_id=workspace_id,
+            granter_scopes=(
+                frozenset({"*"})
+                if self.role.is_platform_superuser
+                else await resolve_granter_scopes(self.session, self.role)
+            ),
         )
         await self.session.commit()
 
@@ -352,14 +358,12 @@ class MembershipService(BaseService):
                 UserRoleAssignment.user_id == user_id,
             )
         )
-        organization_id = await self.session.scalar(
-            select(Workspace.organization_id).where(Workspace.id == workspace_id)
-        )
-        if organization_id is not None:
-            await sync_membership(
-                self.session,
-                organization_id=organization_id,
-                user_ids=[user_id],
-                workspace_id=workspace_id,
+        # Explicit membership removal revokes admission even if organization
+        # roles still supply workspace permissions.
+        await self.session.execute(
+            delete(LegacyMembership).where(
+                LegacyMembership.workspace_id == workspace_id,
+                LegacyMembership.user_id == user_id,
             )
+        )
         await self.session.commit()
