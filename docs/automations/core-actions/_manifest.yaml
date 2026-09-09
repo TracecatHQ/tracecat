@@ -436,6 +436,9 @@ pages:
       - id: core.cases.search_cases
         examples:
           - cases-search
+      - id: core.cases.aggregate_cases
+        examples:
+          - cases-aggregate
       - id: core.cases.list_case_events
         examples:
           - cases-list-events

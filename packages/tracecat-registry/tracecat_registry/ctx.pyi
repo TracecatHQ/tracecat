@@ -206,6 +206,9 @@ class _Agents:
     ) -> None: ...
 
 class _CasesAsync:
+    async def aggregate_cases(
+        self, spec: dict[str, Any]
+    ) -> types.AggregateResponse: ...
     async def create_case(
         self,
         *,
@@ -526,6 +529,7 @@ class _CasesAsync:
 class _Cases:
     @property
     def aio(self) -> _CasesAsync: ...
+    def aggregate_cases(self, spec: dict[str, Any]) -> types.AggregateResponse: ...
     def create_case(
         self,
         *,

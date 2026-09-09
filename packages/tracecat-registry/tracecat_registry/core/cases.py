@@ -50,6 +50,132 @@ def _as_list_filter[T](value: T | list[T]) -> list[T]:
 
 
 @registry.register(
+    default_title="Aggregate cases",
+    display_group="Cases",
+    description=(
+        "Filter, group, and summarize workspace cases. Returns groups and a "
+        "truncated flag indicating whether more groups exist than the requested limit."
+    ),
+    namespace="core.cases",
+)
+async def aggregate_cases(
+    group_by: Annotated[
+        list[str | dict[str, Any]],
+        Doc(
+            "Up to 3 grouping fields, as names or objects with field, bucket, "
+            "timezone, and alias. Example: ['priority', {'field': 'created_at', "
+            "'bucket': 'day'}]. Use [] for a single grand total. Group by status, "
+            "priority, severity, assignee_id (user UUID), or fields.<name> for a "
+            "defined custom field. created_at/updated_at and temporal custom "
+            "fields require an hour/day/week/month bucket; weeks start Monday. "
+            "Timestamp buckets accept an IANA timezone (default UTC) and return "
+            "UTC instants. DATE buckets return YYYY-MM-DD, reject timezone, and "
+            "have only date precision even with hour. URL custom fields group "
+            "and filter on their URL text, not their display label; LONG_TEXT "
+            "fields behave as text. Other JSONB and all MULTI_SELECT custom "
+            "fields are unsupported. Missing values share a null group, "
+            "including cases without a custom-field row. TEXT/SELECT keys use "
+            "the first 256 characters; longer values with the same prefix merge. "
+            "NUMERIC keys are exact decimal strings. Aliases default to field "
+            "names and must be unique across outputs and at most 63 UTF-8 bytes. "
+            "On servers with tag/dropdown aggregation support, dropdowns.<ref> "
+            "groups by option ref (requires case add-ons); missing or deleted "
+            "options share the null group. tags groups by tag ref: a case appears "
+            "once per tag group and untagged cases share the null group. Adding "
+            "tag-group counts can exceed the matched case count."
+        ),
+    ],
+    filters: Annotated[
+        dict[str, Any] | None,
+        Doc(
+            "Filter cases before grouping. Use {field, op, value}, or combine "
+            "conditions with {'and': [...]}, {'or': [...]}, or {'not': {...}}. "
+            "Example: {'field': 'status', 'op': 'in', 'value': ['new', 'in_progress']}. "
+            "Operators: eq, ne, in, not_in, gt, gte, lt, lte, contains, starts_with, "
+            "is_null, subject to field type. in/not_in take lists; is_null takes "
+            "no value. Groupable fields plus summary, description, and case_number "
+            "are filterable; short_id and payload are unsupported. Text contains/"
+            "starts_with are case-insensitive literal matches. Use lowercase "
+            "status values: unknown, new, in_progress, on_hold, resolved, closed, "
+            "other; priority: unknown, low, medium, high, critical, other; "
+            "severity: unknown, informational, low, medium, high, critical, fatal, "
+            "other. Priority range order is low < medium < high < critical; "
+            "severity is informational < low < medium < high < critical < fatal. "
+            "unknown/other never match ranges and cannot be range operands. "
+            "Status has no range comparisons. ne/not_in exclude nulls, except "
+            "empty not_in matches all cases; empty in matches none. is_null on "
+            "custom fields includes cases with no stored field row. Use strings "
+            "for exact decimals and ISO dates/timestamps. Where tag aggregation "
+            "is supported, tags accepts only contains (has a tag ref), in (has "
+            "any listed ref), and is_null (untagged). Maximum depth 4, 50 "
+            "conditions, and 1000 total values. None means no filtering. "
+            "Shapes are validated at runtime."
+        ),
+    ] = None,
+    aggs: Annotated[
+        list[dict[str, Any]] | None,
+        Doc(
+            "Up to 8 calculations: {function, field, alias}. Functions: count, "
+            "count_distinct, sum, mean, median, min, max. Example: "
+            "[{'function': 'sum', 'field': 'fields.amount', 'alias': 'total'}]. "
+            "None defaults to count; [] is invalid. count without field counts "
+            "cases; count with field counts non-null values. Other functions "
+            "require field. Numeric custom fields support every function; text "
+            "and temporal fields support count, count_distinct, min, max; "
+            "BOOLEAN/SELECT fields support count and count_distinct. With tags "
+            "grouped, counts and min_count count distinct cases within each "
+            "group; sum/mean/median are forbidden. Aliases default to count or "
+            "function_field (using the field's final name) and must be unique "
+            "and at most 63 UTF-8 bytes. Counts are integers. INTEGER/NUMERIC "
+            "sums, all means/medians, and NUMERIC min/max are floating-point JSON "
+            "numbers, with possible precision loss; NUMERIC group keys remain "
+            "exact strings."
+        ),
+    ] = None,
+    limit: Annotated[
+        int | None,
+        Doc(
+            "Maximum groups to return, at least 1 and subject to the server's "
+            "configured maximum (normally 1000). Omit to use the server default "
+            "(normally 100). Excess groups set truncated; there is no next-page cursor."
+        ),
+    ] = None,
+    min_count: Annotated[
+        int | None, Doc("Only return groups with at least this many cases (minimum 1).")
+    ] = None,
+    order_by: Annotated[
+        str | None,
+        Doc(
+            "Group or calculation output name to sort by. Defaults to the first "
+            "time bucket if present, otherwise the first calculation."
+        ),
+    ] = None,
+    sort: Annotated[
+        Literal["asc", "desc"] | None,
+        Doc(
+            "Sort direction. Defaults to asc when automatically ordering by a "
+            "time bucket; otherwise desc, including when order_by is explicit. "
+            "Nulls sort last; group keys break ties."
+        ),
+    ] = None,
+) -> types.AggregateResponse:
+    # Recursive query models cannot be mirrored by action schemas. Keep the
+    # specification as plain JSON and let the server validate it. Omitting limit
+    # lets the server apply its configured default and maximum.
+    spec: dict[str, Any] = {
+        "group_by": group_by,
+        "filters": filters,
+        "aggs": aggs,
+        "min_count": min_count,
+        "order_by": order_by,
+        "sort": sort,
+    }
+    if limit is not None:
+        spec["limit"] = limit
+    return await ctx.cases.aio.aggregate_cases(spec=spec)
+
+
+@registry.register(
     default_title="Create case",
     display_group="Cases",
     description="Create a new case.",
