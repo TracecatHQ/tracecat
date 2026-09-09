@@ -180,6 +180,8 @@ class TestMembershipTransactions:
                 await ready.wait()
                 await sync_membership(
                     writer,
+                    granter_scopes=frozenset(),
+                    grant_user_ids=[],
                     organization_id=workspace.organization_id,
                     user_ids=[user.id],
                     workspace_id=workspace.id,
@@ -220,6 +222,7 @@ class TestMembershipTransactions:
         )
         await sync_membership(
             session,
+            granter_scopes=frozenset({"*"}),
             organization_id=workspace.organization_id,
             user_ids=[user_id],
             workspace_id=workspace_id,
@@ -1193,3 +1196,195 @@ class TestRBACServiceScopeComputation:
         # With workspace context, org-wide scopes still apply
         scopes = await service.get_group_scopes(user.id, workspace_id=workspace.id)
         assert admin_assignable_scopes[0].name in scopes
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "operation", ["direct_revoke", "group_revoke", "member_remove", "unrelated_grant"]
+)
+async def test_unrelated_mutation_does_not_admit_dormant_assignments(
+    session: AsyncSession, role: Role, user: User, workspace: Workspace, operation: str
+) -> None:
+    """Only a newly granted user/workspace pair may create membership."""
+    service = RBACService(session, role)
+    empty_role = await service.create_role(name="Dormant role", scope_ids=[])
+    group = await service.create_group(name="Dormant group")
+    await service.add_group_member(group.id, user.id)
+    direct = UserRoleAssignment(
+        organization_id=workspace.organization_id,
+        user_id=user.id,
+        workspace_id=workspace.id,
+        role_id=empty_role.id,
+    )
+    inherited = GroupRoleAssignment(
+        organization_id=workspace.organization_id,
+        group_id=group.id,
+        workspace_id=workspace.id,
+        role_id=empty_role.id,
+    )
+    session.add_all([direct, inherited])
+    await session.commit()
+    statement = select(Membership.user_id).where(
+        Membership.user_id == user.id, Membership.workspace_id == workspace.id
+    )
+    assert await session.scalar(statement) is None
+    match operation:
+        case "direct_revoke":
+            await service.delete_user_assignment(direct.id)
+        case "group_revoke":
+            await service.delete_group_role_assignment(inherited.id)
+        case "member_remove":
+            await service.remove_group_member(group.id, user.id)
+        case "unrelated_grant":
+            other = Workspace(
+                name="Other workspace", organization_id=workspace.organization_id
+            )
+            session.add(other)
+            await session.commit()
+            await service.create_group_role_assignment(
+                group_id=group.id, role_id=empty_role.id, workspace_id=other.id
+            )
+    assert await session.scalar(statement) is None
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("via_group", [False, True])
+async def test_admission_cannot_activate_scopes_above_granter_ceiling(
+    session: AsyncSession,
+    role: Role,
+    user: User,
+    workspace: Workspace,
+    privileged_role: DBRole,
+    via_group: bool,
+) -> None:
+    """A permitted empty grant cannot activate a dormant owner-only scope."""
+    service = RBACService(session, role)
+    empty_role = await service.create_role(name="Allowed role", scope_ids=[])
+    group = await service.create_group(name="Admission group")
+    await service.add_group_member(group.id, user.id)
+    if via_group:
+        session.add(
+            UserRoleAssignment(
+                organization_id=workspace.organization_id,
+                user_id=user.id,
+                workspace_id=workspace.id,
+                role_id=privileged_role.id,
+            )
+        )
+    else:
+        session.add(
+            GroupRoleAssignment(
+                organization_id=workspace.organization_id,
+                group_id=group.id,
+                workspace_id=workspace.id,
+                role_id=privileged_role.id,
+            )
+        )
+    await session.commit()
+    user_id, workspace_id = user.id, workspace.id
+    with pytest.raises(TracecatAuthorizationError):
+        async with session.begin_nested():
+            if via_group:
+                await service.create_group_role_assignment(
+                    group_id=group.id, role_id=empty_role.id, workspace_id=workspace_id
+                )
+            else:
+                await service.create_user_assignment(
+                    user_id=user_id, role_id=empty_role.id, workspace_id=workspace_id
+                )
+    assert (
+        await session.scalar(
+            select(Membership.user_id).where(
+                Membership.user_id == user_id, Membership.workspace_id == workspace_id
+            )
+        )
+        is None
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("via_group", [False, True])
+async def test_workspace_role_revocation_preserves_org_supplied_permissions(
+    session: AsyncSession,
+    role: Role,
+    user: User,
+    workspace: Workspace,
+    seeded_scopes: list[Scope],
+    via_group: bool,
+) -> None:
+    """Removing the workspace role cannot revoke surviving org-level access."""
+    service = RBACService(session, role)
+    read_scope = next(
+        scope for scope in seeded_scopes if scope.name == "workspace:read"
+    )
+    reader = await service.create_role(
+        name="Organization reader", scope_ids=[read_scope.id]
+    )
+    if via_group:
+        group = await service.create_group(name="Organization readers")
+        await service.add_group_member(group.id, user.id)
+        await service.create_group_role_assignment(group_id=group.id, role_id=reader.id)
+    else:
+        await service.create_user_assignment(user_id=user.id, role_id=reader.id)
+    direct = await service.create_user_assignment(
+        user_id=user.id, role_id=reader.id, workspace_id=workspace.id
+    )
+    await service.delete_user_assignment(direct.id)
+    assert (
+        await session.scalar(
+            select(Membership.user_id).where(
+                Membership.user_id == user.id, Membership.workspace_id == workspace.id
+            )
+        )
+        == user.id
+    )
+    assert (
+        await session.scalar(
+            select(UserRoleAssignment.id).where(
+                UserRoleAssignment.user_id == user.id,
+                UserRoleAssignment.workspace_id == workspace.id,
+            )
+        )
+        is None
+    )
+
+
+@pytest.mark.anyio
+async def test_workspace_membership_does_not_regrant_existing_org_admin_access(
+    session: AsyncSession,
+    role: Role,
+    user: User,
+    workspace: Workspace,
+    seeded_scopes: list[Scope],
+) -> None:
+    """An org admin already bypasses membership; adding a row changes no access."""
+    owner = DBRole(name="Existing owner", organization_id=workspace.organization_id)
+    session.add(owner)
+    await session.flush()
+    for scope in seeded_scopes:
+        if scope.name in {"org:owner:assign", "org:member:invite", "workspace:read"}:
+            session.add(RoleScope(role_id=owner.id, scope_id=scope.id))
+    session.add(
+        UserRoleAssignment(
+            organization_id=workspace.organization_id,
+            user_id=user.id,
+            workspace_id=None,
+            role_id=owner.id,
+        )
+    )
+    await session.commit()
+    service = RBACService(session, role)
+    empty_role = await service.create_role(
+        name="No additional permissions", scope_ids=[]
+    )
+    await service.create_user_assignment(
+        user_id=user.id, role_id=empty_role.id, workspace_id=workspace.id
+    )
+    assert (
+        await session.scalar(
+            select(Membership.user_id).where(
+                Membership.user_id == user.id, Membership.workspace_id == workspace.id
+            )
+        )
+        == user.id
+    )
