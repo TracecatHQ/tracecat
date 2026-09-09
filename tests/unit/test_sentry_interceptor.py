@@ -28,7 +28,8 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from temporalio import workflow
 from temporalio.converter import DataConverter
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ActivityError, ApplicationError, TimeoutType
+from temporalio.exceptions import TimeoutError as TemporalTimeoutError
 from temporalio.testing import ActivityEnvironment
 from temporalio.worker import (
     ExecuteWorkflowInput,
@@ -1161,6 +1162,79 @@ def test_disabled_sentry_leaves_trace_context_untouched(
         )
         _sanitize_server_span(span, {"type": "http"})
         set_context.assert_not_called()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("timeout_type", list(TimeoutType))
+@pytest.mark.parametrize("wrapped", [False, True])
+async def test_terminal_activity_timeout_reaches_sentry(
+    sentry_events: list[Event],
+    workflow_runtime: _WorkflowInfo,
+    timeout_type: TimeoutType,
+    wrapped: bool,
+) -> None:
+    del workflow_runtime
+    timeout = TemporalTimeoutError(
+        _SENSITIVE_VALUE,
+        type=timeout_type,
+        last_heartbeat_details=[_SENSITIVE_VALUE],
+    )
+    activity_error = ActivityError(
+        _SENSITIVE_VALUE,
+        scheduled_event_id=1,
+        started_event_id=2,
+        identity=_SENSITIVE_VALUE,
+        activity_type="execute_action_activity",
+        activity_id=_SENSITIVE_VALUE,
+        retry_state=None,
+    )
+    activity_error.__cause__ = timeout
+    error: Exception = activity_error
+    if wrapped:
+        error = ApplicationError("synthetic action failure", non_retryable=True)
+        error.__cause__ = activity_error
+    interceptor = _RuntimeErrorAttributionWorkflowInterceptor(_RaisingInbound(error))
+    with pytest.raises(ApplicationError):
+        await interceptor.execute_workflow(_workflow_input())
+    sentry_sdk.flush()
+    assert len(sentry_events) == 1
+    event = sentry_events[0]
+    assert "tags" in event
+    assert event["tags"][SentryTag.ERROR_OWNER.value] == "platform"
+    assert (
+        event["tags"][SentryTag.ACTIVITY_TIMEOUT_TYPE.value]
+        == timeout_type.name.lower()
+    )
+    assert _SENSITIVE_VALUE not in json.dumps(event)
+
+
+def test_workflow_timeout_is_not_labeled_as_activity_timeout(
+    sentry_events: list[Event],
+) -> None:
+    error = TemporalTimeoutError(
+        "synthetic timeout", type=TimeoutType.START_TO_CLOSE, last_heartbeat_details=[]
+    )
+    classification = RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.RUNTIME_UNCLASSIFIED,
+        message="synthetic failure",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        cause=error,
+    )
+    capture_platform_failure(
+        error,
+        classification,
+        WorkflowFailureEventContext(
+            run_id="00000000-0000-4000-8000-000000000001",
+            workflow_type="DSLWorkflow",
+            attempt=1,
+            trigger_type="manual",
+        ),
+    )
+    sentry_sdk.flush()
+    assert len(sentry_events) == 1
+    event = sentry_events[0]
+    assert "tags" in event
+    assert SentryTag.ACTIVITY_TIMEOUT_TYPE.value not in event["tags"]
 
 
 @pytest.mark.anyio
