@@ -5292,7 +5292,15 @@ class OrganizationInvitation(InvitationMixin, TimestampMixin, Base):
     """Invitation to join an organization."""
 
     __tablename__ = "organization_invitation"
-    __table_args__ = (UniqueConstraint("email", "organization_id"),)
+    __table_args__ = (
+        UniqueConstraint("email", "organization_id"),
+        # Poller scans unclaimed rows oldest-first; must match the migration.
+        Index(
+            "ix_organization_invitation_email_unclaimed",
+            "created_at",
+            postgresql_where=text("email_claimed_at IS NULL"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
     organization_id: Mapped[uuid.UUID] = mapped_column(

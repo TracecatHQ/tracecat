@@ -391,6 +391,38 @@ async def test_cancel_mid_send_strands_only_the_in_flight_row(
     assert len(healthy.sent) == 2
 
 
+@pytest.mark.anyio
+async def test_stop_signal_ends_the_batch_before_the_next_claim(
+    session: AsyncSession,
+    org: Organization,
+    org_role: DBRole,
+    inviter: User,
+    smtp_configured: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    invitations = [
+        await _add_invitation(session, org, org_role, inviter) for _ in range(3)
+    ]
+    invitation_ids = [invitation.id for invitation in invitations]
+    stop_event = asyncio.Event()
+
+    class StoppingTransport(FakeTransport):
+        async def send(self, message: OutboundEmail) -> None:
+            # Drain signals mid-send: finish this one, claim nothing more.
+            stop_event.set()
+            await super().send(message)
+
+    transport = StoppingTransport()
+    _patch_transport(monkeypatch, transport)
+    assert await run_invitation_email_tick(stop_event) == 1
+    assert len(transport.sent) == 1
+
+    rows = [await _reload(session, row_id) for row_id in invitation_ids]
+    assert sum(row.email_claimed_at is not None for row in rows) == 1
+    assert sum(row.email_sent_at is not None for row in rows) == 1
+    assert sum(row.email_attempts for row in rows) == 1
+
+
 @pytest.fixture
 async def committed_org(
     org_factory_session: AsyncSession,
