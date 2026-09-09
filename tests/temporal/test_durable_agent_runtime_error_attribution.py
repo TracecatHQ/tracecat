@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 import pytest
 from temporalio.client import WorkflowExecutionStatus
@@ -264,11 +265,15 @@ class _GatewayExpectation:
     owner: RuntimeErrorOwner
     kind: RuntimeErrorKind
     retry_disposition: RetryDisposition
+    provider_configuration: Literal["builtin", "custom"] | None = None
 
 
 def _gateway_scenario(expectation: _GatewayExpectation) -> _FailureScenario:
+    scenario_id = f"gateway.{expectation.route.value}.{expectation.mode.value}"
+    if expectation.provider_configuration is not None:
+        scenario_id += f".{expectation.provider_configuration}"
     return _FailureScenario(
-        id=f"gateway.{expectation.route.value}.{expectation.mode.value}",
+        id=scenario_id,
         fault=(
             f"{expectation.route.value} produces "
             f"{expectation.mode.value.replace('_', ' ')}"
@@ -278,6 +283,12 @@ def _gateway_scenario(expectation: _GatewayExpectation) -> _FailureScenario:
             gateway_failure=harness.GatewayFailureInjection(
                 route=expectation.route,
                 mode=expectation.mode,
+                provider_configuration=expectation.provider_configuration
+                or (
+                    "custom"
+                    if expectation.route is harness.GatewayRoute.CUSTOM_GATEWAY
+                    else "builtin"
+                ),
             ),
             # Proxy failures are terminal-streamed by AgentExecutor before its
             # typed result crosses the Temporal activity boundary.
@@ -471,6 +482,14 @@ _GATEWAY_EXPECTATIONS: tuple[_GatewayExpectation, ...] = (
     ),
     _GatewayExpectation(
         harness.GatewayRoute.MANAGED_LITELLM,
+        harness.GatewayFailureMode.READ_TIMEOUT,
+        _PLATFORM,
+        _LLM_READ_TIMEOUT,
+        _RETRYABLE,
+        provider_configuration="custom",
+    ),
+    _GatewayExpectation(
+        harness.GatewayRoute.MANAGED_LITELLM,
         harness.GatewayFailureMode.STREAM_DISCONNECT,
         _PLATFORM,
         _UNAVAILABLE,
@@ -525,7 +544,8 @@ async def test_durable_agent_failure_attribution(
             LLMErrorDiagnostics(
                 route="managed"
                 if gateway.route is harness.GatewayRoute.MANAGED_LITELLM
-                else "direct"
+                else "direct",
+                provider_configuration=gateway.provider_configuration,
             ).model_dump(mode="json"),
         )
     assert _DIAGNOSTIC not in classification.message

@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import httpx
 import orjson
@@ -107,6 +107,7 @@ class GatewayFailureInjection:
 
     route: GatewayRoute
     mode: GatewayFailureMode
+    provider_configuration: Literal["builtin", "custom"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -226,14 +227,25 @@ def _gateway_status_code(mode: GatewayFailureMode) -> int | None:
             return None
 
 
-def _gateway_routing_plan(route: GatewayRoute) -> tuple[LLMRoutingPlan, str | None]:
+def _gateway_routing_plan(
+    route: GatewayRoute,
+    provider_configuration: Literal["builtin", "custom"],
+) -> tuple[LLMRoutingPlan, str]:
     managed_route = LLMRoute(
         base_url="http://managed-litellm.invalid",
         model_provider="openai",
         mode="managed",
     )
     if route is GatewayRoute.MANAGED_LITELLM:
-        return LLMRoutingPlan(managed_route=managed_route, direct_routes={}), None
+        model = "synthetic-managed-model"
+        return (
+            LLMRoutingPlan(
+                managed_route=managed_route,
+                direct_routes={},
+                managed_provider_configurations={model: provider_configuration},
+            ),
+            model,
+        )
 
     model = route.value
     base_url = (
@@ -248,6 +260,7 @@ def _gateway_routing_plan(route: GatewayRoute) -> tuple[LLMRoutingPlan, str | No
         ),
         mode="direct",
         authorization="Bearer synthetic-test-key",
+        provider_configuration=provider_configuration,
     )
     return (
         LLMRoutingPlan(
@@ -264,7 +277,9 @@ async def _gateway_failure(
 ) -> LLMProxyError:
     """Exercise the real proxy and return its classification and diagnostics."""
     errors: list[LLMProxyError] = []
-    routing_plan, request_model = _gateway_routing_plan(injection.route)
+    routing_plan, request_model = _gateway_routing_plan(
+        injection.route, injection.provider_configuration
+    )
 
     async def handler(request: httpx.Request) -> httpx.Response:
         status_code = _gateway_status_code(injection.mode)
