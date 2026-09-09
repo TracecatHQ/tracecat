@@ -603,6 +603,8 @@ function ManageUserRolesDialog({
     userAssignments,
     createUserAssignment,
     createUserAssignmentIsPending,
+    updateUserAssignment,
+    updateUserAssignmentIsPending,
     deleteUserAssignment,
     deleteUserAssignmentIsPending,
   } = useRbacUserAssignments({ userId })
@@ -610,15 +612,29 @@ function ManageUserRolesDialog({
   const { workspaces } = useWorkspaceManager()
   const canReadRbac = useScopeCheck("org:rbac:read") === true
   const canCreateAssignment = useScopeCheck("org:rbac:create") === true
+  const canUpdateAssignment = useScopeCheck("org:rbac:update") === true
   const canDeleteAssignment = useScopeCheck("org:rbac:delete") === true
+
+  // A user holds at most one org-wide assignment, so changing that role is an
+  // update: creating a second one would conflict.
+  const existingOrgAssignment = userAssignments.find(
+    (assignment) => assignment.workspace_id == null
+  )
 
   const handleAddRole = async () => {
     if (!roleId || !userId) return
-    await createUserAssignment({
-      user_id: userId,
-      role_id: roleId,
-      workspace_id: workspaceId === "org-wide" ? null : workspaceId,
-    })
+    if (workspaceId === "org-wide" && existingOrgAssignment) {
+      await updateUserAssignment({
+        assignmentId: existingOrgAssignment.id,
+        role_id: roleId,
+      })
+    } else {
+      await createUserAssignment({
+        user_id: userId,
+        role_id: roleId,
+        workspace_id: workspaceId === "org-wide" ? null : workspaceId,
+      })
+    }
     setRoleId("")
     setWorkspaceId("org-wide")
   }
@@ -677,7 +693,14 @@ function ManageUserRolesDialog({
               <Button
                 type="button"
                 onClick={handleAddRole}
-                disabled={!roleId || createUserAssignmentIsPending}
+                disabled={
+                  !roleId ||
+                  createUserAssignmentIsPending ||
+                  updateUserAssignmentIsPending ||
+                  (workspaceId === "org-wide" &&
+                    Boolean(existingOrgAssignment) &&
+                    !canUpdateAssignment)
+                }
               >
                 <PlusIcon className="size-4" />
               </Button>
