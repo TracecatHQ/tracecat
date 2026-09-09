@@ -763,6 +763,17 @@ class OrgService(BaseOrgService):
                 )
             raise
 
+        # Membership is derived from the assignment just written.
+        membership = (
+            await self.session.execute(
+                select(OrganizationMembership).where(
+                    OrganizationMembership.user_id == self.role.user_id,
+                    OrganizationMembership.organization_id
+                    == invitation.organization_id,
+                )
+            )
+        ).scalar_one()
+
         # Log audit success outside the try-except to avoid logging FAILURE
         # if only audit logging fails after a successful commit
         async with AuditService.with_session(audit_role, session=self.session) as svc:
@@ -773,16 +784,7 @@ class OrgService(BaseOrgService):
                 status=AuditEventStatus.SUCCESS,
             )
 
-        # Membership is derived from the assignment just written.
-        return (
-            await self.session.execute(
-                select(OrganizationMembership).where(
-                    OrganizationMembership.user_id == self.role.user_id,
-                    OrganizationMembership.organization_id
-                    == invitation.organization_id,
-                )
-            )
-        ).scalar_one()
+        return membership
 
     @require_scope("org:member:invite")
     @audit_log(
