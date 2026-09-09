@@ -64,6 +64,8 @@ from tracecat.db.models import (
 )
 from tracecat.exceptions import TracecatValidationError
 from tracecat.logger import logger
+from tracecat.observability.sentry import capture_activity_failure
+from tracecat.observability.types import PlatformErrorCapture
 from tracecat.runtime.errors import RuntimeErrorClassification
 
 type JsonScalar = str | int | float | bool | None
@@ -119,6 +121,7 @@ class LoopbackResult:
     success: bool
     error: str | None = None
     classification: RuntimeErrorClassification | None = None
+    sentry_capture: PlatformErrorCapture | None = None
     terminal_stream_error_emitted: bool = False
     approval_requested: bool = False
     approval_items: list[ToolCallContent] = field(default_factory=list)
@@ -566,10 +569,13 @@ class LoopbackHandler:
             if self._result.error is None:
                 self._result.success = True
 
-        except asyncio.IncompleteReadError:
+        except asyncio.IncompleteReadError as error:
             logger.warning("Runtime disconnected unexpectedly during execution")
             self._result.error = "Runtime disconnected unexpectedly"
             self._result.classification = agent_executor_unavailable()
+            self._result.sentry_capture = capture_activity_failure(
+                error, self._result.classification
+            )
             if self._stream_sink:
                 await self._emit_terminal_stream_error(
                     self._stream_sink,
@@ -579,6 +585,9 @@ class LoopbackHandler:
             logger.warning("Runtime sent an invalid event envelope")
             self._result.error = "Runtime sent an invalid event envelope"
             self._result.classification = agent_executor_protocol_failed(e)
+            self._result.sentry_capture = capture_activity_failure(
+                e, self._result.classification
+            )
             if self._stream_sink:
                 await self._emit_terminal_stream_error_best_effort(
                     self._stream_sink,
@@ -588,6 +597,9 @@ class LoopbackHandler:
             logger.exception("Error handling runtime connection", error=str(e))
             self._result.error = f"Connection error: {e}"
             self._result.classification = agent_executor_unavailable(e)
+            self._result.sentry_capture = capture_activity_failure(
+                e, self._result.classification
+            )
             if self._stream_sink:
                 await self._emit_terminal_stream_error_best_effort(
                     self._stream_sink,
@@ -609,12 +621,15 @@ class LoopbackHandler:
                 _msg_type, payload_bytes = await read_message(
                     reader, expected_type=MessageType.EVENT
                 )
-            except asyncio.IncompleteReadError:
+            except asyncio.IncompleteReadError as error:
                 logger.warning(
                     "Runtime connection closed unexpectedly during execution"
                 )
                 self._result.error = "Runtime disconnected during execution"
                 self._result.classification = agent_executor_unavailable()
+                self._result.sentry_capture = capture_activity_failure(
+                    error, self._result.classification
+                )
                 if self._stream_sink is not None:
                     await self._emit_terminal_stream_error(
                         self._stream_sink,
@@ -916,16 +931,23 @@ class LoopbackHandler:
         error: str,
         *,
         classification: RuntimeErrorClassification | None = None,
+        cause: BaseException | None = None,
     ) -> bool:
         """Handle a terminal runtime error."""
         stream_sink = await self.prepare()
         logger.error("Runtime error", error=error)
-        await self._emit_terminal_stream_error(stream_sink, error)
         self._result.error = error
         # A classification is trusted only when the host-side runtime hands it
         # over in-process. Error envelopes arriving over the sandbox socket
         # carry no ownership metadata by design, so those stay platform-owned.
         self._result.classification = classification or agent_executor_unavailable()
+        if cause is not None:
+            self._result.sentry_capture = capture_activity_failure(
+                cause,
+                self._result.classification,
+                existing_capture=self._result.sentry_capture,
+            )
+        await self._emit_terminal_stream_error(stream_sink, error)
         return True
 
     async def send_error(
@@ -933,9 +955,10 @@ class LoopbackHandler:
         error: str,
         *,
         classification: RuntimeErrorClassification | None = None,
+        cause: BaseException | None = None,
     ) -> None:
         """Handle a terminal runtime error."""
-        await self._handle_error(error, classification=classification)
+        await self._handle_error(error, classification=classification, cause=cause)
 
     async def _handle_done(self) -> bool:
         """Handle runtime completion."""
@@ -949,10 +972,16 @@ class LoopbackHandler:
         if self._result.error is not None:
             await self._close_external_stream()
             return True
-        if validation_error := self._validate_runtime_completion():
+        try:
+            self._validate_runtime_completion()
+        except RuntimeEnvelopeProtocolError as error:
+            validation_error = str(error)
+            self._result.classification = agent_executor_protocol_failed(error)
+            self._result.sentry_capture = capture_activity_failure(
+                error, self._result.classification
+            )
             await self._emit_terminal_stream_error(stream_sink, validation_error)
             self._result.error = validation_error
-            self._result.classification = agent_executor_protocol_failed()
             return True
         self._result.success = True
         await self._emit_interrupt_notice_if_cancelled(stream_sink)
@@ -1207,25 +1236,26 @@ class LoopbackHandler:
         if isinstance(line_uuid, str):
             self._persisted_line_uuids.add(line_uuid)
 
-    def _validate_runtime_completion(self) -> str | None:
-        """Return a terminal error when runtime completion is missing a usable result."""
+    def _validate_runtime_completion(self) -> None:
+        """Reject runtime completion without a usable result."""
         if (
             self._result.approval_requested
             or self._result.error is not None
             or self._result.cancelled
         ):
-            return None
+            return
         if not self._received_result:
-            return "Runtime completed without final result"
+            raise RuntimeEnvelopeProtocolError("Runtime completed without final result")
         if (
             self._is_effectively_empty_output(self._result.output)
             and self._is_zero_usage(self._result.result_usage)
             and not self._received_assistant_content
         ):
             if self._received_compaction_event:
-                return None
-            return "Runtime completed without assistant output or model usage"
-        return None
+                return
+            raise RuntimeEnvelopeProtocolError(
+                "Runtime completed without assistant output or model usage"
+            )
 
     @staticmethod
     def _is_effectively_empty_output(value: object | None) -> bool:

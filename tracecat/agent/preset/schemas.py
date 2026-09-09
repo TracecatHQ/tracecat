@@ -264,9 +264,40 @@ def _subagent_eligibility_message(
     )
 
 
+class PresetToolSourceRead(Schema):
+    """The authored or skill origin of a policy-affected tool."""
+
+    tool_id: str
+    skill_id: uuid.UUID | None = None
+    skill_name: str | None = None
+
+
+class AgentPresetToolPolicyRead(Schema):
+    """Non-secret effective policy for rendering preset configuration."""
+
+    actions: list[str] = Field(default_factory=list)
+    requires_internet_access: bool = False
+    has_approvals: bool = False
+    blocked_tools: list[PresetToolSourceRead] = Field(default_factory=list)
+    internet_sources: list[PresetToolSourceRead] = Field(default_factory=list)
+
+
+class AgentPresetToolPolicyPreview(Schema):
+    """Unsaved tool selections to evaluate using the runtime policy pipeline."""
+
+    actions: list[str] = Field(default_factory=list)
+    namespaces: list[str] = Field(default_factory=list)
+    mcp_integrations: list[str] = Field(default_factory=list)
+    skill_ids: list[uuid.UUID] = Field(default_factory=list)
+    tool_approvals: dict[str, bool] = Field(default_factory=dict)
+
+
 class AgentPresetRead(AgentPresetExecutionConfig):
     """API model for reading agent presets."""
 
+    tool_policy: AgentPresetToolPolicyRead = Field(
+        default_factory=AgentPresetToolPolicyRead
+    )
     id: uuid.UUID
     workspace_id: WorkspaceID
     name: str
@@ -330,6 +361,9 @@ class AgentPresetVersionReadMinimal(Schema):
 class AgentPresetVersionRead(AgentPresetExecutionConfig):
     """Full response model for an immutable preset version."""
 
+    tool_policy: AgentPresetToolPolicyRead = Field(
+        default_factory=AgentPresetToolPolicyRead
+    )
     id: uuid.UUID
     preset_id: uuid.UUID
     workspace_id: WorkspaceID

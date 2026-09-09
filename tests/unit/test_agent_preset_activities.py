@@ -194,6 +194,9 @@ async def test_resolve_preset_subagent_allows_no_attached_children() -> None:
         tool_approvals={},
     )
     service.resolve_agent_preset_version = AsyncMock(return_value=version)
+    service.resolve_preset_tool_policy = AsyncMock(
+        return_value=SimpleNamespace(tool_approvals=version.tool_approvals)
+    )
     service._lock_active_subagent_presets = AsyncMock()  # type: ignore[method-assign]
 
     result = await service._resolve_preset_subagent_configs(
@@ -238,6 +241,9 @@ async def test_resolve_agents_config_follows_current_preset_head(
     )
     service = SimpleNamespace(
         resolve_agent_preset_version=AsyncMock(return_value=version),
+        resolve_preset_tool_policy=AsyncMock(
+            return_value=SimpleNamespace(tool_approvals=version.tool_approvals)
+        ),
         get_preset=AsyncMock(return_value=SimpleNamespace(description="Child preset")),
         resolve_agent_preset_config=AsyncMock(
             return_value=AgentConfig(
@@ -306,6 +312,9 @@ async def test_resolve_agents_config_explicitly_disables_latest_resolution(
     )
     service = SimpleNamespace(
         resolve_agent_preset_version=AsyncMock(return_value=version),
+        resolve_preset_tool_policy=AsyncMock(
+            return_value=SimpleNamespace(tool_approvals=version.tool_approvals)
+        ),
         get_preset=AsyncMock(return_value=SimpleNamespace(description="Child preset")),
         resolve_agent_preset_config=AsyncMock(
             return_value=AgentConfig(
@@ -406,6 +415,9 @@ async def test_resolve_agents_config_rejects_subagent_with_tool_approvals(
     )
     service = SimpleNamespace(
         resolve_agent_preset_version=AsyncMock(return_value=version),
+        resolve_preset_tool_policy=AsyncMock(
+            return_value=SimpleNamespace(tool_approvals=version.tool_approvals)
+        ),
         use_latest_resource_versions=AsyncMock(return_value=False),
     )
     role = Role(
@@ -452,6 +464,9 @@ async def test_resolve_agents_config_classifies_malformed_persisted_agents_as_pl
     )
     service = SimpleNamespace(
         resolve_agent_preset_version=AsyncMock(return_value=version),
+        resolve_preset_tool_policy=AsyncMock(
+            return_value=SimpleNamespace(tool_approvals=version.tool_approvals)
+        ),
         use_latest_resource_versions=AsyncMock(return_value=False),
     )
     role = Role(

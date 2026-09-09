@@ -131,6 +131,11 @@ async def test_agent_executor_initializes_tracing_before_runtime_services(
         executor_worker, "initialize_platform_tracing", initialize_tracing
     )
     monkeypatch.setattr(
+        executor_worker,
+        "initialize_worker_sentry_from_environment",
+        lambda: events.append("initialize_sentry"),
+    )
+    monkeypatch.setattr(
         executor_worker, "_start_runtime_services", start_runtime_services
     )
     monkeypatch.setattr(
@@ -146,6 +151,7 @@ async def test_agent_executor_initializes_tracing_before_runtime_services(
 
     assert events == [
         "initialize_tracing",
+        "initialize_sentry",
         "start_runtime_services",
         "close_storage_cache",
         "stop_runtime_services",

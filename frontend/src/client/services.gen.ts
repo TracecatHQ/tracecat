@@ -167,6 +167,8 @@ import type {
   AgentPresetsListPresetTagsResponse,
   AgentPresetsMoveAgentPresetToFolderData,
   AgentPresetsMoveAgentPresetToFolderResponse,
+  AgentPresetsPreviewToolPolicyData,
+  AgentPresetsPreviewToolPolicyResponse,
   AgentPresetsRemovePresetTagData,
   AgentPresetsRemovePresetTagResponse,
   AgentPresetsRestoreAgentPresetVersionData,
@@ -5537,6 +5539,33 @@ export const agentPresetsCreateAgentPreset = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Preview Tool Policy
+ * Evaluate unsaved tool selections without changing a preset.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns AgentPresetToolPolicyRead Successful Response
+ * @throws ApiError
+ */
+export const agentPresetsPreviewToolPolicy = (
+  data: AgentPresetsPreviewToolPolicyData
+): CancelablePromise<AgentPresetsPreviewToolPolicyResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/agent/presets/tool-policy",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      400: "Invalid tool policy selections",
       422: "Validation Error",
     },
   })

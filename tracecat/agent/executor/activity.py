@@ -97,9 +97,9 @@ from tracecat.agent.sandbox.otel_relay import (
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.skill.builtin import (
-    BUILTIN_SKILL_NAME_PREFIX,
-    BUILTIN_WORKSPACE_CHAT_SKILLS,
+    PLATFORM_SKILL_PLUGIN_DIR,
 )
+from tracecat.agent.skill.builtin.staging import stage_platform_skill_plugin
 from tracecat.agent.skill.service import SkillService
 from tracecat.agent.types import AgentConfig, clamp_agent_timeout_seconds
 from tracecat.auth.types import Role
@@ -118,6 +118,8 @@ from tracecat.observability.otel import (
     platform_span,
     set_current_span_attributes,
 )
+from tracecat.observability.sentry import capture_activity_failure
+from tracecat.observability.types import PlatformErrorCapture
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.runtime.errors import RuntimeErrorClassification
 from tracecat.settings.service import SettingsService
@@ -245,6 +247,7 @@ class AgentExecutorResult(BaseModel):
     # Typed terminal attribution produced by the trusted executor boundary.
     # None keeps activity results recorded before this field replayable.
     classification: RuntimeErrorClassification | None = None
+    sentry_capture: PlatformErrorCapture | None = Field(default=None, exclude=True)
     # None means a legacy activity result did not carry this field. The
     # workflow treats unknown failed results as already terminal-emitted so old
     # histories keep their original command shape.
@@ -695,6 +698,9 @@ class SandboxedAgentExecutor:
             failure = agent_runtime_failure(e, fallback_message=str(e))
             result.error = failure.message
             result.classification = failure.classification
+            result.sentry_capture = capture_activity_failure(
+                e, failure.classification, existing_capture=result.sentry_capture
+            )
         except Exception as e:
             logger.exception("Unexpected error in agent executor", error=str(e))
             failure = agent_runtime_failure(
@@ -702,6 +708,9 @@ class SandboxedAgentExecutor:
             )
             result.error = failure.message
             result.classification = failure.classification
+            result.sentry_capture = capture_activity_failure(
+                e, failure.classification, existing_capture=result.sentry_capture
+            )
         finally:
             await self._cleanup()
 
@@ -770,6 +779,7 @@ class SandboxedAgentExecutor:
         result.success = loopback_result.success
         result.error = loopback_result.error
         result.classification = loopback_result.classification
+        result.sentry_capture = loopback_result.sentry_capture
         result.approval_requested = loopback_result.approval_requested
         result.approval_items = loopback_result.approval_items or None
         result.terminal_stream_error_emitted = (
@@ -931,6 +941,13 @@ class SandboxedAgentExecutor:
                         f"Agent execution timed out after {self.timeout_seconds}s"
                     )
                     result.classification = agent_executor_timed_out()
+                    # Raise locally so the deadline event retains this source frame.
+                    try:
+                        raise TimeoutError(result.error)
+                    except TimeoutError as error:
+                        result.sentry_capture = capture_activity_failure(
+                            error, result.classification
+                        )
                     result.terminal_stream_error_emitted = (
                         await handler.emit_terminal_error(result.error)
                     )
@@ -946,6 +963,11 @@ class SandboxedAgentExecutor:
             failure = agent_runtime_failure(e, fallback_message=str(e))
             result.error = failure.message
             result.classification = failure.classification
+            result.sentry_capture = capture_activity_failure(
+                e,
+                failure.classification,
+                existing_capture=handler.build_result().sentry_capture,
+            )
             result.terminal_stream_error_emitted = await handler.emit_terminal_error(
                 result.error
             )
@@ -1078,9 +1100,7 @@ class SandboxedAgentExecutor:
             socket_dir.mkdir(mode=0o700)
             skills_dir = job_dir / "home" / ".claude" / "skills"
             skills_dir.mkdir(parents=True, exist_ok=True)
-            # Built-ins first: they take precedence, and _stage_resolved_skills
-            # skips any user skill whose name collides with a staged built-in.
-            await self._stage_builtin_skills(skills_dir)
+            await self._stage_builtin_skills(job_dir / PLATFORM_SKILL_PLUGIN_DIR)
             await self._stage_resolved_skills(skills_dir)
 
             # Note: The MCP socket directory is mounted directly into NSJail at /mcp-sockets
@@ -1133,14 +1153,7 @@ class SandboxedAgentExecutor:
         return skills_dir
 
     async def _stage_resolved_skills(self, skills_dir: Path) -> None:
-        """Stage resolved published skills into the per-run home directory.
-
-        Runs after ``_stage_builtin_skills``: built-in platform skills take
-        precedence, so a resolved skill whose name collides with an
-        already-staged built-in (possible for legacy skills created before the
-        ``tracecat-`` prefix was reserved) is skipped with a warning instead of
-        overlaying it.
-        """
+        """Stage workspace skills independently of the platform plugin."""
 
         config = cast(Any, self.input.config)
         resolved_skills = config.resolved_skills or []
@@ -1160,13 +1173,6 @@ class SandboxedAgentExecutor:
 
         async with SkillService.with_session(role=self.input.role) as service:
             for resolved_skill in resolved_skills:
-                if (skills_dir / resolved_skill.skill_name).exists():
-                    logger.warning(
-                        "Resolved skill collides with a staged built-in skill; "
-                        "skipping",
-                        skill=resolved_skill.skill_name,
-                    )
-                    continue
                 cached_dir = await self._ensure_cached_skill_dir(
                     service=service,
                     manifest_sha256=resolved_skill.manifest_sha256,
@@ -1179,65 +1185,16 @@ class SandboxedAgentExecutor:
                     dirs_exist_ok=True,
                 )
 
-    async def _stage_builtin_skills(self, skills_dir: Path) -> None:
-        """Stage always-on built-in platform skills into the run home dir.
-
-        Built-in skills are plain on-disk directories vendored from the public
-        ``tracecat-plugins`` repository into ``TRACECAT__COPILOT_SKILLS_DIR`` at
-        image build time. They are identified by name only (resolved from the
-        config, which set them when the org is workspace-chat entitled), so this
-        method maps each reserved-prefix name to its directory and copies it
-        into the staged skills directory. Built-in skills own the
-        ``tracecat-`` namespace and are staged BEFORE preset
-        ``resolved_skills``, which skip any name already staged here — so a
-        legacy user skill with a reserved-prefix name can never overlay or be
-        overlaid by a built-in.
-        """
-        config = cast(Any, self.input.config)
-        names = config.builtin_skills or []
-        if not names:
+    async def _stage_builtin_skills(self, plugin_dir: Path) -> None:
+        """Stage platform guidance outside the workspace skill directory."""
+        if not self.input.config.builtin_skills:
             return
-
-        requested_names: list[str] = []
-        for name in dict.fromkeys(names):
-            if (
-                not name.startswith(BUILTIN_SKILL_NAME_PREFIX)
-                or "/" in name
-                or name in {".", ".."}
-                or name not in BUILTIN_WORKSPACE_CHAT_SKILLS
-            ):
-                logger.warning("Skipping invalid built-in skill name", skill=name)
-                continue
-            requested_names.append(name)
-        if not requested_names:
-            return
-
-        # The vendored directory lives outside the package tree so that
-        # neither the wheel build nor a development bind mount over `packages/`
-        # can serve a stale copy. Built-ins are part of the Workspace Chat
-        # runtime contract, so fail explicitly if an image omits them instead
-        # of silently starting an entitled session without its guidance.
-        vendored_root = Path(app_config.TRACECAT__COPILOT_SKILLS_DIR)
-        if not vendored_root.is_dir():
-            raise FileNotFoundError(
-                "Vendored copilot skills directory is required when built-in "
-                f"skills are requested: {vendored_root}"
-            )
-        for name in requested_names:
-            source = vendored_root / name
-            if not (source / "SKILL.md").is_file():
-                logger.warning(
-                    "Built-in skill missing SKILL.md; skipping",
-                    skill=name,
-                    skills_root=str(vendored_root),
-                )
-                continue
-            await asyncio.to_thread(
-                shutil.copytree,
-                source,
-                skills_dir / name,
-                dirs_exist_ok=True,
-            )
+        await asyncio.to_thread(
+            stage_platform_skill_plugin,
+            asset_names=self.input.config.builtin_skills,
+            vendored_root=Path(app_config.TRACECAT__COPILOT_SKILLS_DIR),
+            plugin_root=plugin_dir,
+        )
 
     async def _ensure_cached_skill_dir(
         self,

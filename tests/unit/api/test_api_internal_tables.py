@@ -11,6 +11,7 @@ from fastapi import status
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import ProgrammingError
 
+from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.db.models import Table, TableColumn, Workspace
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
@@ -454,7 +455,7 @@ async def test_internal_aggregate_rows_rejects_limit_above_maximum(
         response = action_gateway_client.post(
             f"/internal/tables/{mock_table.name}/aggregate",
             params={"workspace_id": str(test_admin_role.workspace_id)},
-            json={"group_by": [], "limit": 1001},
+            json={"group_by": [], "limit": config.TRACECAT__LIMIT_AGG_GROUPS_MAX + 1},
         )
 
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT

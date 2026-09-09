@@ -302,6 +302,11 @@ class AgentActivities:
             if not http_servers:
                 logger.info("No HTTP MCP servers configured for discovery")
                 http_servers = []
+            explicit_tools_by_server = {
+                cfg["name"]: {tool["name"] for tool in tools}
+                for cfg in http_servers
+                if (tools := cfg.get("tools")) is not None
+            }
 
             # Hydrate headers from the DB for the duration of this activity.
             # Configs that arrive here carry ``id`` but no ``headers`` (the
@@ -362,7 +367,18 @@ class AgentActivities:
                 # are recorded in the effective approval map.
                 for tool_name, tool_def in user_mcp_tools.items():
                     parsed = UserMCPClient.parse_user_mcp_tool_name(tool_name)
-                    has_dotted_remote_name = parsed is not None and "." in parsed[1]
+                    server_name, remote_tool_name = parsed or (None, None)
+                    if (
+                        server_name is not None
+                        and remote_tool_name is not None
+                        and (allowed_names := explicit_tools_by_server.get(server_name))
+                        is not None
+                        and remote_tool_name not in allowed_names
+                    ):
+                        continue
+                    has_dotted_remote_name = (
+                        remote_tool_name is not None and "." in remote_tool_name
+                    )
                     # Unlike registry/internal tools, user MCP tool names are
                     # registered with the trusted MCP server verbatim (see
                     # ``build_token_scoped_tools``), so a dotted remote name
@@ -377,7 +393,7 @@ class AgentActivities:
                         logger.warning(
                             "Skipping user MCP tool with unsupported dotted name",
                             tool_name=tool_name,
-                            remote_tool_name=parsed[1] if parsed else None,
+                            remote_tool_name=remote_tool_name,
                         )
                         continue
                     policy = _stored_user_mcp_tool_policy(

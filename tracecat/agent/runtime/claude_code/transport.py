@@ -29,6 +29,7 @@ from tracecat.agent.common.config import (
     build_agent_runtime_uv_env,
 )
 from tracecat.agent.runtime.session_paths import (
+    JAILED_AGENT_JOB_DIR,
     JAILED_AGENT_UV_STATE_DIR,
     AgentSandboxPathMapping,
     job_uv_state_dir,
@@ -38,6 +39,7 @@ from tracecat.agent.sandbox.nsjail import (
     cleanup_spawned_runtime,
     spawn_jailed_runtime,
 )
+from tracecat.agent.skill.builtin import PLATFORM_SKILL_PLUGIN_DIR
 from tracecat.logger import logger
 
 _TRUSTED_MCP_BRIDGE_PATH = "/mcp"
@@ -158,6 +160,7 @@ class SandboxedCLITransport(Transport):
             runtime_options = self._options_with_protected_runtime_settings(
                 runtime_options
             )
+            runtime_options = self._options_with_platform_skills(runtime_options)
             original_options = self._options
             if runtime_options is not original_options:
                 original_options.mcp_servers = runtime_options.mcp_servers
@@ -502,6 +505,22 @@ class SandboxedCLITransport(Transport):
         if mcp_servers is self._options.mcp_servers and agents is self._options.agents:
             return self._options
         return replace(self._options, mcp_servers=mcp_servers, agents=agents)
+
+    def _options_with_platform_skills(
+        self, options: ClaudeAgentOptions
+    ) -> ClaudeAgentOptions:
+        """Load only this turn's staged platform plugin in host or jailed mode."""
+        plugin_dir = self._job_dir / PLATFORM_SKILL_PLUGIN_DIR
+        if not (plugin_dir / ".claude-plugin" / "plugin.json").is_file():
+            return replace(options, plugins=[])
+        runtime_plugin_dir = (
+            JAILED_AGENT_JOB_DIR / PLATFORM_SKILL_PLUGIN_DIR
+            if self._use_jailed_paths
+            else plugin_dir
+        )
+        return replace(
+            options, plugins=[{"type": "local", "path": str(runtime_plugin_dir)}]
+        )
 
     def _options_with_protected_runtime_settings(
         self,

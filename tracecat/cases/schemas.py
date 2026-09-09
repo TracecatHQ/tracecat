@@ -1,13 +1,22 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import UTC, date, datetime
+from decimal import Decimal
 from enum import StrEnum
 from typing import Annotated, Any, Literal
 
 import sqlalchemy as sa
-from pydantic import ConfigDict, Field, RootModel, field_validator, model_validator
+from pydantic import (
+    AfterValidator,
+    ConfigDict,
+    Field,
+    RootModel,
+    field_validator,
+    model_validator,
+)
 
+from tracecat import config
 from tracecat.auth.schemas import UserRead
 from tracecat.cases.agent_invocations.types import CaseCommentAgentInvocationError
 from tracecat.cases.constants import RESERVED_CASE_FIELDS
@@ -39,8 +48,56 @@ from tracecat.identifiers.workflow import (
     WorkflowIDShort,
     WorkflowUUID,
 )
+from tracecat.query.aggregations import AggregationSpec
+from tracecat.query.filters import Filter
 from tracecat.tables.common import parse_postgres_default
 from tracecat.tables.enums import SqlType
+
+
+def _aggregate_datetime_utc(value: datetime) -> datetime:
+    """Keep timestamp outputs as UTC instants, independent of the session zone."""
+    if value.tzinfo is None:
+        raise ValueError("Aggregation timestamps must be timezone-aware")
+    return value.astimezone(UTC)
+
+
+type CaseAggregateValue = (
+    str
+    | bool
+    | int
+    | float
+    | Decimal
+    | uuid.UUID
+    | Annotated[datetime, AfterValidator(_aggregate_datetime_utc)]
+    | date
+    | None
+)
+
+
+class CaseAggregateRequest(AggregationSpec):
+    """Filter and aggregate cases in one workspace.
+
+    BIGINT/NUMERIC sums, means, medians, and NUMERIC min/max are widened to
+    float8 JSON numbers. NUMERIC group keys remain exact decimal strings.
+    TEXT/SELECT group keys use their first 256 characters, so values sharing
+    that prefix collapse into one group. Missing values form a null group.
+    """
+
+    filters: Filter | None = Field(default=None)
+    limit: int = Field(
+        default=config.TRACECAT__LIMIT_AGG_GROUPS_DEFAULT,
+        ge=1,
+        le=config.TRACECAT__LIMIT_AGG_GROUPS_MAX,
+    )
+
+
+class CaseAggregateResponse(Schema):
+    """Flat case aggregation groups and whether more groups exist."""
+
+    # Callers choose output aliases, so fixed field names cannot model a group.
+    # Values are restricted to the supported SQL scalar types.
+    groups: list[dict[str, CaseAggregateValue]]
+    truncated: bool
 
 
 class CaseReadMinimal(Schema):
