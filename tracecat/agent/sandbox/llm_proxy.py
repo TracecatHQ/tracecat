@@ -112,6 +112,7 @@ _ERROR_MESSAGES = {
     529: "LLM provider is overloaded - please try again shortly",
 }
 _proxy_load_tracker = get_load_tracker("llm_socket_proxy")
+_MAX_ERROR_CLASSIFICATION_BYTES = 64 * 1024
 _TRACE_REQUEST_ID_HEADER = "x-request-id"
 _ANTHROPIC_ONLY_FIELDS = (
     "anthropic_beta",
@@ -198,7 +199,11 @@ def _http_error_classification(
     # Only machine-readable fields participate in classification. Never infer
     # budget or auth origin from provider messages (which can contain secrets).
     try:
-        payload = orjson.loads(body) if body else None
+        payload = (
+            orjson.loads(body)
+            if body and len(body) <= _MAX_ERROR_CLASSIFICATION_BYTES
+            else None
+        )
     except orjson.JSONDecodeError:
         payload = None
     match payload:

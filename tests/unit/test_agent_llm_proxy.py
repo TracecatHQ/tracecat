@@ -13,6 +13,7 @@ import pytest
 
 from tracecat.agent.observability import LLMGatewayLoadTracker
 from tracecat.agent.sandbox.llm_proxy import (
+    _MAX_ERROR_CLASSIFICATION_BYTES,
     LLMProxyError,
     LLMRoute,
     LLMRoutingPlan,
@@ -1880,6 +1881,26 @@ def test_budget_classification_requires_structured_evidence(
         _http_error_classification(429, route_is_direct=True, body=body).kind
         is expected_kind
     )
+
+
+@pytest.mark.parametrize("oversized", [False, True])
+def test_error_classification_bounds_json_parsing(
+    monkeypatch: pytest.MonkeyPatch, oversized: bool
+) -> None:
+    body = b'{"error":{"code":"insufficient_quota"}}'.ljust(
+        _MAX_ERROR_CLASSIFICATION_BYTES + int(oversized), b" "
+    )
+    parse = Mock(wraps=orjson.loads)
+    monkeypatch.setattr(orjson, "loads", parse)
+
+    classification = _http_error_classification(429, route_is_direct=False, body=body)
+
+    if oversized:
+        parse.assert_not_called()
+        assert classification.kind is RuntimeErrorKind.AGENT_LLM_RATE_LIMITED
+    else:
+        parse.assert_called_once_with(body)
+        assert classification.kind is RuntimeErrorKind.AGENT_LLM_BUDGET_EXCEEDED
 
 
 @pytest.mark.anyio
