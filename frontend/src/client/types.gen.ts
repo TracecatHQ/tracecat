@@ -22664,6 +22664,10 @@ export type $OpenApiTs = {
          */
         204: void
         /**
+         * Removing this role would remove the user from the organization.
+         */
+        409: unknown
+        /**
          * Validation Error
          */
         422: HTTPValidationError
