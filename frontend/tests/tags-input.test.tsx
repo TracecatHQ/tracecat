@@ -94,6 +94,44 @@ describe("MultiTagCommandInput", () => {
     expect(handleChange).toHaveBeenCalledWith([unsafeValue])
   })
 
+  it.each(["disabled", "disableSuggestions"])(
+    "stays closed after %s is cleared until the user opens it again",
+    (prop) => {
+      const onChange = jest.fn()
+      function input(blocked: boolean) {
+        return (
+          <MultiTagCommandInput
+            onChange={onChange}
+            disabled={blocked && prop === "disabled"}
+            disableSuggestions={blocked && prop === "disableSuggestions"}
+            suggestions={[
+              { id: "alpha", value: "tools.alpha.run", label: "Alpha tool" },
+            ]}
+            searchKeys={["label", "value"]}
+          />
+        )
+      }
+      const { rerender } = render(input(false))
+      const textbox = screen.getByRole("textbox")
+      fireEvent.focus(textbox)
+      fireEvent.change(textbox, { target: { value: "alpha" } })
+      fireEvent.keyDown(textbox, { key: "ArrowDown" })
+      expect(screen.getByRole("option")).toBeInTheDocument()
+
+      rerender(input(true))
+      expect(screen.queryByRole("option")).not.toBeInTheDocument()
+      rerender(input(false))
+      expect(screen.queryByRole("option")).not.toBeInTheDocument()
+      fireEvent.keyDown(textbox, { key: "Enter" })
+      expect(onChange).not.toHaveBeenCalled()
+
+      fireEvent.change(textbox, { target: { value: "alpha tool" } })
+      expect(screen.getByRole("option")).toBeInTheDocument()
+      fireEvent.keyDown(textbox, { key: "Enter" })
+      expect(onChange).toHaveBeenCalledWith(["tools.alpha.run"])
+    }
+  )
+
   describe("keyboard selection", () => {
     const suggestions = [
       {

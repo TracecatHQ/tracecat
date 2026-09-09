@@ -120,6 +120,10 @@ export function MultiTagCommandInput({
 }: MultiTagCommandInputProps) {
   const [requestedOpen, setOpen] = useState(false)
   const open = requestedOpen && !disabled && !disableSuggestions
+  // Disabling dismisses the request; re-enabling requires a new user action.
+  if (requestedOpen && (disabled || disableSuggestions)) {
+    setOpen(false)
+  }
   const [inputValue, setInputValue] = useState("")
   const inputRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
