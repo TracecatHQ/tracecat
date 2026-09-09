@@ -383,6 +383,10 @@ class AgentActivities:
                     if remote_tool_name is not None and not MCP_TOOL_NAME_RE.fullmatch(
                         remote_tool_name
                     ):
+                        approval_key = normalize_mcp_tool_name(
+                            f"mcp__{REGISTRY_MCP_SERVER_NAME}__{tool_name}"
+                        )
+                        effective_tool_approvals.pop(approval_key, None)
                         logger.warning(
                             "Skipping user MCP tool with unsupported name",
                             tool_name=tool_name,
@@ -459,6 +463,8 @@ class AgentActivities:
                 # is documentation more than enforcement.
                 hydrated_servers = []
 
+        # Enforce entitlements on the final scope policy, after rejected HTTP
+        # tools and their precomputed approval entries have been removed.
         if any(effective_tool_approvals.values()):
             await self._check_tool_approval_entitlement(role)
 
@@ -503,11 +509,6 @@ class AgentActivities:
         # Set role context for services that require organization context
         ctx_role.set(args.role)
 
-        # Runtime guard for approval-gated agent flows. This ensures direct
-        # workflow execution paths still enforce entitlements.
-        if args.tool_approvals:
-            await self._check_tool_approval_entitlement(args.role)
-
         return await self._build_scope_tool_definitions(
             BuildAgentScopeToolDefsArgs(
                 scope="root",
@@ -528,9 +529,6 @@ class AgentActivities:
         # Compile all agent scopes in one activity while preserving partitioned
         # outputs for MCP tokens, approvals, user MCP claims, and registry locks.
         ctx_role.set(args.role)
-        if any(scope.tool_approvals for scope in args.scopes):
-            await self._check_tool_approval_entitlement(args.role)
-
         results: dict[str, BuildToolDefsResult] = {}
         for scope in args.scopes:
             if scope.scope in results:

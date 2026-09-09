@@ -590,7 +590,7 @@ class TestBuildToolDefinitionsActivity:
         unsupported_name: str,
         approval_name: str,
     ) -> None:
-        """Drop unsupported remote names regardless of approval policy."""
+        """Drop unsupported remote names and their precomputed approval policy."""
         from tracecat.agent.mcp import user_client
         from tracecat.agent.preset.service import AgentPresetService
 
@@ -671,9 +671,6 @@ class TestBuildToolDefinitionsActivity:
             ) -> None:
                 return None
 
-        async def mock_check_tool_approval_entitlement(role: Role) -> None:
-            return None
-
         monkeypatch.setattr(
             agent_activities, "build_agent_tools", mock_build_agent_tools
         )
@@ -686,16 +683,18 @@ class TestBuildToolDefinitionsActivity:
             staticmethod(lambda **_kwargs: _PresetContext()),
         )
         monkeypatch.setattr(RegistryLockService, "with_session", lambda: _LockContext())
+        check_entitlement = AsyncMock()
         monkeypatch.setattr(
             AgentActivities,
             "_check_tool_approval_entitlement",
-            staticmethod(mock_check_tool_approval_entitlement),
+            check_entitlement,
         )
 
         result = await AgentActivities().build_tool_definitions(
             BuildToolDefsArgs(
                 role=mock_role,
                 tool_filters=ToolFilters(actions=[]),
+                tool_approvals={f"mcp.Jira.{approval_name}": True},
                 mcp_servers=[
                     {
                         "type": "http",
@@ -713,6 +712,7 @@ class TestBuildToolDefinitionsActivity:
         }
         # Dropped tools must not leave behind approval entries.
         assert not (result.tool_approvals or {})
+        check_entitlement.assert_not_awaited()
 
     @pytest.mark.anyio
     async def test_build_agent_tool_definitions_returns_partitioned_scopes(

@@ -120,6 +120,10 @@ def test_mcp_approvals_apply_only_to_selected_available_tools(
                 "status": "available",
                 "requires_approval": True,
             },
+            *[
+                {"name": name, "requires_approval": True}
+                for name in ("bad name", "x" * 65, "with\nnewline", "")
+            ],
         ],
     )
     version = SkillVersion(id=version_id, skill_id=uuid.uuid4(), name="triage")
