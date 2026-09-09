@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from tracecat_ee.rbac.service import RBACService
 
 from tests.database import TEST_DB_CONFIG
+from tests.support.membership import grant_org_membership_via_group
 from tracecat.auth.types import Role
 from tracecat.authz.enums import ScopeSource
 from tracecat.authz.membership import sync_membership
@@ -21,6 +22,8 @@ from tracecat.db.models import (
     Group,
     GroupMember,
     GroupRoleAssignment,
+    LegacyMembership,
+    LegacyOrganizationMembership,
     Membership,
     Organization,
     OrganizationMembership,
@@ -40,24 +43,31 @@ from tracecat.exceptions import (
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("org_wide", [False, True])
+@pytest.mark.parametrize("legacy_reader", [False, True])
 async def test_direct_assignment_dual_writes_membership(
     session: AsyncSession,
     role: Role,
     user: User,
     workspace: Workspace,
     org_wide: bool,
+    legacy_reader: bool,
 ) -> None:
     service = RBACService(session, role)
     granted_role = await service.create_role(name="Dual write role", scope_ids=[])
     workspace_id = None if org_wide else workspace.id
+    org_model = (
+        LegacyOrganizationMembership if legacy_reader else OrganizationMembership
+    )
+    workspace_model = LegacyMembership if legacy_reader else Membership
     statement = (
-        select(OrganizationMembership.user_id).where(
-            OrganizationMembership.organization_id == role.organization_id,
-            OrganizationMembership.user_id == user.id,
+        select(org_model.user_id).where(
+            org_model.organization_id == role.organization_id,
+            org_model.user_id == user.id,
         )
         if org_wide
-        else select(Membership.user_id).where(
-            Membership.workspace_id == workspace.id, Membership.user_id == user.id
+        else select(workspace_model.user_id).where(
+            workspace_model.workspace_id == workspace.id,
+            workspace_model.user_id == user.id,
         )
     )
     assignment = await service.create_user_assignment(
@@ -65,12 +75,17 @@ async def test_direct_assignment_dual_writes_membership(
     )
     assert await session.scalar(statement) == user.id
     await service.delete_user_assignment(assignment.id)
-    assert await session.scalar(statement) is None
+    assert await session.scalar(statement) == (user.id if org_wide else None)
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("legacy_reader", [False, True])
 async def test_group_dual_writes_preserve_surviving_paths(
-    session: AsyncSession, role: Role, user: User, workspace: Workspace
+    session: AsyncSession,
+    role: Role,
+    user: User,
+    workspace: Workspace,
+    legacy_reader: bool,
 ) -> None:
     service = RBACService(session, role)
     granted_role = await service.create_role(name="Group mirror role", scope_ids=[])
@@ -79,8 +94,10 @@ async def test_group_dual_writes_preserve_surviving_paths(
     assignment = await service.create_group_role_assignment(
         group_id=group.id, role_id=granted_role.id, workspace_id=workspace.id
     )
-    statement = select(Membership.user_id).where(
-        Membership.workspace_id == workspace.id, Membership.user_id == user.id
+    model = LegacyMembership if legacy_reader else Membership
+    statement = select(model.user_id).where(
+        model.workspace_id == workspace.id,
+        model.user_id == user.id,
     )
     assert await session.scalar(statement) == user.id
     direct = await service.create_user_assignment(
@@ -178,9 +195,9 @@ class TestMembershipTransactions:
         )
         assert (
             await session.scalar(
-                select(Membership.user_id).where(
-                    Membership.user_id == user.id,
-                    Membership.workspace_id == workspace.id,
+                select(LegacyMembership.user_id).where(
+                    LegacyMembership.user_id == user.id,
+                    LegacyMembership.workspace_id == workspace.id,
                 )
             )
             is None
@@ -207,8 +224,9 @@ class TestMembershipTransactions:
             user_ids=[user_id],
             workspace_id=workspace_id,
         )
-        statement = select(Membership.user_id).where(
-            Membership.user_id == user_id, Membership.workspace_id == workspace_id
+        statement = select(LegacyMembership.user_id).where(
+            LegacyMembership.user_id == user_id,
+            LegacyMembership.workspace_id == workspace_id,
         )
         assert await session.scalar(statement) == user_id
         async with AsyncSession(session.bind) as old_reader:
@@ -242,18 +260,16 @@ async def user(session: AsyncSession, org: Organization) -> User:
     """Create a test user with org membership."""
     user = User(
         id=uuid.uuid4(),
-        email=f"test-{uuid.uuid4().hex}@example.com",
+        email="test@example.com",
         hashed_password="test",
     )
     session.add(user)
     await session.flush()
 
-    # Add org membership
-    membership = OrganizationMembership(
-        user_id=user.id,
-        organization_id=org.id,
+    # Presence through a group keeps the direct org-wide slot free for tests.
+    await grant_org_membership_via_group(
+        session, user_id=user.id, organization_id=org.id
     )
-    session.add(membership)
     await session.commit()
     await session.refresh(user)
     return user
@@ -330,12 +346,11 @@ async def role(
     """
     admin_user = User(
         id=uuid.uuid4(),
-        email=f"admin-{uuid.uuid4().hex}@example.com",
+        email="admin@example.com",
         hashed_password="test",
     )
     session.add(admin_user)
     await session.flush()
-    session.add(OrganizationMembership(user_id=admin_user.id, organization_id=org.id))
 
     admin_role = DBRole(
         name="Test Org Admin",
@@ -936,11 +951,8 @@ class TestRBACServiceUserAssignments:
         )
         session.add(other_org)
         await session.flush()
-        session.add(
-            OrganizationMembership(
-                user_id=user.id,
-                organization_id=other_org.id,
-            )
+        await grant_org_membership_via_group(
+            session, user_id=user.id, organization_id=other_org.id
         )
         await session.commit()
 

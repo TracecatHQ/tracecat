@@ -15,6 +15,7 @@ from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
 from tracecat.authz.controls import has_scope, require_scope
 from tracecat.authz.enums import OwnerType
+from tracecat.authz.membership import sync_membership
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.authz.service import resolve_grantable_role
 from tracecat.cases.service import CaseFieldsService
@@ -23,7 +24,6 @@ from tracecat.db.models import (
     Membership,
     OrganizationMembership,
     Ownership,
-    User,
     UserRoleAssignment,
     Workspace,
 )
@@ -130,18 +130,15 @@ class WorkspaceService(BaseOrgService):
         name: str,
         *,
         override_id: UUID4 | None = None,
-        users: list[User] | None = None,
     ) -> Workspace:
-        """Create a new workspace."""
-        kwargs = {
-            "name": name,
-            "organization_id": self.organization_id,
-            # Workspace model defines the relationship as "members"
-            "members": users or [],
-        }
+        """Create a new workspace.
+
+        Membership is derived from role assignments, so a new workspace has
+        no members until a workspace-scoped role is granted.
+        """
+        workspace = Workspace(name=name, organization_id=self.organization_id)
         if override_id:
-            kwargs["id"] = override_id
-        workspace = Workspace(**kwargs)
+            workspace.id = override_id
         self.session.add(workspace)
         await self.session.flush()
 
@@ -479,24 +476,15 @@ class WorkspaceService(BaseOrgService):
         workspace = invitation.workspace
         organization_id = workspace.organization_id
 
-        # Check if user is already a member of the organization
-        org_membership_stmt = select(OrganizationMembership).where(
+        # Org presence requires an org-wide direct or group assignment; the
+        # workspace assignment created below does not grant it.
+        org_assignment_stmt = select(OrganizationMembership.user_id).where(
             OrganizationMembership.user_id == user_id,
             OrganizationMembership.organization_id == organization_id,
         )
-        result = await self.session.execute(org_membership_stmt)
-        org_membership = result.scalar_one_or_none()
-
-        # If not in org, auto-create membership and assign org-member RBAC role
-        created_org_membership = False
-        if org_membership is None:
-            org_membership = OrganizationMembership(
-                user_id=user_id,
-                organization_id=organization_id,
-            )
-            self.session.add(org_membership)
-            created_org_membership = True
-            await self.session.flush()
+        needs_org_assignment = (
+            await self.session.execute(org_assignment_stmt)
+        ).scalar_one_or_none() is None
 
         # Check if user is already a member of the workspace
         ws_membership_stmt = select(Membership).where(
@@ -530,13 +518,6 @@ class WorkspaceService(BaseOrgService):
             # Shouldn't reach here, but handle gracefully
             raise TracecatValidationError("Invitation is no longer valid")
 
-        # Create workspace membership
-        membership = Membership(
-            user_id=user_id,
-            workspace_id=invitation.workspace_id,
-        )
-        self.session.add(membership)
-
         # Create RBAC role assignment for the workspace
         ws_assignment = UserRoleAssignment(
             organization_id=organization_id,
@@ -546,8 +527,8 @@ class WorkspaceService(BaseOrgService):
         )
         self.session.add(ws_assignment)
 
-        # If we auto-created org membership, also assign org-member RBAC role
-        if created_org_membership:
+        # A user invited straight to a workspace may not be in the org yet.
+        if needs_org_assignment:
             org_member_role_result = await self.session.execute(
                 select(DBRole).where(
                     DBRole.organization_id == organization_id,
@@ -564,9 +545,30 @@ class WorkspaceService(BaseOrgService):
                 )
                 self.session.add(org_assignment)
 
+        await sync_membership(
+            self.session,
+            organization_id=organization_id,
+            user_ids=[user_id],
+            workspace_id=invitation.workspace_id,
+        )
+        if needs_org_assignment:
+            await sync_membership(
+                self.session,
+                organization_id=organization_id,
+                user_ids=[user_id],
+                workspace_id=None,
+            )
         await self.session.commit()
-        await self.session.refresh(membership)
-        return membership
+
+        # Membership is derived from the assignment just written.
+        return (
+            await self.session.execute(
+                select(Membership).where(
+                    Membership.user_id == user_id,
+                    Membership.workspace_id == invitation.workspace_id,
+                )
+            )
+        ).scalar_one()
 
     @require_scope("workspace:member:remove")
     @audit_log(

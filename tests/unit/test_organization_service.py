@@ -11,16 +11,18 @@ from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tests.support.membership import grant_org_membership
 from tracecat import config
 from tracecat.auth.api_keys import ORG_API_KEY_PREFIX, generate_managed_api_key
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import ORG_ADMIN_SCOPES, ORG_MEMBER_SCOPES, ORG_OWNER_SCOPES
-from tracecat.authz.seeding import seed_system_scopes
+from tracecat.authz.seeding import seed_system_roles_for_org, seed_system_scopes
 from tracecat.db.models import (
     AccessToken,
     Group,
     GroupMember,
+    LegacyOrganizationMembership,
     MCPRefreshToken,
     Membership,
     Organization,
@@ -47,6 +49,23 @@ from tracecat.exceptions import (
 )
 from tracecat.invitations.enums import InvitationStatus
 from tracecat.organization.service import OrgService, accept_invitation_for_user
+
+
+async def _system_role(
+    session: AsyncSession, organization_id: uuid.UUID, slug: str
+) -> DBRole:
+    """The seeded system role: membership helpers seed on demand, so hand-built
+    rows under these slugs would collide."""
+    await seed_system_scopes(session)
+    await seed_system_roles_for_org(session, organization_id)
+    await session.commit()
+    return (
+        await session.execute(
+            select(DBRole).where(
+                DBRole.organization_id == organization_id, DBRole.slug == slug
+            )
+        )
+    ).scalar_one()
 
 
 @pytest.fixture
@@ -92,11 +111,7 @@ async def user_in_org1(session: AsyncSession, org1: Organization) -> User:
     session.add(user)
     await session.flush()
 
-    membership = OrganizationMembership(
-        user_id=user.id,
-        organization_id=org1.id,
-    )
-    session.add(membership)
+    await grant_org_membership(session, user_id=user.id, organization_id=org1.id)
     await session.commit()
     return user
 
@@ -120,12 +135,6 @@ async def admin_in_org1(session: AsyncSession, org1: Organization) -> User:
     )
     session.add(user)
     await session.flush()
-
-    membership = OrganizationMembership(
-        user_id=user.id,
-        organization_id=org1.id,
-    )
-    session.add(membership)
 
     await seed_system_scopes(session)
     admin_db_role = DBRole(
@@ -168,11 +177,7 @@ async def user_in_org2(session: AsyncSession, org2: Organization) -> User:
     session.add(user)
     await session.flush()
 
-    membership = OrganizationMembership(
-        user_id=user.id,
-        organization_id=org2.id,
-    )
-    session.add(membership)
+    await grant_org_membership(session, user_id=user.id, organization_id=org2.id)
     await session.commit()
     return user
 
@@ -204,30 +209,14 @@ def create_superuser_role(organization_id: uuid.UUID, user_id: uuid.UUID) -> Rol
 @pytest.fixture
 async def org1_member_role(session: AsyncSession, org1: Organization) -> DBRole:
     """Create an RBAC 'organization-member' role for org1."""
-    role = DBRole(
-        id=uuid.uuid4(),
-        name="Organization Member",
-        slug="organization-member",
-        description="Default member role",
-        organization_id=org1.id,
-    )
-    session.add(role)
-    await session.commit()
+    role = await _system_role(session, org1.id, "organization-member")
     return role
 
 
 @pytest.fixture
 async def org1_admin_role(session: AsyncSession, org1: Organization) -> DBRole:
     """Create an RBAC 'organization-admin' role for org1."""
-    role = DBRole(
-        id=uuid.uuid4(),
-        name="Organization Admin",
-        slug="organization-admin",
-        description="Admin role",
-        organization_id=org1.id,
-    )
-    session.add(role)
-    await session.commit()
+    role = await _system_role(session, org1.id, "organization-admin")
     return role
 
 
@@ -238,22 +227,7 @@ async def org1_owner_role(session: AsyncSession, org1: Organization) -> DBRole:
     Carries the real owner scope set: the grant ceiling is enforced from
     scopes, so an unscoped role would be vacuously grantable.
     """
-    await seed_system_scopes(session)
-    role = DBRole(
-        id=uuid.uuid4(),
-        name="Organization Owner",
-        slug="organization-owner",
-        description="Owner role",
-        organization_id=org1.id,
-    )
-    session.add(role)
-    await session.flush()
-    scope_result = await session.execute(
-        select(Scope).where(Scope.name.in_(sorted(ORG_OWNER_SCOPES)))
-    )
-    for scope in scope_result.scalars().all():
-        session.add(RoleScope(role_id=role.id, scope_id=scope.id))
-    await session.commit()
+    role = await _system_role(session, org1.id, "organization-owner")
     return role
 
 
@@ -419,17 +393,7 @@ class TestOrganizationServiceDeleteMember:
         org1_member_role: DBRole,
     ):
         """Deleting a member removes org access without touching other orgs."""
-        org2_member_role = DBRole(
-            id=uuid.uuid4(),
-            name="Organization Member",
-            slug="organization-member",
-            description="Default member role",
-            organization_id=org2.id,
-        )
-        org2_membership = OrganizationMembership(
-            user_id=user_in_org1.id,
-            organization_id=org2.id,
-        )
+        org2_member_role = await _system_role(session, org2.id, "organization-member")
         workspace_org1 = Workspace(
             id=uuid.uuid4(),
             name=f"test-workspace-org1-{uuid.uuid4().hex[:8]}",
@@ -452,8 +416,6 @@ class TestOrganizationServiceDeleteMember:
         )
         session.add_all(
             [
-                org2_member_role,
-                org2_membership,
                 workspace_org1,
                 workspace_org2,
                 group_org1,
@@ -465,14 +427,6 @@ class TestOrganizationServiceDeleteMember:
         token = AccessToken(
             token=f"token-{uuid.uuid4().hex}",
             user_id=user_in_org1.id,
-        )
-        org1_workspace_membership = Membership(
-            user_id=user_in_org1.id,
-            workspace_id=workspace_org1.id,
-        )
-        org2_workspace_membership = Membership(
-            user_id=user_in_org1.id,
-            workspace_id=workspace_org2.id,
         )
         org1_role_assignment = UserRoleAssignment(
             organization_id=org1.id,
@@ -499,13 +453,16 @@ class TestOrganizationServiceDeleteMember:
         session.add_all(
             [
                 token,
-                org1_workspace_membership,
-                org2_workspace_membership,
                 org1_role_assignment,
                 org2_role_assignment,
                 org1_group_member,
                 org2_group_member,
             ]
+        )
+        await session.commit()
+        # Org2 presence needs an org-wide path; the workspace grant above is not one.
+        await grant_org_membership(
+            session, user_id=user_in_org1.id, organization_id=org2.id
         )
         await session.commit()
 
@@ -637,11 +594,9 @@ class TestOrganizationServiceDeleteMember:
         session.add(superuser)
         await session.flush()
 
-        membership = OrganizationMembership(
-            user_id=superuser.id,
-            organization_id=org1.id,
+        await grant_org_membership(
+            session, user_id=superuser.id, organization_id=org1.id
         )
-        session.add(membership)
         role = create_admin_role(org1.id, admin_in_org1.id)
         service = OrgService(session, role=role)
 
@@ -978,169 +933,6 @@ class TestOrganizationServiceSessions:
             await service.delete_session(token.id)
 
 
-class TestOrganizationServiceAddMember:
-    """Tests for OrgService.add_member()."""
-
-    @pytest.mark.anyio
-    async def test_add_member_creates_membership(
-        self,
-        session: AsyncSession,
-        org1: Organization,
-        admin_in_org1: User,
-    ):
-        """Test add_member creates an OrganizationMembership record."""
-        # Create a new user not yet in the org
-        new_user = User(
-            id=uuid.uuid4(),
-            email=f"newuser-{uuid.uuid4().hex[:8]}@example.com",
-            hashed_password="hashed",
-            role=UserRole.BASIC,
-            is_active=True,
-            is_superuser=False,
-            is_verified=True,
-        )
-        session.add(new_user)
-        await session.commit()
-
-        role = create_admin_role(org1.id, admin_in_org1.id)
-        service = OrgService(session, role=role)
-
-        membership = await service.add_member(
-            user_id=new_user.id,
-            organization_id=org1.id,
-        )
-
-        assert membership.user_id == new_user.id
-        assert membership.organization_id == org1.id
-
-    @pytest.mark.anyio
-    async def test_add_member_with_admin_role(
-        self,
-        session: AsyncSession,
-        org1: Organization,
-        admin_in_org1: User,
-    ):
-        """Test add_member can assign admin role."""
-        new_user = User(
-            id=uuid.uuid4(),
-            email=f"newadmin-{uuid.uuid4().hex[:8]}@example.com",
-            hashed_password="hashed",
-            role=UserRole.ADMIN,
-            is_active=True,
-            is_superuser=False,
-            is_verified=True,
-        )
-        session.add(new_user)
-        await session.commit()
-
-        role = create_admin_role(org1.id, admin_in_org1.id)
-        service = OrgService(session, role=role)
-
-        membership = await service.add_member(
-            user_id=new_user.id,
-            organization_id=org1.id,
-        )
-
-        assert membership.user_id == new_user.id
-        assert membership.organization_id == org1.id
-
-    @pytest.mark.anyio
-    async def test_add_member_with_owner_role(
-        self,
-        session: AsyncSession,
-        org1: Organization,
-        admin_in_org1: User,
-    ):
-        """Test add_member can assign owner role."""
-        new_user = User(
-            id=uuid.uuid4(),
-            email=f"newowner-{uuid.uuid4().hex[:8]}@example.com",
-            hashed_password="hashed",
-            role=UserRole.ADMIN,
-            is_active=True,
-            is_superuser=False,
-            is_verified=True,
-        )
-        session.add(new_user)
-        await session.commit()
-
-        role = create_admin_role(org1.id, admin_in_org1.id)
-        service = OrgService(session, role=role)
-
-        membership = await service.add_member(
-            user_id=new_user.id,
-            organization_id=org1.id,
-        )
-
-        assert membership.user_id == new_user.id
-        assert membership.organization_id == org1.id
-
-    @pytest.mark.anyio
-    async def test_add_member_default_role_is_member(
-        self,
-        session: AsyncSession,
-        org1: Organization,
-        admin_in_org1: User,
-    ):
-        """Test add_member defaults to MEMBER role when not specified."""
-        new_user = User(
-            id=uuid.uuid4(),
-            email=f"defaultrole-{uuid.uuid4().hex[:8]}@example.com",
-            hashed_password="hashed",
-            role=UserRole.BASIC,
-            is_active=True,
-            is_superuser=False,
-            is_verified=True,
-        )
-        session.add(new_user)
-        await session.commit()
-
-        role = create_admin_role(org1.id, admin_in_org1.id)
-        service = OrgService(session, role=role)
-
-        membership = await service.add_member(
-            user_id=new_user.id,
-            organization_id=org1.id,
-        )
-
-        assert membership.user_id == new_user.id
-        assert membership.organization_id == org1.id
-
-    @pytest.mark.anyio
-    async def test_add_member_user_appears_in_list_members(
-        self,
-        session: AsyncSession,
-        org1: Organization,
-        admin_in_org1: User,
-    ):
-        """Test that added member appears in list_members."""
-        new_user = User(
-            id=uuid.uuid4(),
-            email=f"listcheck-{uuid.uuid4().hex[:8]}@example.com",
-            hashed_password="hashed",
-            role=UserRole.BASIC,
-            is_active=True,
-            is_superuser=False,
-            is_verified=True,
-        )
-        session.add(new_user)
-        await session.commit()
-
-        role = create_admin_role(org1.id, admin_in_org1.id)
-        service = OrgService(session, role=role)
-
-        # Add member
-        await service.add_member(
-            user_id=new_user.id,
-            organization_id=org1.id,
-        )
-
-        # Verify they appear in list_members
-        members = await service.list_members()
-        member_ids = {user.id for user in members}
-        assert new_user.id in member_ids
-
-
 class TestOrganizationServiceInvitations:
     """Tests for OrgService invitation methods."""
 
@@ -1414,14 +1206,7 @@ class TestOrganizationServiceInvitations:
         )
 
         # Create invitation for org2 directly (need a role for org2)
-        org2_role = DBRole(
-            id=uuid.uuid4(),
-            name="Organization Member",
-            slug="organization-member",
-            description="Default member role",
-            organization_id=org2.id,
-        )
-        session.add(org2_role)
+        org2_role = await _system_role(session, org2.id, "organization-member")
         await session.flush()
         org2_invitation = OrganizationInvitation(
             organization_id=org2.id,
@@ -1612,14 +1397,7 @@ class TestOrganizationServiceInvitations:
     ):
         """Test revoke_invitation raises error for invitation in different org."""
         # Create invitation in org2 directly (need a role for org2)
-        org2_role = DBRole(
-            id=uuid.uuid4(),
-            name="Organization Member",
-            slug="organization-member",
-            description="Default member role",
-            organization_id=org2.id,
-        )
-        session.add(org2_role)
+        org2_role = await _system_role(session, org2.id, "organization-member")
         await session.flush()
         org2_invitation = OrganizationInvitation(
             organization_id=org2.id,
@@ -1671,6 +1449,16 @@ class TestOrganizationServiceInvitations:
 
         assert membership.user_id == user_in_org2.id
         assert membership.organization_id == org1.id
+
+        assert (
+            await session.scalar(
+                select(LegacyOrganizationMembership.user_id).where(
+                    LegacyOrganizationMembership.user_id == user_in_org2.id,
+                    LegacyOrganizationMembership.organization_id == org1.id,
+                )
+            )
+            == user_in_org2.id
+        )
 
         # Verify invitation is marked as accepted
         await session.refresh(invitation)

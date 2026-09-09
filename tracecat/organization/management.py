@@ -20,8 +20,9 @@ from tracecat.cases.service import CaseFieldsService
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import (
     AccessToken,
+    LegacyMembership,
+    LegacyOrganizationMembership,
     MCPRefreshToken,
-    Membership,
     Organization,
     OrganizationMembership,
     OrganizationSecret,
@@ -233,7 +234,9 @@ async def delete_organization_with_cleanup(
         await case_fields_service.drop_workspace_schema()
 
         await session.execute(
-            delete(Membership).where(Membership.workspace_id == workspace.id)
+            delete(LegacyMembership).where(
+                LegacyMembership.workspace_id == workspace.id
+            )
         )
         await session.delete(workspace)
 
@@ -474,7 +477,7 @@ async def ensure_single_tenant_user_defaults_in_session(
         # Auth-path lazy repair can run concurrently for the same legacy user.
         # Use an idempotent insert so one request repairs the row and the other
         # continues without surfacing a unique-constraint failure.
-        membership_insert = pg_insert(OrganizationMembership).values(
+        membership_insert = pg_insert(LegacyOrganizationMembership).values(
             user_id=user_id,
             organization_id=organization_id,
         )
