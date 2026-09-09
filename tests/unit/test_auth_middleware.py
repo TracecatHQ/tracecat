@@ -12,6 +12,7 @@ from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tests.support.membership import grant_org_membership, grant_workspace_membership
 from tracecat import config
 from tracecat.auth.credentials import (
     RoleACL,
@@ -23,17 +24,21 @@ from tracecat.auth.org_context import resolve_auth_organization_id
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
 from tracecat.authz.enums import WorkspaceRole
-from tracecat.authz.service import MembershipWithOrg
 from tracecat.contexts import ctx_agent_session_id, ctx_role
 from tracecat.db.models import (
     Membership,
     Organization,
-    OrganizationMembership,
     User,
     Workspace,
 )
 from tracecat.middleware import AuthorizationCacheMiddleware
 from tracecat.organization.management import SingleTenantUserDefaultsResult
+
+
+def _with_org(membership, org_id):
+    """Stand in for a Membership row, which carries its organization_id."""
+    membership.organization_id = org_id
+    return membership
 
 
 @pytest.fixture
@@ -398,10 +403,7 @@ async def test_role_dependency_resolves_superuser_workspace_membership_without_p
     user.is_superuser = True
     org_id = uuid.uuid4()
     scopes = frozenset({"workspace:read"})
-    membership = MembershipWithOrg(
-        membership=MagicMock(spec=Membership),
-        org_id=org_id,
-    )
+    membership = _with_org(MagicMock(spec=Membership), org_id)
 
     with (
         patch(
@@ -544,9 +546,9 @@ async def test_auth_cache_reduces_database_queries(
     )
     mock_service.get_membership = AsyncMock(
         side_effect=lambda workspace_id, user_id: (
-            MembershipWithOrg(membership=mock_membership1, org_id=org_id_1)
+            _with_org(mock_membership1, org_id_1)
             if workspace_id == workspace_id_1
-            else MembershipWithOrg(membership=mock_membership2, org_id=org_id_2)
+            else _with_org(mock_membership2, org_id_2)
             if workspace_id == workspace_id_2
             else None
         )
@@ -650,7 +652,7 @@ async def test_performance_improvement(mocker):
     async def mock_get_membership_slow(self, workspace_id, user_id):
         # Simulate database query delay
         await asyncio.sleep(db_delay_ms / 1000)
-        return MembershipWithOrg(membership=mock_membership, org_id=uuid.uuid4())
+        return _with_org(mock_membership, uuid.uuid4())
 
     # Patch the membership service
     mocker.patch.object(
@@ -789,9 +791,9 @@ async def test_cache_user_id_validation(monkeypatch: pytest.MonkeyPatch):
     )
     mock_service.get_membership = AsyncMock(
         side_effect=lambda workspace_id, user_id: (
-            MembershipWithOrg(membership=membership1, org_id=uuid.uuid4())
+            _with_org(membership1, uuid.uuid4())
             if user_id == user1.id
-            else MembershipWithOrg(membership=membership2, org_id=uuid.uuid4())
+            else _with_org(membership2, uuid.uuid4())
         )
     )
 
@@ -880,7 +882,7 @@ async def test_cache_size_limit(monkeypatch: pytest.MonkeyPatch):
     mock_service.list_user_memberships = AsyncMock(return_value=memberships)
     mock_service.get_membership = AsyncMock(
         side_effect=lambda workspace_id, user_id: (
-            MembershipWithOrg(membership=target_membership, org_id=org_id)
+            _with_org(target_membership, org_id)
             if workspace_id == target_workspace_id
             else None
         )
@@ -936,7 +938,7 @@ async def test_cache_size_limit(monkeypatch: pytest.MonkeyPatch):
 async def test_organization_id_populated_when_require_workspace_no(
     mocker, monkeypatch: pytest.MonkeyPatch
 ):
-    """Test that organization_id is inferred from OrganizationMembership when require_workspace="no"."""
+    """Test that organization_id is inferred from membership when require_workspace="no"."""
 
     monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
 
@@ -953,11 +955,11 @@ async def test_organization_id_populated_when_require_workspace_no(
     # The code does: org_ids = org_membership_result.scalars().all()
     mock_session = AsyncMock()
 
-    # First call: OrganizationMembership query returns the org_id
+    # First call: membership query returns the org_id
     org_result = MagicMock()
     org_result.scalars.return_value.all.return_value = [test_org_id]
 
-    # Second call: OrganizationMembership lookup for org_role returns None
+    # Second call: membership lookup for org_role returns None
     org_role_result = MagicMock()
     org_role_result.scalar_one_or_none.return_value = None
 
@@ -979,7 +981,7 @@ async def test_organization_id_populated_when_require_workspace_no(
     request.state = MagicMock()
     request.state.auth_cache = None
 
-    # Test with require_workspace="no" - organization_id should be inferred from OrganizationMembership
+    # Test with require_workspace="no" - organization_id should be inferred from membership
     role = await _role_dependency(
         request=request,
         session=mock_session,
@@ -991,7 +993,7 @@ async def test_organization_id_populated_when_require_workspace_no(
         require_workspace="no",
     )
 
-    # Verify organization_id was inferred from the user's OrganizationMembership
+    # Verify organization_id was inferred from the user's membership
     assert role.organization_id == test_org_id
     assert role.workspace_id is None
     assert role.user_id == mock_user.id
@@ -1029,16 +1031,14 @@ async def test_role_dependency_infers_org_from_single_membership(
     session.add_all([org, user, workspace])
     await session.commit()
 
-    membership = Membership(
-        user_id=user.id,
-        workspace_id=workspace.id,
-    )
-    # Also create organization membership - required for org context resolution
-    org_membership = OrganizationMembership(
+    # Org membership is required for org context resolution.
+    await grant_org_membership(session, user_id=user.id, organization_id=org.id)
+    await grant_workspace_membership(
+        session,
         user_id=user.id,
         organization_id=org.id,
+        workspace_id=workspace.id,
     )
-    session.add_all([membership, org_membership])
     await session.commit()
 
     request = MagicMock(spec=Request)
@@ -1111,22 +1111,14 @@ async def test_role_dependency_uses_stable_org_for_multi_org_without_workspace(
     session.add_all([org_a, org_b, user, workspace_a, workspace_b])
     await session.commit()
 
-    memberships = [
-        Membership(
+    for org, workspace in ((org_a, workspace_a), (org_b, workspace_b)):
+        await grant_org_membership(session, user_id=user.id, organization_id=org.id)
+        await grant_workspace_membership(
+            session,
             user_id=user.id,
-            workspace_id=workspace_a.id,
-        ),
-        Membership(
-            user_id=user.id,
-            workspace_id=workspace_b.id,
-        ),
-    ]
-    # Also create organization memberships for both orgs
-    org_memberships = [
-        OrganizationMembership(user_id=user.id, organization_id=org_a.id),
-        OrganizationMembership(user_id=user.id, organization_id=org_b.id),
-    ]
-    session.add_all(memberships + org_memberships)
+            organization_id=org.id,
+            workspace_id=workspace.id,
+        )
     await session.commit()
 
     request = MagicMock(spec=Request)

@@ -27,6 +27,8 @@ from tracecat.db.engine import (
     get_async_session_context_manager,
 )
 from tracecat.db.models import (
+    LegacyMembership,
+    LegacyOrganizationMembership,
     Membership,
     OrganizationMembership,
     OrganizationTier,
@@ -363,7 +365,7 @@ async def _ensure_org_membership(
     )
     if result.scalar_one_or_none() is None:
         session.add(
-            OrganizationMembership(
+            LegacyOrganizationMembership(
                 user_id=user_id,
                 organization_id=organization_id,
             )
@@ -384,7 +386,7 @@ async def _ensure_workspace_membership(
     )
     if result.scalar_one_or_none() is None:
         session.add(
-            Membership(
+            LegacyMembership(
                 user_id=user_id,
                 workspace_id=workspace_id,
             )
