@@ -9,6 +9,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped
 
+from tests.support.membership import grant_org_membership_via_group
 from tracecat import config
 from tracecat.auth.schemas import UserRole
 from tracecat.authz.seeding import seed_system_roles_for_org
@@ -417,6 +418,43 @@ async def test_single_tenant_defaults_keep_owner_role_for_regular_user(
         == "organization-owner"
     )
     assert changed is False
+
+
+@pytest.mark.anyio
+async def test_single_tenant_defaults_keep_group_only_membership_indirect(
+    session: AsyncSession,
+) -> None:
+    """A group grant is enough presence, so no direct assignment is inserted."""
+    org = await _create_org_with_roles(session)
+    user = await _create_user(session)
+    await grant_org_membership_via_group(
+        session, user_id=user.id, organization_id=org.id
+    )
+
+    changed = await ensure_single_tenant_user_defaults_in_session(
+        session=session,
+        user_id=user.id,
+        organization_id=org.id,
+        is_superuser=False,
+        allow_new_members=True,
+    )
+    await session.flush()
+
+    assert changed is False
+    assignments = (
+        (
+            await session.execute(
+                select(UserRoleAssignment).where(
+                    UserRoleAssignment.user_id == user.id,
+                    UserRoleAssignment.organization_id == org.id,
+                    UserRoleAssignment.workspace_id.is_(None),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert assignments == []
 
 
 @pytest.mark.anyio

@@ -462,12 +462,18 @@ async def ensure_single_tenant_user_defaults_in_session(
         if not is_superuser or current_role_slug == "organization-owner":
             return False
 
+    # Membership without a direct org-wide assignment comes from a group grant.
+    # Inserting a direct assignment here would make that group access permanent.
+    if membership is not None and assignment_row is None and not is_superuser:
+        return False
+
     # Role lookup below depends on the preset roles existing. This is idempotent
     # and only runs after the fast path determines a repair may be needed.
     await seed_system_roles_for_org(session, organization_id)
 
-    # Membership is derived, so the org-wide assignment insert below is the
-    # repair. The legacy table is still written for app versions that read it.
+    # Only a missing membership or a superuser owner upgrade reaches here, so the
+    # assignment insert below is the repair. The legacy table is still written
+    # for app versions that read it.
     changed = False
     if membership is None:
         legacy_insert = pg_insert(LegacyOrganizationMembership).values(
