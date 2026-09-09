@@ -11,10 +11,9 @@ import httpx
 import orjson
 import pytest
 
-from tracecat.agent.diagnostics import LLMErrorDiagnostics
+from tracecat.agent.diagnostics import MAX_LLM_ERROR_BODY_BYTES, LLMErrorDiagnostics
 from tracecat.agent.observability import LLMGatewayLoadTracker
 from tracecat.agent.sandbox.llm_proxy import (
-    _MAX_ERROR_CLASSIFICATION_BYTES,
     LLMProxyError,
     LLMRoute,
     LLMRoutingPlan,
@@ -1888,7 +1887,7 @@ def test_error_classification_bounds_json_parsing(
     monkeypatch: pytest.MonkeyPatch, oversized: bool
 ) -> None:
     body = b'{"error":{"code":"insufficient_quota"}}'.ljust(
-        _MAX_ERROR_CLASSIFICATION_BYTES + int(oversized), b" "
+        MAX_LLM_ERROR_BODY_BYTES + int(oversized), b" "
     )
     parse = Mock(wraps=orjson.loads)
     monkeypatch.setattr(orjson, "loads", parse)

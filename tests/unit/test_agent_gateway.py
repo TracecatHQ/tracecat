@@ -23,6 +23,7 @@ from litellm.router import Router
 from openai import AsyncOpenAI
 from starlette.requests import Request
 
+from tracecat.agent.diagnostics import MAX_LLM_ERROR_BODY_BYTES
 from tracecat.agent.gateway import (
     TracecatCallbackHandler,
     _filter_allowed_model_settings,
@@ -865,7 +866,9 @@ async def test_provider_quota_survives_litellm_request_and_serialization(
     [
         b"not-json",
         b'{"error":{"message":"insufficient_quota"}}',
-        b'{"error":{"code":"insufficient_quota"}}'.ljust(64 * 1024 + 1, b" "),
+        b'{"error":{"code":"insufficient_quota"}}'.ljust(
+            MAX_LLM_ERROR_BODY_BYTES + 1, b" "
+        ),
     ],
 )
 async def test_quota_callback_ignores_unusable_provider_response(body: bytes) -> None:

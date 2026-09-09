@@ -25,7 +25,7 @@ from fastapi import HTTPException
 
 from tracecat import config as app_config
 from tracecat.agent.common.exceptions import AgentSandboxValidationError
-from tracecat.agent.diagnostics import LLMErrorDiagnostics
+from tracecat.agent.diagnostics import MAX_LLM_ERROR_BODY_BYTES, LLMErrorDiagnostics
 from tracecat.agent.error_policy import (
     agent_executor_protocol_failed,
     agent_executor_timed_out,
@@ -113,7 +113,6 @@ _ERROR_MESSAGES = {
     529: "LLM provider is overloaded - please try again shortly",
 }
 _proxy_load_tracker = get_load_tracker("llm_socket_proxy")
-_MAX_ERROR_CLASSIFICATION_BYTES = 64 * 1024
 _TRACE_REQUEST_ID_HEADER = "x-request-id"
 _ANTHROPIC_ONLY_FIELDS = (
     "anthropic_beta",
@@ -203,7 +202,7 @@ def _http_error_classification(
     try:
         payload = (
             orjson.loads(body)
-            if body and len(body) <= _MAX_ERROR_CLASSIFICATION_BYTES
+            if body and len(body) <= MAX_LLM_ERROR_BODY_BYTES
             else None
         )
     except orjson.JSONDecodeError:

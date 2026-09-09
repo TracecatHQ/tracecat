@@ -4,6 +4,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
+MAX_LLM_ERROR_BODY_BYTES = 64 * 1024
+
 
 class LLMErrorDiagnostics(BaseModel):
     """Safe request context for reporting an LLM failure.

@@ -25,6 +25,7 @@ from litellm.types.utils import CallTypesLiteral
 from openai import RateLimitError as OpenAIRateLimitError
 
 from tracecat import config as app_config
+from tracecat.agent.diagnostics import MAX_LLM_ERROR_BODY_BYTES
 from tracecat.agent.litellm_compat import apply_patch
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.tokens import verify_llm_token
@@ -384,7 +385,7 @@ def _response_has_provider_quota_code(response: httpx.Response) -> bool:
     except httpx.ResponseNotRead:
         return False
     # Do not add an unbounded parse of a provider-controlled response.
-    if len(body) > 64 * 1024:
+    if len(body) > MAX_LLM_ERROR_BODY_BYTES:
         return False
     try:
         payload = orjson.loads(body)
