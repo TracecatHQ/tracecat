@@ -1,16 +1,19 @@
-"""backfill assignments for membership dual writes
+"""derive membership with rollback compatibility
 
 Revision ID: 4134d4ebdc69
 Revises: 2f14222e0d12
 Create Date: 2026-09-08 17:43:26.780886
 
-Phase one retains legacy membership reads and writes while RBAC mutations also
-update membership in the same transaction. Backfill existing memberships before
-enabling those writers. Derived readers and table removal are later releases.
+Release 1 backfills existing memberships, switches reads to role assignments,
+and keeps transactional legacy writes for old pods and application rollback.
+No membership tables are removed.
 
-Before cutting over, repeat the backfill after this bridge release is fully
-deployed. Do not drop either table until the deployed app and its supported
-rollback version no longer read or write it.
+Release 2 runs a final backfill after older writers drain, then stops legacy
+writes. Keep the tables for rollback to release 1. Never backfill stale legacy
+rows after assignment-only writers start.
+
+Release 3 drops the tables only when deployed and supported rollback versions
+no longer read or write them.
 """
 
 import logging
@@ -173,8 +176,8 @@ def upgrade() -> None:
             "LOCK TABLE membership, organization_membership IN SHARE ROW EXCLUSIVE MODE"
         )
     )
-    # The bridge keeps legacy reads. Cover existing rows before RBAC writers
-    # start maintaining those rows from their surviving assignment paths.
+    # Cover existing rows before derived readers start. New writers also
+    # maintain legacy rows for the previous app version.
     backfill_assignments(connection)
     assert_no_membership_dropped(connection)
     # Organization-level RBAC writers must mirror workspace membership without

@@ -11,7 +11,7 @@ from sqlalchemy.orm import Mapped
 from tracecat.audit.logger import audit_log
 from tracecat.auth.schemas import UserCreate, UserRole
 from tracecat.auth.users import get_user_db_context, get_user_manager_context
-from tracecat.db.models import AccessToken, Approval, Membership, User
+from tracecat.db.models import AccessToken, Approval, LegacyMembership, User
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.organization.management import (
     ensure_single_tenant_user_defaults_for_session,
@@ -171,7 +171,7 @@ class AdminUserService(BasePlatformService):
             )
         )
         await self.session.execute(
-            delete(Membership).where(Membership.user_id == user_id)
+            delete(LegacyMembership).where(LegacyMembership.user_id == user_id)
         )
         await self.session.execute(
             update(Approval)
