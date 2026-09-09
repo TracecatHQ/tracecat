@@ -23,7 +23,7 @@ from tracecat import __version__ as APP_VERSION
 from tracecat import config
 from tracecat.db.exceptions import AuthPoolExhaustedError
 from tracecat.logger import logger
-from tracecat.observability.types import PlatformErrorCapture
+from tracecat.observability.types import PlatformErrorCapture, ProxyFailureContext
 from tracecat.runtime.errors import RuntimeErrorClassification, RuntimeErrorOwner
 from tracecat.temporal.error_chain import iter_error_chain
 
@@ -36,6 +36,7 @@ class WorkflowFailureEventContext:
     workflow_type: str
     attempt: int
     trigger_type: str
+    source_event_id: str | None = None
 
 
 class SentryTag(StrEnum):
@@ -89,7 +90,10 @@ _API_ALLOWED_TAGS = frozenset(
 )
 _WORKER_ALLOWED_CONTEXT_FIELDS = {
     "runtime": frozenset({"name", "version"}),
-    "tracecat_workflow": frozenset({"run_id", "type", "attempt", "trigger_type"}),
+    "tracecat_workflow": frozenset(
+        {"run_id", "type", "attempt", "trigger_type", "source_event_id"}
+    ),
+    "tracecat_proxy": frozenset({"route", "status_code"}),
     "tracecat_otel": frozenset({"trace_id", "span_id"}),
 }
 _API_ALLOWED_CONTEXT_FIELDS = {
@@ -146,6 +150,7 @@ def capture_activity_failure(
     classification: RuntimeErrorClassification,
     *,
     existing_capture: PlatformErrorCapture | None = None,
+    proxy_context: ProxyFailureContext | None = None,
 ) -> PlatformErrorCapture | None:
     """Capture a platform failure before its activity stack is serialized.
 
@@ -203,6 +208,14 @@ def capture_activity_failure(
                     {
                         "trace_id": f"{span_context.trace_id:032x}",
                         "span_id": f"{span_context.span_id:016x}",
+                    },
+                )
+            if proxy_context is not None:
+                scope.set_context(
+                    "tracecat_proxy",
+                    {
+                        "route": proxy_context.route,
+                        "status_code": proxy_context.status_code,
                     },
                 )
             event_id = sentry_sdk.capture_exception(error)
@@ -271,6 +284,7 @@ def capture_platform_failure(
             scope.set_context(
                 "tracecat_workflow",
                 {
+                    "source_event_id": context.source_event_id,
                     "run_id": context.run_id,
                     "type": context.workflow_type,
                     "attempt": context.attempt,

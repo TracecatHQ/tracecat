@@ -3,9 +3,11 @@ from __future__ import annotations
 import json
 from collections.abc import Awaitable, Callable, Iterator, Mapping
 from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import Any, cast
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
+import httpx
 import pytest
 import sentry_sdk
 from fastapi import Depends, FastAPI, HTTPException
@@ -42,6 +44,12 @@ from tracecat.agent.error_policy import (
     invalid_agent_configuration,
     user_agent_execution_failed,
 )
+from tracecat.agent.sandbox.llm_proxy import (
+    LLMProxyError,
+    LLMRoute,
+    LLMRoutingPlan,
+    LLMSocketProxy,
+)
 from tracecat.api.common import auth_pool_exhausted_exception_handler
 from tracecat.auth.credentials import _authenticate_executor
 from tracecat.db.exceptions import AuthPoolExhaustedError
@@ -77,6 +85,7 @@ from tracecat.runtime.errors import (
     RetryDisposition,
     RuntimeErrorClassification,
     RuntimeErrorKind,
+    RuntimeErrorOwner,
 )
 from tracecat.temporal.errors import (
     activity_error_boundary,
@@ -1267,6 +1276,12 @@ async def test_activity_capture_preserves_source_stack_across_temporal_transport
     with pytest.raises(ApplicationError):
         await attribution.execute_workflow(_workflow_input())
     assert len(sentry_events) == 2
+    terminal_event = sentry_events[1]
+    assert "contexts" in terminal_event
+    assert (
+        terminal_event["contexts"]["tracecat_workflow"]["source_event_id"]
+        == capture.event_id
+    )
     event = sentry_events[0]
     assert "tags" in event
     assert "exception" in event
@@ -1364,3 +1379,71 @@ def test_activity_receipt_deduplicates_only_matching_source(
         )
         is None
     )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("transport_failure", [False, True])
+async def test_proxy_source_capture_keeps_safe_origin_and_receipt(
+    sentry_events: list[Event], tmp_path: Path, transport_failure: bool
+) -> None:
+    errors: list[LLMProxyError] = []
+
+    async def upstream(request: httpx.Request) -> httpx.Response:
+        if transport_failure:
+            raise httpx.ConnectError(_SENSITIVE_VALUE, request=request)
+        return httpx.Response(401, text=_SENSITIVE_VALUE)
+
+    proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=LLMRoutingPlan(
+            managed_route=LLMRoute(
+                base_url="https://example.com", model_provider="openai", mode="managed"
+            ),
+            direct_routes={},
+        ),
+        on_error=errors.append,
+    )
+    writer = Mock()
+    writer.is_closing.return_value = False
+    writer.drain = AsyncMock()
+    environment = ActivityEnvironment()
+    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
+        proxy._client = client
+        for _ in range(2):
+            await environment.run(
+                proxy._forward_request,
+                {
+                    "method": "POST",
+                    "path": "/v1/messages",
+                    "headers": {"Authorization": _SENSITIVE_VALUE},
+                    "body": b"{}",
+                },
+                writer,
+            )
+    assert len(errors) == len(sentry_events) == 1
+    error = errors[0]
+    assert error.sentry_capture is not None
+    event = sentry_events[0]
+    assert "event_id" in event
+    assert error.sentry_capture.event_id == event["event_id"]
+    assert error.classification.owner is RuntimeErrorOwner.PLATFORM
+    expected_type = "ConnectError" if transport_failure else "HTTPStatusError"
+    assert error.classification.cause_type == expected_type
+    assert "contexts" in event
+    assert "exception" in event
+    assert event["contexts"]["tracecat_proxy"]["route"] == "managed"
+    if not transport_failure:
+        assert event["contexts"]["tracecat_proxy"]["status_code"] == 401
+    frames = [
+        frame
+        for value in event["exception"]["values"]
+        for frame in value.get("stacktrace", {}).get("frames", [])
+    ]
+    assert any(
+        frame["function"]
+        == ("upstream" if transport_failure else "_forward_http_backend_request")
+        for frame in frames
+    )
+    assert all("vars" not in frame for frame in frames)
+    assert _SENSITIVE_VALUE not in json.dumps(event)
+    assert "https://example.com" not in json.dumps(event)

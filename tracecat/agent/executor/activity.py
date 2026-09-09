@@ -247,7 +247,7 @@ class AgentExecutorResult(BaseModel):
     # Typed terminal attribution produced by the trusted executor boundary.
     # None keeps activity results recorded before this field replayable.
     classification: RuntimeErrorClassification | None = None
-    sentry_capture: PlatformErrorCapture | None = Field(default=None, exclude=True)
+    sentry_capture: PlatformErrorCapture | None = Field(default=None)
     # None means a legacy activity result did not carry this field. The
     # workflow treats unknown failed results as already terminal-emitted so old
     # histories keep their original command shape.
@@ -902,6 +902,7 @@ class SandboxedAgentExecutor:
                         proxy_error = fatal_error_task.result()
                         result.error = proxy_error.message
                         result.classification = proxy_error.classification
+                        result.sentry_capture = proxy_error.sentry_capture
                         result.terminal_stream_error_emitted = (
                             await handler.emit_terminal_error(proxy_error.message)
                         )
