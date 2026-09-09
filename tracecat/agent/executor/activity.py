@@ -732,11 +732,13 @@ class SandboxedAgentExecutor:
             logger.error("Agent configuration is invalid", error=str(e))
             result.error = str(e)
             result.classification = invalid_agent_configuration(e)
+            result.diagnostic = None
         except AgentSandboxExecutionError as e:
             logger.error("Agent sandbox execution failed", error=str(e))
             failure = agent_runtime_failure(e, fallback_message=str(e))
             result.error = failure.message
             result.classification = failure.classification
+            result.diagnostic = None
             result.sentry_capture = capture_activity_failure(
                 e, failure.classification, existing_capture=result.sentry_capture
             )
@@ -747,6 +749,7 @@ class SandboxedAgentExecutor:
             )
             result.error = failure.message
             result.classification = failure.classification
+            result.diagnostic = None
             result.sentry_capture = capture_activity_failure(
                 e, failure.classification, existing_capture=result.sentry_capture
             )
@@ -818,6 +821,7 @@ class SandboxedAgentExecutor:
         result.success = loopback_result.success
         result.error = loopback_result.error
         result.classification = loopback_result.classification
+        result.diagnostic = None
         result.sentry_capture = loopback_result.sentry_capture
         result.approval_requested = loopback_result.approval_requested
         result.approval_items = loopback_result.approval_items or None
@@ -981,6 +985,7 @@ class SandboxedAgentExecutor:
                         f"Agent execution timed out after {self.timeout_seconds}s"
                     )
                     result.classification = agent_executor_timed_out()
+                    result.diagnostic = None
                     # Raise locally so the deadline event retains this source frame.
                     try:
                         raise TimeoutError(result.error)
@@ -1003,6 +1008,7 @@ class SandboxedAgentExecutor:
             failure = agent_runtime_failure(e, fallback_message=str(e))
             result.error = failure.message
             result.classification = failure.classification
+            result.diagnostic = None
             result.sentry_capture = capture_activity_failure(
                 e,
                 failure.classification,
