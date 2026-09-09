@@ -1,7 +1,7 @@
 """add invitation email delivery columns
 
 Revision ID: bc3124ad3437
-Revises: 44d7e75b6f4c
+Revises: 526f867f6a75
 Create Date: 2026-09-08 15:53:21.646617
 
 """
@@ -14,7 +14,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "bc3124ad3437"
-down_revision: str | None = "44d7e75b6f4c"
+down_revision: str | None = "526f867f6a75"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
