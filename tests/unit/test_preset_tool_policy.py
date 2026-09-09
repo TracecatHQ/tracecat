@@ -80,7 +80,11 @@ def test_stdio_requirement_is_independent_of_source(direct: bool) -> None:
 
 
 @pytest.mark.parametrize(
-    "whole_integration, expected", [(False, {}), (True, {"mcp.Synthetic.write": True})]
+    "whole_integration, expected",
+    [
+        (False, {}),
+        (True, {"mcp.synthetic.write": True}),
+    ],
 )
 def test_mcp_approvals_apply_only_to_selected_available_tools(
     whole_integration: bool, expected: dict[str, bool]
@@ -89,6 +93,7 @@ def test_mcp_approvals_apply_only_to_selected_available_tools(
     integration = MCPIntegration(
         id=integration_id,
         name="Synthetic",
+        slug="synthetic",
         server_type="http",
         tools=[
             {
@@ -194,8 +199,33 @@ async def test_runtime_loads_direct_mcp_metadata_once(
     assert result.mcp_servers and result.mcp_servers[0].get("id") == str(integration_id)
     load.assert_awaited_once()
 
-    load.reset_mock()
-    integration.server_type = "stdio"
+
+@pytest.mark.anyio
+async def test_preview_loads_direct_mcp_metadata_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        config, "TRACECAT__DB_ENCRYPTION_KEY", Fernet.generate_key().decode()
+    )
+    integration_id = uuid.uuid4()
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+    integration = MCPIntegration(
+        id=integration_id,
+        workspace_id=role.workspace_id,
+        name="Synthetic",
+        slug="synthetic",
+        server_type="stdio",
+        tools=[],
+    )
+    service = AgentPresetService(AsyncMock(spec=AsyncSession), role=role)
+    monkeypatch.setattr(service.skill_tools, "require_entitlement", AsyncMock())
+    load = AsyncMock(return_value=[integration])
+    monkeypatch.setattr(IntegrationService, "list_mcp_integrations", load)
     monkeypatch.setattr(service.skills, "validate_binding_inputs", AsyncMock())
     monkeypatch.setattr(
         service, "_binding_specs_from_inputs", AsyncMock(return_value=[])

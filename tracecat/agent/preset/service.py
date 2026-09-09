@@ -1345,7 +1345,8 @@ class AgentPresetService(BaseWorkspaceService):
                 continue
             http_ref: MCPHttpServerConfig = {
                 "type": "http",
-                "name": mcp_integration.name,
+                # Display names need not be unique; route by the workspace-unique slug.
+                "name": mcp_integration.slug,
                 "url": mcp_integration.server_uri,
                 "id": str(mcp_integration.id),
             }

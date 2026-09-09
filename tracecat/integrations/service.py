@@ -4350,7 +4350,8 @@ class IntegrationService(BaseWorkspaceService):
 
         server_config: MCPHttpServerConfig = {
             "type": "http",
-            "name": mcp_integration.name,
+            # Display names need not be unique; route by the workspace-unique slug.
+            "name": mcp_integration.slug,
             "url": mcp_integration.server_uri,
             "headers": headers,
             "id": str(mcp_integration.id),
