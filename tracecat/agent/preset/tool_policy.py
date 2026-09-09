@@ -127,6 +127,8 @@ def resolve_tool_policy(
                 tool.enabled
                 and tool.status == "available"
                 and tool.requires_approval
+                # HTTP discovery excludes dotted remote names.
+                and "." not in tool.name
                 and (allowed_names is None or tool.name in allowed_names)
             ):
                 key = normalize_mcp_tool_name(
