@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import uuid
 from typing import Final
 
 from sqlalchemy import func, select, update
@@ -21,18 +20,15 @@ CLAIM_BATCH_SIZE: Final = 20
 MAX_EMAIL_ATTEMPTS: Final = 3
 
 
-async def claim_invitation_batch(
-    session: AsyncSession,
-    *,
-    limit: int = CLAIM_BATCH_SIZE,
-) -> list[OrganizationInvitation]:
-    """Claim unsent invitations and return detached delivery snapshots.
+async def deliver_next_invitation(
+    session: AsyncSession, transport: SMTPTransport
+) -> bool:
+    """Claim the oldest unsent invitation and send it.
 
-    Claims up to `limit` rows, incrementing their attempt count.
-    Claiming before sending makes delivery at-most-once: a crashed pod leaves
-    the row claimed and unsent rather than risking a duplicate email.
+    Returns False when nothing is left to claim or the relay asked for a retry.
+    One row is claimed per send, so a crash strands at most that row, never a batch.
     """
-    eligible = (
+    next_id = (
         select(OrganizationInvitation.id)
         .where(
             OrganizationInvitation.email_claimed_at.is_(None),
@@ -41,65 +37,60 @@ async def claim_invitation_batch(
             OrganizationInvitation.email_attempts < MAX_EMAIL_ATTEMPTS,
         )
         .order_by(OrganizationInvitation.created_at)
-        .limit(limit)
+        .limit(1)
         .with_for_update(skip_locked=True)
+        .scalar_subquery()
     )
     claimed = await session.execute(
         update(OrganizationInvitation)
-        .where(OrganizationInvitation.id.in_(eligible))
+        .where(
+            OrganizationInvitation.id == next_id,
+            Organization.id == OrganizationInvitation.organization_id,
+        )
         .values(
             email_claimed_at=func.now(),
             email_attempts=OrganizationInvitation.email_attempts + 1,
         )
-        .returning(OrganizationInvitation)
-    )
-    rows = list(claimed.scalars().all())
-    # Commit keeps rows attached; a later rollback expires them all.
-    # Detach now so one failed delivery cannot break the rest of the batch.
-    for row in rows:
-        session.expunge(row)
-    await session.commit()
-    return rows
-
-
-async def deliver_invitation(
-    session: AsyncSession,
-    invitation: OrganizationInvitation,
-    transport: SMTPTransport,
-) -> None:
-    """Send one claimed invitation and record its outcome.
-
-    A retryable failure releases the claim so a later tick retries; any other
-    failure leaves the row claimed and unsent, and the error surfaces.
-    """
-    # Claimed invitations are detached snapshots of the delivery fields.
-    invitation_id = invitation.id
-    attempts = invitation.email_attempts
-    organization_name = await session.scalar(
-        select(Organization.name).where(Organization.id == invitation.organization_id)
-    )
-    if organization_name is None:
-        raise RuntimeError(
-            f"Invitation {invitation_id} references a missing organization"
+        .returning(
+            OrganizationInvitation.id,
+            OrganizationInvitation.email,
+            OrganizationInvitation.token,
+            OrganizationInvitation.email_attempts,
+            Organization.name,
         )
+    )
+    row = claimed.one_or_none()
+    # Commit the claim before SMTP: a crash mid-send leaves the row claimed
+    # and unsent rather than risking a duplicate email.
+    await session.commit()
+    if row is None:
+        return False
 
+    invitation_id, email, token, attempts, organization_name = row.tuple()
     message = invitation_email(
-        to=invitation.email,
-        organization_name=organization_name,
-        token=invitation.token,
+        to=email, organization_name=organization_name, token=token
     )
     try:
         await transport.send(message)
     except EmailDeliveryError as error:
-        if error.retryable:
-            await _set_claim(session, invitation_id, claimed=False)
-            logger.warning(
-                "Invitation email delivery deferred",
-                invitation_id=str(invitation_id),
-                attempts=attempts,
+        if not error.retryable:
+            logger.exception(
+                "Invitation email delivery failed", invitation_id=str(invitation_id)
             )
-            return
-        raise
+            return True
+        await session.execute(
+            update(OrganizationInvitation)
+            .where(OrganizationInvitation.id == invitation_id)
+            .values(email_claimed_at=None)
+        )
+        await session.commit()
+        logger.warning(
+            "Invitation email delivery deferred",
+            invitation_id=str(invitation_id),
+            attempts=attempts,
+        )
+        # Ending the tick gives the relay POLL_INTERVAL_SECONDS before the retry.
+        return False
 
     await session.execute(
         update(OrganizationInvitation)
@@ -107,42 +98,24 @@ async def deliver_invitation(
         .values(email_sent_at=func.now())
     )
     await session.commit()
+    return True
 
 
-async def _set_claim(
-    session: AsyncSession, invitation_id: uuid.UUID, *, claimed: bool
-) -> None:
-    await session.execute(
-        update(OrganizationInvitation)
-        .where(OrganizationInvitation.id == invitation_id)
-        .values(email_claimed_at=func.now() if claimed else None)
-    )
-    await session.commit()
-
-
-async def run_invitation_email_tick(session: AsyncSession) -> int:
-    """Claim and deliver one batch. Returns the number of rows claimed.
+async def run_invitation_email_tick() -> int:
+    """Deliver up to one batch. Returns the number of rows sent or given up on.
 
     An unconfigured relay claims nothing, so rows wait until SMTP is set up.
     """
     transport = SMTPTransport.from_config()
     if transport is None:
         return 0
-
-    invitations = await claim_invitation_batch(session)
-    for invitation in invitations:
-        invitation_id = invitation.id
-        # Each row commits its own outcome so one failure never blocks the batch.
-        try:
-            await deliver_invitation(session, invitation, transport)
-        except Exception:
-            # The claim stands, so the row is not retried; surface it for Sentry.
-            await session.rollback()
-            logger.exception(
-                "Invitation email delivery failed",
-                invitation_id=str(invitation_id),
-            )
-    return len(invitations)
+    delivered = 0
+    async with get_async_session_bypass_rls_context_manager() as session:
+        while delivered < CLAIM_BATCH_SIZE and await deliver_next_invitation(
+            session, transport
+        ):
+            delivered += 1
+    return delivered
 
 
 async def start_invitation_email_consumer(
@@ -153,8 +126,7 @@ async def start_invitation_email_consumer(
     logger.info("Starting invitation email consumer")
     while not stop_event.is_set():
         try:
-            async with get_async_session_bypass_rls_context_manager() as session:
-                await run_invitation_email_tick(session)
+            await run_invitation_email_tick()
         except asyncio.CancelledError:
             raise
         except Exception:

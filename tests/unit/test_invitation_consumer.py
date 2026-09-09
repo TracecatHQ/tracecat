@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import uuid
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import select
@@ -20,7 +22,7 @@ from tracecat.db.models import Role as DBRole
 from tracecat.email.transport import EmailDeliveryError, OutboundEmail, SMTPTransport
 from tracecat.invitations.consumer import (
     MAX_EMAIL_ATTEMPTS,
-    claim_invitation_batch,
+    deliver_next_invitation,
     run_invitation_email_tick,
 )
 from tracecat.invitations.enums import InvitationStatus
@@ -37,6 +39,20 @@ class FakeTransport:
         if self.error is not None:
             raise self.error
         self.sent.append(message)
+
+
+@pytest.fixture(autouse=True)
+def tick_session(session: AsyncSession, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Route the tick's own session through the test transaction."""
+
+    @contextlib.asynccontextmanager
+    async def fake_session_context() -> AsyncGenerator[AsyncSession, None]:
+        yield session
+
+    monkeypatch.setattr(
+        "tracecat.invitations.consumer.get_async_session_bypass_rls_context_manager",
+        fake_session_context,
+    )
 
 
 @pytest.fixture
@@ -166,7 +182,7 @@ async def test_fresh_invitation_is_claimed_and_sent(
     transport = FakeTransport()
     _patch_transport(monkeypatch, transport)
 
-    claimed = await run_invitation_email_tick(session)
+    claimed = await run_invitation_email_tick()
 
     assert claimed == 1
     assert len(transport.sent) == 1
@@ -202,7 +218,9 @@ async def test_expired_non_pending_and_claimed_are_never_claimed(
         session, org, org_role, inviter, email_attempts=MAX_EMAIL_ATTEMPTS
     )
 
-    assert await claim_invitation_batch(session) == []
+    transport = AsyncMock(spec=SMTPTransport)
+    assert not await deliver_next_invitation(session, transport)
+    transport.send.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -215,7 +233,7 @@ async def test_unconfigured_smtp_claims_nothing(
 ) -> None:
     invitation = await _add_invitation(session, org, org_role, inviter)
 
-    assert await run_invitation_email_tick(session) == 0
+    assert await run_invitation_email_tick() == 0
 
     row = await _reload(session, invitation.id)
     assert row.email_claimed_at is None
@@ -237,7 +255,8 @@ async def test_retryable_failure_releases_the_claim_until_the_attempt_cap(
     )
     _patch_transport(monkeypatch, failing)
 
-    assert await run_invitation_email_tick(session) == 1
+    # A deferred row ends the tick so the same relay is not hammered.
+    assert await run_invitation_email_tick() == 0
     row = await _reload(session, invitation.id)
     assert row.email_claimed_at is None
     assert row.email_sent_at is None
@@ -246,7 +265,7 @@ async def test_retryable_failure_releases_the_claim_until_the_attempt_cap(
     # A later tick with a healthy relay delivers the released row.
     healthy = FakeTransport()
     _patch_transport(monkeypatch, healthy)
-    assert await run_invitation_email_tick(session) == 1
+    assert await run_invitation_email_tick() == 1
     row = await _reload(session, invitation.id)
     assert row.email_sent_at is not None
     assert row.email_attempts == 2
@@ -268,14 +287,14 @@ async def test_retryable_failures_stop_at_the_attempt_cap(
     )
 
     for _ in range(MAX_EMAIL_ATTEMPTS):
-        assert await run_invitation_email_tick(session) == 1
+        assert await run_invitation_email_tick() == 0
 
     row = await _reload(session, invitation.id)
     assert row.email_attempts == MAX_EMAIL_ATTEMPTS
     assert row.email_sent_at is None
     # Released but over the cap, so no further tick picks it up.
     assert row.email_claimed_at is None
-    assert await run_invitation_email_tick(session) == 0
+    assert await run_invitation_email_tick() == 0
 
 
 @pytest.mark.anyio
@@ -294,13 +313,13 @@ async def test_non_retryable_failure_leaves_the_row_claimed_forever(
     )
     invitation_id = invitation.id
 
-    assert await run_invitation_email_tick(session) == 1
+    assert await run_invitation_email_tick() == 1
 
     row = await _reload(session, invitation_id)
     assert row.email_claimed_at is not None
     assert row.email_sent_at is None
     assert row.email_attempts == 1
-    assert await run_invitation_email_tick(session) == 0
+    assert await run_invitation_email_tick() == 0
 
 
 @pytest.mark.anyio
@@ -329,13 +348,47 @@ async def test_failed_delivery_does_not_strand_remaining_batch(
     transport = FailFirstTransport()
     _patch_transport(monkeypatch, transport)
 
-    assert await run_invitation_email_tick(session) == 3
+    assert await run_invitation_email_tick() == 3
     assert len(transport.sent) == 2
     rows = [await _reload(session, row_id) for row_id in invitation_ids]
     assert all(row.email_claimed_at is not None for row in rows)
     assert all(row.email_attempts == 1 for row in rows)
     assert sum(row.email_sent_at is not None for row in rows) == 2
-    assert await run_invitation_email_tick(session) == 0
+    assert await run_invitation_email_tick() == 0
+
+
+@pytest.mark.anyio
+async def test_cancel_mid_send_strands_only_the_in_flight_row(
+    session: AsyncSession,
+    org: Organization,
+    org_role: DBRole,
+    inviter: User,
+    smtp_configured: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    invitations = [
+        await _add_invitation(session, org, org_role, inviter) for _ in range(3)
+    ]
+    invitation_ids = [invitation.id for invitation in invitations]
+
+    class CancelledTransport(FakeTransport):
+        async def send(self, message: OutboundEmail) -> None:
+            # The claim must already be committed before SMTP starts.
+            assert not session.in_transaction()
+            raise asyncio.CancelledError
+
+    _patch_transport(monkeypatch, CancelledTransport())
+    with pytest.raises(asyncio.CancelledError):
+        await run_invitation_email_tick()
+
+    rows = [await _reload(session, row_id) for row_id in invitation_ids]
+    assert sum(row.email_claimed_at is not None for row in rows) == 1
+    assert sum(row.email_attempts for row in rows) == 1
+
+    healthy = FakeTransport()
+    _patch_transport(monkeypatch, healthy)
+    assert await run_invitation_email_tick() == 2
+    assert len(healthy.sent) == 2
 
 
 @pytest.fixture
@@ -389,31 +442,38 @@ async def org_factory_session() -> AsyncGenerator[AsyncSession, None]:
 
 
 @pytest.mark.anyio
-async def test_concurrent_ticks_claim_disjoint_rows(
+async def test_concurrent_ticks_deliver_each_invitation_once(
     org_factory_session: AsyncSession,
     committed_org: tuple[Organization, DBRole, User],
+    smtp_configured: None,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     org, role, user = committed_org
     invitations = [
         await _add_invitation(org_factory_session, org, role, user) for _ in range(6)
     ]
-    ids = {invitation.id for invitation in invitations}
-
     engine = create_async_engine(TEST_DB_CONFIG.test_url, poolclass=NullPool)
+    transport = FakeTransport()
+    _patch_transport(monkeypatch, transport)
 
-    async def claim() -> set[uuid.UUID]:
+    @contextlib.asynccontextmanager
+    async def independent_session() -> AsyncGenerator[AsyncSession, None]:
         async with AsyncSession(engine, expire_on_commit=False) as session:
-            rows = await claim_invitation_batch(session)
-            return {row.id for row in rows}
+            yield session
 
+    monkeypatch.setattr(
+        "tracecat.invitations.consumer.get_async_session_bypass_rls_context_manager",
+        independent_session,
+    )
     try:
-        first, second = await asyncio.gather(claim(), claim())
+        await asyncio.gather(run_invitation_email_tick(), run_invitation_email_tick())
     finally:
         await engine.dispose()
 
-    # SKIP LOCKED means no row is handed to two pollers, so no email is doubled.
-    assert first & second == set()
-    assert (first | second) & ids == ids
+    # SKIP LOCKED hands each row to one poller, so no email is doubled.
+    assert sorted(m.to[0] for m in transport.sent) == sorted(
+        invitation.email for invitation in invitations
+    )
 
     for invitation in invitations:
         await org_factory_session.delete(invitation)
