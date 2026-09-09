@@ -8,7 +8,11 @@ from pydantic import TypeAdapter
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tests.support.membership import grant_org_membership, grant_workspace_membership
+from tests.support.membership import (
+    grant_org_membership,
+    grant_org_membership_via_group,
+    grant_workspace_membership,
+)
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import ADMIN_SCOPES
@@ -22,6 +26,7 @@ from tracecat.db.models import (
     RoleScope,
     Scope,
     User,
+    UserRoleAssignment,
     Workspace,
 )
 from tracecat.db.models import (
@@ -1033,6 +1038,64 @@ class TestAcceptInvitation:
                 select(LegacyOrganizationMembership).where(
                     LegacyOrganizationMembership.user_id == external_user.id,
                     LegacyOrganizationMembership.organization_id == inv_org.id,
+                )
+            )
+        ).scalar_one_or_none() is not None
+
+    async def test_accept_invitation_keeps_group_only_org_member_indirect(
+        self,
+        session: AsyncSession,
+        inv_org: Organization,
+        inv_workspace: Workspace,
+        admin_user: User,
+        external_user: User,
+        rbac_roles: dict[str, str],
+    ):
+        """A group-only org member gains no direct org-wide assignment."""
+        await grant_org_membership_via_group(
+            session, user_id=external_user.id, organization_id=inv_org.id
+        )
+        await session.commit()
+
+        role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
+        service = WorkspaceService(session, role=role)
+        params = WorkspaceInvitationCreate(
+            email=external_user.email,
+            role_id=rbac_roles["workspace-editor"],
+        )
+        invitation = await service.create_invitation(inv_workspace.id, params)
+
+        membership = await service.accept_invitation(invitation.token, external_user.id)
+
+        assert membership.user_id == external_user.id
+        direct_org_assignments = (
+            (
+                await session.execute(
+                    select(UserRoleAssignment).where(
+                        UserRoleAssignment.user_id == external_user.id,
+                        UserRoleAssignment.organization_id == inv_org.id,
+                        UserRoleAssignment.workspace_id.is_(None),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(direct_org_assignments) == 0
+
+        assert (
+            await session.execute(
+                select(UserRoleAssignment).where(
+                    UserRoleAssignment.user_id == external_user.id,
+                    UserRoleAssignment.workspace_id == inv_workspace.id,
+                )
+            )
+        ).scalar_one_or_none() is not None
+        assert (
+            await session.execute(
+                select(LegacyMembership).where(
+                    LegacyMembership.user_id == external_user.id,
+                    LegacyMembership.workspace_id == inv_workspace.id,
                 )
             )
         ).scalar_one_or_none() is not None

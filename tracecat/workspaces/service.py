@@ -24,6 +24,7 @@ from tracecat.db.models import (
     LegacyMembership,
     LegacyOrganizationMembership,
     Membership,
+    OrganizationMembership,
     Ownership,
     UserRoleAssignment,
     Workspace,
@@ -477,12 +478,11 @@ class WorkspaceService(BaseOrgService):
         workspace = invitation.workspace
         organization_id = workspace.organization_id
 
-        # Org presence is the org-wide assignment, so query it directly: the
-        # workspace assignment created below does not grant it.
-        org_assignment_stmt = select(UserRoleAssignment.id).where(
-            UserRoleAssignment.user_id == user_id,
-            UserRoleAssignment.organization_id == organization_id,
-            UserRoleAssignment.workspace_id.is_(None),
+        # Derived org presence covers group paths, so a group-only org member
+        # keeps their indirect grant instead of gaining a direct org role.
+        org_assignment_stmt = select(OrganizationMembership.user_id).where(
+            OrganizationMembership.user_id == user_id,
+            OrganizationMembership.organization_id == organization_id,
         )
         needs_org_assignment = (
             await self.session.execute(org_assignment_stmt)

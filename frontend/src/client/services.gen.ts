@@ -1406,6 +1406,7 @@ export const workspacesCreateWorkspaceMembership = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
+      409: "User is already a member of the workspace.",
       422: "Validation Error",
     },
   })
@@ -1456,6 +1457,7 @@ export const workspacesDeleteWorkspaceMembership = (
       user_id: data.userId,
     },
     errors: {
+      409: "User remains a member through a group.",
       422: "Validation Error",
     },
   })
