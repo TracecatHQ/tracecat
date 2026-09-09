@@ -1,4 +1,4 @@
-"""Duplicate display names must not merge MCP grants or execution endpoints."""
+"""MCP routing must preserve integration identity and avoid reserved names."""
 
 import uuid
 from collections.abc import AsyncIterator
@@ -23,19 +23,29 @@ from tracecat.agent.schemas import ToolFilters
 from tracecat.agent.tools import BuildToolsResult
 from tracecat.auth.types import Role
 from tracecat.db.models import MCPIntegration, SkillVersion, SkillVersionMcpTool
+from tracecat.exceptions import TracecatValidationError
 from tracecat.integrations.enums import MCPAuthType
+from tracecat.integrations.mcp_validation import MCPConfigurationError
 from tracecat.integrations.service import IntegrationService
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
 
 
-@pytest.mark.anyio
-async def test_duplicate_display_names_keep_subsets_and_endpoints_separate(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+@pytest.fixture(autouse=True)
+def db_encryption_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         config, "TRACECAT__DB_ENCRYPTION_KEY", Fernet.generate_key().decode()
     )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "slugs", [("alpha", "beta"), ("user-tracecat-registry", "user-tracecat_registry")]
+)
+async def test_duplicate_display_names_keep_subsets_and_endpoints_separate(
+    monkeypatch: pytest.MonkeyPatch,
+    slugs: tuple[str, str],
+) -> None:
     role = Role(
         type="service",
         service_id="tracecat-agent-executor",
@@ -56,7 +66,7 @@ async def test_duplicate_display_names_keep_subsets_and_endpoints_separate(
                 for name in ("read", "write")
             ],
         )
-        for slug in ("alpha", "beta")
+        for slug in slugs
     ]
     by_id = {integration.id: integration for integration in integrations}
     version = SkillVersion(id=uuid.uuid4(), skill_id=uuid.uuid4(), name="triage")
@@ -74,12 +84,12 @@ async def test_duplicate_display_names_keep_subsets_and_endpoints_separate(
         {version.id: version},
         by_id,
     )
-    assert policy.tool_approvals == {"mcp.alpha.read": True}
+    assert policy.tool_approvals == {f"mcp.{slugs[0]}.read": True}
     session = AsyncMock(spec=AsyncSession)
     service = AgentPresetService(session, role=role)
     refs = service._resolve_tool_mcp_grants(policy.mcp_grants, by_id)
     assert refs is not None
-    assert [ref["name"] for ref in refs] == ["alpha", "beta"]
+    assert [ref["name"] for ref in refs] == list(slugs)
     integration_service = IntegrationService(session, role=role)
     for integration, ref in zip(integrations, refs, strict=True):
         server_config = await integration_service.resolve_mcp_http_server_config(
@@ -146,7 +156,10 @@ async def test_duplicate_display_names_keep_subsets_and_endpoints_separate(
             fail_on_mcp_discovery_error=True,
         )
     )
-    assert set(result.tool_definitions) == {"mcp__alpha__read", "mcp__beta__write"}
+    assert set(result.tool_definitions) == {
+        f"mcp__{slugs[0]}__read",
+        f"mcp__{slugs[1]}__write",
+    }
     assert result.tool_approvals == policy.tool_approvals
     assert result.user_mcp_claims is not None
     assert {(claim.name, claim.id) for claim in result.user_mcp_claims} == {
@@ -163,6 +176,119 @@ async def test_duplicate_display_names_keep_subsets_and_endpoints_separate(
         assert parsed is not None
         await client.call_tool(*parsed, {})
     assert calls == [
-        ("https://alpha.example.test/mcp", "read"),
-        ("https://beta.example.test/mcp", "write"),
+        (f"https://{slugs[0]}.example.test/mcp", "read"),
+        (f"https://{slugs[1]}.example.test/mcp", "write"),
     ]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("name", "requested_slug", "separator", "expected"),
+    [
+        ("Tracecat Registry", None, "-", "user-tracecat-registry"),
+        ("Tracecat Registry Team", None, "-", "user-tracecat-registry-team"),
+        ("Example", "tracecat-registry", "-", "user-tracecat-registry"),
+        ("Example", "tracecat_registry", "_", "user-tracecat_registry"),
+        ("Example", "tracecat_registry_team", "_", "user-tracecat_registry_team"),
+        ("Example", "tracecat-registryish", "-", "tracecat-registryish"),
+        ("Example", "tracecat_registryish", "_", "tracecat_registryish"),
+        ("Example Tools", None, "-", "example-tools"),
+        ("Example", "custom_route", "_", "custom_route"),
+    ],
+)
+async def test_only_reserved_integration_slugs_are_escaped(
+    monkeypatch: pytest.MonkeyPatch,
+    name: str,
+    requested_slug: str | None,
+    separator: str,
+    expected: str,
+) -> None:
+    role = Role(
+        type="service",
+        service_id="tracecat-agent-executor",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+    service = IntegrationService(AsyncMock(spec=AsyncSession), role=role)
+    monkeypatch.setattr(
+        service, "_mcp_integration_slug_taken", AsyncMock(return_value=False)
+    )
+    slug = await service._generate_mcp_integration_slug(
+        name=name,
+        requested_slug=requested_slug,
+        requested_slug_separator=separator,
+    )
+    assert slug == expected
+    assert user_client.UserMCPClient.parse_user_mcp_tool_name(f"mcp__{slug}__read") == (
+        slug,
+        "read",
+    )
+
+
+@pytest.mark.anyio
+async def test_escaped_integration_slug_remains_unique(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    role = Role(
+        type="service",
+        service_id="tracecat-agent-executor",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+    service = IntegrationService(AsyncMock(spec=AsyncSession), role=role)
+    slug_taken = AsyncMock(side_effect=[True, False])
+    monkeypatch.setattr(service, "_mcp_integration_slug_taken", slug_taken)
+    assert (
+        await service._generate_mcp_integration_slug(name="Tracecat Registry")
+        == "user-tracecat-registry-1"
+    )
+    assert [call.args[0] for call in slug_taken.await_args_list] == [
+        "user-tracecat-registry",
+        "user-tracecat-registry-1",
+    ]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "slug",
+    [
+        "tracecat-registry",
+        "tracecat-registry-team",
+        "tracecat_registry",
+        "tracecat_registry_team",
+    ],
+)
+async def test_existing_reserved_slugs_fail_before_routing(slug: str) -> None:
+    role = Role(
+        type="service",
+        service_id="tracecat-agent-executor",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+    session = AsyncMock(spec=AsyncSession)
+    integration = MCPIntegration(
+        id=uuid.uuid4(),
+        workspace_id=role.workspace_id,
+        name="Example integration",
+        slug=slug,
+        server_type="http",
+        server_uri="https://example.test/mcp",
+        auth_type=MCPAuthType.NONE,
+    )
+    preset_service = AgentPresetService(session, role=role)
+    with pytest.raises(TracecatValidationError) as exc_info:
+        preset_service._mcp_integration_refs(
+            [str(integration.id)], {integration.id: integration}
+        )
+    assert exc_info.value.detail == {
+        "code": "reserved_mcp_integration_slug",
+        "mcp_integration_id": str(integration.id),
+    }
+    integration_service = IntegrationService(session, role=role)
+    with pytest.raises(MCPConfigurationError, match="Recreate the integration"):
+        await integration_service.resolve_mcp_http_server_config(integration)
+    assert integration.slug == slug
+    session.execute.assert_not_awaited()
+    assert (
+        user_client.UserMCPClient.parse_user_mcp_tool_name(f"mcp__{slug}__read") is None
+    )

@@ -34,6 +34,15 @@ REGISTRY_MCP_SERVER_NAME = "tracecat-registry"
 LEGACY_REGISTRY_MCP_SERVER_NAME = "tracecat_registry"
 
 
+def is_tracecat_registry_server_name(server_name: str) -> bool:
+    """Return whether a server name routes to the built-in registry."""
+    return (
+        server_name in {REGISTRY_MCP_SERVER_NAME, LEGACY_REGISTRY_MCP_SERVER_NAME}
+        or server_name.startswith(f"{REGISTRY_MCP_SERVER_NAME}-")
+        or server_name.startswith(f"{LEGACY_REGISTRY_MCP_SERVER_NAME}_")
+    )
+
+
 # Lone surrogates cannot cross JSON serialization.
 _SURROGATE_RE = re.compile(r"[\ud800-\udfff]")
 

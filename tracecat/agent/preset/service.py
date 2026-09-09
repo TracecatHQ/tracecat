@@ -24,6 +24,7 @@ from tracecat.agent.common.types import (
     MCPServerToolSummary,
     MCPStdioServerConfig,
 )
+from tracecat.agent.mcp.utils import is_tracecat_registry_server_name
 from tracecat.agent.preset.resolver import resolve_agents_config
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
@@ -1358,6 +1359,15 @@ class AgentPresetService(BaseWorkspaceService):
                     },
                 )
                 continue
+            if is_tracecat_registry_server_name(mcp_integration.slug):
+                raise TracecatValidationError(
+                    "MCP integration slug conflicts with the built-in registry. "
+                    "Recreate the integration to assign a safe slug.",
+                    detail={
+                        "code": "reserved_mcp_integration_slug",
+                        "mcp_integration_id": str(mcp_integration.id),
+                    },
+                )
             http_ref: MCPHttpServerConfig = {
                 "type": "http",
                 # Display names need not be unique; route by the workspace-unique slug.
