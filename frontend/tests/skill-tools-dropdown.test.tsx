@@ -15,18 +15,21 @@ const mockRegistryAction: RegistryActionReadMinimal = {
   action: "core.cases.get_case",
 }
 
+let mockLoading = false
+let mockError: Error | null = null
+
 let mockMcpIntegrations: MCPIntegrationRead[] = []
 
 jest.mock("@/lib/hooks", () => ({
   useRegistryActions: () => ({
     registryActions: [mockRegistryAction],
-    registryActionsIsLoading: false,
-    registryActionsError: null,
+    registryActionsIsLoading: mockLoading,
+    registryActionsError: mockError,
   }),
   useListMcpIntegrations: () => ({
     mcpIntegrations: mockMcpIntegrations,
-    mcpIntegrationsIsLoading: false,
-    mcpIntegrationsError: null,
+    mcpIntegrationsIsLoading: mockLoading,
+    mcpIntegrationsError: mockError,
   }),
 }))
 
@@ -145,3 +148,59 @@ it("warns about individual stdio grants and allows their removal", () => {
     mockMcpIntegrations = []
   }
 })
+
+it("blocks additions until unavailable chips are removed", () => {
+  const onChange = jest.fn()
+  const { rerender } = render(
+    <SkillToolsDropdown
+      workspaceId="workspace-1"
+      frontmatter="metadata: {tools: [core.cases.removed]}"
+      onChange={onChange}
+    />
+  )
+  expect(screen.getByText(/Unavailable tool IDs/)).toBeInTheDocument()
+  fireEvent.focus(screen.getByRole("textbox", { name: "Tools" }))
+  expect(screen.queryByRole("option")).not.toBeInTheDocument()
+  fireEvent.click(
+    screen.getByRole("button", { name: "Remove core.cases.removed" })
+  )
+  rerender(
+    <SkillToolsDropdown
+      workspaceId="workspace-1"
+      frontmatter={onChange.mock.calls[0][0]}
+      onChange={onChange}
+    />
+  )
+  fireEvent.focus(screen.getByRole("textbox", { name: "Tools" }))
+  expect(screen.getByText("Get case")).toBeInTheDocument()
+})
+
+it.each(["loading", "error"])(
+  "preserves IDs without declaring them unavailable during %s",
+  (state) => {
+    mockLoading = state === "loading"
+    mockError = state === "error" ? new Error("Unavailable") : null
+    try {
+      const onChange = jest.fn()
+      render(
+        <SkillToolsDropdown
+          workspaceId="workspace-1"
+          frontmatter="metadata: {tools: [core.cases.removed, mcp.deleted]}"
+          onChange={onChange}
+        />
+      )
+      expect(screen.queryByText(/Unavailable tool IDs/)).not.toBeInTheDocument()
+      fireEvent.focus(screen.getByRole("textbox", { name: "Tools" }))
+      expect(screen.queryByRole("option")).not.toBeInTheDocument()
+      fireEvent.click(
+        screen.getByRole("button", { name: "Remove mcp.deleted" })
+      )
+      expect(
+        readSkillFrontmatterTools(onChange.mock.calls[0][0]).tools
+      ).toEqual(["core.cases.removed"])
+    } finally {
+      mockLoading = false
+      mockError = null
+    }
+  }
+)

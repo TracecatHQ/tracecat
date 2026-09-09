@@ -40,8 +40,25 @@ export function SkillToolsDropdown({
   const { mcpIntegrations, mcpIntegrationsIsLoading, mcpIntegrationsError } =
     useListMcpIntegrations(workspaceId)
   const toolsState = useMemo(
-    () => readSkillFrontmatterTools(frontmatter, mcpIntegrations ?? []),
-    [frontmatter, mcpIntegrations]
+    () =>
+      readSkillFrontmatterTools(
+        frontmatter,
+        mcpIntegrationsIsLoading || mcpIntegrationsError
+          ? undefined
+          : mcpIntegrations,
+        registryActionsIsLoading || registryActionsError
+          ? undefined
+          : registryActions
+      ),
+    [
+      frontmatter,
+      mcpIntegrations,
+      mcpIntegrationsIsLoading,
+      mcpIntegrationsError,
+      registryActions,
+      registryActionsIsLoading,
+      registryActionsError,
+    ]
   )
   const suggestions = useMemo<Suggestion[]>(
     () =>
@@ -93,7 +110,9 @@ export function SkillToolsDropdown({
           suggestionsLoading ? "Loading tools..." : "Search tools..."
         }
         disabled={!toolsState.valid && !toolsState.canRemove}
-        disableSuggestions={!toolsState.valid}
+        disableSuggestions={
+          !toolsState.valid || suggestionsLoading || Boolean(suggestionsError)
+        }
         maxTags={toolsState.valid ? MAX_SKILL_TOOLS : toolsState.tools.length}
         searchKeys={TOOL_SEARCH_KEYS}
       />

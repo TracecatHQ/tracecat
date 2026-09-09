@@ -49,7 +49,8 @@ export type SkillFrontmatterToolsState =
  */
 export function readSkillFrontmatterTools(
   frontmatter: string,
-  mcpIntegrations: MCPIntegrationRead[] = []
+  mcpIntegrations?: MCPIntegrationRead[],
+  registryActions?: RegistryActionReadMinimal[]
 ): SkillFrontmatterToolsState {
   const document = parseDocument(frontmatter, { keepSourceTokens: true })
   if (document.errors.length > 0 || !isMap(document.contents)) {
@@ -119,7 +120,7 @@ export function readSkillFrontmatterTools(
     new Set<string>(values.map((value) => value.trim()))
   )
   const stdioSlugs = new Set(
-    mcpIntegrations
+    (mcpIntegrations ?? [])
       .filter((integration) => integration.server_type === "stdio")
       .map((integration) => integration.slug)
   )
@@ -134,6 +135,39 @@ export function readSkillFrontmatterTools(
     return {
       valid: false,
       message: `Invalid tool IDs: ${invalid.join(", ")}. Remove them or fix them in the YAML editor.`,
+      tools: normalized,
+      canRemove: true,
+    }
+  }
+  // An absent catalog means availability is unknown, not that it is empty.
+  const registryIds = registryActions
+    ? new Set(registryActions.map((action) => action.action))
+    : undefined
+  const integrationsBySlug = mcpIntegrations
+    ? new Map(
+        mcpIntegrations.map((integration) => [integration.slug, integration])
+      )
+    : undefined
+  const unavailable = normalized.filter((value) => {
+    if (!value.startsWith("mcp.")) {
+      return registryIds !== undefined && !registryIds.has(value)
+    }
+    if (!integrationsBySlug) return false
+    const [, slug, toolName] = value.split(".")
+    const integration = integrationsBySlug.get(slug)
+    if (!integration) return true
+    if (toolName === undefined) return false
+    return !integration.tools?.some(
+      (tool) =>
+        tool.name === toolName &&
+        tool.enabled !== false &&
+        tool.status === "available"
+    )
+  })
+  if (unavailable.length > 0) {
+    return {
+      valid: false,
+      message: `Unavailable tool IDs: ${unavailable.join(", ")}. Remove them or restore their availability before adding tools.`,
       tools: normalized,
       canRemove: true,
     }

@@ -322,3 +322,38 @@ it("allows removing malformed IDs one at a time", () => {
     tools: ["bad-two", "core.ok"],
   })
 })
+
+it.each([
+  "core.cases.removed",
+  "mcp.deleted",
+  "mcp.deleted.read",
+  "mcp.slack.unknown",
+  "mcp.slack.disabled_tool",
+  "mcp.slack.removed_tool",
+])("preserves unavailable ID %s for removal", (id) => {
+  const source = `metadata: {tools: ["${id}", "core.cases.get_case"]}`
+  expect(
+    readSkillFrontmatterTools(source, [mcpIntegration], [registryAction])
+  ).toMatchObject({
+    valid: false,
+    canRemove: true,
+    tools: [id, "core.cases.get_case"],
+    message: expect.stringContaining(`Unavailable tool IDs: ${id}`),
+  })
+})
+
+it("accepts available registry, whole-server, and individual MCP grants", () => {
+  expect(
+    readSkillFrontmatterTools(
+      "metadata: {tools: [core.cases.get_case, mcp.slack, mcp.slack.post_message]}",
+      [mcpIntegration],
+      [registryAction]
+    ).valid
+  ).toBe(true)
+})
+
+it("distinguishes unknown catalogs from loaded empty catalogs", () => {
+  const source = "metadata: {tools: [core.cases.get_case, mcp.slack]}"
+  expect(readSkillFrontmatterTools(source).valid).toBe(true)
+  expect(readSkillFrontmatterTools(source, [], []).valid).toBe(false)
+})
