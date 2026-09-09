@@ -11,8 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat.db.models import (
     GroupMember,
     GroupRoleAssignment,
-    Membership,
-    OrganizationMembership,
+    LegacyMembership,
+    LegacyOrganizationMembership,
     User,
     UserRoleAssignment,
 )
@@ -27,7 +27,7 @@ async def sync_membership(
 ) -> None:
     """Mirror an affected scope after assignment changes, before committing.
 
-    The legacy tables remain the read source during the compatibility release.
+    New readers derive membership; old readers use these compatibility rows.
     Keep a row while any direct or group path survives; remove it with the last
     path. Serialize projections for each user so concurrent revocations cannot
     leave a stale membership behind. Group writers must also lock their group
@@ -63,9 +63,9 @@ async def sync_membership(
     ).subquery("present_users")
     table = cast(
         Table,
-        Membership.__table__
+        LegacyMembership.__table__
         if workspace_id is not None
-        else OrganizationMembership.__table__,
+        else LegacyOrganizationMembership.__table__,
     )
     scope_column = "workspace_id" if workspace_id is not None else "organization_id"
     scope_id = workspace_id if workspace_id is not None else organization_id
