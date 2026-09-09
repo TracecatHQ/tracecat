@@ -292,6 +292,7 @@ _PLATFORM = RuntimeErrorOwner.PLATFORM
 _EXECUTION_FAILED = RuntimeErrorKind.AGENT_EXECUTION_FAILED
 _UNAVAILABLE = RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
 _TIMED_OUT = RuntimeErrorKind.AGENT_EXECUTOR_TIMED_OUT
+_LLM_READ_TIMEOUT = RuntimeErrorKind.AGENT_LLM_READ_TIMEOUT
 _RETRYABLE = RetryDisposition.RETRYABLE
 _NON_RETRYABLE = RetryDisposition.NON_RETRYABLE
 
@@ -344,8 +345,8 @@ _GATEWAY_EXPECTATIONS: tuple[_GatewayExpectation, ...] = (
     _GatewayExpectation(
         harness.GatewayRoute.DIRECT_PROVIDER,
         harness.GatewayFailureMode.READ_TIMEOUT,
-        _USER,
-        _EXECUTION_FAILED,
+        _PLATFORM,
+        _LLM_READ_TIMEOUT,
         _RETRYABLE,
     ),
     _GatewayExpectation(
@@ -401,8 +402,8 @@ _GATEWAY_EXPECTATIONS: tuple[_GatewayExpectation, ...] = (
     _GatewayExpectation(
         harness.GatewayRoute.CUSTOM_GATEWAY,
         harness.GatewayFailureMode.READ_TIMEOUT,
-        _USER,
-        _EXECUTION_FAILED,
+        _PLATFORM,
+        _LLM_READ_TIMEOUT,
         _RETRYABLE,
     ),
     _GatewayExpectation(
@@ -459,7 +460,7 @@ _GATEWAY_EXPECTATIONS: tuple[_GatewayExpectation, ...] = (
         harness.GatewayRoute.MANAGED_LITELLM,
         harness.GatewayFailureMode.READ_TIMEOUT,
         _PLATFORM,
-        _TIMED_OUT,
+        _LLM_READ_TIMEOUT,
         _RETRYABLE,
     ),
     _GatewayExpectation(
