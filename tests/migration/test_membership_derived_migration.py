@@ -1,21 +1,15 @@
-"""Tests for the derived-membership migration.
-
-Revision 4134d4ebdc69 backfills a role assignment for every legacy membership
-row and refuses to proceed if any would be left uncovered. It changes no
-schema: the legacy tables stay until the follow-up revision drops them, and
-the ORM derives membership from assignments (see tracecat.db.models).
-"""
+"""Tests for the membership compatibility migration and legacy readers."""
 
 from __future__ import annotations
 
 import os
-import re
 import subprocess
 import uuid
 from collections.abc import Iterator
 
 import pytest
 from sqlalchemy import Connection, Engine, create_engine, select, text
+from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.orm import Session
 
 from tests.database import TEST_DB_CONFIG
@@ -177,7 +171,7 @@ def _assign(
 
 
 def _presence(session: Session, user_id: uuid.UUID) -> tuple[int, int]:
-    """(workspace rows, org rows) the ORM derives for a user."""
+    """(workspace rows, org rows) visible to both app versions."""
     workspaces = session.scalars(
         select(Membership).where(Membership.user_id == user_id)
     ).all()
@@ -188,7 +182,7 @@ def _presence(session: Session, user_id: uuid.UUID) -> tuple[int, int]:
 
 
 def test_upgrade_keeps_legacy_tables(migration_db: str) -> None:
-    """No schema changes: the tables stay, with the columns the guard reads."""
+    """Both legacy tables and their original columns remain available."""
     engine = _engine(migration_db)
     try:
         with engine.connect() as conn:
@@ -232,66 +226,17 @@ def test_upgrade_backfills_every_legacy_member(previous_db: str) -> None:
         _run_alembic(previous_db, "upgrade", MIGRATION_REVISION)
         with Session(engine) as session:
             assert _presence(session, listed) == (1, 1)
-            assert _presence(session, drifted) == (1, 0)
+            assert _presence(session, drifted) == (0, 0)
     finally:
         engine.dispose()
 
 
-def test_orm_derives_presence_from_assignment_paths(migration_db: str) -> None:
-    """Each path kind lands in exactly the relation it should."""
-    engine = _engine(migration_db)
-    try:
-        with engine.begin() as conn:
-            org_id, editor_role = _seed_org(conn)
-            user_id = _seed_user(conn)
-            ws_a, ws_b = _seed_workspace(conn, org_id), _seed_workspace(conn, org_id)
-            group_id = uuid.uuid4()
-        with Session(engine) as session:
-            conn = session.connection()
-            assert _presence(session, user_id) == (0, 0)
-
-            # A workspace-scoped assignment is workspace presence only.
-            _assign(conn, org_id, user_id, ws_a, editor_role)
-            assert _presence(session, user_id) == (1, 0)
-
-            # An org-wide assignment is org presence only.
-            _assign(conn, org_id, user_id, None, editor_role)
-            assert _presence(session, user_id) == (1, 1)
-
-            # A group grant reaches its members.
-            conn.execute(
-                text(
-                    'INSERT INTO "group" (id, name, organization_id) '
-                    "VALUES (:id, 'Group', :org)"
-                ),
-                {"id": group_id, "org": org_id},
-            )
-            conn.execute(
-                text("INSERT INTO group_member (group_id, user_id) VALUES (:g, :u)"),
-                {"g": group_id, "u": user_id},
-            )
-            conn.execute(
-                text(
-                    "INSERT INTO group_role_assignment "
-                    "(id, organization_id, group_id, workspace_id, role_id) "
-                    "VALUES (gen_random_uuid(), :org, :g, :ws, :role)"
-                ),
-                {"org": org_id, "g": group_id, "ws": ws_b, "role": editor_role},
-            )
-            assert _presence(session, user_id) == (2, 1)
-            session.rollback()
-    finally:
-        engine.dispose()
-
-
-def test_orm_never_reads_the_legacy_tables(migration_db: str) -> None:
-    """A legacy row with no assignment is invisible: the tables are unread."""
-    for statement in (select(Membership), select(OrganizationMembership)):
-        compiled = str(statement.compile())
-        assert (
-            re.search(r"\bFROM (membership|organization_membership)\b", compiled)
-            is None
-        )
+def test_legacy_readers_remain_compatible(migration_db: str) -> None:
+    """A write from an old pod remains readable before reader cutover."""
+    for model in (Membership, OrganizationMembership):
+        compiled = str(select(model).compile())
+        assert f"FROM {model.__tablename__}" in compiled
+        assert "user_role_assignment" not in compiled
 
     engine = _engine(migration_db)
     try:
@@ -311,17 +256,119 @@ def test_orm_never_reads_the_legacy_tables(migration_db: str) -> None:
                 {"u": user_id, "o": org_id},
             )
         with Session(engine) as session:
-            assert _presence(session, user_id) == (0, 0)
+            assert _presence(session, user_id) == (1, 1)
+        _run_alembic(migration_db, "downgrade", PREVIOUS_REVISION)
+        with Session(engine) as session:
+            assert _presence(session, user_id) == (1, 1)
     finally:
         engine.dispose()
 
 
-def test_downgrade_is_a_no_op(migration_db: str) -> None:
-    _run_alembic(migration_db, "downgrade", PREVIOUS_REVISION)
+def test_repeat_backfill_keeps_revocations_and_covers_late_writes(
+    migration_db: str,
+) -> None:
+    """Rollback and another backfill cannot resurrect a dual-written removal."""
+    engine = _engine(migration_db)
+    try:
+        with engine.begin() as conn:
+            org_id, editor_role = _seed_org(conn)
+            revoked, late = _seed_user(conn), _seed_user(conn)
+            ws_id = _seed_workspace(conn, org_id)
+            for user_id in (revoked, late):
+                conn.execute(
+                    text("INSERT INTO membership VALUES (:u, :w)"),
+                    {"u": user_id, "w": ws_id},
+                )
+                conn.execute(
+                    text(
+                        "INSERT INTO organization_membership (user_id, organization_id) "
+                        "VALUES (:u, :o)"
+                    ),
+                    {"u": user_id, "o": org_id},
+                )
+            _assign(conn, org_id, revoked, ws_id, editor_role)
+            _assign(conn, org_id, revoked, None, editor_role)
+            # The bridge removes assignments and legacy membership together.
+            for table in (
+                "user_role_assignment",
+                "membership",
+                "organization_membership",
+            ):
+                conn.execute(
+                    text(f"DELETE FROM {table} WHERE user_id = :u"), {"u": revoked}
+                )
+
+        # Simulate returning to the old schema, then the final backfill pass.
+        _run_alembic(migration_db, "downgrade", PREVIOUS_REVISION)
+        with Session(engine) as session:
+            assert _presence(session, revoked) == (0, 0)
+            assert _presence(session, late) == (1, 1)
+        _run_alembic(migration_db, "upgrade", MIGRATION_REVISION)
+        with Session(engine) as session:
+            assert _presence(session, revoked) == (0, 0)
+            assert _presence(session, late) == (1, 1)
+            assert (
+                session.execute(
+                    text(
+                        "SELECT count(*) FROM user_role_assignment WHERE user_id = :u"
+                    ),
+                    {"u": revoked},
+                ).scalar_one()
+                == 0
+            )
+            assert (
+                session.execute(
+                    text(
+                        "SELECT count(*) FROM user_role_assignment WHERE user_id = :u"
+                    ),
+                    {"u": late},
+                ).scalar_one()
+                == 2
+            )
+    finally:
+        engine.dispose()
+
+
+def test_org_membership_writer_respects_tenant_rls(migration_db: str) -> None:
+    """Org writers can mirror their own workspaces, never another tenant's."""
     engine = _engine(migration_db)
     try:
         with engine.connect() as conn:
-            for name in LEGACY_TABLE_COLUMNS:
-                assert _relkind(conn, name) == "r"
+            org_id, _ = _seed_org(conn)
+            other_org, _ = _seed_org(conn)
+            user_id = _seed_user(conn)
+            workspace_id = _seed_workspace(conn, org_id)
+            other_workspace = _seed_workspace(conn, other_org)
+            role_name = f"membership_writer_{uuid.uuid4().hex}"
+            # This test-only role and its grants disappear on transaction rollback.
+            conn.execute(text(f'CREATE ROLE "{role_name}" NOLOGIN'))
+            conn.execute(text(f'GRANT USAGE ON SCHEMA public TO "{role_name}"'))
+            conn.execute(text(f'GRANT SELECT ON workspace TO "{role_name}"'))
+            conn.execute(
+                text(f'GRANT SELECT, INSERT, DELETE ON membership TO "{role_name}"')
+            )
+            conn.execute(text(f'SET LOCAL ROLE "{role_name}"'))
+            conn.execute(
+                text(
+                    "SELECT set_config('app.current_org_id', :org, true), "
+                    "set_config('app.current_workspace_id', '', true), "
+                    "set_config('app.rls_bypass', 'off', true)"
+                ),
+                {"org": str(org_id)},
+            )
+            statement = text("INSERT INTO membership VALUES (:u, :w)")
+            conn.execute(statement, {"u": user_id, "w": workspace_id})
+            assert conn.execute(
+                text("SELECT workspace_id FROM membership")
+            ).scalars().all() == [workspace_id]
+            with conn.begin_nested() as savepoint:
+                with pytest.raises(ProgrammingError):
+                    conn.execute(statement, {"u": user_id, "w": other_workspace})
+                savepoint.rollback()
+            conn.execute(text("DELETE FROM membership"))
+            assert (
+                conn.execute(text("SELECT count(*) FROM membership")).scalar_one() == 0
+            )
+            conn.rollback()
     finally:
         engine.dispose()

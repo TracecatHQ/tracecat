@@ -38,9 +38,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
-    select,
     text,
-    union_all,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.ext.hybrid import hybrid_property
@@ -242,9 +240,8 @@ class Organization(Base, TimestampMixin):
     # Relationships
     members: Mapped[list[User]] = relationship(
         "User",
-        secondary=lambda: OrganizationMembership.__table__,
+        secondary="organization_membership",
         back_populates="organizations",
-        viewonly=True,
         lazy="select",
     )
     organization_tier: Mapped[OrganizationTier | None] = relationship(
@@ -367,6 +364,49 @@ class OAuthAccount(SQLAlchemyBaseOAuthAccountTableUUID, Base):
     user: Mapped[User] = relationship(back_populates="oauth_accounts")
 
 
+class Membership(Base):
+    """Link table for users and workspaces (many to many)."""
+
+    __tablename__ = "membership"
+    __table_args__ = (
+        Index("ix_membership_workspace_id", "workspace_id"),
+        Index("ix_membership_workspace_user", "workspace_id", "user_id"),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("user.id"),
+        primary_key=True,
+    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("workspace.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+
+
+class OrganizationMembership(Base, TimestampMixin):
+    """Link table for users and organizations (many to many)."""
+
+    __tablename__ = "organization_membership"
+    __table_args__ = (
+        # Index for "get all members of org" queries
+        # (PK index covers user_id lookups, but not org_id alone)
+        Index("ix_org_membership_org_id", "organization_id"),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("user.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("organization.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+
+
 class Ownership(Base):
     """Table to map resources to owners.
 
@@ -417,8 +457,7 @@ class Workspace(OrganizationModel):
     )
     members: Mapped[list[User]] = relationship(
         "User",
-        secondary=lambda: Membership.__table__,
-        viewonly=True,
+        secondary=Membership.__table__,
         back_populates="workspaces",
     )
     workflows: Mapped[list[Workflow]] = relationship(
@@ -577,8 +616,7 @@ class User(SQLAlchemyBaseUserTableUUID, Base):
         "Workspace",
         back_populates="members",
         lazy="select",
-        secondary=lambda: Membership.__table__,
-        viewonly=True,
+        secondary=Membership.__table__,
     )
     assigned_cases: Mapped[list[Case]] = relationship(
         "Case",
@@ -606,10 +644,10 @@ class User(SQLAlchemyBaseUserTableUUID, Base):
     )
     organizations: Mapped[list[Organization]] = relationship(
         "Organization",
-        secondary=lambda: OrganizationMembership.__table__,
-        viewonly=True,
+        secondary=OrganizationMembership.__table__,
         back_populates="members",
         lazy="select",
+        passive_deletes=True,
     )
 
 
@@ -5996,80 +6034,3 @@ class SearchChunk(TimestampMixin, Base):
     embedding: Mapped[NDArray[np.float32] | None] = mapped_column(Vector())
     state: Mapped[str] = mapped_column(Text, server_default="prepared")
     error_code: Mapped[str | None] = mapped_column(Text)
-
-
-# Membership is derived, never stored: a user is present at a scope iff they
-# hold a role path there, directly or through a group.
-_role_paths = union_all(
-    select(
-        UserRoleAssignment.user_id,
-        UserRoleAssignment.organization_id,
-        UserRoleAssignment.workspace_id,
-    ),
-    select(
-        GroupMember.user_id,
-        GroupRoleAssignment.organization_id,
-        GroupRoleAssignment.workspace_id,
-    ).join_from(
-        GroupRoleAssignment,
-        GroupMember,
-        GroupMember.group_id == GroupRoleAssignment.group_id,
-    ),
-).subquery("role_paths")
-
-# Workspace rows only, matching the dropped `membership` table: org presence is
-# OrganizationMembership below.
-membership_select = (
-    select(
-        _role_paths.c.user_id,
-        _role_paths.c.organization_id,
-        _role_paths.c.workspace_id,
-    )
-    .where(_role_paths.c.workspace_id.is_not(None))
-    .distinct()
-    .subquery("membership_derived")
-)
-
-
-class Membership(Base):
-    """Read-only workspace membership derived from role assignments."""
-
-    __table__ = membership_select
-    __mapper_args__ = {
-        "primary_key": [
-            membership_select.c.user_id,
-            membership_select.c.organization_id,
-            membership_select.c.workspace_id,
-        ]
-    }
-
-    user_id: Mapped[uuid.UUID]
-    organization_id: Mapped[uuid.UUID]
-    workspace_id: Mapped[uuid.UUID]
-
-
-# The NULL-workspace slice reproduces the dropped `organization_membership`
-# table exactly: the migration backfills an organization-member assignment for
-# every row that lacked one. Widening this to any role path would grant org
-# access to workspace-only users who never had a row.
-organization_membership_select = (
-    select(_role_paths.c.user_id, _role_paths.c.organization_id)
-    .where(_role_paths.c.workspace_id.is_(None))
-    .distinct()
-    .subquery("organization_membership_derived")
-)
-
-
-class OrganizationMembership(Base):
-    """Read-only organization presence derived from role assignments."""
-
-    __table__ = organization_membership_select
-    __mapper_args__ = {
-        "primary_key": [
-            organization_membership_select.c.user_id,
-            organization_membership_select.c.organization_id,
-        ]
-    }
-
-    user_id: Mapped[uuid.UUID]
-    organization_id: Mapped[uuid.UUID]

@@ -8,7 +8,6 @@ import pytest
 from fastapi import HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tests.support.membership import grant_org_membership
 from tracecat.auth.credentials import (
     ACTIVE_ORG_COOKIE,
     _resolve_org_for_regular_user,
@@ -16,6 +15,7 @@ from tracecat.auth.credentials import (
 from tracecat.auth.schemas import UserRole
 from tracecat.db.models import (
     Organization,
+    OrganizationMembership,
     User,
 )
 
@@ -64,9 +64,10 @@ async def _seed_org(
 async def _add_membership(
     session: AsyncSession, *, user_id: uuid.UUID, organization_id: uuid.UUID
 ) -> None:
-    await grant_org_membership(
-        session, user_id=user_id, organization_id=organization_id
+    session.add(
+        OrganizationMembership(user_id=user_id, organization_id=organization_id)
     )
+    await session.flush()
 
 
 @pytest.mark.anyio
