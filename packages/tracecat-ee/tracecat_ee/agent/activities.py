@@ -45,6 +45,11 @@ from tracecat.exceptions import BuiltinRegistryHasNoSelectionError, EntitlementR
 from tracecat.logger import logger
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorClassification,
+    RuntimeErrorKind,
+)
 from tracecat.temporal.errors import raise_application_error_from_classification
 from tracecat.tiers.entitlements import EntitlementService
 from tracecat.tiers.enums import Entitlement
@@ -242,6 +247,38 @@ class AgentActivities:
         *,
         role: Role,
     ) -> BuildToolDefsResult:
+        if any(is_http_mcp_server(server) for server in args.mcp_servers or ()):
+            # Authored approval rules may still use an HTTP integration's old
+            # display name. Reject unmatched server identities before the run
+            # can silently lose an approval after switching to slug routing.
+            approval_prefixes = tuple(
+                normalize_mcp_tool_name(
+                    f"mcp__{REGISTRY_MCP_SERVER_NAME}__mcp__{server['name']}__"
+                )
+                for server in args.mcp_servers or ()
+            )
+            stale_approval_keys = [
+                name
+                for name, required in (args.tool_approvals or {}).items()
+                if required
+                and name.startswith("mcp.")
+                and not name.startswith(approval_prefixes)
+            ]
+            if stale_approval_keys:
+                raise_application_error_from_classification(
+                    RuntimeErrorClassification.user(
+                        kind=RuntimeErrorKind.AGENT_CONFIGURATION_INVALID,
+                        message=(
+                            "MCP approval rules reference an unconfigured server name. "
+                            "Update the rules to use the selected integrations' slugs."
+                        ),
+                        retry_disposition=RetryDisposition.NON_RETRYABLE,
+                    ),
+                    {
+                        "code": "stale_mcp_approval_identity",
+                        "approval_keys": sorted(stale_approval_keys),
+                    },
+                )
         effective_tool_approvals = dict(args.tool_approvals or {})
 
         # Check if this is a builder assistant session

@@ -9,8 +9,14 @@ import pytest
 from cryptography.fernet import Fernet
 from mcp.types import CallToolResult, TextContent, Tool
 from sqlalchemy.ext.asyncio import AsyncSession
+from temporalio.exceptions import ApplicationError
 from tracecat_ee.agent import activities
-from tracecat_ee.agent.activities import AgentActivities, BuildToolDefsArgs
+from tracecat_ee.agent.activities import (
+    AgentActivities,
+    BuildAgentScopeToolDefsArgs,
+    BuildAgentToolDefsArgs,
+    BuildToolDefsArgs,
+)
 
 from tracecat import config
 from tracecat.agent.common.types import is_http_mcp_server
@@ -29,6 +35,12 @@ from tracecat.integrations.mcp_validation import MCPConfigurationError
 from tracecat.integrations.service import IntegrationService
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorKind,
+    RuntimeErrorOwner,
+)
+from tracecat.temporal.errors import extract_error_classification
 
 
 @pytest.fixture(autouse=True)
@@ -42,9 +54,11 @@ def db_encryption_key(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.mark.parametrize(
     "slugs", [("alpha", "beta"), ("user-tracecat-registry", "user-tracecat_registry")]
 )
+@pytest.mark.parametrize("authored_approval", [False, True])
 async def test_duplicate_display_names_keep_subsets_and_endpoints_separate(
     monkeypatch: pytest.MonkeyPatch,
     slugs: tuple[str, str],
+    authored_approval: bool,
 ) -> None:
     role = Role(
         type="service",
@@ -62,7 +76,10 @@ async def test_duplicate_display_names_keep_subsets_and_endpoints_separate(
             server_uri=f"https://{slug}.example.test/mcp",
             auth_type=MCPAuthType.NONE,
             tools=[
-                {"name": name, "requires_approval": name == "read"}
+                {
+                    "name": name,
+                    "requires_approval": name == "read" and not authored_approval,
+                }
                 for name in ("read", "write")
             ],
         )
@@ -80,7 +97,14 @@ async def test_duplicate_display_names_keep_subsets_and_endpoints_separate(
         for integration, tool in zip(integrations, ("read", "write"), strict=True)
     ]
     policy = resolve_tool_policy(
-        PresetToolInputs(uuid.uuid4(), [], [], [], {}, [version.id]),
+        PresetToolInputs(
+            uuid.uuid4(),
+            [],
+            [],
+            [],
+            {f"mcp.{slugs[0]}.read": True} if authored_approval else {},
+            [version.id],
+        ),
         {version.id: version},
         by_id,
     )
@@ -179,6 +203,85 @@ async def test_duplicate_display_names_keep_subsets_and_endpoints_separate(
         (f"https://{slugs[0]}.example.test/mcp", "read"),
         (f"https://{slugs[1]}.example.test/mcp", "write"),
     ]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("scoped", [False, True])
+async def test_display_name_approval_fails_before_tool_preparation(
+    monkeypatch: pytest.MonkeyPatch,
+    scoped: bool,
+) -> None:
+    role = Role(
+        type="service",
+        service_id="tracecat-agent-executor",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+    integration = MCPIntegration(
+        id=uuid.uuid4(),
+        workspace_id=role.workspace_id,
+        name="Synthetic",
+        slug="synthetic",
+        server_type="http",
+        server_uri="https://example.test/mcp",
+        auth_type=MCPAuthType.NONE,
+        tools=[{"name": "write", "requires_approval": False}],
+    )
+    by_id = {integration.id: integration}
+    inputs = PresetToolInputs(
+        key=uuid.uuid4(),
+        actions=[],
+        namespaces=[],
+        mcp_integrations=[str(integration.id)],
+        tool_approvals={"mcp.Synthetic.write": True},
+        skill_version_ids=[],
+    )
+    policy = resolve_tool_policy(inputs, {}, by_id)
+    service = AgentPresetService(AsyncMock(spec=AsyncSession), role=role)
+    refs = service._resolve_tool_mcp_grants(policy.mcp_grants, by_id)
+    build_tools = AsyncMock()
+    discovery = AsyncMock()
+    monkeypatch.setattr(activities, "build_agent_tools", build_tools)
+    monkeypatch.setattr(user_client, "discover_user_mcp_tools", discovery)
+
+    with pytest.raises(ApplicationError) as exc_info:
+        if scoped:
+            await AgentActivities().build_agent_tool_definitions(
+                BuildAgentToolDefsArgs(
+                    role=role,
+                    scopes=[
+                        BuildAgentScopeToolDefsArgs(
+                            scope="root",
+                            tool_filters=ToolFilters(actions=[]),
+                            mcp_servers=refs,
+                            tool_approvals=policy.tool_approvals,
+                        )
+                    ],
+                )
+            )
+        else:
+            await AgentActivities().build_tool_definitions(
+                BuildToolDefsArgs(
+                    role=role,
+                    tool_filters=ToolFilters(actions=[]),
+                    mcp_servers=refs,
+                    tool_approvals=policy.tool_approvals,
+                )
+            )
+    error = exc_info.value
+    assert "Update the rules" in error.message
+    assert error.non_retryable
+    assert error.details[0] == {
+        "code": "stale_mcp_approval_identity",
+        "approval_keys": ["mcp.Synthetic.write"],
+    }
+    classification = extract_error_classification(error)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
+    assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+    build_tools.assert_not_awaited()
+    discovery.assert_not_awaited()
 
 
 @pytest.mark.anyio
