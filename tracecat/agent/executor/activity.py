@@ -74,6 +74,7 @@ from tracecat.agent.otel_config import (
     resolve_agent_otel_config,
 )
 from tracecat.agent.preset.service import AgentPresetService
+from tracecat.agent.run_context import build_agent_run_context
 from tracecat.agent.runtime.claude_code.broker import (
     ClaudeRuntimeBroker,
     ClaudeTurnRequest,
@@ -108,6 +109,7 @@ from tracecat.config import (
     TRACECAT__AGENT_SKILL_CACHE_DIR,
     TRACECAT__AGENT_SKILL_CACHE_MAX_CONCURRENT_DOWNLOADS,
 )
+from tracecat.contexts import ctx_run
 from tracecat.exceptions import TracecatException
 from tracecat.feature_flags import FeatureFlag, is_feature_enabled
 from tracecat.integrations.mcp_validation import MCPSecretResolutionError
@@ -235,6 +237,11 @@ class AgentExecutorInput(BaseModel):
     is_approval_continuation: bool = False
     # True when forking from parent session (SDK should use fork_session=True)
     is_fork: bool = False
+    max_requests: int | None = None
+    max_tool_calls: int | None = None
+    # Task environment for SECRETS/VARS resolution. Histories recorded before
+    # environment propagation lack the field; "default" preserves their behavior.
+    environment: str = "default"
 
 
 class AgentExecutorResult(BaseModel):
@@ -261,6 +268,7 @@ class AgentExecutorResult(BaseModel):
     )
     result_usage: dict[str, Any] | None = None
     result_num_turns: int | None = None
+    consumed_tool_calls: int | None = None
     cancelled: bool = False
     cancelled_reason: str | None = None
     # Tool calls the interrupt aborted mid-flight (errored after cancellation
@@ -600,6 +608,8 @@ class SandboxedAgentExecutor:
             sdk_session_data=self.input.sdk_session_data,
             is_approval_continuation=self.input.is_approval_continuation,
             is_fork=self.input.is_fork,
+            max_requests=self.input.max_requests,
+            max_tool_calls=self.input.max_tool_calls,
         )
 
     async def run(self) -> AgentExecutorResult:
@@ -781,6 +791,7 @@ class SandboxedAgentExecutor:
             result.output = loopback_result.output
         result.result_usage = loopback_result.result_usage
         result.result_num_turns = loopback_result.result_num_turns
+        result.consumed_tool_calls = loopback_result.consumed_tool_calls
         result.cancelled = loopback_result.cancelled
         result.cancelled_reason = loopback_result.cancelled_reason
         result.interrupted_tool_call_ids = (
@@ -1420,6 +1431,8 @@ async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
         AgentExecutorResult with execution status and terminal output.
     """
     activity_info = activity.info()
+    # Pins the run's task environment so SECRETS/VARS resolve against it.
+    ctx_run.set(build_agent_run_context(environment=input.environment))
     set_current_span_attributes(
         {
             **_agent_correlation_attributes(input),

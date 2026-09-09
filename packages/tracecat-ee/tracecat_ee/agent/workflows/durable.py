@@ -34,6 +34,7 @@ with workflow.unsafe.imports_passed_through():
         agent_session_initialization_failed,
         agent_workflow_internal_error,
         invalid_agent_configuration,
+        user_agent_execution_failed,
     )
     from tracecat.agent.executor.activity import (
         AgentExecutorInput,
@@ -221,6 +222,7 @@ def _build_approved_tool_run_input(
     execution_id: uuid.UUID,
     logical_time: datetime,
     agent_session_id: uuid.UUID,
+    environment: str,
 ):
     action_name = normalize_mcp_tool_name(tool_call.tool_name)
     return build_run_input(
@@ -232,6 +234,7 @@ def _build_approved_tool_run_input(
         execution_id=execution_id,
         logical_time=logical_time,
         agent_session_id=agent_session_id,
+        environment=environment,
     )
 
 
@@ -298,6 +301,7 @@ def _start_registry_tool_call(
     service_role: Role,
     logical_time: datetime,
     agent_session_id: uuid.UUID,
+    environment: str,
 ) -> workflow.ActivityHandle[Any]:
     """Execute an approved registry action on the executor task queue."""
     return workflow.start_activity(
@@ -311,6 +315,7 @@ def _start_registry_tool_call(
                 execution_id=workflow.uuid4(),
                 logical_time=logical_time,
                 agent_session_id=agent_session_id,
+                environment=environment,
             ),
             service_role,
         ],
@@ -568,6 +573,7 @@ class DurableAgentWorkflow:
         self._status: Literal["running", "waiting_for_results", "done"] = "running"
         self._turn: int = 0
         self.session_id = args.agent_args.session_id
+        self.environment = args.agent_args.environment
         self.active_stream_id = args.agent_args.active_stream_id
         self.harness_type = args.harness_type or "claude_code"
         self.approvals = ApprovalManager(role=self.role)
@@ -752,6 +758,7 @@ class DurableAgentWorkflow:
             allowed_internal_tools=build_result.allowed_internal_tools,
             internal_tool_context=internal_tool_context,
             registry_lock=build_result.registry_lock,
+            environment=self.environment,
             ttl_seconds=ttl_seconds,
         )
 
@@ -807,6 +814,7 @@ class DurableAgentWorkflow:
                     AgentActivities.build_tool_definitions,
                     arg=BuildToolDefsArgs(
                         role=self.role,
+                        environment=self.environment,
                         tool_filters=ToolFilters(
                             namespaces=cfg.namespaces,
                             actions=cfg.actions,
@@ -867,6 +875,7 @@ class DurableAgentWorkflow:
                 AgentActivities.build_agent_tool_definitions,
                 arg=BuildAgentToolDefsArgs(
                     role=self.role,
+                    environment=self.environment,
                     scopes=[spec.to_tool_defs_arg() for spec in scope_specs],
                 ),
                 start_to_close_timeout=timedelta(
@@ -1435,6 +1444,10 @@ class DurableAgentWorkflow:
         # with the now-unconditional emit_session_done command; verify that no
         # such executions remain RUNNING before rollout.
         workflow.deprecate_patch(DurableAgentWorkflowPatch.APPROVAL_STREAM_V2)
+        enforce_run_limits = workflow.patched(
+            DurableAgentWorkflowPatch.AGENT_RUN_LIMITS
+        )
+        usage = RunUsage()
         agent_otel_auth_token = mint_agent_otel_token(
             workspace_id=self.workspace_id,
             organization_id=self.organization_id,
@@ -1449,6 +1462,7 @@ class DurableAgentWorkflow:
             user_prompt=args.agent_args.user_prompt,
             config=cfg,
             role=self.role,
+            environment=self.environment,
             mcp_auth_token=compiled_run.root.mcp_auth_token,
             llm_gateway_auth_token=llm_gateway_auth_token,
             agent_otel_auth_token=agent_otel_auth_token,
@@ -1457,6 +1471,8 @@ class DurableAgentWorkflow:
             sdk_session_id=load_result.sdk_session_id,
             sdk_session_data=load_result.sdk_session_data,
             is_fork=load_result.is_fork,
+            max_requests=self.max_requests if enforce_run_limits else None,
+            max_tool_calls=self.max_tool_calls if enforce_run_limits else None,
         )
         executor_input = _apply_configured_timeout(
             executor_input,
@@ -1466,6 +1482,14 @@ class DurableAgentWorkflow:
         # Run the executor activity
         while True:
             logger.info("Executing agent turn", turn=self._turn)
+            if enforce_run_limits and (
+                executor_input.max_requests is not None
+                and executor_input.max_requests <= 0
+            ):
+                # Caller-owned limit exhausted before the turn could start.
+                raise_application_error_from_classification(
+                    user_agent_execution_failed(retryable=False)
+                )
 
             # Run one executor activity turn with update-driven cancellation.
             try:
@@ -1560,7 +1584,38 @@ class DurableAgentWorkflow:
                     result.classification or agent_workflow_internal_error()
                 )
 
+            if enforce_run_limits:
+                usage.requests += result.result_num_turns or 0
+                usage.tool_calls += result.consumed_tool_calls or 0
+                usage.input_tokens += (result.result_usage or {}).get("input_tokens", 0)
+                usage.output_tokens += (result.result_usage or {}).get(
+                    "output_tokens", 0
+                )
+
             if result.approval_requested:
+                # Marker-free replays recorded results before the runtime
+                # reported these fields, so only assert under the patch.
+                if enforce_run_limits:
+                    if (
+                        self.max_requests is not None
+                        and result.result_num_turns is None
+                    ):
+                        raise ApplicationError(
+                            "Agent runtime did not report request consumption "
+                            "before an approval pause",
+                            type=AGENT_RUNTIME_EXECUTION_ERROR,
+                            non_retryable=True,
+                        )
+                    if (
+                        self.max_tool_calls is not None
+                        and result.consumed_tool_calls is None
+                    ):
+                        raise ApplicationError(
+                            "Agent runtime did not report tool-call consumption "
+                            "before an approval pause",
+                            type=AGENT_RUNTIME_EXECUTION_ERROR,
+                            non_retryable=True,
+                        )
                 logger.info("Agent waiting for approval", session_id=self.session_id)
                 if result.approval_items:
                     request_metadata = {
@@ -1733,6 +1788,7 @@ class DurableAgentWorkflow:
                     user_prompt=args.agent_args.user_prompt,
                     config=cfg,
                     role=self.role,
+                    environment=self.environment,
                     mcp_auth_token=compiled_run.root.mcp_auth_token,
                     llm_gateway_auth_token=llm_gateway_auth_token,
                     agent_otel_auth_token=agent_otel_auth_token,
@@ -1742,6 +1798,12 @@ class DurableAgentWorkflow:
                     sdk_session_data=reload_result.sdk_session_data,
                     is_fork=reload_result.is_fork,
                     is_approval_continuation=True,
+                    max_requests=max(0, self.max_requests - usage.requests)
+                    if enforce_run_limits and self.max_requests is not None
+                    else None,
+                    max_tool_calls=max(0, self.max_tool_calls - usage.tool_calls)
+                    if enforce_run_limits and self.max_tool_calls is not None
+                    else None,
                 )
                 executor_input = _apply_configured_timeout(
                     executor_input,
@@ -1759,8 +1821,11 @@ class DurableAgentWorkflow:
                 output=output,
                 message_history=message_history,
                 duration=(datetime.now(UTC) - info.start_time).total_seconds(),
-                usage=RunUsage(
+                usage=usage
+                if enforce_run_limits
+                else RunUsage(
                     requests=result.result_num_turns or 0,
+                    tool_calls=result.consumed_tool_calls or 0,
                     input_tokens=(result.result_usage or {}).get("input_tokens", 0),
                     output_tokens=(result.result_usage or {}).get("output_tokens", 0),
                 ),
@@ -2007,6 +2072,7 @@ class DurableAgentWorkflow:
                             service_role=service_role,
                             logical_time=logical_time,
                             agent_session_id=self.session_id,
+                            environment=self.environment,
                         )
                     )
                     result = PendingToolResult(

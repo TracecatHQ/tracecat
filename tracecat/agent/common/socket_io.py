@@ -173,6 +173,7 @@ class SocketStreamWriter:
         self,
         usage: dict[str, Any] | None = None,
         num_turns: int | None = None,
+        consumed_tool_calls: int | None = None,
         duration_ms: int | None = None,
         output: Any = None,
     ) -> None:
@@ -181,6 +182,7 @@ class SocketStreamWriter:
             RuntimeEventEnvelope.from_result(
                 usage=usage,
                 num_turns=num_turns,
+                consumed_tool_calls=consumed_tool_calls,
                 duration_ms=duration_ms,
                 output=output,
             )
@@ -191,6 +193,7 @@ class SocketStreamWriter:
         error: str,
         *,
         classification: RuntimeErrorClassification | None = None,
+        error_code: str | None = None,
     ) -> None:
         """Send error event to the orchestrator.
 
@@ -198,10 +201,12 @@ class SocketStreamWriter:
         in-process writer and then dropped. This writer sits on the sandbox
         side of an untrusted boundary, so the envelope protocol deliberately
         carries no ownership metadata; the orchestrator classifies a socket
-        error itself rather than believing what the runtime claims.
+        error itself rather than believing what the runtime claims. Only the
+        machine-readable ``error_code`` crosses, and the orchestrator decides
+        what ownership that code implies.
         """
         del classification
-        await self._send(RuntimeEventEnvelope.from_error(error))
+        await self._send(RuntimeEventEnvelope.from_error(error, error_code=error_code))
 
     async def send_done(self) -> None:
         """Send done event to signal completion."""

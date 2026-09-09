@@ -60,10 +60,11 @@ from tracecat.agent.mcp.utils import (
     normalize_mcp_tool_name,
 )
 from tracecat.agent.preset.service import AgentPresetService
+from tracecat.agent.run_context import build_agent_run_context
 from tracecat.agent.tokens import MCPTokenClaims, UserMCPServerClaim, verify_mcp_token
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
-from tracecat.contexts import ctx_role
+from tracecat.contexts import ctx_role, ctx_run
 from tracecat.exceptions import (
     BuiltinRegistryHasNoSelectionError,
     EntitlementRequired,
@@ -179,6 +180,7 @@ def _set_role_context(claims: MCPTokenClaims) -> Role:
         scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-mcp"],
     )
     ctx_role.set(role)
+    ctx_run.set(build_agent_run_context(environment=claims.environment))
     return role
 
 

@@ -1016,6 +1016,7 @@ class DSLWorkflow:
                             role=self.role,
                             task_environment=task.environment,
                             default_environment=self.run_context.environment,
+                            run_context=self.run_context,
                             registry_lock=self.registry_lock,
                         ),
                         start_to_close_timeout=timedelta(seconds=60),
@@ -1030,7 +1031,9 @@ class DSLWorkflow:
                     finally:
                         await self._run_cancellation_safe_cleanup(
                             lambda: self._finalize_slackbot(
-                                prepared.context, succeeded=succeeded
+                                prepared.context,
+                                succeeded=succeeded,
+                                environment=prepared.args.environment,
                             ),
                             operation="finalize_slackbot",
                         )
@@ -1101,6 +1104,7 @@ class DSLWorkflow:
                             max_requests=action_args.max_requests,
                             # No tool calls for AI action
                             max_tool_calls=0,
+                            environment=action_args.environment,
                             timeout_seconds=task.retry_policy.timeout,
                         ),
                         title=self.dsl.title,
@@ -1179,6 +1183,7 @@ class DSLWorkflow:
                             config=override_config,
                             max_requests=preset_action_args.max_requests,
                             max_tool_calls=preset_action_args.max_tool_calls,
+                            environment=preset_action_args.environment,
                             timeout_seconds=task.retry_policy.timeout,
                         ),
                         title=self.dsl.title,
@@ -1849,6 +1854,7 @@ class DSLWorkflow:
                 ),
                 max_requests=action_args.max_requests,
                 max_tool_calls=action_args.max_tool_calls,
+                environment=action_args.environment,
                 timeout_seconds=task.retry_policy.timeout,
             ),
             title=self.dsl.title,
@@ -2291,7 +2297,11 @@ class DSLWorkflow:
         return max(heartbeat_interval * jitter, 0.1)
 
     async def _finalize_slackbot(
-        self, context: SlackbotContext, *, succeeded: bool
+        self,
+        context: SlackbotContext,
+        *,
+        succeeded: bool,
+        environment: str,
     ) -> None:
         """Clear the Slack ack; never let a cleanup failure mask the agent error."""
         try:
@@ -2300,6 +2310,9 @@ class DSLWorkflow:
                 arg=FinalizeSlackbotActivityInput(
                     role=self.role,
                     registry_lock=self.registry_lock,
+                    run_context=self.run_context.model_copy(
+                        update={"environment": environment}
+                    ),
                     context=context,
                     succeeded=succeeded,
                 ),

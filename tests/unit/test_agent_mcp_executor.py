@@ -23,6 +23,7 @@ def _build_claims() -> MCPTokenClaims:
         session_id=session_id,
         parent_agent_workflow_id=f"agent/{session_id}",
         parent_agent_run_id="run-123",
+        environment="staging",
         allowed_actions=["core.http_request"],
     )
 
@@ -72,6 +73,7 @@ async def test_execute_action_starts_registry_tool_workflow_with_alias_correlati
     assert call.kwargs["id"] == "agent-tool/tool-wf-123"
     workflow_input = call.args[1]
     assert workflow_input.run_input.agent_session_id == claims.session_id
+    assert workflow_input.run_input.run_context.environment == "staging"
     assert workflow_input.run_input.task.args["agent_session_id"] == str(
         untrusted_session_id
     )

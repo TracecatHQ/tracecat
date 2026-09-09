@@ -774,6 +774,76 @@ async def test_process_runtime_events_fails_when_done_arrives_without_result() -
 
 
 @pytest.mark.anyio
+async def test_process_runtime_events_preserves_counts_on_limit_error() -> None:
+    handler = _make_handler()
+    stream = _FakeStream()
+    handler._stream_sink = stream
+    reader = _reader_for_envelopes(
+        RuntimeEventEnvelope.from_result(
+            num_turns=2,
+            consumed_tool_calls=3,
+        ),
+        RuntimeEventEnvelope.from_error("Agent max_tool_calls exceeded (2)"),
+    )
+
+    await handler._process_runtime_events(reader)
+
+    result = handler.build_result()
+    assert result.success is False
+    assert result.error == "Agent max_tool_calls exceeded (2)"
+    assert result.result_num_turns == 2
+    assert result.consumed_tool_calls == 3
+
+
+@pytest.mark.anyio
+async def test_run_limit_error_code_classifies_as_user_execution_failure() -> None:
+    handler = _make_handler()
+    stream = _FakeStream()
+    handler._stream_sink = stream
+    reader = _reader_for_envelopes(
+        RuntimeEventEnvelope.from_error(
+            "Agent max_tool_calls exceeded (2)",
+            error_code="run_limit_exceeded",
+        ),
+    )
+
+    await handler._process_runtime_events(reader)
+
+    classification = handler._result.classification
+    assert classification is not None
+    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTION_FAILED
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+
+
+@pytest.mark.anyio
+async def test_error_without_code_stays_executor_unavailable() -> None:
+    handler = _make_handler()
+    stream = _FakeStream()
+    handler._stream_sink = stream
+    reader = _reader_for_envelopes(
+        RuntimeEventEnvelope.from_error("Agent max_tool_calls exceeded (2)"),
+    )
+
+    await handler._process_runtime_events(reader)
+
+    classification = handler._result.classification
+    assert classification is not None
+    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+
+
+@pytest.mark.anyio
+async def test_error_envelope_round_trips_error_code() -> None:
+    envelope = RuntimeEventEnvelope.from_error("boom", error_code="run_limit_exceeded")
+
+    restored = RuntimeEventEnvelope.from_dict(envelope.to_dict())
+
+    assert restored.error == "boom"
+    assert restored.error_code == "run_limit_exceeded"
+    assert RuntimeEventEnvelope.from_error("boom").to_dict().get("error_code") is None
+
+
+@pytest.mark.anyio
 async def test_process_runtime_events_fails_zero_work_completion() -> None:
     handler = _make_handler()
     stream = _FakeStream()

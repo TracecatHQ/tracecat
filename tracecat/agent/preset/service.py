@@ -1544,8 +1544,10 @@ class AgentPresetService(BaseWorkspaceService):
             secret_exprs=collected.secrets,
             action_secrets=set(),
         )
+        # Same run environment the secrets lookup above resolves against.
         vars_map = await get_workspace_variables(
             variable_exprs=collected.variables,
+            environment=secrets_manager.get_runtime_env(),
             role=self.role,
         )
 

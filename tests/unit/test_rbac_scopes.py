@@ -461,6 +461,18 @@ class TestRequireActionScope:
         # Should not raise
         require_action_scope("core.http_request")
 
+    def test_require_action_scope_accepts_explicit_role(self):
+        """Activity boundaries can check a role without mutating context."""
+        role = Role(
+            type="user",
+            service_id="tracecat-api",
+            scopes=frozenset({"action:ai.agent:execute"}),
+        )
+
+        require_action_scope("ai.agent", role=role)
+
+        assert ctx_role.get() is None
+
     def test_require_action_scope_with_global_wildcard(self):
         """Superuser with * scope can execute any action."""
         _set_role_with_scopes(frozenset({"*"}))
