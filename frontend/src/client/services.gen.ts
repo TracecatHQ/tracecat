@@ -12773,7 +12773,7 @@ export const rbacDeleteUserAssignment = (
       assignment_id: data.assignmentId,
     },
     errors: {
-      409: "Removing this role would remove the user from the organization.",
+      404: "User role assignment not found.",
       422: "Validation Error",
     },
   })

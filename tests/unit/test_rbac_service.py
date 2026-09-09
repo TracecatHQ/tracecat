@@ -31,7 +31,6 @@ from tracecat.db.models import (
 from tracecat.db.models import Role as DBRole
 from tracecat.exceptions import (
     TracecatAuthorizationError,
-    TracecatConflictError,
     TracecatNotFoundError,
     TracecatValidationError,
 )
@@ -911,53 +910,6 @@ class TestRBACServiceUserAssignments:
             )
         )
         assert result.scalar_one_or_none() is not None
-
-    async def test_delete_last_org_wide_assignment_conflicts(
-        self,
-        session: AsyncSession,
-        role: Role,
-        org: Organization,
-    ):
-        """Deleting a user's only role path is rejected as a conflict."""
-        member = User(
-            id=uuid.uuid4(),
-            email=f"lastpath-{uuid.uuid4().hex[:8]}@example.com",
-            hashed_password="test",
-        )
-        session.add(member)
-        await session.flush()
-
-        service = RBACService(session, role=role)
-        custom_role = await service.create_role(name="Only Org Role")
-        session.add(
-            UserRoleAssignment(
-                organization_id=org.id,
-                user_id=member.id,
-                workspace_id=None,
-                role_id=custom_role.id,
-            )
-        )
-        await session.commit()
-
-        assignment = (
-            await session.execute(
-                select(UserRoleAssignment).where(
-                    UserRoleAssignment.user_id == member.id,
-                    UserRoleAssignment.workspace_id.is_(None),
-                )
-            )
-        ).scalar_one()
-
-        with pytest.raises(TracecatConflictError, match="Remove the member instead"):
-            await service.delete_user_assignment(assignment.id)
-
-        session.expunge_all()
-        remaining = (
-            await session.execute(
-                select(UserRoleAssignment).where(UserRoleAssignment.id == assignment.id)
-            )
-        ).scalar_one_or_none()
-        assert remaining is not None
 
     async def test_delete_org_wide_assignment_with_workspace_path(
         self,

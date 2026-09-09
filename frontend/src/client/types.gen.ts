@@ -20623,9 +20623,9 @@ export type $OpenApiTs = {
          */
         204: void
         /**
-         * Removing this role would remove the user from the organization.
+         * User role assignment not found.
          */
-        409: unknown
+        404: unknown
         /**
          * Validation Error
          */

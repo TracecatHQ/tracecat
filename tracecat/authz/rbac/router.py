@@ -30,7 +30,6 @@ from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import Role as DBRole
 from tracecat.db.models import UserRoleAssignment
 from tracecat.exceptions import (
-    TracecatConflictError,
     TracecatNotFoundError,
     TracecatValidationError,
 )
@@ -256,9 +255,7 @@ async def update_user_assignment(
     "/{assignment_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     responses={
-        status.HTTP_409_CONFLICT: {
-            "description": "Removing this role would remove the user from the organization."
-        }
+        status.HTTP_404_NOT_FOUND: {"description": "User role assignment not found."},
     },
 )
 @require_scope("org:rbac:delete")
@@ -277,5 +274,3 @@ async def delete_user_assignment(
         await service.delete_user_assignment(assignment_id)
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
-    except TracecatConflictError as e:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e

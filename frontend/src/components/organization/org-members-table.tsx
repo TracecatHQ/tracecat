@@ -555,6 +555,9 @@ function ManageUserRolesDialog({
 }) {
   const [roleId, setRoleId] = useState("")
   const [workspaceId, setWorkspaceId] = useState<string>("org-wide")
+  const [pendingOrgRemovalId, setPendingOrgRemovalId] = useState<string | null>(
+    null
+  )
   const userId = member.user_id ?? undefined
 
   const {
@@ -578,6 +581,8 @@ function ManageUserRolesDialog({
   const existingOrgAssignment = userAssignments.find(
     (assignment) => assignment.workspace_id == null
   )
+  const isUpdate = workspaceId === "org-wide" && Boolean(existingOrgAssignment)
+  const canSubmit = isUpdate ? canUpdateAssignment : canCreateAssignment
 
   const handleAddRole = async () => {
     if (!roleId || !userId) return
@@ -597,8 +602,21 @@ function ManageUserRolesDialog({
     setWorkspaceId("org-wide")
   }
 
+  // Removing an org-wide role can drop the user from the member list, so
+  // confirm it; workspace-scoped removals stay one click.
   const handleRemoveRole = async (assignmentId: string) => {
+    const assignment = userAssignments.find((a) => a.id === assignmentId)
+    if (assignment?.workspace_id == null) {
+      setPendingOrgRemovalId(assignmentId)
+      return
+    }
     await deleteUserAssignment(assignmentId)
+  }
+
+  const handleConfirmOrgRemoval = async () => {
+    if (!pendingOrgRemovalId) return
+    await deleteUserAssignment(pendingOrgRemovalId)
+    setPendingOrgRemovalId(null)
   }
 
   return (
@@ -611,7 +629,7 @@ function ManageUserRolesDialog({
         </DialogDescription>
       </DialogHeader>
       <div className="space-y-4 py-4">
-        {canCreateAssignment && (
+        {(canCreateAssignment || canUpdateAssignment) && (
           <div className="space-y-2">
             <Label>Add role assignment</Label>
             <div className="flex gap-2">
@@ -655,9 +673,7 @@ function ManageUserRolesDialog({
                   !roleId ||
                   createUserAssignmentIsPending ||
                   updateUserAssignmentIsPending ||
-                  (workspaceId === "org-wide" &&
-                    Boolean(existingOrgAssignment) &&
-                    !canUpdateAssignment)
+                  !canSubmit
                 }
               >
                 <PlusIcon className="size-4" />
@@ -730,6 +746,33 @@ function ManageUserRolesDialog({
           Done
         </Button>
       </DialogFooter>
+      <AlertDialog
+        open={pendingOrgRemovalId !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingOrgRemovalId(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove organization role?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {member.email} will no longer be listed as an organization member
+              unless a group grants them an organization role. Workspace roles
+              are kept.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={deleteUserAssignmentIsPending}
+              onClick={handleConfirmOrgRemoval}
+            >
+              Remove role
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </DialogContent>
   )
 }
