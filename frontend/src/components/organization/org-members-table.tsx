@@ -604,6 +604,8 @@ function ManageUserRolesDialog({
 
   const {
     userAssignments,
+    isLoading: userAssignmentsIsLoading,
+    error: userAssignmentsError,
     createUserAssignment,
     createUserAssignmentIsPending,
     updateUserAssignment,
@@ -624,10 +626,13 @@ function ManageUserRolesDialog({
     (assignment) => assignment.workspace_id == null
   )
   const isUpdate = workspaceId === "org-wide" && Boolean(existingOrgAssignment)
-  const canSubmit = isUpdate ? canUpdateAssignment : canCreateAssignment
+  const canSubmit =
+    !userAssignmentsIsLoading &&
+    !userAssignmentsError &&
+    (isUpdate ? canUpdateAssignment : canCreateAssignment)
 
   const handleAddRole = async () => {
-    if (!roleId || !userId) return
+    if (!roleId || !userId || !canSubmit) return
     if (workspaceId === "org-wide" && existingOrgAssignment) {
       await updateUserAssignment({
         assignmentId: existingOrgAssignment.id,
