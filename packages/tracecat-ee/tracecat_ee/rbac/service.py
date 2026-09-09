@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Sequence
-from contextlib import asynccontextmanager
+from collections.abc import Sequence
 from uuid import UUID
 
 from sqlalchemy import delete, func, select
@@ -17,7 +16,6 @@ from tracecat.authz.controls import (
     validate_scope_string,
 )
 from tracecat.authz.enums import ScopeSource
-from tracecat.authz.membership import sync_membership
 from tracecat.authz.scopes import PRESET_ROLE_SCOPES
 from tracecat.authz.service import resolve_grantable_role, resolve_granter_scopes
 from tracecat.db.models import (
@@ -313,52 +311,15 @@ class RBACService(BaseOrgService):
             role_scope = RoleScope(role_id=role_id, scope_id=scope.id)
             self.session.add(role_scope)
 
-    @asynccontextmanager
-    async def _sync_group_memberships(
-        self, group_id: UUID, *, user_id: UUID | None = None
-    ) -> AsyncIterator[None]:
-        """Lock a group and mirror membership changes in the same transaction."""
-        stmt = (
-            select(Group.id)
-            .where(Group.id == group_id, Group.organization_id == self.organization_id)
-            .with_for_update()
+    async def _assert_group_exists(self, group_id: UUID) -> None:
+        """Assert a group exists and belongs to the organization."""
+        stmt = select(Group.id).where(
+            Group.id == group_id,
+            Group.organization_id == self.organization_id,
         )
-        if (await self.session.execute(stmt)).scalar_one_or_none() is None:
+        result = await self.session.execute(stmt)
+        if result.scalar_one_or_none() is None:
             raise TracecatNotFoundError("Group not found")
-
-        members = select(GroupMember.user_id).where(GroupMember.group_id == group_id)
-        if user_id is not None:
-            members = members.where(GroupMember.user_id == user_id)
-        scopes = select(GroupRoleAssignment.workspace_id).where(
-            GroupRoleAssignment.group_id == group_id
-        )
-        user_ids = set((await self.session.execute(members)).scalars())
-        workspace_ids = set((await self.session.execute(scopes)).scalars())
-        granter_scopes = (
-            frozenset({"*"})
-            if self.role.is_platform_superuser
-            else await resolve_granter_scopes(self.session, self.role)
-        )
-        yield
-        await self.session.flush()
-        current_users = set((await self.session.execute(members)).scalars())
-        current_workspaces = set((await self.session.execute(scopes)).scalars())
-        for workspace_id in sorted(workspace_ids | current_workspaces, key=str):
-            # Only newly added user/scope pairs are grants. Removing a path or
-            # adding an unrelated scope must not admit users with dormant roles.
-            grant_users = (
-                current_users
-                if workspace_id not in workspace_ids
-                else current_users - user_ids
-            )
-            await sync_membership(
-                self.session,
-                organization_id=self.organization_id,
-                user_ids=sorted(user_ids | current_users),
-                workspace_id=workspace_id,
-                granter_scopes=granter_scopes,
-                grant_user_ids=sorted(grant_users),
-            )
 
     async def _ensure_can_grant_scopes(self, scopes: Sequence[Scope]) -> None:
         """Reject grants containing scopes the caller does not hold."""
@@ -463,9 +424,8 @@ class RBACService(BaseOrgService):
     @audit_log(resource_type="rbac_group", action="delete", resource_id_attr="group_id")
     async def delete_group(self, group_id: UUID) -> None:
         """Delete a group."""
-        async with self._sync_group_memberships(group_id):
-            group = await self.get_group(group_id)
-            await self.session.delete(group)
+        group = await self.get_group(group_id)
+        await self.session.delete(group)
         await self.session.commit()
 
     @require_scope("org:rbac:update")
@@ -474,30 +434,30 @@ class RBACService(BaseOrgService):
     )
     async def add_group_member(self, group_id: UUID, user_id: UUID) -> None:
         """Add a user to a group."""
-        async with self._sync_group_memberships(group_id, user_id=user_id):
-            # Verify group exists
-            await self._ensure_group_membership_assignable(group_id)
+        # Verify group exists
+        await self._assert_group_exists(group_id)
+        await self._ensure_group_membership_assignable(group_id)
 
-            # Verify user belongs to this organization
-            stmt = select(OrganizationMembership).where(
-                OrganizationMembership.user_id == user_id,
-                OrganizationMembership.organization_id == self.organization_id,
-            )
-            result = await self.session.execute(stmt)
-            if result.scalar_one_or_none() is None:
-                raise TracecatNotFoundError("User not found in organization")
+        # Verify user belongs to this organization
+        stmt = select(OrganizationMembership).where(
+            OrganizationMembership.user_id == user_id,
+            OrganizationMembership.organization_id == self.organization_id,
+        )
+        result = await self.session.execute(stmt)
+        if result.scalar_one_or_none() is None:
+            raise TracecatNotFoundError("User not found in organization")
 
-            # Check if already a member
-            stmt = select(GroupMember).where(
-                GroupMember.group_id == group_id,
-                GroupMember.user_id == user_id,
-            )
-            result = await self.session.execute(stmt)
-            if result.scalar_one_or_none() is not None:
-                raise TracecatValidationError("User is already a member of this group")
+        # Check if already a member
+        stmt = select(GroupMember).where(
+            GroupMember.group_id == group_id,
+            GroupMember.user_id == user_id,
+        )
+        result = await self.session.execute(stmt)
+        if result.scalar_one_or_none() is not None:
+            raise TracecatValidationError("User is already a member of this group")
 
-            member = GroupMember(group_id=group_id, user_id=user_id)
-            self.session.add(member)
+        member = GroupMember(group_id=group_id, user_id=user_id)
+        self.session.add(member)
         await self.session.commit()
 
     @require_scope("org:rbac:update")
@@ -506,22 +466,21 @@ class RBACService(BaseOrgService):
     )
     async def remove_group_member(self, group_id: UUID, user_id: UUID) -> None:
         """Remove a user from a group."""
-        async with self._sync_group_memberships(group_id, user_id=user_id):
-            stmt = (
-                select(GroupMember)
-                .join(Group, Group.id == GroupMember.group_id)
-                .where(
-                    GroupMember.group_id == group_id,
-                    GroupMember.user_id == user_id,
-                    Group.organization_id == self.organization_id,
-                )
+        stmt = (
+            select(GroupMember)
+            .join(Group, Group.id == GroupMember.group_id)
+            .where(
+                GroupMember.group_id == group_id,
+                GroupMember.user_id == user_id,
+                Group.organization_id == self.organization_id,
             )
-            result = await self.session.execute(stmt)
-            member = result.scalar_one_or_none()
-            if member is None:
-                raise TracecatNotFoundError("Group member not found")
+        )
+        result = await self.session.execute(stmt)
+        member = result.scalar_one_or_none()
+        if member is None:
+            raise TracecatNotFoundError("Group member not found")
 
-            await self.session.delete(member)
+        await self.session.delete(member)
         await self.session.commit()
 
     async def list_group_members(
@@ -611,28 +570,28 @@ class RBACService(BaseOrgService):
         Returns:
             Created GroupRoleAssignment
         """
-        async with self._sync_group_memberships(group_id):
-            # Verify role and group exist
-            await self._ensure_role_assignable(role_id)
+        # Verify role and group exist
+        await self._assert_group_exists(group_id)
+        await self._ensure_role_assignable(role_id)
 
-            # Verify workspace exists if provided
-            if workspace_id is not None:
-                stmt = select(Workspace).where(
-                    Workspace.id == workspace_id,
-                    Workspace.organization_id == self.organization_id,
-                )
-                result = await self.session.execute(stmt)
-                if result.scalar_one_or_none() is None:
-                    raise TracecatNotFoundError("Workspace not found")
-
-            assignment = GroupRoleAssignment(
-                organization_id=self.organization_id,
-                group_id=group_id,
-                role_id=role_id,
-                workspace_id=workspace_id,
-                assigned_by=self.role.user_id,
+        # Verify workspace exists if provided
+        if workspace_id is not None:
+            stmt = select(Workspace).where(
+                Workspace.id == workspace_id,
+                Workspace.organization_id == self.organization_id,
             )
-            self.session.add(assignment)
+            result = await self.session.execute(stmt)
+            if result.scalar_one_or_none() is None:
+                raise TracecatNotFoundError("Workspace not found")
+
+        assignment = GroupRoleAssignment(
+            organization_id=self.organization_id,
+            group_id=group_id,
+            role_id=role_id,
+            workspace_id=workspace_id,
+            assigned_by=self.role.user_id,
+        )
+        self.session.add(assignment)
         await self.session.commit()
         await self.session.refresh(assignment, ["group", "role", "workspace"])
         return assignment
@@ -669,8 +628,7 @@ class RBACService(BaseOrgService):
     async def delete_group_role_assignment(self, assignment_id: UUID) -> None:
         """Delete a group assignment."""
         assignment = await self.get_group_role_assignment(assignment_id)
-        async with self._sync_group_memberships(assignment.group_id):
-            await self.session.delete(assignment)
+        await self.session.delete(assignment)
         await self.session.commit()
 
     # =========================================================================
@@ -763,11 +721,6 @@ class RBACService(BaseOrgService):
             if result.scalar_one_or_none() is None:
                 raise TracecatNotFoundError("Workspace not found")
 
-        granter_scopes = (
-            frozenset({"*"})
-            if self.role.is_platform_superuser
-            else await resolve_granter_scopes(self.session, self.role)
-        )
         assignment = UserRoleAssignment(
             organization_id=self.organization_id,
             user_id=user_id,
@@ -777,13 +730,6 @@ class RBACService(BaseOrgService):
         )
         self.session.add(assignment)
         try:
-            await sync_membership(
-                self.session,
-                organization_id=self.organization_id,
-                user_ids=[user_id],
-                workspace_id=workspace_id,
-                granter_scopes=granter_scopes,
-            )
             await self.session.commit()
         except IntegrityError as e:
             await self.session.rollback()
@@ -826,14 +772,6 @@ class RBACService(BaseOrgService):
         """Delete a user role assignment."""
         assignment = await self.get_user_assignment(assignment_id)
         await self.session.delete(assignment)
-        await sync_membership(
-            self.session,
-            organization_id=self.organization_id,
-            user_ids=[assignment.user_id],
-            workspace_id=assignment.workspace_id,
-            granter_scopes=frozenset(),
-            grant_user_ids=[],
-        )
         await self.session.commit()
 
     async def get_user_role_scopes(

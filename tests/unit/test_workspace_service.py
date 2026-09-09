@@ -595,9 +595,7 @@ async def inv_workspace(session: AsyncSession, inv_org: Organization) -> Workspa
 
 
 @pytest.fixture
-async def admin_user(
-    session: AsyncSession, inv_org: Organization, inv_workspace: Workspace
-) -> User:
+async def admin_user(session: AsyncSession, inv_org: Organization) -> User:
     """Create an admin user in the organization."""
     user = User(
         id=uuid.uuid4(),
@@ -612,13 +610,6 @@ async def admin_user(
     await session.flush()
 
     await grant_org_membership(session, user_id=user.id, organization_id=inv_org.id)
-    await grant_workspace_membership(
-        session,
-        user_id=user.id,
-        organization_id=inv_org.id,
-        workspace_id=inv_workspace.id,
-        slug="workspace-admin",
-    )
     await session.commit()
     return user
 
@@ -1028,25 +1019,23 @@ class TestAcceptInvitation:
         assert org_membership.user_id == external_user.id
         assert org_membership.organization_id == inv_org.id
 
-        # An application rollback must see the invitation accepted by this version.
+        # Both legacy tables are kept in step for older app versions.
         assert (
-            await session.scalar(
-                select(LegacyMembership.user_id).where(
+            await session.execute(
+                select(LegacyMembership).where(
                     LegacyMembership.user_id == external_user.id,
                     LegacyMembership.workspace_id == inv_workspace.id,
                 )
             )
-            == external_user.id
-        )
+        ).scalar_one_or_none() is not None
         assert (
-            await session.scalar(
-                select(LegacyOrganizationMembership.user_id).where(
+            await session.execute(
+                select(LegacyOrganizationMembership).where(
                     LegacyOrganizationMembership.user_id == external_user.id,
                     LegacyOrganizationMembership.organization_id == inv_org.id,
                 )
             )
-            == external_user.id
-        )
+        ).scalar_one_or_none() is not None
 
     async def test_accept_invitation_not_found(
         self,

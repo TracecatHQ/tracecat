@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 from pydantic import UUID4
 from sqlalchemy import bindparam, cast, func, select, update
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import load_only, noload, selectinload
 
@@ -23,7 +24,6 @@ from tracecat.db.models import (
     LegacyMembership,
     LegacyOrganizationMembership,
     Membership,
-    OrganizationMembership,
     Ownership,
     UserRoleAssignment,
     Workspace,
@@ -477,13 +477,14 @@ class WorkspaceService(BaseOrgService):
         workspace = invitation.workspace
         organization_id = workspace.organization_id
 
-        # A workspace invitation grants organization membership only when the
-        # user is not already an organization member.
-        org_assignment_stmt = select(OrganizationMembership.user_id).where(
-            OrganizationMembership.user_id == user_id,
-            OrganizationMembership.organization_id == organization_id,
+        # Org presence is the org-wide assignment, so query it directly: the
+        # workspace assignment created below does not grant it.
+        org_assignment_stmt = select(UserRoleAssignment.id).where(
+            UserRoleAssignment.user_id == user_id,
+            UserRoleAssignment.organization_id == organization_id,
+            UserRoleAssignment.workspace_id.is_(None),
         )
-        needs_org_membership = (
+        needs_org_assignment = (
             await self.session.execute(org_assignment_stmt)
         ).scalar_one_or_none() is None
 
@@ -519,6 +520,15 @@ class WorkspaceService(BaseOrgService):
             # Shouldn't reach here, but handle gracefully
             raise TracecatValidationError("Invitation is no longer valid")
 
+        # Legacy tables are still written for app versions that read them.
+        await self.session.execute(
+            pg_insert(LegacyMembership)
+            .values(user_id=user_id, workspace_id=invitation.workspace_id)
+            .on_conflict_do_nothing(
+                index_elements=[LegacyMembership.user_id, LegacyMembership.workspace_id]
+            )
+        )
+
         # Create RBAC role assignment for the workspace
         ws_assignment = UserRoleAssignment(
             organization_id=organization_id,
@@ -529,7 +539,17 @@ class WorkspaceService(BaseOrgService):
         self.session.add(ws_assignment)
 
         # A user invited straight to a workspace may not be in the org yet.
-        if needs_org_membership:
+        if needs_org_assignment:
+            await self.session.execute(
+                pg_insert(LegacyOrganizationMembership)
+                .values(user_id=user_id, organization_id=organization_id)
+                .on_conflict_do_nothing(
+                    index_elements=[
+                        LegacyOrganizationMembership.user_id,
+                        LegacyOrganizationMembership.organization_id,
+                    ]
+                )
+            )
             org_member_role_result = await self.session.execute(
                 select(DBRole).where(
                     DBRole.organization_id == organization_id,
@@ -544,23 +564,11 @@ class WorkspaceService(BaseOrgService):
                     workspace_id=None,
                     role_id=org_member_role.id,
                 )
-                self.session.add_all(
-                    [
-                        org_assignment,
-                        LegacyOrganizationMembership(
-                            user_id=user_id, organization_id=organization_id
-                        ),
-                    ]
-                )
+                self.session.add(org_assignment)
 
-        # Accepting the durable invitation explicitly grants membership, as it
-        # did before this compatibility release. Keep both records transactional.
-        self.session.add(
-            LegacyMembership(user_id=user_id, workspace_id=invitation.workspace_id)
-        )
         await self.session.commit()
 
-        # Return the membership through the read-only compatibility mapping.
+        # Membership is derived from the assignment just written.
         return (
             await self.session.execute(
                 select(Membership).where(

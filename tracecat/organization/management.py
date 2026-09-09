@@ -20,7 +20,6 @@ from tracecat.cases.service import CaseFieldsService
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import (
     AccessToken,
-    LegacyMembership,
     LegacyOrganizationMembership,
     MCPRefreshToken,
     Organization,
@@ -233,11 +232,6 @@ async def delete_organization_with_cleanup(
         case_fields_service = CaseFieldsService(session=session, role=bootstrap_role)
         await case_fields_service.drop_workspace_schema()
 
-        await session.execute(
-            delete(LegacyMembership).where(
-                LegacyMembership.workspace_id == workspace.id
-            )
-        )
         await session.delete(workspace)
 
     if workspace_ids:
@@ -472,23 +466,22 @@ async def ensure_single_tenant_user_defaults_in_session(
     # and only runs after the fast path determines a repair may be needed.
     await seed_system_roles_for_org(session, organization_id)
 
+    # Membership is derived, so the org-wide assignment insert below is the
+    # repair. The legacy table is still written for app versions that read it.
     changed = False
     if membership is None:
-        # Auth-path lazy repair can run concurrently for the same legacy user.
-        # Use an idempotent insert so one request repairs the row and the other
-        # continues without surfacing a unique-constraint failure.
-        membership_insert = pg_insert(LegacyOrganizationMembership).values(
+        legacy_insert = pg_insert(LegacyOrganizationMembership).values(
             user_id=user_id,
             organization_id=organization_id,
         )
-        membership_insert = membership_insert.on_conflict_do_nothing(
-            index_elements=[
-                OrganizationMembership.user_id,
-                OrganizationMembership.organization_id,
-            ]
+        await session.execute(
+            legacy_insert.on_conflict_do_nothing(
+                index_elements=[
+                    LegacyOrganizationMembership.user_id,
+                    LegacyOrganizationMembership.organization_id,
+                ]
+            )
         )
-        membership_result = await session.execute(membership_insert)
-        changed = (membership_result.rowcount or 0) > 0  # pyright: ignore[reportAttributeAccessIssue]
 
     # Single-tenant defaults are intentionally minimal for regular users, while
     # superusers are granted default-org owner permissions.
