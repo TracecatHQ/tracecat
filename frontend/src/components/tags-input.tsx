@@ -91,6 +91,8 @@ export interface MultiTagCommandInputProps {
   placeholder?: string
   className?: string
   disabled?: boolean
+  /** ID applied to the underlying text input for accessible labels. */
+  inputId?: string
   maxTags?: number
   searchKeys: (keyof Suggestion)[]
   /**
@@ -110,12 +112,18 @@ export function MultiTagCommandInput({
   placeholder = "Add tags...",
   className,
   disabled = false,
+  inputId,
   maxTags,
   searchKeys,
   allowCustomTags = false,
   disableSuggestions = false,
 }: MultiTagCommandInputProps) {
-  const [open, setOpen] = useState(false)
+  const [requestedOpen, setOpen] = useState(false)
+  const open = requestedOpen && !disabled && !disableSuggestions
+  // Disabling dismisses the request; re-enabling requires a new user action.
+  if (requestedOpen && (disabled || disableSuggestions)) {
+    setOpen(false)
+  }
   const [inputValue, setInputValue] = useState("")
   const inputRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -179,6 +187,7 @@ export function MultiTagCommandInput({
   const rowCount = filteredSuggestions.length + (showCustomRow ? 1 : 0)
 
   const handleSelect = (suggestion: Suggestion) => {
+    if (disabled || disableSuggestions) return
     if (suggestion.locked) {
       suggestion.onSelect?.()
       return
@@ -317,6 +326,7 @@ export function MultiTagCommandInput({
                   {!disabled && (
                     <button
                       type="button"
+                      aria-label={`Remove ${tag.group ? `${tag.group} · ` : ""}${tag.text}`}
                       onClick={(e) => {
                         e.stopPropagation()
                         handleRemoveTag(tag.value)
@@ -366,6 +376,7 @@ export function MultiTagCommandInput({
             {/* Input */}
             <input
               ref={inputRef}
+              id={inputId}
               type="text"
               value={inputValue}
               onChange={(e) => handleInputChange(e.target.value)}

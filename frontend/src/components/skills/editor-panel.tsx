@@ -18,6 +18,7 @@ import { CenteredSpinner } from "@/components/loading/spinner"
 import { SkillFileTree } from "@/components/skills/file-tree"
 import { RenameDialog } from "@/components/skills/rename-dialog"
 import { SkillFileIcon } from "@/components/skills/skill-file-icon"
+import { SkillToolsDropdown } from "@/components/skills/skill-tools-dropdown"
 
 const CodeEditor = dynamic(
   () =>
@@ -348,6 +349,20 @@ export function EditorPanel({
                           .
                         </div>
                       </div>
+                      {selectedFile.path === SKILL_MD_PATH ? (
+                        <SkillToolsDropdown
+                          workspaceId={skill.workspace_id}
+                          frontmatter={splitFrontmatter.frontmatter}
+                          onChange={(nextFrontmatter) =>
+                            onEditorChange(
+                              composeMarkdownFrontmatter(
+                                nextFrontmatter,
+                                splitFrontmatter.body
+                              )
+                            )
+                          }
+                        />
+                      ) : null}
                       <CodeEditor
                         value={splitFrontmatter.frontmatter}
                         onChange={(nextFrontmatter) =>

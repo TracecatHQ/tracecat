@@ -109,9 +109,9 @@ MAX_CONTENT_TYPE_LENGTH = 255
 SKILL_SLUG_MAX_LENGTH = 64
 SKILL_SLUG_INSERT_ATTEMPTS = 3
 SKILL_SLUG_UNIQUE_CONSTRAINT = "uq_skill_workspace_slug_active"
-SKILL_TOOL_ERROR_CODES = frozenset(
+# Drafts may retain malformed declarations for repair in the raw editor.
+SKILL_DRAFT_TOOL_ERROR_CODES = frozenset(
     {
-        "invalid_skill_tool_declaration",
         "unknown_skill_tools",
         "unavailable_skill_tools",
         STDIO_MCP_TOOL_SUBSET_UNSUPPORTED,
@@ -2561,7 +2561,7 @@ class SkillService(SkillBindingService):
                         tool_errors = [
                             error
                             for error in validation.errors
-                            if error.code in SKILL_TOOL_ERROR_CODES
+                            if error.code in SKILL_DRAFT_TOOL_ERROR_CODES
                         ]
                         if tool_errors:
                             raise TracecatValidationError(
