@@ -1,4 +1,4 @@
-"""Tests for the membership compatibility migration and legacy readers."""
+"""Tests for the membership derived membership and rolling-version compatibility."""
 
 from __future__ import annotations
 
@@ -13,10 +13,15 @@ from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.orm import Session
 
 from tests.database import TEST_DB_CONFIG
-from tracecat.db.models import Membership, OrganizationMembership
+from tracecat.db.models import (
+    LegacyMembership,
+    LegacyOrganizationMembership,
+    Membership,
+    OrganizationMembership,
+)
 
 MIGRATION_REVISION = "4134d4ebdc69"
-PREVIOUS_REVISION = "c3a17be4d902"
+PREVIOUS_REVISION = "526f867f6a75"
 # Columns the migration's backfill and guard SQL read.
 LEGACY_TABLE_COLUMNS = {
     "membership": {"user_id", "workspace_id"},
@@ -171,7 +176,7 @@ def _assign(
 
 
 def _presence(session: Session, user_id: uuid.UUID) -> tuple[int, int]:
-    """(workspace rows, org rows) visible to both app versions."""
+    """Membership visible to assignment-derived readers."""
     workspaces = session.scalars(
         select(Membership).where(Membership.user_id == user_id)
     ).all()
@@ -226,38 +231,46 @@ def test_upgrade_backfills_every_legacy_member(previous_db: str) -> None:
         _run_alembic(previous_db, "upgrade", MIGRATION_REVISION)
         with Session(engine) as session:
             assert _presence(session, listed) == (1, 1)
-            assert _presence(session, drifted) == (0, 0)
+            assert _presence(session, drifted) == (1, 0)
     finally:
         engine.dispose()
 
 
-def test_legacy_readers_remain_compatible(migration_db: str) -> None:
-    """A write from an old pod remains readable before reader cutover."""
-    for model in (Membership, OrganizationMembership):
-        compiled = str(select(model).compile())
-        assert f"FROM {model.__tablename__}" in compiled
-        assert "user_role_assignment" not in compiled
-
+def test_old_writes_are_visible_to_new_readers(migration_db: str) -> None:
+    """The old invite/provisioning transaction writes membership and assignments."""
     engine = _engine(migration_db)
     try:
         with engine.begin() as conn:
-            org_id, _ = _seed_org(conn)
+            org_id, role_id = _seed_org(conn)
             user_id = _seed_user(conn)
             ws_id = _seed_workspace(conn, org_id)
             conn.execute(
-                text("INSERT INTO membership (user_id, workspace_id) VALUES (:u, :w)"),
+                text("INSERT INTO membership VALUES (:u, :w)"),
                 {"u": user_id, "w": ws_id},
             )
             conn.execute(
                 text(
-                    "INSERT INTO organization_membership (user_id, organization_id) "
-                    "VALUES (:u, :o)"
+                    "INSERT INTO organization_membership (user_id, organization_id) VALUES (:u, :o)"
                 ),
                 {"u": user_id, "o": org_id},
             )
+            _assign(conn, org_id, user_id, ws_id, role_id)
+            _assign(conn, org_id, user_id, None, role_id)
         with Session(engine) as session:
             assert _presence(session, user_id) == (1, 1)
-        _run_alembic(migration_db, "downgrade", PREVIOUS_REVISION)
+            assert session.scalar(select(LegacyMembership.user_id)) == user_id
+            assert (
+                session.scalar(select(LegacyOrganizationMembership.user_id)) == user_id
+            )
+        # Dropping only the compatibility rows cannot change new-reader access.
+        with engine.begin() as conn:
+            conn.execute(
+                text("DELETE FROM membership WHERE user_id = :u"), {"u": user_id}
+            )
+            conn.execute(
+                text("DELETE FROM organization_membership WHERE user_id = :u"),
+                {"u": user_id},
+            )
         with Session(engine) as session:
             assert _presence(session, user_id) == (1, 1)
     finally:
@@ -302,7 +315,15 @@ def test_repeat_backfill_keeps_revocations_and_covers_late_writes(
         _run_alembic(migration_db, "downgrade", PREVIOUS_REVISION)
         with Session(engine) as session:
             assert _presence(session, revoked) == (0, 0)
-            assert _presence(session, late) == (1, 1)
+            assert _presence(session, late) == (0, 0)
+            assert (
+                session.scalar(
+                    select(LegacyMembership.user_id).where(
+                        LegacyMembership.user_id == late
+                    )
+                )
+                == late
+            )
         _run_alembic(migration_db, "upgrade", MIGRATION_REVISION)
         with Session(engine) as session:
             assert _presence(session, revoked) == (0, 0)
