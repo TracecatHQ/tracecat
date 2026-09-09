@@ -22,7 +22,7 @@ from tests.database import TEST_DB_CONFIG
 from tracecat.db.models import Membership, OrganizationMembership
 
 MIGRATION_REVISION = "4134d4ebdc69"
-PREVIOUS_REVISION = "c3a17be4d902"
+PREVIOUS_REVISION = "526f867f6a75"
 # Columns the migration's uncovered-row SQL reads.
 LEGACY_TABLE_COLUMNS = {
     "membership": {"user_id", "workspace_id"},

@@ -14,6 +14,7 @@ from tracecat.authz.controls import ensure_can_grant_scopes, require_scope
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import SupportsExecute
 from tracecat.db.models import (
+    Group,
     GroupMember,
     GroupRoleAssignment,
     LegacyMembership,
@@ -326,7 +327,34 @@ class MembershipService(BaseService):
 
         Note: The authorization cache is request-scoped, so changes will be
         reflected in subsequent requests automatically.
+
+        Raises:
+            TracecatConflictError: If a workspace-scoped group grant would keep
+                the user in the workspace after the direct assignment is gone.
         """
+        # Only workspace-scoped group grants keep workspace presence; org-wide
+        # group roles do not.
+        group_name = (
+            await self.session.execute(
+                select(Group.name)
+                .join(GroupMember, GroupMember.group_id == Group.id)
+                .join(
+                    GroupRoleAssignment,
+                    GroupRoleAssignment.group_id == Group.id,
+                )
+                .where(
+                    GroupMember.user_id == user_id,
+                    GroupRoleAssignment.workspace_id == workspace_id,
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if group_name is not None:
+            raise TracecatConflictError(
+                f"User remains a member through group '{group_name}'. "
+                "Remove them from the group first."
+            )
+
         await self.session.execute(
             delete(LegacyMembership).where(
                 LegacyMembership.workspace_id == workspace_id,

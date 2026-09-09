@@ -439,3 +439,66 @@ async def test_list_workspace_members_reports_each_path_once(
     assert len(members) == len(by_user) == 2
     assert by_user[actor_user.id] == "Reviewer"
     assert by_user[member_user.id] == workspace_editor_role.name
+
+
+async def test_delete_membership_rejects_when_group_grant_remains(
+    session: AsyncSession,
+    membership_service: MembershipService,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    actor_user: User,
+    workspace_editor_role: DBRole,
+) -> None:
+    """A workspace-scoped group grant blocks the delete and mutates nothing."""
+    group_role = DBRole(
+        name="Reviewer",
+        slug=None,
+        description=None,
+        organization_id=organization.id,
+    )
+    group = Group(name="Reviewers", organization_id=organization.id)
+    session.add_all([group_role, group])
+    await session.flush()
+    session.add_all(
+        [
+            GroupMember(group_id=group.id, user_id=member_user.id),
+            GroupRoleAssignment(
+                organization_id=organization.id,
+                group_id=group.id,
+                workspace_id=workspace.id,
+                role_id=group_role.id,
+            ),
+            UserRoleAssignment(
+                organization_id=organization.id,
+                user_id=member_user.id,
+                workspace_id=workspace.id,
+                role_id=workspace_editor_role.id,
+                assigned_by=actor_user.id,
+            ),
+            LegacyMembership(user_id=member_user.id, workspace_id=workspace.id),
+        ]
+    )
+    await session.commit()
+
+    with pytest.raises(TracecatConflictError, match="Reviewers"):
+        await membership_service.delete_membership(
+            workspace_id=workspace.id,
+            user_id=member_user.id,
+        )
+
+    assignment = await session.scalar(
+        select(UserRoleAssignment).where(
+            UserRoleAssignment.workspace_id == workspace.id,
+            UserRoleAssignment.user_id == member_user.id,
+        )
+    )
+    legacy = await session.scalar(
+        select(LegacyMembership).where(
+            LegacyMembership.workspace_id == workspace.id,
+            LegacyMembership.user_id == member_user.id,
+        )
+    )
+
+    assert assignment is not None
+    assert legacy is not None
