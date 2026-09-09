@@ -79,9 +79,9 @@ def flatten_mcp_content_blocks(
     return text
 
 
-# Anthropic tool names must match this pattern; stdio MCP servers can report
+# Anthropic tool names must match this pattern; MCP servers can report
 # names (e.g. "issue.get") that would put invalid entries in allowed_tools.
-STDIO_MCP_TOOL_NAME_RE = re.compile(r"\A[a-zA-Z0-9_-]{1,64}\Z")
+MCP_TOOL_NAME_RE = re.compile(r"\A[a-zA-Z0-9_-]{1,64}\Z")
 
 
 def action_name_to_mcp_tool_name(action_name: str) -> str:

@@ -30,6 +30,7 @@ from tracecat.agent.mcp.internal_tools import (
     get_builder_internal_tool_definitions,
 )
 from tracecat.agent.mcp.utils import (
+    MCP_TOOL_NAME_RE,
     REGISTRY_MCP_SERVER_NAME,
     normalize_mcp_tool_name,
 )
@@ -376,22 +377,14 @@ class AgentActivities:
                         and remote_tool_name not in allowed_names
                     ):
                         continue
-                    has_dotted_remote_name = (
-                        remote_tool_name is not None and "." in remote_tool_name
-                    )
-                    # Unlike registry/internal tools, user MCP tool names are
-                    # registered with the trusted MCP server verbatim (see
-                    # ``build_token_scoped_tools``), so a dotted remote name
-                    # (e.g. ``issue.get``) reaches the model provider as
-                    # ``mcp__{server}__issue.get``. Provider tool-name
-                    # constraints reject dots, so an otherwise-valid tool would
-                    # make the agent fail to start. Drop these regardless of
-                    # approval status; approval-gated ones also can't round-trip
-                    # their ``mcp.{server}.{tool}`` approval key back to a
-                    # router name.
-                    if has_dotted_remote_name:
+                    # Remote names are registered verbatim on the trusted MCP
+                    # server. Apply the same name constraints as stdio discovery
+                    # before recording definitions or approval entries.
+                    if remote_tool_name is not None and not MCP_TOOL_NAME_RE.fullmatch(
+                        remote_tool_name
+                    ):
                         logger.warning(
-                            "Skipping user MCP tool with unsupported dotted name",
+                            "Skipping user MCP tool with unsupported name",
                             tool_name=tool_name,
                             remote_tool_name=remote_tool_name,
                         )

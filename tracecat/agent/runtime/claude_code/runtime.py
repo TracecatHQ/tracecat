@@ -88,8 +88,8 @@ from tracecat.agent.mcp.metadata import (
 )
 from tracecat.agent.mcp.utils import (
     LEGACY_REGISTRY_MCP_SERVER_NAME,
+    MCP_TOOL_NAME_RE,
     REGISTRY_MCP_SERVER_NAME,
-    STDIO_MCP_TOOL_NAME_RE,
     action_name_to_mcp_tool_name,
     normalize_mcp_tool_name,
 )
@@ -529,7 +529,7 @@ class ClaudeAgentRuntime:
             name = tool.get("name")
             if not name:
                 continue
-            if not STDIO_MCP_TOOL_NAME_RE.fullmatch(name):
+            if not MCP_TOOL_NAME_RE.fullmatch(name):
                 logger.warning(
                     "Skipping stdio MCP tool with unsupported name",
                     tool_name=name,

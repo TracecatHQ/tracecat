@@ -169,21 +169,31 @@ describe("skill tool options", () => {
   })
 })
 
-it("omits MCP options that cannot form canonical tool IDs", () => {
+it("omits MCP options with unsupported names or noncanonical IDs", () => {
   const options = buildSkillToolOptions(
     [],
     [
       {
         ...mcpIntegration,
-        tools: ["issue.get", "with space", "x".repeat(256), "issue_get"].map(
-          (name) => ({ name })
-        ),
+        tools: [
+          "",
+          "issue.get",
+          "with space",
+          "x".repeat(65),
+          "x".repeat(256),
+          "x\n",
+          "issue_get",
+          "x",
+          "x".repeat(64),
+        ].map((name) => ({ name })),
       },
     ]
   )
   expect(options.map((option) => option.value)).toEqual([
     "mcp.slack",
     "mcp.slack.issue_get",
+    "mcp.slack.x",
+    `mcp.slack.${"x".repeat(64)}`,
   ])
 })
 
