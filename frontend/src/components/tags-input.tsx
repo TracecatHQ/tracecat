@@ -90,6 +90,8 @@ export interface MultiTagCommandInputProps {
   suggestions?: Suggestion[]
   placeholder?: string
   className?: string
+  /** Layout classes applied only to the container holding tags and the input. */
+  inputClassName?: string
   disabled?: boolean
   /** ID applied to the underlying text input for accessible labels. */
   inputId?: string
@@ -111,6 +113,7 @@ export function MultiTagCommandInput({
   suggestions = [],
   placeholder = "Add tags...",
   className,
+  inputClassName,
   disabled = false,
   inputId,
   maxTags,
@@ -293,7 +296,8 @@ export function MultiTagCommandInput({
               "flex min-h-10 w-full flex-wrap items-center gap-1 rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm ring-offset-background",
               "focus-within:ring-1 focus-within:ring-inset focus-within:ring-ring",
               disabled && "cursor-not-allowed opacity-50",
-              className
+              className,
+              inputClassName
             )}
             onClick={() => inputRef.current?.focus()}
           >

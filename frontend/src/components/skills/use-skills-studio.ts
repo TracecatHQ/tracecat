@@ -1,6 +1,6 @@
 "use client"
 
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import {
   type ChangeEvent,
   useCallback,
@@ -183,10 +183,21 @@ export function useSkillsStudio(params: {
 }): UseSkillsStudioReturn {
   const { workspaceId, skillId } = params
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const requestedPath = searchParams.get("file")
   const markdownEditorActivatedRef = useRef(false)
 
   // ── State ──────────────────────────────────────────────────────────
-  const [selectedPath, setSelectedPath] = useState<string | null>(null)
+  const setSelectedPath = useCallback((path: string | null) => {
+    const url = new URL(window.location.href)
+    if (path === null) {
+      url.searchParams.delete("file")
+    } else {
+      url.searchParams.set("file", path)
+    }
+    // Next preserves its history state and notifies useSearchParams for us.
+    window.history.replaceState(null, "", url.toString())
+  }, [])
   const [draftChanges, setDraftChanges] =
     useState<DraftChangesForSkill>(EMPTY_DRAFT_CHANGES)
   const [pendingCreate, setPendingCreate] = useState(false)
@@ -222,6 +233,11 @@ export function useSkillsStudio(params: {
     () => buildVisibleFiles(draft?.files, draftChanges),
     [draft?.files, draftChanges]
   )
+  const selectedPath =
+    visibleFiles.find((file) => file.path === requestedPath)?.path ??
+    visibleFiles.find((file) => file.path === SKILL_MD_PATH)?.path ??
+    visibleFiles[0]?.path ??
+    null
   const selectedFile =
     visibleFiles.find((file) => file.path === selectedPath) ?? null
 
@@ -284,7 +300,6 @@ export function useSkillsStudio(params: {
 
   // ── Effects ────────────────────────────────────────────────────────
   useEffect(() => {
-    setSelectedPath(null)
     setDraftChanges(EMPTY_DRAFT_CHANGES)
     setPendingCreate(false)
     setPendingCreateError(null)
@@ -299,17 +314,18 @@ export function useSkillsStudio(params: {
   }, [draft?.draft_revision, selectedPath])
 
   useEffect(() => {
-    if (!selectedPath && visibleFiles[0]) {
-      setSelectedPath(visibleFiles[0].path)
+    // A file selection can update history before Next publishes its new query
+    // state. Do not let an older render overwrite that selection.
+    if (
+      new URLSearchParams(window.location.search).get("file") !== requestedPath
+    ) {
       return
     }
-    if (
-      selectedPath &&
-      !visibleFiles.some((file) => file.path === selectedPath)
-    ) {
-      setSelectedPath(visibleFiles[0]?.path ?? null)
+    // Wait for the draft before deciding that a linked file no longer exists.
+    if (!draftLoading && draft && selectedPath !== requestedPath) {
+      setSelectedPath(selectedPath)
     }
-  }, [selectedPath, visibleFiles])
+  }, [draft, draftLoading, requestedPath, selectedPath, setSelectedPath])
 
   // ── Stable callbacks ────────────────────────────────────────────────
   const handleBeginCreate = useCallback(() => {

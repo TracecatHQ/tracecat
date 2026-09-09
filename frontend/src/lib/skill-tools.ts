@@ -209,8 +209,35 @@ export function updateSkillFrontmatterTools(
 
   const document = parseDocument(frontmatter, { keepSourceTokens: true })
   const existing = document.getIn(["metadata", "tools"], true)
+  const metadata = document.get("metadata", true)
   const serialized = JSON.stringify(normalized)
   const newline = frontmatter.includes("\r\n") ? "\r\n" : "\n"
+  const rootIsFlow = isMap(document.contents) && document.contents.flow
+
+  // Expand the tools-only flow mapping created by earlier picker edits.
+  // Leave user-authored flow mappings with other fields or comments intact.
+  if (
+    !rootIsFlow &&
+    isMap(metadata) &&
+    metadata.flow &&
+    metadata.items.length === 1 &&
+    isSeq(existing) &&
+    metadata.range &&
+    !frontmatter.slice(metadata.range[0], metadata.range[1]).includes("#")
+  ) {
+    const [start, end] = metadata.range
+    const indent = isMap(document.contents)
+      ? `${mappingIndent(document.contents)}  `
+      : "  "
+    const anchor = existing.anchor ? `&${existing.anchor} ` : ""
+    return (
+      frontmatter.slice(0, start).replace(/[ \t]+$/, "") +
+      newline +
+      indent +
+      `tools: ${anchor}${serialized}` +
+      frontmatter.slice(end)
+    )
+  }
   if (isSeq(existing) && existing.range) {
     // Node ranges exclude the sequence's anchor. Keep it and all source
     // outside the tools value verbatim, including YAML 1.1 scalar spellings.
@@ -221,7 +248,6 @@ export function updateSkillFrontmatterTools(
     )
   }
 
-  const metadata = document.get("metadata", true)
   if (isMap(metadata)) {
     return insertMappingEntry(
       frontmatter,
@@ -234,11 +260,18 @@ export function updateSkillFrontmatterTools(
     return insertMappingEntry(
       frontmatter,
       document.contents,
-      `metadata: { tools: ${serialized} }`,
+      rootIsFlow
+        ? `metadata: { tools: ${serialized} }`
+        : `metadata:${newline}${mappingIndent(document.contents)}  tools: ${serialized}`,
       newline
     )
   }
   throw new Error("Frontmatter must be a YAML mapping.")
+}
+
+function mappingIndent(mapping: YAMLMap): string {
+  const token = mapping.srcToken
+  return " ".repeat(token && "indent" in token ? token.indent : 0)
 }
 
 /** Insert a new key without serializing any existing YAML nodes. */
@@ -258,8 +291,7 @@ function insertMappingEntry(
       source.slice(0, start + 1) + entry + separator + source.slice(start + 1)
     )
   }
-  const token = mapping.srcToken
-  const indent = " ".repeat(token && "indent" in token ? token.indent : 0)
+  const indent = mappingIndent(mapping)
   return source.slice(0, start) + entry + newline + indent + source.slice(start)
 }
 

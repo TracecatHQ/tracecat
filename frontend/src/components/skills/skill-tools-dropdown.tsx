@@ -93,10 +93,11 @@ export function SkillToolsDropdown({
           Tools
         </label>
         <div className="text-xs text-muted-foreground">
-          Add registry and MCP tools to this skill&apos;s portable metadata.
+          Choose the tools this skill can use.
         </div>
       </div>
       <MultiTagCommandInput
+        inputClassName="max-h-48 overflow-y-auto"
         value={toolsState.tools}
         inputId={inputId}
         onChange={(nextTools) => {
@@ -122,11 +123,7 @@ export function SkillToolsDropdown({
         <p className="text-xs text-muted-foreground">
           Some available tools could not be loaded. Existing IDs are preserved.
         </p>
-      ) : (
-        <p className="text-xs text-muted-foreground">
-          Selected IDs are written directly to metadata.tools.
-        </p>
-      )}
+      ) : null}
     </div>
   )
 }

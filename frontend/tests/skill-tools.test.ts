@@ -100,7 +100,7 @@ license: MIT`
     )
 
     expect(updated).toContain(
-      'metadata: { tools: ["core.cases.get_case"] }\r\n'
+      'metadata:\r\n  tools: ["core.cases.get_case"]\r\n'
     )
     expect(readSkillFrontmatterTools(updated)).toEqual({
       valid: true,
