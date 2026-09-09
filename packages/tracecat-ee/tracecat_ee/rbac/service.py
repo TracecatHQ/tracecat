@@ -334,16 +334,30 @@ class RBACService(BaseOrgService):
         )
         user_ids = set((await self.session.execute(members)).scalars())
         workspace_ids = set((await self.session.execute(scopes)).scalars())
+        granter_scopes = (
+            frozenset({"*"})
+            if self.role.is_platform_superuser
+            else await resolve_granter_scopes(self.session, self.role)
+        )
         yield
         await self.session.flush()
-        user_ids.update((await self.session.execute(members)).scalars())
-        workspace_ids.update((await self.session.execute(scopes)).scalars())
-        for workspace_id in sorted(workspace_ids, key=str):
+        current_users = set((await self.session.execute(members)).scalars())
+        current_workspaces = set((await self.session.execute(scopes)).scalars())
+        for workspace_id in sorted(workspace_ids | current_workspaces, key=str):
+            # Only newly added user/scope pairs are grants. Removing a path or
+            # adding an unrelated scope must not admit users with dormant roles.
+            grant_users = (
+                current_users
+                if workspace_id not in workspace_ids
+                else current_users - user_ids
+            )
             await sync_membership(
                 self.session,
                 organization_id=self.organization_id,
-                user_ids=sorted(user_ids),
+                user_ids=sorted(user_ids | current_users),
                 workspace_id=workspace_id,
+                granter_scopes=granter_scopes,
+                grant_user_ids=sorted(grant_users),
             )
 
     async def _ensure_can_grant_scopes(self, scopes: Sequence[Scope]) -> None:
@@ -749,6 +763,11 @@ class RBACService(BaseOrgService):
             if result.scalar_one_or_none() is None:
                 raise TracecatNotFoundError("Workspace not found")
 
+        granter_scopes = (
+            frozenset({"*"})
+            if self.role.is_platform_superuser
+            else await resolve_granter_scopes(self.session, self.role)
+        )
         assignment = UserRoleAssignment(
             organization_id=self.organization_id,
             user_id=user_id,
@@ -763,6 +782,7 @@ class RBACService(BaseOrgService):
                 organization_id=self.organization_id,
                 user_ids=[user_id],
                 workspace_id=workspace_id,
+                granter_scopes=granter_scopes,
             )
             await self.session.commit()
         except IntegrityError as e:
@@ -811,6 +831,8 @@ class RBACService(BaseOrgService):
             organization_id=self.organization_id,
             user_ids=[assignment.user_id],
             workspace_id=assignment.workspace_id,
+            granter_scopes=frozenset(),
+            grant_user_ids=[],
         )
         await self.session.commit()
 
