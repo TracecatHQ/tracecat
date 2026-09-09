@@ -1,4 +1,4 @@
-"""Tests for the membership derived membership and rolling-version compatibility."""
+"""Tests for membership admission and rolling-version compatibility."""
 
 from __future__ import annotations
 
@@ -6,23 +6,39 @@ import os
 import subprocess
 import uuid
 from collections.abc import Iterator
+from dataclasses import dataclass
 
 import pytest
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import Connection, Engine, create_engine, select, text
 from sqlalchemy.exc import ProgrammingError
+from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.orm import Session
 
 from tests.database import TEST_DB_CONFIG
+from tracecat import config
+from tracecat.api.app import app
+from tracecat.auth.credentials import _compute_effective_scopes_cached
+from tracecat.auth.users import current_active_user, optional_current_active_user
+from tracecat.authz.enums import ScopeSource
+from tracecat.db import engine as db_engine
 from tracecat.db.models import (
+    Group,
+    GroupMember,
+    GroupRoleAssignment,
     LegacyMembership,
     LegacyOrganizationMembership,
     Membership,
     OrganizationMembership,
+    Role,
+    Scope,
+    User,
+    UserRoleAssignment,
 )
 
 MIGRATION_REVISION = "4134d4ebdc69"
 PREVIOUS_REVISION = "526f867f6a75"
-# Columns the migration's backfill and guard SQL read.
+# Columns retained for both deployed and rollback readers.
 LEGACY_TABLE_COLUMNS = {
     "membership": {"user_id", "workspace_id"},
     "organization_membership": {"user_id", "organization_id"},
@@ -100,7 +116,7 @@ def _engine(url: str) -> Engine:
 
 
 def _seed_org(conn: Connection) -> tuple[uuid.UUID, uuid.UUID]:
-    """One org with the two system roles the backfill needs.
+    """One org with representative system roles.
 
     Returns (org_id, workspace_editor_role_id).
     """
@@ -176,7 +192,7 @@ def _assign(
 
 
 def _presence(session: Session, user_id: uuid.UUID) -> tuple[int, int]:
-    """Membership visible to assignment-derived readers."""
+    """Membership visible through the read-only compatibility mappings."""
     workspaces = session.scalars(
         select(Membership).where(Membership.user_id == user_id)
     ).all()
@@ -207,8 +223,8 @@ def test_upgrade_keeps_legacy_tables(migration_db: str) -> None:
         engine.dispose()
 
 
-def test_upgrade_backfills_every_legacy_member(previous_db: str) -> None:
-    """A legacy row with no assignment gains one; a drifted user keeps theirs."""
+def test_upgrade_preserves_legacy_admission_without_repair(previous_db: str) -> None:
+    """Unprivileged membership stays unprivileged; assignment-only users stay blocked."""
     engine = _engine(previous_db)
     try:
         with engine.begin() as conn:
@@ -231,7 +247,7 @@ def test_upgrade_backfills_every_legacy_member(previous_db: str) -> None:
         _run_alembic(previous_db, "upgrade", MIGRATION_REVISION)
         with Session(engine) as session:
             assert _presence(session, listed) == (1, 1)
-            assert _presence(session, drifted) == (1, 0)
+            assert _presence(session, drifted) == (0, 0)
     finally:
         engine.dispose()
 
@@ -262,7 +278,7 @@ def test_old_writes_are_visible_to_new_readers(migration_db: str) -> None:
             assert (
                 session.scalar(select(LegacyOrganizationMembership.user_id)) == user_id
             )
-        # Dropping only the compatibility rows cannot change new-reader access.
+        # An old writer revoking membership must also revoke new-reader admission.
         with engine.begin() as conn:
             conn.execute(
                 text("DELETE FROM membership WHERE user_id = :u"), {"u": user_id}
@@ -272,15 +288,15 @@ def test_old_writes_are_visible_to_new_readers(migration_db: str) -> None:
                 {"u": user_id},
             )
         with Session(engine) as session:
-            assert _presence(session, user_id) == (1, 1)
+            assert _presence(session, user_id) == (0, 0)
     finally:
         engine.dispose()
 
 
-def test_repeat_backfill_keeps_revocations_and_covers_late_writes(
+def test_repeat_upgrade_preserves_revocations_and_late_memberships(
     migration_db: str,
 ) -> None:
-    """Rollback and another backfill cannot resurrect a dual-written removal."""
+    """Rollback and repeated upgrades preserve both revocations and late writes."""
     engine = _engine(migration_db)
     try:
         with engine.begin() as conn:
@@ -311,11 +327,11 @@ def test_repeat_backfill_keeps_revocations_and_covers_late_writes(
                     text(f"DELETE FROM {table} WHERE user_id = :u"), {"u": revoked}
                 )
 
-        # Simulate returning to the old schema, then the final backfill pass.
+        # Simulate application rollback and rerunning the additive migration.
         _run_alembic(migration_db, "downgrade", PREVIOUS_REVISION)
         with Session(engine) as session:
             assert _presence(session, revoked) == (0, 0)
-            assert _presence(session, late) == (0, 0)
+            assert _presence(session, late) == (1, 1)
             assert (
                 session.scalar(
                     select(LegacyMembership.user_id).where(
@@ -344,7 +360,7 @@ def test_repeat_backfill_keeps_revocations_and_covers_late_writes(
                     ),
                     {"u": late},
                 ).scalar_one()
-                == 2
+                == 0
             )
     finally:
         engine.dispose()
@@ -391,5 +407,216 @@ def test_org_membership_writer_respects_tenant_rls(migration_db: str) -> None:
                 conn.execute(text("SELECT count(*) FROM membership")).scalar_one() == 0
             )
             conn.rollback()
+    finally:
+        engine.dispose()
+
+
+@dataclass(frozen=True, slots=True)
+class AccessCase:
+    name: str
+    workspace_member: bool
+    org_member: bool
+    workspace_role: bool = False
+    org_role: bool = False
+    group_role: bool = False
+    expected_status: int = 200
+    expected_scopes: tuple[str, ...] = ()
+
+
+@pytest.mark.anyio
+async def test_upgrade_preserves_access_without_adding_permissions(
+    previous_db: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Exercise real auth and scope resolution against both legacy and new rows.
+
+    Only login identity and the database connection are substituted. The cases
+    cover the old membership gate independently of direct/group permission paths.
+    """
+    cases = (
+        AccessCase(
+            "direct",
+            True,
+            True,
+            workspace_role=True,
+            expected_scopes=("workspace:read",),
+        ),
+        AccessCase(
+            "group", True, True, group_role=True, expected_scopes=("workspace:read",)
+        ),
+        AccessCase(
+            "inherited", True, True, org_role=True, expected_scopes=("workspace:read",)
+        ),
+        AccessCase("membership_without_permissions", True, True),
+        AccessCase(
+            "blocked_direct", False, True, workspace_role=True, expected_status=403
+        ),
+        AccessCase("blocked_group", False, True, group_role=True, expected_status=403),
+        AccessCase("blocked_org_role", False, True, org_role=True, expected_status=403),
+        AccessCase(
+            "workspace_without_org_membership",
+            True,
+            False,
+            workspace_role=True,
+            expected_scopes=("workspace:read",),
+        ),
+    )
+    engine = _engine(previous_db)
+    accounts: list[tuple[AccessCase, User]] = []
+    try:
+        with engine.begin() as conn:
+            org_id, editor_id = _seed_org(conn)
+            workspace_id = _seed_workspace(conn, org_id)
+        with Session(engine, expire_on_commit=False) as session:
+            read_scope = Scope(
+                name="workspace:read",
+                resource="workspace",
+                action="read",
+                source=ScopeSource.PLATFORM,
+            )
+            update_scope = Scope(
+                name="workspace:update",
+                resource="workspace",
+                action="update",
+                source=ScopeSource.PLATFORM,
+            )
+            reader = Role(name="Reader", organization_id=org_id, scopes=[read_scope])
+            editor = session.get(Role, editor_id)
+            assert editor is not None
+            editor.scopes = [read_scope, update_scope]
+            session.add(reader)
+            session.flush()
+            for case in cases:
+                user = User(
+                    email=f"{case.name}@example.com",
+                    hashed_password="synthetic",
+                    is_active=True,
+                    is_verified=True,
+                    is_superuser=False,
+                )
+                session.add(user)
+                session.flush()
+                accounts.append((case, user))
+                if case.workspace_member:
+                    session.add(
+                        LegacyMembership(user_id=user.id, workspace_id=workspace_id)
+                    )
+                if case.org_member:
+                    session.add(
+                        LegacyOrganizationMembership(
+                            user_id=user.id, organization_id=org_id
+                        )
+                    )
+                if case.workspace_role or case.org_role:
+                    session.add(
+                        UserRoleAssignment(
+                            user_id=user.id,
+                            organization_id=org_id,
+                            workspace_id=None if case.org_role else workspace_id,
+                            role_id=reader.id,
+                        )
+                    )
+                if case.group_role:
+                    group = Group(name=case.name, organization_id=org_id)
+                    session.add(group)
+                    session.flush()
+                    session.add(GroupMember(user_id=user.id, group_id=group.id))
+                    session.add(
+                        GroupRoleAssignment(
+                            group_id=group.id,
+                            organization_id=org_id,
+                            workspace_id=workspace_id,
+                            role_id=reader.id,
+                        )
+                    )
+            session.commit()
+            before_assignments = set(
+                session.execute(
+                    select(UserRoleAssignment.id, UserRoleAssignment.role_id)
+                ).tuples()
+            )
+        _run_alembic(previous_db, "upgrade", MIGRATION_REVISION)
+        with Session(engine) as session:
+            after_assignments = set(
+                session.execute(
+                    select(UserRoleAssignment.id, UserRoleAssignment.role_id)
+                ).tuples()
+            )
+            assert after_assignments == before_assignments, (
+                "An expand migration must not assign default permissions"
+            )
+
+        async_engine = create_async_engine(previous_db.replace("+psycopg", "+asyncpg"))
+        monkeypatch.setattr(db_engine, "_async_engine", async_engine)
+        monkeypatch.setattr(db_engine, "_async_auth_engine", async_engine)
+        monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
+        previous_overrides = app.dependency_overrides.copy()
+        actor = accounts[0][1]
+
+        async def logged_in_user() -> User:
+            return actor
+
+        app.dependency_overrides[current_active_user] = logged_in_user
+        app.dependency_overrides[optional_current_active_user] = logged_in_user
+        try:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test.local"
+            ) as client:
+                for case, account in accounts:
+                    actor = account
+                    _compute_effective_scopes_cached.cache_clear()
+                    response = await client.get(
+                        "/users/me/scopes", params={"workspace_id": str(workspace_id)}
+                    )
+                    assert response.status_code == case.expected_status, (
+                        case.name,
+                        response.text,
+                    )
+                    if case.expected_status == 200:
+                        assert response.json()["scopes"] == list(
+                            case.expected_scopes
+                        ), case.name
+
+                    org_response = await client.get("/users/me/scopes")
+                    assert org_response.status_code == (
+                        200 if case.org_member else 400
+                    ), case.name
+                    if case.org_member:
+                        assert org_response.json()["scopes"] == (
+                            ["workspace:read"] if case.org_role else []
+                        ), case.name
+
+                # An old pod can delete only an assignment while leaving membership.
+                inherited = next(
+                    user for case, user in accounts if case.name == "inherited"
+                )
+                with engine.begin() as conn:
+                    _assign(conn, org_id, inherited.id, workspace_id, editor_id)
+                actor = inherited
+                _compute_effective_scopes_cached.cache_clear()
+                response = await client.get(
+                    "/users/me/scopes", params={"workspace_id": str(workspace_id)}
+                )
+                assert response.json()["scopes"] == [
+                    "workspace:read",
+                    "workspace:update",
+                ]
+                with engine.begin() as conn:
+                    conn.execute(
+                        text(
+                            "DELETE FROM user_role_assignment WHERE user_id = :u AND workspace_id = :w"
+                        ),
+                        {"u": actor.id, "w": workspace_id},
+                    )
+                _compute_effective_scopes_cached.cache_clear()
+                response = await client.get(
+                    "/users/me/scopes", params={"workspace_id": str(workspace_id)}
+                )
+                assert response.status_code == 200
+                assert response.json()["scopes"] == ["workspace:read"]
+        finally:
+            app.dependency_overrides.clear()
+            app.dependency_overrides.update(previous_overrides)
+            _compute_effective_scopes_cached.cache_clear()
+            await async_engine.dispose()
     finally:
         engine.dispose()

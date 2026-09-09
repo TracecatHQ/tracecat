@@ -14,6 +14,7 @@ from tracecat.auth.schemas import UserRole
 from tracecat.authz.seeding import seed_system_roles_for_org
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import (
+    LegacyOrganizationMembership,
     Organization,
     OrganizationMembership,
     User,
@@ -317,6 +318,7 @@ async def test_single_tenant_defaults_keep_existing_role_after_repair(
 ) -> None:
     org = await _create_org_with_roles(session)
     user = await _create_user(session)
+    session.add(LegacyOrganizationMembership(user_id=user.id, organization_id=org.id))
     owner_role = (
         await session.execute(
             select(DBRole).where(
@@ -354,14 +356,10 @@ async def test_single_tenant_defaults_keep_existing_role_after_repair(
 
 
 @pytest.mark.anyio
-async def test_single_tenant_defaults_keep_owner_role_for_regular_user(
+async def test_single_tenant_defaults_normalize_existing_role_during_repair(
     session: AsyncSession,
 ) -> None:
-    """An org-wide assignment is self-sufficient, so no repair demotes it.
-
-    Membership is derived from the assignment, so the pre-view state this used
-    to normalize (owner assignment with no membership row) cannot occur.
-    """
+    """Preserve the existing opt-in provisioning repair for nonmembers."""
     org = await _create_org_with_roles(session)
     user = await _create_user(session)
     owner_role = (
@@ -404,9 +402,9 @@ async def test_single_tenant_defaults_keep_owner_role_for_regular_user(
         await _get_org_role_assignment_slug(
             session, user_id=user.id, organization_id=org.id
         )
-        == "organization-owner"
+        == "organization-member"
     )
-    assert changed is False
+    assert changed is True
 
 
 @pytest.mark.anyio
