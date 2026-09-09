@@ -43,6 +43,7 @@ async def deliver_next_invitation(
     )
     claimed = await session.execute(
         update(OrganizationInvitation)
+        .execution_options(synchronize_session=False)
         .where(
             OrganizationInvitation.id == next_id,
             Organization.id == OrganizationInvitation.organization_id,
