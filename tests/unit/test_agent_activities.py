@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import shutil
 import uuid
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -66,7 +67,9 @@ from tracecat.agent.executor.loopback import (
     LoopbackInput,
     LoopbackResult,
 )
+from tracecat.agent.mcp import user_client
 from tracecat.agent.otel_config import AgentOtelConfig, ResolvedAgentOtelConfig
+from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.runtime.claude_code.broker import (
     ClaudeTurnRequest,
     ConcurrentSessionTurnError,
@@ -194,6 +197,97 @@ class TestSessionActivities:
 
 
 class TestBuildToolDefinitionsActivity:
+    @pytest.mark.anyio
+    @pytest.mark.parametrize("raw_names", [("a__b", "a.b"), ("a.b", "a__b")])
+    @pytest.mark.parametrize(
+        ("stored_approval", "precomputed_approval"),
+        [(True, False), (False, True), (False, False)],
+    )
+    async def test_rejected_name_cannot_erase_surviving_tool_approval(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_role: Role,
+        raw_names: tuple[str, str],
+        stored_approval: bool,
+        precomputed_approval: bool,
+    ) -> None:
+        integration_id = uuid.uuid4()
+        approval_key = "mcp.example.a.b"
+        service = MagicMock(spec=AgentPresetService)
+        service.resolve_mcp_integration_tool_policies = AsyncMock(
+            return_value={
+                integration_id: {
+                    "a__b": MCPToolSummary(
+                        name="a__b", requires_approval=stored_approval
+                    ),
+                    "a.b": MCPToolSummary(name="a.b", requires_approval=True),
+                }
+            }
+        )
+        service.resolve_mcp_integration_secrets = AsyncMock(return_value={})
+        lock_service = MagicMock(spec=RegistryLockService)
+        lock_service.resolve_lock_with_bindings = AsyncMock(
+            return_value=RegistryLock(origins={}, actions={})
+        )
+
+        @asynccontextmanager
+        async def preset_context(
+            **_kwargs: object,
+        ) -> AsyncIterator[AgentPresetService]:
+            yield service
+
+        @asynccontextmanager
+        async def lock_context() -> AsyncIterator[RegistryLockService]:
+            yield lock_service
+
+        monkeypatch.setattr(AgentPresetService, "with_session", preset_context)
+        monkeypatch.setattr(RegistryLockService, "with_session", lock_context)
+        monkeypatch.setattr(
+            agent_activities,
+            "build_agent_tools",
+            AsyncMock(return_value=BuildToolsResult(tools=[], collected_secrets=set())),
+        )
+        monkeypatch.setattr(
+            user_client,
+            "discover_user_mcp_tools",
+            AsyncMock(
+                return_value={
+                    f"mcp__example__{name}": MCPToolDefinition(
+                        name=f"mcp__example__{name}",
+                        description="Synthetic tool",
+                        parameters_json_schema={"type": "object"},
+                    )
+                    for name in raw_names
+                }
+            ),
+        )
+        check_entitlement = AsyncMock()
+        monkeypatch.setattr(
+            AgentActivities, "_check_tool_approval_entitlement", check_entitlement
+        )
+        result = await AgentActivities().build_tool_definitions(
+            BuildToolDefsArgs(
+                role=mock_role,
+                tool_filters=ToolFilters(actions=[]),
+                tool_approvals={approval_key: True} if precomputed_approval else None,
+                mcp_servers=[
+                    {
+                        "type": "http",
+                        "name": "example",
+                        "url": "https://example.test/mcp",
+                        "id": str(integration_id),
+                    }
+                ],
+            )
+        )
+        assert set(result.tool_definitions) == {"mcp__example__a__b"}
+        if stored_approval or precomputed_approval:
+            assert result.tool_approvals == {approval_key: True}
+            check_entitlement.assert_awaited_once_with(mock_role)
+        else:
+            assert result.tool_approvals is None
+            check_entitlement.assert_not_awaited()
+
     @pytest.mark.anyio
     async def test_classifies_tool_approval_entitlement_denial(
         self,

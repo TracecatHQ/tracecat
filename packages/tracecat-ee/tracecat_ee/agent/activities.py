@@ -366,6 +366,8 @@ class AgentActivities:
                 # Add user MCP tools to definitions, honoring stored policy:
                 # disabled or missing tools are dropped, approval-gated tools
                 # are recorded in the effective approval map.
+                rejected_approval_keys: set[str] = set()
+                retained_approval_keys: set[str] = set()
                 for tool_name, tool_def in user_mcp_tools.items():
                     parsed = UserMCPClient.parse_user_mcp_tool_name(tool_name)
                     server_name, remote_tool_name = parsed or (None, None)
@@ -377,16 +379,16 @@ class AgentActivities:
                         and remote_tool_name not in allowed_names
                     ):
                         continue
+                    approval_key = normalize_mcp_tool_name(
+                        f"mcp__{REGISTRY_MCP_SERVER_NAME}__{tool_name}"
+                    )
                     # Remote names are registered verbatim on the trusted MCP
                     # server. Apply the same name constraints as stdio discovery
                     # before recording definitions or approval entries.
                     if remote_tool_name is not None and not MCP_TOOL_NAME_RE.fullmatch(
                         remote_tool_name
                     ):
-                        approval_key = normalize_mcp_tool_name(
-                            f"mcp__{REGISTRY_MCP_SERVER_NAME}__{tool_name}"
-                        )
-                        effective_tool_approvals.pop(approval_key, None)
+                        rejected_approval_keys.add(approval_key)
                         logger.warning(
                             "Skipping user MCP tool with unsupported name",
                             tool_name=tool_name,
@@ -405,11 +407,14 @@ class AgentActivities:
                             )
                             continue
                         if policy.requires_approval:
-                            approval_key = normalize_mcp_tool_name(
-                                f"mcp__{REGISTRY_MCP_SERVER_NAME}__{tool_name}"
-                            )
                             effective_tool_approvals[approval_key] = True
                     defs[tool_name] = tool_def
+                    retained_approval_keys.add(approval_key)
+
+                # Normalization can map rejected `a.b` and valid `a__b` to
+                # the same key. Only remove approvals with no surviving tool.
+                for approval_key in rejected_approval_keys - retained_approval_keys:
+                    effective_tool_approvals.pop(approval_key, None)
 
                 # JWT claims carry the source integration id when available so
                 # the trusted MCP server can re-resolve headers per call. For
