@@ -22,6 +22,7 @@ from tracecat.db.models import (
     Group,
     GroupMember,
     GroupRoleAssignment,
+    Membership,
     OrganizationMembership,
     RoleScope,
     Scope,
@@ -34,6 +35,7 @@ from tracecat.db.models import (
 )
 from tracecat.exceptions import (
     TracecatAuthorizationError,
+    TracecatConflictError,
     TracecatNotFoundError,
     TracecatValidationError,
 )
@@ -321,6 +323,26 @@ class RBACService(BaseOrgService):
         if result.scalar_one_or_none() is None:
             raise TracecatNotFoundError("Group not found")
 
+    async def _user_in_organization(self, user_id: UUID) -> bool:
+        """Check whether the user holds any role path in the organization."""
+        # A workspace path is enough to keep the user grantable.
+        stmt = (
+            select(OrganizationMembership.user_id)
+            .where(
+                OrganizationMembership.user_id == user_id,
+                OrganizationMembership.organization_id == self.organization_id,
+            )
+            .union(
+                select(Membership.user_id).where(
+                    Membership.user_id == user_id,
+                    Membership.organization_id == self.organization_id,
+                )
+            )
+            .limit(1)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none() is not None
+
     async def _ensure_can_grant_scopes(self, scopes: Sequence[Scope]) -> None:
         """Reject grants containing scopes the caller does not hold."""
         if self.role.is_platform_superuser:
@@ -439,12 +461,7 @@ class RBACService(BaseOrgService):
         await self._ensure_group_membership_assignable(group_id)
 
         # Verify user belongs to this organization
-        stmt = select(OrganizationMembership).where(
-            OrganizationMembership.user_id == user_id,
-            OrganizationMembership.organization_id == self.organization_id,
-        )
-        result = await self.session.execute(stmt)
-        if result.scalar_one_or_none() is None:
+        if not await self._user_in_organization(user_id):
             raise TracecatNotFoundError("User not found in organization")
 
         # Check if already a member
@@ -700,12 +717,7 @@ class RBACService(BaseOrgService):
             Created UserRoleAssignment
         """
         # Verify user belongs to this organization
-        stmt = select(OrganizationMembership).where(
-            OrganizationMembership.user_id == user_id,
-            OrganizationMembership.organization_id == self.organization_id,
-        )
-        result = await self.session.execute(stmt)
-        if result.scalar_one_or_none() is None:
+        if not await self._user_in_organization(user_id):
             raise TracecatNotFoundError("User not found in organization")
 
         # Verify role exists
@@ -769,10 +781,57 @@ class RBACService(BaseOrgService):
         resource_id_attr="assignment_id",
     )
     async def delete_user_assignment(self, assignment_id: UUID) -> None:
-        """Delete a user role assignment."""
+        """Delete a user role assignment.
+
+        Raises:
+            TracecatConflictError: If deleting the assignment would leave the
+                user with no role path in the organization.
+        """
         assignment = await self.get_user_assignment(assignment_id)
+        if assignment.workspace_id is None and not await self._has_other_org_path(
+            assignment.user_id, exclude_assignment_id=assignment.id
+        ):
+            raise TracecatConflictError(
+                "Removing this role would remove the user from the organization. "
+                "Remove the member instead."
+            )
         await self.session.delete(assignment)
         await self.session.commit()
+
+    async def _has_other_org_path(
+        self, user_id: UUID, *, exclude_assignment_id: UUID
+    ) -> bool:
+        """Check for any remaining role path once this assignment is gone."""
+        # Direct assignments, org-wide or workspace-scoped, both keep the user.
+        direct = (
+            await self.session.execute(
+                select(UserRoleAssignment.id)
+                .where(
+                    UserRoleAssignment.user_id == user_id,
+                    UserRoleAssignment.organization_id == self.organization_id,
+                    UserRoleAssignment.id != exclude_assignment_id,
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if direct is not None:
+            return True
+
+        group = (
+            await self.session.execute(
+                select(GroupMember.group_id)
+                .join(
+                    GroupRoleAssignment,
+                    GroupRoleAssignment.group_id == GroupMember.group_id,
+                )
+                .where(
+                    GroupMember.user_id == user_id,
+                    GroupRoleAssignment.organization_id == self.organization_id,
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        return group is not None
 
     async def get_user_role_scopes(
         self,
