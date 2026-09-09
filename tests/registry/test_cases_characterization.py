@@ -428,9 +428,13 @@ class TestAggregateCases:
 @pytest.mark.dbtest
 @pytest.mark.slow
 @pytest.mark.parametrize(("default", "maximum"), [(2, 50), (1200, 2000)])
-def test_aggregate_cases_server_limit_overrides(default: int, maximum: int) -> None:
+def test_aggregate_cases_server_limit_overrides(
+    default: int, maximum: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
     # Load deployment settings before request models and FastAPI cache them.
     # Each process uses its own randomly named database (tests.database).
+    # Parent test selection must not deselect the explicitly requested child test.
+    monkeypatch.setenv("PYTEST_ADDOPTS", "-k server_limit_overrides -m slow")
     result = subprocess.run(
         [
             sys.executable,
@@ -449,6 +453,7 @@ def test_aggregate_cases_server_limit_overrides(default: int, maximum: int) -> N
         cwd=Path(__file__).resolve().parents[2],
         env={
             **os.environ,
+            "PYTEST_ADDOPTS": "",
             "TRACECAT__LIMIT_AGG_GROUPS_DEFAULT": str(default),
             "TRACECAT__LIMIT_AGG_GROUPS_MAX": str(maximum),
         },
