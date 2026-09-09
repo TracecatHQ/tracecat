@@ -36,6 +36,7 @@ from tracecat.temporal.errors import (
     build_error_transport_detail,
     extract_error_classification,
     extract_error_classifications,
+    extract_error_diagnostics,
     parse_classified_error_payload,
     raise_application_error_from_classification,
     raise_wrapped_application_error,
@@ -151,6 +152,32 @@ def test_transport_detail_supports_non_action_diagnostics() -> None:
         extract_error_classification(ApplicationError("Agent failed", serialized))
         == classification
     )
+
+
+@pytest.mark.parametrize("mapped", [False, True])
+def test_extract_diagnostics_matches_classification_and_excludes_incidental_context(
+    mapped: bool,
+) -> None:
+    classification = _platform_classification()
+    diagnostic = SyntheticAgentDiagnostic(phase="model_call", message="Safe diagnostic")
+    detail = build_error_transport_detail(classification, diagnostic).model_dump(
+        mode="json"
+    )
+    other = build_error_transport_detail(
+        _user_classification(), {"unrelated": "other failure"}
+    ).model_dump(mode="json")
+    root = ApplicationError(
+        "Platform failed", {"selected": detail, "other": other} if mapped else detail
+    )
+    wrapper = RuntimeError("Wrapped failure")
+    wrapper.__cause__ = root
+    wrapper.__context__ = ApplicationError("Incidental failure", other)
+
+    assert extract_error_diagnostics(wrapper, classification) == (
+        diagnostic.model_dump(mode="json"),
+    )
+    wrapper.__cause__ = None
+    assert extract_error_diagnostics(wrapper, classification) == ()
 
 
 def test_aggregate_action_error_attribution_lives_on_transport_detail() -> None:

@@ -47,6 +47,7 @@ from tracecat.agent.common.types import (
     SandboxAgentConfig,
     SandboxSubagentConfig,
 )
+from tracecat.agent.diagnostics import LLMErrorDiagnostics
 from tracecat.agent.executor.activity import (
     AgentExecutorInput,
     AgentExecutorResult,
@@ -77,7 +78,6 @@ from tracecat.auth.types import Role
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.observability.types import PlatformErrorCapture
 from tracecat.runtime.errors import (
-    LLMErrorMetadata,
     RetryDisposition,
     RuntimeErrorClassification,
     RuntimeErrorKind,
@@ -3558,13 +3558,17 @@ async def test_executor_indexes_provider_configuration_by_exact_root_and_subagen
     plan = SandboxedAgentExecutor(input=executor_input)._llm_routing_plan()
     # Materialization must preserve the managed index too.
     plan = await plan.materialize(None)
-    assert plan.resolve("openai/synthetic-root").error_metadata == LLMErrorMetadata(
+    assert plan.resolve(
+        "openai/synthetic-root"
+    ).error_diagnostics == LLMErrorDiagnostics(
         route="managed", provider_configuration="builtin"
     )
-    assert plan.resolve("synthetic-child-route").error_metadata == LLMErrorMetadata(
+    assert plan.resolve(
+        "synthetic-child-route"
+    ).error_diagnostics == LLMErrorDiagnostics(
         route="managed", provider_configuration="custom"
     )
-    assert plan.resolve("unrecognized-route").error_metadata == LLMErrorMetadata(
+    assert plan.resolve("unrecognized-route").error_diagnostics == LLMErrorDiagnostics(
         route="managed", provider_configuration=None
     )
-    assert plan.resolve(None).error_metadata.provider_configuration is None
+    assert plan.resolve(None).error_diagnostics.provider_configuration is None

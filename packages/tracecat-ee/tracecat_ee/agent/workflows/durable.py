@@ -113,6 +113,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.registry.lock.types import RegistryLock
     from tracecat.runtime.errors import RuntimeErrorClassification
     from tracecat.temporal.errors import (
+        build_error_transport_detail,
         extract_error_classifications,
         iter_error_chain,
         raise_application_error_from_classification,
@@ -1556,8 +1557,12 @@ class DurableAgentWorkflow:
                 # A missing classification can only come from a legacy history or
                 # a broken executor contract. Treat it as a platform invariant,
                 # never infer ownership from the free-form error string.
-                raise_application_error_from_classification(
+                classification = (
                     result.classification or agent_workflow_internal_error()
+                )
+                raise_application_error_from_classification(
+                    classification,
+                    build_error_transport_detail(classification, result.diagnostic),
                 )
 
             if result.approval_requested:

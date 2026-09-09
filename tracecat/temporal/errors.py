@@ -326,6 +326,37 @@ def extract_error_classifications_from_details(
     return tuple(classifications)
 
 
+def extract_error_diagnostics(
+    error: BaseException,
+    classification: RuntimeErrorClassification,
+) -> tuple[object, ...]:
+    """Read opaque diagnostics for this failure, excluding incidental context.
+
+    Reporting boundaries validate the domain-specific diagnostic models.
+    Diagnostics never participate in classification selection.
+    """
+    diagnostics: list[object] = []
+    for current in iter_error_chain(error, include_implicit_context=False):
+        if not isinstance(current, ApplicationError):
+            continue
+        for detail in current.details:
+            parsed = parse_classified_error_payload(detail)
+            if parsed is None:
+                continue
+            transports = (
+                (parsed,)
+                if isinstance(parsed, ErrorTransportDetail)
+                else parsed.values()
+            )
+            for transport in transports:
+                if (
+                    transport.classification == classification
+                    and transport.diagnostic is not None
+                ):
+                    diagnostics.append(transport.diagnostic)
+    return tuple(diagnostics)
+
+
 def _classification_from_details(
     details: Sequence[Any],
 ) -> RuntimeErrorClassification | None:

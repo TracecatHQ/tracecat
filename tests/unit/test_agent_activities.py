@@ -48,6 +48,7 @@ from tracecat.agent.common.fs import force_rmtree
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.common.types import MCPToolDefinition
+from tracecat.agent.diagnostics import LLMErrorDiagnostics
 from tracecat.agent.error_policy import (
     agent_executor_timed_out,
     user_agent_execution_failed,
@@ -111,6 +112,8 @@ from tracecat.runtime.errors import (
     RuntimeErrorOwner,
 )
 from tracecat.temporal.errors import extract_error_classification
+from tracecat.tiers.entitlements import EntitlementService
+from tracecat.tiers.service import TierService
 
 
 @pytest.fixture
@@ -210,12 +213,12 @@ class TestBuildToolDefinitionsActivity:
                 return None
 
         monkeypatch.setattr(
-            agent_activities.TierService,
+            TierService,
             "with_session",
             lambda: _TierContext(),
         )
         monkeypatch.setattr(
-            agent_activities.EntitlementService,
+            EntitlementService,
             "check_entitlement",
             AsyncMock(side_effect=EntitlementRequired("agent_addons")),
         )
@@ -1939,6 +1942,9 @@ class TestSandboxedAgentExecutorHelpers:
         executor._fatal_error = LLMProxyError(
             message="raw gateway timeout",
             classification=agent_executor_timed_out(TimeoutError("secret")),
+            diagnostic=LLMErrorDiagnostics(
+                route="managed", provider_configuration="custom"
+            ),
         )
         executor._fatal_error_event.set()
 
@@ -1953,6 +1959,8 @@ class TestSandboxedAgentExecutorHelpers:
         assert result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_TIMED_OUT
         assert result.classification.retry_disposition is RetryDisposition.RETRYABLE
         assert "secret" not in result.classification.message
+        assert result.diagnostic == executor._fatal_error.diagnostic
+        assert "llm" not in result.model_dump(mode="json")["classification"]
         assert result.terminal_stream_error_emitted is True
 
     @pytest.mark.anyio

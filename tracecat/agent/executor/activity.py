@@ -46,6 +46,7 @@ from tracecat.agent.common.types import (
     is_stdio_mcp_server,
     requires_sandbox_internet_access,
 )
+from tracecat.agent.diagnostics import LLMErrorDiagnostics
 from tracecat.agent.error_policy import (
     agent_executor_protocol_failed,
     agent_executor_timed_out,
@@ -247,6 +248,9 @@ class AgentExecutorResult(BaseModel):
     # Typed terminal attribution produced by the trusted executor boundary.
     # None keeps activity results recorded before this field replayable.
     classification: RuntimeErrorClassification | None = None
+    diagnostic: LLMErrorDiagnostics | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     sentry_capture: PlatformErrorCapture | None = Field(default=None, exclude=True)
     # None means a legacy activity result did not carry this field. The
     # workflow treats unknown failed results as already terminal-emitted so old
@@ -937,6 +941,7 @@ class SandboxedAgentExecutor:
                         proxy_error = fatal_error_task.result()
                         result.error = proxy_error.message
                         result.classification = proxy_error.classification
+                        result.diagnostic = proxy_error.diagnostic
                         result.terminal_stream_error_emitted = (
                             await handler.emit_terminal_error(proxy_error.message)
                         )

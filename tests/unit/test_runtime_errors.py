@@ -5,7 +5,6 @@ from pydantic import ValidationError
 
 from tracecat.runtime.errors import (
     RUNTIME_ERROR_CLASSIFICATION_SCHEMA,
-    LLMErrorMetadata,
     RetryDisposition,
     RuntimeErrorClassification,
     RuntimeErrorKind,
@@ -161,33 +160,14 @@ def test_platform_classification_excludes_sensitive_cause_message() -> None:
     assert "example.invalid" not in serialized
 
 
-def test_optional_llm_metadata_round_trips_and_rejects_sensitive_fields() -> None:
+def test_runtime_classification_rejects_domain_diagnostics() -> None:
     original = RuntimeErrorClassification.platform(
         kind=RuntimeErrorKind.AGENT_LLM_READ_TIMEOUT,
         message="Safe failure",
         retry_disposition=RetryDisposition.RETRYABLE,
     )
     assert "llm" not in original.model_dump(mode="json")
-    classified = original.model_copy(
-        update={
-            "llm": LLMErrorMetadata(route="managed", provider_configuration="custom")
-        }
-    )
-    assert (
-        parse_error_classification(
-            classified.model_dump(mode="json", exclude_unset=True)
-        )
-        == classified
-    )
     with pytest.raises(ValidationError):
-        LLMErrorMetadata.model_validate(
-            {
-                "route": "managed",
-                "provider_configuration": "custom",
-                "url": "https://synthetic.example",
-            }
-        )
-    with pytest.raises(ValidationError):
-        LLMErrorMetadata.model_validate(
-            {"route": "managed", "provider_configuration": "synthetic-display-name"}
+        RuntimeErrorClassification.model_validate(
+            original.model_dump(mode="json") | {"llm": {"route": "managed"}}
         )

@@ -25,6 +25,7 @@ from fastapi import HTTPException
 
 from tracecat import config as app_config
 from tracecat.agent.common.exceptions import AgentSandboxValidationError
+from tracecat.agent.diagnostics import LLMErrorDiagnostics
 from tracecat.agent.error_policy import (
     agent_executor_protocol_failed,
     agent_executor_timed_out,
@@ -41,7 +42,7 @@ from tracecat.agent.service import AgentManagementService
 from tracecat.auth.types import Role
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.logger import logger
-from tracecat.runtime.errors import LLMErrorMetadata, RuntimeErrorClassification
+from tracecat.runtime.errors import RuntimeErrorClassification
 
 # Strip a trailing "/vN" segment (with optional trailing slash) from a
 # passthrough upstream URL. The contract for stored ``base_url`` is the
@@ -188,6 +189,7 @@ class LLMProxyError:
 
     message: str
     classification: RuntimeErrorClassification
+    diagnostic: LLMErrorDiagnostics | None = None
 
 
 def _http_error_classification(
@@ -302,9 +304,9 @@ class LLMRoute:
     provider_configuration: Literal["builtin", "custom"] | None = None
 
     @property
-    def error_metadata(self) -> LLMErrorMetadata:
+    def error_diagnostics(self) -> LLMErrorDiagnostics:
         """Return safe configuration context for this selected request route."""
-        return LLMErrorMetadata(
+        return LLMErrorDiagnostics(
             route=self.mode, provider_configuration=self.provider_configuration
         )
 
@@ -753,11 +755,9 @@ class LLMSocketProxy:
         message: str,
         classification: RuntimeErrorClassification,
         *,
-        llm: LLMErrorMetadata | None = None,
+        diagnostic: LLMErrorDiagnostics | None = None,
     ) -> None:
         """Emit error via callback (only once)."""
-        if llm is not None:
-            classification = classification.model_copy(update={"llm": llm})
         if not self._error_emitted:
             self._error_emitted = True
             logger.error("LLM proxy error", error=message, **_load_fields())
@@ -766,6 +766,7 @@ class LLMSocketProxy:
                     LLMProxyError(
                         message=message,
                         classification=classification,
+                        diagnostic=diagnostic,
                     )
                 )
 
@@ -1047,7 +1048,9 @@ class LLMSocketProxy:
                     # Error bodies may echo credentials, budgets or request data.
                     # Keep durable failure text source-owned and privacy-safe.
                     self._emit_error(
-                        classification.message, classification, llm=route.error_metadata
+                        classification.message,
+                        classification,
+                        diagnostic=route.error_diagnostics,
                     )
                     body_chunks = [error_body]
                 else:
@@ -1065,7 +1068,7 @@ class LLMSocketProxy:
                     method=method,
                     path=path,
                     route_is_direct=route.is_direct,
-                    llm=route.error_metadata,
+                    diagnostic=route.error_diagnostics,
                 )
         except httpx.TransportError as exc:
             if isinstance(exc, httpx.ReadTimeout):
@@ -1097,7 +1100,7 @@ class LLMSocketProxy:
                         route_is_direct=route.is_direct,
                         timed_out=timed_out,
                     ),
-                    llm=route.error_metadata,
+                    diagnostic=route.error_diagnostics,
                 )
 
     async def _write_response(
@@ -1114,7 +1117,7 @@ class LLMSocketProxy:
         method: str | None = None,
         path: str | None = None,
         route_is_direct: bool = False,
-        llm: LLMErrorMetadata | None = None,
+        diagnostic: LLMErrorDiagnostics | None = None,
     ) -> None:
         """Write an HTTP response head and stream the response body."""
         content_type = next(
@@ -1235,7 +1238,7 @@ class LLMSocketProxy:
                     self._emit_error(
                         surfaced_error,
                         classification,
-                        llm=llm,
+                        diagnostic=diagnostic,
                     )
                 error_payload = orjson.dumps(
                     {
@@ -1271,7 +1274,7 @@ class LLMSocketProxy:
                             route_is_direct=route_is_direct,
                             timed_out=isinstance(exc, httpx.TimeoutException),
                         ),
-                        llm=llm,
+                        diagnostic=diagnostic,
                     )
             else:
                 raise

@@ -19,6 +19,7 @@ from tracecat_ee.agent.workflows.durable import (
 )
 
 from tracecat.agent.common.exceptions import AgentSandboxProcessExitError
+from tracecat.agent.diagnostics import LLMErrorDiagnostics
 from tracecat.agent.error_policy import (
     agent_executor_protocol_failed,
     agent_executor_timed_out,
@@ -41,7 +42,6 @@ from tracecat.agent.executor.loopback import (
     LoopbackResult,
 )
 from tracecat.runtime.errors import (
-    LLMErrorMetadata,
     RetryDisposition,
     RuntimeErrorClassification,
     RuntimeErrorKind,
@@ -49,7 +49,9 @@ from tracecat.runtime.errors import (
 )
 from tracecat.temporal.errors import (
     application_error_from_classification,
+    build_error_transport_detail,
     extract_error_classification,
+    extract_error_diagnostics,
     raise_wrapped_application_error,
 )
 
@@ -363,44 +365,46 @@ async def test_loopback_send_error_keeps_trusted_runtime_classification() -> Non
 
 
 def test_llm_read_timeout_survives_executor_activity_boundary() -> None:
-    expected = agent_llm_read_timeout().model_copy(
-        update={
-            "llm": LLMErrorMetadata(route="managed", provider_configuration="custom")
-        }
-    )
+    expected = agent_llm_read_timeout()
     error = _activity_error(application_error_from_classification(expected))
     assert _executor_activity_classification(error) == expected
     assert _agent_activity_classification(error) == expected
 
 
-def test_llm_read_timeout_survives_parent_error_wrapping() -> None:
-    expected = agent_llm_read_timeout().model_copy(
-        update={
-            "llm": LLMErrorMetadata(route="managed", provider_configuration="custom")
-        }
+def test_llm_diagnostics_survive_application_error_wrapping() -> None:
+    expected = agent_llm_read_timeout()
+    diagnostic = LLMErrorDiagnostics(route="managed", provider_configuration="custom")
+    error = application_error_from_classification(
+        expected, build_error_transport_detail(expected, diagnostic)
     )
-    error = _activity_error(application_error_from_classification(expected))
     with pytest.raises(ApplicationError) as raised:
         raise_wrapped_application_error(
             error,
             fallback_classification=agent_executor_unavailable(),
         )
     assert extract_error_classification(raised.value) == expected
+    assert extract_error_diagnostics(raised.value, expected) == (
+        diagnostic.model_dump(mode="json"),
+    )
 
 
 @pytest.mark.anyio
-async def test_llm_metadata_survives_temporal_payload_and_activity_wrapper() -> None:
-    classification = agent_llm_read_timeout().model_copy(
-        update={
-            "llm": LLMErrorMetadata(route="direct", provider_configuration="custom")
-        }
+async def test_llm_diagnostics_survive_temporal_payload_and_activity_wrapper() -> None:
+    classification = agent_llm_read_timeout()
+    diagnostic = LLMErrorDiagnostics(route="direct", provider_configuration="custom")
+    result = AgentExecutorResult(
+        success=False, classification=classification, diagnostic=diagnostic
     )
-    result = AgentExecutorResult(success=False, classification=classification)
     payloads = await DataConverter.default.encode([result.model_dump(mode="json")])
     decoded = await DataConverter.default.decode(payloads)
     restored = AgentExecutorResult.model_validate(decoded[0])
     assert restored.classification == classification
-    error = application_error_from_classification(classification)
+    assert restored.diagnostic == diagnostic
+    assert "llm" not in result.model_dump(mode="json")["classification"]
+    error = application_error_from_classification(
+        classification,
+        build_error_transport_detail(classification, restored.diagnostic),
+    )
     payloads = await DataConverter.default.encode(error.details)
     details = await DataConverter.default.decode(payloads)
     transported = ApplicationError(
@@ -408,4 +412,7 @@ async def test_llm_metadata_survives_temporal_payload_and_activity_wrapper() -> 
     )
     assert (
         _agent_activity_classification(_activity_error(transported)) == classification
+    )
+    assert extract_error_diagnostics(_activity_error(transported), classification) == (
+        diagnostic.model_dump(mode="json"),
     )

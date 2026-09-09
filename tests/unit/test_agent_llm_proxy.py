@@ -11,6 +11,7 @@ import httpx
 import orjson
 import pytest
 
+from tracecat.agent.diagnostics import LLMErrorDiagnostics
 from tracecat.agent.observability import LLMGatewayLoadTracker
 from tracecat.agent.sandbox.llm_proxy import (
     _MAX_ERROR_CLASSIFICATION_BYTES,
@@ -21,7 +22,6 @@ from tracecat.agent.sandbox.llm_proxy import (
     _http_error_classification,
 )
 from tracecat.runtime.errors import (
-    LLMErrorMetadata,
     RetryDisposition,
     RuntimeErrorKind,
     RuntimeErrorOwner,
@@ -1974,7 +1974,7 @@ async def test_llm_metadata_follows_selected_route_on_all_failure_phases(
         )
     assert len(errors) == 1
     classification = errors[0].classification
-    assert classification.llm == LLMErrorMetadata(
+    assert errors[0].diagnostic == LLMErrorDiagnostics(
         route="direct" if direct else "managed", provider_configuration=configuration
     )
     assert "provider.example" not in classification.model_dump_json()

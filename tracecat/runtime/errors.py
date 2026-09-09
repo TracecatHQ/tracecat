@@ -93,20 +93,6 @@ class RuntimeErrorKind(StrEnum):
     AGENT_WORKFLOW_INTERNAL_ERROR = "agent.workflow.internal_error"
 
 
-class LLMErrorMetadata(BaseModel):
-    """Independent LLM configuration dimensions, never fault ownership.
-
-    Builtin means a supported provider integration; custom means the custom
-    model-provider configuration. Neither dimension describes who owns keys.
-    Missing provider configuration means the request model could not be matched.
-    """
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    route: Literal["direct", "managed"]
-    provider_configuration: Literal["builtin", "custom"] | None = None
-
-
 class RuntimeErrorClassification(BaseModel):
     """Versioned error attribution and retry metadata.
 
@@ -128,9 +114,6 @@ class RuntimeErrorClassification(BaseModel):
     message: str
     retry_disposition: RetryDisposition
     cause_type: str | None = None
-    llm: LLMErrorMetadata | None = Field(
-        default=None, exclude_if=lambda value: value is None
-    )
 
     @classmethod
     def user(
