@@ -61,6 +61,10 @@ import type {
 } from "@/client"
 import { AgentPresetDetailActions } from "@/components/agents/agent-preset-detail-actions"
 import { AgentPresetVersionSelect } from "@/components/agents/agent-preset-version-select"
+import {
+  type AgentToolPolicyPreviewState,
+  AgentToolPolicyWarnings,
+} from "@/components/agents/agent-tool-policy-warnings"
 import { SlackChannelPanel } from "@/components/agents/external-channels/slack-channel-panel"
 import { ActionSelect } from "@/components/chat/action-select"
 import {
@@ -128,6 +132,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { useAgentPresetToolPolicy } from "@/hooks/use-agent-preset-tool-policy"
 import {
   useAgentPreset,
   useAgentPresets,
@@ -1464,11 +1469,20 @@ function AgentPresetForm({
   })
   const watchedMcpIntegrations =
     useWatch({ control: form.control, name: "mcpIntegrations" }) ?? []
-  const hasStdioMcp = useMemo(
-    () =>
-      hasSelectedStdioMcpIntegration(watchedMcpIntegrations, mcpIntegrations),
-    [mcpIntegrations, watchedMcpIntegrations]
-  )
+  const toolPolicy = useAgentPresetToolPolicy(workspaceId, {
+    actions: useWatch({ control: form.control, name: "actions" }) ?? [],
+    namespaces: useWatch({ control: form.control, name: "namespaces" }) ?? [],
+    mcp_integrations: watchedMcpIntegrations,
+    skill_ids: (useWatch({ control: form.control, name: "skills" }) ?? [])
+      .map((binding) => binding.skillId)
+      .filter(Boolean),
+    tool_approvals:
+      toToolApprovalMap(
+        useWatch({ control: form.control, name: "toolApprovals" }) ?? []
+      ) ?? {},
+  })
+  const requiresInternetAccess =
+    toolPolicy.data?.requires_internet_access === true
   const agentPresetsBySlug = useMemo(
     () => new Map(agentPresets.map((preset) => [preset.slug, preset])),
     [agentPresets]
@@ -1521,10 +1535,10 @@ function AgentPresetForm({
   }, [form, mode, preset])
 
   useEffect(() => {
-    if (hasStdioMcp && !form.getValues("enableInternetAccess")) {
+    if (requiresInternetAccess && !form.getValues("enableInternetAccess")) {
       form.setValue("enableInternetAccess", true, { shouldDirty: true })
     }
-  }, [form, hasStdioMcp])
+  }, [form, requiresInternetAccess])
 
   const watchedName = form.watch("name")
   const catalogId = form.watch("catalog_id")
@@ -1615,7 +1629,7 @@ function AgentPresetForm({
 
       const payload = formValuesToPayload(values, {
         forceInternetAccess:
-          hasStdioMcp ||
+          requiresInternetAccess ||
           hasSelectedStdioMcpIntegration(
             values.mcpIntegrations,
             mcpIntegrations
@@ -1650,14 +1664,14 @@ function AgentPresetForm({
   const getDraftPayload = useCallback((): AgentPresetCreate | null => {
     try {
       return formValuesToPayload(form.getValues(), {
-        forceInternetAccess: hasStdioMcp,
+        forceInternetAccess: requiresInternetAccess,
       })
     } catch {
       // `formValuesToPayload` runs `JSON.parse` on the structured-output
       // schema, which legitimately throws while the user is mid-edit.
       return null
     }
-  }, [form, hasStdioMcp])
+  }, [form, requiresInternetAccess])
 
   // Wording only: the backend cuts a version only when a publishing field
   // changes, so a metadata-only edit reads as "Save changes". RHF marks array
@@ -1783,7 +1797,7 @@ function AgentPresetForm({
       enabledModelsLoaded={enabledModelsLoaded}
       mcpIntegrations={mcpIntegrations}
       mcpIntegrationsIsLoading={mcpIntegrationsIsLoading}
-      hasStdioMcp={hasStdioMcp}
+      toolPolicy={toolPolicy}
       skillFields={skillFields}
       onAddSkillBinding={handleAddSkillBinding}
       onRemoveSkillBinding={removeSkillBinding}
@@ -1983,7 +1997,7 @@ function AgentPresetRightPanel({
   enabledModelsLoaded,
   mcpIntegrations,
   mcpIntegrationsIsLoading,
-  hasStdioMcp,
+  toolPolicy,
   skillFields,
   onAddSkillBinding,
   onRemoveSkillBinding,
@@ -2009,7 +2023,7 @@ function AgentPresetRightPanel({
   enabledModelsLoaded: boolean
   mcpIntegrations: McpIntegrationOption[]
   mcpIntegrationsIsLoading: boolean
-  hasStdioMcp: boolean
+  toolPolicy: AgentToolPolicyPreviewState
   skillFields: Array<{ id: string }>
   onAddSkillBinding: (binding: SkillBindingFormValue) => void
   onRemoveSkillBinding: (index: number) => void
@@ -2114,7 +2128,7 @@ function AgentPresetRightPanel({
               enabledModelsLoaded={enabledModelsLoaded}
               mcpIntegrations={mcpIntegrations}
               mcpIntegrationsIsLoading={mcpIntegrationsIsLoading}
-              hasStdioMcp={hasStdioMcp}
+              toolPolicy={toolPolicy}
               toolApprovalFields={toolApprovalFields}
               onAddToolApproval={onAddToolApproval}
               onRemoveToolApproval={onRemoveToolApproval}
@@ -2135,6 +2149,7 @@ function AgentPresetRightPanel({
 
           <TabsContent value="skills" className="mt-0 h-full overflow-hidden">
             <AgentPresetSkillsPanel
+              toolPolicy={toolPolicy}
               form={form}
               workspaceId={workspaceId}
               isSaving={isSaving}
@@ -2168,7 +2183,7 @@ function AgentPresetConfigurationPanel({
   enabledModelsLoaded,
   mcpIntegrations,
   mcpIntegrationsIsLoading,
-  hasStdioMcp,
+  toolPolicy,
   toolApprovalFields,
   onAddToolApproval,
   onRemoveToolApproval,
@@ -2181,11 +2196,13 @@ function AgentPresetConfigurationPanel({
   enabledModelsLoaded: boolean
   mcpIntegrations: McpIntegrationOption[]
   mcpIntegrationsIsLoading: boolean
-  hasStdioMcp: boolean
+  toolPolicy: AgentToolPolicyPreviewState
   toolApprovalFields: Array<{ id: string }>
   onAddToolApproval: () => void
   onRemoveToolApproval: (index: number) => void
 }) {
+  const requiresInternetAccess =
+    toolPolicy.data?.requires_internet_access === true
   const catalogId = form.watch("catalog_id")
   const sourceId = form.watch("source_id")
   const modelProvider = form.watch("model_provider")
@@ -2442,7 +2459,7 @@ function AgentPresetConfigurationPanel({
                   need it.
                 </p>
               </div>
-              {hasStdioMcp ? (
+              {requiresInternetAccess ? (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <span className="inline-flex">
@@ -2541,7 +2558,13 @@ function AgentPresetConfigurationPanel({
             name="namespaces"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Tool namespaces</FormLabel>
+                <FormLabel>Tool namespace policy</FormLabel>
+                <FormDescription>
+                  Restrict registry tools from this preset and its attached
+                  skills to these namespace prefixes. This filters selected
+                  tools; it does not add tools. MCP tools are configured
+                  separately.
+                </FormDescription>
                 <FormControl>
                   <MultiTagCommandInput
                     value={field.value}
@@ -2556,6 +2579,7 @@ function AgentPresetConfigurationPanel({
               </FormItem>
             )}
           />
+          <AgentToolPolicyWarnings preview={toolPolicy} />
         </section>
 
         <Separator />
@@ -3027,6 +3051,7 @@ function AgentPresetSubagentsPanel({
 }
 
 function AgentPresetSkillsPanel({
+  toolPolicy,
   form,
   workspaceId,
   isSaving,
@@ -3034,6 +3059,7 @@ function AgentPresetSkillsPanel({
   onAddSkillBinding,
   onRemoveSkillBinding,
 }: {
+  toolPolicy: AgentToolPolicyPreviewState
   form: UseFormReturn<AgentPresetFormValues>
   workspaceId: string
   isSaving: boolean
@@ -3091,6 +3117,7 @@ function AgentPresetSkillsPanel({
               Add skill
             </Button>
           </div>
+          <AgentToolPolicyWarnings preview={toolPolicy} />
           {skillsError ? (
             <Alert variant="destructive">
               <AlertCircle className="size-4" />
