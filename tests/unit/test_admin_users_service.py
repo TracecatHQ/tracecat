@@ -21,6 +21,7 @@ from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import PlatformRole
 from tracecat.db.models import (
     AccessToken,
+    LegacyMembership,
     Membership,
     Organization,
     OrganizationMembership,
@@ -295,6 +296,7 @@ async def test_delete_user_clears_sessions_and_memberships(
         organization_id=org.id,
         workspace_id=workspace.id,
     )
+    session.add(LegacyMembership(user_id=user.id, workspace_id=workspace.id))
     await session.commit()
 
     token_id = token.id
@@ -321,6 +323,13 @@ async def test_delete_user_clears_sessions_and_memberships(
             select(OrganizationMembership).where(
                 OrganizationMembership.user_id == user_id,
             )
+        )
+        is None
+    )
+    # The legacy table is kept in step for older app versions.
+    assert (
+        await session.scalar(
+            select(LegacyMembership).where(LegacyMembership.user_id == user_id)
         )
         is None
     )

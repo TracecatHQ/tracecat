@@ -29,8 +29,6 @@ from tracecat.db.engine import (
 from tracecat.db.models import (
     LegacyMembership,
     LegacyOrganizationMembership,
-    Membership,
-    OrganizationMembership,
     OrganizationTier,
     Tier,
     User,
@@ -351,16 +349,17 @@ async def _get_or_create_local_user(
     return user, True
 
 
-async def _ensure_org_membership(
+async def _ensure_legacy_org_membership(
     *,
     session: AsyncSession,
     user_id: UUID,
     organization_id: UUID,
 ) -> None:
+    """Write the legacy table for app versions that still read it."""
     result = await session.execute(
-        select(OrganizationMembership).where(
-            OrganizationMembership.user_id == user_id,
-            OrganizationMembership.organization_id == organization_id,
+        select(LegacyOrganizationMembership).where(
+            LegacyOrganizationMembership.user_id == user_id,
+            LegacyOrganizationMembership.organization_id == organization_id,
         )
     )
     if result.scalar_one_or_none() is None:
@@ -372,16 +371,17 @@ async def _ensure_org_membership(
         )
 
 
-async def _ensure_workspace_membership(
+async def _ensure_legacy_workspace_membership(
     *,
     session: AsyncSession,
     user_id: UUID,
     workspace_id: UUID,
 ) -> None:
+    """Write the legacy table for app versions that still read it."""
     result = await session.execute(
-        select(Membership).where(
-            Membership.user_id == user_id,
-            Membership.workspace_id == workspace_id,
+        select(LegacyMembership).where(
+            LegacyMembership.user_id == user_id,
+            LegacyMembership.workspace_id == workspace_id,
         )
     )
     if result.scalar_one_or_none() is None:
@@ -490,12 +490,13 @@ async def create_dev_user(
             slug=workspace_role,
         )
 
-        await _ensure_org_membership(
+        # The role assignments below are what make the user a member.
+        await _ensure_legacy_org_membership(
             session=session,
             user_id=user.id,
             organization_id=organization_id,
         )
-        await _ensure_workspace_membership(
+        await _ensure_legacy_workspace_membership(
             session=session,
             user_id=user.id,
             workspace_id=workspace.id,

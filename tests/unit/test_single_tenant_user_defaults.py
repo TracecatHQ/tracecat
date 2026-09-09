@@ -165,6 +165,15 @@ async def test_single_tenant_defaults_assign_member_role(
         )
     ).scalar_one_or_none()
     assert membership is not None
+    # The legacy table is kept in step for older app versions.
+    assert (
+        await session.execute(
+            select(LegacyOrganizationMembership).where(
+                LegacyOrganizationMembership.user_id == user.id,
+                LegacyOrganizationMembership.organization_id == org.id,
+            )
+        )
+    ).scalar_one_or_none() is not None
     assert (
         await _get_org_role_assignment_slug(
             session, user_id=user.id, organization_id=org.id
@@ -318,7 +327,6 @@ async def test_single_tenant_defaults_keep_existing_role_after_repair(
 ) -> None:
     org = await _create_org_with_roles(session)
     user = await _create_user(session)
-    session.add(LegacyOrganizationMembership(user_id=user.id, organization_id=org.id))
     owner_role = (
         await session.execute(
             select(DBRole).where(
@@ -356,10 +364,14 @@ async def test_single_tenant_defaults_keep_existing_role_after_repair(
 
 
 @pytest.mark.anyio
-async def test_single_tenant_defaults_normalize_existing_role_during_repair(
+async def test_single_tenant_defaults_keep_owner_role_for_regular_user(
     session: AsyncSession,
 ) -> None:
-    """Preserve the existing opt-in provisioning repair for nonmembers."""
+    """An org-wide assignment is self-sufficient, so no repair demotes it.
+
+    Membership is derived from the assignment, so the pre-view state this used
+    to normalize (owner assignment with no membership row) cannot occur.
+    """
     org = await _create_org_with_roles(session)
     user = await _create_user(session)
     owner_role = (
@@ -402,9 +414,9 @@ async def test_single_tenant_defaults_normalize_existing_role_during_repair(
         await _get_org_role_assignment_slug(
             session, user_id=user.id, organization_id=org.id
         )
-        == "organization-member"
+        == "organization-owner"
     )
-    assert changed is True
+    assert changed is False
 
 
 @pytest.mark.anyio
