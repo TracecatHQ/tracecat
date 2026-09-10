@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import secrets
 import uuid
 from collections.abc import Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import sqlalchemy as sa
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, NoResultFound
 from sqlalchemy.orm import selectinload
 
@@ -20,17 +19,20 @@ from tracecat.audit.types import AuditAction
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.models import (
+    Invitation,
     Organization,
     OrganizationDomain,
-    OrganizationInvitation,
-    OrganizationMembership,
     RegistryRepository,
     RegistryVersion,
-    User,
 )
 from tracecat.db.models import Role as DBRole
 from tracecat.exceptions import TracecatValidationError
 from tracecat.invitations.enums import InvitationStatus
+from tracecat.invitations.schemas import InvitationGrantCreate
+from tracecat.invitations.service import (
+    create_invitation_row,
+    revoke_invitation_row,
+)
 from tracecat.organization.domains import normalize_domain
 from tracecat.organization.management import (
     create_organization_with_defaults,
@@ -168,60 +170,20 @@ class AdminOrgService(BasePlatformService):
         await self._require_organization(org_id)
         role_obj = await self._get_org_invitation_role(org_id, params.role_slug)
 
-        existing_member_stmt = (
-            select(OrganizationMembership)
-            .join(User, OrganizationMembership.user_id == User.id)
-            .where(
-                OrganizationMembership.organization_id == org_id,
-                func.lower(User.email) == params.email.lower(),
-            )
-        )
-        existing_member = await self.session.scalar(existing_member_stmt)
-        if existing_member is not None:
-            raise TracecatValidationError(
-                f"{params.email} is already a member of this organization"
-            )
-
-        existing_stmt = select(OrganizationInvitation).where(
-            OrganizationInvitation.organization_id == org_id,
-            func.lower(OrganizationInvitation.email) == params.email.lower(),
-        )
-        existing = await self.session.scalar(existing_stmt)
-        if existing is not None:
-            if (
-                existing.status == InvitationStatus.PENDING
-                and existing.expires_at >= datetime.now(UTC)
-            ):
-                raise TracecatValidationError(
-                    f"An invitation already exists for {params.email} in this organization"
-                )
-            await self.session.delete(existing)
-            await self.session.flush()
-
-        invitation = OrganizationInvitation(
+        invitation = await create_invitation_row(
+            self.session,
             organization_id=org_id,
             email=params.email,
-            role_id=role_obj.id,
+            grants=[InvitationGrantCreate(workspace_id=None, role_id=role_obj.id)],
             invited_by=self.role.user_id,
-            token=secrets.token_urlsafe(32),
-            expires_at=datetime.now(UTC) + timedelta(days=7),
-            status=InvitationStatus.PENDING,
             created_by_platform_admin=True,
         )
-        self.session.add(invitation)
-
-        try:
-            await self.session.commit()
-        except IntegrityError as exc:
-            await self.session.rollback()
-            raise TracecatValidationError(
-                f"An invitation already exists for {params.email} in this organization"
-            ) from exc
+        await self.session.commit()
 
         result = await self.session.execute(
-            select(OrganizationInvitation)
-            .where(OrganizationInvitation.id == invitation.id)
-            .options(selectinload(OrganizationInvitation.role_obj))
+            select(Invitation)
+            .where(Invitation.id == invitation.id)
+            .options(selectinload(Invitation.role_obj))
         )
         invitation = result.scalar_one()
         return self._serialize_invitation_create(invitation)
@@ -237,15 +199,15 @@ class AdminOrgService(BasePlatformService):
         await self._require_organization(org_id)
         paginator = BaseCursorPaginator(self.session)
         stmt = (
-            select(OrganizationInvitation)
+            select(Invitation)
             .where(
-                OrganizationInvitation.organization_id == org_id,
-                OrganizationInvitation.created_by_platform_admin.is_(True),
+                Invitation.organization_id == org_id,
+                Invitation.created_by_platform_admin.is_(True),
             )
-            .options(selectinload(OrganizationInvitation.role_obj))
+            .options(selectinload(Invitation.role_obj))
         )
         if status is not None:
-            stmt = stmt.where(OrganizationInvitation.status == status)
+            stmt = stmt.where(Invitation.status == status)
         if pagination.cursor:
             try:
                 cursor_data = paginator.decode_cursor(pagination.cursor)
@@ -262,31 +224,31 @@ class AdminOrgService(BasePlatformService):
                 )
 
             cursor_predicate = sa.or_(
-                OrganizationInvitation.created_at > cursor_created_at,
+                Invitation.created_at > cursor_created_at,
                 sa.and_(
-                    OrganizationInvitation.created_at == cursor_created_at,
-                    OrganizationInvitation.id > cursor_id,
+                    Invitation.created_at == cursor_created_at,
+                    Invitation.id > cursor_id,
                 ),
             )
             if not pagination.reverse:
                 cursor_predicate = sa.or_(
-                    OrganizationInvitation.created_at < cursor_created_at,
+                    Invitation.created_at < cursor_created_at,
                     sa.and_(
-                        OrganizationInvitation.created_at == cursor_created_at,
-                        OrganizationInvitation.id < cursor_id,
+                        Invitation.created_at == cursor_created_at,
+                        Invitation.id < cursor_id,
                     ),
                 )
             stmt = stmt.where(cursor_predicate)
 
         if pagination.reverse:
             stmt = stmt.order_by(
-                OrganizationInvitation.created_at.asc(),
-                OrganizationInvitation.id.asc(),
+                Invitation.created_at.asc(),
+                Invitation.id.asc(),
             )
         else:
             stmt = stmt.order_by(
-                OrganizationInvitation.created_at.desc(),
-                OrganizationInvitation.id.desc(),
+                Invitation.created_at.desc(),
+                Invitation.id.desc(),
             )
         stmt = stmt.limit(pagination.limit + 1)
 
@@ -352,7 +314,7 @@ class AdminOrgService(BasePlatformService):
             raise TracecatValidationError(
                 f"Cannot revoke invitation with status '{invitation.status}'"
             )
-        invitation.status = InvitationStatus.REVOKED
+        await revoke_invitation_row(self.session, invitation)
         await self.session.commit()
 
     async def _get_org_invitation_role(
@@ -379,17 +341,17 @@ class AdminOrgService(BasePlatformService):
         self,
         org_id: uuid.UUID,
         invitation_id: uuid.UUID,
-    ) -> OrganizationInvitation:
+    ) -> Invitation:
         """Get a platform-created invitation by ID and organization."""
         await self._require_organization(org_id)
         stmt = (
-            select(OrganizationInvitation)
+            select(Invitation)
             .where(
-                OrganizationInvitation.id == invitation_id,
-                OrganizationInvitation.organization_id == org_id,
-                OrganizationInvitation.created_by_platform_admin.is_(True),
+                Invitation.id == invitation_id,
+                Invitation.organization_id == org_id,
+                Invitation.created_by_platform_admin.is_(True),
             )
-            .options(selectinload(OrganizationInvitation.role_obj))
+            .options(selectinload(Invitation.role_obj))
         )
         invitation = await self.session.scalar(stmt)
         if invitation is None:
@@ -398,7 +360,7 @@ class AdminOrgService(BasePlatformService):
 
     def _serialize_invitation(
         self,
-        invitation: OrganizationInvitation,
+        invitation: Invitation,
     ) -> AdminOrgInvitationRead:
         """Serialize an organization invitation for platform admin APIs."""
         return AdminOrgInvitationRead(
@@ -418,7 +380,7 @@ class AdminOrgService(BasePlatformService):
 
     def _serialize_invitation_create(
         self,
-        invitation: OrganizationInvitation,
+        invitation: Invitation,
     ) -> AdminOrgInvitationCreateResponse:
         """Serialize a newly created platform admin invitation with its token."""
         return AdminOrgInvitationCreateResponse(

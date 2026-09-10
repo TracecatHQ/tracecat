@@ -4979,9 +4979,84 @@ export type InteractionStatus =
 export type InteractionType = "approval" | "response"
 
 /**
+ * Request body for accepting an invitation via token.
+ */
+export type InvitationAccept = {
+  token: string
+}
+
+/**
+ * Request body for creating an invitation.
+ */
+export type InvitationCreate = {
+  email: string
+  grants: Array<InvitationGrantCreate>
+}
+
+/**
+ * One role grant to confer on acceptance.
+ */
+export type InvitationGrantCreate = {
+  workspace_id?: string | null
+  role_id: string
+}
+
+/**
+ * A grant on an invitation, with its role and workspace resolved.
+ */
+export type InvitationGrantRead = {
+  id: string
+  workspace_id: string | null
+  workspace_name?: string | null
+  role_id: string
+  role_name: string
+  role_slug?: string | null
+}
+
+/**
+ * Response model for an invitation.
+ */
+export type InvitationRead = {
+  id: string
+  organization_id: string
+  email: string
+  status: InvitationStatus
+  invited_by: string | null
+  expires_at: string
+  created_at: string
+  accepted_at: string | null
+  created_by_platform_admin: boolean
+  grants: Array<InvitationGrantRead>
+}
+
+/**
+ * Minimal public response for token-based lookup on the accept page.
+ *
+ * Excludes email, inviter ID, and timestamps to limit information disclosure.
+ */
+export type InvitationReadMinimal = {
+  organization_id: string
+  organization_name: string
+  organization_slug: string
+  inviter_name: string | null
+  inviter_email: string | null
+  grants: Array<InvitationGrantRead>
+  status: InvitationStatus
+  expires_at: string
+  email_matches?: boolean | null
+}
+
+/**
  * Invitation lifecycle status.
  */
 export type InvitationStatus = "pending" | "accepted" | "revoked"
+
+/**
+ * Raw invitation token response.
+ */
+export type InvitationTokenRead = {
+  token: string
+}
 
 export type IssuedMCPPersonalAccessToken = {
   raw_token: string
@@ -5689,57 +5764,6 @@ export type OrgDomainUpdate = {
 }
 
 /**
- * Request body for accepting an organization invitation via token.
- */
-export type OrgInvitationAccept = {
-  token: string
-}
-
-/**
- * Request body for creating an organization invitation.
- */
-export type OrgInvitationCreate = {
-  email: string
-  role_id: string
-}
-
-/**
- * Response model for organization invitation.
- */
-export type OrgInvitationRead = {
-  id: string
-  organization_id: string
-  email: string
-  role_id: string
-  role_name: string
-  role_slug?: string | null
-  status: InvitationStatus
-  invited_by: string | null
-  expires_at: string
-  created_at: string
-  accepted_at: string | null
-}
-
-/**
- * Minimal response for public token-based invitation lookup.
- *
- * Excludes sensitive fields like email, invited_by ID, and timestamps
- * to reduce information disclosure when querying by token.
- */
-export type OrgInvitationReadMinimal = {
-  organization_id: string
-  organization_name: string
-  organization_slug: string
-  inviter_name: string | null
-  inviter_email: string | null
-  role_name: string
-  role_slug?: string | null
-  status: InvitationStatus
-  expires_at: string
-  email_matches?: boolean | null
-}
-
-/**
  * Detailed member info for /me and update endpoints.
  */
 export type OrgMemberDetail = {
@@ -5771,20 +5795,6 @@ export type OrgMemberRead = {
 }
 
 export type OrgMemberStatus = "active" | "inactive" | "invited"
-
-/**
- * Pending invitation visible to the invited authenticated user.
- */
-export type OrgPendingInvitationRead = {
-  token: string
-  organization_id: string
-  organization_name: string
-  inviter_name: string | null
-  inviter_email: string | null
-  role_name: string
-  role_slug?: string | null
-  expires_at: string
-}
 
 /**
  * Organization registry repository response.
@@ -5940,6 +5950,19 @@ export type PayloadChangedEventRead = {
    * The timestamp of the event.
    */
   created_at: string
+}
+
+/**
+ * Pending invitation visible to the invited authenticated user.
+ */
+export type PendingInvitationRead = {
+  token: string
+  organization_id: string
+  organization_name: string
+  inviter_name: string | null
+  inviter_email: string | null
+  grants: Array<InvitationGrantRead>
+  expires_at: string
 }
 
 export type PersistedApprovalDecision =
@@ -9913,31 +9936,6 @@ export type WorkspaceCreate = {
   organization_id?: string | null
 }
 
-/**
- * Request schema for creating a workspace invitation.
- */
-export type WorkspaceInvitationCreate = {
-  email: string
-  role_id: string
-}
-
-/**
- * Response schema for a workspace invitation.
- */
-export type WorkspaceInvitationRead = {
-  id: string
-  workspace_id: string
-  email: string
-  role_id: string
-  role_name: string
-  role_slug?: string | null
-  status: InvitationStatus
-  invited_by: string | null
-  expires_at: string
-  accepted_at: string | null
-  created_at: string
-}
-
 export type WorkspaceMember = {
   user_id: string
   first_name: string | null
@@ -10410,29 +10408,6 @@ export type WorkspacesDeleteWorkspaceMembershipData = {
 }
 
 export type WorkspacesDeleteWorkspaceMembershipResponse = void
-
-export type WorkspacesCreateWorkspaceInvitationData = {
-  requestBody: WorkspaceInvitationCreate
-  workspaceId: string
-}
-
-export type WorkspacesCreateWorkspaceInvitationResponse =
-  WorkspaceInvitationRead
-
-export type WorkspacesListWorkspaceInvitationsData = {
-  status?: InvitationStatus | null
-  workspaceId: string
-}
-
-export type WorkspacesListWorkspaceInvitationsResponse =
-  Array<WorkspaceInvitationRead>
-
-export type WorkspacesRevokeWorkspaceInvitationData = {
-  invitationId: string
-  workspaceId: string
-}
-
-export type WorkspacesRevokeWorkspaceInvitationResponse = void
 
 export type ServiceAccountsListWorkspaceServiceAccountsData = {
   cursor?: string | null
@@ -11281,16 +11256,16 @@ export type OrganizationDeleteSessionData = {
 export type OrganizationDeleteSessionResponse = void
 
 export type OrganizationCreateInvitationData = {
-  requestBody: OrgInvitationCreate
+  requestBody: InvitationCreate
 }
 
-export type OrganizationCreateInvitationResponse = OrgInvitationRead
+export type OrganizationCreateInvitationResponse = InvitationRead
 
 export type OrganizationListInvitationsData = {
   status?: InvitationStatus | null
 }
 
-export type OrganizationListInvitationsResponse = Array<OrgInvitationRead>
+export type OrganizationListInvitationsResponse = Array<InvitationRead>
 
 export type OrganizationRevokeInvitationData = {
   invitationId: string
@@ -11302,12 +11277,10 @@ export type OrganizationGetInvitationTokenData = {
   invitationId: string
 }
 
-export type OrganizationGetInvitationTokenResponse = {
-  [key: string]: string
-}
+export type OrganizationGetInvitationTokenResponse = InvitationTokenRead
 
 export type OrganizationAcceptInvitationData = {
-  requestBody: OrgInvitationAccept
+  requestBody: InvitationAccept
 }
 
 export type OrganizationAcceptInvitationResponse = {
@@ -11315,13 +11288,13 @@ export type OrganizationAcceptInvitationResponse = {
 }
 
 export type OrganizationListMyPendingInvitationsResponse =
-  Array<OrgPendingInvitationRead>
+  Array<PendingInvitationRead>
 
 export type OrganizationGetInvitationByTokenData = {
   token: string
 }
 
-export type OrganizationGetInvitationByTokenResponse = OrgInvitationReadMinimal
+export type OrganizationGetInvitationByTokenResponse = InvitationReadMinimal
 
 export type ServiceAccountsListOrganizationServiceAccountsData = {
   cursor?: string | null
@@ -14464,49 +14437,6 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workspaces/{workspace_id}/invitations": {
-    post: {
-      req: WorkspacesCreateWorkspaceInvitationData
-      res: {
-        /**
-         * Successful Response
-         */
-        201: WorkspaceInvitationRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    get: {
-      req: WorkspacesListWorkspaceInvitationsData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: Array<WorkspaceInvitationRead>
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/workspaces/{workspace_id}/invitations/{invitation_id}": {
-    delete: {
-      req: WorkspacesRevokeWorkspaceInvitationData
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
   "/workspaces/{workspace_id}/service-accounts": {
     get: {
       req: ServiceAccountsListWorkspaceServiceAccountsData
@@ -15992,7 +15922,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        201: OrgInvitationRead
+        201: InvitationRead
         /**
          * Validation Error
          */
@@ -16005,7 +15935,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<OrgInvitationRead>
+        200: Array<InvitationRead>
         /**
          * Validation Error
          */
@@ -16035,9 +15965,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: {
-          [key: string]: string
-        }
+        200: InvitationTokenRead
         /**
          * Validation Error
          */
@@ -16068,7 +15996,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<OrgPendingInvitationRead>
+        200: Array<PendingInvitationRead>
       }
     }
   }
@@ -16079,7 +16007,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: OrgInvitationReadMinimal
+        200: InvitationReadMinimal
         /**
          * Validation Error
          */

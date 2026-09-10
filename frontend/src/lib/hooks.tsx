@@ -128,6 +128,7 @@ import {
   type IntegrationRead,
   type IntegrationReadMinimal,
   type IntegrationUpdate,
+  type InvitationCreate,
   integrationsConnectProvider,
   integrationsDeleteIntegration,
   integrationsDisconnectIntegration,
@@ -159,7 +160,6 @@ import {
   type OrganizationDeleteOrgMemberData,
   type OrganizationDeleteSessionData,
   type OrganizationUpdateOrgMemberData,
-  type OrgInvitationCreate,
   type OrgMemberRead,
   organizationCreateInvitation,
   organizationDeleteOrgMember,
@@ -2285,7 +2285,7 @@ export function useOrgMembers() {
     mutateAsync: createInvitation,
     isPending: createInvitationIsPending,
   } = useMutation({
-    mutationFn: async (params: OrgInvitationCreate) =>
+    mutationFn: async (params: InvitationCreate) =>
       await organizationCreateInvitation({ requestBody: params }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["org-members"] })

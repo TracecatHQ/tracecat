@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/card"
 import { useAuthActions } from "@/hooks/use-auth"
 import { usePendingOrgInvitations } from "@/hooks/use-pending-org-invitations"
+import { invitationRoleName } from "@/lib/invitations"
 
 export function NoOrganizationAccess() {
   const { logout } = useAuthActions()
@@ -62,7 +63,7 @@ export function NoOrganizationAccess() {
                         {invitation.organization_name}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        Role: {invitation.role_name}
+                        Role: {invitationRoleName(invitation)}
                       </p>
                       <p className="text-xs text-muted-foreground">
                         Expires:{" "}

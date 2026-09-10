@@ -5250,8 +5250,8 @@ class WorkflowTag(WorkspaceModel):
     )
 
 
-class OrganizationInvitation(InvitationMixin, TimestampMixin, Base):
-    """Invitation to join an organization."""
+class LegacyOrganizationInvitation(InvitationMixin, TimestampMixin, Base):
+    """Physical table the app no longer reads; kept mapped for RLS coverage."""
 
     __tablename__ = "organization_invitation"
     __table_args__ = (UniqueConstraint("email", "organization_id"),)
@@ -5268,26 +5268,79 @@ class OrganizationInvitation(InvitationMixin, TimestampMixin, Base):
         doc="Whether the invitation was created by a platform admin",
     )
 
-    # Relationships
-    organization: Mapped[Organization] = relationship("Organization")
-    inviter: Mapped[User | None] = relationship("User")
-    role_obj: Mapped[Role] = relationship("Role")
-
 
 class Invitation(InvitationMixin, TimestampMixin, Base):
-    """Invitation to join a workspace."""
+    """Invitation to join an organization, carrying the grants it confers."""
 
     __tablename__ = "invitation"
-    __table_args__ = (UniqueConstraint("workspace_id", "email"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
-    workspace_id: Mapped[uuid.UUID] = mapped_column(
-        UUID, ForeignKey("workspace.id", ondelete="CASCADE"), index=True
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("organization.id", ondelete="CASCADE"), index=True
+    )
+    # Mirrors the first workspace grant so older app versions can still accept.
+    # One pending invitation per email is enforced in InvitationService.create_invitation.
+    workspace_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, ForeignKey("workspace.id", ondelete="SET NULL"), index=True
+    )
+    created_by_platform_admin: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text("false"),
+        doc="Whether the invitation was created by a platform admin",
     )
 
     # Relationships
-    workspace: Mapped[Workspace] = relationship("Workspace")
+    organization: Mapped[Organization] = relationship("Organization")
+    workspace: Mapped[Workspace | None] = relationship("Workspace")
     inviter: Mapped[User | None] = relationship("User")
+    role_obj: Mapped[Role] = relationship("Role")
+    grants: Mapped[list[InvitationGrant]] = relationship(
+        "InvitationGrant",
+        back_populates="invitation",
+        cascade="all, delete-orphan",
+        lazy="select",
+    )
+
+
+class InvitationGrant(Base, TimestampMixin):
+    """One role grant an invitation confers, at org scope or on one workspace."""
+
+    __tablename__ = "invitation_grant"
+    __table_args__ = (
+        Index(
+            "ix_invitation_grant_org_unique",
+            "invitation_id",
+            unique=True,
+            postgresql_where=text("workspace_id IS NULL"),
+        ),
+        Index(
+            "ix_invitation_grant_workspace_unique",
+            "invitation_id",
+            "workspace_id",
+            unique=True,
+            postgresql_where=text("workspace_id IS NOT NULL"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("organization.id", ondelete="CASCADE"), index=True
+    )
+    invitation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("invitation.id", ondelete="CASCADE"), index=True
+    )
+    workspace_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, ForeignKey("workspace.id", ondelete="CASCADE")
+    )
+    role_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("role.id", ondelete="RESTRICT"), index=True
+    )
+
+    # Relationships
+    invitation: Mapped[Invitation] = relationship("Invitation", back_populates="grants")
+    workspace: Mapped[Workspace | None] = relationship("Workspace")
     role_obj: Mapped[Role] = relationship("Role")
 
 

@@ -17,8 +17,8 @@ from tests.support.membership import grant_org_membership
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import PlatformRole
 from tracecat.db.models import (
+    Invitation,
     Organization,
-    OrganizationInvitation,
     User,
 )
 from tracecat.db.models import Role as DBRole
@@ -107,7 +107,7 @@ async def test_create_organization_invitation_defaults_to_owner_role(
     assert invitation.created_by_platform_admin is True
 
     db_invitation = await session.scalar(
-        select(OrganizationInvitation).where(OrganizationInvitation.id == invitation.id)
+        select(Invitation).where(Invitation.id == invitation.id)
     )
     assert db_invitation is not None
     assert db_invitation.created_by_platform_admin is True
@@ -136,9 +136,9 @@ async def test_create_organization_invitation_rejects_duplicate_pending_invite(
 
     invitations = (
         await session.execute(
-            select(OrganizationInvitation).where(
-                OrganizationInvitation.organization_id == org.id,
-                OrganizationInvitation.role_id == org_roles["organization-admin"].id,
+            select(Invitation).where(
+                Invitation.organization_id == org.id,
+                Invitation.role_id == org_roles["organization-admin"].id,
             )
         )
     ).scalars()
@@ -211,9 +211,7 @@ async def test_create_organization_invitation_allows_existing_superuser(
     )
 
     invitation_id = await session.scalar(
-        select(OrganizationInvitation.id).where(
-            OrganizationInvitation.email == superuser.email
-        )
+        select(Invitation.id).where(Invitation.email == superuser.email)
     )
     assert invitation_id == invitation.id
     assert org_roles["organization-member"].organization_id == org.id
@@ -231,8 +229,9 @@ async def test_list_organization_invitations_only_returns_platform_created(
         org.id,
         AdminOrgInvitationCreate(email="platform@example.com"),
     )
-    tenant_invitation = OrganizationInvitation(
+    tenant_invitation = Invitation(
         organization_id=org.id,
+        workspace_id=None,
         email="tenant@example.com",
         role_id=org_roles["organization-member"].id,
         token=secrets.token_urlsafe(32),
@@ -297,9 +296,10 @@ async def test_list_organization_invitations_reverse_paginates_in_canonical_orde
 ) -> None:
     base_time = datetime(2026, 1, 1, tzinfo=UTC)
     invitations = [
-        OrganizationInvitation(
+        Invitation(
             id=uuid.uuid4(),
             organization_id=org.id,
+            workspace_id=None,
             email=f"reverse-page-{idx}@example.com",
             role_id=org_roles["organization-member"].id,
             token=secrets.token_urlsafe(32),
@@ -377,8 +377,9 @@ async def test_token_endpoint_only_exposes_platform_created_invitations(
         org.id,
         AdminOrgInvitationCreate(email="token@example.com"),
     )
-    tenant_invitation = OrganizationInvitation(
+    tenant_invitation = Invitation(
         organization_id=org.id,
+        workspace_id=None,
         email="tenant-token@example.com",
         role_id=org_roles["organization-member"].id,
         token=secrets.token_urlsafe(32),
@@ -414,15 +415,14 @@ async def test_revoke_organization_invitation_only_revokes_pending_platform_invi
 
     await service.revoke_organization_invitation(org.id, platform_invitation.id)
     db_invitation = await session.scalar(
-        select(OrganizationInvitation).where(
-            OrganizationInvitation.id == platform_invitation.id
-        )
+        select(Invitation).where(Invitation.id == platform_invitation.id)
     )
     assert db_invitation is not None
     assert db_invitation.status == InvitationStatus.REVOKED
 
-    tenant_invitation = OrganizationInvitation(
+    tenant_invitation = Invitation(
         organization_id=org.id,
+        workspace_id=None,
         email="tenant-revoke@example.com",
         role_id=org_roles["organization-member"].id,
         token=secrets.token_urlsafe(32),
