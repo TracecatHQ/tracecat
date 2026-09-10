@@ -174,7 +174,10 @@ export function AdminOrgInvitationsDialog({
     } catch (error) {
       const apiError = error as TracecatApiError
       if (apiError.status === 409) {
-        toast({ title: "Sent less than a minute ago" })
+        toast({
+          title: "You just sent an invitation email",
+          description: "Please try again shortly.",
+        })
         return
       }
       toast({
@@ -369,7 +372,9 @@ export function AdminOrgInvitationsDialog({
                               variant="outline"
                               size="sm"
                               disabled={
-                                invitation.status !== "pending" || resendPending
+                                invitation.status !== "pending" ||
+                                new Date(invitation.expires_at) <= new Date() ||
+                                resendPending
                               }
                               onClick={() => handleResendInvitation(invitation)}
                             >
