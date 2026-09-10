@@ -344,7 +344,7 @@ Write one condition as &#123;'field': 'amount', 'op': 'gte', 'value': 10&#125;. 
 
 Choose an operator supported by the column type:
 
-- TEXT: `eq`, `ne`, `in`, `not_in`, `is_null`, `contains`, and `starts_with`. The text operators ignore case and match literal text.
+- TEXT: `eq`, `ne`, `in`, `not_in`, `is_null`, `contains`, and `starts_with`. Only `contains` and `starts_with` ignore case and match literal text; `eq`, `ne`, `in`, and `not_in` are case-sensitive.
 - INTEGER and NUMERIC: `eq`, `ne`, `in`, `not_in`, `gt`, `gte`, `lt`, `lte`, and `is_null`.
 - DATE and TIMESTAMPTZ: `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, and `is_null`.
 - SELECT: `eq`, `ne`, `in`, `not_in`, and `is_null`.

@@ -17,7 +17,7 @@ import GenerateSecrets from "/snippets/generate-secrets.mdx";
 - Helm 3.12+ (with OCI support)
 - `kubectl` configured for your target cluster
 - Access to the Tracecat OCI Helm chart (see above)
-- External PostgreSQL 14 or newer instance (e.g., Amazon RDS, Cloud SQL)
+- External PostgreSQL 15 or newer instance (e.g., Amazon RDS, Cloud SQL)
 - External Redis instance (e.g., Amazon ElastiCache, Memorystore)
 - S3-compatible object storage (e.g., Amazon S3, MinIO)
 - `openssl` (for generating secrets)
@@ -125,7 +125,7 @@ The Helm chart does not bundle databases. You must provide connection details fo
 
 ### PostgreSQL
 
-Use PostgreSQL 14 or newer for the Tracecat application database.
+Use PostgreSQL 15 or newer for the Tracecat application database.
 
 ```yaml
 externalPostgres:
