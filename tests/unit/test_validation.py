@@ -33,6 +33,7 @@ from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.schemas import ProviderKey
 from tracecat.integrations.service import IntegrationService
 from tracecat.registry.actions.bound import BoundRegistryAction
+from tracecat.registry.actions.enums import TemplateActionValidationErrorType
 from tracecat.registry.actions.schemas import (
     ActionStep,
     RegistryActionCreate,
@@ -388,6 +389,42 @@ async def test_invalid_template_validation():
     assert len(errors) > 0
     error_messages = [detail for err in errors for detail in err.details]
     assert any("not found" in msg for msg in error_messages)
+
+
+@pytest.mark.anyio
+async def test_template_validation_errors_for_undeclared_secret_expressions():
+    """Template validation fails when SECRETS references are not declared."""
+    repo = Repository()
+    repo.init(include_base=True, include_templates=False)
+
+    action = TemplateAction(
+        type="action",
+        definition=TemplateActionDefinition(
+            title="Undeclared Secret Template",
+            description="Uses a secret without declaring it",
+            name="undeclared_secret_template",
+            namespace="tools.test",
+            display_group="Testing",
+            expects={},
+            steps=[
+                ActionStep(
+                    ref="shape",
+                    action="core.transform.reshape",
+                    args={"value": "${{ SECRETS.missing_secret.API_KEY }}"},
+                )
+            ],
+            returns="${{ steps.shape.result }}",
+        ),
+    )
+    repo.register_template_action(action)
+    bound_action = repo.get("tools.test.undeclared_secret_template")
+
+    errors = await validate_action_template(bound_action, repo)
+
+    assert len(errors) == 1
+    assert errors[0].type == TemplateActionValidationErrorType.SECRET_NOT_DECLARED
+    assert errors[0].loc_primary == "definition.secrets"
+    assert errors[0].loc_secondary == "missing_secret"
 
 
 @pytest.mark.anyio
