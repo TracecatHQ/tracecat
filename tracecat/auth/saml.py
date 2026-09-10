@@ -933,7 +933,7 @@ async def sso_acs(
                 user_id=str(user.id),
                 email=email,
                 org_id=str(organization_id),
-                role_id=str(pending_invitation.role_id),
+                grant_count=len(pending_invitation.grants),
             )
         except Exception:
             await db_session.rollback()
