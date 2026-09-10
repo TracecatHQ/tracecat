@@ -130,19 +130,11 @@ export function buildBaseColumnDef(
  */
 export function buildReadOnlyColumnDefs(
   columns: readonly TableColumnRead[],
-  savedWidths: Record<string, number>,
-  options: { fitWidth?: boolean } = {}
+  savedWidths: Record<string, number>
 ): ColDef[] {
   return columns.map((column): ColDef => {
-    const base = buildBaseColumnDef(column, savedWidths)
-    if (options.fitWidth) {
-      // Columns share the grid width; no floor, so they always fit.
-      base.width = undefined
-      base.flex = 1
-      base.minWidth = 0
-    }
     return {
-      ...base,
+      ...buildBaseColumnDef(column, savedWidths),
       cellRenderer: ReadOnlyCellRenderer,
       cellRendererParams: {
         tableColumn: column,

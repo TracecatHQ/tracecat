@@ -317,7 +317,6 @@ function CaseLinkedTableSection({
         autoHeight
         rowClassRules={UNAVAILABLE_ROW_CLASS_RULES}
         widthScope="case-rows"
-        fitWidth
       />
     )
   }
