@@ -1,6 +1,8 @@
 """Unit tests for MembershipService."""
 
+import contextlib
 import uuid
+from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock
 
 import pytest
@@ -16,6 +18,7 @@ from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.service import AuditService
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
+from tracecat.authz import service as authz_service
 from tracecat.authz.scopes import ADMIN_SCOPES, EDITOR_SCOPES, VIEWER_SCOPES
 from tracecat.authz.seeding import seed_system_scopes
 from tracecat.authz.service import MembershipService
@@ -43,6 +46,27 @@ from tracecat.exceptions import (
 from tracecat.workspaces.schemas import WorkspaceMembershipCreate
 
 pytestmark = [pytest.mark.anyio, pytest.mark.usefixtures("db")]
+
+
+@pytest.fixture(autouse=True)
+def bypass_session_is_test_session(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Route the RLS-bypass session to the test session.
+
+    The real helper opens its own connection, which cannot see the rows this
+    test's uncommitted transaction holds. RLS is not enforced here anyway:
+    the ``db`` fixture builds tables with ``create_all``, and the policies come
+    from migrations.
+    """
+
+    @contextlib.asynccontextmanager
+    async def _bypass() -> AsyncIterator[AsyncSession]:
+        yield session
+
+    monkeypatch.setattr(
+        authz_service, "get_async_session_bypass_rls_context_manager", _bypass
+    )
 
 
 @pytest.fixture
@@ -900,3 +924,59 @@ async def test_update_membership_role_not_found_for_non_member(
         await service.update_membership_role(
             workspace.id, user_id=member_user.id, role_id=workspace_viewer_role.id
         )
+
+
+async def test_create_membership_reads_org_presence_through_bypass_session(
+    session: AsyncSession,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    workspace_editor_role: DBRole,
+    actor_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Organization presence is read through the RLS-bypass session.
+
+    Under enforced RLS the assignment tables hide rows keyed to another
+    workspace, so reading presence on the request session would report a user
+    whose only role path is in a different workspace as absent.
+    """
+    other_workspace = Workspace(
+        id=uuid.uuid4(), name="Other Workspace", organization_id=organization.id
+    )
+    session.add(other_workspace)
+    await grant_workspace_membership(
+        session,
+        user_id=member_user.id,
+        organization_id=organization.id,
+        workspace_id=other_workspace.id,
+    )
+    await session.commit()
+
+    used = False
+
+    @contextlib.asynccontextmanager
+    async def _bypass() -> AsyncIterator[AsyncSession]:
+        nonlocal used
+        used = True
+        yield session
+
+    monkeypatch.setattr(
+        authz_service, "get_async_session_bypass_rls_context_manager", _bypass
+    )
+    service = MembershipService(session=session, role=actor_role)
+
+    await service.create_membership(
+        workspace.id, WorkspaceMembershipCreate(user_id=member_user.id)
+    )
+
+    assert used, "org presence must be read through the RLS-bypass session"
+    assignment = (
+        await session.execute(
+            select(UserRoleAssignment).where(
+                UserRoleAssignment.user_id == member_user.id,
+                UserRoleAssignment.workspace_id == workspace.id,
+            )
+        )
+    ).scalar_one()
+    assert assignment.role_id == workspace_editor_role.id

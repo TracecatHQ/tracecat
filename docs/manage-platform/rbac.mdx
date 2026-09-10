@@ -15,10 +15,10 @@ Tracecat seeds six built-in roles into every organization at startup. Tracecat r
 | --- | --- | --- | --- |
 | `workspace-viewer` | Workspace | Read workflows, integrations, cases, tables, schedules, agents, secrets, tags, variables, the inbox, the workspace, and its member list. | 12 |
 | `workspace-editor` | Workspace | Everything `workspace-viewer` can, plus create and update those resources, run workflows, agents, and any action, terminate workflow runs, and run workflow sync and workspace sync. | 36 |
-| `workspace-admin` | Workspace | Everything `workspace-editor` can, plus delete those resources, update or delete the workspace, invite, update, and remove members, and manage workspace service accounts. | 56 |
+| `workspace-admin` | Workspace | Everything `workspace-editor` can, plus delete those resources, update or delete the workspace, invite, update, and remove members, and manage workspace service accounts. | 54 |
 | `organization-member` | Organization | Read the organization, its member list, the registry, and organization secrets, and read and run agents. | 6 |
-| `organization-admin` | Organization | Everything `workspace-admin` can in every workspace, plus create workspaces, manage organization settings, members and invitations, roles, groups, and assignments, organization service accounts, the custom registry, and organization secrets, and read billing. | 84 |
-| `organization-owner` | Organization | Everything `organization-admin` can, plus `org:delete`, `org:billing:update`, and `org:owner:assign`. | 87 |
+| `organization-admin` | Organization | Everything `workspace-admin` can in every workspace, plus create workspaces, manage organization settings, members and invitations, roles, groups, and assignments, organization service accounts, the custom registry, and organization secrets, and read billing. | 82 |
+| `organization-owner` | Organization | Everything `organization-admin` can, plus `org:delete`, `org:billing:update`, and `org:owner:assign`. | 85 |
 
 The Scopes column counts the current definition. Startup seeding adds scopes a built-in role is missing and removes none, so an organization created before a scope was renamed also keeps the old name.
 

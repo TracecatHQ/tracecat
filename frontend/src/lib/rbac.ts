@@ -68,7 +68,7 @@ export const RESOURCE_CATEGORIES: Record<
   workspace: {
     label: "Workspace",
     description: "Workspace settings, members, and access control",
-    resources: ["workspace", "workspace:member", "workspace:rbac"],
+    resources: ["workspace", "workspace:member"],
   },
   organization: {
     label: "Organization",

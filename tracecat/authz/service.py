@@ -13,7 +13,10 @@ from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
 from tracecat.authz.controls import ensure_can_grant_scopes, require_scope
 from tracecat.contexts import ctx_role
-from tracecat.db.engine import SupportsExecute
+from tracecat.db.engine import (
+    SupportsExecute,
+    get_async_session_bypass_rls_context_manager,
+)
 from tracecat.db.models import (
     Group,
     GroupMember,
@@ -313,7 +316,14 @@ class MembershipService(BaseService):
             )
             .limit(1)
         )
-        if (await self.session.execute(org_presence_stmt)).scalar_one_or_none() is None:
+        # The assignment tables' RLS policy hides rows keyed to another
+        # workspace, so this presence read must bypass RLS to see a user whose
+        # only role path is in a different workspace. Read-only.
+        async with get_async_session_bypass_rls_context_manager() as bypass_session:
+            present = (
+                await bypass_session.execute(org_presence_stmt)
+            ).scalar_one_or_none()
+        if present is None:
             raise TracecatNotFoundError("User not found in organization")
 
         existing_member_stmt = select(Membership.user_id).where(
