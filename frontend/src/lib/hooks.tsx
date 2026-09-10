@@ -7238,6 +7238,7 @@ export function useRbacUserAssignments(options?: {
     data: userAssignments,
     isLoading,
     error,
+    refetch: refetchUserAssignments,
   } = useQuery<UserRoleAssignmentReadWithDetails[]>({
     queryKey: ["rbac-user-assignments", options?.userId, options?.workspaceId],
     queryFn: async () => {
@@ -7399,6 +7400,7 @@ export function useRbacUserAssignments(options?: {
     userAssignments: userAssignments ?? [],
     isLoading,
     error,
+    refetchUserAssignments,
     createUserAssignment,
     createUserAssignmentIsPending,
     createUserAssignmentError,
