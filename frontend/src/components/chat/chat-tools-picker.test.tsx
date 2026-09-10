@@ -75,6 +75,7 @@ describe("DEFAULT_CAPABILITY_GROUPS", () => {
         "ai.agent.list_presets",
         "ai.agent.update_preset",
         // core.cases.*
+        "core.cases.aggregate_cases",
         "core.cases.create_case",
         "core.cases.delete_case",
         "core.cases.get_case",
@@ -82,6 +83,7 @@ describe("DEFAULT_CAPABILITY_GROUPS", () => {
         "core.cases.search_cases",
         "core.cases.update_case",
         // core.table.*
+        "core.table.aggregate_rows",
         "core.table.create_column",
         "core.table.create_table",
         "core.table.delete_column",
@@ -133,6 +135,32 @@ describe("ChatToolsPicker", () => {
   beforeEach(() => {
     mockToast.mockClear()
   })
+
+  it.each(["core.cases.aggregate_cases", "core.table.aggregate_rows"])(
+    "does not offer the default %s action as an extra",
+    (action) => {
+      render(
+        <ChatToolsPicker
+          registryActions={[
+            registryAction(action, { default_title: "Aggregate results" }),
+          ]}
+          selectedTools={[]}
+          onToolsChange={jest.fn()}
+          mcpIntegrations={[]}
+          selectedMcpIntegrations={[]}
+          onMcpChange={jest.fn()}
+          surface="workspace-chat"
+        />
+      )
+
+      fireEvent.change(
+        screen.getByPlaceholderText("Search capabilities & tools..."),
+        { target: { value: "Aggregate results" } }
+      )
+
+      expect(screen.queryByText("Aggregate results")).not.toBeInTheDocument()
+    }
+  )
 
   it("does not offer actions excluded from agent toolsets", () => {
     render(
