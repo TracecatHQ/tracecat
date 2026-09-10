@@ -155,11 +155,6 @@ class InvitationMixin:
         ForeignKey("user.id", ondelete="SET NULL"),
         doc="User who created the invitation",
     )
-    role_id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        ForeignKey("role.id", ondelete="RESTRICT"),
-        doc="RBAC role to assign upon acceptance",
-    )
     token: Mapped[str] = mapped_column(
         String(64), unique=True, doc="Unique token for magic link acceptance"
     )
@@ -5260,6 +5255,11 @@ class LegacyOrganizationInvitation(InvitationMixin, TimestampMixin, Base):
     organization_id: Mapped[uuid.UUID] = mapped_column(
         UUID, ForeignKey("organization.id", ondelete="CASCADE"), index=True
     )
+    role_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("role.id", ondelete="RESTRICT"),
+        doc="RBAC role to assign upon acceptance",
+    )
     created_by_platform_admin: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
@@ -5273,15 +5273,20 @@ class Invitation(InvitationMixin, TimestampMixin, Base):
     """Invitation to join an organization, carrying the grants it confers."""
 
     __tablename__ = "invitation"
+    __table_args__ = (
+        # At most one pending invitation per organization and email.
+        Index(
+            "ix_invitation_org_email_pending_unique",
+            "organization_id",
+            text("lower(email)"),
+            unique=True,
+            postgresql_where=text("status = 'PENDING'"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
     organization_id: Mapped[uuid.UUID] = mapped_column(
         UUID, ForeignKey("organization.id", ondelete="CASCADE"), index=True
-    )
-    # Mirrors the first workspace grant so older app versions can still accept.
-    # One pending invitation per email is enforced in InvitationService.create_invitation.
-    workspace_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID, ForeignKey("workspace.id", ondelete="SET NULL"), index=True
     )
     created_by_platform_admin: Mapped[bool] = mapped_column(
         Boolean,
@@ -5293,14 +5298,11 @@ class Invitation(InvitationMixin, TimestampMixin, Base):
 
     # Relationships
     organization: Mapped[Organization] = relationship("Organization")
-    workspace: Mapped[Workspace | None] = relationship("Workspace")
     inviter: Mapped[User | None] = relationship("User")
-    role_obj: Mapped[Role] = relationship("Role")
     grants: Mapped[list[InvitationGrant]] = relationship(
         "InvitationGrant",
         back_populates="invitation",
         cascade="all, delete-orphan",
-        lazy="select",
     )
 
 
@@ -5335,13 +5337,11 @@ class InvitationGrant(Base, TimestampMixin):
         UUID, ForeignKey("workspace.id", ondelete="CASCADE")
     )
     role_id: Mapped[uuid.UUID] = mapped_column(
-        UUID, ForeignKey("role.id", ondelete="RESTRICT"), index=True
+        UUID, ForeignKey("role.id", ondelete="CASCADE"), index=True
     )
 
     # Relationships
     invitation: Mapped[Invitation] = relationship("Invitation", back_populates="grants")
-    workspace: Mapped[Workspace | None] = relationship("Workspace")
-    role_obj: Mapped[Role] = relationship("Role")
 
 
 class Tier(Base, TimestampMixin):

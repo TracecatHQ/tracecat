@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from pydantic import ValidationError
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.support.membership import (
@@ -20,10 +20,6 @@ from tracecat.authz.scopes import ORG_ADMIN_SCOPES
 from tracecat.authz.seeding import seed_system_roles_for_org, seed_system_scopes
 from tracecat.db.models import (
     Invitation,
-    InvitationGrant,
-    LegacyMembership,
-    LegacyOrganizationInvitation,
-    LegacyOrganizationMembership,
     Organization,
     RoleScope,
     Scope,
@@ -31,16 +27,20 @@ from tracecat.db.models import (
     UserRoleAssignment,
     Workspace,
 )
+from tracecat.db.models import (
+    InvitationGrant as InvitationGrantRow,
+)
 from tracecat.db.models import Role as DBRole
 from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatValidationError,
 )
 from tracecat.invitations.enums import InvitationStatus
-from tracecat.invitations.schemas import InvitationCreate, InvitationGrantCreate
+from tracecat.invitations.schemas import InvitationCreate, InvitationGrant
 from tracecat.invitations.service import (
     InvitationService,
     accept_invitation_for_user,
+    get_pending_invitation_for_email,
 )
 from tracecat.organization.router import list_org_members
 
@@ -217,11 +217,11 @@ class TestCreateInvitationGrants:
             InvitationCreate(
                 email="multi@example.com",
                 grants=[
-                    InvitationGrantCreate(role_id=member_role_id),
-                    InvitationGrantCreate(
+                    InvitationGrant(role_id=member_role_id),
+                    InvitationGrant(
                         workspace_id=workspace_a.id, role_id=editor_role_id
                     ),
-                    InvitationGrantCreate(
+                    InvitationGrant(
                         workspace_id=workspace_b.id, role_id=editor_role_id
                     ),
                 ],
@@ -235,12 +235,16 @@ class TestCreateInvitationGrants:
             workspace_a.id,
             workspace_b.id,
         }
-        # The row mirrors the first workspace grant for older app versions.
-        assert invitation.workspace_id == workspace_a.id
-        assert invitation.role_id == editor_role_id
+
+        # The members listing carries the grants on the invited row.
+        members = await list_org_members(
+            role=_admin_role(org.id, admin.id), session=session
+        )
+        invited = next(m for m in members if m.email == "multi@example.com")
+        assert len(invited.grants) == 3
 
     @pytest.mark.anyio
-    async def test_workspace_only_invitation_anchors_to_workspace(
+    async def test_workspace_only_invitation_belongs_to_org(
         self,
         session: AsyncSession,
         org: Organization,
@@ -255,56 +259,14 @@ class TestCreateInvitationGrants:
             InvitationCreate(
                 email="ws-only@example.com",
                 grants=[
-                    InvitationGrantCreate(
-                        workspace_id=workspace_a.id, role_id=editor_role_id
-                    )
+                    InvitationGrant(workspace_id=workspace_a.id, role_id=editor_role_id)
                 ],
             )
         )
 
         assert invitation.organization_id == org.id
-        assert invitation.workspace_id == workspace_a.id
+        assert invitation.grants[0].workspace_id == workspace_a.id
         assert len(invitation.grants) == 1
-
-    @pytest.mark.anyio
-    async def test_workspace_role_without_workspace_rejected(
-        self, session: AsyncSession, org: Organization, admin: User
-    ):
-        """A workspace-scoped role cannot be granted at org scope."""
-        service = InvitationService(session, role=_admin_role(org.id, admin.id))
-        editor_role_id = await _role_id(session, org.id, "workspace-editor")
-
-        with pytest.raises(TracecatValidationError, match="requires a workspace"):
-            await service.create_invitation(
-                InvitationCreate(
-                    email="mismatch@example.com",
-                    grants=[InvitationGrantCreate(role_id=editor_role_id)],
-                )
-            )
-
-    @pytest.mark.anyio
-    async def test_org_role_on_workspace_rejected(
-        self,
-        session: AsyncSession,
-        org: Organization,
-        admin: User,
-        workspace_a: Workspace,
-    ):
-        """An org-scoped role cannot target a workspace."""
-        service = InvitationService(session, role=_admin_role(org.id, admin.id))
-        member_role_id = await _role_id(session, org.id, "organization-member")
-
-        with pytest.raises(TracecatValidationError, match="cannot target a workspace"):
-            await service.create_invitation(
-                InvitationCreate(
-                    email="mismatch2@example.com",
-                    grants=[
-                        InvitationGrantCreate(
-                            workspace_id=workspace_a.id, role_id=member_role_id
-                        )
-                    ],
-                )
-            )
 
     @pytest.mark.anyio
     async def test_workspace_from_another_org_rejected(
@@ -324,7 +286,7 @@ class TestCreateInvitationGrants:
                 InvitationCreate(
                     email="foreign@example.com",
                     grants=[
-                        InvitationGrantCreate(
+                        InvitationGrant(
                             workspace_id=foreign_workspace.id, role_id=editor_role_id
                         )
                     ],
@@ -340,7 +302,7 @@ class TestCreateInvitationGrants:
         member_role_id = await _role_id(session, org.id, "organization-member")
         params = InvitationCreate(
             email="dupe@example.com",
-            grants=[InvitationGrantCreate(role_id=member_role_id)],
+            grants=[InvitationGrant(role_id=member_role_id)],
         )
 
         await service.create_invitation(params)
@@ -358,7 +320,7 @@ class TestCreateInvitationGrants:
         member_role_id = await _role_id(session, org.id, "organization-member")
         params = InvitationCreate(
             email="expired@example.com",
-            grants=[InvitationGrantCreate(role_id=member_role_id)],
+            grants=[InvitationGrant(role_id=member_role_id)],
         )
 
         first = await service.create_invitation(params)
@@ -388,7 +350,7 @@ class TestCreateInvitationGrants:
             await service.create_invitation(
                 InvitationCreate(
                     email=invitee.email,
-                    grants=[InvitationGrantCreate(role_id=member_role_id)],
+                    grants=[InvitationGrant(role_id=member_role_id)],
                 )
             )
 
@@ -411,7 +373,7 @@ class TestCreateInvitationGrants:
         invitation = await service.create_invitation(
             InvitationCreate(
                 email="platform@example.com",
-                grants=[InvitationGrantCreate(role_id=owner_role_id)],
+                grants=[InvitationGrant(role_id=owner_role_id)],
             )
         )
 
@@ -441,13 +403,11 @@ class TestAcceptInvitationGrants:
             InvitationCreate(
                 email=invitee.email,
                 grants=[
-                    InvitationGrantCreate(role_id=member_role_id),
-                    InvitationGrantCreate(
+                    InvitationGrant(role_id=member_role_id),
+                    InvitationGrant(
                         workspace_id=workspace_a.id, role_id=editor_role_id
                     ),
-                    InvitationGrantCreate(
-                        workspace_id=workspace_b.id, role_id=admin_role_id
-                    ),
+                    InvitationGrant(workspace_id=workspace_b.id, role_id=admin_role_id),
                 ],
             )
         )
@@ -483,9 +443,7 @@ class TestAcceptInvitationGrants:
             InvitationCreate(
                 email=invitee.email,
                 grants=[
-                    InvitationGrantCreate(
-                        workspace_id=workspace_a.id, role_id=editor_role_id
-                    )
+                    InvitationGrant(workspace_id=workspace_a.id, role_id=editor_role_id)
                 ],
             )
         )
@@ -510,7 +468,7 @@ class TestAcceptInvitationGrants:
         invitation = await service.create_invitation(
             InvitationCreate(
                 email=invitee.email,
-                grants=[InvitationGrantCreate(role_id=org_admin_role_id)],
+                grants=[InvitationGrant(role_id=org_admin_role_id)],
             )
         )
 
@@ -546,31 +504,20 @@ class TestAcceptInvitationGrants:
         # An org member cannot be invited, so the invitation is written directly.
         invitation = Invitation(
             organization_id=org.id,
-            workspace_id=workspace_a.id,
             email=invitee.email,
-            role_id=editor_role_id,
             status=InvitationStatus.PENDING,
             token=uuid.uuid4().hex * 2,
             expires_at=datetime.now(UTC) + timedelta(days=7),
         )
+        invitation.grants = [
+            InvitationGrantRow(organization_id=org.id, role_id=member_role_id),
+            InvitationGrantRow(
+                organization_id=org.id,
+                workspace_id=workspace_a.id,
+                role_id=editor_role_id,
+            ),
+        ]
         session.add(invitation)
-        await session.flush()
-        session.add_all(
-            [
-                InvitationGrant(
-                    organization_id=org.id,
-                    invitation_id=invitation.id,
-                    workspace_id=None,
-                    role_id=member_role_id,
-                ),
-                InvitationGrant(
-                    organization_id=org.id,
-                    invitation_id=invitation.id,
-                    workspace_id=workspace_a.id,
-                    role_id=editor_role_id,
-                ),
-            ]
-        )
         await session.commit()
 
         await accept_invitation_for_user(
@@ -599,23 +546,19 @@ class TestAcceptInvitationGrants:
 
         invitation = Invitation(
             organization_id=org.id,
-            workspace_id=workspace_a.id,
             email=invitee.email,
-            role_id=editor_role_id,
             status=InvitationStatus.PENDING,
             token=uuid.uuid4().hex * 2,
             expires_at=datetime.now(UTC) + timedelta(days=7),
         )
-        session.add(invitation)
-        await session.flush()
-        session.add(
-            InvitationGrant(
+        invitation.grants = [
+            InvitationGrantRow(
                 organization_id=org.id,
-                invitation_id=invitation.id,
                 workspace_id=workspace_a.id,
                 role_id=editor_role_id,
             )
-        )
+        ]
+        session.add(invitation)
         await session.commit()
 
         await accept_invitation_for_user(
@@ -625,155 +568,12 @@ class TestAcceptInvitationGrants:
         assignments = await _assignments(session, invitee.id, org.id)
         assert assignments == {workspace_a.id: editor_role_id}
 
-    @pytest.mark.anyio
-    async def test_accept_writes_legacy_membership_rows(
-        self,
-        session: AsyncSession,
-        org: Organization,
-        admin: User,
-        invitee: User,
-        workspace_a: Workspace,
-    ):
-        """Legacy tables stay in step so older app versions see the member."""
-        service = InvitationService(session, role=_admin_role(org.id, admin.id))
-        member_role_id = await _role_id(session, org.id, "organization-member")
-        editor_role_id = await _role_id(session, org.id, "workspace-editor")
 
-        invitation = await service.create_invitation(
-            InvitationCreate(
-                email=invitee.email,
-                grants=[
-                    InvitationGrantCreate(role_id=member_role_id),
-                    InvitationGrantCreate(
-                        workspace_id=workspace_a.id, role_id=editor_role_id
-                    ),
-                ],
-            )
-        )
-
-        await accept_invitation_for_user(
-            session, user_id=invitee.id, token=invitation.token
-        )
-
-        assert (
-            await session.execute(
-                select(LegacyOrganizationMembership).where(
-                    LegacyOrganizationMembership.user_id == invitee.id,
-                    LegacyOrganizationMembership.organization_id == org.id,
-                )
-            )
-        ).scalar_one_or_none() is not None
-        assert (
-            await session.execute(
-                select(LegacyMembership).where(
-                    LegacyMembership.user_id == invitee.id,
-                    LegacyMembership.workspace_id == workspace_a.id,
-                )
-            )
-        ).scalar_one_or_none() is not None
-
-
-class TestLegacyInvitationTwin:
-    """Pending org rows copied by the migration share an id with their twin."""
-
-    async def _twinned_invitation(
-        self,
-        session: AsyncSession,
-        org: Organization,
-        admin: User,
-        email: str,
-    ) -> Invitation:
-        """Create an invitation plus the legacy row the migration copied it from."""
-        member_role_id = await _role_id(session, org.id, "organization-member")
-        invitation_id = uuid.uuid4()
-        token = uuid.uuid4().hex * 2
-        expires_at = datetime.now(UTC) + timedelta(days=7)
-        session.add(
-            LegacyOrganizationInvitation(
-                id=invitation_id,
-                organization_id=org.id,
-                email=email,
-                role_id=member_role_id,
-                invited_by=admin.id,
-                token=token,
-                expires_at=expires_at,
-                status=InvitationStatus.PENDING,
-            )
-        )
-        invitation = Invitation(
-            id=invitation_id,
-            organization_id=org.id,
-            workspace_id=None,
-            email=email,
-            role_id=member_role_id,
-            invited_by=admin.id,
-            token=token,
-            expires_at=expires_at,
-            status=InvitationStatus.PENDING,
-        )
-        session.add(invitation)
-        await session.flush()
-        session.add(
-            InvitationGrant(
-                organization_id=org.id,
-                invitation_id=invitation_id,
-                workspace_id=None,
-                role_id=member_role_id,
-            )
-        )
-        await session.commit()
-        return invitation
-
-    async def _legacy_status(
-        self, session: AsyncSession, invitation_id: uuid.UUID
-    ) -> InvitationStatus:
-        return (
-            await session.execute(
-                select(LegacyOrganizationInvitation.status).where(
-                    LegacyOrganizationInvitation.id == invitation_id
-                )
-            )
-        ).scalar_one()
+class TestGrantWorkspaceDeletion:
+    """Deleting a granted workspace must not delete the invitation."""
 
     @pytest.mark.anyio
-    async def test_revoke_mirrors_to_legacy_row(
-        self, session: AsyncSession, org: Organization, admin: User
-    ):
-        """Revoking the unified row revokes the legacy twin old pods read."""
-        invitation = await self._twinned_invitation(
-            session, org, admin, "twin-revoke@example.com"
-        )
-        service = InvitationService(session, role=_admin_role(org.id, admin.id))
-
-        await service.revoke_invitation(invitation.id)
-
-        assert (
-            await self._legacy_status(session, invitation.id)
-            == InvitationStatus.REVOKED
-        )
-
-    @pytest.mark.anyio
-    async def test_accept_mirrors_to_legacy_row(
-        self, session: AsyncSession, org: Organization, admin: User, invitee: User
-    ):
-        """Accepting the unified row accepts the legacy twin old pods read."""
-        invitation = await self._twinned_invitation(session, org, admin, invitee.email)
-
-        await accept_invitation_for_user(
-            session, user_id=invitee.id, token=invitation.token
-        )
-
-        assert (
-            await self._legacy_status(session, invitation.id)
-            == InvitationStatus.ACCEPTED
-        )
-
-
-class TestAnchorWorkspaceDeletion:
-    """Deleting the mirrored anchor workspace must not delete the invitation."""
-
-    @pytest.mark.anyio
-    async def test_anchor_workspace_delete_keeps_invitation(
+    async def test_granted_workspace_delete_keeps_invitation(
         self,
         session: AsyncSession,
         org: Organization,
@@ -781,7 +581,7 @@ class TestAnchorWorkspaceDeletion:
         workspace_a: Workspace,
         workspace_b: Workspace,
     ):
-        """The invitation survives with one grant left and a NULL anchor."""
+        """The invitation survives; the dead workspace's grant row is gone."""
         service = InvitationService(session, role=_admin_role(org.id, admin.id))
         editor_role_id = await _role_id(session, org.id, "workspace-editor")
 
@@ -789,46 +589,44 @@ class TestAnchorWorkspaceDeletion:
             InvitationCreate(
                 email="anchor@example.com",
                 grants=[
-                    InvitationGrantCreate(
+                    InvitationGrant(
                         workspace_id=workspace_a.id, role_id=editor_role_id
                     ),
-                    InvitationGrantCreate(
+                    InvitationGrant(
                         workspace_id=workspace_b.id, role_id=editor_role_id
                     ),
                 ],
             )
         )
-        assert invitation.workspace_id == workspace_a.id
         invitation_id = invitation.id
         workspace_b_id = workspace_b.id
 
-        # Raw delete: the ORM relationship would cascade the invitation away.
         await session.execute(delete(Workspace).where(Workspace.id == workspace_a.id))
         await session.commit()
         session.expire_all()
 
-        surviving = (
+        # The grant cascades with its workspace; the invitation itself survives.
+        assert (
             await session.execute(
-                select(Invitation.workspace_id).where(Invitation.id == invitation_id)
+                select(Invitation.id).where(Invitation.id == invitation_id)
             )
-        ).one()
-        assert surviving.workspace_id is None
-        remaining_grants = (
+        ).scalar_one() == invitation_id
+        stored = (
             (
                 await session.execute(
-                    select(InvitationGrant.workspace_id).where(
-                        InvitationGrant.invitation_id == invitation_id
+                    select(InvitationGrantRow.workspace_id).where(
+                        InvitationGrantRow.invitation_id == invitation_id
                     )
                 )
             )
             .scalars()
             .all()
         )
-        assert list(remaining_grants) == [workspace_b_id]
+        assert list(stored) == [workspace_b_id]
 
 
 class TestGrantlessInvitation:
-    """A workspace-only invitation whose last workspace was deleted is dead."""
+    """A workspace-only invitation whose last workspace was deleted is unacceptable."""
 
     @pytest.mark.anyio
     async def test_grantless_invitation_hidden_from_members_and_unacceptable(
@@ -838,7 +636,7 @@ class TestGrantlessInvitation:
         admin: User,
         workspace_a: Workspace,
     ):
-        """The listing skips it and accepting raises instead of 500ing."""
+        """The listing drops it and accepting raises instead of 500ing."""
         service = InvitationService(session, role=_admin_role(org.id, admin.id))
         editor_role_id = await _role_id(session, org.id, "workspace-editor")
 
@@ -846,9 +644,7 @@ class TestGrantlessInvitation:
             InvitationCreate(
                 email="grantless@example.com",
                 grants=[
-                    InvitationGrantCreate(
-                        workspace_id=workspace_a.id, role_id=editor_role_id
-                    )
+                    InvitationGrant(workspace_id=workspace_a.id, role_id=editor_role_id)
                 ],
             )
         )
@@ -867,28 +663,113 @@ class TestGrantlessInvitation:
         session.add(invitee)
         await session.commit()
 
-        # Raw delete: CASCADE removes the grant, SET NULL keeps the invitation.
         await session.execute(delete(Workspace).where(Workspace.id == workspace_a.id))
         await session.commit()
         session.expunge_all()
 
-        remaining_grants = (
-            (
-                await session.execute(
-                    select(InvitationGrant.id).where(
-                        InvitationGrant.invitation_id == invitation_id
-                    )
-                )
+        # The only grant cascaded away, leaving nothing to confer.
+        assert (
+            await session.execute(
+                select(func.count())
+                .select_from(InvitationGrantRow)
+                .where(InvitationGrantRow.invitation_id == invitation_id)
             )
-            .scalars()
-            .all()
-        )
-        assert list(remaining_grants) == []
+        ).scalar_one() == 0
 
+        # A grantless invitation confers nothing, so it is not listed as a member.
         members = await list_org_members(
             role=_admin_role(org.id, admin.id), session=session
         )
-        assert all(member.email != "grantless@example.com" for member in members)
+        assert [m for m in members if m.email == "grantless@example.com"] == []
+
+        with pytest.raises(TracecatAuthorizationError):
+            await accept_invitation_for_user(session, user_id=invitee.id, token=token)
+
+        # The admin listing drops it as well.
+        listed = await service.list_invitations(status=InvitationStatus.PENDING)
+        assert invitation_id not in [inv.id for inv in listed]
+
+        # SAML and pending-for-me lookups skip it too.
+        assert (
+            await get_pending_invitation_for_email(
+                session, organization_id=org.id, email="grantless@example.com"
+            )
+            is None
+        )
+
+        # It no longer blocks a replacement invitation for the same email.
+        admin_role_id = await _role_id(session, org.id, "organization-admin")
+        replacement = await service.create_invitation(
+            InvitationCreate(
+                email="grantless@example.com",
+                grants=[InvitationGrant(role_id=admin_role_id)],
+            )
+        )
+        assert replacement.id != invitation_id
+        assert len(replacement.grants) == 1
+
+
+class TestGrantRoleDeletion:
+    """Deleting a granted role must retire the grant, not the invitation."""
+
+    @pytest.mark.anyio
+    async def test_deleted_role_cascades_grant_and_blocks_accept(
+        self,
+        session: AsyncSession,
+        org: Organization,
+        admin: User,
+        workspace_a: Workspace,
+    ):
+        """The grant row goes with its role, leaving the invitation unacceptable."""
+        service = InvitationService(session, role=_admin_role(org.id, admin.id))
+        custom_role = DBRole(
+            id=uuid.uuid4(),
+            name="Temp Workspace Role",
+            slug=None,
+            organization_id=org.id,
+        )
+        session.add(custom_role)
+        await session.commit()
+
+        invitation = await service.create_invitation(
+            InvitationCreate(
+                email="roleless@example.com",
+                grants=[
+                    InvitationGrant(workspace_id=workspace_a.id, role_id=custom_role.id)
+                ],
+            )
+        )
+        token = invitation.token
+        invitation_id = invitation.id
+
+        invitee = User(
+            id=uuid.uuid4(),
+            email="roleless@example.com",
+            hashed_password="hashed",
+            role=UserRole.BASIC,
+            is_active=True,
+            is_superuser=False,
+            is_verified=True,
+        )
+        session.add(invitee)
+        await session.commit()
+
+        await session.execute(delete(DBRole).where(DBRole.id == custom_role.id))
+        await session.commit()
+        session.expunge_all()
+
+        assert (
+            await session.execute(
+                select(Invitation.id).where(Invitation.id == invitation_id)
+            )
+        ).scalar_one() == invitation_id
+        assert (
+            await session.execute(
+                select(func.count())
+                .select_from(InvitationGrantRow)
+                .where(InvitationGrantRow.invitation_id == invitation_id)
+            )
+        ).scalar_one() == 0
 
         with pytest.raises(TracecatAuthorizationError):
             await accept_invitation_for_user(session, user_id=invitee.id, token=token)
@@ -904,8 +785,8 @@ class TestDuplicateGrantScopes:
             InvitationCreate(
                 email="dupe@example.com",
                 grants=[
-                    InvitationGrantCreate(workspace_id=workspace_id, role_id=role_id),
-                    InvitationGrantCreate(workspace_id=workspace_id, role_id=role_id),
+                    InvitationGrant(workspace_id=workspace_id, role_id=role_id),
+                    InvitationGrant(workspace_id=workspace_id, role_id=role_id),
                 ],
             )
 
@@ -915,8 +796,8 @@ class TestDuplicateGrantScopes:
             InvitationCreate(
                 email="dupe@example.com",
                 grants=[
-                    InvitationGrantCreate(role_id=role_id),
-                    InvitationGrantCreate(role_id=role_id),
+                    InvitationGrant(role_id=role_id),
+                    InvitationGrant(role_id=role_id),
                 ],
             )
 
@@ -925,8 +806,8 @@ class TestDuplicateGrantScopes:
         params = InvitationCreate(
             email="ok@example.com",
             grants=[
-                InvitationGrantCreate(role_id=role_id),
-                InvitationGrantCreate(workspace_id=uuid.uuid4(), role_id=role_id),
+                InvitationGrant(role_id=role_id),
+                InvitationGrant(workspace_id=uuid.uuid4(), role_id=role_id),
             ],
         )
         assert len(params.grants) == 2

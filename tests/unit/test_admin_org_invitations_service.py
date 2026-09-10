@@ -18,6 +18,7 @@ from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import PlatformRole
 from tracecat.db.models import (
     Invitation,
+    InvitationGrant,
     Organization,
     User,
 )
@@ -136,9 +137,11 @@ async def test_create_organization_invitation_rejects_duplicate_pending_invite(
 
     invitations = (
         await session.execute(
-            select(Invitation).where(
+            select(Invitation)
+            .join(InvitationGrant, InvitationGrant.invitation_id == Invitation.id)
+            .where(
                 Invitation.organization_id == org.id,
-                Invitation.role_id == org_roles["organization-admin"].id,
+                InvitationGrant.role_id == org_roles["organization-admin"].id,
             )
         )
     ).scalars()
@@ -231,13 +234,17 @@ async def test_list_organization_invitations_only_returns_platform_created(
     )
     tenant_invitation = Invitation(
         organization_id=org.id,
-        workspace_id=None,
         email="tenant@example.com",
-        role_id=org_roles["organization-member"].id,
         token=secrets.token_urlsafe(32),
         expires_at=datetime.now(UTC) + timedelta(days=7),
         status=InvitationStatus.PENDING,
         created_by_platform_admin=False,
+        grants=[
+            InvitationGrant(
+                organization_id=org.id,
+                role_id=org_roles["organization-owner"].id,
+            )
+        ],
     )
     session.add(tenant_invitation)
     await session.commit()
@@ -299,14 +306,18 @@ async def test_list_organization_invitations_reverse_paginates_in_canonical_orde
         Invitation(
             id=uuid.uuid4(),
             organization_id=org.id,
-            workspace_id=None,
             email=f"reverse-page-{idx}@example.com",
-            role_id=org_roles["organization-member"].id,
             token=secrets.token_urlsafe(32),
             expires_at=base_time + timedelta(days=7),
             status=InvitationStatus.PENDING,
             created_by_platform_admin=True,
             created_at=base_time + timedelta(minutes=idx),
+            grants=[
+                InvitationGrant(
+                    organization_id=org.id,
+                    role_id=org_roles["organization-owner"].id,
+                )
+            ],
         )
         for idx in range(5)
     ]
@@ -379,13 +390,17 @@ async def test_token_endpoint_only_exposes_platform_created_invitations(
     )
     tenant_invitation = Invitation(
         organization_id=org.id,
-        workspace_id=None,
         email="tenant-token@example.com",
-        role_id=org_roles["organization-member"].id,
         token=secrets.token_urlsafe(32),
         expires_at=datetime.now(UTC) + timedelta(days=7),
         status=InvitationStatus.PENDING,
         created_by_platform_admin=False,
+        grants=[
+            InvitationGrant(
+                organization_id=org.id,
+                role_id=org_roles["organization-owner"].id,
+            )
+        ],
     )
     session.add(tenant_invitation)
     await session.commit()
@@ -422,13 +437,17 @@ async def test_revoke_organization_invitation_only_revokes_pending_platform_invi
 
     tenant_invitation = Invitation(
         organization_id=org.id,
-        workspace_id=None,
         email="tenant-revoke@example.com",
-        role_id=org_roles["organization-member"].id,
         token=secrets.token_urlsafe(32),
         expires_at=datetime.now(UTC) + timedelta(days=7),
         status=InvitationStatus.PENDING,
         created_by_platform_admin=False,
+        grants=[
+            InvitationGrant(
+                organization_id=org.id,
+                role_id=org_roles["organization-owner"].id,
+            )
+        ],
     )
     session.add(tenant_invitation)
     await session.commit()
