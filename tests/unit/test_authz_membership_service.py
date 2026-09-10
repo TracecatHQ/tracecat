@@ -6,7 +6,11 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tests.support.membership import grant_workspace_membership
+from tests.support.membership import (
+    grant_org_membership,
+    grant_org_membership_via_group,
+    grant_workspace_membership,
+)
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import ADMIN_SCOPES, EDITOR_SCOPES
@@ -19,6 +23,7 @@ from tracecat.db.models import (
     LegacyMembership,
     Membership,
     Organization,
+    OrganizationMembership,
     RoleScope,
     Scope,
     User,
@@ -26,7 +31,11 @@ from tracecat.db.models import (
     Workspace,
 )
 from tracecat.db.models import Role as DBRole
-from tracecat.exceptions import TracecatAuthorizationError, TracecatConflictError
+from tracecat.exceptions import (
+    TracecatAuthorizationError,
+    TracecatConflictError,
+    TracecatNotFoundError,
+)
 from tracecat.workspaces.schemas import WorkspaceMembershipCreate
 
 pytestmark = [pytest.mark.anyio, pytest.mark.usefixtures("db")]
@@ -364,6 +373,9 @@ async def test_create_membership_allows_admin_inviter(
             role_id=admin_role.id,
         )
     )
+    await grant_org_membership(
+        session, user_id=member_user.id, organization_id=organization.id
+    )
     await session.commit()
 
     await membership_service.create_membership(
@@ -502,3 +514,111 @@ async def test_delete_membership_rejects_when_group_grant_remains(
 
     assert assignment is not None
     assert legacy is not None
+
+
+async def test_create_membership_keeps_the_user_an_org_member(
+    session: AsyncSession,
+    membership_service: MembershipService,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    workspace_editor_role: DBRole,
+) -> None:
+    """A group-only org member gains the workspace without a direct org role."""
+    await grant_org_membership_via_group(
+        session, user_id=member_user.id, organization_id=organization.id
+    )
+    await session.commit()
+
+    await membership_service.create_membership(
+        workspace_id=workspace.id,
+        params=WorkspaceMembershipCreate(user_id=member_user.id),
+    )
+
+    org_membership = await session.scalar(
+        select(OrganizationMembership).where(
+            OrganizationMembership.user_id == member_user.id,
+            OrganizationMembership.organization_id == organization.id,
+        )
+    )
+    assert org_membership is not None
+
+
+async def test_create_membership_rejects_user_outside_the_organization(
+    session: AsyncSession,
+    membership_service: MembershipService,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    workspace_editor_role: DBRole,
+) -> None:
+    """A platform user with no role path in the org cannot be added.
+
+    Workspace membership is organization presence, and an org member can be
+    administered through the org member routes, so admitting an arbitrary user
+    by ID would hand over their account.
+    """
+    with pytest.raises(TracecatNotFoundError, match="User not found in organization"):
+        await membership_service.create_membership(
+            workspace_id=workspace.id,
+            params=WorkspaceMembershipCreate(user_id=member_user.id),
+        )
+
+    assignment = await session.scalar(
+        select(UserRoleAssignment).where(
+            UserRoleAssignment.workspace_id == workspace.id,
+            UserRoleAssignment.user_id == member_user.id,
+        )
+    )
+    legacy = await session.scalar(
+        select(LegacyMembership).where(
+            LegacyMembership.workspace_id == workspace.id,
+            LegacyMembership.user_id == member_user.id,
+        )
+    )
+    assert assignment is None
+    assert legacy is None
+
+
+async def test_create_membership_rejects_member_of_another_organization(
+    session: AsyncSession,
+    membership_service: MembershipService,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    workspace_editor_role: DBRole,
+) -> None:
+    """Presence in a different organization does not admit the user here."""
+    other_org = Organization(
+        id=uuid.uuid4(),
+        name="Other Org",
+        slug=f"other-org-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    session.add(other_org)
+    await session.flush()
+    await grant_org_membership(
+        session, user_id=member_user.id, organization_id=other_org.id
+    )
+    await session.commit()
+
+    with pytest.raises(TracecatNotFoundError, match="User not found in organization"):
+        await membership_service.create_membership(
+            workspace_id=workspace.id,
+            params=WorkspaceMembershipCreate(user_id=member_user.id),
+        )
+
+    assignment = await session.scalar(
+        select(UserRoleAssignment).where(
+            UserRoleAssignment.workspace_id == workspace.id,
+            UserRoleAssignment.user_id == member_user.id,
+        )
+    )
+    legacy = await session.scalar(
+        select(LegacyMembership).where(
+            LegacyMembership.workspace_id == workspace.id,
+            LegacyMembership.user_id == member_user.id,
+        )
+    )
+    assert assignment is None
+    assert legacy is None

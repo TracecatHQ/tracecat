@@ -14378,6 +14378,10 @@ export type $OpenApiTs = {
          */
         201: unknown
         /**
+         * User not found in organization.
+         */
+        404: unknown
+        /**
          * User is already a member of the workspace.
          */
         409: unknown

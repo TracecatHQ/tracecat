@@ -242,9 +242,10 @@ async def list_workspace_memberships(
     "/{workspace_id}/memberships",
     status_code=status.HTTP_201_CREATED,
     responses={
+        status.HTTP_404_NOT_FOUND: {"description": "User not found in organization."},
         status.HTTP_409_CONFLICT: {
             "description": "User is already a member of the workspace."
-        }
+        },
     },
 )
 @require_scope("workspace:member:invite")
@@ -264,6 +265,8 @@ async def create_workspace_membership(
         # TracecatAuthorizationError intentionally propagates: the API-wide
         # handler maps it to 403, which is correct for a scope-ceiling denial.
         await service.create_membership(workspace_id, params=params)
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
     except TracecatConflictError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
     except IntegrityError as e:

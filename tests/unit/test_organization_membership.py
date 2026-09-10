@@ -6,7 +6,10 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tests.support.membership import grant_org_membership
+from tests.support.membership import (
+    grant_org_membership,
+    grant_workspace_membership,
+)
 from tracecat.auth.credentials import get_role_from_user
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
@@ -14,6 +17,7 @@ from tracecat.db.models import (
     Organization,
     OrganizationMembership,
     User,
+    Workspace,
 )
 
 
@@ -220,6 +224,50 @@ class TestOrganizationMembershipModel:
         assert len(memberships) == 2
         org_ids = {m.organization_id for m in memberships}
         assert org_ids == {org1.id, org2.id}
+
+    @pytest.mark.anyio
+    async def test_workspace_only_assignment_is_organization_presence(
+        self, session: AsyncSession
+    ):
+        """A workspace-scoped role alone makes the user an organization member."""
+        org = Organization(
+            id=uuid.uuid4(),
+            name="Workspace Only Org",
+            slug=f"ws-only-org-{uuid.uuid4().hex[:8]}",
+            is_active=True,
+        )
+        workspace = Workspace(
+            id=uuid.uuid4(),
+            name="Workspace Only",
+            organization_id=org.id,
+        )
+        user = User(
+            id=uuid.uuid4(),
+            email=f"ws-only-{uuid.uuid4().hex[:8]}@example.com",
+            hashed_password="hashed",
+            role=UserRole.BASIC,
+            is_active=True,
+            is_superuser=False,
+            is_verified=True,
+        )
+        session.add_all([org, workspace, user])
+        await session.flush()
+
+        await grant_workspace_membership(
+            session,
+            user_id=user.id,
+            organization_id=org.id,
+            workspace_id=workspace.id,
+        )
+        await session.commit()
+
+        result = await session.execute(
+            select(OrganizationMembership).where(
+                OrganizationMembership.user_id == user.id,
+                OrganizationMembership.organization_id == org.id,
+            )
+        )
+        assert result.scalar_one().organization_id == org.id
 
 
 class TestRoleCreation:

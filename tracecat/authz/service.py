@@ -19,6 +19,7 @@ from tracecat.db.models import (
     GroupRoleAssignment,
     LegacyMembership,
     Membership,
+    OrganizationMembership,
     RoleScope,
     Scope,
     User,
@@ -271,6 +272,15 @@ class MembershipService(BaseService):
 
         Note: The authorization cache is request-scoped, so changes will be
         reflected in subsequent requests automatically.
+
+        Raises:
+            TracecatNotFoundError: If the user holds no role path in the
+                workspace's organization.
+            TracecatConflictError: If the user is already a workspace member.
+            TracecatValidationError: If the workspace or default role is
+                missing.
+            TracecatAuthorizationError: If the granted role exceeds the
+                caller's scopes.
         """
         org_stmt = select(Workspace.organization_id).where(Workspace.id == workspace_id)
         organization_id = (await self.session.execute(org_stmt)).scalar_one_or_none()
@@ -290,6 +300,20 @@ class MembershipService(BaseService):
         except TracecatNotFoundError as e:
             raise TracecatValidationError("Workspace or default role not found") from e
         role_id = granted_role.id
+
+        # Membership grants a role, so the target must already have a role
+        # path in this organization; otherwise any platform user could be
+        # pulled in and then administered as an org member.
+        org_presence_stmt = (
+            select(OrganizationMembership.user_id)
+            .where(
+                OrganizationMembership.user_id == params.user_id,
+                OrganizationMembership.organization_id == organization_id,
+            )
+            .limit(1)
+        )
+        if (await self.session.execute(org_presence_stmt)).scalar_one_or_none() is None:
+            raise TracecatNotFoundError("User not found in organization")
 
         existing_member_stmt = select(Membership.user_id).where(
             Membership.workspace_id == workspace_id,

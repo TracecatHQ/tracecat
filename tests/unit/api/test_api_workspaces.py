@@ -14,7 +14,10 @@ from tracecat.authz.enums import WorkspaceRole
 from tracecat.authz.scopes import ORG_MEMBER_SCOPES
 from tracecat.contexts import ctx_role
 from tracecat.db.models import Workspace
-from tracecat.exceptions import TracecatAuthorizationError
+from tracecat.exceptions import (
+    TracecatAuthorizationError,
+    TracecatNotFoundError,
+)
 from tracecat.logger import logger
 from tracecat.workspaces import router as workspaces_router
 
@@ -230,6 +233,28 @@ async def test_create_workspace_membership_conflict(
         )
 
         assert response.status_code == status.HTTP_409_CONFLICT
+
+
+@pytest.mark.anyio
+async def test_create_workspace_membership_outside_organization(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """A user with no role path in the organization returns 404, not 201."""
+    with patch.object(workspaces_router, "MembershipService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.create_membership.side_effect = TracecatNotFoundError(
+            "User not found in organization"
+        )
+        MockService.return_value = mock_svc
+
+        response = client.post(
+            f"/workspaces/{uuid.uuid4()}/memberships",
+            json={"user_id": str(uuid.uuid4())},
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert response.json()["detail"] == "User not found in organization"
 
 
 @pytest.mark.anyio

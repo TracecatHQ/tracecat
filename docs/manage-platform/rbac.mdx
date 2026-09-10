@@ -22,7 +22,7 @@ Tracecat seeds six built-in roles into every organization at startup. Tracecat r
 
 The Scopes column counts the current definition. Startup seeding adds scopes a built-in role is missing and removes none, so an organization created before a scope was renamed also keeps the old name.
 
-`organization-owner` and `organization-admin` reach every workspace in the organization without a workspace membership. Every other user needs a workspace membership plus a workspace role, and `organization-member` on its own grants no workspace resource scope.
+Any role in the organization, held directly or through a group, makes the user an organization member. Workspace resource access is separate: it needs a workspace role, or `organization-admin` or `organization-owner`, both of which reach every workspace in the organization without a workspace membership.
 
 ![Built-in roles](/img/manage-platform/rbac-roles.png)
 

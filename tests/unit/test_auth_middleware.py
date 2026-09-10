@@ -1140,3 +1140,65 @@ async def test_role_dependency_uses_stable_org_for_multi_org_without_workspace(
     assert role.organization_id == org_a.id
     assert role.workspace_id is None
     assert role.user_id == user.id
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+async def test_role_dependency_infers_org_from_workspace_only_membership(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+):
+    """A workspace role alone is org presence, so org context resolves."""
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
+
+    org_id = uuid.uuid4()
+    org = Organization(
+        id=org_id,
+        name="Workspace Only Org",
+        slug=f"ws-only-org-{org_id.hex[:8]}",
+        is_active=True,
+    )
+    user = User(
+        id=uuid.uuid4(),
+        email=f"user-{uuid.uuid4()}@example.com",
+        hashed_password="test_password",
+        is_active=True,
+        is_verified=True,
+        is_superuser=False,
+        last_login_at=None,
+        role=UserRole.BASIC,
+    )
+    workspace = Workspace(
+        id=uuid.uuid4(),
+        name="Workspace Only Workspace",
+        organization_id=org.id,
+    )
+    session.add_all([org, user, workspace])
+    await session.commit()
+
+    # No org-wide assignment: the workspace role is the only path.
+    await grant_workspace_membership(
+        session,
+        user_id=user.id,
+        organization_id=org.id,
+        workspace_id=workspace.id,
+    )
+    await session.commit()
+
+    request = MagicMock(spec=Request)
+    request.state = MagicMock()
+    request.state.auth_cache = None
+
+    role = await _role_dependency(
+        request=request,
+        session=session,
+        workspace_id=None,
+        user=user,
+        api_key=None,
+        allow_user=True,
+        allow_service=False,
+        require_workspace="no",
+    )
+
+    assert role.organization_id == org.id
+    assert role.workspace_id is None
+    assert role.user_id == user.id
