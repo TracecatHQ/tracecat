@@ -339,7 +339,6 @@ export type AdminOrgInvitationCreateResponse = {
   created_at: string
   accepted_at: string | null
   created_by_platform_admin: boolean
-  last_emailed_at?: string | null
   token: string
 }
 
@@ -359,7 +358,6 @@ export type AdminOrgInvitationRead = {
   created_at: string
   accepted_at: string | null
   created_by_platform_admin: boolean
-  last_emailed_at?: string | null
 }
 
 /**
@@ -403,14 +401,6 @@ export type AgentArtifact = {
   title: string
   scope?: ArtifactScope | null
   type?: "agent"
-}
-
-/**
- * An enabled installed backend available for session creation.
- */
-export type AgentBackendRead = {
-  id: string
-  name: string
 }
 
 /**
@@ -1039,13 +1029,9 @@ export type AgentSessionCreate = {
    */
   agent_preset_version_id?: string | null
   /**
-   * Opaque agent backend identifier
+   * Agent harness type
    */
-  backend_id?: string
-  /**
-   * Execution harness; defaults to the selected backend's harness
-   */
-  harness_type?: string | null
+  harness_type?: HarnessType
 }
 
 /**
@@ -1101,7 +1087,6 @@ export type AgentSessionRead = {
   agent_preset_id: string | null
   agent_preset_version_id: string | null
   agents_binding?: ResolvedAgentsConfig | null
-  backend_id?: string
   harness_type: string | null
   last_error?: string | null
   last_stream_id?: string | null
@@ -1133,7 +1118,6 @@ export type AgentSessionReadVercel = {
   agent_preset_id: string | null
   agent_preset_version_id: string | null
   agents_binding?: ResolvedAgentsConfig | null
-  backend_id?: string
   harness_type: string | null
   last_error?: string | null
   last_stream_id?: string | null
@@ -1169,7 +1153,6 @@ export type AgentSessionReadWithMessages = {
   agent_preset_id: string | null
   agent_preset_version_id: string | null
   agents_binding?: ResolvedAgentsConfig | null
-  backend_id?: string
   harness_type: string | null
   last_error?: string | null
   last_stream_id?: string | null
@@ -1208,13 +1191,9 @@ export type AgentSessionUpdate = {
    */
   agent_preset_version_id?: string | null
   /**
-   * Immutable agent backend identifier
+   * Agent harness type
    */
-  backend_id?: string | null
-  /**
-   * Immutable execution harness
-   */
-  harness_type?: string | null
+  harness_type?: HarnessType | null
 }
 
 export type AgentSettingsRead = {
@@ -3608,56 +3587,8 @@ export type CursorPaginatedResponse_ServiceAccountRead_ = {
   total_estimate?: number | null
 }
 
-export type CursorPaginatedResponse_SkillFolderRead_ = {
-  items: Array<SkillFolderRead>
-  /**
-   * Cursor for next page
-   */
-  next_cursor?: string | null
-  /**
-   * Cursor for previous page
-   */
-  prev_cursor?: string | null
-  /**
-   * Whether more items exist
-   */
-  has_more?: boolean
-  /**
-   * Whether previous items exist
-   */
-  has_previous?: boolean
-  /**
-   * Estimated total count from table statistics
-   */
-  total_estimate?: number | null
-}
-
 export type CursorPaginatedResponse_SkillReadMinimal_ = {
   items: Array<SkillReadMinimal>
-  /**
-   * Cursor for next page
-   */
-  next_cursor?: string | null
-  /**
-   * Cursor for previous page
-   */
-  prev_cursor?: string | null
-  /**
-   * Whether more items exist
-   */
-  has_more?: boolean
-  /**
-   * Whether previous items exist
-   */
-  has_previous?: boolean
-  /**
-   * Estimated total count from table statistics
-   */
-  total_estimate?: number | null
-}
-
-export type CursorPaginatedResponse_SkillTagRead_ = {
-  items: Array<SkillTagRead>
   /**
    * Cursor for next page
    */
@@ -3987,17 +3918,6 @@ export type DefaultModelSelectionUpdate = {
 }
 
 /**
- * Lifecycle states of a row document within an index generation.
- */
-export type DocumentState =
-  | "pending"
-  | "building"
-  | "ready"
-  | "empty"
-  | "failed"
-  | "deleted"
-
-/**
  * Event for when a case dropdown value is changed.
  */
 export type DropdownValueChangedEventRead = {
@@ -4157,75 +4077,6 @@ export type EffectiveEntitlements = {
    */
   watchtower?: boolean
 }
-
-/**
- * Availability from existing provider settings and current indexing state.
- */
-export type EmbeddingConfigurationRead = {
-  available: boolean
-  version: number
-  state: SearchState
-  configuration?: EmbeddingModelRead | null
-  reindex_required?: boolean
-}
-
-/**
- * Stable public failures; provider messages must never cross this boundary.
- */
-export type EmbeddingErrorCode =
-  | "CREDENTIAL_INVALID"
-  | "CONFIGURATION_INVALID"
-  | "CONFIGURATION_CHANGED"
-  | "INPUT_INVALID"
-  | "RATE_LIMITED"
-  | "TIMEOUT"
-  | "UNAVAILABLE"
-  | "RESPONSE_INVALID"
-  | "NOT_CONFIGURED"
-
-export type EmbeddingErrorRead = {
-  code: EmbeddingErrorCode
-  retryable: boolean
-  retry_after?: number | null
-}
-
-export type EmbeddingErrorResponse = {
-  detail: EmbeddingErrorRead
-}
-
-/**
- * Public metadata needed for status and bounded chunk preparation.
- */
-export type EmbeddingModelRead = {
-  provider: "openai" | "gemini" | "bedrock" | "ollama" | "vllm"
-  model:
-    | "text-embedding-3-small"
-    | "text-embedding-3-large"
-    | "gemini-embedding-001"
-    | "amazon.titan-embed-text-v2:0"
-    | "all-minilm"
-    | "all-minilm:latest"
-    | "all-minilm:22m"
-    | "sentence-transformers/all-MiniLM-L6-v2"
-  dimensions: number
-  tokenizer: string
-  input_token_limit: number
-  input_character_limit: number
-  batch_size_limit: number
-  batch_token_limit: number
-}
-
-export type provider = "openai" | "gemini" | "bedrock" | "ollama" | "vllm"
-
-export type model =
-  | "text-embedding-3-small"
-  | "text-embedding-3-large"
-  | "gemini-embedding-001"
-  | "amazon.titan-embed-text-v2:0"
-  | "all-minilm"
-  | "all-minilm:latest"
-  | "all-minilm:22m"
-  | "sentence-transformers/all-MiniLM-L6-v2"
 
 /**
  * TypedDict for tier entitlements stored in JSONB.
@@ -4417,7 +4268,6 @@ export type FeatureFlag =
   | "workflow-concurrency-limits"
   | "agent-channels"
   | "agent-fs-persistence"
-  | "agent-runtime"
 
 /**
  * Response model for feature flags.
@@ -4897,6 +4747,11 @@ export type HTTPValidationError = {
   detail?: Array<ValidationError>
 }
 
+/**
+ * Supported agent harnesses.
+ */
+export type HarnessType = "claude_code"
+
 export type HealthResponse = {
   status: string
 }
@@ -5267,9 +5122,84 @@ export type InteractionStatus =
 export type InteractionType = "approval" | "response"
 
 /**
+ * Request body for accepting an invitation via token.
+ */
+export type InvitationAccept = {
+  token: string
+}
+
+/**
+ * Request body for creating an invitation.
+ */
+export type InvitationCreate = {
+  email: string
+  grants: Array<InvitationGrantCreate>
+}
+
+/**
+ * One role grant to confer on acceptance.
+ */
+export type InvitationGrantCreate = {
+  workspace_id?: string | null
+  role_id: string
+}
+
+/**
+ * A grant on an invitation, with its role and workspace resolved.
+ */
+export type InvitationGrantRead = {
+  id: string
+  workspace_id: string | null
+  workspace_name?: string | null
+  role_id: string
+  role_name: string
+  role_slug?: string | null
+}
+
+/**
+ * Response model for an invitation.
+ */
+export type InvitationRead = {
+  id: string
+  organization_id: string
+  email: string
+  status: InvitationStatus
+  invited_by: string | null
+  expires_at: string
+  created_at: string
+  accepted_at: string | null
+  created_by_platform_admin: boolean
+  grants: Array<InvitationGrantRead>
+}
+
+/**
+ * Minimal public response for token-based lookup on the accept page.
+ *
+ * Excludes email, inviter ID, and timestamps to limit information disclosure.
+ */
+export type InvitationReadMinimal = {
+  organization_id: string
+  organization_name: string
+  organization_slug: string
+  inviter_name: string | null
+  inviter_email: string | null
+  grants: Array<InvitationGrantRead>
+  status: InvitationStatus
+  expires_at: string
+  email_matches?: boolean | null
+}
+
+/**
  * Invitation lifecycle status.
  */
 export type InvitationStatus = "pending" | "accepted" | "revoked"
+
+/**
+ * Raw invitation token response.
+ */
+export type InvitationTokenRead = {
+  token: string
+}
 
 export type IssuedMCPPersonalAccessToken = {
   raw_token: string
@@ -6002,58 +5932,6 @@ export type OrgDomainUpdate = {
 }
 
 /**
- * Request body for accepting an organization invitation via token.
- */
-export type OrgInvitationAccept = {
-  token: string
-}
-
-/**
- * Request body for creating an organization invitation.
- */
-export type OrgInvitationCreate = {
-  email: string
-  role_id: string
-}
-
-/**
- * Response model for organization invitation.
- */
-export type OrgInvitationRead = {
-  id: string
-  organization_id: string
-  email: string
-  role_id: string
-  role_name: string
-  role_slug?: string | null
-  status: InvitationStatus
-  invited_by: string | null
-  expires_at: string
-  created_at: string
-  accepted_at: string | null
-  last_emailed_at?: string | null
-}
-
-/**
- * Minimal response for public token-based invitation lookup.
- *
- * Excludes sensitive fields like email, invited_by ID, and timestamps
- * to reduce information disclosure when querying by token.
- */
-export type OrgInvitationReadMinimal = {
-  organization_id: string
-  organization_name: string
-  organization_slug: string
-  inviter_name: string | null
-  inviter_email: string | null
-  role_name: string
-  role_slug?: string | null
-  status: InvitationStatus
-  expires_at: string
-  email_matches?: boolean | null
-}
-
-/**
  * Detailed member info for /me and update endpoints.
  */
 export type OrgMemberDetail = {
@@ -6085,20 +5963,6 @@ export type OrgMemberRead = {
 }
 
 export type OrgMemberStatus = "active" | "inactive" | "invited"
-
-/**
- * Pending invitation visible to the invited authenticated user.
- */
-export type OrgPendingInvitationRead = {
-  token: string
-  organization_id: string
-  organization_name: string
-  inviter_name: string | null
-  inviter_email: string | null
-  role_name: string
-  role_slug?: string | null
-  expires_at: string
-}
 
 /**
  * Organization registry repository response.
@@ -6254,6 +6118,19 @@ export type PayloadChangedEventRead = {
    * The timestamp of the event.
    */
   created_at: string
+}
+
+/**
+ * Pending invitation visible to the invited authenticated user.
+ */
+export type PendingInvitationRead = {
+  token: string
+  organization_id: string
+  organization_name: string
+  inviter_name: string | null
+  inviter_email: string | null
+  grants: Array<InvitationGrantRead>
+  expires_at: string
 }
 
 export type PersistedApprovalDecision =
@@ -7289,7 +7166,6 @@ export type RuntimeErrorKind =
   | "integration.rate_limited"
   | "registry.sync.validation_failed"
   | "registry.lock.invalid_data"
-  | "registry.lock.action_ambiguous"
   | "runtime.unclassified"
   | "storage.materialization.transport_unavailable"
   | "storage.materialization.invalid_data"
@@ -7490,47 +7366,6 @@ export type ScopeRead = {
  * Source/ownership of a scope definition.
  */
 export type ScopeSource = "platform" | "custom"
-
-/**
- * Stable error codes safe to expose without source text or credentials.
- */
-export type SearchErrorCode =
-  | "NOT_FOUND"
-  | "INDEX_NOT_READY"
-  | "STALE_CLAIM"
-  | "MANIFEST_CONFLICT"
-  | "INVALID_VECTOR"
-  | "CONFIGURATION_CHANGED"
-  | "PROVIDER_UNAVAILABLE"
-  | "INVALID_CURSOR"
-  | "INVALID_TABLE_NAME"
-
-/**
- * Index availability and document counts for a collection.
- *
- * Attributes:
- * state: Effective workspace or collection search state.
- * pending: Documents awaiting work for the current index configuration.
- * failed: Documents that failed in the current index generation.
- * empty: Current documents that contain no searchable chunks.
- * ready: Current documents whose complete embeddings are published.
- * backfill_complete: Whether all source rows have been enumerated.
- * partial: Whether the index is unavailable or results may be incomplete.
- */
-export type SearchIndexStatus = {
-  state: SearchState
-  pending?: number
-  failed?: number
-  empty?: number
-  ready?: number
-  backfill_complete?: boolean
-  partial?: boolean
-}
-
-/**
- * Workspace availability states controlling search and indexing.
- */
-export type SearchState = "disabled" | "active" | "paused" | "reindex_required"
 
 /**
  * Secret artifact stub. Extend when secret surfaces are wired.
@@ -7809,22 +7644,6 @@ export type SkillCreate = {
 }
 
 /**
- * Skill as a directory item.
- */
-export type SkillDirectoryItem = {
-  type: "skill"
-  id: string
-  name: string
-  slug: string
-  description: string | null
-  current_version_id: string | null
-  folder_id: string | null
-  tags: Array<TagRead>
-  created_at: string
-  updated_at: string
-}
-
-/**
  * Attach a finalized staged upload to a draft path.
  */
 export type SkillDraftAttachUploadedBlobOp = {
@@ -7914,50 +7733,6 @@ export type SkillFileEntry = {
   content_type: string
 }
 
-export type SkillFolderCreate = {
-  name: string
-  parent_path?: string
-}
-
-export type SkillFolderDelete = {
-  recursive?: boolean
-}
-
-export type SkillFolderDirectoryItem = {
-  id: string
-  name: string
-  path: string
-  workspace_id: string
-  created_at: string
-  updated_at: string
-  type: "folder"
-  num_items: number
-}
-
-export type SkillFolderMove = {
-  new_parent_path?: string | null
-}
-
-export type SkillFolderRead = {
-  id: string
-  name: string
-  path: string
-  workspace_id: string
-  created_at: string
-  updated_at: string
-}
-
-export type SkillFolderUpdate = {
-  name?: string | null
-}
-
-/**
- * Payload for moving a skill into a folder.
- */
-export type SkillMoveToFolder = {
-  folder_path?: string | null
-}
-
 /**
  * Full response model for a workspace skill.
  */
@@ -7969,8 +7744,6 @@ export type SkillRead = {
   slug: string
   description?: string | null
   current_version_id?: string | null
-  folder_id?: string | null
-  tags?: Array<TagRead>
   draft_revision: number
   created_at: string
   updated_at: string
@@ -7996,28 +7769,9 @@ export type SkillReadMinimal = {
   slug: string
   description?: string | null
   current_version_id?: string | null
-  folder_id?: string | null
-  tags?: Array<TagRead>
   created_at: string
   updated_at: string
   deleted_at?: string | null
-}
-
-/**
- * Payload for adding a tag to a skill.
- */
-export type SkillTagCreate = {
-  tag_id: string
-}
-
-/**
- * Tag data.
- */
-export type SkillTagRead = {
-  id: string
-  name: string
-  ref: string
-  color: string | null
 }
 
 /**
@@ -8533,96 +8287,6 @@ export type TableRowUpdate = {
   data: {
     [key: string]: unknown
   }
-}
-
-/**
- * Persisted selection with truthful readiness; never includes credentials.
- */
-export type TableSearchConfiguration = {
-  generation?: number
-  selected_column_ids?: Array<string>
-  status?: TableSearchDisplayState
-  index?: SearchIndexStatus | null
-}
-
-export type TableSearchDisplayState =
-  | "disabled"
-  | "unavailable"
-  | "indexing"
-  | "ready"
-  | "updating"
-  | "needs_attention"
-
-/**
- * Bounded progress sample; chunk totals remain unknown until enumeration ends.
- */
-export type TableSearchDocumentProgress = {
-  document_id: string
-  row_id: string
-  state: DocumentState
-  revision: number
-  expected_chunks: number | null
-  sampled_chunks: number
-  sampled_embedded: number
-  chunks_capped: boolean
-  error_code: string | null
-}
-
-/**
- * Safe domain failure, including a stale generation precondition.
- */
-export type TableSearchErrorRead = {
-  code: SearchErrorCode | "INVALID_SELECTION"
-}
-
-export type TableSearchErrorResponse = {
-  detail: TableSearchErrorRead
-}
-
-export type TableSearchProgressPage = {
-  generation: number
-  items: Array<TableSearchDocumentProgress>
-  next_cursor?: string | null
-  prev_cursor?: string | null
-  has_more?: boolean
-  has_previous?: boolean
-}
-
-/**
- * Standard FastAPI request validation fields for the selection endpoint.
- */
-export type TableSearchRequestValidationError = {
-  loc: Array<string | number>
-  msg: string
-  type: string
-  input?: JsonValue
-  ctx?: {
-    [key: string]: JsonValue
-  } | null
-}
-
-/**
- * Retry a bounded explicit set of failed documents in the current generation.
- */
-export type TableSearchRetry = {
-  expected_generation: number
-  document_ids: Array<string>
-}
-
-/**
- * Set one selection; generation zero denotes an absent collection.
- */
-export type TableSearchSelection = {
-  column_id: string
-  enabled: boolean
-  expected_generation: number
-}
-
-/**
- * Invalid column selection or malformed request parameters.
- */
-export type TableSearchSelectionErrorResponse = {
-  detail: TableSearchErrorRead | Array<TableSearchRequestValidationError>
 }
 
 /**
@@ -10632,31 +10296,6 @@ export type WorkspaceCreate = {
   organization_id?: string | null
 }
 
-/**
- * Request schema for creating a workspace invitation.
- */
-export type WorkspaceInvitationCreate = {
-  email: string
-  role_id: string
-}
-
-/**
- * Response schema for a workspace invitation.
- */
-export type WorkspaceInvitationRead = {
-  id: string
-  workspace_id: string
-  email: string
-  role_id: string
-  role_name: string
-  role_slug?: string | null
-  status: InvitationStatus
-  invited_by: string | null
-  expires_at: string
-  accepted_at: string | null
-  created_at: string
-}
-
 export type WorkspaceMember = {
   user_id: string
   first_name: string | null
@@ -11134,35 +10773,6 @@ export type WorkspacesDeleteWorkspaceMembershipData = {
 }
 
 export type WorkspacesDeleteWorkspaceMembershipResponse = void
-
-export type WorkspacesCreateWorkspaceInvitationData = {
-  requestBody: WorkspaceInvitationCreate
-  workspaceId: string
-}
-
-export type WorkspacesCreateWorkspaceInvitationResponse =
-  WorkspaceInvitationRead
-
-export type WorkspacesListWorkspaceInvitationsData = {
-  status?: InvitationStatus | null
-  workspaceId: string
-}
-
-export type WorkspacesListWorkspaceInvitationsResponse =
-  Array<WorkspaceInvitationRead>
-
-export type WorkspacesRevokeWorkspaceInvitationData = {
-  invitationId: string
-  workspaceId: string
-}
-
-export type WorkspacesRevokeWorkspaceInvitationResponse = void
-
-export type SearchGetEmbeddingConfigurationData = {
-  workspaceId: string
-}
-
-export type SearchGetEmbeddingConfigurationResponse = EmbeddingConfigurationRead
 
 export type ServiceAccountsListWorkspaceServiceAccountsData = {
   cursor?: string | null
@@ -12019,16 +11629,16 @@ export type OrganizationDeleteSessionData = {
 export type OrganizationDeleteSessionResponse = void
 
 export type OrganizationCreateInvitationData = {
-  requestBody: OrgInvitationCreate
+  requestBody: InvitationCreate
 }
 
-export type OrganizationCreateInvitationResponse = OrgInvitationRead
+export type OrganizationCreateInvitationResponse = InvitationRead
 
 export type OrganizationListInvitationsData = {
   status?: InvitationStatus | null
 }
 
-export type OrganizationListInvitationsResponse = Array<OrgInvitationRead>
+export type OrganizationListInvitationsResponse = Array<InvitationRead>
 
 export type OrganizationRevokeInvitationData = {
   invitationId: string
@@ -12036,22 +11646,14 @@ export type OrganizationRevokeInvitationData = {
 
 export type OrganizationRevokeInvitationResponse = void
 
-export type OrganizationResendInvitationData = {
-  invitationId: string
-}
-
-export type OrganizationResendInvitationResponse = OrgInvitationRead
-
 export type OrganizationGetInvitationTokenData = {
   invitationId: string
 }
 
-export type OrganizationGetInvitationTokenResponse = {
-  [key: string]: string
-}
+export type OrganizationGetInvitationTokenResponse = InvitationTokenRead
 
 export type OrganizationAcceptInvitationData = {
-  requestBody: OrgInvitationAccept
+  requestBody: InvitationAccept
 }
 
 export type OrganizationAcceptInvitationResponse = {
@@ -12059,13 +11661,13 @@ export type OrganizationAcceptInvitationResponse = {
 }
 
 export type OrganizationListMyPendingInvitationsResponse =
-  Array<OrgPendingInvitationRead>
+  Array<PendingInvitationRead>
 
 export type OrganizationGetInvitationByTokenData = {
   token: string
 }
 
-export type OrganizationGetInvitationByTokenResponse = OrgInvitationReadMinimal
+export type OrganizationGetInvitationByTokenResponse = InvitationReadMinimal
 
 export type ServiceAccountsListOrganizationServiceAccountsData = {
   cursor?: string | null
@@ -12644,14 +12246,6 @@ export type AgentSkillsArchiveSkillData = {
 
 export type AgentSkillsArchiveSkillResponse = void
 
-export type AgentSkillsMoveSkillData = {
-  requestBody: SkillMoveToFolder
-  skillId: string
-  workspaceId: string
-}
-
-export type AgentSkillsMoveSkillResponse = void
-
 export type AgentSkillsGetSkillDraftData = {
   skillId: string
   workspaceId: string
@@ -12725,142 +12319,6 @@ export type AgentSkillsRestoreSkillVersionData = {
 }
 
 export type AgentSkillsRestoreSkillVersionResponse = SkillReadMinimal
-
-export type SkillFoldersGetDirectoryData = {
-  /**
-   * Folder path
-   */
-  path?: string
-  workspaceId: string
-}
-
-export type SkillFoldersGetDirectoryResponse = Array<
-  SkillDirectoryItem | SkillFolderDirectoryItem
->
-
-export type SkillFoldersListFoldersData = {
-  cursor?: string | null
-  limit?: number
-  /**
-   * Parent folder path
-   */
-  parentPath?: string
-  reverse?: boolean
-  workspaceId: string
-}
-
-export type SkillFoldersListFoldersResponse =
-  CursorPaginatedResponse_SkillFolderRead_
-
-export type SkillFoldersCreateFolderData = {
-  requestBody: SkillFolderCreate
-  workspaceId: string
-}
-
-export type SkillFoldersCreateFolderResponse = SkillFolderRead
-
-export type SkillFoldersGetFolderData = {
-  folderId: string
-  workspaceId: string
-}
-
-export type SkillFoldersGetFolderResponse = SkillFolderRead
-
-export type SkillFoldersUpdateFolderData = {
-  folderId: string
-  requestBody: SkillFolderUpdate
-  workspaceId: string
-}
-
-export type SkillFoldersUpdateFolderResponse = SkillFolderRead
-
-export type SkillFoldersDeleteFolderData = {
-  folderId: string
-  requestBody?: SkillFolderDelete | null
-  workspaceId: string
-}
-
-export type SkillFoldersDeleteFolderResponse = void
-
-export type SkillFoldersMoveFolderData = {
-  folderId: string
-  requestBody: SkillFolderMove
-  workspaceId: string
-}
-
-export type SkillFoldersMoveFolderResponse = SkillFolderRead
-
-export type SkillTagsListSkillTagsData = {
-  cursor?: string | null
-  limit?: number
-  reverse?: boolean
-  workspaceId: string
-}
-
-export type SkillTagsListSkillTagsResponse =
-  CursorPaginatedResponse_SkillTagRead_
-
-export type SkillTagsCreateSkillTagData = {
-  requestBody: TagCreate
-  workspaceId: string
-}
-
-export type SkillTagsCreateSkillTagResponse = SkillTagRead
-
-export type SkillTagsGetSkillTagData = {
-  tagId: string
-  workspaceId: string
-}
-
-export type SkillTagsGetSkillTagResponse = SkillTagRead
-
-export type SkillTagsUpdateSkillTagData = {
-  requestBody: TagUpdate
-  tagId: string
-  workspaceId: string
-}
-
-export type SkillTagsUpdateSkillTagResponse = SkillTagRead
-
-export type SkillTagsDeleteSkillTagData = {
-  tagId: string
-  workspaceId: string
-}
-
-export type SkillTagsDeleteSkillTagResponse = void
-
-export type AgentSkillsListSkillTagsData = {
-  cursor?: string | null
-  limit?: number
-  reverse?: boolean
-  skillId: string
-  workspaceId: string
-}
-
-export type AgentSkillsListSkillTagsResponse =
-  CursorPaginatedResponse_SkillTagRead_
-
-export type AgentSkillsAddSkillTagData = {
-  requestBody: SkillTagCreate
-  skillId: string
-  workspaceId: string
-}
-
-export type AgentSkillsAddSkillTagResponse = unknown
-
-export type AgentSkillsRemoveSkillTagData = {
-  skillId: string
-  tagId: string
-  workspaceId: string
-}
-
-export type AgentSkillsRemoveSkillTagResponse = void
-
-export type AgentSessionsListAgentBackendsData = {
-  workspaceId: string
-}
-
-export type AgentSessionsListAgentBackendsResponse = Array<AgentBackendRead>
 
 export type AgentSessionsCreateSessionData = {
   requestBody: AgentSessionCreate
@@ -13121,13 +12579,6 @@ export type AdminRevokeOrganizationInvitationData = {
 }
 
 export type AdminRevokeOrganizationInvitationResponse = void
-
-export type AdminResendOrganizationInvitationData = {
-  invitationId: string
-  orgId: string
-}
-
-export type AdminResendOrganizationInvitationResponse = AdminOrgInvitationRead
 
 export type AdminListOrganizationDomainsData = {
   orgId: string
@@ -13810,39 +13261,6 @@ export type TablesImportCsvData = {
 }
 
 export type TablesImportCsvResponse = TableRowInsertBatchResponse
-
-export type TablesGetTableSearchData = {
-  tableId: string
-  workspaceId: string
-}
-
-export type TablesGetTableSearchResponse = TableSearchConfiguration
-
-export type TablesSelectTableSearchColumnData = {
-  requestBody: TableSearchSelection
-  tableId: string
-  workspaceId: string
-}
-
-export type TablesSelectTableSearchColumnResponse = TableSearchConfiguration
-
-export type TablesRetryTableSearchData = {
-  requestBody: TableSearchRetry
-  tableId: string
-  workspaceId: string
-}
-
-export type TablesRetryTableSearchResponse = void
-
-export type TablesGetTableSearchProgressData = {
-  cursor?: string | null
-  generation: number
-  limit?: number
-  tableId: string
-  workspaceId: string
-}
-
-export type TablesGetTableSearchProgressResponse = TableSearchProgressPage
 
 export type CasesListCasesData = {
   /**
@@ -15418,84 +14836,6 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workspaces/{workspace_id}/invitations": {
-    post: {
-      req: WorkspacesCreateWorkspaceInvitationData
-      res: {
-        /**
-         * Successful Response
-         */
-        201: WorkspaceInvitationRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    get: {
-      req: WorkspacesListWorkspaceInvitationsData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: Array<WorkspaceInvitationRead>
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/workspaces/{workspace_id}/invitations/{invitation_id}": {
-    delete: {
-      req: WorkspacesRevokeWorkspaceInvitationData
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/workspaces/{workspace_id}/search/configuration": {
-    get: {
-      req: SearchGetEmbeddingConfigurationData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: EmbeddingConfigurationRead
-        /**
-         * Bad Request
-         */
-        400: EmbeddingErrorResponse
-        /**
-         * Conflict
-         */
-        409: EmbeddingErrorResponse
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-        /**
-         * Too Many Requests
-         */
-        429: EmbeddingErrorResponse
-        /**
-         * Bad Gateway
-         */
-        502: EmbeddingErrorResponse
-        /**
-         * Gateway Timeout
-         */
-        504: EmbeddingErrorResponse
-      }
-    }
-  }
   "/workspaces/{workspace_id}/service-accounts": {
     get: {
       req: ServiceAccountsListWorkspaceServiceAccountsData
@@ -16996,7 +16336,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        201: OrgInvitationRead
+        201: InvitationRead
         /**
          * Validation Error
          */
@@ -17009,7 +16349,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<OrgInvitationRead>
+        200: Array<InvitationRead>
         /**
          * Validation Error
          */
@@ -17032,21 +16372,6 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/organization/invitations/{invitation_id}/resend": {
-    post: {
-      req: OrganizationResendInvitationData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: OrgInvitationRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
   "/organization/invitations/{invitation_id}/token": {
     get: {
       req: OrganizationGetInvitationTokenData
@@ -17054,9 +16379,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: {
-          [key: string]: string
-        }
+        200: InvitationTokenRead
         /**
          * Validation Error
          */
@@ -17087,7 +16410,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<OrgPendingInvitationRead>
+        200: Array<PendingInvitationRead>
       }
     }
   }
@@ -17098,7 +16421,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: OrgInvitationReadMinimal
+        200: InvitationReadMinimal
         /**
          * Validation Error
          */
@@ -18211,21 +17534,6 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workspaces/{workspace_id}/agent/skills/{skill_id}/move": {
-    post: {
-      req: AgentSkillsMoveSkillData
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
   "/workspaces/{workspace_id}/agent/skills/{skill_id}/draft": {
     get: {
       req: AgentSkillsGetSkillDraftData
@@ -18352,232 +17660,6 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: SkillReadMinimal
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/workspaces/{workspace_id}/skill-folders/directory": {
-    get: {
-      req: SkillFoldersGetDirectoryData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: Array<SkillDirectoryItem | SkillFolderDirectoryItem>
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/workspaces/{workspace_id}/skill-folders": {
-    get: {
-      req: SkillFoldersListFoldersData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: CursorPaginatedResponse_SkillFolderRead_
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    post: {
-      req: SkillFoldersCreateFolderData
-      res: {
-        /**
-         * Successful Response
-         */
-        201: SkillFolderRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/workspaces/{workspace_id}/skill-folders/{folder_id}": {
-    get: {
-      req: SkillFoldersGetFolderData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: SkillFolderRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    patch: {
-      req: SkillFoldersUpdateFolderData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: SkillFolderRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    delete: {
-      req: SkillFoldersDeleteFolderData
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/workspaces/{workspace_id}/skill-folders/{folder_id}/move": {
-    post: {
-      req: SkillFoldersMoveFolderData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: SkillFolderRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/workspaces/{workspace_id}/skill-tags": {
-    get: {
-      req: SkillTagsListSkillTagsData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: CursorPaginatedResponse_SkillTagRead_
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    post: {
-      req: SkillTagsCreateSkillTagData
-      res: {
-        /**
-         * Successful Response
-         */
-        201: SkillTagRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/workspaces/{workspace_id}/skill-tags/{tag_id}": {
-    get: {
-      req: SkillTagsGetSkillTagData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: SkillTagRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    patch: {
-      req: SkillTagsUpdateSkillTagData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: SkillTagRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    delete: {
-      req: SkillTagsDeleteSkillTagData
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/workspaces/{workspace_id}/agent/skills/{skill_id}/tags": {
-    get: {
-      req: AgentSkillsListSkillTagsData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: CursorPaginatedResponse_SkillTagRead_
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    post: {
-      req: AgentSkillsAddSkillTagData
-      res: {
-        /**
-         * Successful Response
-         */
-        201: unknown
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/workspaces/{workspace_id}/agent/skills/{skill_id}/tags/{tag_id}": {
-    delete: {
-      req: AgentSkillsRemoveSkillTagData
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/workspaces/{workspace_id}/agent/sessions/backends": {
-    get: {
-      req: AgentSessionsListAgentBackendsData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: Array<AgentBackendRead>
         /**
          * Validation Error
          */
@@ -18977,21 +18059,6 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/admin/organizations/{org_id}/invitations/{invitation_id}/resend": {
-    post: {
-      req: AdminResendOrganizationInvitationData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: AdminOrgInvitationRead
         /**
          * Validation Error
          */
@@ -20342,102 +19409,6 @@ export type $OpenApiTs = {
          * Successful Response
          */
         201: TableRowInsertBatchResponse
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/workspaces/{workspace_id}/tables/{table_id}/search": {
-    get: {
-      req: TablesGetTableSearchData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: TableSearchConfiguration
-        /**
-         * Not Found
-         */
-        404: TableSearchErrorResponse
-        /**
-         * Conflict
-         */
-        409: TableSearchErrorResponse
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/workspaces/{workspace_id}/tables/{table_id}/search/selection": {
-    patch: {
-      req: TablesSelectTableSearchColumnData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: TableSearchConfiguration
-        /**
-         * Not Found
-         */
-        404: TableSearchErrorResponse
-        /**
-         * Conflict
-         */
-        409: TableSearchErrorResponse
-        /**
-         * Unprocessable Entity
-         */
-        422: TableSearchSelectionErrorResponse
-      }
-    }
-  }
-  "/workspaces/{workspace_id}/tables/{table_id}/search/retry": {
-    post: {
-      req: TablesRetryTableSearchData
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
-        /**
-         * Not Found
-         */
-        404: TableSearchErrorResponse
-        /**
-         * Conflict
-         */
-        409: TableSearchErrorResponse
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/workspaces/{workspace_id}/tables/{table_id}/search/documents": {
-    get: {
-      req: TablesGetTableSearchProgressData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: TableSearchProgressPage
-        /**
-         * Bad Request
-         */
-        400: TableSearchErrorResponse
-        /**
-         * Not Found
-         */
-        404: TableSearchErrorResponse
-        /**
-         * Conflict
-         */
-        409: TableSearchErrorResponse
         /**
          * Validation Error
          */
