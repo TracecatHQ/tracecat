@@ -81,6 +81,8 @@
   Use this after discovering an action via `list_actions` to get the complete parameter schema needed to write the `args:` block in a workflow definition.
 
   Example action names: "core.http_request", "core.script.run_python", "core.transform.reshape".
+
+  For grouped counts and metrics in workflows, use `core.cases.aggregate_cases` for cases or `core.table.aggregate_rows` for table rows. Pass either action name to this tool to get its input schema.
 </ResponseField>
 
 <ResponseField name="get_workflow_authoring_context" type="tool">

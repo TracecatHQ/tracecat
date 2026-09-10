@@ -5,6 +5,9 @@ description: "Architecture overview for self-hosted Tracecat: services, networki
 
 ## Services
 
+Use PostgreSQL 14 or newer for the Tracecat application database. The bundled
+Docker Compose database uses PostgreSQL 16.
+
 The Docker Compose stack runs 16 containers. Only `caddy` is exposed externally; all other ports are internal to the Docker network.
 
 | Service | Port | Description |
@@ -91,7 +94,7 @@ See [SAML configuration](/authentication/saml) for provider-specific setup instr
 
 <AccordionGroup>
   <Accordion title="Can I use an external PostgreSQL or Redis?">
-    Yes. Update `TRACECAT__DB_URI` to point to your managed PostgreSQL instance and `REDIS_URL` for Redis. For Temporal, update the Temporal PostgreSQL credentials in your `.env` file.
+    Yes. Update `TRACECAT__DB_URI` to point to your managed PostgreSQL 14 or newer instance and `REDIS_URL` for Redis. For Temporal, update the Temporal PostgreSQL credentials in your `.env` file.
 
     See [Security](/self-hosting/security) for production credential recommendations.
   </Accordion>

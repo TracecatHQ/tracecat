@@ -266,7 +266,8 @@ Filter, group, and summarize table rows. Returns groups and a truncated flag ind
 
 Group rows and calculate counts, totals, or averages in your workflow.
 Create an `alerts` table with `source` (TEXT), `disposition` (TEXT),
-and `bytes_out` (INTEGER) columns before running this example.
+`bytes_out` (INTEGER), and `duration_ms` (NUMERIC) columns before
+running this example.
 Use `[]` for `group_by` to calculate a single total across matching rows.
 
 Read the summaries from `ACTIONS.bytes_by_source_hourly.result.groups`.
@@ -361,4 +362,7 @@ Default: `null`.
       - function: sum
         field: bytes_out
         alias: total_bytes
+      - function: median
+        field: duration_ms
+    limit: 200
 ```
