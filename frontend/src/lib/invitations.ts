@@ -1,13 +1,19 @@
 import type { InvitationGrantRead } from "@/client"
 
-/** Label an invitation by its org grant, falling back to its first grant. */
-export function invitationRoleName(invitation: {
+/** Label one grant as "Organization: Role" or "Workspace name: Role". */
+export function invitationGrantLabel(grant: InvitationGrantRead): string {
+  const scope = grant.workspace_id
+    ? (grant.workspace_name ?? "Workspace")
+    : "Organization"
+  return `${scope}: ${grant.role_name}`
+}
+
+/** Format every grant on an invitation as compact middot-separated text. */
+export function invitationGrantsSummary(invitation: {
   grants: InvitationGrantRead[]
 }): string {
-  const grants = invitation.grants
-  if (grants.length === 0) {
-    return "member"
+  if (invitation.grants.length === 0) {
+    return "Organization: Member"
   }
-  const orgGrant = grants.find((grant) => !grant.workspace_id)
-  return (orgGrant ?? grants[0]).role_name
+  return invitation.grants.map(invitationGrantLabel).join(" · ")
 }
