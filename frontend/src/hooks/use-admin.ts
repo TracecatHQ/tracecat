@@ -305,7 +305,8 @@ export function useAdminOrgDomains(orgId: string) {
 }
 
 /** Fetch and mutate platform-created organization invitations. */
-export function useAdminOrgInvitations(orgId: string) {
+export function useAdminOrgInvitations(orgId: string, enabled = true) {
+  const [pollUntil, setPollUntil] = useState(0)
   const queryClient = useQueryClient()
   const [pagination, setPagination] =
     useState<AdminOrgInvitationsPaginationState>(
@@ -315,6 +316,7 @@ export function useAdminOrgInvitations(orgId: string) {
 
   useEffect(() => {
     setPagination(DEFAULT_ADMIN_ORG_INVITATIONS_PAGINATION)
+    setPollUntil(0)
   }, [orgId])
 
   const {
@@ -330,7 +332,9 @@ export function useAdminOrgInvitations(orgId: string) {
         cursor: pagination.cursor,
         reverse: pagination.reverse,
       }),
-    enabled: !!orgId,
+    enabled: enabled && !!orgId,
+    // Delivery is asynchronous; stop after 60 seconds, the resend cooldown, even if SMTP never succeeds.
+    refetchInterval: () => (enabled && Date.now() < pollUntil ? 2_000 : false),
   })
 
   const { mutateAsync: createInvitation, isPending: createPending } =
@@ -343,6 +347,7 @@ export function useAdminOrgInvitations(orgId: string) {
         adminCreateOrganizationInvitation({ orgId, requestBody: data }),
       onSuccess: () => {
         setPagination(DEFAULT_ADMIN_ORG_INVITATIONS_PAGINATION)
+        setPollUntil(Date.now() + 60_000)
         queryClient.invalidateQueries({ queryKey })
       },
     })
@@ -370,6 +375,7 @@ export function useAdminOrgInvitations(orgId: string) {
       mutationFn: (invitationId) =>
         adminResendOrganizationInvitation({ orgId, invitationId }),
       onSuccess: () => {
+        setPollUntil(Date.now() + 60_000)
         queryClient.invalidateQueries({ queryKey })
       },
       // Callers toast on the awaited result, including the 409 cooldown.

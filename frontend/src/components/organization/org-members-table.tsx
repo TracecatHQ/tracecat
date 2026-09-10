@@ -436,7 +436,7 @@ export function OrgMembersTable() {
                                         member.invitation_id
                                       )
                                       toast({
-                                        title: "Invitation email resent",
+                                        title: "Invitation email queued",
                                         description: member.email,
                                       })
                                     } catch (error) {

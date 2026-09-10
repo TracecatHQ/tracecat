@@ -442,7 +442,7 @@ async def test_revoke_organization_invitation_only_revokes_pending_platform_invi
 
 
 @pytest.mark.anyio
-async def test_resend_organization_invitation_clears_delivery_state(
+async def test_resend_organization_invitation_resets_claim_and_keeps_sent_timestamp(
     session: AsyncSession,
     org: Organization,
     org_roles: dict[str, DBRole],
@@ -459,16 +459,17 @@ async def test_resend_organization_invitation_clears_delivery_state(
     )
     assert db_invitation is not None
     db_invitation.email_claimed_at = datetime.now(UTC) - timedelta(minutes=5)
-    db_invitation.email_sent_at = datetime.now(UTC) - timedelta(minutes=5)
+    emailed_at = datetime.now(UTC) - timedelta(minutes=5)
+    db_invitation.email_sent_at = emailed_at
     db_invitation.email_attempts = 2
     await session.commit()
 
     resent = await service.resend_organization_invitation(org.id, invitation.id)
 
-    assert resent.last_emailed_at is None
+    assert resent.last_emailed_at == emailed_at
     # The ORM-enabled UPDATE synchronizes the loaded instance without a refresh.
     assert db_invitation.email_claimed_at is None
-    assert db_invitation.email_sent_at is None
+    assert db_invitation.email_sent_at == emailed_at
     assert db_invitation.email_attempts == 0
 
     # The reset must be committed, not just flushed, or the poller never sees it.
