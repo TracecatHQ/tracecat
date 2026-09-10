@@ -55,6 +55,7 @@ INITIAL_ORG_SCOPED_TABLES = (
     "organization_membership",
     "organization_invitation",
     "organization_tier",
+    "invitation",
     "registry_repository",
     "registry_action",
     "registry_version",
@@ -64,7 +65,6 @@ INITIAL_ORG_SCOPED_TABLES = (
 )
 
 INITIAL_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES = (
-    "invitation",
     "user_role_assignment",
     "group_role_assignment",
 )

@@ -17453,7 +17453,7 @@ export const $InvitationCreate = {
     },
     grants: {
       items: {
-        $ref: "#/components/schemas/InvitationGrantCreate",
+        $ref: "#/components/schemas/InvitationGrant",
       },
       type: "array",
       minItems: 1,
@@ -17466,7 +17466,7 @@ export const $InvitationCreate = {
   description: "Request body for creating an invitation.",
 } as const
 
-export const $InvitationGrantCreate = {
+export const $InvitationGrant = {
   properties: {
     workspace_id: {
       anyOf: [
@@ -17488,66 +17488,8 @@ export const $InvitationGrantCreate = {
   },
   type: "object",
   required: ["role_id"],
-  title: "InvitationGrantCreate",
-  description: "One role grant to confer on acceptance.",
-} as const
-
-export const $InvitationGrantRead = {
-  properties: {
-    id: {
-      type: "string",
-      format: "uuid",
-      title: "Id",
-    },
-    workspace_id: {
-      anyOf: [
-        {
-          type: "string",
-          format: "uuid",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Workspace Id",
-    },
-    workspace_name: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Workspace Name",
-    },
-    role_id: {
-      type: "string",
-      format: "uuid",
-      title: "Role Id",
-    },
-    role_name: {
-      type: "string",
-      title: "Role Name",
-    },
-    role_slug: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Role Slug",
-    },
-  },
-  type: "object",
-  required: ["id", "workspace_id", "role_id", "role_name"],
-  title: "InvitationGrantRead",
-  description:
-    "A grant on an invitation, with its role and workspace resolved.",
+  title: "InvitationGrant",
+  description: "One role grant: at org scope when ``workspace_id`` is None.",
 } as const
 
 export const $InvitationRead = {
@@ -17610,7 +17552,7 @@ export const $InvitationRead = {
     },
     grants: {
       items: {
-        $ref: "#/components/schemas/InvitationGrantRead",
+        $ref: "#/components/schemas/InvitationGrant",
       },
       type: "array",
       title: "Grants",
@@ -17672,7 +17614,7 @@ export const $InvitationReadMinimal = {
     },
     grants: {
       items: {
-        $ref: "#/components/schemas/InvitationGrantRead",
+        $ref: "#/components/schemas/InvitationGrant",
       },
       type: "array",
       title: "Grants",
@@ -20342,6 +20284,14 @@ export const $OrgMemberRead = {
       ],
       title: "Role Slug",
     },
+    grants: {
+      items: {
+        $ref: "#/components/schemas/InvitationGrant",
+      },
+      type: "array",
+      title: "Grants",
+      default: [],
+    },
     status: {
       $ref: "#/components/schemas/OrgMemberStatus",
     },
@@ -21254,7 +21204,7 @@ export const $PendingInvitationRead = {
     },
     grants: {
       items: {
-        $ref: "#/components/schemas/InvitationGrantRead",
+        $ref: "#/components/schemas/InvitationGrant",
       },
       type: "array",
       title: "Grants",

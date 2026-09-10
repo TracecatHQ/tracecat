@@ -28,7 +28,7 @@ from tracecat.db.models import (
 from tracecat.db.models import Role as DBRole
 from tracecat.exceptions import TracecatValidationError
 from tracecat.invitations.enums import InvitationStatus
-from tracecat.invitations.schemas import InvitationGrantCreate
+from tracecat.invitations.schemas import InvitationCreate, InvitationGrant
 from tracecat.invitations.service import (
     create_invitation_row,
     revoke_invitation_row,
@@ -173,8 +173,10 @@ class AdminOrgService(BasePlatformService):
         invitation = await create_invitation_row(
             self.session,
             organization_id=org_id,
-            email=params.email,
-            grants=[InvitationGrantCreate(workspace_id=None, role_id=role_obj.id)],
+            params=InvitationCreate(
+                email=params.email,
+                grants=[InvitationGrant(workspace_id=None, role_id=role_obj.id)],
+            ),
             invited_by=self.role.user_id,
             created_by_platform_admin=True,
         )
@@ -183,10 +185,12 @@ class AdminOrgService(BasePlatformService):
         result = await self.session.execute(
             select(Invitation)
             .where(Invitation.id == invitation.id)
-            .options(selectinload(Invitation.role_obj))
+            .options(selectinload(Invitation.grants))
         )
         invitation = result.scalar_one()
-        return self._serialize_invitation_create(invitation)
+        return self._serialize_invitation_create(
+            invitation, (role_obj.id, role_obj.name, role_obj.slug)
+        )
 
     async def list_organization_invitations(
         self,
@@ -204,7 +208,7 @@ class AdminOrgService(BasePlatformService):
                 Invitation.organization_id == org_id,
                 Invitation.created_by_platform_admin.is_(True),
             )
-            .options(selectinload(Invitation.role_obj))
+            .options(selectinload(Invitation.grants))
         )
         if status is not None:
             stmt = stmt.where(Invitation.status == status)
@@ -281,8 +285,14 @@ class AdminOrgService(BasePlatformService):
             next_cursor, prev_cursor = prev_cursor, next_cursor
             has_more, has_previous = has_previous, has_more
 
+        roles = await self._invitation_roles(items)
         return CursorPaginatedResponse(
-            items=[self._serialize_invitation(invitation) for invitation in items],
+            items=[
+                self._serialize_invitation(
+                    invitation, self._resolved_role(invitation, roles)
+                )
+                for invitation in items
+            ],
             next_cursor=next_cursor,
             prev_cursor=prev_cursor,
             has_more=has_more,
@@ -351,25 +361,68 @@ class AdminOrgService(BasePlatformService):
                 Invitation.organization_id == org_id,
                 Invitation.created_by_platform_admin.is_(True),
             )
-            .options(selectinload(Invitation.role_obj))
+            .options(selectinload(Invitation.grants))
         )
         invitation = await self.session.scalar(stmt)
         if invitation is None:
             raise NoResultFound
         return invitation
 
+    @staticmethod
+    def _first_grant_role_id(invitation: Invitation) -> uuid.UUID | None:
+        """The role id of an invitation's first grant, if it has one."""
+        # Platform-created invitations carry exactly one org-wide grant (see
+        # create_organization_invitation); a grants list here would need the
+        # listing to serialize all of them.
+        if not invitation.grants:
+            return None
+        return invitation.grants[0].role_id
+
+    async def _invitation_roles(
+        self, invitations: Sequence[Invitation]
+    ) -> dict[uuid.UUID, tuple[str, str | None]]:
+        """Resolve each invitation's first-grant role name and slug in one query."""
+        role_ids = {
+            role_id
+            for invitation in invitations
+            if (role_id := self._first_grant_role_id(invitation)) is not None
+        }
+        if not role_ids:
+            return {}
+        rows = (
+            await self.session.execute(
+                select(DBRole.id, DBRole.name, DBRole.slug).where(
+                    DBRole.id.in_(role_ids)
+                )
+            )
+        ).tuples()
+        return {row[0]: (row[1], row[2]) for row in rows}
+
+    def _resolved_role(
+        self,
+        invitation: Invitation,
+        roles: dict[uuid.UUID, tuple[str, str | None]],
+    ) -> tuple[uuid.UUID, str, str | None]:
+        """Pair an invitation's first-grant role id with its resolved name and slug."""
+        role_id = self._first_grant_role_id(invitation)
+        if role_id is None:
+            raise NoResultFound("Invitation has no grants")
+        name, slug = roles[role_id]
+        return role_id, name, slug
+
     def _serialize_invitation(
         self,
         invitation: Invitation,
+        role: tuple[uuid.UUID, str, str | None],
     ) -> AdminOrgInvitationRead:
         """Serialize an organization invitation for platform admin APIs."""
         return AdminOrgInvitationRead(
             id=invitation.id,
             organization_id=invitation.organization_id,
             email=invitation.email,
-            role_id=invitation.role_id,
-            role_name=invitation.role_obj.name,
-            role_slug=invitation.role_obj.slug,
+            role_id=role[0],
+            role_name=role[1],
+            role_slug=role[2],
             status=invitation.status,
             invited_by=invitation.invited_by,
             expires_at=invitation.expires_at,
@@ -381,10 +434,11 @@ class AdminOrgService(BasePlatformService):
     def _serialize_invitation_create(
         self,
         invitation: Invitation,
+        role: tuple[uuid.UUID, str, str | None],
     ) -> AdminOrgInvitationCreateResponse:
         """Serialize a newly created platform admin invitation with its token."""
         return AdminOrgInvitationCreateResponse(
-            **self._serialize_invitation(invitation).model_dump(),
+            **self._serialize_invitation(invitation, role).model_dump(),
             token=invitation.token,
         )
 

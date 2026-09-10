@@ -94,30 +94,19 @@ class TestInvitation:
         expires_at = datetime.now(UTC) + timedelta(days=7)
         invitation = Invitation(
             organization_id=org.id,
-            workspace_id=None,
             email="invitee@example.com",
-            role_id=member_role.id,
             status=InvitationStatus.PENDING,
             invited_by=inviter.id,
             token=token,
             expires_at=expires_at,
+            grants=[InvitationGrant(organization_id=org.id, role_id=member_role.id)],
         )
         session.add(invitation)
-        await session.flush()
-        session.add(
-            InvitationGrant(
-                organization_id=org.id,
-                invitation_id=invitation.id,
-                workspace_id=None,
-                role_id=member_role.id,
-            )
-        )
         await session.commit()
-        await session.refresh(invitation)
+        await session.refresh(invitation, ["grants"])
 
         assert invitation.id is not None
         assert invitation.organization_id == org.id
-        assert invitation.workspace_id is None
         assert invitation.email == "invitee@example.com"
         assert invitation.status == InvitationStatus.PENDING
         assert invitation.invited_by == inviter.id
@@ -126,20 +115,9 @@ class TestInvitation:
         assert invitation.created_by_platform_admin is False
         assert invitation.created_at is not None
 
-        grants = (
-            (
-                await session.execute(
-                    select(InvitationGrant).where(
-                        InvitationGrant.invitation_id == invitation.id
-                    )
-                )
-            )
-            .scalars()
-            .all()
-        )
-        assert len(grants) == 1
-        assert grants[0].workspace_id is None
-        assert grants[0].role_id == member_role.id
+        assert [(g.workspace_id, g.role_id) for g in invitation.grants] == [
+            (None, member_role.id)
+        ]
 
     @pytest.mark.anyio
     async def test_invitation_carries_multiple_grants(self, session: AsyncSession):
@@ -156,129 +134,64 @@ class TestInvitation:
 
         invitation = Invitation(
             organization_id=org.id,
-            workspace_id=ws_a.id,
             email="multi@example.com",
-            role_id=editor_role.id,
             status=InvitationStatus.PENDING,
             token=_token(),
             expires_at=datetime.now(UTC) + timedelta(days=7),
-        )
-        session.add(invitation)
-        await session.flush()
-        session.add_all(
-            [
+            grants=[
+                InvitationGrant(organization_id=org.id, role_id=member_role.id),
                 InvitationGrant(
                     organization_id=org.id,
-                    invitation_id=invitation.id,
-                    workspace_id=None,
-                    role_id=member_role.id,
-                ),
-                InvitationGrant(
-                    organization_id=org.id,
-                    invitation_id=invitation.id,
                     workspace_id=ws_a.id,
                     role_id=editor_role.id,
                 ),
                 InvitationGrant(
                     organization_id=org.id,
-                    invitation_id=invitation.id,
                     workspace_id=ws_b.id,
                     role_id=editor_role.id,
                 ),
-            ]
-        )
-        await session.commit()
-
-        grants = (
-            (
-                await session.execute(
-                    select(InvitationGrant).where(
-                        InvitationGrant.invitation_id == invitation.id
-                    )
-                )
-            )
-            .scalars()
-            .all()
-        )
-        assert len(grants) == 3
-        assert {g.workspace_id for g in grants} == {None, ws_a.id, ws_b.id}
-
-    @pytest.mark.anyio
-    async def test_one_org_grant_per_invitation(self, session: AsyncSession):
-        """A second org-wide grant on one invitation is rejected."""
-        org = await _org(session)
-        member_role = _create_role(org.id)
-        session.add(member_role)
-        await session.flush()
-
-        invitation = Invitation(
-            organization_id=org.id,
-            workspace_id=None,
-            email="dupe-grant@example.com",
-            role_id=member_role.id,
-            status=InvitationStatus.PENDING,
-            token=_token(),
-            expires_at=datetime.now(UTC) + timedelta(days=7),
+            ],
         )
         session.add(invitation)
-        await session.flush()
-        session.add_all(
-            [
-                InvitationGrant(
-                    organization_id=org.id,
-                    invitation_id=invitation.id,
-                    workspace_id=None,
-                    role_id=member_role.id,
-                ),
-                InvitationGrant(
-                    organization_id=org.id,
-                    invitation_id=invitation.id,
-                    workspace_id=None,
-                    role_id=member_role.id,
-                ),
-            ]
-        )
-        with pytest.raises(IntegrityError):
-            await session.commit()
+        await session.commit()
+        await session.refresh(invitation, ["grants"])
+
+        assert len(invitation.grants) == 3
+        assert {g.workspace_id for g in invitation.grants} == {None, ws_a.id, ws_b.id}
 
     @pytest.mark.anyio
-    async def test_duplicate_pending_rows_are_allowed_by_the_database(
+    async def test_duplicate_pending_rows_rejected_by_the_database(
         self, session: AsyncSession
     ):
-        """The migration copies duplicate pending rows, so the table permits them.
-
-        One pending invitation per email is enforced in
-        ``InvitationService.create_invitation``, not by a constraint.
-        """
+        """A partial unique index, not the app, enforces one pending row per email."""
         org = await _org(session)
         member_role = _create_role(org.id)
         session.add(member_role)
         await session.flush()
 
-        for _ in range(2):
-            session.add(
-                Invitation(
-                    organization_id=org.id,
-                    workspace_id=None,
-                    email="Same@Example.com",
-                    role_id=member_role.id,
-                    status=InvitationStatus.PENDING,
-                    token=_token(),
-                    expires_at=datetime.now(UTC) + timedelta(days=7),
-                )
+        session.add(
+            Invitation(
+                organization_id=org.id,
+                email="Same@Example.com",
+                status=InvitationStatus.PENDING,
+                token=_token(),
+                expires_at=datetime.now(UTC) + timedelta(days=7),
             )
-        await session.commit()
-
-        rows = (
-            (
-                await session.execute(
-                    select(Invitation).where(Invitation.organization_id == org.id)
-                )
-            )
-            .scalars()
-            .all()
         )
-        assert len(rows) == 2
+        await session.flush()
+        # Case-insensitive: the index is on lower(email).
+        session.add(
+            Invitation(
+                organization_id=org.id,
+                email="same@example.com",
+                status=InvitationStatus.PENDING,
+                token=_token(),
+                expires_at=datetime.now(UTC) + timedelta(days=7),
+            )
+        )
+
+        with pytest.raises(IntegrityError):
+            await session.flush()
 
     @pytest.mark.anyio
     async def test_pending_uniqueness_ignores_settled_rows(self, session: AsyncSession):
@@ -291,9 +204,7 @@ class TestInvitation:
         session.add(
             Invitation(
                 organization_id=org.id,
-                workspace_id=None,
                 email="again@example.com",
-                role_id=member_role.id,
                 status=InvitationStatus.REVOKED,
                 token=_token(),
                 expires_at=datetime.now(UTC) + timedelta(days=7),
@@ -303,9 +214,7 @@ class TestInvitation:
         session.add(
             Invitation(
                 organization_id=org.id,
-                workspace_id=None,
                 email="again@example.com",
-                role_id=member_role.id,
                 status=InvitationStatus.PENDING,
                 token=_token(),
                 expires_at=datetime.now(UTC) + timedelta(days=7),
@@ -334,9 +243,7 @@ class TestInvitation:
 
         invitation = Invitation(
             organization_id=org.id,
-            workspace_id=None,
             email="transition@example.com",
-            role_id=member_role.id,
             status=InvitationStatus.PENDING,
             token=_token(),
             expires_at=datetime.now(UTC) + timedelta(days=7),
@@ -355,7 +262,7 @@ class TestInvitation:
 
     @pytest.mark.anyio
     async def test_invitation_cascade_delete_from_org(self, session: AsyncSession):
-        """Deleting the org removes its invitations and their grants."""
+        """Deleting the org removes its invitations."""
         org = await _org(session)
         member_role = _create_role(org.id)
         session.add(member_role)
@@ -363,23 +270,13 @@ class TestInvitation:
 
         invitation = Invitation(
             organization_id=org.id,
-            workspace_id=None,
             email="cascade@example.com",
-            role_id=member_role.id,
             status=InvitationStatus.PENDING,
             token=_token(),
             expires_at=datetime.now(UTC) + timedelta(days=7),
+            grants=[InvitationGrant(organization_id=org.id, role_id=member_role.id)],
         )
         session.add(invitation)
-        await session.flush()
-        session.add(
-            InvitationGrant(
-                organization_id=org.id,
-                invitation_id=invitation.id,
-                workspace_id=None,
-                role_id=member_role.id,
-            )
-        )
         await session.commit()
         invitation_id = invitation.id
 
@@ -389,57 +286,6 @@ class TestInvitation:
         assert (
             await session.execute(
                 select(Invitation).where(Invitation.id == invitation_id)
-            )
-        ).scalar_one_or_none() is None
-        assert (
-            await session.execute(
-                select(InvitationGrant).where(
-                    InvitationGrant.invitation_id == invitation_id
-                )
-            )
-        ).scalar_one_or_none() is None
-
-    @pytest.mark.anyio
-    async def test_grants_cascade_delete_from_invitation(self, session: AsyncSession):
-        """Deleting an invitation removes its grants."""
-        org = await _org(session)
-        ws = await _workspace(session, org.id)
-        editor_role = _create_role(
-            org.id, name="Workspace Editor", slug="workspace-editor"
-        )
-        session.add(editor_role)
-        await session.flush()
-
-        invitation = Invitation(
-            organization_id=org.id,
-            workspace_id=ws.id,
-            email="grant-cascade@example.com",
-            role_id=editor_role.id,
-            status=InvitationStatus.PENDING,
-            token=_token(),
-            expires_at=datetime.now(UTC) + timedelta(days=7),
-        )
-        session.add(invitation)
-        await session.flush()
-        session.add(
-            InvitationGrant(
-                organization_id=org.id,
-                invitation_id=invitation.id,
-                workspace_id=ws.id,
-                role_id=editor_role.id,
-            )
-        )
-        await session.commit()
-        invitation_id = invitation.id
-
-        await session.delete(invitation)
-        await session.commit()
-
-        assert (
-            await session.execute(
-                select(InvitationGrant).where(
-                    InvitationGrant.invitation_id == invitation_id
-                )
             )
         ).scalar_one_or_none() is None
 
@@ -456,18 +302,14 @@ class TestInvitation:
             [
                 Invitation(
                     organization_id=org.id,
-                    workspace_id=None,
                     email="first@example.com",
-                    role_id=member_role.id,
                     status=InvitationStatus.PENDING,
                     token=token,
                     expires_at=datetime.now(UTC) + timedelta(days=7),
                 ),
                 Invitation(
                     organization_id=org.id,
-                    workspace_id=None,
                     email="second@example.com",
-                    role_id=member_role.id,
                     status=InvitationStatus.PENDING,
                     token=token,
                     expires_at=datetime.now(UTC) + timedelta(days=7),

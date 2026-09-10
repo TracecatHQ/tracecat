@@ -129,7 +129,6 @@ import {
   type IntegrationReadMinimal,
   type IntegrationUpdate,
   type InvitationCreate,
-  type InvitationRead,
   integrationsConnectProvider,
   integrationsDeleteIntegration,
   integrationsDisconnectIntegration,
@@ -137,6 +136,8 @@ import {
   integrationsListIntegrations,
   integrationsTestConnection,
   integrationsUpdateIntegration,
+  invitationsCreateInvitation,
+  invitationsRevokeInvitation,
   listCatalog,
   listCustomProviders,
   listEnabledModels,
@@ -162,14 +163,11 @@ import {
   type OrganizationDeleteSessionData,
   type OrganizationUpdateOrgMemberData,
   type OrgMemberRead,
-  organizationCreateInvitation,
   organizationDeleteOrgMember,
   organizationDeleteSession,
-  organizationListInvitations,
   organizationListOrgMembers,
   organizationListSessions,
   organizationResendInvitation,
-  organizationRevokeInvitation,
   organizationSecretsCreateOrgSecret,
   organizationSecretsDeleteOrgSecretById,
   organizationSecretsListOrgSecrets,
@@ -2294,7 +2292,7 @@ export function useOrgMembers() {
     isPending: createInvitationIsPending,
   } = useMutation({
     mutationFn: async (params: InvitationCreate) =>
-      await organizationCreateInvitation({ requestBody: params }),
+      await invitationsCreateInvitation({ requestBody: params }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["org-members"] })
       queryClient.invalidateQueries({
@@ -2318,7 +2316,7 @@ export function useOrgMembers() {
 
   const { mutateAsync: revokeInvitation } = useMutation({
     mutationFn: async (invitationId: string) =>
-      await organizationRevokeInvitation({ invitationId }),
+      await invitationsRevokeInvitation({ invitationId }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["org-members"] })
       queryClient.invalidateQueries({
@@ -2367,20 +2365,6 @@ export function useOrgMembers() {
     resendInvitation,
     resendInvitationIsPending,
   }
-}
-
-/**
- * List the organization's pending invitations, which carry their role grants.
- */
-export function useOrgInvitations(options: { enabled?: boolean } = {}) {
-  const { data: invitations } = useQuery<InvitationRead[]>({
-    queryKey: ["org-invitations", "pending"],
-    queryFn: async () =>
-      await organizationListInvitations({ status: "pending" }),
-    enabled: options.enabled ?? true,
-  })
-
-  return { invitations }
 }
 
 export function useSessions() {

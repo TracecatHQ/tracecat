@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
+from pydantic import TypeAdapter
 from sqlalchemy.exc import NoResultFound
 
 from tracecat.api.app import app
@@ -16,6 +17,7 @@ from tracecat.auth.users import current_active_user
 from tracecat.db.engine import get_async_session
 from tracecat.exceptions import TracecatConflictError, TracecatValidationError
 from tracecat.invitations.enums import InvitationStatus
+from tracecat.invitations.schemas import InvitationGrant
 from tracecat.organization import router as organization_router
 
 
@@ -42,16 +44,10 @@ async def test_list_my_pending_invitations_success(
         created_at=datetime.now(UTC),
     )
     mock_organization = SimpleNamespace(name="Acme Security")
-    mock_role = SimpleNamespace(name="Organization Member", slug="organization-member")
-    mock_invitation.grants = [
-        SimpleNamespace(
-            id=uuid.uuid4(),
-            workspace_id=None,
-            workspace=None,
-            role_id=uuid.uuid4(),
-            role_obj=mock_role,
-        )
-    ]
+    role_id = uuid.uuid4()
+    mock_invitation.id = uuid.uuid4()
+    # Grants arrive as ORM rows now, so the mock exposes attributes.
+    mock_invitation.grants = [SimpleNamespace(workspace_id=None, role_id=role_id)]
 
     tuples_result = Mock()
     tuples_result.all.return_value = [
@@ -64,7 +60,7 @@ async def test_list_my_pending_invitations_success(
     app.dependency_overrides[current_active_user] = lambda: mock_user
 
     try:
-        response = client.get("/organization/invitations/pending/me")
+        response = client.get("/invitations/pending/me")
     finally:
         app.dependency_overrides.pop(current_active_user, None)
 
@@ -76,10 +72,22 @@ async def test_list_my_pending_invitations_success(
     assert payload[0]["organization_name"] == "Acme Security"
     assert payload[0]["inviter_name"] == "Alice Admin"
     assert payload[0]["inviter_email"] == "alice@example.com"
-    assert len(payload[0]["grants"]) == 1
-    assert payload[0]["grants"][0]["workspace_id"] is None
-    assert payload[0]["grants"][0]["role_name"] == "Organization Member"
-    assert payload[0]["grants"][0]["role_slug"] == "organization-member"
+    assert payload[0]["grants"] == [{"workspace_id": None, "role_id": str(role_id)}]
+
+
+def test_grant_json_validates_into_uuids() -> None:
+    """Grant rows read through from_attributes; a null workspace stays None."""
+    role_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    grants = TypeAdapter(list[InvitationGrant]).validate_python(
+        [
+            SimpleNamespace(workspace_id=None, role_id=role_id),
+            SimpleNamespace(workspace_id=workspace_id, role_id=role_id),
+        ]
+    )
+    assert grants[0].workspace_id is None
+    assert grants[0].role_id == role_id
+    assert grants[1].workspace_id == workspace_id
 
 
 @pytest.mark.anyio
@@ -101,7 +109,7 @@ async def test_list_my_pending_invitations_empty_result(
     app.dependency_overrides[current_active_user] = lambda: mock_user
 
     try:
-        response = client.get("/organization/invitations/pending/me")
+        response = client.get("/invitations/pending/me")
     finally:
         app.dependency_overrides.pop(current_active_user, None)
 

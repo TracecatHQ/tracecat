@@ -5,14 +5,16 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 from tracecat.identifiers import OrganizationID, UserID, WorkspaceID
 from tracecat.invitations.enums import InvitationStatus
 
 
-class InvitationGrantCreate(BaseModel):
-    """One role grant to confer on acceptance."""
+class InvitationGrant(BaseModel):
+    """One role grant: at org scope when ``workspace_id`` is None."""
+
+    model_config = ConfigDict(from_attributes=True)
 
     workspace_id: WorkspaceID | None = Field(default=None)
     role_id: UUID
@@ -22,7 +24,7 @@ class InvitationCreate(BaseModel):
     """Request body for creating an invitation."""
 
     email: EmailStr
-    grants: list[InvitationGrantCreate] = Field(min_length=1)
+    grants: list[InvitationGrant] = Field(min_length=1)
 
     @model_validator(mode="after")
     def _reject_duplicate_scopes(self) -> InvitationCreate:
@@ -35,19 +37,10 @@ class InvitationCreate(BaseModel):
         return self
 
 
-class InvitationGrantRead(BaseModel):
-    """A grant on an invitation, with its role and workspace resolved."""
-
-    id: UUID
-    workspace_id: WorkspaceID | None
-    workspace_name: str | None = None
-    role_id: UUID
-    role_name: str
-    role_slug: str | None = None
-
-
 class InvitationRead(BaseModel):
     """Response model for an invitation."""
+
+    model_config = ConfigDict(from_attributes=True)
 
     id: UUID
     organization_id: OrganizationID
@@ -58,7 +51,7 @@ class InvitationRead(BaseModel):
     created_at: datetime
     accepted_at: datetime | None
     created_by_platform_admin: bool
-    grants: list[InvitationGrantRead]
+    grants: list[InvitationGrant]
 
 
 class InvitationReadMinimal(BaseModel):
@@ -72,7 +65,7 @@ class InvitationReadMinimal(BaseModel):
     organization_slug: str
     inviter_name: str | None
     inviter_email: str | None
-    grants: list[InvitationGrantRead]
+    grants: list[InvitationGrant]
     status: InvitationStatus
     expires_at: datetime
     email_matches: bool | None = None
@@ -92,7 +85,7 @@ class PendingInvitationRead(BaseModel):
     organization_name: str
     inviter_name: str | None
     inviter_email: str | None
-    grants: list[InvitationGrantRead]
+    grants: list[InvitationGrant]
     expires_at: datetime
 
 
