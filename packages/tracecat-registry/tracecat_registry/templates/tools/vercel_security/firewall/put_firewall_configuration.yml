@@ -1,0 +1,50 @@
+type: action
+definition:
+  title: Put firewall configuration
+  description: >-
+    Set the firewall configuration to provided rules and settings. Creates or overwrites the existing firewall configuration. Calls PUT /v1/security/firewall/config directly.
+  display_group: Vercel Security
+  doc_url: https://vercel.com/docs/rest-api/security/put-firewall-configuration
+  namespace: tools.vercel_security
+  name: put_firewall_configuration
+  secrets:
+    - name: vercel
+      keys: ["VERCEL_API_TOKEN"]
+  expects:
+    projectId:
+      type: str
+      description: Project ID.
+    payload:
+      # Generic: the body is the full firewall configuration document (nested rules,
+      # rulesets, CRS, IP blocking and managed rule objects) replaced wholesale.
+      type: dict[str, Any]
+      description: >-
+        API-native request body. Documented fields for PUT /v1/security/firewall/config:
+        firewallEnabled (required), managedRules, crs, rules, rulesets, ips, botIdEnabled, logHeaders.
+    teamId:
+      type: str | None
+      description: The Team identifier to perform the request on behalf of.
+      default: null
+    slug:
+      type: str | None
+      description: The Team slug to perform the request on behalf of.
+      default: null
+    base_url:
+      type: str | None
+      description: Vercel REST API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.vercel_security.base_url || "https://api.vercel.com" }}/v1/security/firewall/config
+        method: PUT
+        headers:
+          Authorization: Bearer ${{ SECRETS.vercel.VERCEL_API_TOKEN }}
+          Content-Type: application/json
+        params:
+          projectId: ${{ inputs.projectId }}
+          teamId: ${{ inputs.teamId }}
+          slug: ${{ inputs.slug }}
+        payload: ${{ inputs.payload }}
+  returns: ${{ steps.request.result }}
