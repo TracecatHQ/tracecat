@@ -136,10 +136,10 @@ export function buildReadOnlyColumnDefs(
   return columns.map((column): ColDef => {
     const base = buildBaseColumnDef(column, savedWidths)
     if (options.fitWidth) {
-      // Columns share the grid width instead of carrying a fixed width.
+      // Columns share the grid width; no floor, so they always fit.
       base.width = undefined
       base.flex = 1
-      base.minWidth = 80
+      base.minWidth = 0
     }
     return {
       ...base,
