@@ -484,14 +484,16 @@ Default: `null`.
 
 Filter, group, and summarize workspace cases. Returns groups and a truncated flag indicating whether more groups exist than the requested limit.
 
-Count open cases by priority and day with the example below.
-Define a `region` custom case field of type TEXT before using the
-`fields.region` filter. The filter includes cases whose priority is
-at least `high` or whose region is `emea`.
+The example counts `new` and `in_progress` cases by priority and day.
+It includes cases created on or after August 1, 2026 whose priority
+is `high` or `critical`, or whose region is `emea`.
 
-Read the summaries from `ACTIONS.cases_by_priority_per_day.result.groups`.
-If `truncated` is `true`, more groups matched than the result limit.
-Use `[]` for `group_by` to calculate one total across matching cases.
+Before running it, create a TEXT custom case field named `region`.
+
+Use `ACTIONS.cases_by_priority_per_day.result.groups` to read the results.
+Each item contains a priority, a date, and a case count.
+If `ACTIONS.cases_by_priority_per_day.result.truncated` is `true`,
+the result reached the group limit and omitted some groups.
 
 ### Inputs
 
