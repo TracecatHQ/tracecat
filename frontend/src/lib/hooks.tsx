@@ -350,6 +350,7 @@ import {
   type WorkflowsRemoveTagData,
   type WorkflowsUpdateWorkflowData,
   type WorkspaceCreate,
+  type WorkspaceMembershipUpdate,
   type WorkspaceReadMinimal,
   type WorkspaceUpdate,
   workflowExecutionsCreateDraftWorkflowExecution,
@@ -369,6 +370,7 @@ import {
   workspacesDeleteWorkspace,
   workspacesListWorkspaces,
   workspacesUpdateWorkspace,
+  workspacesUpdateWorkspaceMembership,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
 import {
@@ -6334,6 +6336,46 @@ export function useWorkspaceSettings(
     deleteWorkspace,
     isDeleting,
   }
+}
+
+/**
+ * Hook to change a member's workspace role through the workspace membership API.
+ */
+export function useWorkspaceMembershipRole(workspaceId: string) {
+  const queryClient = useQueryClient()
+
+  const {
+    mutateAsync: updateMembershipRole,
+    isPending: updateMembershipRoleIsPending,
+  } = useMutation({
+    mutationFn: async ({
+      userId,
+      ...params
+    }: WorkspaceMembershipUpdate & { userId: string }) =>
+      await workspacesUpdateWorkspaceMembership({
+        workspaceId,
+        userId,
+        requestBody: params,
+      }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ["workspace", workspaceId, "members"],
+      })
+      toast({
+        title: "Role updated",
+        description: "The member's workspace role was updated.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      toast({
+        title: "Could not change role",
+        description: String(error.body?.detail ?? error.message),
+        variant: "destructive",
+      })
+    },
+  })
+
+  return { updateMembershipRole, updateMembershipRoleIsPending }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
