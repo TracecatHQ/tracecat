@@ -104,6 +104,7 @@ from tracecat.db.exceptions import AuthPoolExhaustedError
 from tracecat.db.rls import set_rls_context_from_role
 from tracecat.db.soft_delete import assert_soft_delete_listener_registered
 from tracecat.editor.router import router as editor_router
+from tracecat.email.transport import SMTPTransport
 from tracecat.exceptions import (
     EntitlementRequired,
     ScopeDeniedError,
@@ -262,10 +263,12 @@ async def lifespan(app: FastAPI):
         name="case_duration_sync_consumer",
     )
 
-    supervisor.spawn_stoppable(
-        start_invitation_email_consumer,
-        name="invitation_email_consumer",
-    )
+    # SMTP configuration is loaded at process startup; enabling it needs a restart.
+    if SMTPTransport.from_config() is not None:
+        supervisor.spawn_stoppable(
+            start_invitation_email_consumer,
+            name="invitation_email_consumer",
+        )
 
     logger.info(
         "Feature flags", feature_flags=[f.value for f in config.TRACECAT__FEATURE_FLAGS]
