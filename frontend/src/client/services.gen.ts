@@ -464,6 +464,17 @@ import type {
   IntegrationsTestConnectionResponse,
   IntegrationsUpdateIntegrationData,
   IntegrationsUpdateIntegrationResponse,
+  InvitationsAcceptInvitationData,
+  InvitationsAcceptInvitationResponse,
+  InvitationsCreateInvitationData,
+  InvitationsCreateInvitationResponse,
+  InvitationsGetInvitationByTokenData,
+  InvitationsGetInvitationByTokenResponse,
+  InvitationsGetInvitationTokenData,
+  InvitationsGetInvitationTokenResponse,
+  InvitationsListMyPendingInvitationsResponse,
+  InvitationsRevokeInvitationData,
+  InvitationsRevokeInvitationResponse,
   ListCatalogData,
   ListCatalogResponse,
   ListCustomProvidersData,
@@ -502,10 +513,6 @@ import type {
   McpPersonalAccessTokensListMcpPersonalAccessTokensResponse,
   McpPersonalAccessTokensRevokeMcpPersonalAccessTokenData,
   McpPersonalAccessTokensRevokeMcpPersonalAccessTokenResponse,
-  OrganizationAcceptInvitationData,
-  OrganizationAcceptInvitationResponse,
-  OrganizationCreateInvitationData,
-  OrganizationCreateInvitationResponse,
   OrganizationDeleteOrganizationData,
   OrganizationDeleteOrganizationResponse,
   OrganizationDeleteOrgMemberData,
@@ -513,21 +520,12 @@ import type {
   OrganizationDeleteSessionData,
   OrganizationDeleteSessionResponse,
   OrganizationGetCurrentOrgMemberResponse,
-  OrganizationGetInvitationByTokenData,
-  OrganizationGetInvitationByTokenResponse,
-  OrganizationGetInvitationTokenData,
-  OrganizationGetInvitationTokenResponse,
   OrganizationGetOrganizationEntitlementsResponse,
   OrganizationGetOrganizationResponse,
   OrganizationListCurrentUserOrganizationMembershipsResponse,
-  OrganizationListInvitationsData,
-  OrganizationListInvitationsResponse,
-  OrganizationListMyPendingInvitationsResponse,
   OrganizationListOrganizationDomainsResponse,
   OrganizationListOrgMembersResponse,
   OrganizationListSessionsResponse,
-  OrganizationRevokeInvitationData,
-  OrganizationRevokeInvitationResponse,
   OrganizationSecretsCreateOrgSecretData,
   OrganizationSecretsCreateOrgSecretResponse,
   OrganizationSecretsDeleteOrgSecretByIdData,
@@ -4232,12 +4230,12 @@ export const organizationDeleteSession = (
  * @returns InvitationRead Successful Response
  * @throws ApiError
  */
-export const organizationCreateInvitation = (
-  data: OrganizationCreateInvitationData
-): CancelablePromise<OrganizationCreateInvitationResponse> => {
+export const invitationsCreateInvitation = (
+  data: InvitationsCreateInvitationData
+): CancelablePromise<InvitationsCreateInvitationResponse> => {
   return __request(OpenAPI, {
     method: "POST",
-    url: "/organization/invitations",
+    url: "/invitations",
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
@@ -4247,21 +4245,64 @@ export const organizationCreateInvitation = (
 }
 
 /**
- * List Invitations
- * List invitations for the organization.
+ * Accept Invitation
+ * Accept an invitation and join the organization.
+ *
+ * This endpoint doesn't require organization context since the user
+ * may not belong to any organization yet. Uses AuthenticatedUserOnly
+ * which only requires an authenticated user (role.organization_id is None).
  * @param data The data for the request.
- * @param data.status
- * @returns InvitationRead Successful Response
+ * @param data.requestBody
+ * @returns string Successful Response
  * @throws ApiError
  */
-export const organizationListInvitations = (
-  data: OrganizationListInvitationsData = {}
-): CancelablePromise<OrganizationListInvitationsResponse> => {
+export const invitationsAcceptInvitation = (
+  data: InvitationsAcceptInvitationData
+): CancelablePromise<InvitationsAcceptInvitationResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/invitations/accept",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List My Pending Invitations
+ * List pending, unexpired invitations for the authenticated user.
+ * @returns PendingInvitationRead Successful Response
+ * @throws ApiError
+ */
+export const invitationsListMyPendingInvitations =
+  (): CancelablePromise<InvitationsListMyPendingInvitationsResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/invitations/pending/me",
+    })
+  }
+
+/**
+ * Get Invitation By Token
+ * Get minimal invitation details by token (public endpoint for UI).
+ *
+ * Returns organization name and inviter info for the acceptance page.
+ * If user is authenticated, also returns whether their email matches the invitation.
+ * @param data The data for the request.
+ * @param data.token
+ * @returns InvitationReadMinimal Successful Response
+ * @throws ApiError
+ */
+export const invitationsGetInvitationByToken = (
+  data: InvitationsGetInvitationByTokenData
+): CancelablePromise<InvitationsGetInvitationByTokenResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/organization/invitations",
-    query: {
-      status: data.status,
+    url: "/invitations/token/{token}",
+    path: {
+      token: data.token,
     },
     errors: {
       422: "Validation Error",
@@ -4277,12 +4318,12 @@ export const organizationListInvitations = (
  * @returns void Successful Response
  * @throws ApiError
  */
-export const organizationRevokeInvitation = (
-  data: OrganizationRevokeInvitationData
-): CancelablePromise<OrganizationRevokeInvitationResponse> => {
+export const invitationsRevokeInvitation = (
+  data: InvitationsRevokeInvitationData
+): CancelablePromise<InvitationsRevokeInvitationResponse> => {
   return __request(OpenAPI, {
     method: "DELETE",
-    url: "/organization/invitations/{invitation_id}",
+    url: "/invitations/{invitation_id}",
     path: {
       invitation_id: data.invitationId,
     },
@@ -4302,80 +4343,14 @@ export const organizationRevokeInvitation = (
  * @returns InvitationTokenRead Successful Response
  * @throws ApiError
  */
-export const organizationGetInvitationToken = (
-  data: OrganizationGetInvitationTokenData
-): CancelablePromise<OrganizationGetInvitationTokenResponse> => {
+export const invitationsGetInvitationToken = (
+  data: InvitationsGetInvitationTokenData
+): CancelablePromise<InvitationsGetInvitationTokenResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/organization/invitations/{invitation_id}/token",
+    url: "/invitations/{invitation_id}/token",
     path: {
       invitation_id: data.invitationId,
-    },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Accept Invitation
- * Accept an invitation and join the organization.
- *
- * This endpoint doesn't require organization context since the user
- * may not belong to any organization yet. Uses AuthenticatedUserOnly
- * which only requires an authenticated user (role.organization_id is None).
- * @param data The data for the request.
- * @param data.requestBody
- * @returns string Successful Response
- * @throws ApiError
- */
-export const organizationAcceptInvitation = (
-  data: OrganizationAcceptInvitationData
-): CancelablePromise<OrganizationAcceptInvitationResponse> => {
-  return __request(OpenAPI, {
-    method: "POST",
-    url: "/organization/invitations/accept",
-    body: data.requestBody,
-    mediaType: "application/json",
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * List My Pending Invitations
- * List pending, unexpired invitations for the authenticated user.
- * @returns PendingInvitationRead Successful Response
- * @throws ApiError
- */
-export const organizationListMyPendingInvitations =
-  (): CancelablePromise<OrganizationListMyPendingInvitationsResponse> => {
-    return __request(OpenAPI, {
-      method: "GET",
-      url: "/organization/invitations/pending/me",
-    })
-  }
-
-/**
- * Get Invitation By Token
- * Get minimal invitation details by token (public endpoint for UI).
- *
- * Returns organization name and inviter info for the acceptance page.
- * If user is authenticated, also returns whether their email matches the invitation.
- * @param data The data for the request.
- * @param data.token
- * @returns InvitationReadMinimal Successful Response
- * @throws ApiError
- */
-export const organizationGetInvitationByToken = (
-  data: OrganizationGetInvitationByTokenData
-): CancelablePromise<OrganizationGetInvitationByTokenResponse> => {
-  return __request(OpenAPI, {
-    method: "GET",
-    url: "/organization/invitations/token/{token}",
-    path: {
-      token: data.token,
     },
     errors: {
       422: "Validation Error",

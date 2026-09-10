@@ -4990,27 +4990,15 @@ export type InvitationAccept = {
  */
 export type InvitationCreate = {
   email: string
-  grants: Array<InvitationGrantCreate>
+  grants: Array<InvitationGrant>
 }
 
 /**
- * One role grant to confer on acceptance.
+ * One role grant: at org scope when ``workspace_id`` is None.
  */
-export type InvitationGrantCreate = {
+export type InvitationGrant = {
   workspace_id?: string | null
   role_id: string
-}
-
-/**
- * A grant on an invitation, with its role and workspace resolved.
- */
-export type InvitationGrantRead = {
-  id: string
-  workspace_id: string | null
-  workspace_name?: string | null
-  role_id: string
-  role_name: string
-  role_slug?: string | null
 }
 
 /**
@@ -5026,7 +5014,7 @@ export type InvitationRead = {
   created_at: string
   accepted_at: string | null
   created_by_platform_admin: boolean
-  grants: Array<InvitationGrantRead>
+  grants: Array<InvitationGrant>
 }
 
 /**
@@ -5040,7 +5028,7 @@ export type InvitationReadMinimal = {
   organization_slug: string
   inviter_name: string | null
   inviter_email: string | null
-  grants: Array<InvitationGrantRead>
+  grants: Array<InvitationGrant>
   status: InvitationStatus
   expires_at: string
   email_matches?: boolean | null
@@ -5786,6 +5774,7 @@ export type OrgMemberRead = {
   email: string
   role_name: string
   role_slug?: string | null
+  grants?: Array<InvitationGrant>
   status: OrgMemberStatus
   first_name?: string | null
   last_name?: string | null
@@ -5961,7 +5950,7 @@ export type PendingInvitationRead = {
   organization_name: string
   inviter_name: string | null
   inviter_email: string | null
-  grants: Array<InvitationGrantRead>
+  grants: Array<InvitationGrant>
   expires_at: string
 }
 
@@ -11255,46 +11244,40 @@ export type OrganizationDeleteSessionData = {
 
 export type OrganizationDeleteSessionResponse = void
 
-export type OrganizationCreateInvitationData = {
+export type InvitationsCreateInvitationData = {
   requestBody: InvitationCreate
 }
 
-export type OrganizationCreateInvitationResponse = InvitationRead
+export type InvitationsCreateInvitationResponse = InvitationRead
 
-export type OrganizationListInvitationsData = {
-  status?: InvitationStatus | null
-}
-
-export type OrganizationListInvitationsResponse = Array<InvitationRead>
-
-export type OrganizationRevokeInvitationData = {
-  invitationId: string
-}
-
-export type OrganizationRevokeInvitationResponse = void
-
-export type OrganizationGetInvitationTokenData = {
-  invitationId: string
-}
-
-export type OrganizationGetInvitationTokenResponse = InvitationTokenRead
-
-export type OrganizationAcceptInvitationData = {
+export type InvitationsAcceptInvitationData = {
   requestBody: InvitationAccept
 }
 
-export type OrganizationAcceptInvitationResponse = {
+export type InvitationsAcceptInvitationResponse = {
   [key: string]: string
 }
 
-export type OrganizationListMyPendingInvitationsResponse =
+export type InvitationsListMyPendingInvitationsResponse =
   Array<PendingInvitationRead>
 
-export type OrganizationGetInvitationByTokenData = {
+export type InvitationsGetInvitationByTokenData = {
   token: string
 }
 
-export type OrganizationGetInvitationByTokenResponse = InvitationReadMinimal
+export type InvitationsGetInvitationByTokenResponse = InvitationReadMinimal
+
+export type InvitationsRevokeInvitationData = {
+  invitationId: string
+}
+
+export type InvitationsRevokeInvitationResponse = void
+
+export type InvitationsGetInvitationTokenData = {
+  invitationId: string
+}
+
+export type InvitationsGetInvitationTokenResponse = InvitationTokenRead
 
 export type ServiceAccountsListOrganizationServiceAccountsData = {
   cursor?: string | null
@@ -15915,9 +15898,9 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/organization/invitations": {
+  "/invitations": {
     post: {
-      req: OrganizationCreateInvitationData
+      req: InvitationsCreateInvitationData
       res: {
         /**
          * Successful Response
@@ -15929,53 +15912,10 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    get: {
-      req: OrganizationListInvitationsData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: Array<InvitationRead>
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
   }
-  "/organization/invitations/{invitation_id}": {
-    delete: {
-      req: OrganizationRevokeInvitationData
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/organization/invitations/{invitation_id}/token": {
-    get: {
-      req: OrganizationGetInvitationTokenData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: InvitationTokenRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/organization/invitations/accept": {
+  "/invitations/accept": {
     post: {
-      req: OrganizationAcceptInvitationData
+      req: InvitationsAcceptInvitationData
       res: {
         /**
          * Successful Response
@@ -15990,7 +15930,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/organization/invitations/pending/me": {
+  "/invitations/pending/me": {
     get: {
       res: {
         /**
@@ -16000,14 +15940,44 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/organization/invitations/token/{token}": {
+  "/invitations/token/{token}": {
     get: {
-      req: OrganizationGetInvitationByTokenData
+      req: InvitationsGetInvitationByTokenData
       res: {
         /**
          * Successful Response
          */
         200: InvitationReadMinimal
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/invitations/{invitation_id}": {
+    delete: {
+      req: InvitationsRevokeInvitationData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/invitations/{invitation_id}/token": {
+    get: {
+      req: InvitationsGetInvitationTokenData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: InvitationTokenRead
         /**
          * Validation Error
          */

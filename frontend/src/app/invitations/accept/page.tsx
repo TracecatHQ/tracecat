@@ -7,8 +7,8 @@ import { useRouter, useSearchParams } from "next/navigation"
 import TracecatIcon from "public/icon.png"
 import { Suspense } from "react"
 import {
-  organizationAcceptInvitation,
-  organizationGetInvitationByToken,
+  invitationsAcceptInvitation,
+  invitationsGetInvitationByToken,
 } from "@/client"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { Button } from "@/components/ui/button"
@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/card"
 import { toast } from "@/components/ui/use-toast"
 import { useAuth, useAuthActions } from "@/hooks/use-auth"
-import { invitationGrantsSummary } from "@/lib/invitations"
+import { invitationGrantsCount } from "@/lib/invitations"
 import { useMutation, useQuery, useQueryClient } from "@/lib/query"
 
 function AcceptInvitationContent() {
@@ -44,7 +44,7 @@ function AcceptInvitationContent() {
       if (!token) {
         throw new Error("No invitation token provided")
       }
-      return await organizationGetInvitationByToken({ token })
+      return await invitationsGetInvitationByToken({ token })
     },
     enabled: !!token,
     retry: false,
@@ -56,7 +56,7 @@ function AcceptInvitationContent() {
       if (!token) {
         throw new Error("No invitation token")
       }
-      return await organizationAcceptInvitation({
+      return await invitationsAcceptInvitation({
         requestBody: { token },
       })
     },
@@ -224,7 +224,7 @@ function AcceptInvitationContent() {
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Access</span>
                 <span className="text-right font-medium">
-                  {invitationGrantsSummary(invitation)}
+                  {invitationGrantsCount(invitation)}
                 </span>
               </div>
               {invitation.inviter_email && (
@@ -330,7 +330,7 @@ function AcceptInvitationContent() {
             <div className="flex justify-between">
               <span className="text-muted-foreground">Access</span>
               <span className="text-right font-medium">
-                {invitationGrantsSummary(invitation)}
+                {invitationGrantsCount(invitation)}
               </span>
             </div>
             {invitation.inviter_email && (

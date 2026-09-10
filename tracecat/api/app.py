@@ -121,6 +121,7 @@ from tracecat.integrations.router import (
 from tracecat.integrations.router import (
     oauth_router as integrations_oauth_router,
 )
+from tracecat.invitations.router import router as invitations_router
 from tracecat.logger import logger
 from tracecat.mcp.oidc import router as mcp_oidc_router
 from tracecat.mcp.personal_access_tokens.router import (
@@ -504,6 +505,7 @@ def create_app(**kwargs) -> FastAPI:
     _include_workspace_scoped_router(app, tags_router)
     app.include_router(users_router)
     app.include_router(org_router)
+    app.include_router(invitations_router)
     app.include_router(org_service_accounts_router)
     app.include_router(agent_router)
     app.include_router(agent_catalog_router)
