@@ -1642,7 +1642,7 @@ class TestOrganizationServiceInvitations:
             await service.revoke_invitation(org2_invitation.id)
 
     @pytest.mark.anyio
-    async def test_resend_invitation_clears_delivery_state(
+    async def test_resend_invitation_resets_claim_and_keeps_sent_timestamp(
         self,
         session: AsyncSession,
         org1: Organization,
@@ -1650,7 +1650,7 @@ class TestOrganizationServiceInvitations:
         org1_member_role: DBRole,
         smtp_configured: None,
     ):
-        """Test resend_invitation re-enters the row into the outbox."""
+        """Resend re-enters the row into the outbox without erasing the last send time."""
         role = create_admin_role(org1.id, admin_in_org1.id)
         service = OrgService(session, role=role)
 
@@ -1658,7 +1658,8 @@ class TestOrganizationServiceInvitations:
             email="resend@example.com", role_id=org1_member_role.id
         )
         invitation.email_claimed_at = datetime.now(UTC) - timedelta(minutes=5)
-        invitation.email_sent_at = datetime.now(UTC) - timedelta(minutes=5)
+        emailed_at = datetime.now(UTC) - timedelta(minutes=5)
+        invitation.email_sent_at = emailed_at
         invitation.email_attempts = 2
         await session.commit()
 
@@ -1670,7 +1671,7 @@ class TestOrganizationServiceInvitations:
         resent = await service.resend_invitation(invitation_id)
 
         assert resent.email_claimed_at is None
-        assert resent.email_sent_at is None
+        assert resent.email_sent_at == emailed_at
         assert resent.email_attempts == 0
         assert resent.token == token
         assert resent.expires_at == expires_at
@@ -1681,7 +1682,7 @@ class TestOrganizationServiceInvitations:
         await session.rollback()
         await session.refresh(resent)
         assert resent.email_claimed_at is None
-        assert resent.email_sent_at is None
+        assert resent.email_sent_at == emailed_at
         assert resent.email_attempts == 0
 
     @pytest.mark.anyio
