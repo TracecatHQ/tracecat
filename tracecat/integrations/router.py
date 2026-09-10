@@ -498,6 +498,7 @@ async def list_integrations(
         IntegrationReadMinimal(
             id=integration.id,
             provider_id=integration.provider_id,
+            grant_type=integration.grant_type,
             status=integration.status,
             is_expired=integration.is_expired,
         )
