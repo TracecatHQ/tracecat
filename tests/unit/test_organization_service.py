@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tests.support.membership import grant_org_membership
+from tests.support.membership import grant_org_membership, seed_external_user
 from tracecat import config
 from tracecat.auth.api_keys import ORG_API_KEY_PREFIX, generate_managed_api_key
 from tracecat.auth.schemas import UserRole
@@ -44,6 +44,7 @@ from tracecat.db.models import (
 )
 from tracecat.exceptions import (
     TracecatAuthorizationError,
+    TracecatConflictError,
     TracecatNotFoundError,
     TracecatValidationError,
 )
@@ -606,6 +607,141 @@ class TestOrganizationServiceDeleteMember:
         # Verify superuser was NOT deleted
         result = await session.execute(select(User).where(User.id == superuser.id))  # pyright: ignore[reportArgumentType]
         assert result.scalar_one_or_none() is not None
+
+    @pytest.mark.anyio
+    async def test_delete_scim_managed_member_raises_conflict(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        user_in_org1: User,
+        admin_in_org1: User,
+    ):
+        """SCIM owns its members: removing one here would revert on next sync."""
+        await seed_external_user(
+            session, organization_id=org1.id, user_id=user_in_org1.id
+        )
+
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = OrgService(session, role=role)
+
+        with pytest.raises(TracecatConflictError, match="identity provider"):
+            await service.delete_member(user_in_org1.id)
+
+        assert (
+            await session.scalar(
+                select(OrganizationMembership).where(
+                    OrganizationMembership.user_id == user_in_org1.id,
+                    OrganizationMembership.organization_id == org1.id,
+                )
+            )
+            is not None
+        )
+
+    @pytest.mark.anyio
+    async def test_delete_scim_managed_member_allowed_with_bypass(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        user_in_org1: User,
+        admin_in_org1: User,
+    ):
+        """allow_scim_managed is the SCIM deprovisioning path's own escape hatch."""
+        await seed_external_user(
+            session, organization_id=org1.id, user_id=user_in_org1.id
+        )
+
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = OrgService(session, role=role)
+
+        await service.delete_member(user_in_org1.id, allow_scim_managed=True)
+
+        assert (
+            await session.scalar(
+                select(OrganizationMembership).where(
+                    OrganizationMembership.user_id == user_in_org1.id,
+                    OrganizationMembership.organization_id == org1.id,
+                )
+            )
+            is None
+        )
+
+    @pytest.mark.anyio
+    async def test_delete_superuser_takes_precedence_over_scim_guard(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+    ):
+        """A SCIM-managed superuser still fails on the superuser check first."""
+        superuser = User(
+            id=uuid.uuid4(),
+            email=f"superuser-{uuid.uuid4().hex[:8]}@example.com",
+            hashed_password="hashed",
+            role=UserRole.ADMIN,
+            is_active=True,
+            is_superuser=True,
+            is_verified=True,
+        )
+        session.add(superuser)
+        await session.flush()
+
+        await seed_external_user(session, organization_id=org1.id, user_id=superuser.id)
+        await grant_org_membership(
+            session, user_id=superuser.id, organization_id=org1.id
+        )
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = OrgService(session, role=role)
+
+        with pytest.raises(TracecatAuthorizationError, match="Cannot delete superuser"):
+            await service.delete_member(superuser.id)
+
+        # The bypass does not lower the superuser bar either.
+        with pytest.raises(TracecatAuthorizationError, match="Cannot delete superuser"):
+            await service.delete_member(superuser.id, allow_scim_managed=True)
+
+    @pytest.mark.anyio
+    async def test_scim_guard_is_per_organization(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        org2: Organization,
+        user_in_org1: User,
+        admin_in_org1: User,
+    ):
+        """A linkage in one org must not block removal by another org's admin."""
+        await seed_external_user(
+            session, organization_id=org2.id, user_id=user_in_org1.id
+        )
+        service = OrgService(session, role=create_admin_role(org1.id, admin_in_org1.id))
+
+        # org2 owns the linkage, so org1's admin is unaffected by it.
+        await service.delete_member(user_in_org1.id)
+        assert (
+            await session.scalar(
+                select(OrganizationMembership).where(
+                    OrganizationMembership.user_id == user_in_org1.id,
+                    OrganizationMembership.organization_id == org1.id,
+                )
+            )
+            is None
+        )
+
+    @pytest.mark.anyio
+    async def test_scim_guard_blocks_the_owning_organization(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        user_in_org1: User,
+        admin_in_org1: User,
+    ):
+        """The org holding the linkage is the one refused."""
+        await seed_external_user(
+            session, organization_id=org1.id, user_id=user_in_org1.id
+        )
+        service = OrgService(session, role=create_admin_role(org1.id, admin_in_org1.id))
+
+        with pytest.raises(TracecatConflictError, match="identity provider"):
+            await service.delete_member(user_in_org1.id)
 
     @pytest.mark.anyio
     async def test_delete_nonexistent_member_raises(

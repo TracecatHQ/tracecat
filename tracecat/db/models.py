@@ -53,7 +53,7 @@ from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.approvals.types import PersistedApprovalDecision
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.secrets import get_signing_secret
-from tracecat.authz.enums import ScopeSource
+from tracecat.authz.enums import GroupMemberSource, ScopeSource
 from tracecat.cases.agent_invocations.types import CaseCommentAgentInvocationError
 from tracecat.cases.durations.schemas import CaseDurationAnchorSelection
 from tracecat.cases.enums import (
@@ -5365,6 +5365,7 @@ class OrganizationTier(Base, TimestampMixin):
 
 
 SCOPE_SOURCE_ENUM = Enum(ScopeSource, name="scopesource")
+GROUP_MEMBER_SOURCE_ENUM = Enum(GroupMemberSource, name="groupmembersource")
 
 
 class Scope(Base, TimestampMixin):
@@ -5534,6 +5535,13 @@ class GroupMember(Base):
     )
     added_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now()
+    )
+    # Manual rows are owned by the RBAC API; scim rows are owned by the
+    # external-group projection and are the only ones it may delete.
+    source: Mapped[GroupMemberSource] = mapped_column(
+        GROUP_MEMBER_SOURCE_ENUM,
+        nullable=False,
+        server_default=GroupMemberSource.MANUAL.name,
     )
 
 
@@ -5710,6 +5718,83 @@ class OrganizationMembership(Base):
 
     user_id: Mapped[uuid.UUID]
     organization_id: Mapped[uuid.UUID]
+
+
+# =============================================================================
+# External Directory Sync (SCIM) Tables
+# =============================================================================
+
+
+class ExternalUser(Base, TimestampMixin):
+    """A user's linkage to the identity provider, per organization.
+
+    SCIM ownership is per-tenant: a row here means this organization's provider
+    manages the user, and says nothing about their other organizations.
+    """
+
+    __tablename__ = "external_user"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "user_id"),
+        UniqueConstraint("organization_id", "external_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("organization.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("user.id", ondelete="CASCADE"), index=True
+    )
+    external_id: Mapped[str] = mapped_column(String(255))
+
+
+class ExternalGroup(Base, TimestampMixin):
+    """A group as pushed by the identity provider.
+
+    Shadow state only: these rows grant nothing on their own. Scopes reach users
+    through an ExternalGroupMapping into a Tracecat Group.
+    """
+
+    __tablename__ = "external_group"
+    __table_args__ = (UniqueConstraint("organization_id", "external_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("organization.id", ondelete="CASCADE"), index=True
+    )
+    external_id: Mapped[str] = mapped_column(String(255))
+    display_name: Mapped[str] = mapped_column(String(255))
+
+
+class ExternalGroupMember(Base):
+    """An external group's member list exactly as pushed by the provider."""
+
+    __tablename__ = "external_group_member"
+
+    external_group_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("external_group.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("user.id", ondelete="CASCADE"), primary_key=True
+    )
+
+
+class ExternalGroupMapping(Base, TimestampMixin):
+    """Admin-authored M:N link projecting an external group into a Tracecat group."""
+
+    __tablename__ = "external_group_mapping"
+    __table_args__ = (UniqueConstraint("external_group_id", "group_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("organization.id", ondelete="CASCADE"), index=True
+    )
+    external_group_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("external_group.id", ondelete="CASCADE"), index=True
+    )
+    group_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("group.id", ondelete="CASCADE"), index=True
+    )
 
 
 # Physical tables the app no longer reads. Writers still keep them in step so

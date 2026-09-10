@@ -26,3 +26,10 @@ class OrgRole(StrEnum):
     MEMBER = "member"  # Basic org member
     ADMIN = "admin"  # Can manage org settings, workspaces, invite users
     OWNER = "owner"  # Full control, billing, can delete org
+
+
+class GroupMemberSource(StrEnum):
+    """Origin of a group membership row."""
+
+    MANUAL = "manual"  # Added through the RBAC API or UI
+    SCIM = "scim"  # Projected from a synced external group mapping

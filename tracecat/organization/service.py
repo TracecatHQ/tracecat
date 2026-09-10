@@ -28,6 +28,7 @@ from tracecat.authz.controls import require_scope
 from tracecat.authz.service import resolve_grantable_role
 from tracecat.db.models import (
     AccessToken,
+    ExternalUser,
     Group,
     GroupMember,
     LegacyMembership,
@@ -43,6 +44,7 @@ from tracecat.db.models import (
 )
 from tracecat.exceptions import (
     TracecatAuthorizationError,
+    TracecatConflictError,
     TracecatNotFoundError,
     TracecatValidationError,
 )
@@ -284,7 +286,13 @@ class OrgService(BaseOrgService):
 
     @require_scope("org:member:remove")
     @audit_log(resource_type="organization_member", action="delete")
-    async def delete_member(self, user_id: UserID) -> None:
+    async def delete_member(
+        self,
+        user_id: UserID,
+        *,
+        allow_scim_managed: bool = False,
+        member: User | None = None,
+    ) -> None:
         """
         Remove a member of the organization.
 
@@ -295,15 +303,44 @@ class OrgService(BaseOrgService):
         immediately. It raises an authorization error for superusers, as
         superusers cannot be removed.
 
+        SCIM is the source of truth for the users it manages, so a member this
+        organization's provider has linked cannot be removed here: the provider
+        would re-provision them on the next sync and the removal would silently
+        revert. Such a member is deprovisioned in the identity provider instead.
+        The linkage is per-tenant, so another organization's admin is unaffected.
+
         Args:
             user_id (UserID): The unique identifier of the user to be removed.
+            allow_scim_managed (bool): Bypass the SCIM guard. Reserved for the
+                SCIM service's own deprovisioning path, which removes the member
+                precisely because the provider has already deprovisioned them.
+            member (User | None): An already-resolved member, for a caller whose
+                own preceding writes remove the last row this lookup joins on.
 
         Raises:
             TracecatAuthorizationError: If the user is a superuser and cannot be deleted.
+            TracecatConflictError: If the user is SCIM-managed and
+                ``allow_scim_managed`` is not set.
         """
-        user = await self.get_member(user_id)
+        user = member if member is not None else await self.get_member(user_id)
         if user.is_superuser:
             raise TracecatAuthorizationError("Cannot delete superuser")
+
+        scim_managed = await self.session.scalar(
+            select(
+                select(ExternalUser.id)
+                .where(
+                    ExternalUser.user_id == user.id,
+                    ExternalUser.organization_id == self.organization_id,
+                )
+                .exists()
+            )
+        )
+        if scim_managed and not allow_scim_managed:
+            raise TracecatConflictError(
+                "This member is managed by your identity provider. "
+                "Deprovision them there to remove their access."
+            )
 
         await self.session.execute(
             delete(AccessToken).where(type_cast(Any, AccessToken.user_id) == user.id)

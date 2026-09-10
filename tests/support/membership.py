@@ -7,14 +7,19 @@ insert a membership row.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.authz.enums import GroupMemberSource
 from tracecat.authz.seeding import seed_system_roles_for_org
 from tracecat.db.models import (
+    ExternalGroup,
+    ExternalGroupMember,
+    ExternalUser,
     Group,
     GroupMember,
     GroupRoleAssignment,
@@ -146,3 +151,98 @@ async def grant_org_membership_via_group(
     )
     await session.flush()
     return group
+
+
+async def seed_external_user(
+    session: AsyncSession,
+    *,
+    organization_id: OrganizationID,
+    user_id: UserID,
+    external_id: str | None = None,
+) -> None:
+    """Link a user to this organization's identity provider."""
+    await session.execute(
+        pg_insert(ExternalUser)
+        .values(
+            organization_id=organization_id,
+            user_id=user_id,
+            external_id=external_id or f"idp-user-{uuid.uuid4().hex[:10]}",
+        )
+        .on_conflict_do_nothing(
+            index_elements=[ExternalUser.organization_id, ExternalUser.user_id]
+        )
+    )
+    await session.flush()
+
+
+async def seed_external_group(
+    session: AsyncSession,
+    *,
+    organization_id: OrganizationID,
+    external_id: str,
+    display_name: str | None = None,
+) -> ExternalGroup:
+    """Create or fetch a synced external group for the organization."""
+    stmt = (
+        pg_insert(ExternalGroup)
+        .values(
+            organization_id=organization_id,
+            external_id=external_id,
+            display_name=display_name or external_id,
+        )
+        .on_conflict_do_nothing(
+            index_elements=[ExternalGroup.organization_id, ExternalGroup.external_id]
+        )
+    )
+    await session.execute(stmt)
+    await session.flush()
+    select_stmt = select(ExternalGroup).where(
+        ExternalGroup.organization_id == organization_id,
+        ExternalGroup.external_id == external_id,
+    )
+    return (await session.execute(select_stmt)).scalar_one()
+
+
+async def seed_external_group_members(
+    session: AsyncSession,
+    *,
+    external_group_id: uuid.UUID,
+    user_ids: Sequence[UserID],
+) -> None:
+    """Add users to an external group's shadow member list."""
+    if not user_ids:
+        return
+    await session.execute(
+        pg_insert(ExternalGroupMember)
+        .values(
+            [
+                {"external_group_id": external_group_id, "user_id": user_id}
+                for user_id in user_ids
+            ]
+        )
+        .on_conflict_do_nothing(
+            index_elements=[
+                ExternalGroupMember.external_group_id,
+                ExternalGroupMember.user_id,
+            ]
+        )
+    )
+    await session.flush()
+
+
+async def seed_group_member(
+    session: AsyncSession,
+    *,
+    group_id: uuid.UUID,
+    user_id: UserID,
+    source: GroupMemberSource = GroupMemberSource.MANUAL,
+) -> None:
+    """Add a group_member row with an explicit source."""
+    await session.execute(
+        pg_insert(GroupMember)
+        .values(group_id=group_id, user_id=user_id, source=source)
+        .on_conflict_do_nothing(
+            index_elements=[GroupMember.user_id, GroupMember.group_id]
+        )
+    )
+    await session.flush()
