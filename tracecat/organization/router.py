@@ -475,23 +475,6 @@ async def delete_session(
         ) from e
 
 
-def _invitation_read(invitation: OrganizationInvitation) -> OrgInvitationRead:
-    return OrgInvitationRead(
-        id=invitation.id,
-        organization_id=invitation.organization_id,
-        email=invitation.email,
-        role_id=invitation.role_id,
-        role_name=invitation.role_obj.name,
-        role_slug=invitation.role_obj.slug,
-        status=invitation.status,
-        invited_by=invitation.invited_by,
-        expires_at=invitation.expires_at,
-        created_at=invitation.created_at,
-        accepted_at=invitation.accepted_at,
-        last_emailed_at=invitation.email_sent_at,
-    )
-
-
 # === Invitations ===
 
 
@@ -527,7 +510,20 @@ async def create_invitation(
             detail="An invitation already exists for this email",
         ) from e
 
-    return _invitation_read(invitation)
+    return OrgInvitationRead(
+        id=invitation.id,
+        organization_id=invitation.organization_id,
+        email=invitation.email,
+        role_id=invitation.role_id,
+        role_name=invitation.role_obj.name,
+        role_slug=invitation.role_obj.slug,
+        status=invitation.status,
+        invited_by=invitation.invited_by,
+        expires_at=invitation.expires_at,
+        created_at=invitation.created_at,
+        accepted_at=invitation.accepted_at,
+        last_emailed_at=invitation.email_sent_at,
+    )
 
 
 @router.get("/invitations", response_model=list[OrgInvitationRead])
@@ -541,7 +537,23 @@ async def list_invitations(
     """List invitations for the organization."""
     service = OrgService(session, role=role)
     invitations = await service.list_invitations(status=invitation_status)
-    return [_invitation_read(inv) for inv in invitations]
+    return [
+        OrgInvitationRead(
+            id=inv.id,
+            organization_id=inv.organization_id,
+            email=inv.email,
+            role_id=inv.role_id,
+            role_name=inv.role_obj.name,
+            role_slug=inv.role_obj.slug,
+            status=inv.status,
+            invited_by=inv.invited_by,
+            expires_at=inv.expires_at,
+            created_at=inv.created_at,
+            accepted_at=inv.accepted_at,
+            last_emailed_at=inv.email_sent_at,
+        )
+        for inv in invitations
+    ]
 
 
 @router.delete("/invitations/{invitation_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -590,7 +602,20 @@ async def resend_invitation(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
         ) from e
 
-    return _invitation_read(invitation)
+    return OrgInvitationRead(
+        id=invitation.id,
+        organization_id=invitation.organization_id,
+        email=invitation.email,
+        role_id=invitation.role_id,
+        role_name=invitation.role_obj.name,
+        role_slug=invitation.role_obj.slug,
+        status=invitation.status,
+        invited_by=invitation.invited_by,
+        expires_at=invitation.expires_at,
+        created_at=invitation.created_at,
+        accepted_at=invitation.accepted_at,
+        last_emailed_at=invitation.email_sent_at,
+    )
 
 
 @router.get("/invitations/{invitation_id}/token")

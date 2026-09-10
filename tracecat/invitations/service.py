@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Final
 
 from sqlalchemy import or_, update
+from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.db.models import OrganizationInvitation
@@ -32,9 +33,10 @@ async def reset_invitation_email(
         invitation: The scoped invitation to reset.
 
     Raises:
-        TracecatValidationError: If the loaded row is not pending, has expired,
-            or email delivery is not configured.
-        TracecatConflictError: If the row changed or is inside the cooldown.
+        NoResultFound: If the row no longer exists.
+        TracecatValidationError: If the row is not pending, has expired, or
+            email delivery is not configured.
+        TracecatConflictError: If the row is inside the resend cooldown.
     """
     now = datetime.now(UTC)
     if invitation.status != InvitationStatus.PENDING:
@@ -66,4 +68,17 @@ async def reset_invitation_email(
         .values(email_claimed_at=None, email_attempts=0)
     )
     if result.rowcount != 1:  # pyright: ignore[reportAttributeAccessIssue]
+        # The WHERE clause also fails when another request changed the row, so
+        # re-read it before attributing the miss to the cooldown.
+        fresh = await session.get(
+            OrganizationInvitation, invitation.id, populate_existing=True
+        )
+        if fresh is None:
+            raise NoResultFound("Invitation not found")
+        if fresh.status != InvitationStatus.PENDING:
+            raise TracecatValidationError(
+                f"Cannot resend invitation with status '{fresh.status}'"
+            )
+        if fresh.expires_at <= now:
+            raise TracecatValidationError("Cannot resend an expired invitation")
         raise TracecatConflictError("Invitation email was sent less than a minute ago")
