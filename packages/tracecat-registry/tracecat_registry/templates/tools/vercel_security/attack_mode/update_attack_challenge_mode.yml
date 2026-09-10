@@ -11,18 +11,14 @@ definition:
     - name: vercel
       keys: ["VERCEL_API_TOKEN"]
   expects:
-    projectId:
-      type: str
-      description: Project ID.
-    attackModeEnabled:
-      type: bool
-      description: Whether Attack Challenge mode is enabled for the project.
-    attackModeActiveUntil:
-      type: float | None
+    payload:
+      # Generic: Vercel validates this body as a oneOf where attackModeActiveUntil
+      # is either required or absent, so it cannot be sent as null.
+      type: dict[str, Any]
       description: >-
-        Timestamp until which Attack Challenge mode remains active. Omit to leave the
-        mode active until it is disabled.
-      default: null
+        API-native request body. Documented fields: projectId (required),
+        attackModeEnabled (required), attackModeActiveUntil (timestamp; omit to
+        leave the mode active until it is disabled).
     teamId:
       type: str | None
       description: The Team identifier to perform the request on behalf of.
@@ -36,19 +32,6 @@ definition:
       description: Vercel REST API base URL.
       default: null
   steps:
-    - ref: build_payload
-      action: core.script.run_python
-      args:
-        inputs:
-          projectId: ${{ inputs.projectId }}
-          attackModeEnabled: ${{ inputs.attackModeEnabled }}
-          attackModeActiveUntil: ${{ inputs.attackModeActiveUntil }}
-        script: |
-          def main(projectId, attackModeEnabled, attackModeActiveUntil):
-              payload = {"projectId": projectId, "attackModeEnabled": attackModeEnabled}
-              if attackModeActiveUntil is not None:
-                  payload["attackModeActiveUntil"] = attackModeActiveUntil
-              return payload
     - ref: request
       action: core.http_request
       args:
@@ -60,5 +43,5 @@ definition:
         params:
           teamId: ${{ inputs.teamId }}
           slug: ${{ inputs.slug }}
-        payload: ${{ steps.build_payload.result }}
+        payload: ${{ inputs.payload }}
   returns: ${{ steps.request.result }}

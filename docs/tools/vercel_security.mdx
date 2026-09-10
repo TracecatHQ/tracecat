@@ -440,23 +440,9 @@ Required secrets:
 
 ### Input fields
 
-<ParamField path="attackModeEnabled" type="boolean" required>
+<ParamField path="payload" type="object" required>
 
-Whether Attack Challenge mode is enabled for the project.
-
-</ParamField>
-
-<ParamField path="projectId" type="string" required>
-
-Project ID.
-
-</ParamField>
-
-<ParamField path="attackModeActiveUntil" type="number | null">
-
-Timestamp until which Attack Challenge mode remains active. Omit to leave the mode active until it is disabled.
-
-Default: `null`.
+API-native request body. Documented fields: projectId (required), attackModeEnabled (required), attackModeActiveUntil (timestamp; omit to leave the mode active until it is disabled).
 
 </ParamField>
 
