@@ -561,6 +561,13 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(rbac_roles_router)
     app.include_router(rbac_groups_router)
     app.include_router(rbac_assignments_router)
+
+    # EE-only SCIM connection token management - gated by RBAC entitlement
+    from tracecat_ee.scim.router import (
+        connections_router as scim_connections_router,
+    )
+
+    app.include_router(scim_connections_router)
     app.include_router(
         fastapi_users.get_users_router(UserRead, UserUpdate),
         prefix="/users",

@@ -22444,7 +22444,7 @@ export const $Role = {
   properties: {
     type: {
       type: "string",
-      enum: ["user", "service", "service_account"],
+      enum: ["user", "service", "service_account", "scim"],
       title: "Type",
     },
     workspace_id: {
@@ -22506,6 +22506,18 @@ export const $Role = {
         },
       ],
       title: "Service Account Id",
+    },
+    scim_connection_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Scim Connection Id",
     },
     service_id: {
       type: "string",
@@ -23476,6 +23488,81 @@ export const $ScheduleUpdate = {
   },
   type: "object",
   title: "ScheduleUpdate",
+} as const
+
+export const $ScimConnectionRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    preview: {
+      type: "string",
+      title: "Preview",
+    },
+    last_used_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Used At",
+    },
+    revoked_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Revoked At",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: ["id", "organization_id", "preview", "created_at", "updated_at"],
+  title: "ScimConnectionRead",
+  description:
+    "Status of an organization's SCIM connection. Never carries the token.",
+} as const
+
+export const $ScimConnectionTokenRead = {
+  properties: {
+    connection: {
+      $ref: "#/components/schemas/ScimConnectionRead",
+    },
+    token: {
+      type: "string",
+      title: "Token",
+    },
+  },
+  type: "object",
+  required: ["connection", "token"],
+  title: "ScimConnectionTokenRead",
+  description:
+    "A freshly issued token. The raw value is returned exactly once.",
 } as const
 
 export const $ScopeCreate = {

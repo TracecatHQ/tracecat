@@ -654,6 +654,9 @@ import type {
   SchedulesSearchSchedulesResponse,
   SchedulesUpdateScheduleData,
   SchedulesUpdateScheduleResponse,
+  ScimGetScimConnectionResponse,
+  ScimIssueScimTokenResponse,
+  ScimRevokeScimTokenResponse,
   SecretsCreateSecretData,
   SecretsCreateSecretResponse,
   SecretsDeleteSecretByIdData,
@@ -13293,6 +13296,50 @@ export const rbacDeleteAssignment = (
     },
   })
 }
+
+/**
+ * Get Scim Connection
+ * Read the SCIM connection status. Never returns the token.
+ * @returns ScimConnectionRead Successful Response
+ * @throws ApiError
+ */
+export const scimGetScimConnection =
+  (): CancelablePromise<ScimGetScimConnectionResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/scim/connection",
+    })
+  }
+
+/**
+ * Issue Scim Token
+ * Create or rotate the SCIM connection token.
+ *
+ * The raw token is returned only in this response.
+ * @returns ScimConnectionTokenRead Successful Response
+ * @throws ApiError
+ */
+export const scimIssueScimToken =
+  (): CancelablePromise<ScimIssueScimTokenResponse> => {
+    return __request(OpenAPI, {
+      method: "POST",
+      url: "/scim/connection",
+    })
+  }
+
+/**
+ * Revoke Scim Token
+ * Revoke the SCIM connection token.
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const scimRevokeScimToken =
+  (): CancelablePromise<ScimRevokeScimTokenResponse> => {
+    return __request(OpenAPI, {
+      method: "DELETE",
+      url: "/scim/connection",
+    })
+  }
 
 /**
  * Users:Current User

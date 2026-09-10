@@ -6820,12 +6820,13 @@ export type ResultMessage = {
  * - A service's `user_id` is the user it's acting on behalf of. This can be None for internal services.
  */
 export type Role = {
-  type: "user" | "service" | "service_account"
+  type: "user" | "service" | "service_account" | "scim"
   workspace_id?: string | null
   bound_workspace_id?: string | null
   organization_id?: string | null
   user_id?: string | null
   service_account_id?: string | null
+  scim_connection_id?: string | null
   service_id:
     | "tracecat-api"
     | "tracecat-bootstrap"
@@ -6845,7 +6846,7 @@ export type Role = {
   [key: string]: unknown | string | boolean
 }
 
-export type type4 = "user" | "service" | "service_account"
+export type type4 = "user" | "service" | "service_account" | "scim"
 
 export type service_id =
   | "tracecat-api"
@@ -7136,6 +7137,27 @@ export type ScheduleUpdate = {
    */
   end_at?: string | null
   status?: "online" | "offline" | null
+}
+
+/**
+ * Status of an organization's SCIM connection. Never carries the token.
+ */
+export type ScimConnectionRead = {
+  id: string
+  organization_id: string
+  preview: string
+  last_used_at?: string | null
+  revoked_at?: string | null
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * A freshly issued token. The raw value is returned exactly once.
+ */
+export type ScimConnectionTokenRead = {
+  connection: ScimConnectionRead
+  token: string
 }
 
 /**
@@ -14196,6 +14218,12 @@ export type RbacDeleteAssignmentData = {
 
 export type RbacDeleteAssignmentResponse = void
 
+export type ScimGetScimConnectionResponse = ScimConnectionRead
+
+export type ScimIssueScimTokenResponse = ScimConnectionTokenRead
+
+export type ScimRevokeScimTokenResponse = void
+
 export type UsersUsersCurrentUserResponse = UserRead
 
 export type UsersUsersPatchCurrentUserData = {
@@ -21003,6 +21031,32 @@ export type $OpenApiTs = {
          * Validation Error
          */
         422: HTTPValidationError
+      }
+    }
+  }
+  "/scim/connection": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ScimConnectionRead
+      }
+    }
+    post: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ScimConnectionTokenRead
+      }
+    }
+    delete: {
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
       }
     }
   }
