@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import Final
 
-from sqlalchemy import func, select, update
+from sqlalchemy import bindparam, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
@@ -32,9 +32,12 @@ async def deliver_next_invitation(
         select(OrganizationInvitation.id)
         .where(
             OrganizationInvitation.email_claimed_at.is_(None),
-            OrganizationInvitation.status == InvitationStatus.PENDING,
+            # Rendered inline so a generic plan can still prove the partial index.
+            OrganizationInvitation.status
+            == bindparam("pending", InvitationStatus.PENDING, literal_execute=True),
             OrganizationInvitation.expires_at > func.now(),
-            OrganizationInvitation.email_attempts < MAX_EMAIL_ATTEMPTS,
+            OrganizationInvitation.email_attempts
+            < bindparam("attempt_cap", MAX_EMAIL_ATTEMPTS, literal_execute=True),
         )
         .order_by(OrganizationInvitation.created_at)
         .limit(1)

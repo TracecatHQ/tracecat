@@ -51,7 +51,10 @@ def upgrade() -> None:
         INDEX_NAME,
         "organization_invitation",
         ["created_at"],
-        postgresql_where=sa.text("email_claimed_at IS NULL"),
+        # Exhausted and revoked rows keep a NULL claim; keep them out of the scan.
+        postgresql_where=sa.text(
+            "email_claimed_at IS NULL AND status = 'PENDING' AND email_attempts < 3"
+        ),
     )
 
 
