@@ -1690,7 +1690,10 @@ export function MCPIntegrationDialog({
                                           (integration) => {
                                             const provider = providers?.find(
                                               (p) =>
-                                                p.id === integration.provider_id
+                                                p.id ===
+                                                  integration.provider_id &&
+                                                p.grant_type ===
+                                                  integration.grant_type
                                             )
                                             return (
                                               <SelectItem

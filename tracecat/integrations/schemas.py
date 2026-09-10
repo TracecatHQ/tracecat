@@ -36,6 +36,7 @@ class IntegrationReadMinimal(BaseModel):
 
     id: UUID4
     provider_id: str
+    grant_type: OAuthGrantType
     status: IntegrationStatus
     is_expired: bool
 
