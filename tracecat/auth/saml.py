@@ -83,18 +83,20 @@ from tracecat.config import (
 )
 from tracecat.db.dependencies import AsyncDBSession, AsyncDBSessionBypass
 from tracecat.db.models import (
+    Invitation,
     OrganizationDomain,
-    OrganizationInvitation,
     OrganizationMembership,
     SAMLRequestData,
     User,
 )
 from tracecat.db.rls import set_rls_context
 from tracecat.identifiers import OrganizationID
-from tracecat.invitations.enums import InvitationStatus
+from tracecat.invitations.service import (
+    accept_invitation_for_user,
+    get_pending_invitation_for_email,
+)
 from tracecat.logger import logger
 from tracecat.organization.domains import normalize_domain
-from tracecat.organization.service import accept_invitation_for_user
 from tracecat.settings.service import get_setting
 
 router = APIRouter(prefix="/auth/saml", tags=["auth"])
@@ -406,28 +408,19 @@ def _extract_candidate_emails(parser: SAMLParser) -> list[str]:
 
 async def get_pending_org_invitation(
     session: AsyncSession, organization_id: OrganizationID, email: str
-) -> OrganizationInvitation | None:
+) -> Invitation | None:
     """Return a pending, unexpired org invitation for the email if one exists."""
     normalized_email = email.strip().lower()
     if not normalized_email:
         return None
-    statement = (
-        select(OrganizationInvitation)
-        .where(
-            OrganizationInvitation.organization_id == organization_id,
-            func.lower(OrganizationInvitation.email) == normalized_email,
-            OrganizationInvitation.status == InvitationStatus.PENDING,
-            OrganizationInvitation.expires_at > datetime.now(UTC),
-        )
-        .order_by(OrganizationInvitation.created_at.desc())
+    return await get_pending_invitation_for_email(
+        session, organization_id=organization_id, email=normalized_email
     )
-    result = await session.execute(statement)
-    return result.scalars().first()
 
 
 async def _select_authorized_email(
     session: AsyncSession, organization_id: OrganizationID, candidates: list[str]
-) -> tuple[str | None, OrganizationInvitation | None]:
+) -> tuple[str | None, Invitation | None]:
     """Pick the best SAML email candidate allowed by org policy.
 
     Selection order:
@@ -500,7 +493,7 @@ async def is_superadmin_saml_bootstrap_allowed_for_org(
 
 def should_allow_saml_user_auto_provisioning(
     *,
-    pending_invitation: OrganizationInvitation | None,
+    pending_invitation: Invitation | None,
     is_first_superadmin_bootstrap: bool,
 ) -> bool:
     """Allow SAML user creation only for invitees and first superadmin bootstrap."""
@@ -510,7 +503,7 @@ def should_allow_saml_user_auto_provisioning(
 def should_allow_saml_org_access(
     *,
     has_existing_membership: bool,
-    pending_invitation: OrganizationInvitation | None,
+    pending_invitation: Invitation | None,
     is_first_superadmin_bootstrap: bool,
     is_platform_superuser: bool,
 ) -> bool:
@@ -926,10 +919,8 @@ async def sso_acs(
             detail="Authentication failed",
         )
 
-    # Accept a pending org invitation so the user receives the role the inviter
-    # intended. This is idempotent: if single-tenant defaults already created an
-    # organization-member assignment (e.g. SSO auto-provisioning ran first), the
-    # upsert in accept_invitation_for_user upgrades the role to invitation.role_id.
+    # Accept a pending org invitation so the user receives the grants the inviter
+    # intended. An assignment the user already holds at a scope is left in place.
     if pending_invitation is not None:
         try:
             await accept_invitation_for_user(
