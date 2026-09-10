@@ -7,7 +7,7 @@ from typing import Any
 from typing import cast as type_cast
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -47,7 +47,7 @@ from tracecat.exceptions import (
     TracecatValidationError,
 )
 from tracecat.invitations.enums import InvitationStatus
-from tracecat.invitations.service import RESEND_COOLDOWN
+from tracecat.invitations.service import RESEND_COOLDOWN, reset_invitation_email
 from tracecat.organization.service import OrgService, accept_invitation_for_user
 
 
@@ -1684,6 +1684,39 @@ class TestOrganizationServiceInvitations:
         assert resent.email_claimed_at is None
         assert resent.email_sent_at == emailed_at
         assert resent.email_attempts == 0
+
+    @pytest.mark.anyio
+    async def test_reset_invitation_email_reports_concurrent_status_change(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+        org1_member_role: DBRole,
+        smtp_configured: None,
+    ):
+        """A row revoked after the preflight is reported as a status error, not a cooldown."""
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = OrgService(session, role=role)
+
+        invitation = await service.create_invitation(
+            email="resend-race@example.com", role_id=org1_member_role.id
+        )
+        invitation.email_claimed_at = datetime.now(UTC) - timedelta(minutes=5)
+        invitation.email_sent_at = datetime.now(UTC) - timedelta(minutes=5)
+        await session.commit()
+
+        # Another request revokes the row after this one loaded it as pending.
+        await session.execute(
+            update(OrganizationInvitation)
+            .where(OrganizationInvitation.id == invitation.id)
+            .values(status=InvitationStatus.REVOKED)
+            # Keep the loaded instance stale so the preflight still sees PENDING.
+            .execution_options(synchronize_session=False)
+        )
+        assert invitation.status == InvitationStatus.PENDING
+
+        with pytest.raises(TracecatValidationError, match="status"):
+            await reset_invitation_email(session, invitation)
 
     @pytest.mark.anyio
     async def test_resend_invitation_unknown_id_raises(

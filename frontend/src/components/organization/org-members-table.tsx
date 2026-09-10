@@ -443,7 +443,10 @@ export function OrgMembersTable() {
                                       const apiError = error as TracecatApiError
                                       if (apiError.status === 409) {
                                         toast({
-                                          title: "Sent less than a minute ago",
+                                          title:
+                                            "You just sent an invitation email",
+                                          description:
+                                            "Please try again shortly.",
                                         })
                                         return
                                       }
