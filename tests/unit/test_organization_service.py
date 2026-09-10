@@ -43,6 +43,9 @@ from tracecat.db.models import (
     Workspace,
 )
 from tracecat.db.models import (
+    InvitationGrant as InvitationGrantRow,
+)
+from tracecat.db.models import (
     Role as DBRole,
 )
 from tracecat.exceptions import (
@@ -50,13 +53,11 @@ from tracecat.exceptions import (
     TracecatValidationError,
 )
 from tracecat.invitations.enums import InvitationStatus
-from tracecat.invitations.schemas import InvitationCreate, InvitationGrantCreate
+from tracecat.invitations.schemas import InvitationCreate, InvitationGrant
 from tracecat.invitations.service import (
     InvitationService,
     accept_invitation_for_user,
-)
-from tracecat.invitations.service import (
-    get_invitation_by_token as resolve_invitation_by_token,
+    find_invitation_by_token,
 )
 from tracecat.organization.service import OrgService
 
@@ -1077,12 +1078,12 @@ class TestOrganizationServiceInvitations:
         invitation = await service.create_invitation(
             InvitationCreate(
                 email="newuser@example.com",
-                grants=[InvitationGrantCreate(role_id=org1_member_role.id)],
+                grants=[InvitationGrant(role_id=org1_member_role.id)],
             )
         )
 
         assert invitation.email == "newuser@example.com"
-        assert invitation.role_id == org1_member_role.id
+        assert invitation.grants[0].role_id == org1_member_role.id
         assert invitation.organization_id == org1.id
         assert invitation.invited_by == admin_in_org1.id
         assert invitation.status == InvitationStatus.PENDING
@@ -1104,11 +1105,11 @@ class TestOrganizationServiceInvitations:
         invitation = await service.create_invitation(
             InvitationCreate(
                 email="newadmin@example.com",
-                grants=[InvitationGrantCreate(role_id=org1_admin_role.id)],
+                grants=[InvitationGrant(role_id=org1_admin_role.id)],
             )
         )
 
-        assert invitation.role_id == org1_admin_role.id
+        assert invitation.grants[0].role_id == org1_admin_role.id
 
     @pytest.mark.anyio
     async def test_create_owner_invitation_requires_owner_or_superuser(
@@ -1134,7 +1135,7 @@ class TestOrganizationServiceInvitations:
             await service.create_invitation(
                 InvitationCreate(
                     email="newowner@example.com",
-                    grants=[InvitationGrantCreate(role_id=org1_owner_role.id)],
+                    grants=[InvitationGrant(role_id=org1_owner_role.id)],
                 )
             )
 
@@ -1161,9 +1162,7 @@ class TestOrganizationServiceInvitations:
             await service.create_invitation(
                 InvitationCreate(
                     email="escalated@example.com",
-                    grants=[
-                        InvitationGrantCreate(role_id=org1_privileged_custom_role.id)
-                    ],
+                    grants=[InvitationGrant(role_id=org1_privileged_custom_role.id)],
                 )
             )
 
@@ -1182,11 +1181,11 @@ class TestOrganizationServiceInvitations:
         invitation = await service.create_invitation(
             InvitationCreate(
                 email="newowner@example.com",
-                grants=[InvitationGrantCreate(role_id=org1_privileged_custom_role.id)],
+                grants=[InvitationGrant(role_id=org1_privileged_custom_role.id)],
             )
         )
 
-        assert invitation.role_id == org1_privileged_custom_role.id
+        assert invitation.grants[0].role_id == org1_privileged_custom_role.id
 
     @pytest.mark.anyio
     async def test_superuser_can_create_owner_invitation(
@@ -1203,11 +1202,11 @@ class TestOrganizationServiceInvitations:
         invitation = await service.create_invitation(
             InvitationCreate(
                 email="newowner@example.com",
-                grants=[InvitationGrantCreate(role_id=org1_owner_role.id)],
+                grants=[InvitationGrant(role_id=org1_owner_role.id)],
             )
         )
 
-        assert invitation.role_id == org1_owner_role.id
+        assert invitation.grants[0].role_id == org1_owner_role.id
         assert invitation.email == "newowner@example.com"
 
     @pytest.mark.anyio
@@ -1225,7 +1224,7 @@ class TestOrganizationServiceInvitations:
         await service.create_invitation(
             InvitationCreate(
                 email="duplicate@example.com",
-                grants=[InvitationGrantCreate(role_id=org1_member_role.id)],
+                grants=[InvitationGrant(role_id=org1_member_role.id)],
             )
         )
 
@@ -1236,7 +1235,7 @@ class TestOrganizationServiceInvitations:
             await service.create_invitation(
                 InvitationCreate(
                     email="duplicate@example.com",
-                    grants=[InvitationGrantCreate(role_id=org1_member_role.id)],
+                    grants=[InvitationGrant(role_id=org1_member_role.id)],
                 )
             )
 
@@ -1256,7 +1255,7 @@ class TestOrganizationServiceInvitations:
         invitation = await service.create_invitation(
             InvitationCreate(
                 email="expired@example.com",
-                grants=[InvitationGrantCreate(role_id=org1_member_role.id)],
+                grants=[InvitationGrant(role_id=org1_member_role.id)],
             )
         )
         old_id = invitation.id
@@ -1269,7 +1268,7 @@ class TestOrganizationServiceInvitations:
         new_invitation = await service.create_invitation(
             InvitationCreate(
                 email="expired@example.com",
-                grants=[InvitationGrantCreate(role_id=org1_member_role.id)],
+                grants=[InvitationGrant(role_id=org1_member_role.id)],
             )
         )
 
@@ -1297,7 +1296,7 @@ class TestOrganizationServiceInvitations:
             await service.create_invitation(
                 InvitationCreate(
                     email=admin_in_org1.email,
-                    grants=[InvitationGrantCreate(role_id=org1_member_role.id)],
+                    grants=[InvitationGrant(role_id=org1_member_role.id)],
                 )
             )
 
@@ -1330,7 +1329,7 @@ class TestOrganizationServiceInvitations:
         invitation = await service.create_invitation(
             InvitationCreate(
                 email=superuser.email,
-                grants=[InvitationGrantCreate(role_id=org1_member_role.id)],
+                grants=[InvitationGrant(role_id=org1_member_role.id)],
             )
         )
 
@@ -1356,13 +1355,13 @@ class TestOrganizationServiceInvitations:
         inv1 = await service.create_invitation(
             InvitationCreate(
                 email="user1@example.com",
-                grants=[InvitationGrantCreate(role_id=org1_member_role.id)],
+                grants=[InvitationGrant(role_id=org1_member_role.id)],
             )
         )
         inv2 = await service.create_invitation(
             InvitationCreate(
                 email="user2@example.com",
-                grants=[InvitationGrantCreate(role_id=org1_member_role.id)],
+                grants=[InvitationGrant(role_id=org1_member_role.id)],
             )
         )
 
@@ -1371,12 +1370,11 @@ class TestOrganizationServiceInvitations:
         await session.flush()
         org2_invitation = Invitation(
             organization_id=org2.id,
-            workspace_id=None,
             email="org2user@example.com",
-            role_id=org2_role.id,
             token=secrets.token_urlsafe(32),
             expires_at=datetime.now(UTC) + timedelta(days=7),
             status=InvitationStatus.PENDING,
+            grants=[InvitationGrantRow(organization_id=org2.id, role_id=org2_role.id)],
         )
         session.add(org2_invitation)
         await session.commit()
@@ -1406,7 +1404,7 @@ class TestOrganizationServiceInvitations:
         pending_inv = await service.create_invitation(
             InvitationCreate(
                 email="pending@example.com",
-                grants=[InvitationGrantCreate(role_id=org1_member_role.id)],
+                grants=[InvitationGrant(role_id=org1_member_role.id)],
             )
         )
 
@@ -1414,7 +1412,7 @@ class TestOrganizationServiceInvitations:
         revoked_inv = await service.create_invitation(
             InvitationCreate(
                 email="revoked@example.com",
-                grants=[InvitationGrantCreate(role_id=org1_member_role.id)],
+                grants=[InvitationGrant(role_id=org1_member_role.id)],
             )
         )
         await service.revoke_invitation(revoked_inv.id)
@@ -1448,11 +1446,11 @@ class TestOrganizationServiceInvitations:
         invitation = await service.create_invitation(
             InvitationCreate(
                 email="test@example.com",
-                grants=[InvitationGrantCreate(role_id=org1_member_role.id)],
+                grants=[InvitationGrant(role_id=org1_member_role.id)],
             )
         )
 
-        retrieved = await resolve_invitation_by_token(session, invitation.token)
+        retrieved = await find_invitation_by_token(session, invitation.token)
         assert retrieved is not None
 
         assert retrieved.id == invitation.id
@@ -1478,12 +1476,12 @@ class TestOrganizationServiceInvitations:
         invitation = await service.create_invitation(
             InvitationCreate(
                 email="test@example.com",
-                grants=[InvitationGrantCreate(role_id=org1_member_role.id)],
+                grants=[InvitationGrant(role_id=org1_member_role.id)],
             )
         )
 
         # Get invitation by token
-        retrieved = await resolve_invitation_by_token(session, invitation.token)
+        retrieved = await find_invitation_by_token(session, invitation.token)
         assert retrieved is not None
 
         # Verify organization info is available
@@ -1514,7 +1512,7 @@ class TestOrganizationServiceInvitations:
         admin_in_org1: User,
     ):
         """Token lookup returns None for an unknown token."""
-        assert await resolve_invitation_by_token(session, "invalid-token") is None
+        assert await find_invitation_by_token(session, "invalid-token") is None
 
     @pytest.mark.anyio
     async def test_revoke_invitation(
@@ -1531,7 +1529,7 @@ class TestOrganizationServiceInvitations:
         invitation = await service.create_invitation(
             InvitationCreate(
                 email="test@example.com",
-                grants=[InvitationGrantCreate(role_id=org1_member_role.id)],
+                grants=[InvitationGrant(role_id=org1_member_role.id)],
             )
         )
         assert invitation.status == InvitationStatus.PENDING
@@ -1555,7 +1553,7 @@ class TestOrganizationServiceInvitations:
         invitation = await service.create_invitation(
             InvitationCreate(
                 email="test@example.com",
-                grants=[InvitationGrantCreate(role_id=org1_member_role.id)],
+                grants=[InvitationGrant(role_id=org1_member_role.id)],
             )
         )
         await service.revoke_invitation(invitation.id)
@@ -1579,12 +1577,11 @@ class TestOrganizationServiceInvitations:
         await session.flush()
         org2_invitation = Invitation(
             organization_id=org2.id,
-            workspace_id=None,
             email="org2user@example.com",
-            role_id=org2_role.id,
             token=secrets.token_urlsafe(32),
             expires_at=datetime.now(UTC) + timedelta(days=7),
             status=InvitationStatus.PENDING,
+            grants=[InvitationGrantRow(organization_id=org2.id, role_id=org2_role.id)],
         )
         session.add(org2_invitation)
         await session.commit()
@@ -1613,20 +1610,13 @@ class TestOrganizationServiceInvitations:
         invitation = await admin_service.create_invitation(
             InvitationCreate(
                 email=user_in_org2.email,
-                grants=[InvitationGrantCreate(role_id=org1_member_role.id)],
+                grants=[InvitationGrant(role_id=org1_member_role.id)],
             )
         )
 
-        # Accept as user_in_org2
-        user_role = Role(
-            type="user",
-            user_id=user_in_org2.id,
-            organization_id=org2.id,
-            service_id="tracecat-api",
-            scopes=ORG_MEMBER_SCOPES,
+        accepted = await accept_invitation_for_user(
+            session, user_id=user_in_org2.id, token=invitation.token
         )
-        user_service = InvitationService(session, role=user_role)
-        accepted = await user_service.accept_invitation(invitation.token)
 
         assert accepted.id == invitation.id
         assert await _is_org_member(session, user_in_org2.id, org1.id)
@@ -1684,13 +1674,13 @@ class TestOrganizationServiceInvitations:
         standalone_invitation = await admin_service.create_invitation(
             InvitationCreate(
                 email=standalone_superuser.email,
-                grants=[InvitationGrantCreate(role_id=org1_member_role.id)],
+                grants=[InvitationGrant(role_id=org1_member_role.id)],
             )
         )
         service_invitation = await admin_service.create_invitation(
             InvitationCreate(
                 email=service_superuser.email,
-                grants=[InvitationGrantCreate(role_id=org1_member_role.id)],
+                grants=[InvitationGrant(role_id=org1_member_role.id)],
             )
         )
 
@@ -1701,15 +1691,9 @@ class TestOrganizationServiceInvitations:
         )
         assert await _is_org_member(session, standalone_superuser.id, org1.id)
 
-        user_role = Role(
-            type="user",
-            user_id=service_superuser.id,
-            organization_id=org2.id,
-            service_id="tracecat-api",
-            scopes=ORG_MEMBER_SCOPES,
+        await accept_invitation_for_user(
+            session, user_id=service_superuser.id, token=service_invitation.token
         )
-        user_service = InvitationService(session, role=user_role)
-        await user_service.accept_invitation(service_invitation.token)
         assert await _is_org_member(session, service_superuser.id, org1.id)
 
     @pytest.mark.anyio
@@ -1750,13 +1734,13 @@ class TestOrganizationServiceInvitations:
         standalone_invitation = await admin_service.create_invitation(
             InvitationCreate(
                 email=standalone_superuser.email,
-                grants=[InvitationGrantCreate(role_id=org1_member_role.id)],
+                grants=[InvitationGrant(role_id=org1_member_role.id)],
             )
         )
         service_invitation = await admin_service.create_invitation(
             InvitationCreate(
                 email=service_superuser.email,
-                grants=[InvitationGrantCreate(role_id=org1_member_role.id)],
+                grants=[InvitationGrant(role_id=org1_member_role.id)],
             )
         )
 
@@ -1767,15 +1751,9 @@ class TestOrganizationServiceInvitations:
         )
         assert await _is_org_member(session, standalone_superuser.id, org1.id)
 
-        user_role = Role(
-            type="user",
-            user_id=service_superuser.id,
-            organization_id=org2.id,
-            service_id="tracecat-api",
-            scopes=ORG_MEMBER_SCOPES,
+        await accept_invitation_for_user(
+            session, user_id=service_superuser.id, token=service_invitation.token
         )
-        user_service = InvitationService(session, role=user_role)
-        await user_service.accept_invitation(service_invitation.token)
         assert await _is_org_member(session, service_superuser.id, org1.id)
 
     @pytest.mark.anyio
@@ -1795,23 +1773,19 @@ class TestOrganizationServiceInvitations:
         invitation = await admin_service.create_invitation(
             InvitationCreate(
                 email=user_in_org2.email,
-                grants=[InvitationGrantCreate(role_id=org1_member_role.id)],
+                grants=[InvitationGrant(role_id=org1_member_role.id)],
             )
         )
 
-        user_role = Role(
-            type="user",
-            user_id=user_in_org2.id,
-            organization_id=org2.id,
-            service_id="tracecat-api",
-            scopes=ORG_MEMBER_SCOPES,
+        await accept_invitation_for_user(
+            session, user_id=user_in_org2.id, token=invitation.token
         )
-        user_service = InvitationService(session, role=user_role)
-        await user_service.accept_invitation(invitation.token)
 
         # Try to accept again with the same user
         with pytest.raises(TracecatAuthorizationError, match="already been accepted"):
-            await user_service.accept_invitation(invitation.token)
+            await accept_invitation_for_user(
+                session, user_id=user_in_org2.id, token=invitation.token
+            )
 
     @pytest.mark.anyio
     async def test_accept_invitation_email_mismatch_raises(
@@ -1830,7 +1804,7 @@ class TestOrganizationServiceInvitations:
         invitation = await admin_service.create_invitation(
             InvitationCreate(
                 email=user_in_org2.email,
-                grants=[InvitationGrantCreate(role_id=org1_member_role.id)],
+                grants=[InvitationGrant(role_id=org1_member_role.id)],
             )
         )
 
@@ -1847,21 +1821,13 @@ class TestOrganizationServiceInvitations:
         session.add(different_user)
         await session.commit()
 
-        # Try to accept with different user (email mismatch)
-        different_role = Role(
-            type="user",
-            user_id=different_user.id,
-            organization_id=org2.id,
-            service_id="tracecat-api",
-            scopes=ORG_MEMBER_SCOPES,
-        )
-        different_service = InvitationService(session, role=different_role)
-
         with pytest.raises(
             TracecatAuthorizationError,
             match="invitation was sent to a different email address",
         ):
-            await different_service.accept_invitation(invitation.token)
+            await accept_invitation_for_user(
+                session, user_id=different_user.id, token=invitation.token
+            )
 
     @pytest.mark.anyio
     async def test_accept_invitation_revoked_raises(
@@ -1880,20 +1846,12 @@ class TestOrganizationServiceInvitations:
         invitation = await admin_service.create_invitation(
             InvitationCreate(
                 email=user_in_org2.email,
-                grants=[InvitationGrantCreate(role_id=org1_member_role.id)],
+                grants=[InvitationGrant(role_id=org1_member_role.id)],
             )
         )
         await admin_service.revoke_invitation(invitation.id)
 
-        # Try to accept
-        user_role = Role(
-            type="user",
-            user_id=user_in_org2.id,
-            organization_id=org2.id,
-            service_id="tracecat-api",
-            scopes=ORG_MEMBER_SCOPES,
-        )
-        user_service = InvitationService(session, role=user_role)
-
         with pytest.raises(TracecatAuthorizationError, match="has been revoked"):
-            await user_service.accept_invitation(invitation.token)
+            await accept_invitation_for_user(
+                session, user_id=user_in_org2.id, token=invitation.token
+            )

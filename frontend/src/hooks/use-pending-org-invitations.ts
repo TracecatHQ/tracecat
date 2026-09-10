@@ -1,7 +1,7 @@
 "use client"
 
 import {
-  organizationListMyPendingInvitations,
+  invitationsListMyPendingInvitations,
   type PendingInvitationRead,
 } from "@/client"
 import { useQuery } from "@/lib/query"
@@ -13,7 +13,7 @@ export function usePendingOrgInvitations() {
     error: pendingInvitationsError,
   } = useQuery<PendingInvitationRead[]>({
     queryKey: ["pending-org-invitations"],
-    queryFn: organizationListMyPendingInvitations,
+    queryFn: invitationsListMyPendingInvitations,
     retry: false,
   })
 

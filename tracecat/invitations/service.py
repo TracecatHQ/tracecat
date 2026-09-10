@@ -13,7 +13,7 @@ import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import and_, func, select, update
+from sqlalchemy import and_, exists, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -25,11 +25,10 @@ from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.authz.service import resolve_grantable_role
 from tracecat.db.models import (
+    GroupMember,
+    GroupRoleAssignment,
     Invitation,
     InvitationGrant,
-    LegacyMembership,
-    LegacyOrganizationInvitation,
-    LegacyOrganizationMembership,
     OrganizationMembership,
     User,
     UserRoleAssignment,
@@ -43,174 +42,207 @@ from tracecat.exceptions import (
 )
 from tracecat.identifiers import OrganizationID, UserID
 from tracecat.invitations.enums import InvitationStatus
-from tracecat.invitations.schemas import InvitationCreate, InvitationGrantCreate
+from tracecat.invitations.schemas import InvitationCreate
 from tracecat.service import BaseOrgService
 
 INVITATION_TTL = timedelta(days=7)
 ORG_MEMBER_ROLE_SLUG = "organization-member"
-
-# Preset roles are scoped by slug; custom roles are org-scoped unless workspace-only.
-WORKSPACE_PRESET_ROLE_SLUGS = frozenset(
-    {"workspace-admin", "workspace-editor", "workspace-viewer"}
-)
-ORG_PRESET_ROLE_SLUGS = frozenset(
-    {"organization-owner", "organization-admin", ORG_MEMBER_ROLE_SLUG}
-)
 
 
 def _generate_token() -> str:
     return secrets.token_urlsafe(48)[:64]
 
 
-def _ensure_role_scope_matches(role: DBRole, workspace_id: uuid.UUID | None) -> None:
-    """Reject a grant whose role scope does not match its target."""
-    if role.slug in WORKSPACE_PRESET_ROLE_SLUGS and workspace_id is None:
-        raise TracecatValidationError(
-            f"Role '{role.name}' is workspace-scoped and requires a workspace"
-        )
-    if role.slug in ORG_PRESET_ROLE_SLUGS and workspace_id is not None:
-        raise TracecatValidationError(
-            f"Role '{role.name}' is organization-scoped and cannot target a workspace"
-        )
+# --- Create
 
 
-def invitation_read_options():
-    """Eager-load options for grant role and workspace names."""
-    return (
-        selectinload(Invitation.grants).options(
-            selectinload(InvitationGrant.role_obj),
-            selectinload(InvitationGrant.workspace),
-        ),
-    )
-
-
-async def _fetch_invitation(
-    session: AsyncSession, invitation_id: uuid.UUID
+async def create_invitation_row(
+    session: AsyncSession,
+    *,
+    organization_id: OrganizationID,
+    params: InvitationCreate,
+    invited_by: UserID | None,
+    created_by_platform_admin: bool,
 ) -> Invitation:
-    result = await session.execute(
-        select(Invitation)
-        .where(Invitation.id == invitation_id)
-        .options(*invitation_read_options())
-    )
-    return result.scalar_one()
+    """Insert an invitation and its grants. Roles must already be validated.
 
+    Does not commit.
 
-async def get_invitation_by_token(
-    session: AsyncSession, token: str
-) -> Invitation | None:
-    """Resolve an invitation by token, with grants loaded.
-
-    Unauthenticated callers use this for the accept page.
+    Raises:
+        TracecatValidationError: If the email is already an org member or a
+            pending unexpired invitation already exists.
     """
-    result = await session.execute(
-        select(Invitation)
-        .where(Invitation.token == token)
-        .options(*invitation_read_options(), selectinload(Invitation.organization))
-    )
-    return result.scalar_one_or_none()
-
-
-async def _org_member_role_id(
-    session: AsyncSession, organization_id: OrganizationID
-) -> uuid.UUID | None:
-    return (
+    email = params.email
+    existing_member = (
         await session.execute(
-            select(DBRole.id).where(
-                DBRole.organization_id == organization_id,
-                DBRole.slug == ORG_MEMBER_ROLE_SLUG,
+            select(OrganizationMembership)
+            .join(User, OrganizationMembership.user_id == User.id)
+            .where(
+                OrganizationMembership.organization_id == organization_id,
+                func.lower(User.email) == email.lower(),
             )
         )
     ).scalar_one_or_none()
+    if existing_member is not None:
+        raise TracecatValidationError(
+            f"{email} is already a member of this organization"
+        )
+
+    existing = (
+        (
+            await session.execute(
+                select(Invitation)
+                .where(
+                    Invitation.organization_id == organization_id,
+                    func.lower(Invitation.email) == email.lower(),
+                )
+                .options(selectinload(Invitation.grants))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    now = datetime.now(UTC)
+    for row in existing:
+        if (
+            row.status == InvitationStatus.PENDING
+            and row.expires_at >= now
+            and row.grants
+        ):
+            raise TracecatValidationError(
+                f"An invitation already exists for {email} in this organization"
+            )
+        # Expired, revoked, accepted or grantless rows are replaced.
+        await session.delete(row)
+    if existing:
+        await session.flush()
+
+    invitation = Invitation(
+        organization_id=organization_id,
+        email=email,
+        invited_by=invited_by,
+        token=_generate_token(),
+        expires_at=now + INVITATION_TTL,
+        status=InvitationStatus.PENDING,
+        created_by_platform_admin=created_by_platform_admin,
+        grants=[
+            InvitationGrant(
+                organization_id=organization_id,
+                workspace_id=grant.workspace_id,
+                role_id=grant.role_id,
+            )
+            for grant in params.grants
+        ],
+    )
+    session.add(invitation)
+    await session.flush()
+    return invitation
+
+
+async def validate_grants(
+    session: AsyncSession,
+    role: Role,
+    organization_id: OrganizationID,
+    params: InvitationCreate,
+) -> None:
+    """Validate every grant's role and workspace."""
+    grants = params.grants
+    workspace_ids = {g.workspace_id for g in grants if g.workspace_id is not None}
+    if workspace_ids:
+        found = set(
+            (
+                await session.execute(
+                    select(Workspace.id).where(
+                        Workspace.id.in_(workspace_ids),
+                        Workspace.organization_id == organization_id,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if missing := workspace_ids - found:
+            raise TracecatValidationError(
+                f"Workspace not found in this organization: {sorted(map(str, missing))}"
+            )
+
+    for grant in grants:
+        try:
+            await resolve_grantable_role(session, role, organization_id, grant.role_id)
+        except TracecatNotFoundError as e:
+            raise TracecatValidationError(
+                "Invalid role ID for this organization"
+            ) from e
+
+
+# --- Accept
 
 
 async def _apply_grants(
     session: AsyncSession,
     *,
-    invitation: Invitation,
+    organization_id: OrganizationID,
     user_id: UserID,
+    grants: Sequence[InvitationGrant],
 ) -> None:
-    """Insert one assignment per grant, then org presence if still absent.
+    """Insert one assignment per grant, then the baseline org role if the user holds none.
 
     Existing assignments are never overwritten: a grant the user already holds
     at that scope is skipped.
     """
-    organization_id = invitation.organization_id
-
-    # Derived org presence covers group paths, so a group-only member keeps
-    # their indirect grant instead of gaining a direct org role.
-    needs_org_assignment = (
-        await session.execute(
-            select(OrganizationMembership.user_id).where(
-                OrganizationMembership.user_id == user_id,
-                OrganizationMembership.organization_id == organization_id,
-            )
+    for grant in grants:
+        stmt = pg_insert(UserRoleAssignment).values(
+            organization_id=organization_id,
+            user_id=user_id,
+            workspace_id=grant.workspace_id,
+            role_id=grant.role_id,
         )
-    ).scalar_one_or_none() is None
-
-    grants_confer_org_role = False
-    for grant in invitation.grants:
         if grant.workspace_id is None:
-            grants_confer_org_role = True
-            await session.execute(
-                pg_insert(UserRoleAssignment)
-                .values(
-                    organization_id=organization_id,
-                    user_id=user_id,
-                    workspace_id=None,
-                    role_id=grant.role_id,
-                )
-                .on_conflict_do_nothing(
-                    index_elements=[
-                        UserRoleAssignment.organization_id,
-                        UserRoleAssignment.user_id,
-                    ],
-                    index_where=UserRoleAssignment.workspace_id.is_(None),
-                )
+            stmt = stmt.on_conflict_do_nothing(
+                index_elements=[
+                    UserRoleAssignment.organization_id,
+                    UserRoleAssignment.user_id,
+                ],
+                index_where=UserRoleAssignment.workspace_id.is_(None),
             )
-            # Written for app versions that still read the legacy table.
-            await session.execute(
-                pg_insert(LegacyOrganizationMembership)
-                .values(user_id=user_id, organization_id=organization_id)
-                .on_conflict_do_nothing(
-                    index_elements=[
-                        LegacyOrganizationMembership.user_id,
-                        LegacyOrganizationMembership.organization_id,
-                    ]
-                )
-            )
-            continue
-
-        await session.execute(
-            pg_insert(UserRoleAssignment)
-            .values(
-                organization_id=organization_id,
-                user_id=user_id,
-                workspace_id=grant.workspace_id,
-                role_id=grant.role_id,
-            )
-            .on_conflict_do_nothing(
+        else:
+            stmt = stmt.on_conflict_do_nothing(
                 index_elements=[
                     UserRoleAssignment.user_id,
                     UserRoleAssignment.workspace_id,
                 ]
             )
-        )
-        # Written for app versions that still read the legacy table.
-        await session.execute(
-            pg_insert(LegacyMembership)
-            .values(user_id=user_id, workspace_id=grant.workspace_id)
-            .on_conflict_do_nothing(
-                index_elements=[LegacyMembership.user_id, LegacyMembership.workspace_id]
-            )
-        )
+        await session.execute(stmt)
 
-    if not needs_org_assignment or grants_confer_org_role:
+    # Any org-wide role, direct or via a group, is enough; otherwise grant the baseline.
+    direct = select(UserRoleAssignment.id).where(
+        UserRoleAssignment.user_id == user_id,
+        UserRoleAssignment.organization_id == organization_id,
+        UserRoleAssignment.workspace_id.is_(None),
+    )
+    via_group = (
+        select(GroupRoleAssignment.id)
+        .join(GroupMember, GroupMember.group_id == GroupRoleAssignment.group_id)
+        .where(
+            GroupMember.user_id == user_id,
+            GroupRoleAssignment.organization_id == organization_id,
+            GroupRoleAssignment.workspace_id.is_(None),
+        )
+    )
+    has_org_role = (
+        await session.execute(select(or_(exists(direct), exists(via_group))))
+    ).scalar_one()
+    if has_org_role:
         return
 
-    # A user invited only to workspaces may not be in the org yet.
-    org_member_role_id = await _org_member_role_id(session, organization_id)
-    if org_member_role_id is None:
-        return
+    org_member_role_id = (
+        select(DBRole.id)
+        .where(
+            DBRole.organization_id == organization_id,
+            DBRole.slug == ORG_MEMBER_ROLE_SLUG,
+        )
+        .scalar_subquery()
+    )
     await session.execute(
         pg_insert(UserRoleAssignment)
         .values(
@@ -227,16 +259,6 @@ async def _apply_grants(
             index_where=UserRoleAssignment.workspace_id.is_(None),
         )
     )
-    await session.execute(
-        pg_insert(LegacyOrganizationMembership)
-        .values(user_id=user_id, organization_id=organization_id)
-        .on_conflict_do_nothing(
-            index_elements=[
-                LegacyOrganizationMembership.user_id,
-                LegacyOrganizationMembership.organization_id,
-            ]
-        )
-    )
 
 
 async def _claim_pending(session: AsyncSession, invitation: Invitation) -> None:
@@ -251,15 +273,6 @@ async def _claim_pending(session: AsyncSession, invitation: Invitation) -> None:
         .values(status=InvitationStatus.ACCEPTED, accepted_at=now)
     )
     if update_result.rowcount != 0:  # pyright: ignore[reportAttributeAccessIssue]
-        # Old pods read organization_invitation; keep the copied twin's status in step.
-        await session.execute(
-            update(LegacyOrganizationInvitation)
-            .where(
-                LegacyOrganizationInvitation.id == invitation.id,
-                LegacyOrganizationInvitation.status == InvitationStatus.PENDING,
-            )
-            .values(status=InvitationStatus.ACCEPTED, accepted_at=now)
-        )
         return
 
     # Status changed between fetch and update - re-fetch for an accurate error
@@ -287,7 +300,7 @@ async def accept_invitation_for_user(
         TracecatAuthorizationError: If the invitation is expired, revoked, already
             accepted, or the user's email doesn't match the invitation email.
     """
-    invitation = await get_invitation_by_token(session, token)
+    invitation = await find_invitation_by_token(session, token)
     if invitation is None:
         raise TracecatNotFoundError("Invitation not found")
 
@@ -302,8 +315,8 @@ async def accept_invitation_for_user(
         )
     if invitation.expires_at < datetime.now(UTC):
         raise TracecatAuthorizationError("Invitation has expired")
+    # A grant whose workspace or role was deleted is gone by foreign key.
     if not invitation.grants:
-        # No grants left to confer (workspace deleted, or written by an older version).
         raise TracecatAuthorizationError("Invitation is no longer valid")
 
     audit_role = Role(
@@ -322,7 +335,12 @@ async def accept_invitation_for_user(
 
     try:
         await _claim_pending(session, invitation)
-        await _apply_grants(session, invitation=invitation, user_id=user_id)
+        await _apply_grants(
+            session,
+            organization_id=invitation.organization_id,
+            user_id=user_id,
+            grants=invitation.grants,
+        )
         await session.commit()
     except TracecatAuthorizationError:
         # Expected user errors are not audit failures.
@@ -347,110 +365,11 @@ async def accept_invitation_for_user(
     return invitation
 
 
-async def lock_invitation_email(
-    session: AsyncSession, *, organization_id: OrganizationID, email: str
-) -> None:
-    """Serialize invitation creation per (org, email) for this transaction."""
-    # No unique index because legacy rows may be duplicated.
-    await session.execute(
-        select(
-            func.pg_advisory_xact_lock(
-                func.hashtextextended(
-                    f"invitation-create:{organization_id}:{email.lower()}", 0
-                )
-            )
-        )
-    )
-
-
-async def create_invitation_row(
-    session: AsyncSession,
-    *,
-    organization_id: OrganizationID,
-    email: str,
-    grants: Sequence[InvitationGrantCreate],
-    invited_by: UserID | None,
-    created_by_platform_admin: bool,
-) -> Invitation:
-    """Insert an invitation and its grants. Roles must already be validated.
-
-    Does not commit.
-
-    Raises:
-        TracecatValidationError: If the email is already an org member or a
-            pending unexpired invitation already exists.
-    """
-    await lock_invitation_email(session, organization_id=organization_id, email=email)
-
-    existing_member = (
-        await session.execute(
-            select(OrganizationMembership)
-            .join(User, OrganizationMembership.user_id == User.id)
-            .where(
-                OrganizationMembership.organization_id == organization_id,
-                func.lower(User.email) == email.lower(),
-            )
-        )
-    ).scalar_one_or_none()
-    if existing_member is not None:
-        raise TracecatValidationError(
-            f"{email} is already a member of this organization"
-        )
-
-    existing = (
-        (
-            await session.execute(
-                select(Invitation).where(
-                    Invitation.organization_id == organization_id,
-                    func.lower(Invitation.email) == email.lower(),
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-    now = datetime.now(UTC)
-    for row in existing:
-        if row.status == InvitationStatus.PENDING and row.expires_at >= now:
-            raise TracecatValidationError(
-                f"An invitation already exists for {email} in this organization"
-            )
-        # Expired, revoked or accepted rows are replaced.
-        await session.delete(row)
-    if existing:
-        await session.flush()
-
-    # workspace_id and role_id mirror the first grant so older app versions
-    # can still accept; a workspace grant is preferred over the org grant.
-    anchor = next((g for g in grants if g.workspace_id is not None), grants[0])
-    invitation = Invitation(
-        organization_id=organization_id,
-        workspace_id=anchor.workspace_id,
-        email=email,
-        role_id=anchor.role_id,
-        invited_by=invited_by,
-        token=_generate_token(),
-        expires_at=now + INVITATION_TTL,
-        status=InvitationStatus.PENDING,
-        created_by_platform_admin=created_by_platform_admin,
-    )
-    session.add(invitation)
-    await session.flush()
-    for grant in grants:
-        session.add(
-            InvitationGrant(
-                organization_id=organization_id,
-                invitation_id=invitation.id,
-                workspace_id=grant.workspace_id,
-                role_id=grant.role_id,
-            )
-        )
-    await session.flush()
-    return invitation
+# --- Revoke
 
 
 async def revoke_invitation_row(session: AsyncSession, invitation: Invitation) -> None:
-    """Mark a pending invitation revoked, twin included. Does not commit.
+    """Mark a pending invitation revoked. Does not commit.
 
     Raises:
         TracecatAuthorizationError: If the invitation is not pending.
@@ -460,15 +379,24 @@ async def revoke_invitation_row(session: AsyncSession, invitation: Invitation) -
             f"Cannot revoke invitation with status '{invitation.status}'"
         )
     invitation.status = InvitationStatus.REVOKED
-    # Old pods read organization_invitation; keep the copied twin's status in step.
-    await session.execute(
-        update(LegacyOrganizationInvitation)
-        .where(
-            LegacyOrganizationInvitation.id == invitation.id,
-            LegacyOrganizationInvitation.status == InvitationStatus.PENDING,
-        )
-        .values(status=InvitationStatus.REVOKED)
+
+
+# --- Lookups
+
+
+async def find_invitation_by_token(
+    session: AsyncSession, token: str
+) -> Invitation | None:
+    """Resolve an invitation by token, with grants loaded.
+
+    Unauthenticated callers use this for the accept page.
+    """
+    result = await session.execute(
+        select(Invitation)
+        .where(Invitation.token == token)
+        .options(selectinload(Invitation.organization), selectinload(Invitation.grants))
     )
+    return result.scalar_one_or_none()
 
 
 async def get_pending_invitation_for_email(
@@ -485,54 +413,22 @@ async def get_pending_invitation_for_email(
             func.lower(Invitation.email) == email.lower(),
             Invitation.status == InvitationStatus.PENDING,
             Invitation.expires_at > datetime.now(UTC),
+            Invitation.grants.any(),
         )
         .order_by(Invitation.created_at.desc())
         .limit(1)
+        .options(selectinload(Invitation.grants))
     )
     return result.scalar_one_or_none()
+
+
+# --- Org-scoped service
 
 
 class InvitationService(BaseOrgService):
     """Manage organization invitations and the grants they confer."""
 
     service_name = "invitation"
-
-    async def _resolve_grants(
-        self, grants: Sequence[InvitationGrantCreate]
-    ) -> list[tuple[InvitationGrantCreate, DBRole]]:
-        """Validate every grant's role and workspace, preserving order."""
-        workspace_ids = {g.workspace_id for g in grants if g.workspace_id is not None}
-        if workspace_ids:
-            found = set(
-                (
-                    await self.session.execute(
-                        select(Workspace.id).where(
-                            Workspace.id.in_(workspace_ids),
-                            Workspace.organization_id == self.organization_id,
-                        )
-                    )
-                )
-                .scalars()
-                .all()
-            )
-            if missing := workspace_ids - found:
-                raise TracecatValidationError(
-                    f"Workspace not found in this organization: {sorted(map(str, missing))}"
-                )
-
-        resolved: list[tuple[InvitationGrantCreate, DBRole]] = []
-        for grant in grants:
-            try:
-                role = await resolve_grantable_role(
-                    self.session, self.role, self.organization_id, grant.role_id
-                )
-            except TracecatNotFoundError as e:
-                raise TracecatValidationError(
-                    "Invalid role ID for this organization"
-                ) from e
-            _ensure_role_scope_matches(role, grant.workspace_id)
-            resolved.append((grant, role))
-        return resolved
 
     @require_scope("org:member:invite")
     @audit_log(resource_type="organization_invitation", action="create")
@@ -549,32 +445,34 @@ class InvitationService(BaseOrgService):
                 "User must be authenticated to create invitation"
             )
 
-        await lock_invitation_email(
-            self.session, organization_id=self.organization_id, email=params.email
-        )
-        await self._resolve_grants(params.grants)
+        await validate_grants(self.session, self.role, self.organization_id, params)
         invitation = await create_invitation_row(
             self.session,
             organization_id=self.organization_id,
-            email=params.email,
-            grants=params.grants,
+            params=params,
             invited_by=self.role.user_id,
             created_by_platform_admin=self.role.is_platform_superuser,
         )
         await self.session.commit()
-        return await _fetch_invitation(self.session, invitation.id)
+        return invitation
 
     async def list_invitations(
         self, *, status: InvitationStatus | None = None
     ) -> Sequence[Invitation]:
         """List invitations for the organization, newest first."""
+        # A pending row whose grants all cascaded away confers nothing; accepted
+        # and revoked rows stay listed as history regardless.
         statement = select(Invitation).where(
-            Invitation.organization_id == self.organization_id
+            Invitation.organization_id == self.organization_id,
+            or_(
+                Invitation.status != InvitationStatus.PENDING,
+                Invitation.grants.any(),
+            ),
         )
         if status is not None:
             statement = statement.where(Invitation.status == status)
-        statement = statement.options(*invitation_read_options()).order_by(
-            Invitation.created_at.desc()
+        statement = statement.order_by(Invitation.created_at.desc()).options(
+            selectinload(Invitation.grants)
         )
         result = await self.session.execute(statement)
         return result.scalars().all()
@@ -593,19 +491,9 @@ class InvitationService(BaseOrgService):
                     Invitation.organization_id == self.organization_id,
                 )
             )
-            .options(*invitation_read_options())
+            .options(selectinload(Invitation.grants))
         )
         return result.scalar_one()
-
-    async def accept_invitation(self, token: str) -> Invitation:
-        """Accept an invitation on behalf of the authenticated caller."""
-        if self.role.user_id is None:
-            raise TracecatAuthorizationError(
-                "User must be authenticated to accept invitation"
-            )
-        return await accept_invitation_for_user(
-            self.session, user_id=self.role.user_id, token=token
-        )
 
     @require_scope("org:member:invite")
     @audit_log(
@@ -623,4 +511,4 @@ class InvitationService(BaseOrgService):
         invitation = await self.get_invitation(invitation_id)
         await revoke_invitation_row(self.session, invitation)
         await self.session.commit()
-        return await _fetch_invitation(self.session, invitation_id)
+        return invitation
