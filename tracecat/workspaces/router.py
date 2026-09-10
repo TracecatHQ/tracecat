@@ -18,6 +18,7 @@ from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatConflictError,
     TracecatManagementError,
+    TracecatNotFoundError,
     TracecatValidationError,
 )
 from tracecat.identifiers import UserID, WorkspaceID
@@ -27,6 +28,7 @@ from tracecat.workspaces.schemas import (
     WorkspaceMember,
     WorkspaceMembershipCreate,
     WorkspaceMembershipRead,
+    WorkspaceMembershipUpdate,
     WorkspaceRead,
     WorkspaceReadMinimal,
     WorkspaceSearch,
@@ -302,6 +304,44 @@ async def get_workspace_membership(
         user_id=membership.user_id,
         workspace_id=membership.workspace_id,
     )
+
+
+@router.patch(
+    "/{workspace_id}/memberships/{user_id}",
+    responses={
+        status.HTTP_400_BAD_REQUEST: {
+            "description": "Only workspace roles can be assigned here."
+        },
+        status.HTTP_404_NOT_FOUND: {"description": "Membership or role not found."},
+        status.HTTP_409_CONFLICT: {"description": "Role is granted through a group."},
+    },
+)
+@require_scope("workspace:member:update")
+async def update_workspace_membership(
+    *,
+    role: WorkspaceUserInPath,
+    workspace_id: WorkspaceID,
+    user_id: UserID,
+    params: WorkspaceMembershipUpdate,
+    session: AsyncDBSession,
+) -> WorkspaceMembershipRead:
+    """Change the workspace role of an existing member."""
+    service = MembershipService(session, role=role)
+    try:
+        # TracecatAuthorizationError intentionally propagates: the API-wide
+        # handler maps it to 403, which is correct for a scope-ceiling denial.
+        await service.update_membership_role(
+            workspace_id, user_id=user_id, role_id=params.role_id
+        )
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except TracecatConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
+    return WorkspaceMembershipRead(user_id=user_id, workspace_id=workspace_id)
 
 
 @router.delete(

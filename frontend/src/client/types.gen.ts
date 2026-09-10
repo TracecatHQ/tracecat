@@ -9942,6 +9942,10 @@ export type WorkspaceMembershipRead = {
   workspace_id: string
 }
 
+export type WorkspaceMembershipUpdate = {
+  role_id: string
+}
+
 export type WorkspaceRead = {
   id: string
   name: string
@@ -10390,6 +10394,15 @@ export type WorkspacesGetWorkspaceMembershipData = {
 }
 
 export type WorkspacesGetWorkspaceMembershipResponse = WorkspaceMembershipRead
+
+export type WorkspacesUpdateWorkspaceMembershipData = {
+  requestBody: WorkspaceMembershipUpdate
+  userId: string
+  workspaceId: string
+}
+
+export type WorkspacesUpdateWorkspaceMembershipResponse =
+  WorkspaceMembershipRead
 
 export type WorkspacesDeleteWorkspaceMembershipData = {
   userId: string
@@ -14400,6 +14413,31 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: WorkspaceMembershipRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: WorkspacesUpdateWorkspaceMembershipData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkspaceMembershipRead
+        /**
+         * Only workspace roles can be assigned here.
+         */
+        400: unknown
+        /**
+         * Membership or role not found.
+         */
+        404: unknown
+        /**
+         * Role is granted through a group.
+         */
+        409: unknown
         /**
          * Validation Error
          */

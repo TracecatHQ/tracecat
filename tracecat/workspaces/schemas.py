@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import NotRequired, TypedDict
+from uuid import UUID
 
 from pydantic import EmailStr, Field, computed_field, field_validator
 
@@ -145,6 +146,10 @@ WorkspaceSettingsUpdate.model_rebuild()
 # === Membership === #
 class WorkspaceMembershipCreate(Schema):
     user_id: UserID
+
+
+class WorkspaceMembershipUpdate(Schema):
+    role_id: UUID
 
 
 class WorkspaceMembershipRead(Schema):
