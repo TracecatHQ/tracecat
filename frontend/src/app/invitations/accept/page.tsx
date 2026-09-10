@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/card"
 import { toast } from "@/components/ui/use-toast"
 import { useAuth, useAuthActions } from "@/hooks/use-auth"
-import { invitationRoleName } from "@/lib/invitations"
+import { invitationGrantsSummary } from "@/lib/invitations"
 import { useMutation, useQuery, useQueryClient } from "@/lib/query"
 
 function AcceptInvitationContent() {
@@ -202,14 +202,12 @@ function AcceptInvitationContent() {
             {invitation.inviter_name ? (
               <>
                 <strong>{invitation.inviter_name}</strong> has invited you to
-                join <strong>{invitation.organization_name}</strong> as a{" "}
-                <strong>{invitationRoleName(invitation)}</strong>.
+                join <strong>{invitation.organization_name}</strong>.
               </>
             ) : (
               <>
                 You&apos;ve been invited to join{" "}
-                <strong>{invitation.organization_name}</strong> as a{" "}
-                <strong>{invitationRoleName(invitation)}</strong>.
+                <strong>{invitation.organization_name}</strong>.
               </>
             )}
           </CardDescription>
@@ -224,9 +222,9 @@ function AcceptInvitationContent() {
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Role</span>
-                <span className="font-medium capitalize">
-                  {invitationRoleName(invitation)}
+                <span className="text-muted-foreground">Access</span>
+                <span className="text-right font-medium">
+                  {invitationGrantsSummary(invitation)}
                 </span>
               </div>
               {invitation.inviter_email && (
@@ -313,14 +311,10 @@ function AcceptInvitationContent() {
           {invitation.inviter_name ? (
             <>
               <strong>{invitation.inviter_name}</strong> has invited you to join
-              this organization as a{" "}
-              <strong>{invitationRoleName(invitation)}</strong>.
+              this organization.
             </>
           ) : (
-            <>
-              You&apos;ve been invited to join this organization as a{" "}
-              <strong>{invitationRoleName(invitation)}</strong>.
-            </>
+            <>You&apos;ve been invited to join this organization.</>
           )}
         </CardDescription>
       </CardHeader>
@@ -334,9 +328,9 @@ function AcceptInvitationContent() {
               </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Role</span>
-              <span className="font-medium capitalize">
-                {invitationRoleName(invitation)}
+              <span className="text-muted-foreground">Access</span>
+              <span className="text-right font-medium">
+                {invitationGrantsSummary(invitation)}
               </span>
             </div>
             {invitation.inviter_email && (
