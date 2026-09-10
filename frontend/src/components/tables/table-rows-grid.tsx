@@ -60,6 +60,11 @@ export interface TableRowsGridProps {
   rowClassRules?: RowClassRules<TableRowRead>
   /** Separates persisted column widths per surface. */
   widthScope?: string
+  /**
+   * Fits every column into the grid's width and clips instead of scrolling
+   * horizontally. Saved widths are ignored, so resizes do not persist.
+   */
+  fitWidth?: boolean
 }
 
 /**
@@ -80,6 +85,7 @@ export function TableRowsGrid({
   autoHeight = false,
   rowClassRules,
   widthScope,
+  fitWidth = false,
 }: TableRowsGridProps) {
   const [gridApi, setGridApi] = useState<GridApi<TableRowRead> | null>(null)
   const [savedWidths, setSavedWidths] = useLocalStorage<Record<string, number>>(
@@ -96,8 +102,8 @@ export function TableRowsGrid({
   selectedRowIdsRef.current = selectedRowIds ?? EMPTY_SELECTION
 
   const columnDefs = useMemo(
-    () => buildReadOnlyColumnDefs(columns, savedWidths),
-    [columns, savedWidths]
+    () => buildReadOnlyColumnDefs(columns, savedWidths, { fitWidth }),
+    [columns, savedWidths, fitWidth]
   )
 
   const applySelection = useCallback(
@@ -143,14 +149,14 @@ export function TableRowsGrid({
 
   const handleColumnResized = useCallback(
     (event: ColumnResizedEvent<TableRowRead>) => {
-      if (!event.finished || !event.api) return
+      if (fitWidth || !event.finished || !event.api) return
       const widths: Record<string, number> = {}
       for (const col of event.api.getColumns() ?? []) {
         widths[col.getColId()] = col.getActualWidth()
       }
       setSavedWidths(widths)
     },
-    [setSavedWidths]
+    [setSavedWidths, fitWidth]
   )
 
   const handleSelectionChanged = useCallback(
@@ -197,6 +203,7 @@ export function TableRowsGrid({
         rowSelection={selectable ? MULTI_ROW_SELECTION : undefined}
         selectionColumnDef={selectable ? SELECTION_COLUMN_DEF : undefined}
         suppressContextMenu
+        suppressHorizontalScroll={fitWidth}
         headerHeight={36}
         rowHeight={36}
         animateRows={false}
