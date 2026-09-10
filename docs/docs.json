@@ -331,6 +331,7 @@
               "tools/threatstream",
               "tools/urlhaus",
               "tools/urlscan",
+              "tools/vercel_security",
               "tools/virustotal",
               "tools/wazuh",
               "tools/x",

@@ -671,6 +671,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.sentry": createIconRenderer(SentryIcon),
     "tools.slack_sdk": createIconRenderer(SlackIcon),
     "tools.terraform": createIconRenderer(TerraformIcon),
+    "tools.vercel_security": createIconRenderer(VercelIcon),
     "tools.x": createIconRenderer(Icons.twitter, {
       iconClassName: "fill-current",
     }),
@@ -1913,6 +1914,18 @@ export function MicrosoftIcon({ className, ...rest }: IconProps) {
       <path fill="#80CC28" d="M256 121.666H134.335V0H256z" />
       <path fill="#00ADEF" d="M121.663 256.002H0V134.336h121.663z" />
       <path fill="#FBBC09" d="M256 256.002H134.335V134.336H256z" />
+    </svg>
+  )
+}
+
+/**
+ * Official Vercel logomark.
+ * https://vercel.com/geist/brands
+ */
+export function VercelIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg viewBox="0 0 76 65" className={className} {...rest}>
+      <path d="M37.5274 0L75.0548 65H0L37.5274 0Z" fill="currentColor" />
     </svg>
   )
 }

@@ -1,0 +1,64 @@
+type: action
+definition:
+  title: Update attack challenge mode
+  description: >-
+    Update the setting for determining if the project has Attack Challenge mode enabled. Calls POST /v1/security/attack-mode directly.
+  display_group: Vercel Security
+  doc_url: https://vercel.com/docs/rest-api/security/update-attack-challenge-mode
+  namespace: tools.vercel_security
+  name: update_attack_challenge_mode
+  secrets:
+    - name: vercel
+      keys: ["VERCEL_API_TOKEN"]
+  expects:
+    projectId:
+      type: str
+      description: Project ID.
+    attackModeEnabled:
+      type: bool
+      description: Whether Attack Challenge mode is enabled for the project.
+    attackModeActiveUntil:
+      type: float | None
+      description: >-
+        Timestamp until which Attack Challenge mode remains active. Omit to leave the
+        mode active until it is disabled.
+      default: null
+    teamId:
+      type: str | None
+      description: The Team identifier to perform the request on behalf of.
+      default: null
+    slug:
+      type: str | None
+      description: The Team slug to perform the request on behalf of.
+      default: null
+    base_url:
+      type: str | None
+      description: Vercel REST API base URL.
+      default: null
+  steps:
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          projectId: ${{ inputs.projectId }}
+          attackModeEnabled: ${{ inputs.attackModeEnabled }}
+          attackModeActiveUntil: ${{ inputs.attackModeActiveUntil }}
+        script: |
+          def main(projectId, attackModeEnabled, attackModeActiveUntil):
+              payload = {"projectId": projectId, "attackModeEnabled": attackModeEnabled}
+              if attackModeActiveUntil is not None:
+                  payload["attackModeActiveUntil"] = attackModeActiveUntil
+              return payload
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.vercel_security.base_url || "https://api.vercel.com" }}/v1/security/attack-mode
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.vercel.VERCEL_API_TOKEN }}
+          Content-Type: application/json
+        params:
+          teamId: ${{ inputs.teamId }}
+          slug: ${{ inputs.slug }}
+        payload: ${{ steps.build_payload.result }}
+  returns: ${{ steps.request.result }}
