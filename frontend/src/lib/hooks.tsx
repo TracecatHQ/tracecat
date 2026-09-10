@@ -129,6 +129,7 @@ import {
   type IntegrationReadMinimal,
   type IntegrationUpdate,
   type InvitationCreate,
+  type InvitationRead,
   integrationsConnectProvider,
   integrationsDeleteIntegration,
   integrationsDisconnectIntegration,
@@ -164,6 +165,7 @@ import {
   organizationCreateInvitation,
   organizationDeleteOrgMember,
   organizationDeleteSession,
+  organizationListInvitations,
   organizationListOrgMembers,
   organizationListSessions,
   organizationRevokeInvitation,
@@ -2289,6 +2291,9 @@ export function useOrgMembers() {
       await organizationCreateInvitation({ requestBody: params }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["org-members"] })
+      queryClient.invalidateQueries({
+        queryKey: ["org-invitations", "pending"],
+      })
       toast({
         title: "Invitation created",
         description: "Invitation sent successfully.",
@@ -2310,6 +2315,9 @@ export function useOrgMembers() {
       await organizationRevokeInvitation({ invitationId }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["org-members"] })
+      queryClient.invalidateQueries({
+        queryKey: ["org-invitations", "pending"],
+      })
       toast({
         title: "Invitation revoked",
         description: "Invitation has been revoked.",
@@ -2338,6 +2346,20 @@ export function useOrgMembers() {
     createInvitationIsPending,
     revokeInvitation,
   }
+}
+
+/**
+ * List the organization's pending invitations, which carry their role grants.
+ */
+export function useOrgInvitations(options: { enabled?: boolean } = {}) {
+  const { data: invitations } = useQuery<InvitationRead[]>({
+    queryKey: ["org-invitations", "pending"],
+    queryFn: async () =>
+      await organizationListInvitations({ status: "pending" }),
+    enabled: options.enabled ?? true,
+  })
+
+  return { invitations }
 }
 
 export function useSessions() {
