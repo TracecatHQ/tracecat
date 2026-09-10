@@ -283,7 +283,9 @@ async def test_retryable_failures_stop_at_the_attempt_cap(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("previously_sent", [False, True])
 async def test_non_retryable_failure_leaves_the_row_claimed_forever(
+    previously_sent: bool,
     session: AsyncSession,
     org: Organization,
     org_role: DBRole,
@@ -292,6 +294,9 @@ async def test_non_retryable_failure_leaves_the_row_claimed_forever(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     invitation = await _add_invitation(session, org, org_role, inviter)
+    emailed_at = datetime.now(UTC) - timedelta(minutes=5) if previously_sent else None
+    invitation.email_sent_at = emailed_at
+    await session.commit()
     _patch_transport(
         monkeypatch,
         FakeTransport(error=EmailDeliveryError("rejected", retryable=False)),
@@ -302,7 +307,7 @@ async def test_non_retryable_failure_leaves_the_row_claimed_forever(
 
     row = await _reload(session, invitation_id)
     assert row.email_claimed_at is not None
-    assert row.email_sent_at is None
+    assert row.email_sent_at == emailed_at
     assert row.email_attempts == 1
     assert await run_invitation_email_tick() == 0
 

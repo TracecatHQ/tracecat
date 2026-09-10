@@ -114,7 +114,7 @@ export function AdminOrgInvitationsDialog({
     hasNextPage,
     hasPreviousPage,
     currentPage,
-  } = useAdminOrgInvitations(orgId)
+  } = useAdminOrgInvitations(orgId, open)
   const showPagination = hasPreviousPage || hasNextPage || currentPage > 0
 
   const createdLink = useMemo(
@@ -170,7 +170,7 @@ export function AdminOrgInvitationsDialog({
   async function handleResendInvitation(invitation: AdminOrgInvitationRead) {
     try {
       await resendInvitation(invitation.id)
-      toast({ title: "Invitation email resent", description: invitation.email })
+      toast({ title: "Invitation email queued", description: invitation.email })
     } catch (error) {
       const apiError = error as TracecatApiError
       if (apiError.status === 409) {

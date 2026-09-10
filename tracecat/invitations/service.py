@@ -62,7 +62,8 @@ async def reset_invitation_email(
                 OrganizationInvitation.email_sent_at < cutoff,
             ),
         )
-        .values(email_claimed_at=None, email_sent_at=None, email_attempts=0)
+        # Preserve the last successful delivery even if this attempt fails.
+        .values(email_claimed_at=None, email_attempts=0)
     )
     if result.rowcount != 1:  # pyright: ignore[reportAttributeAccessIssue]
         raise TracecatConflictError("Invitation email was sent less than a minute ago")
