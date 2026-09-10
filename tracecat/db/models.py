@@ -5294,11 +5294,14 @@ class OrganizationInvitation(InvitationMixin, TimestampMixin, Base):
     __tablename__ = "organization_invitation"
     __table_args__ = (
         UniqueConstraint("email", "organization_id"),
-        # Poller scans unclaimed rows oldest-first; must match the migration.
+        # Poller scans deliverable rows oldest-first; must match the migration
+        # and the consumer's MAX_EMAIL_ATTEMPTS, or the planner drops the index.
         Index(
             "ix_organization_invitation_email_unclaimed",
             "created_at",
-            postgresql_where=text("email_claimed_at IS NULL"),
+            postgresql_where=text(
+                "email_claimed_at IS NULL AND status = 'PENDING' AND email_attempts < 3"
+            ),
         ),
     )
 

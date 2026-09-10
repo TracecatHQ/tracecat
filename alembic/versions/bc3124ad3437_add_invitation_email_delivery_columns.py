@@ -1,7 +1,7 @@
 """add invitation email delivery columns
 
 Revision ID: bc3124ad3437
-Revises: 526f867f6a75
+Revises: 31ee4b7f175a
 Create Date: 2026-09-08 15:53:21.646617
 
 """
@@ -14,7 +14,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "bc3124ad3437"
-down_revision: str | None = "526f867f6a75"
+down_revision: str | None = "31ee4b7f175a"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -51,7 +51,10 @@ def upgrade() -> None:
         INDEX_NAME,
         "organization_invitation",
         ["created_at"],
-        postgresql_where=sa.text("email_claimed_at IS NULL"),
+        # Exhausted and revoked rows keep a NULL claim; keep them out of the scan.
+        postgresql_where=sa.text(
+            "email_claimed_at IS NULL AND status = 'PENDING' AND email_attempts < 3"
+        ),
     )
 
 
