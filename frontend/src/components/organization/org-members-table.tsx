@@ -101,7 +101,7 @@ function InviteMemberDialogButton() {
     try {
       await createInvitation({
         email: values.email,
-        role_id: values.role_id,
+        grants: [{ role_id: values.role_id, workspace_id: null }],
       })
       form.reset()
       setIsCreateDialogOpen(false)

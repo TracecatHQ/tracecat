@@ -39,10 +39,19 @@ async def test_list_my_pending_invitations_success(
     )
     mock_organization = SimpleNamespace(name="Acme Security")
     mock_role = SimpleNamespace(name="Organization Member", slug="organization-member")
+    mock_invitation.grants = [
+        SimpleNamespace(
+            id=uuid.uuid4(),
+            workspace_id=None,
+            workspace=None,
+            role_id=uuid.uuid4(),
+            role_obj=mock_role,
+        )
+    ]
 
     tuples_result = Mock()
     tuples_result.all.return_value = [
-        (mock_invitation, mock_organization, mock_inviter, mock_role),
+        (mock_invitation, mock_organization, mock_inviter),
     ]
     pending_result = Mock()
     pending_result.tuples.return_value = tuples_result
@@ -63,8 +72,10 @@ async def test_list_my_pending_invitations_success(
     assert payload[0]["organization_name"] == "Acme Security"
     assert payload[0]["inviter_name"] == "Alice Admin"
     assert payload[0]["inviter_email"] == "alice@example.com"
-    assert payload[0]["role_name"] == "Organization Member"
-    assert payload[0]["role_slug"] == "organization-member"
+    assert len(payload[0]["grants"]) == 1
+    assert payload[0]["grants"][0]["workspace_id"] is None
+    assert payload[0]["grants"][0]["role_name"] == "Organization Member"
+    assert payload[0]["grants"][0]["role_slug"] == "organization-member"
 
 
 @pytest.mark.anyio

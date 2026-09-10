@@ -926,8 +926,6 @@ import type {
   WorkflowsValidateWorkflowEntrypointData,
   WorkflowsValidateWorkflowEntrypointResponse,
   WorkspacesCreateWorkspaceData,
-  WorkspacesCreateWorkspaceInvitationData,
-  WorkspacesCreateWorkspaceInvitationResponse,
   WorkspacesCreateWorkspaceMembershipData,
   WorkspacesCreateWorkspaceMembershipResponse,
   WorkspacesCreateWorkspaceResponse,
@@ -939,15 +937,11 @@ import type {
   WorkspacesGetWorkspaceMembershipData,
   WorkspacesGetWorkspaceMembershipResponse,
   WorkspacesGetWorkspaceResponse,
-  WorkspacesListWorkspaceInvitationsData,
-  WorkspacesListWorkspaceInvitationsResponse,
   WorkspacesListWorkspaceMembersData,
   WorkspacesListWorkspaceMembershipsData,
   WorkspacesListWorkspaceMembershipsResponse,
   WorkspacesListWorkspaceMembersResponse,
   WorkspacesListWorkspacesResponse,
-  WorkspacesRevokeWorkspaceInvitationData,
-  WorkspacesRevokeWorkspaceInvitationResponse,
   WorkspacesSearchWorkspacesData,
   WorkspacesSearchWorkspacesResponse,
   WorkspacesUpdateWorkspaceData,
@@ -1460,96 +1454,6 @@ export const workspacesDeleteWorkspaceMembership = (
     },
     errors: {
       409: "User remains a member through a group.",
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Create Workspace Invitation
- * Create a workspace invitation.
- *
- * Authorization
- * -------------
- * - Workspace Admin: Can create invitations for their workspace.
- * @param data The data for the request.
- * @param data.workspaceId
- * @param data.requestBody
- * @returns WorkspaceInvitationRead Successful Response
- * @throws ApiError
- */
-export const workspacesCreateWorkspaceInvitation = (
-  data: WorkspacesCreateWorkspaceInvitationData
-): CancelablePromise<WorkspacesCreateWorkspaceInvitationResponse> => {
-  return __request(OpenAPI, {
-    method: "POST",
-    url: "/workspaces/{workspace_id}/invitations",
-    path: {
-      workspace_id: data.workspaceId,
-    },
-    body: data.requestBody,
-    mediaType: "application/json",
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * List Workspace Invitations
- * List workspace invitations.
- *
- * Authorization
- * -------------
- * - Workspace Admin: Can list invitations for their workspace.
- * @param data The data for the request.
- * @param data.workspaceId
- * @param data.status
- * @returns WorkspaceInvitationRead Successful Response
- * @throws ApiError
- */
-export const workspacesListWorkspaceInvitations = (
-  data: WorkspacesListWorkspaceInvitationsData
-): CancelablePromise<WorkspacesListWorkspaceInvitationsResponse> => {
-  return __request(OpenAPI, {
-    method: "GET",
-    url: "/workspaces/{workspace_id}/invitations",
-    path: {
-      workspace_id: data.workspaceId,
-    },
-    query: {
-      status: data.status,
-    },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Revoke Workspace Invitation
- * Revoke a workspace invitation.
- *
- * Authorization
- * -------------
- * - Workspace Admin: Can revoke invitations for their workspace.
- * @param data The data for the request.
- * @param data.workspaceId
- * @param data.invitationId
- * @returns void Successful Response
- * @throws ApiError
- */
-export const workspacesRevokeWorkspaceInvitation = (
-  data: WorkspacesRevokeWorkspaceInvitationData
-): CancelablePromise<WorkspacesRevokeWorkspaceInvitationResponse> => {
-  return __request(OpenAPI, {
-    method: "DELETE",
-    url: "/workspaces/{workspace_id}/invitations/{invitation_id}",
-    path: {
-      workspace_id: data.workspaceId,
-      invitation_id: data.invitationId,
-    },
-    errors: {
       422: "Validation Error",
     },
   })
@@ -4324,10 +4228,10 @@ export const organizationDeleteSession = (
 
 /**
  * Create Invitation
- * Create an invitation to join the organization.
+ * Create an invitation carrying one or more role grants.
  * @param data The data for the request.
  * @param data.requestBody
- * @returns OrgInvitationRead Successful Response
+ * @returns InvitationRead Successful Response
  * @throws ApiError
  */
 export const organizationCreateInvitation = (
@@ -4349,7 +4253,7 @@ export const organizationCreateInvitation = (
  * List invitations for the organization.
  * @param data The data for the request.
  * @param data.status
- * @returns OrgInvitationRead Successful Response
+ * @returns InvitationRead Successful Response
  * @throws ApiError
  */
 export const organizationListInvitations = (
@@ -4397,7 +4301,7 @@ export const organizationRevokeInvitation = (
  * This endpoint is used to generate shareable invitation links.
  * @param data The data for the request.
  * @param data.invitationId
- * @returns string Successful Response
+ * @returns InvitationTokenRead Successful Response
  * @throws ApiError
  */
 export const organizationGetInvitationToken = (
@@ -4444,7 +4348,7 @@ export const organizationAcceptInvitation = (
 /**
  * List My Pending Invitations
  * List pending, unexpired invitations for the authenticated user.
- * @returns OrgPendingInvitationRead Successful Response
+ * @returns PendingInvitationRead Successful Response
  * @throws ApiError
  */
 export const organizationListMyPendingInvitations =
@@ -4463,7 +4367,7 @@ export const organizationListMyPendingInvitations =
  * If user is authenticated, also returns whether their email matches the invitation.
  * @param data The data for the request.
  * @param data.token
- * @returns OrgInvitationReadMinimal Successful Response
+ * @returns InvitationReadMinimal Successful Response
  * @throws ApiError
  */
 export const organizationGetInvitationByToken = (
