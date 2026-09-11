@@ -463,7 +463,7 @@ class TestRegistryArtifactCache:
         assert str(raised.value) == "Invalid registry artifact URI"
 
     @pytest.mark.anyio
-    async def test_artifact_candidates_prefer_squashfs_sidecar(self, temp_cache_dir):
+    async def test_artifact_selection_prefers_squashfs_sidecar(self, temp_cache_dir):
         """Test that gzip tarballs prefer a sibling SquashFS sidecar."""
         cache = RegistryArtifactCache(temp_cache_dir)
 
@@ -479,14 +479,11 @@ class TestRegistryArtifactCache:
                 "s3://bucket/path/site-packages.tar.gz"
             )
             ctx = cache._context_for(cache_key)
-            candidates = await cache._artifact_candidates(
+            artifact = await cache._select_artifact(
                 ctx, "s3://bucket/path/site-packages.tar.gz"
             )
 
-        artifact = candidates[0]
-        assert len(candidates) == 2
         assert isinstance(artifact, SquashfsArtifact)
-        assert isinstance(candidates[1], TarballArtifact)
         assert artifact.uri == "s3://bucket/path/site-packages.squashfs"
         assert artifact.format == RegistryArtifactFormat.SQUASHFS
         file_exists.assert_awaited_once_with(
@@ -661,10 +658,10 @@ class TestRegistryArtifactCache:
         assert list(outside.iterdir()) == []
 
     @pytest.mark.anyio
-    async def test_artifact_candidates_direct_squashfs_have_no_gzip_fallback(
+    async def test_artifact_selection_direct_squashfs_has_no_gzip_fallback(
         self, temp_cache_dir
     ):
-        """Direct SquashFS URIs must not synthesize absent gzip artifacts."""
+        """Current SquashFS artifacts never assume a sibling gzip upload."""
         cache = RegistryArtifactCache(temp_cache_dir)
 
         with patch.object(cache, "_can_try_squashfs") as can_try_squashfs:
@@ -672,24 +669,21 @@ class TestRegistryArtifactCache:
                 "s3://bucket/path/site-packages.squashfs"
             )
             ctx = cache._context_for(cache_key)
-            candidates = await cache._artifact_candidates(
+            artifact = await cache._select_artifact(
                 ctx,
                 "s3://bucket/path/site-packages.squashfs",
             )
 
-        assert len(candidates) == 1
-        assert isinstance(candidates[0], SquashfsArtifact)
-        assert [artifact.uri for artifact in candidates] == [
-            "s3://bucket/path/site-packages.squashfs",
-        ]
-        assert [artifact.format for artifact in candidates] == [
-            RegistryArtifactFormat.SQUASHFS,
-        ]
+        assert isinstance(artifact, SquashfsArtifact)
+        assert artifact.uri == "s3://bucket/path/site-packages.squashfs"
+        assert artifact.format == RegistryArtifactFormat.SQUASHFS
         can_try_squashfs.assert_not_called()
 
     @pytest.mark.anyio
-    async def test_artifact_candidates_fall_back_to_gzip(self, temp_cache_dir):
-        """Test that gzip tarballs are used when no sidecar exists."""
+    async def test_artifact_selection_uses_legacy_gzip_without_sidecar(
+        self, temp_cache_dir
+    ):
+        """Legacy gzip artifacts remain readable when no sidecar exists."""
         cache = RegistryArtifactCache(temp_cache_dir)
 
         with (
@@ -704,12 +698,10 @@ class TestRegistryArtifactCache:
                 "s3://bucket/path/site-packages.tar.gz"
             )
             ctx = cache._context_for(cache_key)
-            candidates = await cache._artifact_candidates(
+            artifact = await cache._select_artifact(
                 ctx, "s3://bucket/path/site-packages.tar.gz"
             )
 
-        artifact = candidates[0]
-        assert len(candidates) == 1
         assert isinstance(artifact, TarballArtifact)
         assert artifact.uri == "s3://bucket/path/site-packages.tar.gz"
         assert artifact.format == RegistryArtifactFormat.TAR_GZ
@@ -766,7 +758,7 @@ class TestRegistryArtifactCache:
             assert ctx.can_mount_squashfs() is True
 
     @pytest.mark.anyio
-    async def test_artifact_candidates_skip_non_registry_tarballs(self, temp_cache_dir):
+    async def test_artifact_selection_skips_non_registry_tarballs(self, temp_cache_dir):
         """Test that arbitrary gzip tarballs do not trigger sidecar lookups."""
         cache = RegistryArtifactCache(temp_cache_dir)
 
@@ -778,12 +770,10 @@ class TestRegistryArtifactCache:
                 "s3://bucket/path/custom.tar.gz"
             )
             ctx = cache._context_for(cache_key)
-            candidates = await cache._artifact_candidates(
+            artifact = await cache._select_artifact(
                 ctx, "s3://bucket/path/custom.tar.gz"
             )
 
-        artifact = candidates[0]
-        assert len(candidates) == 1
         assert isinstance(artifact, TarballArtifact)
         assert artifact.uri == "s3://bucket/path/custom.tar.gz"
         assert artifact.format == RegistryArtifactFormat.TAR_GZ
@@ -1338,18 +1328,11 @@ class TestRegistryArtifactCache:
         mount.assert_not_awaited()
 
     @pytest.mark.anyio
-    async def test_legacy_tarball_uri_falls_back_after_squashfs_sidecar_fails(
+    async def test_materialize_does_not_request_missing_gzip_fallback(
         self, temp_cache_dir
     ):
-        """Test that legacy gzip remains the final compatibility fallback."""
+        """A current SquashFS failure never requests an unproduced tarball."""
         cache = RegistryArtifactCache(temp_cache_dir)
-        source = temp_cache_dir / "source"
-        source.mkdir()
-        (source / "module.py").write_text("VALUE = 1")
-
-        async def mock_tarball_download(self, ctx, path):
-            with tarfile.open(path, "w:gz") as tar:
-                tar.add(source / "module.py", arcname="module.py")
 
         async def mock_mount(self, ctx, image_path):
             raise SquashfsMountCommandError("operation not permitted")
@@ -1361,7 +1344,7 @@ class TestRegistryArtifactCache:
             patch(
                 "tracecat.executor.registry_artifacts.blob.file_exists",
                 new_callable=AsyncMock,
-                side_effect=[True, False],
+                return_value=True,
             ),
             patch(
                 "tracecat.executor.registry_artifacts.config.TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED",
@@ -1373,19 +1356,22 @@ class TestRegistryArtifactCache:
             ),
             patch.object(SquashfsArtifact, "mount", mock_mount),
             patch.object(SquashfsArtifact, "extract", mock_extract),
-            patch.object(TarballArtifact, "download", mock_tarball_download),
+            patch.object(
+                TarballArtifact,
+                "materialize",
+                new_callable=AsyncMock,
+            ) as tarball_materialize,
         ):
-            result = await _materialize(
-                cache,
-                compute_registry_artifact_cache_key(
-                    "s3://bucket/path/site-packages.tar.gz"
-                ),
-                "s3://bucket/path/site-packages.tar.gz",
-            )
+            with pytest.raises(RuntimeError, match="unsquashfs unavailable"):
+                await _materialize(
+                    cache,
+                    compute_registry_artifact_cache_key(
+                        "s3://bucket/path/site-packages.tar.gz"
+                    ),
+                    "s3://bucket/path/site-packages.tar.gz",
+                )
 
-        assert len(result) == 1
-        assert (result[0] / "module.py").read_text() == "VALUE = 1"
-        assert result[0].name == "tarball"
+        tarball_materialize.assert_not_awaited()
 
     @pytest.mark.anyio
     async def test_materialize_treats_unknown_suffix_as_gzip(self, temp_cache_dir):
@@ -1598,9 +1584,9 @@ class TestRegistryArtifactCacheLease:
             patch(MAX_BYTES_CONFIG, empty_cache_bytes),
             patch.object(
                 cache,
-                "_artifact_candidates",
+                "_select_artifact",
                 new_callable=AsyncMock,
-                return_value=[artifact],
+                return_value=artifact,
             ),
             patch.object(SquashfsArtifact, "materialize", fail_after_deposit),
         ):
@@ -1784,13 +1770,13 @@ class TestRegistryArtifactCacheLease:
         materialize_attempts = 0
         observed_delays: list[float] = []
 
-        async def materialize_candidates(
+        async def materialize_artifact(
             ctx: RegistryArtifactMaterializationContext,
-            candidates: list[SquashfsArtifact | TarballArtifact],
+            selected_artifact: SquashfsArtifact | TarballArtifact,
         ) -> list[Path]:
             nonlocal materialize_attempts
             assert ctx.cache_key == second_key
-            assert candidates == [candidate]
+            assert selected_artifact == candidate
             materialize_attempts += 1
             if materialize_attempts == 1:
                 raise RegistryArtifactCacheLeaseContentionError(
@@ -1809,15 +1795,15 @@ class TestRegistryArtifactCacheLease:
         with (
             patch.object(
                 cache,
-                "_artifact_candidates",
+                "_select_artifact",
                 new_callable=AsyncMock,
-                return_value=[candidate],
+                return_value=candidate,
             ),
             patch.object(
                 cache,
-                "_materialize_candidates",
+                "_materialize_artifact",
                 new_callable=AsyncMock,
-                side_effect=materialize_candidates,
+                side_effect=materialize_artifact,
             ),
             patch(
                 "tracecat.executor.registry_artifacts._sleep_registry_artifact_capacity_retry",
@@ -1863,16 +1849,16 @@ class TestRegistryArtifactCacheLease:
         with (
             patch.object(
                 cache,
-                "_artifact_candidates",
+                "_select_artifact",
                 new_callable=AsyncMock,
-                return_value=[candidate],
+                return_value=candidate,
             ),
             patch.object(
                 cache,
-                "_materialize_candidates",
+                "_materialize_artifact",
                 new_callable=AsyncMock,
                 side_effect=capacity_error,
-            ) as materialize_candidates,
+            ) as materialize_artifact,
             patch(
                 "tracecat.executor.registry_artifacts._sleep_registry_artifact_capacity_retry",
                 new_callable=AsyncMock,
@@ -1883,7 +1869,7 @@ class TestRegistryArtifactCacheLease:
                     pass
 
         assert raised.value is capacity_error
-        materialize_candidates.assert_awaited_once()
+        materialize_artifact.assert_awaited_once()
         sleep.assert_not_awaited()
         assert cache._refcount(cache_key) == 0
 
@@ -1905,16 +1891,16 @@ class TestRegistryArtifactCacheLease:
         with (
             patch.object(
                 cache,
-                "_artifact_candidates",
+                "_select_artifact",
                 new_callable=AsyncMock,
-                return_value=[candidate],
+                return_value=candidate,
             ),
             patch.object(
                 cache,
-                "_materialize_candidates",
+                "_materialize_artifact",
                 new_callable=AsyncMock,
                 side_effect=contention_error,
-            ) as materialize_candidates,
+            ) as materialize_artifact,
             patch(
                 "tracecat.executor.registry_artifacts._sleep_registry_artifact_capacity_retry",
                 new_callable=AsyncMock,
@@ -1925,7 +1911,7 @@ class TestRegistryArtifactCacheLease:
                     pass
 
         assert raised.value is contention_error
-        assert materialize_candidates.await_count == 4
+        assert materialize_artifact.await_count == 4
         assert sleep.await_count == 3
         assert cache._refcount(cache_key) == 0
 
@@ -3282,9 +3268,9 @@ class TestRegistryArtifactCacheEviction:
         with (
             patch.object(
                 cache,
-                "_artifact_candidates",
+                "_select_artifact",
                 new_callable=AsyncMock,
-                return_value=[artifact],
+                return_value=artifact,
             ),
             patch.object(SquashfsArtifact, "materialize", mock_materialize),
             patch.object(cache, "_enforce_cache_budget", enforce_cache_budget),
@@ -3321,9 +3307,9 @@ class TestRegistryArtifactCacheEviction:
         with (
             patch.object(
                 cache,
-                "_artifact_candidates",
+                "_select_artifact",
                 new_callable=AsyncMock,
-                return_value=[artifact],
+                return_value=artifact,
             ),
             patch.object(SquashfsArtifact, "materialize", mock_materialize),
             patch.object(cache, "_enforce_cache_budget", enforce_cache_budget),
