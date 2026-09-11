@@ -571,7 +571,6 @@ async def incoming_webhook_wait(
 
     service = await WorkflowExecutionsService.connect()
     wf_exec_id = generate_exec_id(workflow_id)
-    _annotate_webhook_trace(wf_id=workflow_id, wf_exec_id=wf_exec_id)
     try:
         response = await service.create_workflow_execution(
             dsl=dsl_input,
@@ -610,6 +609,7 @@ async def incoming_webhook_wait(
             content=failure.model_dump(mode="json"),
         )
 
+    _annotate_webhook_trace(wf_id=workflow_id, wf_exec_id=wf_exec_id)
     result = response["result"]
     if unwrap:
         if isinstance(result, InlineObject):

@@ -135,12 +135,13 @@ def test_trace_annotation_failure_does_not_block_workflow(
         )
 
     sentry_sdk.flush()
-    annotate.assert_called_once()
     webhook.execute.assert_awaited_once()
     if workflow_fails:
+        annotate.assert_not_called()
         assert response.status_code == 422
         assert response.json()["detail"]["code"] == _USER_ERROR.kind.value
     else:
+        annotate.assert_called_once()
         assert response.status_code == 200
         assert response.json() == (
             {"ok": True} if unwrap else {"kind": "value", "value": {"ok": True}}
