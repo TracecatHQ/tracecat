@@ -5739,12 +5739,10 @@ class Membership(Base):
     workspace_id: Mapped[uuid.UUID]
 
 
-# The NULL-workspace slice reproduces the `organization_membership` table:
-# every row the writers produce holds an org-wide assignment. Widening this to
-# any role path would grant org access to workspace-only users.
+# Any role path in the org is presence: a workspace-only role makes the user an
+# organization member, so org-wide and workspace paths both count here.
 organization_membership_select = (
     select(_role_paths.c.user_id, _role_paths.c.organization_id)
-    .where(_role_paths.c.workspace_id.is_(None))
     .distinct()
     .subquery("organization_membership_derived")
 )

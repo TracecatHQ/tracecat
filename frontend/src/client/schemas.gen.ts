@@ -33315,6 +33315,19 @@ export const $WorkspaceMembershipRead = {
   title: "WorkspaceMembershipRead",
 } as const
 
+export const $WorkspaceMembershipUpdate = {
+  properties: {
+    role_id: {
+      type: "string",
+      format: "uuid",
+      title: "Role Id",
+    },
+  },
+  type: "object",
+  required: ["role_id"],
+  title: "WorkspaceMembershipUpdate",
+} as const
+
 export const $WorkspaceRead = {
   properties: {
     id: {

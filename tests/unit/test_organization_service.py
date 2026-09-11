@@ -11,7 +11,10 @@ from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tests.support.membership import grant_org_membership
+from tests.support.membership import (
+    grant_org_membership,
+    grant_workspace_membership,
+)
 from tracecat import config
 from tracecat.auth.api_keys import ORG_API_KEY_PREFIX, generate_managed_api_key
 from tracecat.auth.schemas import UserRole
@@ -368,6 +371,86 @@ class TestOrganizationServiceGetMember:
 
         with pytest.raises(NoResultFound):
             await service.get_member(uuid.uuid4())
+
+
+@pytest.fixture
+async def workspace_only_user_in_org1(
+    session: AsyncSession, org1: Organization
+) -> User:
+    """A user whose only role path in org1 is workspace-scoped."""
+    workspace = Workspace(
+        id=uuid.uuid4(),
+        name="Workspace Only",
+        organization_id=org1.id,
+    )
+    user = User(
+        id=uuid.uuid4(),
+        email=f"ws-only-{uuid.uuid4().hex[:8]}@example.com",
+        hashed_password="hashed",
+        role=UserRole.BASIC,
+        is_active=True,
+        is_superuser=False,
+        is_verified=True,
+    )
+    session.add_all([workspace, user])
+    await session.flush()
+    await grant_workspace_membership(
+        session,
+        user_id=user.id,
+        organization_id=org1.id,
+        workspace_id=workspace.id,
+    )
+    await session.commit()
+    return user
+
+
+class TestOrganizationWorkspaceOnlyMembers:
+    """A workspace role alone makes the user an organization member."""
+
+    @pytest.mark.anyio
+    async def test_list_members_includes_workspace_only_user(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+        workspace_only_user_in_org1: User,
+    ):
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = OrgService(session, role=role)
+
+        members = await service.list_members()
+
+        assert workspace_only_user_in_org1.id in {user.id for user in members}
+
+    @pytest.mark.anyio
+    async def test_delete_member_removes_workspace_only_user(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+        workspace_only_user_in_org1: User,
+    ):
+        user_id = workspace_only_user_in_org1.id
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = OrgService(session, role=role)
+
+        await service.delete_member(user_id)
+
+        assert (
+            await session.scalar(
+                select(OrganizationMembership).where(
+                    OrganizationMembership.user_id == user_id,
+                    OrganizationMembership.organization_id == org1.id,
+                )
+            )
+            is None
+        )
+        assert (
+            await session.scalar(
+                select(Membership).where(Membership.user_id == user_id)
+            )
+            is None
+        )
 
 
 class TestOrganizationServiceDeleteMember:

@@ -1,15 +1,25 @@
 """Unit tests for MembershipService."""
 
+import contextlib
 import uuid
+from collections.abc import AsyncIterator
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tests.support.membership import grant_workspace_membership
+from tests.support.membership import (
+    grant_org_membership,
+    grant_org_membership_via_group,
+    grant_workspace_membership,
+)
+from tracecat.audit.enums import AuditEventStatus
+from tracecat.audit.service import AuditService
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
-from tracecat.authz.scopes import ADMIN_SCOPES, EDITOR_SCOPES
+from tracecat.authz import service as authz_service
+from tracecat.authz.scopes import ADMIN_SCOPES, EDITOR_SCOPES, VIEWER_SCOPES
 from tracecat.authz.seeding import seed_system_scopes
 from tracecat.authz.service import MembershipService
 from tracecat.db.models import (
@@ -19,6 +29,7 @@ from tracecat.db.models import (
     LegacyMembership,
     Membership,
     Organization,
+    OrganizationMembership,
     RoleScope,
     Scope,
     User,
@@ -26,10 +37,36 @@ from tracecat.db.models import (
     Workspace,
 )
 from tracecat.db.models import Role as DBRole
-from tracecat.exceptions import TracecatAuthorizationError, TracecatConflictError
+from tracecat.exceptions import (
+    TracecatAuthorizationError,
+    TracecatConflictError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.workspaces.schemas import WorkspaceMembershipCreate
 
 pytestmark = [pytest.mark.anyio, pytest.mark.usefixtures("db")]
+
+
+@pytest.fixture(autouse=True)
+def bypass_session_is_test_session(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Route the RLS-bypass session to the test session.
+
+    The real helper opens its own connection, which cannot see the rows this
+    test's uncommitted transaction holds. RLS is not enforced here anyway:
+    the ``db`` fixture builds tables with ``create_all``, and the policies come
+    from migrations.
+    """
+
+    @contextlib.asynccontextmanager
+    async def _bypass() -> AsyncIterator[AsyncSession]:
+        yield session
+
+    monkeypatch.setattr(
+        authz_service, "get_async_session_bypass_rls_context_manager", _bypass
+    )
 
 
 @pytest.fixture
@@ -364,6 +401,9 @@ async def test_create_membership_allows_admin_inviter(
             role_id=admin_role.id,
         )
     )
+    await grant_org_membership(
+        session, user_id=member_user.id, organization_id=organization.id
+    )
     await session.commit()
 
     await membership_service.create_membership(
@@ -502,3 +542,441 @@ async def test_delete_membership_rejects_when_group_grant_remains(
 
     assert assignment is not None
     assert legacy is not None
+
+
+async def test_create_membership_keeps_the_user_an_org_member(
+    session: AsyncSession,
+    membership_service: MembershipService,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    workspace_editor_role: DBRole,
+) -> None:
+    """A group-only org member gains the workspace without a direct org role."""
+    await grant_org_membership_via_group(
+        session, user_id=member_user.id, organization_id=organization.id
+    )
+    await session.commit()
+
+    await membership_service.create_membership(
+        workspace_id=workspace.id,
+        params=WorkspaceMembershipCreate(user_id=member_user.id),
+    )
+
+    org_membership = await session.scalar(
+        select(OrganizationMembership).where(
+            OrganizationMembership.user_id == member_user.id,
+            OrganizationMembership.organization_id == organization.id,
+        )
+    )
+    assert org_membership is not None
+
+
+async def test_create_membership_rejects_user_outside_the_organization(
+    session: AsyncSession,
+    membership_service: MembershipService,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    workspace_editor_role: DBRole,
+) -> None:
+    """A platform user with no role path in the org cannot be added.
+
+    Workspace membership is organization presence, and an org member can be
+    administered through the org member routes, so admitting an arbitrary user
+    by ID would hand over their account.
+    """
+    with pytest.raises(TracecatNotFoundError, match="User not found in organization"):
+        await membership_service.create_membership(
+            workspace_id=workspace.id,
+            params=WorkspaceMembershipCreate(user_id=member_user.id),
+        )
+
+    assignment = await session.scalar(
+        select(UserRoleAssignment).where(
+            UserRoleAssignment.workspace_id == workspace.id,
+            UserRoleAssignment.user_id == member_user.id,
+        )
+    )
+    legacy = await session.scalar(
+        select(LegacyMembership).where(
+            LegacyMembership.workspace_id == workspace.id,
+            LegacyMembership.user_id == member_user.id,
+        )
+    )
+    assert assignment is None
+    assert legacy is None
+
+
+async def test_create_membership_rejects_member_of_another_organization(
+    session: AsyncSession,
+    membership_service: MembershipService,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    workspace_editor_role: DBRole,
+) -> None:
+    """Presence in a different organization does not admit the user here."""
+    other_org = Organization(
+        id=uuid.uuid4(),
+        name="Other Org",
+        slug=f"other-org-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    session.add(other_org)
+    await session.flush()
+    await grant_org_membership(
+        session, user_id=member_user.id, organization_id=other_org.id
+    )
+    await session.commit()
+
+    with pytest.raises(TracecatNotFoundError, match="User not found in organization"):
+        await membership_service.create_membership(
+            workspace_id=workspace.id,
+            params=WorkspaceMembershipCreate(user_id=member_user.id),
+        )
+
+    assignment = await session.scalar(
+        select(UserRoleAssignment).where(
+            UserRoleAssignment.workspace_id == workspace.id,
+            UserRoleAssignment.user_id == member_user.id,
+        )
+    )
+    legacy = await session.scalar(
+        select(LegacyMembership).where(
+            LegacyMembership.workspace_id == workspace.id,
+            LegacyMembership.user_id == member_user.id,
+        )
+    )
+    assert assignment is None
+    assert legacy is None
+
+
+# === update_membership_role === #
+
+
+@pytest.fixture
+async def workspace_viewer_role(
+    session: AsyncSession, organization: Organization
+) -> DBRole:
+    """A workspace role with real viewer scopes, the target of a role change."""
+    await seed_system_scopes(session)
+    role = DBRole(
+        id=uuid.uuid4(),
+        name="Workspace Viewer",
+        slug="workspace-viewer",
+        description="Viewer role",
+        organization_id=organization.id,
+    )
+    session.add(role)
+    await session.flush()
+    result = await session.execute(
+        select(Scope).where(Scope.name.in_(sorted(VIEWER_SCOPES)))
+    )
+    for scope in result.scalars().all():
+        session.add(RoleScope(role_id=role.id, scope_id=scope.id))
+    await session.commit()
+    await session.refresh(role)
+    return role
+
+
+@pytest.fixture
+async def workspace_admin_actor(
+    session: AsyncSession,
+    organization: Organization,
+    workspace: Workspace,
+    actor_user: User,
+) -> Role:
+    """A caller whose only assignment is workspace-admin, with no org:rbac scopes."""
+    await seed_system_scopes(session)
+    admin_role = DBRole(
+        id=uuid.uuid4(),
+        name="WS Admin",
+        slug=None,
+        organization_id=organization.id,
+    )
+    session.add(admin_role)
+    await session.flush()
+    result = await session.execute(
+        select(Scope).where(Scope.name.in_(sorted(ADMIN_SCOPES)))
+    )
+    for scope in result.scalars().all():
+        session.add(RoleScope(role_id=admin_role.id, scope_id=scope.id))
+    session.add(
+        UserRoleAssignment(
+            organization_id=organization.id,
+            user_id=actor_user.id,
+            workspace_id=workspace.id,
+            role_id=admin_role.id,
+        )
+    )
+    await session.commit()
+    assert not any(scope.startswith("org:rbac") for scope in ADMIN_SCOPES)
+    return Role(
+        type="user",
+        user_id=actor_user.id,
+        organization_id=organization.id,
+        workspace_id=workspace.id,
+        service_id="tracecat-api",
+        scopes=ADMIN_SCOPES,
+    )
+
+
+async def test_update_membership_role_changes_direct_assignment(
+    session: AsyncSession,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    workspace_admin_actor: Role,
+    scoped_workspace_editor_role: DBRole,
+    workspace_viewer_role: DBRole,
+) -> None:
+    """A workspace admin demotes an editor to viewer without any org scope."""
+    await grant_workspace_membership(
+        session,
+        user_id=member_user.id,
+        organization_id=organization.id,
+        workspace_id=workspace.id,
+        slug="workspace-editor",
+    )
+    await session.commit()
+    service = MembershipService(session=session, role=workspace_admin_actor)
+
+    await service.update_membership_role(
+        workspace.id, user_id=member_user.id, role_id=workspace_viewer_role.id
+    )
+
+    assignment = await session.scalar(
+        select(UserRoleAssignment).where(
+            UserRoleAssignment.user_id == member_user.id,
+            UserRoleAssignment.workspace_id == workspace.id,
+        )
+    )
+    assert assignment is not None
+    assert assignment.role_id == workspace_viewer_role.id
+
+
+async def test_update_membership_role_emits_audit_events(
+    session: AsyncSession,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    workspace_admin_actor: Role,
+    workspace_viewer_role: DBRole,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A workspace role change is auditable, like the org-level assignment change."""
+    await grant_workspace_membership(
+        session,
+        user_id=member_user.id,
+        organization_id=organization.id,
+        workspace_id=workspace.id,
+        slug="workspace-editor",
+    )
+    await session.commit()
+    create_event = AsyncMock()
+    monkeypatch.setattr(AuditService, "create_event", create_event)
+    service = MembershipService(session=session, role=workspace_admin_actor)
+
+    await service.update_membership_role(
+        workspace.id, user_id=member_user.id, role_id=workspace_viewer_role.id
+    )
+
+    assert [call.kwargs["status"] for call in create_event.await_args_list] == [
+        AuditEventStatus.ATTEMPT,
+        AuditEventStatus.SUCCESS,
+    ]
+    attempt = create_event.await_args_list[0].kwargs
+    assert attempt["resource_type"] == "rbac_user_assignment"
+    assert attempt["action"] == "update"
+    assert attempt["resource_id"] == member_user.id
+
+
+async def test_update_membership_role_enforces_scope_ceiling(
+    session: AsyncSession,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    workspace_admin_actor: Role,
+    scoped_workspace_editor_role: DBRole,
+) -> None:
+    """A role carrying a scope the caller lacks is refused."""
+    await grant_workspace_membership(
+        session,
+        user_id=member_user.id,
+        organization_id=organization.id,
+        workspace_id=workspace.id,
+        slug="workspace-editor",
+    )
+    privileged = DBRole(
+        id=uuid.uuid4(),
+        name="Privileged",
+        slug=None,
+        organization_id=organization.id,
+    )
+    session.add(privileged)
+    await session.flush()
+    owner_scope = await session.scalar(
+        select(Scope).where(Scope.name == "org:owner:assign")
+    )
+    assert owner_scope is not None
+    session.add(RoleScope(role_id=privileged.id, scope_id=owner_scope.id))
+    await session.commit()
+    service = MembershipService(session=session, role=workspace_admin_actor)
+
+    with pytest.raises(
+        TracecatAuthorizationError,
+        match="Cannot grant scopes not held by the caller",
+    ):
+        await service.update_membership_role(
+            workspace.id, user_id=member_user.id, role_id=privileged.id
+        )
+
+
+async def test_update_membership_role_rejects_org_level_role(
+    session: AsyncSession,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    workspace_admin_actor: Role,
+    scoped_workspace_editor_role: DBRole,
+) -> None:
+    """An org-level role reaches every workspace, so it is refused here."""
+    await grant_workspace_membership(
+        session,
+        user_id=member_user.id,
+        organization_id=organization.id,
+        workspace_id=workspace.id,
+        slug="workspace-editor",
+    )
+    org_role = DBRole(
+        id=uuid.uuid4(),
+        name="Org Reader",
+        slug=None,
+        organization_id=organization.id,
+    )
+    session.add(org_role)
+    await session.flush()
+    org_scope = await session.scalar(select(Scope).where(Scope.name == "org:read"))
+    assert org_scope is not None
+    session.add(RoleScope(role_id=org_role.id, scope_id=org_scope.id))
+    # Grant the caller the same scope so the rejection is the org-scope rule
+    # and not the ceiling.
+    caller_assignment = await session.scalar(
+        select(UserRoleAssignment).where(
+            UserRoleAssignment.user_id == workspace_admin_actor.user_id
+        )
+    )
+    assert caller_assignment is not None
+    session.add(RoleScope(role_id=caller_assignment.role_id, scope_id=org_scope.id))
+    await session.commit()
+    service = MembershipService(session=session, role=workspace_admin_actor)
+
+    with pytest.raises(
+        TracecatValidationError, match="Only workspace roles can be assigned here"
+    ):
+        await service.update_membership_role(
+            workspace.id, user_id=member_user.id, role_id=org_role.id
+        )
+
+
+async def test_update_membership_role_conflicts_on_group_derived_member(
+    session: AsyncSession,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    workspace_admin_actor: Role,
+    workspace_viewer_role: DBRole,
+) -> None:
+    """A member present only through a group cannot be changed here."""
+    group = Group(id=uuid.uuid4(), name="Editors", organization_id=organization.id)
+    session.add(group)
+    await session.flush()
+    session.add(GroupMember(group_id=group.id, user_id=member_user.id))
+    session.add(
+        GroupRoleAssignment(
+            organization_id=organization.id,
+            group_id=group.id,
+            workspace_id=workspace.id,
+            role_id=workspace_viewer_role.id,
+        )
+    )
+    await session.commit()
+    service = MembershipService(session=session, role=workspace_admin_actor)
+
+    with pytest.raises(TracecatConflictError, match="granted through a group"):
+        await service.update_membership_role(
+            workspace.id, user_id=member_user.id, role_id=workspace_viewer_role.id
+        )
+
+
+async def test_update_membership_role_not_found_for_non_member(
+    session: AsyncSession,
+    workspace: Workspace,
+    member_user: User,
+    workspace_admin_actor: Role,
+    workspace_viewer_role: DBRole,
+) -> None:
+    """A user with no path into the workspace is not a member."""
+    service = MembershipService(session=session, role=workspace_admin_actor)
+
+    with pytest.raises(TracecatNotFoundError, match="Membership not found"):
+        await service.update_membership_role(
+            workspace.id, user_id=member_user.id, role_id=workspace_viewer_role.id
+        )
+
+
+async def test_create_membership_reads_org_presence_through_bypass_session(
+    session: AsyncSession,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    workspace_editor_role: DBRole,
+    actor_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Organization presence is read through the RLS-bypass session.
+
+    Under enforced RLS the assignment tables hide rows keyed to another
+    workspace, so reading presence on the request session would report a user
+    whose only role path is in a different workspace as absent.
+    """
+    other_workspace = Workspace(
+        id=uuid.uuid4(), name="Other Workspace", organization_id=organization.id
+    )
+    session.add(other_workspace)
+    await grant_workspace_membership(
+        session,
+        user_id=member_user.id,
+        organization_id=organization.id,
+        workspace_id=other_workspace.id,
+    )
+    await session.commit()
+
+    used = False
+
+    @contextlib.asynccontextmanager
+    async def _bypass() -> AsyncIterator[AsyncSession]:
+        nonlocal used
+        used = True
+        yield session
+
+    monkeypatch.setattr(
+        authz_service, "get_async_session_bypass_rls_context_manager", _bypass
+    )
+    service = MembershipService(session=session, role=actor_role)
+
+    await service.create_membership(
+        workspace.id, WorkspaceMembershipCreate(user_id=member_user.id)
+    )
+
+    assert used, "org presence must be read through the RLS-bypass session"
+    assignment = (
+        await session.execute(
+            select(UserRoleAssignment).where(
+                UserRoleAssignment.user_id == member_user.id,
+                UserRoleAssignment.workspace_id == workspace.id,
+            )
+        )
+    ).scalar_one()
+    assert assignment.role_id == workspace_editor_role.id

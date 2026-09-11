@@ -4,8 +4,12 @@ import { DialogTrigger } from "@radix-ui/react-dialog"
 import { DotsHorizontalIcon, PlusIcon } from "@radix-ui/react-icons"
 import { FolderIcon, GlobeIcon, Trash2Icon } from "lucide-react"
 import { useSearchParams } from "next/navigation"
-import { useState } from "react"
-import { invitationsGetInvitationToken, type OrgMemberRead } from "@/client"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import {
+  invitationsGetInvitationToken,
+  type OrgMemberRead,
+  type UserRoleAssignmentReadWithDetails,
+} from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import {
   DataTable,
@@ -52,6 +56,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import type { TracecatApiError } from "@/lib/errors"
 import { getRelativeTime } from "@/lib/event-history"
 import {
   useOrgMembers,
@@ -409,8 +414,10 @@ export function OrgMembersTable() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
-        {selectedMember && (
+        {/* Unmount on close so a reopen never shows another member's edits. */}
+        {isChangeRoleOpen && selectedMember && (
           <ManageUserRolesDialog
+            key={selectedMember.user_id}
             member={selectedMember}
             onOpenChange={setIsChangeRoleOpen}
           />
@@ -420,7 +427,44 @@ export function OrgMembersTable() {
   )
 }
 
-function ManageUserRolesDialog({
+/**
+ * A role assignment staged in the manage-roles dialog. `assignmentId` is set
+ * for entries that already exist on the server.
+ */
+type PendingRoleAssignment = {
+  key: string
+  assignmentId: string | null
+  roleId: string
+  roleName: string
+  workspaceId: string | null
+  workspaceName: string | null
+}
+
+const ORG_WIDE_SCOPE = "org-wide"
+
+// organization-member is the baseline every member holds; never shown or removed here.
+const BASELINE_ROLE_SLUG = "organization-member"
+
+function scopeKey(workspaceId: string | null): string {
+  return workspaceId ?? ORG_WIDE_SCOPE
+}
+
+/** True when both lists hold the same assignment IDs with the same roles. */
+function sameAssignments(
+  a: UserRoleAssignmentReadWithDetails[],
+  b: UserRoleAssignmentReadWithDetails[]
+): boolean {
+  if (a.length !== b.length) return false
+  const roleById = new Map(a.map((x) => [x.id, x.role_id]))
+  return b.every((x) => roleById.get(x.id) === x.role_id)
+}
+
+/**
+ * Stage and apply a member's role assignments, then apply them on Done.
+ *
+ * Emptying the visible assignments removes the member from the organization.
+ */
+export function ManageUserRolesDialog({
   member,
   onOpenChange,
 }: {
@@ -428,69 +472,258 @@ function ManageUserRolesDialog({
   onOpenChange: (open: boolean) => void
 }) {
   const [roleId, setRoleId] = useState("")
-  const [workspaceId, setWorkspaceId] = useState<string>("org-wide")
-  const [pendingOrgRemovalId, setPendingOrgRemovalId] = useState<string | null>(
-    null
+  const [workspaceId, setWorkspaceId] = useState<string>(ORG_WIDE_SCOPE)
+  const [pending, setPending] = useState<PendingRoleAssignment[]>([])
+  // Server state captured at seed time; edits diff against this, never live data.
+  const [baseline, setBaseline] = useState<UserRoleAssignmentReadWithDetails[]>(
+    []
   )
+  const [isConfirmOpen, setIsConfirmOpen] = useState(false)
+  const [isApplying, setIsApplying] = useState(false)
+  const seededRef = useRef(false)
   const userId = member.user_id ?? undefined
 
   const {
     userAssignments,
+    isLoading: userAssignmentsIsLoading,
+    refetchUserAssignments,
     createUserAssignment,
-    createUserAssignmentIsPending,
     updateUserAssignment,
-    updateUserAssignmentIsPending,
     deleteUserAssignment,
-    deleteUserAssignmentIsPending,
   } = useRbacUserAssignments({ userId })
-  const { roles } = useRbacRoles()
+  const { deleteOrgMember } = useOrgMembers()
+  const { roles, isLoading: rolesIsLoading } = useRbacRoles()
   const { workspaces } = useWorkspaceManager()
+  const baselineRoleIds = useMemo(
+    () =>
+      new Set(
+        roles
+          .filter((role) => role.slug === BASELINE_ROLE_SLUG)
+          .map((role) => role.id)
+      ),
+    [roles]
+  )
+  // The baseline role is invisible here: it is never listed, staged, or deleted.
+  const visible = useCallback(
+    (assignments: UserRoleAssignmentReadWithDetails[]) =>
+      assignments.filter((a) => !baselineRoleIds.has(a.role_id)),
+    [baselineRoleIds]
+  )
   const canReadRbac = useScopeCheck("org:rbac:read") === true
   const canCreateAssignment = useScopeCheck("org:rbac:create") === true
+  const canRemoveMember = useScopeCheck("org:member:remove") === true
   const canUpdateAssignment = useScopeCheck("org:rbac:update") === true
   const canDeleteAssignment = useScopeCheck("org:rbac:delete") === true
 
-  // A user holds at most one org-wide assignment, so changing that role is an
-  // update: creating a second one would conflict.
-  const existingOrgAssignment = userAssignments.find(
-    (assignment) => assignment.workspace_id == null
+  const toPending = useCallback(
+    (assignment: UserRoleAssignmentReadWithDetails): PendingRoleAssignment => ({
+      key: scopeKey(assignment.workspace_id ?? null),
+      assignmentId: assignment.id,
+      roleId: assignment.role_id,
+      roleName: assignment.role_name,
+      workspaceId: assignment.workspace_id ?? null,
+      workspaceName: assignment.workspace_name ?? null,
+    }),
+    []
   )
-  const isUpdate = workspaceId === "org-wide" && Boolean(existingOrgAssignment)
-  const canSubmit = isUpdate ? canUpdateAssignment : canCreateAssignment
 
-  const handleAddRole = async () => {
-    if (!roleId || !userId) return
-    if (workspaceId === "org-wide" && existingOrgAssignment) {
-      await updateUserAssignment({
-        assignmentId: existingOrgAssignment.id,
-        role_id: roleId,
-      })
-    } else {
-      await createUserAssignment({
-        user_id: userId,
-        role_id: roleId,
-        workspace_id: workspaceId === "org-wide" ? null : workspaceId,
-      })
-    }
+  const seed = useCallback(() => {
+    const shown = visible(userAssignments)
+    setBaseline(shown)
+    setPending(shown.map(toPending))
+  }, [userAssignments, toPending, visible])
+
+  // Seed once per open: reseeding on every refetch would discard staged edits.
+  useEffect(() => {
+    if (seededRef.current || userAssignmentsIsLoading || rolesIsLoading) return
+    seededRef.current = true
+    seed()
+  }, [userAssignmentsIsLoading, rolesIsLoading, seed])
+
+  // Closing discards staged edits so the next open reseeds from server state.
+  const closeDialog = useCallback(() => {
+    setPending([])
+    setBaseline([])
     setRoleId("")
-    setWorkspaceId("org-wide")
+    setWorkspaceId(ORG_WIDE_SCOPE)
+    seededRef.current = false
+    onOpenChange(false)
+  }, [onOpenChange])
+
+  const persistedByKey = useMemo(() => {
+    const map = new Map<string, UserRoleAssignmentReadWithDetails>()
+    for (const assignment of baseline) {
+      map.set(scopeKey(assignment.workspace_id ?? null), assignment)
+    }
+    return map
+  }, [baseline])
+
+  const handleAddRole = () => {
+    const role = roles.find((r) => r.id === roleId)
+    if (!role) return
+    const targetWorkspaceId =
+      workspaceId === ORG_WIDE_SCOPE ? null : workspaceId
+    const workspace = workspaces?.find((w) => w.id === targetWorkspaceId)
+    const key = scopeKey(targetWorkspaceId)
+    // One assignment per scope on the backend, so a same-scope add replaces.
+    // Fall back to the persisted baseline: re-adding a scope removed earlier in
+    // this session must reuse its ID, or Done would create a duplicate and 409.
+    const existing = pending.find((entry) => entry.key === key)
+    const persistedId = persistedByKey.get(key)?.id ?? null
+    const next: PendingRoleAssignment = {
+      key,
+      assignmentId: existing?.assignmentId ?? persistedId,
+      roleId: role.id,
+      roleName: role.name,
+      workspaceId: targetWorkspaceId,
+      workspaceName: workspace?.name ?? null,
+    }
+    setPending((current) => [
+      ...current.filter((entry) => entry.key !== key),
+      next,
+    ])
+    setRoleId("")
+    setWorkspaceId(ORG_WIDE_SCOPE)
   }
 
-  // Removing an org-wide role can drop the user from the member list, so
-  // confirm it; workspace-scoped removals stay one click.
-  const handleRemoveRole = async (assignmentId: string) => {
-    const assignment = userAssignments.find((a) => a.id === assignmentId)
-    if (assignment?.workspace_id == null) {
-      setPendingOrgRemovalId(assignmentId)
+  const handleRemoveRole = (key: string) => {
+    setPending((current) => current.filter((entry) => entry.key !== key))
+  }
+
+  const updates = useMemo(
+    () =>
+      pending.filter((entry) => {
+        const persisted = persistedByKey.get(entry.key)
+        return (
+          entry.assignmentId !== null &&
+          persisted != null &&
+          persisted.role_id !== entry.roleId
+        )
+      }),
+    [pending, persistedByKey]
+  )
+  const creates = useMemo(
+    () => pending.filter((entry) => entry.assignmentId === null),
+    [pending]
+  )
+  const deletes = useMemo(
+    () =>
+      baseline.filter(
+        (assignment) =>
+          !pending.some(
+            (entry) =>
+              entry.key === scopeKey(assignment.workspace_id ?? null) &&
+              entry.assignmentId === assignment.id
+          )
+      ),
+    [baseline, pending]
+  )
+
+  const isRemoval = pending.length === 0 && baseline.length > 0
+  const needsCreate = creates.length > 0
+  const needsUpdate = updates.length > 0
+  const needsDelete = deletes.length > 0
+  const hasChanges = needsCreate || needsUpdate || needsDelete
+
+  const consequences = useMemo(() => {
+    const messages: string[] = []
+    if (isRemoval) {
+      messages.push(
+        `${member.email} will be removed from the organization: tokens revoked and group memberships dropped.`
+      )
+      return messages
+    }
+    const hadOrgWide = persistedByKey.has(ORG_WIDE_SCOPE)
+    const hasOrgWide = pending.some((entry) => entry.workspaceId === null)
+    if (hadOrgWide && !hasOrgWide) {
+      messages.push(
+        "No organization role. Presence is kept while workspace roles remain."
+      )
+    }
+    for (const assignment of deletes) {
+      if (assignment.workspace_id) {
+        messages.push(
+          `Loses access to workspace ${assignment.workspace_name ?? assignment.workspace_id}.`
+        )
+      }
+    }
+    return messages
+  }, [isRemoval, member.email, persistedByKey, pending, deletes])
+
+  const missingPermission =
+    (isRemoval && !canRemoveMember) ||
+    (needsCreate && !canCreateAssignment) ||
+    (needsUpdate && !canUpdateAssignment) ||
+    (needsDelete && !canDeleteAssignment)
+
+  const applyChanges = async () => {
+    if (!userId) return
+    setIsApplying(true)
+    // Another admin may have changed roles since seed; never apply a stale diff.
+    const { data: live } = await refetchUserAssignments()
+    const liveVisible = visible(live ?? [])
+    if (!sameAssignments(baseline, liveVisible)) {
+      toast({
+        title: "Roles changed elsewhere",
+        description: "Reloaded the current roles. Review and apply again.",
+      })
+      setBaseline(liveVisible)
+      setPending(liveVisible.map(toPending))
+      setIsApplying(false)
+      setIsConfirmOpen(false)
       return
     }
-    await deleteUserAssignment(assignmentId)
+    try {
+      if (isRemoval) {
+        await deleteOrgMember({ userId })
+      } else {
+        for (const entry of updates) {
+          if (!entry.assignmentId) continue
+          await updateUserAssignment({
+            assignmentId: entry.assignmentId,
+            role_id: entry.roleId,
+          })
+        }
+        // Creates precede deletes: deleting the user's last path first would
+        // drop them from the organization and 404 the create.
+        for (const entry of creates) {
+          await createUserAssignment({
+            user_id: userId,
+            role_id: entry.roleId,
+            workspace_id: entry.workspaceId,
+          })
+        }
+        for (const assignment of deletes) {
+          await deleteUserAssignment(assignment.id)
+        }
+      }
+    } catch (error) {
+      const detail = (error as TracecatApiError).body?.detail
+      toast({
+        title: "Could not apply role changes",
+        description: String(detail ?? "The request could not be completed."),
+        variant: "destructive",
+      })
+      const { data } = await refetchUserAssignments()
+      const refreshed = visible(data ?? [])
+      setBaseline(refreshed)
+      setPending(refreshed.map(toPending))
+      setIsApplying(false)
+      setIsConfirmOpen(false)
+      return
+    }
+    await refetchUserAssignments()
+    setIsApplying(false)
+    setIsConfirmOpen(false)
+    closeDialog()
   }
 
-  const handleConfirmOrgRemoval = async () => {
-    if (!pendingOrgRemovalId) return
-    await deleteUserAssignment(pendingOrgRemovalId)
-    setPendingOrgRemovalId(null)
+  const handleDone = () => {
+    if (consequences.length > 0) {
+      setIsConfirmOpen(true)
+      return
+    }
+    void applyChanges()
   }
 
   return (
@@ -512,11 +745,13 @@ function ManageUserRolesDialog({
                   <SelectValue placeholder="Select a role" />
                 </SelectTrigger>
                 <SelectContent>
-                  {roles.map((role) => (
-                    <SelectItem key={role.id} value={role.id}>
-                      {role.name}
-                    </SelectItem>
-                  ))}
+                  {roles
+                    .filter((role) => !baselineRoleIds.has(role.id))
+                    .map((role) => (
+                      <SelectItem key={role.id} value={role.id}>
+                        {role.name}
+                      </SelectItem>
+                    ))}
                 </SelectContent>
               </Select>
               <Select value={workspaceId} onValueChange={setWorkspaceId}>
@@ -524,7 +759,7 @@ function ManageUserRolesDialog({
                   <SelectValue placeholder="Scope" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="org-wide">
+                  <SelectItem value={ORG_WIDE_SCOPE}>
                     <div className="flex items-center gap-2">
                       <GlobeIcon className="size-4 text-blue-500" />
                       Organization
@@ -543,12 +778,7 @@ function ManageUserRolesDialog({
               <Button
                 type="button"
                 onClick={handleAddRole}
-                disabled={
-                  !roleId ||
-                  createUserAssignmentIsPending ||
-                  updateUserAssignmentIsPending ||
-                  !canSubmit
-                }
+                disabled={!roleId || isApplying}
               >
                 <PlusIcon className="size-4" />
               </Button>
@@ -557,26 +787,24 @@ function ManageUserRolesDialog({
         )}
 
         <div className="space-y-2">
-          <Label>Current role assignments ({userAssignments.length})</Label>
+          <Label>Current role assignments ({pending.length})</Label>
           <ScrollArea className="h-[200px] rounded-md border">
-            {userAssignments.length > 0 ? (
+            {pending.length > 0 ? (
               <div className="space-y-2 p-4">
-                {userAssignments.map((assignment) => (
+                {pending.map((entry) => (
                   <div
-                    key={assignment.id}
+                    key={entry.key}
                     className="flex items-center justify-between rounded-md border p-2"
                   >
                     <div className="flex flex-col gap-1">
                       <div className="flex items-center gap-2">
-                        <Badge variant="secondary">
-                          {assignment.role_name}
-                        </Badge>
+                        <Badge variant="secondary">{entry.roleName}</Badge>
                       </div>
                       <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                        {assignment.workspace_name ? (
+                        {entry.workspaceId ? (
                           <>
                             <FolderIcon className="size-3" />
-                            {assignment.workspace_name}
+                            {entry.workspaceName ?? entry.workspaceId}
                           </>
                         ) : (
                           <>
@@ -590,8 +818,8 @@ function ManageUserRolesDialog({
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => handleRemoveRole(assignment.id)}
-                        disabled={deleteUserAssignmentIsPending}
+                        onClick={() => handleRemoveRole(entry.key)}
+                        disabled={isApplying}
                         className="text-rose-500 hover:text-rose-600"
                       >
                         <Trash2Icon className="size-4" />
@@ -616,33 +844,44 @@ function ManageUserRolesDialog({
         </p>
       )}
       <DialogFooter>
-        <Button variant="outline" onClick={() => onOpenChange(false)}>
+        <Button variant="outline" onClick={closeDialog}>
+          Cancel
+        </Button>
+        <Button
+          onClick={handleDone}
+          disabled={!hasChanges || isApplying || missingPermission}
+        >
           Done
         </Button>
       </DialogFooter>
       <AlertDialog
-        open={pendingOrgRemovalId !== null}
+        open={isConfirmOpen}
         onOpenChange={(open) => {
-          if (!open) setPendingOrgRemovalId(null)
+          if (!open) setIsConfirmOpen(false)
         }}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Remove organization role?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {member.email} will no longer be listed as an organization member
-              unless a group grants them an organization role. Workspace roles
-              are kept.
+            <AlertDialogTitle>Apply role changes?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <ul className="list-disc space-y-1 pl-4">
+                {consequences.map((consequence) => (
+                  <li key={consequence}>{consequence}</li>
+                ))}
+              </ul>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              variant="destructive"
-              disabled={deleteUserAssignmentIsPending}
-              onClick={handleConfirmOrgRemoval}
+              variant={isRemoval ? "destructive" : "default"}
+              disabled={isApplying}
+              onClick={(event) => {
+                event.preventDefault()
+                void applyChanges()
+              }}
             >
-              Remove role
+              Apply
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

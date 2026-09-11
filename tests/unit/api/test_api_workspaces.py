@@ -11,10 +11,15 @@ from sqlalchemy.exc import IntegrityError
 
 from tracecat.auth.types import Role
 from tracecat.authz.enums import WorkspaceRole
-from tracecat.authz.scopes import ORG_MEMBER_SCOPES
+from tracecat.authz.scopes import ADMIN_SCOPES, ORG_MEMBER_SCOPES
 from tracecat.contexts import ctx_role
 from tracecat.db.models import Workspace
-from tracecat.exceptions import TracecatAuthorizationError
+from tracecat.exceptions import (
+    TracecatAuthorizationError,
+    TracecatConflictError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.logger import logger
 from tracecat.workspaces import router as workspaces_router
 
@@ -230,6 +235,98 @@ async def test_create_workspace_membership_conflict(
         )
 
         assert response.status_code == status.HTTP_409_CONFLICT
+
+
+def _patch_workspace_role(role: Role) -> Role:
+    """A caller with workspace-admin scopes and no organization RBAC scopes."""
+    return role.model_copy(update={"scopes": ADMIN_SCOPES})
+
+
+@pytest.mark.anyio
+async def test_update_workspace_membership_success(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """PATCH /workspaces/{id}/memberships/{user_id} returns the membership."""
+    workspace_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    token = ctx_role.set(_patch_workspace_role(test_admin_role))
+    try:
+        with patch.object(workspaces_router, "MembershipService") as MockService:
+            mock_svc = AsyncMock()
+            MockService.return_value = mock_svc
+            response = client.patch(
+                f"/workspaces/{workspace_id}/memberships/{user_id}",
+                json={"role_id": str(uuid.uuid4())},
+            )
+    finally:
+        ctx_role.reset(token)
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json() == {
+        "user_id": str(user_id),
+        "workspace_id": str(workspace_id),
+    }
+    mock_svc.update_membership_role.assert_awaited_once()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("error", "expected_status"),
+    [
+        (TracecatAuthorizationError("Cannot grant scopes"), status.HTTP_403_FORBIDDEN),
+        (TracecatConflictError("granted through a group"), status.HTTP_409_CONFLICT),
+        (TracecatNotFoundError("Membership not found"), status.HTTP_404_NOT_FOUND),
+        (
+            TracecatValidationError("Only workspace roles can be assigned here"),
+            status.HTTP_400_BAD_REQUEST,
+        ),
+    ],
+    ids=["ceiling", "group", "non_member", "org_role"],
+)
+async def test_update_workspace_membership_error_mapping(
+    client: TestClient,
+    test_admin_role: Role,
+    error: Exception,
+    expected_status: int,
+) -> None:
+    """Each service failure maps to its own status code."""
+    token = ctx_role.set(_patch_workspace_role(test_admin_role))
+    try:
+        with patch.object(workspaces_router, "MembershipService") as MockService:
+            mock_svc = AsyncMock()
+            mock_svc.update_membership_role.side_effect = error
+            MockService.return_value = mock_svc
+            response = client.patch(
+                f"/workspaces/{uuid.uuid4()}/memberships/{uuid.uuid4()}",
+                json={"role_id": str(uuid.uuid4())},
+            )
+    finally:
+        ctx_role.reset(token)
+
+    assert response.status_code == expected_status
+
+
+@pytest.mark.anyio
+async def test_create_workspace_membership_outside_organization(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """A user with no role path in the organization returns 404, not 201."""
+    with patch.object(workspaces_router, "MembershipService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.create_membership.side_effect = TracecatNotFoundError(
+            "User not found in organization"
+        )
+        MockService.return_value = mock_svc
+
+        response = client.post(
+            f"/workspaces/{uuid.uuid4()}/memberships",
+            json={"user_id": str(uuid.uuid4())},
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert response.json()["detail"] == "User not found in organization"
 
 
 @pytest.mark.anyio

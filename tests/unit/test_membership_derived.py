@@ -126,7 +126,7 @@ async def test_derives_presence_from_assignment_paths(
     """Each path kind lands in exactly the relation it should."""
     assert await _presence(session, user.id) == (0, 0)
 
-    # A workspace-scoped assignment is workspace presence only.
+    # A workspace-scoped assignment is workspace presence and org presence.
     session.add(
         UserRoleAssignment(
             organization_id=org.id,
@@ -136,9 +136,9 @@ async def test_derives_presence_from_assignment_paths(
         )
     )
     await session.flush()
-    assert await _presence(session, user.id) == (1, 0)
+    assert await _presence(session, user.id) == (1, 1)
 
-    # An org-wide assignment is org presence only.
+    # An org-wide assignment adds no second org row: presence is distinct.
     session.add(
         UserRoleAssignment(
             organization_id=org.id,
@@ -167,14 +167,14 @@ async def test_derives_presence_from_assignment_paths(
     assert await _presence(session, user.id) == (2, 1)
 
 
-async def test_org_slice_is_the_null_workspace_path(
+async def test_org_slice_is_any_role_path(
     session: AsyncSession,
     org: Organization,
     workspace: Workspace,
     user: User,
     db_role: DBRole,
 ) -> None:
-    """A workspace-scoped path alone is never organization presence."""
+    """A workspace-scoped path alone is already organization presence."""
     session.add(
         UserRoleAssignment(
             organization_id=org.id,
@@ -184,9 +184,9 @@ async def test_org_slice_is_the_null_workspace_path(
         )
     )
     await session.flush()
-    assert await _presence(session, user.id) == (1, 0)
+    assert await _presence(session, user.id) == (1, 1)
 
-    # A group's org-wide grant is organization presence, with no workspace row.
+    # A group's org-wide grant adds no workspace row and no duplicate org row.
     group = Group(id=uuid.uuid4(), name="Org Wide Group", organization_id=org.id)
     session.add(group)
     await session.flush()

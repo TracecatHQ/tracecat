@@ -48,15 +48,13 @@ import {
   useWorkspaceMembers,
   useWorkspaceMutations,
 } from "@/hooks/use-workspace"
-import { useRbacRoles, useRbacUserAssignments } from "@/lib/hooks"
-import { useQueryClient } from "@/lib/query"
+import { useRbacRoles, useWorkspaceMembershipRole } from "@/lib/hooks"
 
 export function WorkspaceMembersTable({
   workspace,
 }: {
   workspace: WorkspaceRead
 }) {
-  const queryClient = useQueryClient()
   const canUpdateMembers = useScopeCheck("workspace:member:update")
   const canRemoveMembers = useScopeCheck("workspace:member:remove")
   const [selectedUser, setSelectedUser] = useState<WorkspaceMember | null>(null)
@@ -65,84 +63,37 @@ export function WorkspaceMembersTable({
   const { members, membersLoading, membersError } = useWorkspaceMembers(
     workspace.id
   )
-  const {
-    userAssignments,
-    isLoading: userAssignmentsIsLoading,
-    error: userAssignmentsError,
-    updateUserAssignment,
-    updateUserAssignmentIsPending,
-  } = useRbacUserAssignments({
-    workspaceId: workspace.id,
-    enabled: isChangeRoleOpen,
-  })
+  const { updateMembershipRole, updateMembershipRoleIsPending } =
+    useWorkspaceMembershipRole(workspace.id)
 
   const handleChangeRole = useCallback(
     async (roleId: string) => {
+      if (!selectedUser) {
+        return toast({
+          title: "No user selected",
+          description: "Please select a user to change role",
+        })
+      }
+      if (!roleId) {
+        return toast({
+          title: "No role selected",
+          description: "Please select a role before continuing.",
+        })
+      }
       try {
-        if (!selectedUser) {
-          return toast({
-            title: "No user selected",
-            description: "Please select a user to change role",
-          })
-        }
-        if (!roleId) {
-          return toast({
-            title: "No role selected",
-            description: "Please select a role before continuing.",
-          })
-        }
-        if (userAssignmentsIsLoading) {
-          return toast({
-            title: "Role data is loading",
-            description: "Wait a moment and try changing the role again.",
-          })
-        }
-        if (userAssignmentsError) {
-          return toast({
-            title: "Could not load role assignments",
-            description: "Check that you can read organization RBAC settings.",
-          })
-        }
-        // Find the existing RBAC assignment for this user in this workspace
-        const existingAssignment = userAssignments?.find(
-          (a) =>
-            a.user_id === selectedUser.user_id &&
-            a.workspace_id === workspace.id
-        )
-        if (existingAssignment) {
-          await updateUserAssignment({
-            assignmentId: existingAssignment.id,
-            role_id: roleId,
-          })
-        } else {
-          // No direct assignment means the role comes from a group.
-          return toast({
-            title: "Role granted through a group",
-            description: "Change it from organization settings under Groups.",
-          })
-        }
-        await queryClient.invalidateQueries({
-          queryKey: ["workspace", workspace.id, "members"],
+        await updateMembershipRole({
+          userId: selectedUser.user_id,
+          role_id: roleId,
         })
       } catch (error) {
-        console.log("Failed to change role", error)
-      } finally {
-        setIsChangeRoleOpen(false)
-        setSelectedUser(null)
+        console.error("Failed to change role", error)
+        return
       }
+      setIsChangeRoleOpen(false)
+      setSelectedUser(null)
     },
-    [
-      selectedUser,
-      userAssignments,
-      workspace.id,
-      updateUserAssignment,
-      userAssignmentsIsLoading,
-      userAssignmentsError,
-      queryClient,
-    ]
+    [selectedUser, updateMembershipRole]
   )
-
-  const isRoleMutationPending = updateUserAssignmentIsPending
 
   return (
     <Dialog open={isChangeRoleOpen} onOpenChange={setIsChangeRoleOpen}>
@@ -325,7 +276,7 @@ export function WorkspaceMembersTable({
       <ChangeUserRoleDialog
         open={isChangeRoleOpen}
         selectedUser={selectedUser}
-        isSubmitting={isRoleMutationPending || userAssignmentsIsLoading}
+        isSubmitting={updateMembershipRoleIsPending}
         setOpen={setIsChangeRoleOpen}
         onConfirm={handleChangeRole}
       />

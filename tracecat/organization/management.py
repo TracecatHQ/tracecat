@@ -462,8 +462,8 @@ async def ensure_single_tenant_user_defaults_in_session(
         if not is_superuser or current_role_slug == "organization-owner":
             return False
 
-    # Membership without a direct org-wide assignment comes from a group grant.
-    # Inserting a direct assignment here would make that group access permanent.
+    # Membership without a direct org-wide assignment comes from a group or
+    # workspace path. Inserting a direct assignment would make it permanent.
     if membership is not None and assignment_row is None and not is_superuser:
         return False
 

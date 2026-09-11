@@ -941,6 +941,8 @@ import type {
   WorkspacesSearchWorkspacesData,
   WorkspacesSearchWorkspacesResponse,
   WorkspacesUpdateWorkspaceData,
+  WorkspacesUpdateWorkspaceMembershipData,
+  WorkspacesUpdateWorkspaceMembershipResponse,
   WorkspacesUpdateWorkspaceResponse,
 } from "./types.gen"
 
@@ -1398,6 +1400,7 @@ export const workspacesCreateWorkspaceMembership = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
+      404: "User not found in organization.",
       409: "User is already a member of the workspace.",
       422: "Validation Error",
     },
@@ -1424,6 +1427,37 @@ export const workspacesGetWorkspaceMembership = (
       user_id: data.userId,
     },
     errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Workspace Membership
+ * Change the workspace role of an existing member.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.userId
+ * @param data.requestBody
+ * @returns WorkspaceMembershipRead Successful Response
+ * @throws ApiError
+ */
+export const workspacesUpdateWorkspaceMembership = (
+  data: WorkspacesUpdateWorkspaceMembershipData
+): CancelablePromise<WorkspacesUpdateWorkspaceMembershipResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/workspaces/{workspace_id}/memberships/{user_id}",
+    path: {
+      workspace_id: data.workspaceId,
+      user_id: data.userId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      400: "Only workspace roles can be assigned here.",
+      404: "Membership or role not found.",
+      409: "Role is granted through a group.",
       422: "Validation Error",
     },
   })
