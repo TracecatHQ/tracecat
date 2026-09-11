@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from collections.abc import AsyncIterator, Iterator
 from dataclasses import replace
 from pathlib import Path
@@ -21,6 +22,7 @@ from tracecat.agent.sandbox.llm_proxy import (
     LLMSocketProxy,
     _http_error_classification,
 )
+from tracecat.auth.types import Role
 from tracecat.runtime.errors import (
     RetryDisposition,
     RuntimeErrorKind,
@@ -61,28 +63,35 @@ class _FailingResponseStream(httpx.AsyncByteStream):
 def _routing_plan(
     *,
     managed_url: str = "http://litellm:4000",
-    managed_provider: str = "openai",
     managed_local_provider_cleanup: bool = True,
+    managed_models: dict[str, str] | None = None,
     direct_routes: dict[str, LLMRoute] | None = None,
     direct_authorizations: dict[str, str] | None = None,
 ) -> LLMRoutingPlan:
-    routing_plan = LLMRoutingPlan(
-        managed_route=LLMRoute(
+    fallback = LLMRoute(
+        base_url=managed_url,
+        model_provider=None,
+        mode="managed",
+        local_provider_cleanup=managed_local_provider_cleanup,
+    )
+    managed_routes = {
+        model: LLMRoute(
             base_url=managed_url,
-            model_provider=managed_provider,
+            model_provider=provider,
             mode="managed",
             local_provider_cleanup=managed_local_provider_cleanup,
-        ),
-        direct_routes=direct_routes or {},
-    )
+        )
+        for model, provider in (managed_models or {}).items()
+    }
+    routes = {**managed_routes, **(direct_routes or {})}
     return LLMRoutingPlan(
-        managed_route=routing_plan.managed_route,
-        direct_routes={
+        routes={
             route_key: replace(
                 route, authorization=(direct_authorizations or {}).get(route_key)
             )
-            for route_key, route in routing_plan.direct_routes.items()
+            for route_key, route in routes.items()
         },
+        fallback=fallback,
     )
 
 
@@ -873,7 +882,7 @@ def test_direct_route_strips_version_suffix(tmp_path: Path) -> None:
     )
 
     assert (
-        routing_plan.direct_routes["customer-alias"].base_url
+        routing_plan.routes["customer-alias"].base_url
         == "https://customer-litellm.example"
     )
 
@@ -888,9 +897,7 @@ def test_routing_plan_uses_managed_route_for_non_string_model() -> None:
         }
     )
 
-    assert (
-        routing_plan.resolve({"model": "customer-alias"}) is routing_plan.managed_route
-    )
+    assert routing_plan.resolve({"model": "customer-alias"}) is routing_plan.fallback
 
 
 def test_managed_route_url_preserves_path(tmp_path: Path) -> None:
@@ -901,7 +908,132 @@ def test_managed_route_url_preserves_path(tmp_path: Path) -> None:
         routing_plan=_routing_plan(managed_url="http://litellm:4000/v1"),
     )
 
-    assert socket_proxy.routing_plan.managed_route.base_url == "http://litellm:4000/v1"
+    assert socket_proxy.routing_plan.fallback.base_url == "http://litellm:4000/v1"
+
+
+@pytest.mark.parametrize(
+    ("model_provider", "provider_configuration"),
+    [
+        ("openai", "builtin"),
+        ("custom-model-provider", "custom"),
+        (None, None),
+    ],
+)
+def test_managed_route_diagnostics_derive_provider_configuration(
+    model_provider: str | None,
+    provider_configuration: Literal["builtin", "custom"] | None,
+) -> None:
+    route = LLMRoute(
+        base_url="http://litellm:4000",
+        model_provider=model_provider,
+        mode="managed",
+    )
+
+    assert route.error_diagnostics == LLMErrorDiagnostics(
+        route="managed", provider_configuration=provider_configuration
+    )
+
+
+def test_provider_configuration_follows_replaced_model_provider() -> None:
+    route = LLMRoute(
+        base_url="http://litellm:4000",
+        model_provider="openai",
+        mode="managed",
+    )
+
+    custom_route = replace(route, model_provider="custom-model-provider")
+    unknown_route = replace(route, model_provider=None)
+    assert custom_route.provider_configuration == "custom"
+    assert unknown_route.provider_configuration is None
+
+
+def test_unknown_managed_fallback_skips_provider_cleanup_even_when_enabled() -> None:
+    plan = _routing_plan(managed_local_provider_cleanup=True)
+    route = plan.resolve("unrecognized-model")
+    body = orjson.dumps(
+        {
+            "model": "unrecognized-model",
+            "messages": [],
+            "anthropic_beta": ["prompt-caching-2024-07-31"],
+            "context_management": {"strategy": "summarize"},
+            "output_config": {"task_budget": 2048},
+            "output_format": {"type": "json_schema"},
+        }
+    )
+
+    prepared = route.prepare_forward_request(
+        path="/v1/messages",
+        headers={
+            "Authorization": "Bearer llm-token",
+            "Anthropic-Beta": "prompt-caching-2024-07-31",
+        },
+        body=body,
+        data=orjson.loads(body),
+    )
+
+    assert route.model_provider is None
+    assert route.provider_configuration is None
+    assert prepared.body == body
+    assert prepared.headers["Anthropic-Beta"] == "prompt-caching-2024-07-31"
+    assert prepared.headers["Authorization"] == "Bearer llm-token"
+
+
+@pytest.mark.anyio
+async def test_materialize_normalizes_and_resolves_direct_routes_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    resolved_providers: list[str] = []
+
+    class FakeAgentManagementService:
+        async def get_runtime_provider_credentials(
+            self, provider: str
+        ) -> dict[str, str]:
+            resolved_providers.append(provider)
+            return {"CUSTOM_MODEL_PROVIDER_API_KEY": "sk-direct"}
+
+    @contextlib.asynccontextmanager
+    async def fake_with_session(
+        _role: Role,
+    ) -> AsyncIterator[FakeAgentManagementService]:
+        yield FakeAgentManagementService()
+
+    monkeypatch.setattr(
+        "tracecat.agent.sandbox.llm_proxy.AgentManagementService.with_session",
+        fake_with_session,
+    )
+    plan = LLMRoutingPlan(
+        routes={
+            "managed-model": LLMRoute(
+                base_url="http://litellm:4000/v1",
+                model_provider="openai",
+                mode="managed",
+                authorization="Bearer stale-managed",
+            ),
+            "direct-model": LLMRoute(
+                base_url="https://provider.example/v1/",
+                model_provider="custom-model-provider",
+                mode="direct",
+                authorization="Bearer stale-direct",
+            ),
+        },
+        fallback=LLMRoute(
+            base_url="http://litellm:4000/v1",
+            model_provider=None,
+            mode="managed",
+            authorization="Bearer stale-fallback",
+        ),
+    )
+
+    materialized = await plan.materialize(
+        Role(type="service", service_id="tracecat-runner")
+    )
+
+    assert materialized.routes["managed-model"].base_url == "http://litellm:4000/v1"
+    assert materialized.routes["managed-model"].authorization is None
+    assert materialized.routes["direct-model"].base_url == "https://provider.example"
+    assert materialized.routes["direct-model"].authorization == "Bearer sk-direct"
+    assert materialized.fallback.authorization is None
+    assert resolved_providers == ["custom-model-provider"]
 
 
 @pytest.mark.anyio
@@ -1199,7 +1331,7 @@ async def test_forward_request_strips_anthropic_only_fields_for_non_anthropic_up
 
     socket_proxy = LLMSocketProxy(
         socket_path=tmp_path / "llm.sock",
-        routing_plan=_routing_plan(),
+        routing_plan=_routing_plan(managed_models={"openai/known-model": "openai"}),
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     writer = _FakeWriter()
@@ -1215,6 +1347,7 @@ async def test_forward_request_strips_anthropic_only_fields_for_non_anthropic_up
                 },
                 "body": orjson.dumps(
                     {
+                        "model": "openai/known-model",
                         "messages": [{"role": "user", "content": "hello"}],
                         "anthropic_beta": ["prompt-caching-2024-07-31"],
                         "context_management": {"strategy": "summarize"},
@@ -1252,7 +1385,10 @@ async def test_managed_route_can_defer_provider_cleanup_to_gateway(
 
     socket_proxy = LLMSocketProxy(
         socket_path=tmp_path / "llm.sock",
-        routing_plan=_routing_plan(managed_local_provider_cleanup=False),
+        routing_plan=_routing_plan(
+            managed_models={"openai/gpt-5-mini::tracecat-subagent::analyst": "openai"},
+            managed_local_provider_cleanup=False,
+        ),
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     writer = _FakeWriter()
@@ -1944,19 +2080,36 @@ async def test_llm_metadata_follows_selected_route_on_all_failure_phases(
             },
         )
 
+    selected_model_provider = (
+        None
+        if configuration is None
+        else "custom-model-provider"
+        if configuration == "custom"
+        else "openai"
+    )
     selected_route = LLMRoute(
         base_url="https://provider.example",
-        model_provider="synthetic-provider",
-        provider_configuration=configuration,
+        model_provider=selected_model_provider,
+        mode="direct",
+    )
+    fallback = LLMRoute(
+        base_url="http://gateway",
+        model_provider=None,
+        mode="managed",
+    )
+    managed_routes = (
+        {
+            "synthetic-model": replace(
+                fallback,
+                model_provider=selected_model_provider,
+            )
+        }
+        if configuration is not None
+        else {}
     )
     plan = LLMRoutingPlan(
-        managed_route=LLMRoute(
-            base_url="http://gateway", model_provider="root-provider", mode="managed"
-        ),
-        direct_routes={"synthetic-model": selected_route} if direct else {},
-        managed_provider_configurations={"synthetic-model": configuration}
-        if configuration is not None
-        else {},
+        routes={"synthetic-model": selected_route} if direct else managed_routes,
+        fallback=fallback,
     )
     proxy = LLMSocketProxy(
         socket_path=tmp_path / "llm.sock", routing_plan=plan, on_error=errors.append

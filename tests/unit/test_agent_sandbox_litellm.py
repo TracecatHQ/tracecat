@@ -670,7 +670,8 @@ class _FakeLLMSocketProxy:
         del on_error
         self.socket_path = socket_path
         self.routing_plan = routing_plan
-        self.direct_routes = routing_plan.direct_routes
+        self.routes = routing_plan.routes
+        self.fallback = routing_plan.fallback
         self.started = False
         self.stopped = False
         self.request_count = 0
@@ -2472,23 +2473,23 @@ async def test_run_agent_activity_with_fake_litellm_provider_spawns_runtime_in_e
     proxy = _FakeLLMSocketProxy.instances[0]
     assert proxy.started is True
     assert proxy.stopped is True
-    assert (
-        proxy.routing_plan.managed_route.base_url
-        == app_config.TRACECAT__LITELLM_BASE_URL
+    # The root passthrough model is an exact direct route, while unknown models
+    # use a provider-neutral managed fallback.
+    assert proxy.routing_plan.fallback == LLMRoute(
+        base_url=app_config.TRACECAT__LITELLM_BASE_URL.rstrip("/"),
+        model_provider=None,
+        mode="managed",
+        local_provider_cleanup=False,
     )
-    # The executor now passes a routing plan: managed LiteLLM is the fallback,
-    # and the root passthrough model is a direct route inside that plan.
-    assert proxy.direct_routes == {
+    assert proxy.routing_plan.routes == {
         "customer-alias": LLMRoute(
             base_url="https://customer-litellm.example",
             model_provider="custom-model-provider",
             authorization="Bearer sk-test",
-            provider_configuration="custom",
         )
     }
-    assert proxy.routing_plan is not None
-    assert proxy.routing_plan.managed_route.model_provider == "custom-model-provider"
-    assert proxy.routing_plan.managed_route.local_provider_cleanup is True
+    assert proxy.routing_plan.resolve("customer-alias").is_direct
+    assert proxy.routing_plan.resolve("unknown-model") is proxy.routing_plan.fallback
     assert proxy.request_count == 1
 
     assert len(_FakeRuntimeConnectingTransport.instances) == 1
@@ -3201,18 +3202,26 @@ async def test_executor_keeps_direct_passthrough_available_for_root_with_subagen
 
     proxy = await executor._create_llm_socket_proxy(tmp_path / LLM_SOCKET_NAME)
 
-    assert proxy.routing_plan.managed_route.base_url == (
-        app_config.TRACECAT__LITELLM_BASE_URL.rstrip("/")
+    assert proxy.routing_plan.fallback == LLMRoute(
+        base_url=app_config.TRACECAT__LITELLM_BASE_URL.rstrip("/"),
+        model_provider=None,
+        mode="managed",
+        local_provider_cleanup=False,
     )
-    assert proxy.routing_plan.managed_route.local_provider_cleanup is False
-    # Root passthrough remains direct even when the run also has subagents.
-    assert proxy.routing_plan.direct_routes == {
+    # Root passthrough remains direct while the managed child gets its own
+    # provider-aware exact route.
+    assert proxy.routing_plan.routes == {
         "customer-alias": LLMRoute(
             base_url="https://customer-litellm.example",
             model_provider="custom-model-provider",
             authorization="Bearer sk-test",
-            provider_configuration="custom",
-        )
+        ),
+        "openai/gpt-5-mini": LLMRoute(
+            base_url=app_config.TRACECAT__LITELLM_BASE_URL.rstrip("/"),
+            model_provider="openai",
+            mode="managed",
+            local_provider_cleanup=False,
+        ),
     }
 
 
@@ -3222,6 +3231,7 @@ async def test_executor_routes_passthrough_subagent_by_its_own_model_config(
     tmp_path: Path,
 ) -> None:
     _patch_agent_management_credentials(monkeypatch)
+    child_catalog_id = uuid.uuid4()
     subagent = SandboxSubagentConfig(
         alias="analyst",
         description="Use for enrichment analysis.",
@@ -3230,6 +3240,7 @@ async def test_executor_routes_passthrough_subagent_by_its_own_model_config(
             model_name="child-alias",
             model_provider="custom-model-provider",
             base_url="https://child-litellm.example/v1",
+            catalog_id=child_catalog_id,
             passthrough=True,
         ),
         mcp_auth_token="child-mcp-token",
@@ -3244,22 +3255,82 @@ async def test_executor_routes_passthrough_subagent_by_its_own_model_config(
 
     # The subagent's own passthrough config adds a second direct route keyed by
     # the scoped model string that the runtime sends for that subagent.
-    assert proxy.routing_plan.managed_route.local_provider_cleanup is False
-    assert proxy.routing_plan.direct_routes == {
+    assert proxy.routing_plan.fallback == LLMRoute(
+        base_url=app_config.TRACECAT__LITELLM_BASE_URL.rstrip("/"),
+        model_provider=None,
+        mode="managed",
+        local_provider_cleanup=False,
+    )
+    assert proxy.routing_plan.routes == {
         "customer-alias": LLMRoute(
             base_url="https://customer-litellm.example",
             model_provider="custom-model-provider",
             authorization="Bearer sk-test",
-            provider_configuration="custom",
         ),
         "child-alias::tracecat-subagent::analyst": LLMRoute(
             base_url="https://child-litellm.example",
             model_provider="custom-model-provider",
             upstream_model_name="child-alias",
+            catalog_id=child_catalog_id,
             authorization="Bearer sk-test",
-            provider_configuration="custom",
         ),
     }
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "root_passthrough",
+    [pytest.param(True, id="root-direct"), pytest.param(False, id="child-direct")],
+)
+async def test_executor_prefers_direct_route_for_shared_model_key(
+    root_passthrough: bool,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A direct route wins when root and child resolve to the same model key."""
+    _patch_agent_management_credentials(monkeypatch)
+    shared_model = "shared-model"
+    if root_passthrough:
+        executor_input = _make_passthrough_executor_input(enable_internet_access=False)
+        executor_input.config.model_name = shared_model
+        child_config = SandboxAgentConfig(
+            model_name=shared_model,
+            model_provider="custom-model-provider",
+        )
+    else:
+        executor_input = _make_executor_input(enable_internet_access=False)
+        executor_input.config.model_name = shared_model
+        executor_input.config.model_provider = "custom-model-provider"
+        child_config = SandboxAgentConfig(
+            model_name=shared_model,
+            model_provider="custom-model-provider",
+            base_url="https://child-litellm.example/v1",
+            passthrough=True,
+        )
+    executor_input.subagents = [
+        SandboxSubagentConfig(
+            alias="analyst",
+            description="Use for enrichment analysis.",
+            prompt="Analyze enrichment data.",
+            config=child_config,
+            mcp_auth_token="child-mcp-token",
+        )
+    ]
+
+    executor = SandboxedAgentExecutor(input=executor_input)
+    proxy = await executor._create_llm_socket_proxy(tmp_path / LLM_SOCKET_NAME)
+
+    route = proxy.routing_plan.routes[shared_model]
+    assert route.is_direct
+    assert route.model_provider == "custom-model-provider"
+    assert route.authorization == "Bearer sk-test"
+    if root_passthrough:
+        assert route.base_url == "https://customer-litellm.example"
+        assert route.upstream_model_name is None
+    else:
+        assert route.base_url == "https://child-litellm.example"
+        assert route.upstream_model_name == shared_model
+    assert proxy.routing_plan.fallback.model_provider is None
 
 
 class _DummyBridge:
@@ -3556,7 +3627,28 @@ async def test_executor_indexes_provider_configuration_by_exact_root_and_subagen
         )
     ]
     plan = SandboxedAgentExecutor(input=executor_input)._llm_routing_plan()
-    # Materialization must preserve the managed index too.
+    assert plan.fallback == LLMRoute(
+        base_url=app_config.TRACECAT__LITELLM_BASE_URL.rstrip("/"),
+        model_provider=None,
+        mode="managed",
+        local_provider_cleanup=False,
+    )
+    assert plan.routes == {
+        "openai/synthetic-root": LLMRoute(
+            base_url=app_config.TRACECAT__LITELLM_BASE_URL.rstrip("/"),
+            model_provider="openai",
+            mode="managed",
+            local_provider_cleanup=False,
+        ),
+        "synthetic-child-route": LLMRoute(
+            base_url=app_config.TRACECAT__LITELLM_BASE_URL.rstrip("/"),
+            model_provider="custom-model-provider",
+            mode="managed",
+            local_provider_cleanup=False,
+        ),
+    }
+    # Materialization must preserve every known managed route and its derived
+    # provider diagnostics.
     plan = await plan.materialize(None)
     assert plan.resolve(
         "openai/synthetic-root"

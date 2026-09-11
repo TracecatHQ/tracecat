@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from time import perf_counter
-from typing import Any, Literal, cast
+from typing import Any, cast
 
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
@@ -410,7 +410,7 @@ class SandboxedAgentExecutor:
 
         logger.info(
             "Creating LLM socket proxy",
-            passthrough=bool(routing_plan.direct_routes),
+            passthrough=any(route.is_direct for route in routing_plan.routes.values()),
         )
 
         return LLMSocketProxy(
@@ -420,144 +420,86 @@ class SandboxedAgentExecutor:
         )
 
     def _llm_routing_plan(self) -> LLMRoutingPlan:
-        """Build the socket proxy routing table from each agent's model config.
+        """Build exact-model routes from each root and subagent configuration.
 
-        Agent config decides routing, not root/subagent position. The managed
-        route is the fallback for every request model that does not have a
-        direct passthrough entry. Direct passthrough traffic bypasses managed
-        LiteLLM, so each passthrough root/subagent needs its own exact-model
-        route to preserve its custom provider base URL, credentials, and
-        upstream model name.
+        Known models carry their own provider identity, including those sent
+        through managed LiteLLM. Unknown models use a managed fallback without
+        inheriting the root agent's provider configuration.
 
         Returns:
             Routing plan for the host-side LLM socket proxy.
         """
-        # Keep all root/subagent semantics on the executor side. The proxy only
-        # receives model-key routes and does not know which agent emitted them.
-        config = cast(Any, self.input.config)
-        return LLMRoutingPlan(
-            managed_route=LLMRoute(
-                base_url=app_config.TRACECAT__LITELLM_BASE_URL.rstrip("/"),
-                model_provider=config.model_provider,
-                mode="managed",
-                # Managed subagent requests use synthetic LiteLLM route keys, so
-                # the proxy should let LiteLLM do provider-specific body cleanup.
-                local_provider_cleanup=not self.input.subagents,
-            ),
-            direct_routes=self._direct_passthrough_routes(),
-            managed_provider_configurations=self._managed_provider_configurations(),
-        )
-
-    def _managed_provider_configurations(
-        self,
-    ) -> dict[str, Literal["builtin", "custom"]]:
-        """Index safe provider configuration by the exact runtime model key."""
         config = self.input.config
-        configurations: dict[str, Literal["builtin", "custom"]] = {}
-        if not config.passthrough:
-            configurations[
-                get_litellm_route_model(
-                    model_provider=config.model_provider, model_name=config.model_name
-                )
-            ] = (
-                "custom"
-                if config.model_provider == "custom-model-provider"
-                else "builtin"
-            )
-        for subagent in self.input.subagents:
-            subagent_config = subagent.config
-            if subagent_config.passthrough:
-                continue
-            request_model = subagent.model_route or get_litellm_route_model(
-                model_provider=subagent_config.model_provider,
-                model_name=subagent_config.model_name,
-            )
-            configurations[request_model] = (
-                "custom"
-                if subagent_config.model_provider == "custom-model-provider"
-                else "builtin"
-            )
-        return configurations
-
-    def _direct_passthrough_routes(self) -> dict[str, LLMRoute]:
-        """Build direct passthrough routes from each agent's own model config.
-
-        Each entry is keyed by the exact model string the runtime will send in
-        the request body. The proxy can then make a local routing decision
-        without needing to know which agent produced the request.
-
-        A single execution can include a passthrough root agent and multiple
-        passthrough subagents. Since passthrough skips the managed LiteLLM
-        fallback, the shared proxy needs one direct route per exact runtime
-        model key rather than one global passthrough destination.
-
-        Returns:
-            Direct passthrough routes keyed by request model.
-        """
-        routes: dict[str, LLMRoute] = {}
-        config = cast(Any, self.input.config)
-        if config.passthrough:
-            # Root routing is keyed by the model string the root agent sends.
-            routes[config.model_name] = self._direct_passthrough_route(
-                config.base_url,
-                model_provider=config.model_provider,
-                catalog_id=config.catalog_id,
-            )
-
+        root_model = get_litellm_route_model(
+            model_provider=config.model_provider,
+            model_name=config.model_name,
+            passthrough=config.passthrough,
+        )
+        routes = {root_model: self._llm_route(config)}
         for subagent in self.input.subagents:
             config = subagent.config
-            if not config.passthrough:
-                continue
-            # Subagents usually send a synthetic scoped model key. If that subagent
-            # is passthrough, the scoped key should direct-route to its own gateway.
             request_model = subagent.model_route or get_litellm_route_model(
                 model_provider=config.model_provider,
                 model_name=config.model_name,
-                passthrough=True,
+                passthrough=config.passthrough,
             )
-            routes[request_model] = self._direct_passthrough_route(
-                config.base_url,
-                model_provider=config.model_provider,
-                catalog_id=config.catalog_id,
-                upstream_model_name=config.model_name,
-            )
-        return routes
+            route = self._llm_route(config, upstream_model_name=config.model_name)
+            # Preserve direct-route precedence when an unscoped model key is shared.
+            if (
+                not route.is_direct
+                and (existing := routes.get(request_model))
+                and existing.is_direct
+            ):
+                continue
+            routes[request_model] = route
 
-    @staticmethod
-    def _direct_passthrough_route(
-        base_url: str | None,
+        return LLMRoutingPlan(
+            routes=routes,
+            fallback=LLMRoute(
+                base_url=app_config.TRACECAT__LITELLM_BASE_URL.rstrip("/"),
+                model_provider=None,
+                mode="managed",
+                local_provider_cleanup=False,
+            ),
+        )
+
+    def _llm_route(
+        self,
+        config: AgentConfig | SandboxAgentConfig,
         *,
-        model_provider: str,
-        catalog_id: uuid.UUID | None,
         upstream_model_name: str | None = None,
     ) -> LLMRoute:
-        """Create one direct passthrough route.
+        """Create a managed or direct route from one agent's model config.
 
         Args:
-            base_url: Resolved custom provider base URL.
-            model_provider: Provider behind the custom route.
-            catalog_id: Optional custom-provider catalog row for credentials.
-            upstream_model_name: Optional model name to send to the upstream.
+            config: Resolved root or subagent configuration.
+            upstream_model_name: Provider-facing model name for a direct subagent.
 
         Returns:
-            Direct route for the model config.
+            Route with the model's provider and upstream forwarding behavior.
 
         Raises:
             AgentSandboxValidationError: If passthrough is enabled without a
                 resolved base URL.
         """
-        if base_url is None:
+        if not config.passthrough:
+            return LLMRoute(
+                base_url=app_config.TRACECAT__LITELLM_BASE_URL.rstrip("/"),
+                model_provider=config.model_provider,
+                mode="managed",
+                # Scoped subagent models are rewritten by LiteLLM, which should
+                # also handle provider-specific request cleanup.
+                local_provider_cleanup=not self.input.subagents,
+            )
+        if config.base_url is None:
             raise AgentSandboxValidationError(
                 "Custom model provider passthrough requires a resolved base_url."
             )
         return LLMRoute(
-            base_url=base_url,
-            model_provider=model_provider,
-            catalog_id=catalog_id,
+            base_url=config.base_url,
+            model_provider=config.model_provider,
+            catalog_id=config.catalog_id,
             upstream_model_name=upstream_model_name,
-            provider_configuration=(
-                "custom" if model_provider == "custom-model-provider" else "builtin"
-            ),
         )
 
     async def _resolve_agent_otel_config(self) -> ResolvedAgentOtelConfig:

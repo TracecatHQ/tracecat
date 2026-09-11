@@ -11,19 +11,26 @@ from tracecat.agent.sandbox.llm_proxy import (
 
 def test_llm_socket_proxy_keeps_routing_plan() -> None:
     routing_plan = LLMRoutingPlan(
-        managed_route=LLMRoute(
+        routes={
+            "synthetic-model": LLMRoute(
+                base_url="http://litellm:4000",
+                model_provider="openai",
+                mode="managed",
+            )
+        },
+        fallback=LLMRoute(
             base_url="http://litellm:4000",
-            model_provider="custom-model-provider",
+            model_provider=None,
             mode="managed",
+            local_provider_cleanup=False,
         ),
-        direct_routes={},
     )
     proxy = LLMSocketProxy(
         socket_path=Path("/tmp/test-llm.sock"),
         routing_plan=routing_plan,
     )
 
-    assert proxy.routing_plan.managed_route.base_url == "http://litellm:4000"
+    assert proxy.routing_plan.fallback.base_url == "http://litellm:4000"
 
 
 def test_route_rewrite_replaces_stale_content_length_case_insensitively() -> None:

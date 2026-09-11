@@ -278,7 +278,7 @@ class LLMRoute:
     Attributes:
         base_url: Host root for the upstream. Direct routes are normalized to
             remove a trailing OpenAI version segment such as `/v1`.
-        model_provider: Provider behind the route.
+        model_provider: Provider behind the route, or None for an unknown model.
         upstream_model_name: Optional provider-facing model name to send
             upstream when the local route key is synthetic.
         mode: `managed` preserves managed gateway auth; `direct` applies
@@ -294,13 +294,23 @@ class LLMRoute:
     """
 
     base_url: str
-    model_provider: str
+    model_provider: str | None
     upstream_model_name: str | None = None
     mode: Literal["managed", "direct"] = "direct"
     catalog_id: uuid.UUID | None = None
     authorization: str | None = field(default=None, repr=False)
     local_provider_cleanup: bool = True
-    provider_configuration: Literal["builtin", "custom"] | None = None
+
+    @property
+    def provider_configuration(self) -> Literal["builtin", "custom"] | None:
+        """Derive configuration ownership from the selected model's provider."""
+        match self.model_provider:
+            case None:
+                return None
+            case "custom-model-provider":
+                return "custom"
+            case _:
+                return "builtin"
 
     @property
     def error_diagnostics(self) -> LLMErrorDiagnostics:
@@ -432,7 +442,11 @@ class LLMRoute:
     @property
     def _applies_provider_cleanup(self) -> bool:
         """Whether this route rewrites requests down to the whitelisted surface."""
-        return self.local_provider_cleanup and self.model_provider != "anthropic"
+        return (
+            self.local_provider_cleanup
+            and self.model_provider is not None
+            and self.model_provider != "anthropic"
+        )
 
     def _forward_data(self, data: dict[str, Any]) -> dict[str, Any] | None:
         """Return rewritten request JSON, or None when the original can pass through."""
@@ -490,16 +504,12 @@ class LLMRoutingPlan:
     sandbox starts.
 
     Attributes:
-        managed_route: Fallback route for every request model that does not
-            have an exact direct route match.
-        direct_routes: Direct passthrough routes keyed by exact request model.
+        routes: Managed and direct routes keyed by exact request model.
+        fallback: Managed route with no provider identity for unknown models.
     """
 
-    managed_route: LLMRoute
-    direct_routes: dict[str, LLMRoute]
-    managed_provider_configurations: dict[str, Literal["builtin", "custom"]] = field(
-        default_factory=dict
-    )
+    routes: dict[str, LLMRoute]
+    fallback: LLMRoute
 
     def __post_init__(self) -> None:
         # Direct routes are stored in catalog-friendly OpenAI-compatible form
@@ -508,10 +518,10 @@ class LLMRoutingPlan:
         # not need to care about URL shape.
         object.__setattr__(
             self,
-            "direct_routes",
+            "routes",
             {
-                model_key: _normalize_direct_route(route)
-                for model_key, route in self.direct_routes.items()
+                model_key: _normalize_direct_route(route) if route.is_direct else route
+                for model_key, route in self.routes.items()
             },
         )
 
@@ -525,10 +535,13 @@ class LLMRoutingPlan:
             Routing plan containing routes ready for request forwarding.
         """
         direct_authorizations: dict[str, str | None] = {}
+        direct_routes = {
+            key: route for key, route in self.routes.items() if route.is_direct
+        }
 
-        if self.direct_routes and role is not None:
+        if direct_routes and role is not None:
             async with AgentManagementService.with_session(role) as svc:
-                for route_key, route in self.direct_routes.items():
+                for route_key, route in direct_routes.items():
                     # Credentials follow the selected route, not the root execution.
                     # This is what lets a passthrough root and passthrough subagent
                     # use different custom-provider catalog entries in one run.
@@ -552,8 +565,8 @@ class LLMRoutingPlan:
                             ),
                         )
                     direct_authorizations[route_key] = authorization
-        elif self.direct_routes:
-            for route_key, route in self.direct_routes.items():
+        elif direct_routes:
+            for route_key, route in direct_routes.items():
                 logger.warning(
                     "Passthrough credentials not found",
                     route_key=route_key,
@@ -562,13 +575,12 @@ class LLMRoutingPlan:
                 direct_authorizations[route_key] = None
 
         return LLMRoutingPlan(
-            managed_route=replace(self.managed_route, authorization=None),
-            managed_provider_configurations=self.managed_provider_configurations,
-            direct_routes={
+            fallback=replace(self.fallback, authorization=None),
+            routes={
                 route_key: replace(
                     route, authorization=direct_authorizations.get(route_key)
                 )
-                for route_key, route in self.direct_routes.items()
+                for route_key, route in self.routes.items()
             },
         )
 
@@ -581,20 +593,9 @@ class LLMRoutingPlan:
         Returns:
             Route for request forwarding.
         """
-        if isinstance(request_model, str) and (
-            route := self.direct_routes.get(request_model)
-        ):
-            return route
-        if isinstance(request_model, str) and (
-            provider_configuration := self.managed_provider_configurations.get(
-                request_model
-            )
-        ):
-            return replace(
-                self.managed_route, provider_configuration=provider_configuration
-            )
-        # An unknown/synthetic model must not inherit the root provider's config.
-        return self.managed_route
+        if isinstance(request_model, str):
+            return self.routes.get(request_model, self.fallback)
+        return self.fallback
 
 
 def _normalize_passthrough_base_url(base_url: str) -> str:
@@ -615,16 +616,7 @@ def _normalize_direct_route(route: LLMRoute) -> LLMRoute:
     Returns:
         Equivalent direct route with a normalized `base_url`.
     """
-    return LLMRoute(
-        base_url=_normalize_passthrough_base_url(route.base_url),
-        model_provider=route.model_provider,
-        upstream_model_name=route.upstream_model_name,
-        mode="direct",
-        catalog_id=route.catalog_id,
-        authorization=route.authorization,
-        local_provider_cleanup=route.local_provider_cleanup,
-        provider_configuration=route.provider_configuration,
-    )
+    return replace(route, base_url=_normalize_passthrough_base_url(route.base_url))
 
 
 def _load_fields() -> dict[str, int]:
