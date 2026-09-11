@@ -431,18 +431,26 @@ class TracecatCallbackHandler(CustomLogger):
         """Label typed provider failures without copying provider details."""
         del request_data, user_api_key_dict, traceback_str
         if isinstance(original_exception, AuthenticationError | PermissionDeniedError):
-            return _ProviderAuthHTTPException(
+            replacement = _ProviderAuthHTTPException(
                 status_code=original_exception.status_code,
                 detail="The LLM provider rejected authentication or access",
             )
-        if isinstance(
+        elif isinstance(
             original_exception, RateLimitError
         ) and _is_provider_quota_exceeded(original_exception):
-            return _ProviderQuotaHTTPException(
+            replacement = _ProviderQuotaHTTPException(
                 status_code=429,
                 detail="LLM provider quota exhausted; check billing or usage limits",
             )
-        return None
+        else:
+            return None
+
+        # LiteLLM's /v1/messages handler ignores the returned replacement and
+        # serializes the original exception. Normalize its wire fields too;
+        # other endpoints still use the bounded replacement above.
+        original_exception.type = replacement.type
+        original_exception.message = str(replacement.detail)
+        return replacement
 
     async def async_pre_call_hook(
         self,
