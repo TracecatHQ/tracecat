@@ -29,7 +29,10 @@ from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import Role as DBRole
 from tracecat.db.models import UserRoleAssignment
-from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.exceptions import (
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 
 # =============================================================================
 # User Scopes Schemas (kept here for OSS endpoint)
@@ -249,7 +252,11 @@ async def update_user_assignment(
 
 
 @user_assignments_router.delete(
-    "/{assignment_id}", status_code=status.HTTP_204_NO_CONTENT
+    "/{assignment_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={
+        status.HTTP_404_NOT_FOUND: {"description": "User role assignment not found."},
+    },
 )
 @require_scope("org:rbac:delete")
 async def delete_user_assignment(

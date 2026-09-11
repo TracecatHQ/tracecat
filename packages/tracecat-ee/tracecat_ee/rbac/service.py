@@ -22,6 +22,7 @@ from tracecat.db.models import (
     Group,
     GroupMember,
     GroupRoleAssignment,
+    Membership,
     OrganizationMembership,
     RoleScope,
     Scope,
@@ -321,6 +322,26 @@ class RBACService(BaseOrgService):
         if result.scalar_one_or_none() is None:
             raise TracecatNotFoundError("Group not found")
 
+    async def _user_in_organization(self, user_id: UUID) -> bool:
+        """Check whether the user holds any role path in the organization."""
+        # A workspace path is enough to keep the user grantable.
+        stmt = (
+            select(OrganizationMembership.user_id)
+            .where(
+                OrganizationMembership.user_id == user_id,
+                OrganizationMembership.organization_id == self.organization_id,
+            )
+            .union(
+                select(Membership.user_id).where(
+                    Membership.user_id == user_id,
+                    Membership.organization_id == self.organization_id,
+                )
+            )
+            .limit(1)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none() is not None
+
     async def _ensure_can_grant_scopes(self, scopes: Sequence[Scope]) -> None:
         """Reject grants containing scopes the caller does not hold."""
         if self.role.is_platform_superuser:
@@ -439,12 +460,7 @@ class RBACService(BaseOrgService):
         await self._ensure_group_membership_assignable(group_id)
 
         # Verify user belongs to this organization
-        stmt = select(OrganizationMembership).where(
-            OrganizationMembership.user_id == user_id,
-            OrganizationMembership.organization_id == self.organization_id,
-        )
-        result = await self.session.execute(stmt)
-        if result.scalar_one_or_none() is None:
+        if not await self._user_in_organization(user_id):
             raise TracecatNotFoundError("User not found in organization")
 
         # Check if already a member
@@ -700,12 +716,7 @@ class RBACService(BaseOrgService):
             Created UserRoleAssignment
         """
         # Verify user belongs to this organization
-        stmt = select(OrganizationMembership).where(
-            OrganizationMembership.user_id == user_id,
-            OrganizationMembership.organization_id == self.organization_id,
-        )
-        result = await self.session.execute(stmt)
-        if result.scalar_one_or_none() is None:
+        if not await self._user_in_organization(user_id):
             raise TracecatNotFoundError("User not found in organization")
 
         # Verify role exists
