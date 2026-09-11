@@ -10,6 +10,7 @@ def test_workflow_patch_ids_are_history_stable() -> None:
         "PRESERVE_ORIGINAL_ERROR_AFTER_HANDLER_FAILURE": (
             "dsl-preserve-original-error-after-handler-failure-v1"
         ),
+        "PRESERVE_RETURN_CANCELLATION": "dsl-preserve-return-cancellation-v1",
         "PRESERVE_TEMPORAL_CANCELLATION": "dsl-preserve-temporal-cancellation-v1",
         "RUNTIME_ERROR_ATTRIBUTION_INTERCEPTOR": (
             "runtime-error-attribution-interceptor-v1"
