@@ -2,12 +2,13 @@
 
 from collections.abc import Iterator
 from dataclasses import dataclass
+from typing import Annotated
 from unittest.mock import AsyncMock
 
 import orjson
 import pytest
 import sentry_sdk
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 from fastapi.testclient import TestClient
 from sentry_sdk.envelope import Envelope
 from sentry_sdk.transport import Transport
@@ -223,9 +224,26 @@ def test_request_validation_keeps_422_without_executing_workflow(
 
     assert response.status_code == 422
     assert isinstance(response.json()["detail"], list)
-    assert WebhookWaitErrorResponse.model_validate(response.json())
+    parsed = WebhookWaitErrorResponse.model_validate(response.json())
+    assert parsed.model_dump(exclude_unset=True) == response.json()
     webhook.execute.assert_not_awaited()
     assert webhook.sentry_events == []
+
+
+def test_request_validation_preserves_validator_context() -> None:
+    app = FastAPI()
+
+    def constrained_query(limit: Annotated[int, Query(gt=0)]) -> int:
+        return limit
+
+    app.add_api_route("/", constrained_query, methods=["GET"])
+    with TestClient(app) as client:
+        response = client.get("/", params={"limit": "0"})
+
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["ctx"] == {"gt": 0}
+    parsed = WebhookWaitErrorResponse.model_validate(response.json())
+    assert parsed.model_dump(exclude_unset=True) == response.json()
 
 
 def test_openapi_documents_workflow_and_request_validation_errors(
@@ -246,3 +264,6 @@ def test_openapi_documents_workflow_and_request_validation_errors(
             "items": {"$ref": "#/components/schemas/WebhookRequestValidationError"},
         },
     ]
+    validation_schema = spec["components"]["schemas"]["WebhookRequestValidationError"]
+    assert {"input", "ctx"} <= validation_schema["properties"].keys()
+    assert validation_schema["required"] == ["loc", "msg", "type"]

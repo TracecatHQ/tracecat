@@ -5,7 +5,7 @@ from datetime import datetime
 from ipaddress import ip_address, ip_network
 from typing import Any, Literal, Self
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, JsonValue, field_validator, model_validator
 
 from tracecat.core.schemas import Schema
 from tracecat.identifiers import WorkflowID
@@ -39,6 +39,9 @@ class WebhookRequestValidationError(BaseModel):
     loc: list[str | int]
     msg: str
     type: str
+    input: Any = Field(default=None)
+    # Validator-specific context keys contain arbitrary JSON response values.
+    ctx: dict[str, JsonValue] | None = Field(default=None)
 
 
 class WebhookWaitErrorResponse(BaseModel):

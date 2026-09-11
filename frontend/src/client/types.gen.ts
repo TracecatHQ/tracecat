@@ -4995,6 +4995,8 @@ export type IssuedServiceAccountApiKey = {
 
 export type JoinStrategy = "any" | "all"
 
+export type JsonValue = unknown
+
 /**
  * Authentication type for MCP integrations.
  */
@@ -9157,6 +9159,10 @@ export type WebhookRequestValidationError = {
   loc: Array<string | number>
   msg: string
   type: string
+  input?: unknown
+  ctx?: {
+    [key: string]: JsonValue
+  } | null
 }
 
 export type WebhookStatus = "online" | "offline"

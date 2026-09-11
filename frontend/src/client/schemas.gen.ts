@@ -16219,6 +16219,8 @@ export const $JoinStrategy = {
   title: "JoinStrategy",
 } as const
 
+export const $JsonValue = {} as const
+
 export const $MCPAuthType = {
   type: "string",
   enum: ["OAUTH2", "CUSTOM", "NONE"],
@@ -30523,6 +30525,23 @@ export const $WebhookRequestValidationError = {
     type: {
       type: "string",
       title: "Type",
+    },
+    input: {
+      title: "Input",
+    },
+    ctx: {
+      anyOf: [
+        {
+          additionalProperties: {
+            $ref: "#/components/schemas/JsonValue",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Ctx",
     },
   },
   type: "object",
