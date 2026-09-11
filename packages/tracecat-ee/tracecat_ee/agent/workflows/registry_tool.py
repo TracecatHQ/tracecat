@@ -10,6 +10,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat import config
     from tracecat.agent.workflows.tool_execution import (
         AGENT_TOOL_PRIORITY,
+        REGISTRY_TOOL_ACTIVITY_BUFFER_SECONDS,
         ExecuteRegistryToolWorkflowInput,
     )
     from tracecat.dsl.common import RETRY_POLICIES
@@ -22,11 +23,6 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.storage.object import StoredObject, StoredObjectValidator
     from tracecat.temporal.errors import application_error_from_classification
     from tracecat.temporal.patches import WorkflowPatch
-
-
-# The activity also prepares the environment and stores the result. Let sandbox
-# termination and its classified failure reach Temporal before the outer timer.
-_REGISTRY_TOOL_ACTIVITY_BUFFER_SECONDS = 60
 
 
 def _activity_error_message(error: ActivityError) -> str:
@@ -48,7 +44,7 @@ class ExecuteRegistryToolWorkflow:
         )
         timeout_seconds = config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT
         if classify_timeout:
-            timeout_seconds += _REGISTRY_TOOL_ACTIVITY_BUFFER_SECONDS
+            timeout_seconds += REGISTRY_TOOL_ACTIVITY_BUFFER_SECONDS
         else:
             timeout_seconds = int(timeout_seconds)
         try:

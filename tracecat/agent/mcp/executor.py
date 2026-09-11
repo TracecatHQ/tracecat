@@ -15,6 +15,8 @@ from tracecat import config
 from tracecat.agent.tokens import MCPTokenClaims
 from tracecat.agent.workflows.tool_execution import (
     AGENT_TOOL_PRIORITY,
+    REGISTRY_TOOL_ACTIVITY_BUFFER_SECONDS,
+    REGISTRY_TOOL_WORKFLOW_BUFFER_SECONDS,
     ExecuteRegistryToolWorkflowInput,
     ExecuteRegistryToolWorkflowMemo,
     build_agent_tool_workflow_id,
@@ -209,7 +211,9 @@ async def _execute_action_workflow(
             id=workflow_id,
             task_queue=config.TRACECAT__AGENT_QUEUE,
             run_timeout=timedelta(
-                seconds=int(config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT) + 30
+                seconds=config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT
+                + REGISTRY_TOOL_ACTIVITY_BUFFER_SECONDS
+                + REGISTRY_TOOL_WORKFLOW_BUFFER_SECONDS
             ),
             priority=AGENT_TOOL_PRIORITY,
             memo=memo.model_dump(mode="json", exclude_none=True),

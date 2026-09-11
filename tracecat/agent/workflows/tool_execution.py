@@ -11,6 +11,10 @@ from tracecat.dsl.schemas import RunActionInput
 AGENT_TOOL_PRIORITY = Priority(priority_key=2)
 """Priority for tool execution activities. This is higher than the default priority (1) but lower than the priority for agent execution activities (3)."""
 AGENT_TOOL_WORKFLOW_PREFIX = "agent-tool"
+# Allow sandbox termination and classified results to reach the activity caller.
+REGISTRY_TOOL_ACTIVITY_BUFFER_SECONDS = 60
+# Leave room for queueing and persisting the terminal workflow result.
+REGISTRY_TOOL_WORKFLOW_BUFFER_SECONDS = 30
 
 
 def build_agent_tool_workflow_id() -> str:
