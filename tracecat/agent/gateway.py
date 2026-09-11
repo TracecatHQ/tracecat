@@ -33,6 +33,7 @@ from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.identifiers import OrganizationID, WorkspaceID
 from tracecat.logger import logger
+from tracecat.temporal.error_chain import iter_error_chain
 
 apply_patch()
 
@@ -402,10 +403,7 @@ def _response_has_provider_quota_code(response: httpx.Response) -> bool:
 def _is_provider_quota_exceeded(error: BaseException) -> bool:
     # LiteLLM replaces the provider's code and response body, but retains the
     # original SDK exception in the chain. Inspect only typed codes, never text.
-    current: BaseException | None = error
-    seen: set[int] = set()
-    while current is not None and id(current) not in seen:
-        seen.add(id(current))
+    for current in iter_error_chain(error):
         if isinstance(current, OpenAIRateLimitError) and (
             current.code == "insufficient_quota" or current.type == "insufficient_quota"
         ):
@@ -414,7 +412,6 @@ def _is_provider_quota_exceeded(error: BaseException) -> bool:
             current, httpx.HTTPStatusError
         ) and _response_has_provider_quota_code(current.response):
             return True
-        current = current.__cause__ or current.__context__
     return False
 
 

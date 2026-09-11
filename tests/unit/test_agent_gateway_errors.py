@@ -17,6 +17,7 @@ from litellm.proxy.anthropic_endpoints.endpoints import anthropic_response
 from litellm.proxy.common_request_processing import ProxyBaseLLMRequestProcessing
 from litellm.proxy.common_utils.user_api_key_cache import UserApiKeyCache
 from litellm.proxy.utils import ProxyLogging
+from openai import AsyncOpenAI
 from starlette.requests import Request
 
 from tracecat.agent.gateway import TracecatCallbackHandler
@@ -127,3 +128,63 @@ async def test_anthropic_endpoint_distinguishes_provider_quota_from_throttling(
         assert classification.kind is RuntimeErrorKind.AGENT_LLM_RATE_LIMITED
         assert classification.owner is RuntimeErrorOwner.PLATFORM
         assert classification.retry_disposition is RetryDisposition.RETRYABLE
+
+
+@pytest.mark.anyio
+async def test_retry_does_not_inherit_an_earlier_provider_quota_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(
+            429,
+            request=request,
+            json={
+                "error": {
+                    "message": "synthetic provider failure",
+                    "type": "requests",
+                    "code": "insufficient_quota"
+                    if calls == 1
+                    else "rate_limit_exceeded",
+                }
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http_client:
+        client = AsyncOpenAI(
+            api_key="synthetic-key", http_client=http_client, max_retries=0
+        )
+
+        async def call_model() -> None:
+            await litellm.acompletion(
+                model="openai/synthetic-model",
+                messages=[{"role": "user", "content": "synthetic prompt"}],
+                client=client,
+                num_retries=0,
+            )
+
+        try:
+            await call_model()
+        except RateLimitError:
+            # LiteLLM also retries inside its exception handler. The SDK hides
+            # this earlier failure with `raise ... from None`, but Python still
+            # retains it in __context__ for a naive chain walker to discover.
+            with pytest.raises(RateLimitError) as retry_failure:
+                await call_model()
+        else:
+            pytest.fail("Expected the initial quota failure")
+
+    assert calls == 2
+    failure = await _anthropic_failure(retry_failure.value, monkeypatch)
+    assert failure.code == "429"
+    classification = _http_error_classification(
+        429,
+        route_is_direct=False,
+        body=orjson.dumps({"error": failure.to_dict()}),
+    )
+    assert classification.kind is RuntimeErrorKind.AGENT_LLM_RATE_LIMITED
+    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert classification.retry_disposition is RetryDisposition.RETRYABLE
