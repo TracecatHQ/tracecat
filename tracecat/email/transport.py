@@ -24,6 +24,12 @@ class OutboundEmail:
 class EmailDeliveryError(TracecatException):
     """A send failed. Carries port and error type only, never host or recipients."""
 
+    def __init__(self, *args: object, retryable: bool = False) -> None:
+        super().__init__(*args)
+        # True only when no message bytes could have left the pod, so a retry
+        # cannot duplicate a delivery.
+        self.retryable = retryable
+
 
 @dataclass(frozen=True, slots=True)
 class SMTPTransport:
@@ -78,5 +84,7 @@ class SMTPTransport:
             # No host, recipients, or cause: relay responses may echo
             # customer infrastructure or addresses.
             raise EmailDeliveryError(
-                f"SMTP delivery failed on port {self.port}: {type(error).__name__}"
+                f"SMTP delivery failed on port {self.port}: {type(error).__name__}",
+                # Disconnects and read timeouts can follow acceptance of DATA.
+                retryable=isinstance(error, aiosmtplib.SMTPConnectError),
             ) from None
