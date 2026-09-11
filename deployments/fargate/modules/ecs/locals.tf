@@ -62,6 +62,7 @@ locals {
     TRACECAT__RESULT_EXTERNALIZATION_ENABLED         = var.result_externalization_enabled
     TRACECAT__COLLECTION_MANIFESTS_ENABLED           = var.collection_manifests_enabled
     TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES = var.result_externalization_threshold_bytes
+    TRACECAT__WITHHOLD_SECRET_ERROR_DETAILS          = var.withhold_secret_error_details
     TRACECAT__DB_SSLMODE                             = "require"
     # Agent timeout ceiling: every process that parses workflow DSL or
     # enforces the clamp must agree, so it rides the common env.

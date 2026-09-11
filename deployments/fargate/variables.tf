@@ -265,6 +265,12 @@ variable "result_externalization_enabled" {
   default     = true
 }
 
+variable "withhold_secret_error_details" {
+  type        = bool
+  description = "Replace action and expression error details with a generic message when secrets are in scope. Disabling may expose secret-derived values in error messages."
+  default     = true
+}
+
 variable "collection_manifests_enabled" {
   type        = bool
   description = "Enable collection manifest externalization"

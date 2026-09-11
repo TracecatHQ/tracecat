@@ -278,6 +278,7 @@ class ActionRunner:
                 "role": role,
                 "resolved_context": resolved_context,
                 "secret_env": secret_projection.env,
+                "withhold_secret_error_details": config.TRACECAT__WITHHOLD_SECRET_ERROR_DETAILS,
             }
 
             # Write input JSON to job directory
@@ -414,6 +415,9 @@ class ActionRunner:
         if resolved_context is not None:
             payload["resolved_context"] = resolved_context
             payload["secret_env"] = secret_projection.env
+            payload["withhold_secret_error_details"] = (
+                config.TRACECAT__WITHHOLD_SECRET_ERROR_DETAILS
+            )
         input_json = to_json(payload)
 
         # Build environment with registry paths in PYTHONPATH

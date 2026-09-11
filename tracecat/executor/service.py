@@ -97,6 +97,8 @@ def _withhold_error_info(
     classification: RuntimeErrorClassification | None,
 ) -> ExecutorActionErrorInfo:
     """Replace unsafe diagnostics, retaining policy-authored platform messages."""
+    if not config.TRACECAT__WITHHOLD_SECRET_ERROR_DETAILS:
+        return info
     return info.model_copy(
         update={
             "message": classification.message

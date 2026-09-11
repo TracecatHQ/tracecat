@@ -488,6 +488,14 @@ TRACECAT__UNSAFE_DISABLE_SM_MASKING = env_bool(
     development and should never be enabled in production.
 """
 
+TRACECAT__WITHHOLD_SECRET_ERROR_DETAILS = env_bool(
+    "TRACECAT__WITHHOLD_SECRET_ERROR_DETAILS", default=True
+)
+"""Replace action and expression error details with a generic message when
+secrets are in scope. Disabling this surfaces the original error text, which
+may echo transformed secret values that exact-string masking cannot catch.
+"""
+
 # === M2M config === #
 TRACECAT__SERVICE_KEY = os.environ.get("TRACECAT__SERVICE_KEY")
 TRACECAT__EXECUTOR_TOKEN_TTL_SECONDS = int(

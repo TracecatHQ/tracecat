@@ -12,6 +12,7 @@ from tracecat_registry import (
     RegistrySecretType,
 )
 
+from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
@@ -1263,6 +1264,61 @@ async def test_invoke_once_withholds_carrier_derived_action_error(mocker):
     assert exc_info.value.__context__ is None
     assert "Details withheld:" in str(exc_info.value)
     assert canary not in str(exc_info.value)
+
+
+@pytest.mark.anyio
+async def test_invoke_once_keeps_action_error_when_withholding_disabled(
+    mocker, monkeypatch
+):
+    """Operators can opt out of redaction and receive the original message."""
+    from tracecat.exceptions import ExecutionError
+
+    monkeypatch.setattr(config, "TRACECAT__WITHHOLD_SECRET_ERROR_DETAILS", False)
+    role = _expression_policy_role("tracecat-executor")
+    action_input = _expression_policy_input(
+        "core.probe", {"value": "${{ ACTIONS.fetch.result }}"}
+    )
+    resolved_context = mocker.Mock(logical_time=mocker.sentinel.logical_time)
+    prepared_context = executor_service.PreparedContext(
+        resolved_context=resolved_context,
+        mask_values={"sk-live-secret"},
+    )
+    mocker.patch.object(
+        executor_service.registry_resolver,
+        "prefetch_lock",
+        new=mocker.AsyncMock(),
+    )
+    mocker.patch.object(
+        executor_service,
+        "prepare_resolved_context",
+        new=mocker.AsyncMock(return_value=prepared_context),
+    )
+    action_error = ExecutionError(
+        info=ExecutorActionErrorInfo(
+            action_name="core.probe",
+            type="ValueError",
+            message="upstream rejected the request",
+            filename="probe.py",
+            function="run",
+        )
+    )
+    mocker.patch.object(
+        executor_service,
+        "_invoke_step",
+        new=mocker.AsyncMock(side_effect=action_error),
+    )
+
+    with pytest.raises(ExecutionError) as exc_info:
+        await executor_service.invoke_once(
+            backend=mocker.Mock(),
+            input=action_input,
+            ctx=executor_service.DispatchActionContext(role=role),
+        )
+
+    assert exc_info.value.__cause__ is None
+    assert exc_info.value.__context__ is None
+    assert "Details withheld:" not in str(exc_info.value)
+    assert "upstream rejected the request" in str(exc_info.value)
 
 
 @pytest.mark.anyio
