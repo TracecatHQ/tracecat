@@ -1064,7 +1064,7 @@ export const publicIncomingWebhookWait = (
     },
     errors: {
       413: "Unwrapped workflow result exceeded inline response limits. Use `detail.download_url` to fetch the externalized result.",
-      422: "Validation Error",
+      422: "Invalid request parameters or a user-owned workflow failure.",
     },
   })
 }

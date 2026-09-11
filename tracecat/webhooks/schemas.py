@@ -9,6 +9,8 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from tracecat.core.schemas import Schema
 from tracecat.identifiers import WorkflowID
+from tracecat.identifiers.workflow import WorkflowExecutionID
+from tracecat.runtime.errors import RuntimeErrorKind
 
 # API Models
 
@@ -19,6 +21,30 @@ NDJSON_CONTENT_TYPES = (
     "application/jsonlines",
     "application/jsonl",
 )
+
+
+class WebhookWaitFailureDetail(BaseModel):
+    """Public metadata for a user-owned workflow failure."""
+
+    code: RuntimeErrorKind
+    wf_exec_id: WorkflowExecutionID
+    message: str = Field(
+        default="Workflow execution failed. Check the workflow run for details."
+    )
+
+
+class WebhookRequestValidationError(BaseModel):
+    """Standard FastAPI request validation fields for the shared 422 response."""
+
+    loc: list[str | int]
+    msg: str
+    type: str
+
+
+class WebhookWaitErrorResponse(BaseModel):
+    """Invalid request parameters or a classified user workflow failure."""
+
+    detail: WebhookWaitFailureDetail | list[WebhookRequestValidationError]
 
 
 class WebhookRead(Schema):

@@ -22915,6 +22915,50 @@ export const $RunUsage = {
   description: "LLM usage associated with an agent run.",
 } as const
 
+export const $RuntimeErrorKind = {
+  type: "string",
+  enum: [
+    "action.execution.failed",
+    "tenant.quota.exhausted",
+    "tenant.entitlement.denied",
+    "integration.rate_limited",
+    "registry.sync.validation_failed",
+    "runtime.unclassified",
+    "storage.materialization.transport_unavailable",
+    "storage.materialization.invalid_data",
+    "storage.persistence.transport_unavailable",
+    "executor.backend.initialization_failed",
+    "executor.registry.lease_contention",
+    "executor.registry.capacity_exhausted",
+    "executor.registry.extraction_failed",
+    "executor.sandbox.infrastructure_failed",
+    "sandbox.resource_limit_exceeded",
+    "workflow.definition.not_found",
+    "workflow.definition.lookup_unavailable",
+    "workflow.definition.invalid_data",
+    "workflow.trigger.input_invalid",
+    "workflow.subflow.input_invalid",
+    "workflow.subflow.preparation_failed",
+    "workflow.bootstrap.invalid_data",
+    "workflow.bootstrap.unavailable",
+    "workflow.expression.invalid",
+    "workflow.loop.limit_exceeded",
+    "workflow.runtime.invariant_violation",
+    "workflow.agent.input_invalid",
+    "workflow.agent.preparation_failed",
+    "agent.configuration.invalid",
+    "agent.preparation.failed",
+    "agent.session.initialization_failed",
+    "agent.execution.failed",
+    "agent.executor.unavailable",
+    "agent.executor.timed_out",
+    "agent.executor.protocol_failed",
+    "agent.workflow.internal_error",
+  ],
+  title: "RuntimeErrorKind",
+  description: "Stable machine-readable product failure identities.",
+} as const
+
 export const $SAMLDatabaseLoginResponse = {
   properties: {
     redirect_url: {
@@ -30456,6 +30500,38 @@ export const $WebhookRead = {
   title: "WebhookRead",
 } as const
 
+export const $WebhookRequestValidationError = {
+  properties: {
+    loc: {
+      items: {
+        anyOf: [
+          {
+            type: "string",
+          },
+          {
+            type: "integer",
+          },
+        ],
+      },
+      type: "array",
+      title: "Loc",
+    },
+    msg: {
+      type: "string",
+      title: "Msg",
+    },
+    type: {
+      type: "string",
+      title: "Type",
+    },
+  },
+  type: "object",
+  required: ["loc", "msg", "type"],
+  title: "WebhookRequestValidationError",
+  description:
+    "Standard FastAPI request validation fields for the shared 422 response.",
+} as const
+
 export const $WebhookStatus = {
   type: "string",
   enum: ["online", "offline"],
@@ -30577,6 +30653,53 @@ export const $WebhookUpdate = {
   },
   type: "object",
   title: "WebhookUpdate",
+} as const
+
+export const $WebhookWaitErrorResponse = {
+  properties: {
+    detail: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WebhookWaitFailureDetail",
+        },
+        {
+          items: {
+            $ref: "#/components/schemas/WebhookRequestValidationError",
+          },
+          type: "array",
+        },
+      ],
+      title: "Detail",
+    },
+  },
+  type: "object",
+  required: ["detail"],
+  title: "WebhookWaitErrorResponse",
+  description:
+    "Invalid request parameters or a classified user workflow failure.",
+} as const
+
+export const $WebhookWaitFailureDetail = {
+  properties: {
+    code: {
+      $ref: "#/components/schemas/RuntimeErrorKind",
+    },
+    wf_exec_id: {
+      type: "string",
+      pattern:
+        "(wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/]((exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
+      title: "Wf Exec Id",
+    },
+    message: {
+      type: "string",
+      title: "Message",
+      default: "Workflow execution failed. Check the workflow run for details.",
+    },
+  },
+  type: "object",
+  required: ["code", "wf_exec_id"],
+  title: "WebhookWaitFailureDetail",
+  description: "Public metadata for a user-owned workflow failure.",
 } as const
 
 export const $WorkflowAlias = {

@@ -14,6 +14,7 @@ from fastapi import (
 )
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
+from temporalio.client import WorkflowFailureError
 from temporalio.service import RPCError
 
 from tracecat import config
@@ -37,6 +38,7 @@ from tracecat.observability.otel import (
     set_current_span_attributes,
 )
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.runtime.errors import RuntimeErrorOwner, select_error_classification
 from tracecat.storage import blob
 from tracecat.storage.collection import get_collection_page
 from tracecat.storage.object import (
@@ -52,6 +54,7 @@ from tracecat.storage.utils import (
     deserialize_object,
     serialize_object,
 )
+from tracecat.temporal.errors import extract_error_classifications
 from tracecat.webhooks.dependencies import (
     DraftWorkflowDep,
     PayloadDep,
@@ -60,7 +63,11 @@ from tracecat.webhooks.dependencies import (
     parse_interaction_payload,
     validate_incoming_webhook,
 )
-from tracecat.webhooks.schemas import NDJSON_CONTENT_TYPES
+from tracecat.webhooks.schemas import (
+    NDJSON_CONTENT_TYPES,
+    WebhookWaitErrorResponse,
+    WebhookWaitFailureDetail,
+)
 from tracecat.workflow.executions.enums import TriggerType
 from tracecat.workflow.executions.schemas import (
     ReceiveInteractionResponse,
@@ -515,7 +522,11 @@ async def _incoming_webhook(
                 "Unwrapped workflow result exceeded inline response limits. "
                 "Use `detail.download_url` to fetch the externalized result."
             ),
-        }
+        },
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {
+            "model": WebhookWaitErrorResponse,
+            "description": "Invalid request parameters or a user-owned workflow failure.",
+        },
     },
 )
 async def incoming_webhook_wait(
@@ -554,17 +565,44 @@ async def incoming_webhook_wait(
 
     service = await WorkflowExecutionsService.connect()
     wf_exec_id = generate_exec_id(workflow_id)
-    response = await service.create_workflow_execution(
-        dsl=dsl_input,
-        wf_id=workflow_id,
-        wf_exec_id=wf_exec_id,
-        payload=payload,
-        trigger_type=TriggerType.WEBHOOK,
-        registry_lock=RegistryLock.model_validate(defn.registry_lock)
-        if defn.registry_lock
-        else None,
-    )
     _annotate_webhook_trace(wf_id=workflow_id, wf_exec_id=wf_exec_id)
+    try:
+        response = await service.create_workflow_execution(
+            dsl=dsl_input,
+            wf_id=workflow_id,
+            wf_exec_id=wf_exec_id,
+            payload=payload,
+            trigger_type=TriggerType.WEBHOOK,
+            registry_lock=RegistryLock.model_validate(defn.registry_lock)
+            if defn.registry_lock
+            else None,
+        )
+    except WorkflowFailureError as error:
+        classifications = extract_error_classifications(
+            error, include_implicit_context=False
+        )
+        if not classifications:
+            raise
+        classification = select_error_classification(classifications)
+        if classification.owner is not RuntimeErrorOwner.USER:
+            raise
+        logger.warning(
+            "User workflow execution failed",
+            kind=classification.kind,
+            wf_exec_id=wf_exec_id,
+        )
+        # Workflow messages and diagnostics can contain payload or secret values.
+        # Return only stable metadata; keep detailed errors in the workflow run.
+        failure = WebhookWaitErrorResponse(
+            detail=WebhookWaitFailureDetail(
+                code=classification.kind,
+                wf_exec_id=wf_exec_id,
+            )
+        )
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            content=failure.model_dump(mode="json"),
+        )
 
     result = response["result"]
     if unwrap:
