@@ -96,6 +96,7 @@ export const DEFAULT_CAPABILITY_GROUPS: CapabilityGroup[] = [
       "core.cases.list_cases",
       "core.cases.get_case",
       "core.cases.search_cases",
+      "core.cases.aggregate_cases",
     ],
   },
   {
@@ -113,6 +114,7 @@ export const DEFAULT_CAPABILITY_GROUPS: CapabilityGroup[] = [
       "core.table.lookup_many",
       "core.table.is_in",
       "core.table.search_rows",
+      "core.table.aggregate_rows",
       "core.table.insert_row",
       "core.table.insert_rows",
       "core.table.update_row",
