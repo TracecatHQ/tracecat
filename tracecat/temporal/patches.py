@@ -20,6 +20,13 @@ class WorkflowPatch(StrEnum):
 
 
 @unique
+class ExecuteRegistryToolWorkflowPatch(StrEnum):
+    """Stable patch IDs recorded in ExecuteRegistryToolWorkflow histories."""
+
+    ACTIVITY_TIMEOUT = "registry-tool-activity-timeout-v1"
+
+
+@unique
 class DurableAgentWorkflowPatch(StrEnum):
     """Stable patch IDs recorded in durable agent workflow histories.
 
