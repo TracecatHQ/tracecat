@@ -22929,6 +22929,7 @@ export const $RuntimeErrorKind = {
     "storage.materialization.transport_unavailable",
     "storage.materialization.invalid_data",
     "storage.persistence.transport_unavailable",
+    "executor.activity.timed_out",
     "executor.backend.initialization_failed",
     "executor.registry.lease_contention",
     "executor.registry.capacity_exhausted",
