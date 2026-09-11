@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy.exc import NoResultFound
+from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat import config
 from tracecat.auth.credentials import SuperuserRole
@@ -154,6 +154,12 @@ async def create_organization_invitation(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
+        ) from e
+    except IntegrityError as e:
+        # Race: a concurrent request already inserted a pending row for this email.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An invitation already exists for this email",
         ) from e
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e

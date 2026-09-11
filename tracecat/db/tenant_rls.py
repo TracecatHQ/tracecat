@@ -43,7 +43,6 @@ INITIAL_WORKSPACE_SCOPED_TABLES = (
     "chat",
     "chat_message",
     "membership",
-    "invitation",
     "oauth_integration",
     "oauth_provider",
     "mcp_integration",
@@ -56,6 +55,7 @@ INITIAL_ORG_SCOPED_TABLES = (
     "organization_membership",
     "organization_invitation",
     "organization_tier",
+    "invitation",
     "registry_repository",
     "registry_action",
     "registry_version",
@@ -100,6 +100,7 @@ POST_RLS_ORG_SCOPED_TABLES = (
 )
 
 POST_RLS_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES = (
+    "invitation_grant",
     "watchtower_agent_session",
     "watchtower_agent_tool_call",
     "service_account",

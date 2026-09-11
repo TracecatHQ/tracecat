@@ -1,5 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import { Plus } from "lucide-react"
+import Link from "next/link"
 import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
@@ -28,19 +29,10 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { useWorkspaceMutations } from "@/hooks/use-workspace"
-import { useRbacRoles } from "@/lib/hooks"
 
 const addUserSchema = z.object({
   email: z.string().email(),
-  role: z.string(), // legacy role for membership creation
 })
 type AddUser = z.infer<typeof addUserSchema>
 
@@ -49,20 +41,17 @@ export function AddWorkspaceMember({
   className,
 }: { workspace: WorkspaceRead } & React.HTMLAttributes<HTMLButtonElement>) {
   const canInviteMembers = useScopeCheck("workspace:member:invite")
+  const canInviteOrgMembers = useScopeCheck("org:member:invite")
+  // The org dialog this link opens renders nothing without org:member:invite.
+  const canHandOffToOrgInvite =
+    canInviteMembers === true && canInviteOrgMembers === true
   const { addMember: addWorkspaceMember } = useWorkspaceMutations()
   const [showDialog, setShowDialog] = useState(false)
-  const { roles } = useRbacRoles({ enabled: showDialog })
-
-  // Include workspace preset roles and custom roles (custom roles have no slug prefix)
-  const workspaceRoles = roles.filter(
-    (r) => !r.slug || r.slug.startsWith("workspace-")
-  )
 
   const form = useForm<AddUser>({
     resolver: zodResolver(addUserSchema),
     defaultValues: {
       email: "",
-      role: "editor",
     },
   })
 
@@ -149,34 +138,18 @@ export function AddWorkspaceMember({
                 </FormItem>
               )}
             />
-            <FormField
-              key="role"
-              control={form.control}
-              name="role"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="text-sm">Role</FormLabel>
-                  <Select
-                    onValueChange={field.onChange}
-                    defaultValue={field.value}
-                  >
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select a role" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {workspaceRoles.map((role) => (
-                        <SelectItem key={role.id} value={role.slug ?? role.id}>
-                          {role.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            {canHandOffToOrgInvite && (
+              <p className="text-sm text-muted-foreground">
+                Not signed up yet?{" "}
+                <Link
+                  href={`/organization/members?inviteWorkspace=${encodeURIComponent(workspace.id)}`}
+                  className="underline underline-offset-4 hover:text-foreground"
+                >
+                  Invite them to the organization
+                </Link>{" "}
+                with a role on this workspace.
+              </p>
+            )}
             <DialogFooter>
               <Button type="submit" variant="default">
                 Add member

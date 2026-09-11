@@ -7,8 +7,8 @@ import { useRouter, useSearchParams } from "next/navigation"
 import TracecatIcon from "public/icon.png"
 import { Suspense } from "react"
 import {
-  organizationAcceptInvitation,
-  organizationGetInvitationByToken,
+  invitationsAcceptInvitation,
+  invitationsGetInvitationByToken,
 } from "@/client"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { Button } from "@/components/ui/button"
@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/card"
 import { toast } from "@/components/ui/use-toast"
 import { useAuth, useAuthActions } from "@/hooks/use-auth"
+import { invitationGrantsCount } from "@/lib/invitations"
 import { useMutation, useQuery, useQueryClient } from "@/lib/query"
 
 function AcceptInvitationContent() {
@@ -43,7 +44,7 @@ function AcceptInvitationContent() {
       if (!token) {
         throw new Error("No invitation token provided")
       }
-      return await organizationGetInvitationByToken({ token })
+      return await invitationsGetInvitationByToken({ token })
     },
     enabled: !!token,
     retry: false,
@@ -55,7 +56,7 @@ function AcceptInvitationContent() {
       if (!token) {
         throw new Error("No invitation token")
       }
-      return await organizationAcceptInvitation({
+      return await invitationsAcceptInvitation({
         requestBody: { token },
       })
     },
@@ -201,14 +202,12 @@ function AcceptInvitationContent() {
             {invitation.inviter_name ? (
               <>
                 <strong>{invitation.inviter_name}</strong> has invited you to
-                join <strong>{invitation.organization_name}</strong> as a{" "}
-                <strong>{invitation.role_name}</strong>.
+                join <strong>{invitation.organization_name}</strong>.
               </>
             ) : (
               <>
                 You&apos;ve been invited to join{" "}
-                <strong>{invitation.organization_name}</strong> as a{" "}
-                <strong>{invitation.role_name}</strong>.
+                <strong>{invitation.organization_name}</strong>.
               </>
             )}
           </CardDescription>
@@ -223,9 +222,9 @@ function AcceptInvitationContent() {
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Role</span>
-                <span className="font-medium capitalize">
-                  {invitation.role_name}
+                <span className="text-muted-foreground">Access</span>
+                <span className="text-right font-medium">
+                  {invitationGrantsCount(invitation)}
                 </span>
               </div>
               {invitation.inviter_email && (
@@ -312,13 +311,10 @@ function AcceptInvitationContent() {
           {invitation.inviter_name ? (
             <>
               <strong>{invitation.inviter_name}</strong> has invited you to join
-              this organization as a <strong>{invitation.role_name}</strong>.
+              this organization.
             </>
           ) : (
-            <>
-              You&apos;ve been invited to join this organization as a{" "}
-              <strong>{invitation.role_name}</strong>.
-            </>
+            <>You&apos;ve been invited to join this organization.</>
           )}
         </CardDescription>
       </CardHeader>
@@ -332,9 +328,9 @@ function AcceptInvitationContent() {
               </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Role</span>
-              <span className="font-medium capitalize">
-                {invitation.role_name}
+              <span className="text-muted-foreground">Access</span>
+              <span className="text-right font-medium">
+                {invitationGrantsCount(invitation)}
               </span>
             </div>
             {invitation.inviter_email && (
