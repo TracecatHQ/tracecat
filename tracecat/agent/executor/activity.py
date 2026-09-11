@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from time import perf_counter
-from typing import Any, Literal, cast
+from typing import Any, cast
 
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
@@ -46,7 +46,11 @@ from tracecat.agent.common.types import (
     is_stdio_mcp_server,
     requires_sandbox_internet_access,
 )
-from tracecat.agent.diagnostics import LLMErrorDiagnostics
+from tracecat.agent.diagnostics import (
+    LLMErrorDiagnostics,
+    ProviderConfiguration,
+    provider_configuration_for,
+)
 from tracecat.agent.error_policy import (
     agent_executor_protocol_failed,
     agent_executor_timed_out,
@@ -275,6 +279,29 @@ class AgentExecutorResult(BaseModel):
     interrupted_tool_call_ids: list[str] | None = None
 
 
+def _record_failure(
+    result: AgentExecutorResult,
+    message: str | None,
+    classification: RuntimeErrorClassification | None,
+    *,
+    diagnostic: LLMErrorDiagnostics | None = None,
+) -> None:
+    """Record one terminal attribution trio on an executor result.
+
+    Message and classification are optional so a loopback turn that succeeded
+    clears the trio through the same path a failed one sets it.
+
+    Args:
+        result: Activity result to update in place.
+        message: Durable failure text, or None when there is no failure.
+        classification: Terminal attribution, or None when there is no failure.
+        diagnostic: Safe request context for an LLM failure.
+    """
+    result.error = message
+    result.classification = classification
+    result.diagnostic = diagnostic
+
+
 def _agent_correlation_attributes(input: AgentExecutorInput) -> dict[str, str]:
     """Build the single trusted correlation mapping for an agent turn."""
     values: dict[str, uuid.UUID | None] = {
@@ -435,6 +462,7 @@ class SandboxedAgentExecutor:
         # Keep all root/subagent semantics on the executor side. The proxy only
         # receives model-key routes and does not know which agent emitted them.
         config = cast(Any, self.input.config)
+        direct_routes, managed_provider_configurations = self._model_route_tables()
         return LLMRoutingPlan(
             managed_route=LLMRoute(
                 base_url=app_config.TRACECAT__LITELLM_BASE_URL.rstrip("/"),
@@ -444,43 +472,14 @@ class SandboxedAgentExecutor:
                 # the proxy should let LiteLLM do provider-specific body cleanup.
                 local_provider_cleanup=not self.input.subagents,
             ),
-            direct_routes=self._direct_passthrough_routes(),
-            managed_provider_configurations=self._managed_provider_configurations(),
+            direct_routes=direct_routes,
+            managed_provider_configurations=managed_provider_configurations,
         )
 
-    def _managed_provider_configurations(
+    def _model_route_tables(
         self,
-    ) -> dict[str, Literal["builtin", "custom"]]:
-        """Index safe provider configuration by the exact runtime model key."""
-        config = self.input.config
-        configurations: dict[str, Literal["builtin", "custom"]] = {}
-        if not config.passthrough:
-            configurations[
-                get_litellm_route_model(
-                    model_provider=config.model_provider, model_name=config.model_name
-                )
-            ] = (
-                "custom"
-                if config.model_provider == "custom-model-provider"
-                else "builtin"
-            )
-        for subagent in self.input.subagents:
-            subagent_config = subagent.config
-            if subagent_config.passthrough:
-                continue
-            request_model = subagent.model_route or get_litellm_route_model(
-                model_provider=subagent_config.model_provider,
-                model_name=subagent_config.model_name,
-            )
-            configurations[request_model] = (
-                "custom"
-                if subagent_config.model_provider == "custom-model-provider"
-                else "builtin"
-            )
-        return configurations
-
-    def _direct_passthrough_routes(self) -> dict[str, LLMRoute]:
-        """Build direct passthrough routes from each agent's own model config.
+    ) -> tuple[dict[str, LLMRoute], dict[str, ProviderConfiguration]]:
+        """Index direct routes and managed provider configurations by model key.
 
         Each entry is keyed by the exact model string the runtime will send in
         the request body. The proxy can then make a local routing decision
@@ -489,39 +488,58 @@ class SandboxedAgentExecutor:
         A single execution can include a passthrough root agent and multiple
         passthrough subagents. Since passthrough skips the managed LiteLLM
         fallback, the shared proxy needs one direct route per exact runtime
-        model key rather than one global passthrough destination.
+        model key rather than one global passthrough destination. Every
+        non-passthrough agent instead contributes its safe provider
+        configuration for the managed fallback route.
 
         Returns:
-            Direct passthrough routes keyed by request model.
+            Direct passthrough routes and managed provider configurations,
+            both keyed by request model.
         """
-        routes: dict[str, LLMRoute] = {}
-        config = cast(Any, self.input.config)
-        if config.passthrough:
+        direct_routes: dict[str, LLMRoute] = {}
+        managed_configurations: dict[str, ProviderConfiguration] = {}
+
+        root_config = cast(Any, self.input.config)
+        if root_config.passthrough:
             # Root routing is keyed by the model string the root agent sends.
-            routes[config.model_name] = self._direct_passthrough_route(
-                config.base_url,
-                model_provider=config.model_provider,
-                catalog_id=config.catalog_id,
+            direct_routes[root_config.model_name] = self._direct_passthrough_route(
+                root_config.base_url,
+                model_provider=root_config.model_provider,
+                catalog_id=root_config.catalog_id,
             )
+        else:
+            managed_configurations[
+                get_litellm_route_model(
+                    model_provider=root_config.model_provider,
+                    model_name=root_config.model_name,
+                )
+            ] = provider_configuration_for(root_config.model_provider)
 
         for subagent in self.input.subagents:
             config = subagent.config
-            if not config.passthrough:
-                continue
             # Subagents usually send a synthetic scoped model key. If that subagent
             # is passthrough, the scoped key should direct-route to its own gateway.
-            request_model = subagent.model_route or get_litellm_route_model(
-                model_provider=config.model_provider,
-                model_name=config.model_name,
-                passthrough=True,
-            )
-            routes[request_model] = self._direct_passthrough_route(
-                config.base_url,
-                model_provider=config.model_provider,
-                catalog_id=config.catalog_id,
-                upstream_model_name=config.model_name,
-            )
-        return routes
+            if config.passthrough:
+                request_model = subagent.model_route or get_litellm_route_model(
+                    model_provider=config.model_provider,
+                    model_name=config.model_name,
+                    passthrough=True,
+                )
+                direct_routes[request_model] = self._direct_passthrough_route(
+                    config.base_url,
+                    model_provider=config.model_provider,
+                    catalog_id=config.catalog_id,
+                    upstream_model_name=config.model_name,
+                )
+            else:
+                request_model = subagent.model_route or get_litellm_route_model(
+                    model_provider=config.model_provider,
+                    model_name=config.model_name,
+                )
+                managed_configurations[request_model] = provider_configuration_for(
+                    config.model_provider
+                )
+        return direct_routes, managed_configurations
 
     @staticmethod
     def _direct_passthrough_route(
@@ -555,9 +573,7 @@ class SandboxedAgentExecutor:
             model_provider=model_provider,
             catalog_id=catalog_id,
             upstream_model_name=upstream_model_name,
-            provider_configuration=(
-                "custom" if model_provider == "custom-model-provider" else "builtin"
-            ),
+            provider_configuration=provider_configuration_for(model_provider),
         )
 
     async def _resolve_agent_otel_config(self) -> ResolvedAgentOtelConfig:
@@ -730,15 +746,11 @@ class SandboxedAgentExecutor:
 
         except AgentSandboxValidationError as e:
             logger.error("Agent configuration is invalid", error=str(e))
-            result.error = str(e)
-            result.classification = invalid_agent_configuration(e)
-            result.diagnostic = None
+            _record_failure(result, str(e), invalid_agent_configuration(e))
         except AgentSandboxExecutionError as e:
             logger.error("Agent sandbox execution failed", error=str(e))
             failure = agent_runtime_failure(e, fallback_message=str(e))
-            result.error = failure.message
-            result.classification = failure.classification
-            result.diagnostic = None
+            _record_failure(result, failure.message, failure.classification)
             result.sentry_capture = capture_activity_failure(
                 e, failure.classification, existing_capture=result.sentry_capture
             )
@@ -747,9 +759,7 @@ class SandboxedAgentExecutor:
             failure = agent_runtime_failure(
                 e, fallback_message=f"Unexpected error: {e}"
             )
-            result.error = failure.message
-            result.classification = failure.classification
-            result.diagnostic = None
+            _record_failure(result, failure.message, failure.classification)
             result.sentry_capture = capture_activity_failure(
                 e, failure.classification, existing_capture=result.sentry_capture
             )
@@ -819,9 +829,7 @@ class SandboxedAgentExecutor:
     ) -> None:
         """Copy loopback result fields into the activity result."""
         result.success = loopback_result.success
-        result.error = loopback_result.error
-        result.classification = loopback_result.classification
-        result.diagnostic = None
+        _record_failure(result, loopback_result.error, loopback_result.classification)
         result.sentry_capture = loopback_result.sentry_capture
         result.approval_requested = loopback_result.approval_requested
         result.approval_items = loopback_result.approval_items or None
@@ -943,9 +951,12 @@ class SandboxedAgentExecutor:
 
                     if fatal_error_task in done:
                         proxy_error = fatal_error_task.result()
-                        result.error = proxy_error.message
-                        result.classification = proxy_error.classification
-                        result.diagnostic = proxy_error.diagnostic
+                        _record_failure(
+                            result,
+                            proxy_error.message,
+                            proxy_error.classification,
+                            diagnostic=proxy_error.diagnostic,
+                        )
                         result.terminal_stream_error_emitted = (
                             await handler.emit_terminal_error(proxy_error.message)
                         )
@@ -981,20 +992,20 @@ class SandboxedAgentExecutor:
                             )
                     break
                 else:
-                    result.error = (
+                    timeout_message = (
                         f"Agent execution timed out after {self.timeout_seconds}s"
                     )
-                    result.classification = agent_executor_timed_out()
-                    result.diagnostic = None
+                    timeout_classification = agent_executor_timed_out()
+                    _record_failure(result, timeout_message, timeout_classification)
                     # Raise locally so the deadline event retains this source frame.
                     try:
-                        raise TimeoutError(result.error)
+                        raise TimeoutError(timeout_message)
                     except TimeoutError as error:
                         result.sentry_capture = capture_activity_failure(
-                            error, result.classification
+                            error, timeout_classification
                         )
                     result.terminal_stream_error_emitted = (
-                        await handler.emit_terminal_error(result.error)
+                        await handler.emit_terminal_error(timeout_message)
                     )
                     await broker.cancel_turn(str(self.input.session_id))
                     await _cancel_task_with_timeout(
@@ -1006,16 +1017,14 @@ class SandboxedAgentExecutor:
             # A jailed runtime that died from an rlimit is the caller's failure
             # and must win over the generic executor-unavailable attribution.
             failure = agent_runtime_failure(e, fallback_message=str(e))
-            result.error = failure.message
-            result.classification = failure.classification
-            result.diagnostic = None
+            _record_failure(result, failure.message, failure.classification)
             result.sentry_capture = capture_activity_failure(
                 e,
                 failure.classification,
                 existing_capture=handler.build_result().sentry_capture,
             )
             result.terminal_stream_error_emitted = await handler.emit_terminal_error(
-                result.error
+                failure.message
             )
             if not isinstance(e, ConcurrentSessionTurnError):
                 raise

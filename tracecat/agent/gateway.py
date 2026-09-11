@@ -9,7 +9,6 @@ from urllib.parse import parse_qsl, urlencode
 
 import boto3
 import httpx
-import orjson
 from aiocache import Cache
 from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import HTTPException, Request
@@ -25,7 +24,7 @@ from litellm.types.utils import CallTypesLiteral
 from openai import RateLimitError as OpenAIRateLimitError
 
 from tracecat import config as app_config
-from tracecat.agent.diagnostics import MAX_LLM_ERROR_BODY_BYTES
+from tracecat.agent.diagnostics import parse_bounded_error_body
 from tracecat.agent.litellm_compat import apply_patch
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.tokens import verify_llm_token
@@ -386,13 +385,7 @@ def _response_has_provider_quota_code(response: httpx.Response) -> bool:
     except httpx.ResponseNotRead:
         return False
     # Do not add an unbounded parse of a provider-controlled response.
-    if len(body) > MAX_LLM_ERROR_BODY_BYTES:
-        return False
-    try:
-        payload = orjson.loads(body)
-    except orjson.JSONDecodeError:
-        return False
-    match payload:
+    match parse_bounded_error_body(body):
         case {"error": {"code": "insufficient_quota"}} | {
             "error": {"type": "insufficient_quota"}
         }:

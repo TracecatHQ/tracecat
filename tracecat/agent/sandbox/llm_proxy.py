@@ -25,7 +25,11 @@ from fastapi import HTTPException
 
 from tracecat import config as app_config
 from tracecat.agent.common.exceptions import AgentSandboxValidationError
-from tracecat.agent.diagnostics import MAX_LLM_ERROR_BODY_BYTES, LLMErrorDiagnostics
+from tracecat.agent.diagnostics import (
+    LLMErrorDiagnostics,
+    ProviderConfiguration,
+    parse_bounded_error_body,
+)
 from tracecat.agent.error_policy import (
     agent_executor_protocol_failed,
     agent_executor_timed_out,
@@ -191,6 +195,30 @@ class LLMProxyError:
     diagnostic: LLMErrorDiagnostics | None = None
 
 
+def _error_object_strings(body: bytes) -> tuple[str | None, str | None]:
+    """Read the machine-readable ``error.type`` and ``error.code`` of a body.
+
+    Args:
+        body: Raw upstream error body.
+
+    Returns:
+        The ``type`` and ``code`` strings, each None when absent or when the
+        body does not carry a JSON object ``error`` member.
+    """
+    payload = parse_bounded_error_body(body)
+    if not isinstance(payload, dict):
+        return None, None
+    error = payload.get("error")
+    if not isinstance(error, dict):
+        return None, None
+    error_type = error.get("type")
+    error_code = error.get("code")
+    return (
+        error_type if isinstance(error_type, str) else None,
+        error_code if isinstance(error_code, str) else None,
+    )
+
+
 def _http_error_classification(
     status_code: int,
     *,
@@ -199,35 +227,26 @@ def _http_error_classification(
 ) -> RuntimeErrorClassification:
     # Only machine-readable fields participate in classification. Never infer
     # budget or auth origin from provider messages (which can contain secrets).
-    try:
-        payload = (
-            orjson.loads(body)
-            if body and len(body) <= MAX_LLM_ERROR_BODY_BYTES
-            else None
-        )
-    except orjson.JSONDecodeError:
-        payload = None
-    match payload:
-        case {"error": {"type": "tracecat_llm_token_invalid"}} if (
-            not route_is_direct and status_code in {401, 403}
-        ):
+    error_type, error_code = _error_object_strings(body)
+    is_auth_status = status_code in {401, 403}
+    if not route_is_direct and is_auth_status:
+        if error_type == "tracecat_llm_token_invalid":
             return agent_llm_gateway_auth_failed()
-        case {"error": {"type": "tracecat_llm_provider_auth_failed"}} if (
-            not route_is_direct and status_code in {401, 403}
-        ):
+        if error_type == "tracecat_llm_provider_auth_failed":
             return agent_llm_provider_auth_failed()
-        case {"error": {"type": "budget_exceeded" | "insufficient_quota"}} if (
-            status_code in {400, 429}
-        ):
-            return agent_llm_budget_exceeded()
-        case {"error": {"code": "insufficient_quota"}} if status_code == 429:
-            return agent_llm_budget_exceeded()
-    if route_is_direct and status_code in {401, 403}:
-        return agent_llm_provider_auth_failed()
+    if status_code in {400, 429} and error_type in {
+        "budget_exceeded",
+        "insufficient_quota",
+    }:
+        return agent_llm_budget_exceeded()
+    if status_code == 429 and error_code == "insufficient_quota":
+        return agent_llm_budget_exceeded()
+    if is_auth_status:
+        if route_is_direct:
+            return agent_llm_provider_auth_failed()
+        return agent_executor_unavailable()
     if status_code == 429:
         return agent_llm_rate_limited(route_is_direct=route_is_direct)
-    if status_code in {401, 403} and not route_is_direct:
-        return agent_executor_unavailable()
     if route_is_direct:
         return user_agent_execution_failed(retryable=status_code in {408, 504})
     if status_code in {408, 504}:
@@ -241,15 +260,49 @@ def _transport_error_classification(
     error: httpx.TransportError,
     *,
     route_is_direct: bool,
-    timed_out: bool,
 ) -> RuntimeErrorClassification:
     if isinstance(error, httpx.ReadTimeout):
         return agent_llm_read_timeout(error)
     if route_is_direct:
         return user_agent_execution_failed(error, retryable=True)
-    if timed_out:
+    if isinstance(error, httpx.TimeoutException):
         return agent_executor_timed_out(error)
     return agent_executor_unavailable(error)
+
+
+def _transport_proxy_error(
+    error: httpx.TransportError,
+    *,
+    route_is_direct: bool,
+    fallback_message: str,
+    diagnostic: LLMErrorDiagnostics | None,
+) -> LLMProxyError:
+    """Build the terminal proxy error for one upstream transport failure.
+
+    Read timeouts carry their own source-owned message; every other transport
+    failure surfaces the caller's site-specific text.
+
+    Args:
+        error: Transport failure raised while talking to the upstream.
+        route_is_direct: Whether the request bypassed the managed gateway.
+        fallback_message: Message to surface for non-read-timeout failures.
+        diagnostic: Safe route context for the selected request route.
+
+    Returns:
+        Terminal proxy error with message, classification, and diagnostic.
+    """
+    classification = _transport_error_classification(
+        error, route_is_direct=route_is_direct
+    )
+    return LLMProxyError(
+        message=(
+            classification.message
+            if isinstance(error, httpx.ReadTimeout)
+            else fallback_message
+        ),
+        classification=classification,
+        diagnostic=diagnostic,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -300,7 +353,7 @@ class LLMRoute:
     catalog_id: uuid.UUID | None = None
     authorization: str | None = field(default=None, repr=False)
     local_provider_cleanup: bool = True
-    provider_configuration: Literal["builtin", "custom"] | None = None
+    provider_configuration: ProviderConfiguration | None = None
 
     @property
     def error_diagnostics(self) -> LLMErrorDiagnostics:
@@ -497,7 +550,7 @@ class LLMRoutingPlan:
 
     managed_route: LLMRoute
     direct_routes: dict[str, LLMRoute]
-    managed_provider_configurations: dict[str, Literal["builtin", "custom"]] = field(
+    managed_provider_configurations: dict[str, ProviderConfiguration] = field(
         default_factory=dict
     )
 
@@ -772,17 +825,21 @@ class LLMSocketProxy:
         diagnostic: LLMErrorDiagnostics | None = None,
     ) -> None:
         """Emit error via callback (only once)."""
+        self._emit_proxy_error(
+            LLMProxyError(
+                message=message,
+                classification=classification,
+                diagnostic=diagnostic,
+            )
+        )
+
+    def _emit_proxy_error(self, error: LLMProxyError) -> None:
+        """Emit one terminal proxy error via callback (only once)."""
         if not self._stopping and not self._error_emitted:
             self._error_emitted = True
-            logger.error("LLM proxy error", error=message, **_load_fields())
+            logger.error("LLM proxy error", error=error.message, **_load_fields())
             if self._on_error:
-                self._on_error(
-                    LLMProxyError(
-                        message=message,
-                        classification=classification,
-                        diagnostic=diagnostic,
-                    )
-                )
+                self._on_error(error)
 
     @staticmethod
     def _is_client_disconnect_error(exc: Exception) -> bool:
@@ -1121,21 +1178,17 @@ class LLMSocketProxy:
                 trace_request_id=trace_request_id,
             )
             if not _is_non_critical_request(method, path):
-                message = (
-                    agent_llm_read_timeout(exc).message
-                    if isinstance(exc, httpx.ReadTimeout)
-                    else f"Gateway timeout ({type(exc).__name__}): {exc}"
-                    if timed_out
-                    else f"LLM upstream unavailable: {exc}"
-                )
-                self._emit_error(
-                    message,
-                    _transport_error_classification(
+                self._emit_proxy_error(
+                    _transport_proxy_error(
                         exc,
                         route_is_direct=route.is_direct,
-                        timed_out=timed_out,
-                    ),
-                    diagnostic=route.error_diagnostics,
+                        fallback_message=(
+                            f"Gateway timeout ({type(exc).__name__}): {exc}"
+                            if timed_out
+                            else f"LLM upstream unavailable: {exc}"
+                        ),
+                        diagnostic=route.error_diagnostics,
+                    )
                 )
 
     async def _write_response(
@@ -1263,9 +1316,7 @@ class LLMSocketProxy:
                 if path is not None and not _is_non_critical_request(method, path):
                     classification = (
                         _transport_error_classification(
-                            exc,
-                            route_is_direct=route_is_direct,
-                            timed_out=isinstance(exc, httpx.TimeoutException),
+                            exc, route_is_direct=route_is_direct
                         )
                         if isinstance(exc, httpx.TransportError)
                         else _http_error_classification(
@@ -1273,6 +1324,8 @@ class LLMSocketProxy:
                             route_is_direct=route_is_direct,
                         )
                     )
+                    # The streaming site surfaces the SSE detail it already
+                    # sent the client, not the classification's own message.
                     self._emit_error(
                         surfaced_error,
                         classification,
@@ -1303,16 +1356,13 @@ class LLMSocketProxy:
                     trace_request_id=trace_request_id,
                 )
                 if path is not None and not _is_non_critical_request(method, path):
-                    self._emit_error(
-                        agent_llm_read_timeout(exc).message
-                        if isinstance(exc, httpx.ReadTimeout)
-                        else f"LLM response failed: {str(exc)[:512]}",
-                        _transport_error_classification(
+                    self._emit_proxy_error(
+                        _transport_proxy_error(
                             exc,
                             route_is_direct=route_is_direct,
-                            timed_out=isinstance(exc, httpx.TimeoutException),
-                        ),
-                        diagnostic=diagnostic,
+                            fallback_message=f"LLM response failed: {str(exc)[:512]}",
+                            diagnostic=diagnostic,
+                        )
                     )
             else:
                 raise

@@ -344,15 +344,7 @@ def extract_error_diagnostics(
         if not isinstance(current, ApplicationError):
             continue
         for detail in current.details:
-            parsed = parse_classified_error_payload(detail)
-            if parsed is None:
-                continue
-            transports = (
-                (parsed,)
-                if isinstance(parsed, ErrorTransportDetail)
-                else parsed.values()
-            )
-            for transport in transports:
+            for transport in _transport_details_from_payload(detail):
                 if (
                     transport.classification == classification
                     and transport.diagnostic is not None
@@ -370,18 +362,26 @@ def _classification_from_details(
     return None
 
 
-def _classifications_from_payload(
+def _transport_details_from_payload(
     payload: Any,
-) -> tuple[RuntimeErrorClassification, ...]:
+) -> tuple[OpaqueErrorTransportDetail, ...]:
+    """Read a transport payload as its transport details, in transport order."""
     match parse_classified_error_payload(payload):
         case None:
             return ()
         case ErrorTransportDetail() as parsed:
-            return (parsed.classification,)
+            return (parsed,)
         case parsed:
-            return tuple(
-                transport_detail.classification for transport_detail in parsed.values()
-            )
+            return tuple(parsed.values())
+
+
+def _classifications_from_payload(
+    payload: Any,
+) -> tuple[RuntimeErrorClassification, ...]:
+    return tuple(
+        transport_detail.classification
+        for transport_detail in _transport_details_from_payload(payload)
+    )
 
 
 def _serialized_detail(detail: Any) -> Any:
