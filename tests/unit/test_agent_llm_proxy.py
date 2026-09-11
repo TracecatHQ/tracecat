@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from dataclasses import replace
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Literal, cast
 from unittest.mock import Mock
 
@@ -1981,3 +1982,117 @@ async def test_llm_metadata_follows_selected_route_on_all_failure_phases(
     if failure in {"headers_timeout", "body_timeout"}:
         assert classification.owner is RuntimeErrorOwner.PLATFORM
         assert classification.kind is RuntimeErrorKind.AGENT_LLM_READ_TIMEOUT
+
+
+@pytest.fixture
+def short_socket_path() -> Iterator[Path]:
+    # pytest's per-test directory can exceed macOS's Unix socket path limit.
+    with TemporaryDirectory() as directory:
+        yield Path(directory) / "llm.sock"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("fail_on_cancel", [False, True])
+async def test_stop_cancels_stream_before_closing_client(
+    short_socket_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fail_on_cancel: bool,
+) -> None:
+    errors: list[LLMProxyError] = []
+    reading = asyncio.Event()
+    stream_closed = asyncio.Event()
+    client_closed = asyncio.Event()
+
+    class BlockingStream(httpx.AsyncByteStream):
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            yield b"data: ready\n\n"
+            reading.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                if fail_on_cancel:
+                    # Some transports surface a read error during cancellation.
+                    raise httpx.ReadError("stream closed during teardown") from None
+                raise
+
+        async def aclose(self) -> None:
+            assert not client_closed.is_set()
+            stream_closed.set()
+
+    class Transport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                headers={"Content-Type": "text/event-stream"},
+                stream=BlockingStream(),
+            )
+
+        async def aclose(self) -> None:
+            assert stream_closed.is_set()
+            client_closed.set()
+
+    client = httpx.AsyncClient(transport=Transport())
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: client)
+    proxy = LLMSocketProxy(short_socket_path, _routing_plan(), errors.append)
+    await proxy.start()
+    reader, writer = await asyncio.open_unix_connection(proxy.socket_path)
+    try:
+        writer.write(b"POST /v1/messages HTTP/1.1\r\nContent-Length: 0\r\n\r\n")
+        await writer.drain()
+        await asyncio.wait_for(reading.wait(), timeout=2)
+        await asyncio.wait_for(proxy.stop(), timeout=2)
+        response = await asyncio.wait_for(reader.read(), timeout=2)
+        assert b"data: ready" in response
+        assert b"event: error" not in response
+        assert errors == []
+        assert stream_closed.is_set()
+        assert client_closed.is_set()
+        assert not proxy._connection_tasks
+        assert not proxy.socket_path.exists()
+        await proxy.stop()
+    finally:
+        writer.close()
+        await writer.wait_closed()
+        await proxy.stop()
+
+
+@pytest.mark.anyio
+async def test_stop_closes_connection_canceled_before_handler_starts(
+    tmp_path: Path,
+) -> None:
+    proxy = LLMSocketProxy(tmp_path / "llm.sock", _routing_plan())
+    writer = _FakeWriter()
+    proxy._accept_connection(asyncio.StreamReader(), cast(asyncio.StreamWriter, writer))
+
+    await proxy.stop()
+
+    assert writer.is_closing()
+    assert not proxy._connection_tasks
+
+
+@pytest.mark.anyio
+async def test_restart_reports_active_stream_failure(short_socket_path: Path) -> None:
+    errors: list[LLMProxyError] = []
+    proxy = LLMSocketProxy(short_socket_path, _routing_plan(), errors.append)
+    for _ in range(2):
+        await proxy.start()
+        try:
+            writer = _FakeWriter()
+            await proxy._write_response(
+                cast(asyncio.StreamWriter, writer),
+                status_code=200,
+                reason_phrase="OK",
+                headers={"Content-Type": "text/event-stream"},
+                body_chunks=_FailingResponseStream(
+                    httpx.Request("POST", "http://example.com")
+                ),
+                path="/v1/messages",
+            )
+            assert b"event: error" in writer.buffer
+        finally:
+            await proxy.stop()
+
+    assert len(errors) == 2
+    assert all(
+        error.classification.owner == RuntimeErrorOwner.PLATFORM for error in errors
+    )

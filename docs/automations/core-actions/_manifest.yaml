@@ -436,6 +436,9 @@ pages:
       - id: core.cases.search_cases
         examples:
           - cases-search
+      - id: core.cases.aggregate_cases
+        examples:
+          - cases-aggregate
       - id: core.cases.list_case_events
         examples:
           - cases-list-events
@@ -724,6 +727,18 @@ pages:
       - id: core.table.search_rows
         examples:
           - tables-search
+      - id: core.table.aggregate_rows
+        info: |
+          Group rows and calculate counts, totals, or averages in your workflow.
+          Create an `alerts` table with `source` (TEXT), `disposition` (TEXT),
+          and `bytes_out` (INTEGER) columns before running this example.
+          Use `[]` for `group_by` to calculate a single total across matching rows.
+
+          Read the summaries from `ACTIONS.bytes_by_source_hourly.result.groups`.
+          If `truncated` is `true`, more groups matched than the result limit.
+          Omit `limit` to use your server's default, normally 100 groups.
+        examples:
+          - tables-aggregate
 
   - slug: memory-actions/rows
     title: Rows

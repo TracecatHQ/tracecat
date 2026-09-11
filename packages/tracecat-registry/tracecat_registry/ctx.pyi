@@ -206,6 +206,9 @@ class _Agents:
     ) -> None: ...
 
 class _CasesAsync:
+    async def aggregate_cases(
+        self, spec: dict[str, Any]
+    ) -> types.AggregateResponse: ...
     async def create_case(
         self,
         *,
@@ -526,6 +529,7 @@ class _CasesAsync:
 class _Cases:
     @property
     def aio(self) -> _CasesAsync: ...
+    def aggregate_cases(self, spec: dict[str, Any]) -> types.AggregateResponse: ...
     def create_case(
         self,
         *,
@@ -860,6 +864,9 @@ class _Deduplicate:
     ) -> list[bool]: ...
 
 class _TablesAsync:
+    async def aggregate_rows(
+        self, table_name: str, spec: dict[str, Any]
+    ) -> types.AggregateResponse: ...
     async def list_tables(self) -> list[types.Table]: ...
     async def create_table(
         self,
@@ -968,6 +975,9 @@ class _TablesAsync:
     ) -> list[dict[str, Any]] | str: ...
 
 class _Tables:
+    def aggregate_rows(
+        self, table_name: str, spec: dict[str, Any]
+    ) -> types.AggregateResponse: ...
     @property
     def aio(self) -> _TablesAsync: ...
     def list_tables(self) -> list[types.Table]: ...

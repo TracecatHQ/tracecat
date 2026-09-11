@@ -51,7 +51,7 @@ from tracecat.cases.enums import (
 )
 from tracecat.cases.events import CaseEventsService
 from tracecat.cases.mentions import MentionToken, parse_mentions
-from tracecat.cases.query import CaseFieldResolver
+from tracecat.cases.query import CaseFieldResolver, referenced_dropdown_refs
 from tracecat.cases.schemas import (
     AssigneeChangedEvent,
     CaseAggregateRequest,
@@ -245,8 +245,19 @@ class CasesService(BaseWorkspaceService):
         self, request: CaseAggregateRequest
     ) -> CaseAggregateResponse:
         """Filter, group, and aggregate workspace cases in PostgreSQL."""
+        dropdown_refs: Sequence[str] = ()
+        requested_dropdowns = referenced_dropdown_refs(request)
+        if requested_dropdowns and await self.has_entitlement(Entitlement.CASE_ADDONS):
+            dropdown_refs = (
+                await self.session.scalars(
+                    select(CaseDropdownDefinition.ref).where(
+                        CaseDropdownDefinition.workspace_id == self.workspace_id,
+                        CaseDropdownDefinition.ref.in_(requested_dropdowns),
+                    )
+                )
+            ).all()
         resolver = CaseFieldResolver(
-            self.workspace_id, await self.fields.get_field_schema()
+            self.workspace_id, await self.fields.get_field_schema(), dropdown_refs
         )
         statement = (
             sa.select(sa.literal(1))
@@ -279,7 +290,8 @@ class CasesService(BaseWorkspaceService):
             resolved_fields,
             limit=request.limit,
             entity_id=Case.id,
-            # The custom-fields join is one-to-one; filters use correlated EXISTS.
+            # All joins are represented by resolved_fields, including tags'
+            # multi-valued marker. Filters only add correlated EXISTS queries.
             base_has_multi_valued_join=False,
         )
         transaction = (

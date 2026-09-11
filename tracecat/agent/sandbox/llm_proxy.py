@@ -678,6 +678,8 @@ class LLMSocketProxy:
         self.routing_plan = routing_plan
         self._server: asyncio.Server | None = None
         self._client: httpx.AsyncClient | None = None
+        self._connection_tasks: set[asyncio.Task[None]] = set()
+        self._stopping = False
         self._on_error = on_error
         self._error_emitted = False  # Only call callback once
 
@@ -703,9 +705,12 @@ class LLMSocketProxy:
             )
         )
 
+        self._stopping = False
+        self._error_emitted = False
+
         # Start Unix socket server
         self._server = await asyncio.start_unix_server(
-            self._handle_connection,
+            self._accept_connection,
             path=str(self.socket_path),
         )
 
@@ -720,8 +725,18 @@ class LLMSocketProxy:
 
     async def stop(self) -> None:
         """Stop the Unix socket server and clean up."""
+        self._stopping = True
         if self._server:
             self._server.close()
+
+        # Stop readers before closing their shared upstream client. Closing the
+        # client first can turn normal teardown into a fatal transport error.
+        tasks = tuple(self._connection_tasks)
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+        if self._server:
             await self._server.wait_closed()
             self._server = None
 
@@ -757,7 +772,7 @@ class LLMSocketProxy:
         diagnostic: LLMErrorDiagnostics | None = None,
     ) -> None:
         """Emit error via callback (only once)."""
-        if not self._error_emitted:
+        if not self._stopping and not self._error_emitted:
             self._error_emitted = True
             logger.error("LLM proxy error", error=message, **_load_fields())
             if self._on_error:
@@ -778,6 +793,25 @@ class LLMSocketProxy:
             message = str(exc).lower()
             return "handler is closed" in message or "transport closed" in message
         return False
+
+    def _accept_connection(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        # Register synchronously so stop also owns handlers not yet scheduled.
+        if self._stopping:
+            writer.close()
+            return
+        task = asyncio.create_task(self._handle_connection(reader, writer))
+        self._connection_tasks.add(task)
+
+        def connection_done(task: asyncio.Task[None]) -> None:
+            self._connection_tasks.discard(task)
+            # A task canceled before its first step never reaches its finally.
+            writer.close()
+
+        task.add_done_callback(connection_done)
 
     async def _handle_connection(
         self,
@@ -810,7 +844,7 @@ class LLMSocketProxy:
                 logger.debug("Client disconnected during proxy request")
                 return
             # Don't emit fatal error if server is already shutting down
-            if self._server is None:
+            if self._stopping:
                 logger.debug("Proxy error during shutdown (ignored)", error=str(e))
             else:
                 logger.exception("LLM proxy error", error=str(e))
@@ -1070,6 +1104,8 @@ class LLMSocketProxy:
                     diagnostic=route.error_diagnostics,
                 )
         except httpx.TransportError as exc:
+            if self._stopping:
+                return
             if isinstance(exc, httpx.ReadTimeout):
                 _log_read_timeout(
                     route_is_direct=route.is_direct,
@@ -1179,6 +1215,9 @@ class LLMSocketProxy:
                     logger.debug("Client disconnected during response streaming")
                     return
         except Exception as exc:
+            if self._stopping:
+                logger.debug("Response stream closed during proxy shutdown")
+                return
             # Headers (200 OK) are already flushed — we cannot write a
             # second HTTP error response.  Emit the error as an SSE event
             # so the client can surface it.  This covers HTTPException from

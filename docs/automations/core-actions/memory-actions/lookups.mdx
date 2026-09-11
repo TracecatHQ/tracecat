@@ -259,3 +259,106 @@ Default: `null`.
     limit: 50
     paginate: true
 ```
+
+## `core.table.aggregate_rows`
+
+Filter, group, and summarize table rows. Returns groups and a truncated flag indicating whether more groups exist than the requested limit.
+
+Group rows and calculate counts, totals, or averages in your workflow.
+Create an `alerts` table with `source` (TEXT), `disposition` (TEXT),
+and `bytes_out` (INTEGER) columns before running this example.
+Use `[]` for `group_by` to calculate a single total across matching rows.
+
+Read the summaries from `ACTIONS.bytes_by_source_hourly.result.groups`.
+If `truncated` is `true`, more groups matched than the result limit.
+Omit `limit` to use your server's default, normally 100 groups.
+
+### Inputs
+
+<ParamField path="group_by" type="array[string | object]" required>
+
+Up to 3 grouping fields, as names or objects with field, bucket, timezone, and alias. Example: ['category', &#123;'field': 'created_at', 'bucket': 'day'&#125;]. Use [] for a single grand total. DATE and TIMESTAMPTZ fields require an hour/day/week/month bucket; weeks start Monday. Timestamp buckets accept an IANA timezone (default UTC) and return UTC instants. DATE buckets return YYYY-MM-DD, reject timezone, and have only date precision even with hour. System created_at/updated_at are available. TEXT, SELECT, INTEGER, NUMERIC, and BOOLEAN can group directly. JSONB, MULTI_SELECT, id, and internal columns are unsupported. Null keys form a group. TEXT/SELECT keys use the first 256 characters; longer values with the same prefix merge. NUMERIC keys are exact decimal strings. Aliases default to field names and must be unique across all outputs and at most 63 UTF-8 bytes.
+
+</ParamField>
+
+<ParamField path="table" type="string" required>
+
+The name of the workspace table to aggregate.
+
+</ParamField>
+
+<ParamField path="aggs" type="array[object] | null">
+
+Up to 8 calculations: &#123;function, field, alias&#125;. Functions: count, count_distinct, sum, mean, median, min, max. Example: [&#123;'function': 'sum', 'field': 'amount', 'alias': 'total'&#125;]. None defaults to count; [] is invalid. count without field counts rows; count with field counts non-null values. Other functions require field. Numbers support every function; TEXT and temporal fields support count, count_distinct, min, max; BOOLEAN/SELECT support count and count_distinct. Aliases default to count or function_field and must be unique and at most 63 UTF-8 bytes. Counts are integers. INTEGER/NUMERIC sums, all means/medians, and NUMERIC min/max are floating-point JSON numbers, with possible precision loss; NUMERIC grouping keys remain exact strings.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="filters" type="object | null">
+
+Filter rows before grouping. Use &#123;field, op, value&#125;, or combine conditions with &#123;'and': [...]&#125;, &#123;'or': [...]&#125;, or &#123;'not': &#123;...&#125;&#125;. Example: &#123;'field': 'amount', 'op': 'gte', 'value': 10&#125;. Operators: eq, ne, in, not_in, gt, gte, lt, lte, contains, starts_with, is_null. in/not_in take lists; is_null takes no value. TEXT supports eq/ne/in/not_in/is_null and case-insensitive literal contains/starts_with. Numbers support comparisons and membership; dates support comparisons; SELECT supports eq/ne/in/not_in/is_null; BOOLEAN supports eq/ne/is_null. ne/not_in exclude null values, except empty not_in matches all rows; empty in matches none. Use strings for exact decimal values and ISO strings for dates and timestamps. Maximum depth 4, 50 conditions, and 1000 total values. None means no filtering. Shapes are validated at runtime.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+Maximum groups to return, at least 1 and subject to the server's configured maximum (normally 1000). Omit to use the server default (normally 100). Excess groups set truncated.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="min_count" type="integer | null">
+
+Only return groups with at least this many rows (minimum 1).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order_by" type="string | null">
+
+Group or calculation output name to sort by. Defaults to the first time bucket if present, otherwise the first calculation.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort" type="string | null">
+
+Sort direction. Defaults to asc when automatically ordering by a time bucket; otherwise desc, including when order_by is explicit. Nulls sort last; group keys break ties.
+
+Default: `null`.
+
+</ParamField>
+
+### Examples
+
+**Sum bytes by source and hour**
+
+```yaml
+- ref: bytes_by_source_hourly
+  action: core.table.aggregate_rows
+  args:
+    table: alerts
+    filters:
+      and:
+        - field: disposition
+          op: ne
+          value: benign
+        - field: created_at
+          op: gte
+          value: "2026-08-31T00:00:00Z"
+    group_by:
+      - source
+      - field: created_at
+        bucket: hour
+    aggs:
+      - function: count
+      - function: sum
+        field: bytes_out
+        alias: total_bytes
+```

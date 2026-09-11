@@ -1021,9 +1021,15 @@ TRACECAT__RATE_LIMIT_BY_ENDPOINT = env_bool(
 """Whether to rate limit by endpoint."""
 
 TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES = int(
-    os.environ.get("TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES") or 1024 * 1024
+    os.environ.get("TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES") or 5 * 1024**3
 )
-"""The maximum size of a payload in bytes the executor can return. Defaults to 1MB"""
+"""The maximum size of a payload in bytes the executor can return.
+
+Defaults to 5 GiB, the largest single-object upload S3 and MinIO accept.
+Results above ``TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES`` are
+externalized to blob storage with a single PUT, so the object store's
+single-upload cap is the effective ceiling on an action's result.
+"""
 
 TRACECAT__SANDBOX_PACKAGE_CACHE_MAX_BYTES = int(
     os.environ.get("TRACECAT__SANDBOX_PACKAGE_CACHE_MAX_BYTES") or 5 * 1024**3

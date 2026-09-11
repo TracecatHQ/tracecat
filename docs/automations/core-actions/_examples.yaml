@@ -424,6 +424,29 @@ examples:
             - in_progress
           limit: 25
 
+  cases-aggregate:
+    title: Count open cases by priority and day
+    language: yaml
+    code: |
+      - ref: cases_by_priority_per_day
+        action: core.cases.aggregate_cases
+        args:
+          filters:
+            and:
+              - field: status
+                op: in
+                value: [new, in_progress]
+              - field: created_at
+                op: gte
+                value: "2026-01-01T00:00:00Z"
+          group_by:
+            - priority
+            - field: created_at
+              bucket: day
+          aggs:
+            - function: count
+          limit: 100
+
   cases-list-events:
     title: List case events
     language: yaml
@@ -869,6 +892,32 @@ examples:
           search_term: database
           limit: 50
           paginate: true
+
+  tables-aggregate:
+    title: Sum bytes by source and hour
+    language: yaml
+    code: |
+      - ref: bytes_by_source_hourly
+        action: core.table.aggregate_rows
+        args:
+          table: alerts
+          filters:
+            and:
+              - field: disposition
+                op: ne
+                value: benign
+              - field: created_at
+                op: gte
+                value: "2026-08-31T00:00:00Z"
+          group_by:
+            - source
+            - field: created_at
+              bucket: hour
+          aggs:
+            - function: count
+            - function: sum
+              field: bytes_out
+              alias: total_bytes
 
   tables-write:
     title: Insert, update, and delete rows

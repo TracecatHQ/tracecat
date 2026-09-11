@@ -19,7 +19,20 @@ from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.service import CasesService
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session
-from tracecat.db.models import Case, CaseFields, Organization, User, Workspace
+from tracecat.db.models import (
+    Case,
+    CaseDropdownDefinition,
+    CaseDropdownOption,
+    CaseDropdownValue,
+    CaseFields,
+    CaseTag,
+    CaseTagLink,
+    Organization,
+    OrganizationTier,
+    Tier,
+    User,
+    Workspace,
+)
 from tracecat.executor.action_gateway.app import create_app
 
 pytestmark = pytest.mark.anyio
@@ -514,7 +527,7 @@ async def test_reporting_limits_validation_and_transaction_reuse(
     "payload",
     [
         {"group_by": ["fields.absent"]},
-        {"group_by": ["tags"]},
+        {"group_by": [], "filters": {"field": "tags", "op": "eq", "value": "urgent"}},
         {"group_by": ["dropdowns.absent"]},
         {"group_by": ["created_at"]},
         {"group_by": ["short_id"]},
@@ -680,3 +693,359 @@ async def test_gateway_scope_enforcement_and_schema_visibility(
     assert response.status_code == 200, response.text
     assert response.json()["groups"] == [{"count": 1}]
     assert "/internal/cases/aggregate" not in aggregate_app.openapi()["paths"]
+
+
+async def add_dropdown(
+    service: CasesService, ref: str
+) -> tuple[CaseDropdownDefinition, CaseDropdownOption]:
+    definition = CaseDropdownDefinition(
+        workspace_id=service.workspace_id, name=ref, ref=ref
+    )
+    service.session.add(definition)
+    await service.session.flush()
+    option = CaseDropdownOption(
+        definition_id=definition.id, label="Display label", ref="selected"
+    )
+    service.session.add(option)
+    await service.session.flush()
+    return definition, option
+
+
+async def test_dropdown_groups_filters_and_deleted_options(
+    aggregate_service: CasesService, aggregate_client: httpx.AsyncClient
+) -> None:
+    service = aggregate_service
+    definition, option = await add_dropdown(service, "verdict")
+    other_definition, other_option = await add_dropdown(service, "source")
+    cases = [await add_case(service) for _ in range(3)]
+    service.session.add_all(
+        [
+            CaseDropdownValue(
+                case_id=cases[0].id, definition_id=definition.id, option_id=option.id
+            ),
+            CaseDropdownValue(
+                case_id=cases[1].id, definition_id=definition.id, option_id=None
+            ),
+            CaseDropdownValue(
+                case_id=cases[0].id,
+                definition_id=other_definition.id,
+                option_id=other_option.id,
+            ),
+            CaseDropdownValue(
+                case_id=cases[2].id,
+                definition_id=other_definition.id,
+                option_id=other_option.id,
+            ),
+        ]
+    )
+    await service.session.flush()
+    path = "/internal/cases/aggregate"
+    response = await aggregate_client.post(
+        path, json={"group_by": ["dropdowns.verdict"]}
+    )
+    assert response.status_code == 200, response.text
+    assert {
+        row["dropdowns.verdict"]: row["count"] for row in response.json()["groups"]
+    } == {None: 2, "selected": 1}
+
+    for predicate, count in [
+        ({"field": "dropdowns.verdict", "op": "is_null"}, 2),
+        ({"field": "dropdowns.verdict", "op": "eq", "value": "selected"}, 1),
+        ({"field": "dropdowns.verdict", "op": "in", "value": ["selected"]}, 1),
+        ({"not": {"field": "dropdowns.verdict", "op": "eq", "value": "selected"}}, 0),
+    ]:
+        response = await aggregate_client.post(
+            path, json={"group_by": [], "filters": predicate}
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["groups"] == [{"count": count}]
+
+    response = await aggregate_client.post(
+        path,
+        json={
+            "group_by": ["dropdowns.verdict", "dropdowns.source"],
+            "aggs": [
+                {"function": "count"},
+                {"function": "count", "field": "dropdowns.verdict"},
+            ],
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert {
+        (r["dropdowns.verdict"], r["dropdowns.source"], r["count"], r["count_verdict"])
+        for r in response.json()["groups"]
+    } == {
+        ("selected", "selected", 1, 1),
+        (None, None, 1, 0),
+        (None, "selected", 1, 0),
+    }
+    response = await aggregate_client.post(
+        path,
+        json={
+            "group_by": ["dropdowns.verdict", {"field": "created_at", "bucket": "day"}]
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert {
+        (r["dropdowns.verdict"], r["created_at"], r["count"])
+        for r in response.json()["groups"]
+    } == {
+        ("selected", "2026-03-08T00:00:00Z", 1),
+        (None, "2026-03-08T00:00:00Z", 2),
+    }
+    await service.session.execute(
+        sa.delete(CaseDropdownOption).where(CaseDropdownOption.id == option.id)
+    )
+    for filters in [None, {"field": "dropdowns.verdict", "op": "is_null"}]:
+        response = await aggregate_client.post(
+            path, json={"group_by": ["dropdowns.verdict"], "filters": filters}
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["groups"] == [{"dropdowns.verdict": None, "count": 3}]
+
+
+async def test_tags_count_cases_and_filter_before_grouping(
+    aggregate_service: CasesService,
+    aggregate_client: httpx.AsyncClient,
+    custom_cases: sa.Table,
+) -> None:
+    service = aggregate_service
+    cases = (
+        await service.session.scalars(
+            sa.select(Case)
+            .where(Case.workspace_id == service.workspace_id)
+            .order_by(Case.surrogate_id)
+        )
+    ).all()
+    red = CaseTag(workspace_id=service.workspace_id, name="Red label", ref="red")
+    blue = CaseTag(workspace_id=service.workspace_id, name="Blue label", ref="blue")
+    service.session.add_all([red, blue])
+    await service.session.flush()
+    service.session.add_all(
+        [
+            CaseTagLink(case_id=cases[0].id, tag_id=red.id),
+            CaseTagLink(case_id=cases[0].id, tag_id=blue.id),
+            CaseTagLink(case_id=cases[1].id, tag_id=red.id),
+        ]
+    )
+    await service.session.flush()
+    path = "/internal/cases/aggregate"
+    aggs = [
+        {"function": "count"},
+        {"function": "count", "field": "tags"},
+        {"function": "count", "field": "fields.amount"},
+    ]
+    response = await aggregate_client.post(
+        path, json={"group_by": ["priority", "tags"], "aggs": aggs}
+    )
+    assert response.status_code == 200, response.text
+    assert {
+        (r["priority"], r["tags"], r["count"], r["count_tags"], r["count_amount"])
+        for r in response.json()["groups"]
+    } == {
+        ("high", "red", 2, 2, 2),
+        ("high", "blue", 1, 1, 1),
+        ("high", None, 2, 0, 0),
+    }
+    response = await aggregate_client.post(path, json={"group_by": [], "aggs": aggs})
+    assert response.status_code == 200, response.text
+    assert response.json()["groups"] == [
+        {"count": 4, "count_tags": 2, "count_amount": 2}
+    ]
+    response = await aggregate_client.post(
+        path, json={"group_by": [], "aggs": aggs, "min_count": 5}
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["groups"] == []
+    response = await aggregate_client.post(
+        path, json={"group_by": ["tags"], "min_count": 2}
+    )
+    assert response.status_code == 200, response.text
+    assert {r["tags"]: r["count"] for r in response.json()["groups"]} == {
+        "red": 2,
+        None: 2,
+    }
+
+    for predicate, count in [
+        ({"field": "tags", "op": "contains", "value": "red"}, 2),
+        ({"field": "tags", "op": "contains", "value": "re"}, 0),
+        ({"field": "tags", "op": "in", "value": ["red", "blue"]}, 2),
+        ({"field": "tags", "op": "in", "value": []}, 0),
+        ({"field": "tags", "op": "is_null"}, 2),
+        ({"not": {"field": "tags", "op": "contains", "value": "red"}}, 2),
+        (
+            {
+                "and": [
+                    {"field": "tags", "op": "contains", "value": "red"},
+                    {"field": "tags", "op": "contains", "value": "blue"},
+                ]
+            },
+            1,
+        ),
+        (
+            {
+                "or": [
+                    {"field": "tags", "op": "contains", "value": "red"},
+                    {"field": "tags", "op": "is_null"},
+                ]
+            },
+            4,
+        ),
+    ]:
+        response = await aggregate_client.post(
+            path, json={"group_by": [], "filters": predicate}
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["groups"] == [{"count": count}]
+
+    tag_filter = {"field": "tags", "op": "contains", "value": "red"}
+    response = await aggregate_client.post(
+        path, json={"group_by": ["tags"], "filters": tag_filter}
+    )
+    assert response.status_code == 200, response.text
+    assert {r["tags"]: r["count"] for r in response.json()["groups"]} == {
+        "red": 2,
+        "blue": 1,
+    }
+    for function in ["sum", "mean", "median"]:
+        response = await aggregate_client.post(
+            path,
+            json={
+                "group_by": ["tags"],
+                "aggs": [{"function": function, "field": "fields.amount"}],
+            },
+        )
+        assert response.status_code == 400, response.text
+        # A tag filter alone cannot multiply rows, so numeric calculations work.
+        response = await aggregate_client.post(
+            path,
+            json={
+                "group_by": [],
+                "filters": tag_filter,
+                "aggs": [{"function": function, "field": "fields.amount"}],
+            },
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["groups"] == [
+            {f"{function}_amount": 4.0 if function == "sum" else 2.0}
+        ]
+
+
+async def test_dimension_workspace_isolation(
+    aggregate_service: CasesService, aggregate_client: httpx.AsyncClient
+) -> None:
+    service = aggregate_service
+    other = Workspace(
+        name="other-dimension-workspace", organization_id=service.role.organization_id
+    )
+    service.session.add(other)
+    await service.session.flush()
+    foreign = CasesService(
+        service.session, service.role.model_copy(update={"workspace_id": other.id})
+    )
+    local_definition, local_option = await add_dropdown(service, "verdict")
+    foreign_definition, foreign_option = await add_dropdown(foreign, "verdict")
+    local_tag = CaseTag(workspace_id=service.workspace_id, name="Local", ref="shared")
+    foreign_tag = CaseTag(workspace_id=other.id, name="Foreign", ref="shared")
+    service.session.add_all([local_tag, foreign_tag])
+    await service.session.flush()
+    local_case = await add_case(service)
+    empty_case = await add_case(service)
+    foreign_case = await add_case(foreign)
+    service.session.add_all(
+        [
+            CaseDropdownValue(
+                case_id=local_case.id,
+                definition_id=local_definition.id,
+                option_id=local_option.id,
+            ),
+            CaseDropdownValue(
+                case_id=local_case.id,
+                definition_id=foreign_definition.id,
+                option_id=foreign_option.id,
+            ),
+            CaseDropdownValue(
+                case_id=foreign_case.id,
+                definition_id=foreign_definition.id,
+                option_id=foreign_option.id,
+            ),
+            # Even an inconsistent option link must not expose another definition.
+            CaseDropdownValue(
+                case_id=empty_case.id,
+                definition_id=local_definition.id,
+                option_id=foreign_option.id,
+            ),
+            CaseTagLink(case_id=local_case.id, tag_id=local_tag.id),
+            CaseTagLink(case_id=local_case.id, tag_id=foreign_tag.id),
+            CaseTagLink(case_id=empty_case.id, tag_id=foreign_tag.id),
+            CaseTagLink(case_id=foreign_case.id, tag_id=foreign_tag.id),
+        ]
+    )
+    await service.session.flush()
+    for field, ref in [("tags", "shared"), ("dropdowns.verdict", "selected")]:
+        response = await aggregate_client.post(
+            "/internal/cases/aggregate", json={"group_by": [field]}
+        )
+        assert response.status_code == 200, response.text
+        assert {r[field]: r["count"] for r in response.json()["groups"]} == {
+            ref: 1,
+            None: 1,
+        }
+        response = await aggregate_client.post(
+            "/internal/cases/aggregate",
+            json={"group_by": [field], "filters": {"field": field, "op": "is_null"}},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["groups"] == [{field: None, "count": 1}]
+
+
+async def test_dropdown_entitlement_required_for_every_use(
+    aggregate_service: CasesService,
+    aggregate_client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = aggregate_service
+    await add_dropdown(service, "verdict")
+    await add_case(service)
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
+    tier = Tier(
+        display_name="Synthetic restricted tier", entitlements={"case_addons": False}
+    )
+    service.session.add(tier)
+    await service.session.flush()
+    service.session.add(
+        OrganizationTier(organization_id=service.organization_id, tier_id=tier.id)
+    )
+    await service.session.flush()
+    for payload in [
+        {"group_by": ["dropdowns.verdict"]},
+        {"group_by": [], "aggs": [{"function": "count", "field": "dropdowns.verdict"}]},
+        {"group_by": [], "filters": {"field": "dropdowns.verdict", "op": "is_null"}},
+    ]:
+        response = await aggregate_client.post(
+            "/internal/cases/aggregate", json=payload
+        )
+        assert response.status_code == 400, response.text
+        assert "dropdowns.verdict" in response.text
+    response = await aggregate_client.post(
+        "/internal/cases/aggregate", json={"group_by": ["tags"]}
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["groups"] == [{"tags": None, "count": 1}]
+
+
+async def test_ungated_aggregation_does_not_require_a_configured_tier(
+    aggregate_service: CasesService,
+    aggregate_client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await add_case(aggregate_service)
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
+    for field in ["priority", "tags"]:
+        response = await aggregate_client.post(
+            "/internal/cases/aggregate", json={"group_by": [field]}
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["groups"] == [
+            {field: "high" if field == "priority" else None, "count": 1}
+        ]

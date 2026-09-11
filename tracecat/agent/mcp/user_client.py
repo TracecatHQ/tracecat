@@ -31,9 +31,8 @@ from tracecat.agent.mcp.http_limits import (
     create_bounded_mcp_http_client,
 )
 from tracecat.agent.mcp.utils import (
-    LEGACY_REGISTRY_MCP_SERVER_NAME,
-    REGISTRY_MCP_SERVER_NAME,
     flatten_mcp_content_blocks,
+    is_tracecat_registry_server_name,
 )
 from tracecat.integrations.schemas import MCPToolSummary
 from tracecat.logger import logger
@@ -381,14 +380,6 @@ class UserMCPClient:
             raise
 
     @staticmethod
-    def _is_tracecat_registry_server_name(server_name: str) -> bool:
-        return (
-            server_name in {REGISTRY_MCP_SERVER_NAME, LEGACY_REGISTRY_MCP_SERVER_NAME}
-            or server_name.startswith(f"{REGISTRY_MCP_SERVER_NAME}-")
-            or server_name.startswith(f"{LEGACY_REGISTRY_MCP_SERVER_NAME}_")
-        )
-
-    @staticmethod
     def parse_user_mcp_tool_name(tool_name: str) -> tuple[str, str] | None:
         """Parse a user MCP tool name into (server_name, tool_name).
 
@@ -408,7 +399,7 @@ class UserMCPClient:
         parts = tool_name.split("__", 2)
         if len(parts) < 3:
             return None
-        if UserMCPClient._is_tracecat_registry_server_name(parts[1]):
+        if is_tracecat_registry_server_name(parts[1]):
             return None
 
         # parts[0] = "mcp", parts[1] = server_name, parts[2] = tool_name

@@ -18,6 +18,7 @@ import { CenteredSpinner } from "@/components/loading/spinner"
 import { SkillFileTree } from "@/components/skills/file-tree"
 import { RenameDialog } from "@/components/skills/rename-dialog"
 import { SkillFileIcon } from "@/components/skills/skill-file-icon"
+import { SkillToolsDropdown } from "@/components/skills/skill-tools-dropdown"
 
 const CodeEditor = dynamic(
   () =>
@@ -25,6 +26,13 @@ const CodeEditor = dynamic(
       (m) => m.CodeEditor
     ),
   { ssr: false }
+)
+const SkillFrontmatterEditor = dynamic(
+  () =>
+    import("@/components/skills/skill-frontmatter-editor").then(
+      (m) => m.SkillFrontmatterEditor
+    ),
+  { ssr: false, loading: FrontmatterEditorSkeleton }
 )
 const SimpleEditor = dynamic(
   () =>
@@ -42,6 +50,7 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   composeMarkdownFrontmatter,
   splitMarkdownFrontmatter,
@@ -54,6 +63,26 @@ import {
   isMarkdownPath,
   SKILL_MD_PATH,
 } from "@/lib/skills-studio"
+
+function FrontmatterEditorSkeleton() {
+  return (
+    <div role="status" className="w-full rounded-md border px-3 py-2">
+      <span className="sr-only">Loading frontmatter editor</span>
+      <div aria-hidden="true" className="flex gap-4">
+        <div className="flex shrink-0 flex-col gap-2 border-r pr-3">
+          <Skeleton className="h-3 w-2" />
+          <Skeleton className="h-3 w-2" />
+          <Skeleton className="h-3 w-2" />
+        </div>
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
+          <Skeleton className="h-3 w-1/3" />
+          <Skeleton className="h-3 w-full" />
+          <Skeleton className="h-3 w-2/3" />
+        </div>
+      </div>
+    </div>
+  )
+}
 
 type EditorPanelProps = {
   skill?: SkillRead
@@ -298,8 +327,18 @@ export function EditorPanel({
                   Select a file to start editing.
                 </div>
               ) : draftFileLoading ? (
-                <div className="flex flex-1 items-center justify-center">
-                  <Loader2 className="size-5 animate-spin text-muted-foreground" />
+                <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col">
+                  {selectedFile.path === SKILL_MD_PATH ? (
+                    <div className="flex flex-col gap-2">
+                      <Skeleton className="h-4 w-24" />
+                      <Skeleton className="h-3 w-2/3" />
+                      <FrontmatterEditorSkeleton />
+                    </div>
+                  ) : (
+                    <div className="flex flex-1 items-center justify-center">
+                      <Loader2 className="size-5 animate-spin text-muted-foreground" />
+                    </div>
+                  )}
                 </div>
               ) : selectedFile.change?.kind === "delete" ? (
                 <div className="flex flex-1 items-center justify-center">
@@ -348,18 +387,47 @@ export function EditorPanel({
                           .
                         </div>
                       </div>
-                      <CodeEditor
-                        value={splitFrontmatter.frontmatter}
-                        onChange={(nextFrontmatter) =>
-                          onEditorChange(
-                            composeMarkdownFrontmatter(
-                              nextFrontmatter,
-                              splitFrontmatter.body
+                      {selectedFile.path === SKILL_MD_PATH ? (
+                        <SkillFrontmatterEditor
+                          value={splitFrontmatter.frontmatter}
+                          onChange={(nextFrontmatter) =>
+                            onEditorChange(
+                              composeMarkdownFrontmatter(
+                                nextFrontmatter,
+                                splitFrontmatter.body
+                              )
                             )
-                          )
-                        }
-                        language="yaml"
-                      />
+                          }
+                        />
+                      ) : (
+                        <CodeEditor
+                          value={splitFrontmatter.frontmatter}
+                          onChange={(nextFrontmatter) =>
+                            onEditorChange(
+                              composeMarkdownFrontmatter(
+                                nextFrontmatter,
+                                splitFrontmatter.body
+                              )
+                            )
+                          }
+                          language="yaml"
+                          className="[&_.cm-scroller]:max-h-64"
+                        />
+                      )}
+                      {selectedFile.path === SKILL_MD_PATH ? (
+                        <SkillToolsDropdown
+                          workspaceId={skill.workspace_id}
+                          frontmatter={splitFrontmatter.frontmatter}
+                          onChange={(nextFrontmatter) =>
+                            onEditorChange(
+                              composeMarkdownFrontmatter(
+                                nextFrontmatter,
+                                splitFrontmatter.body
+                              )
+                            )
+                          }
+                        />
+                      ) : null}
                     </div>
                     <div className="flex flex-1 flex-col">
                       <div className="mb-2">
