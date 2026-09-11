@@ -1,6 +1,6 @@
 """Registry tool timeout ordering and terminal attribution regressions."""
 
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -22,6 +22,7 @@ from tracecat.temporal.errors import (
 )
 
 MODULE = "tracecat_ee.agent.workflows.registry_tool"
+WORKFLOW_START = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 def _activity_error(cause: Exception) -> ActivityError:
@@ -39,16 +40,30 @@ def _activity_error(cause: Exception) -> ActivityError:
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("patched,expected_seconds", [(True, 360), (False, 300)])
+@pytest.mark.parametrize(
+    ("patched", "expected_seconds", "expected_schedule_to_close"),
+    [
+        (True, 360, timedelta(seconds=360)),
+        (False, 300, None),
+    ],
+)
 async def test_activity_leaves_time_for_sandbox_failure(
-    patched: bool, expected_seconds: int
+    patched: bool,
+    expected_seconds: int,
+    expected_schedule_to_close: timedelta | None,
 ) -> None:
     result = InlineObject(data="done")
     execute = AsyncMock(return_value=result)
+    workflow_info = Mock(
+        workflow_start_time=WORKFLOW_START,
+        run_timeout=timedelta(seconds=390),
+    )
     with (
         patch(f"{MODULE}.workflow.patched", return_value=patched),
         patch(f"{MODULE}.workflow.execute_activity", execute),
         patch(f"{MODULE}.config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT", 300),
+        patch(f"{MODULE}.workflow.info", return_value=workflow_info) as info,
+        patch(f"{MODULE}.workflow.now", return_value=WORKFLOW_START) as now,
     ):
         assert (
             await ExecuteRegistryToolWorkflow().run(
@@ -61,7 +76,122 @@ async def test_activity_leaves_time_for_sandbox_failure(
     assert execute.call_args.kwargs["start_to_close_timeout"] == timedelta(
         seconds=expected_seconds
     )
+    assert (
+        execute.call_args.kwargs["schedule_to_close_timeout"]
+        == expected_schedule_to_close
+    )
     assert execute.call_args.kwargs["retry_policy"].maximum_attempts == 1
+    if not patched:
+        info.assert_not_called()
+        now.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_activity_schedule_to_close_accounts_for_late_workflow_start() -> None:
+    result = InlineObject(data="done")
+    execute = AsyncMock(return_value=result)
+    workflow_info = Mock(
+        workflow_start_time=WORKFLOW_START,
+        run_timeout=timedelta(seconds=390),
+    )
+    with (
+        patch(f"{MODULE}.workflow.patched", return_value=True),
+        patch(f"{MODULE}.workflow.execute_activity", execute),
+        patch(f"{MODULE}.config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT", 300),
+        patch(f"{MODULE}.workflow.info", return_value=workflow_info),
+        patch(
+            f"{MODULE}.workflow.now",
+            return_value=WORKFLOW_START + timedelta(seconds=90),
+        ),
+    ):
+        await ExecuteRegistryToolWorkflow().run(
+            Mock(spec=ExecuteRegistryToolWorkflowInput, run_input=Mock(), role=Mock())
+        )
+
+    assert execute.call_args.kwargs["start_to_close_timeout"] == timedelta(seconds=360)
+    assert execute.call_args.kwargs["schedule_to_close_timeout"] == timedelta(
+        seconds=270
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("elapsed_seconds", [360, 375])
+async def test_exhausted_activity_budget_skips_scheduling(
+    elapsed_seconds: int,
+) -> None:
+    execute = AsyncMock(return_value=InlineObject(data="unreachable"))
+    workflow_info = Mock(
+        workflow_start_time=WORKFLOW_START,
+        run_timeout=timedelta(seconds=390),
+    )
+    with (
+        patch(f"{MODULE}.workflow.patched", return_value=True),
+        patch(f"{MODULE}.workflow.execute_activity", execute),
+        patch(f"{MODULE}.config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT", 300),
+        patch(f"{MODULE}.workflow.info", return_value=workflow_info),
+        patch(
+            f"{MODULE}.workflow.now",
+            return_value=WORKFLOW_START + timedelta(seconds=elapsed_seconds),
+        ),
+        pytest.raises(ApplicationError) as raised,
+    ):
+        await ExecuteRegistryToolWorkflow().run(
+            Mock(spec=ExecuteRegistryToolWorkflowInput, run_input=Mock(), role=Mock())
+        )
+
+    assert raised.value.non_retryable
+    classification = extract_error_classifications(raised.value)
+    assert len(classification) == 1
+    assert classification[0].owner is RuntimeErrorOwner.PLATFORM
+    assert classification[0].kind is RuntimeErrorKind.EXECUTOR_ACTIVITY_TIMED_OUT
+    assert classification[0].retry_disposition is RetryDisposition.NON_RETRYABLE
+    execute.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_no_workflow_run_timeout_uses_activity_duration() -> None:
+    execute = AsyncMock(return_value=InlineObject(data="done"))
+    workflow_info = Mock(workflow_start_time=WORKFLOW_START, run_timeout=None)
+    with (
+        patch(f"{MODULE}.workflow.patched", return_value=True),
+        patch(f"{MODULE}.workflow.execute_activity", execute),
+        patch(f"{MODULE}.config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT", 300),
+        patch(f"{MODULE}.workflow.info", return_value=workflow_info),
+    ):
+        await ExecuteRegistryToolWorkflow().run(
+            Mock(spec=ExecuteRegistryToolWorkflowInput, run_input=Mock(), role=Mock())
+        )
+
+    assert execute.call_args.kwargs["start_to_close_timeout"] == timedelta(seconds=360)
+    assert execute.call_args.kwargs["schedule_to_close_timeout"] == timedelta(
+        seconds=360
+    )
+
+
+@pytest.mark.anyio
+async def test_activity_timeout_preserves_fractional_executor_config() -> None:
+    execute = AsyncMock(return_value=InlineObject(data="done"))
+    workflow_info = Mock(
+        workflow_start_time=WORKFLOW_START,
+        run_timeout=timedelta(seconds=900),
+    )
+    with (
+        patch(f"{MODULE}.workflow.patched", return_value=True),
+        patch(f"{MODULE}.workflow.execute_activity", execute),
+        patch(f"{MODULE}.config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT", 300.5),
+        patch(f"{MODULE}.workflow.info", return_value=workflow_info),
+        patch(f"{MODULE}.workflow.now", return_value=WORKFLOW_START),
+    ):
+        await ExecuteRegistryToolWorkflow().run(
+            Mock(spec=ExecuteRegistryToolWorkflowInput, run_input=Mock(), role=Mock())
+        )
+
+    assert execute.call_args.kwargs["start_to_close_timeout"] == timedelta(
+        seconds=360.5
+    )
+    assert execute.call_args.kwargs["schedule_to_close_timeout"] == timedelta(
+        seconds=360.5
+    )
 
 
 @pytest.mark.anyio
@@ -76,6 +206,14 @@ async def test_outer_timeouts_are_classified_without_retry(
     with (
         patch(f"{MODULE}.workflow.patched", return_value=patched),
         patch(f"{MODULE}.workflow.execute_activity", AsyncMock(side_effect=error)),
+        patch(
+            f"{MODULE}.workflow.info",
+            return_value=Mock(
+                workflow_start_time=WORKFLOW_START,
+                run_timeout=timedelta(seconds=390),
+            ),
+        ),
+        patch(f"{MODULE}.workflow.now", return_value=WORKFLOW_START),
         pytest.raises(ApplicationError) as raised,
     ):
         await ExecuteRegistryToolWorkflow().run(
@@ -105,6 +243,14 @@ async def test_classified_sandbox_failure_keeps_user_ownership() -> None:
     with (
         patch(f"{MODULE}.workflow.patched", return_value=True),
         patch(f"{MODULE}.workflow.execute_activity", AsyncMock(side_effect=error)),
+        patch(
+            f"{MODULE}.workflow.info",
+            return_value=Mock(
+                workflow_start_time=WORKFLOW_START,
+                run_timeout=timedelta(seconds=390),
+            ),
+        ),
+        patch(f"{MODULE}.workflow.now", return_value=WORKFLOW_START),
         pytest.raises(ApplicationError) as raised,
     ):
         await ExecuteRegistryToolWorkflow().run(

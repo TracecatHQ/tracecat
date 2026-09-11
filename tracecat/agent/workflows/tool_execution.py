@@ -13,7 +13,7 @@ AGENT_TOOL_PRIORITY = Priority(priority_key=2)
 AGENT_TOOL_WORKFLOW_PREFIX = "agent-tool"
 # Allow sandbox termination and classified results to reach the activity caller.
 REGISTRY_TOOL_ACTIVITY_BUFFER_SECONDS = 60
-# Leave room for queueing and persisting the terminal workflow result.
+# Reserve time after the activity deadline to persist the terminal workflow result.
 REGISTRY_TOOL_WORKFLOW_BUFFER_SECONDS = 30
 
 

@@ -11,6 +11,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.agent.workflows.tool_execution import (
         AGENT_TOOL_PRIORITY,
         REGISTRY_TOOL_ACTIVITY_BUFFER_SECONDS,
+        REGISTRY_TOOL_WORKFLOW_BUFFER_SECONDS,
         ExecuteRegistryToolWorkflowInput,
     )
     from tracecat.dsl.common import RETRY_POLICIES
@@ -33,6 +34,20 @@ def _activity_error_message(error: ActivityError) -> str:
     return str(error)
 
 
+def _activity_timeout_error(
+    cause: TemporalTimeoutError | None = None,
+) -> ApplicationError:
+    # Queueing, setup, persistence, or a lost worker can exhaust this budget;
+    # it does not prove that the workload exceeded its own resource limit.
+    classification = RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.EXECUTOR_ACTIVITY_TIMED_OUT,
+        message="Tracecat executor activity timed out",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        cause=cause,
+    )
+    return application_error_from_classification(classification)
+
+
 @workflow.defn
 class ExecuteRegistryToolWorkflow:
     """Short workflow that routes a single registry UDF to executor."""
@@ -43,8 +58,22 @@ class ExecuteRegistryToolWorkflow:
             WorkflowPatch.REGISTRY_TOOL_ACTIVITY_TIMEOUT
         )
         timeout_seconds = config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT
+        schedule_to_close_timeout = None
         if classify_timeout:
             timeout_seconds += REGISTRY_TOOL_ACTIVITY_BUFFER_SECONDS
+            schedule_to_close_timeout = timedelta(seconds=timeout_seconds)
+            info = workflow.info()
+            if info.run_timeout is not None:
+                # Workflow startup may already have consumed part of the budget.
+                remaining = (
+                    info.workflow_start_time
+                    + info.run_timeout
+                    - workflow.now()
+                    - timedelta(seconds=REGISTRY_TOOL_WORKFLOW_BUFFER_SECONDS)
+                )
+                if remaining <= timedelta(0):
+                    raise _activity_timeout_error()
+                schedule_to_close_timeout = min(schedule_to_close_timeout, remaining)
         else:
             timeout_seconds = int(timeout_seconds)
         try:
@@ -53,6 +82,7 @@ class ExecuteRegistryToolWorkflow:
                 args=[input.run_input, input.role],
                 task_queue=config.TRACECAT__EXECUTOR_QUEUE,
                 start_to_close_timeout=timedelta(seconds=timeout_seconds),
+                schedule_to_close_timeout=schedule_to_close_timeout,
                 heartbeat_timeout=timedelta(
                     seconds=config.TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT
                 )
@@ -63,16 +93,8 @@ class ExecuteRegistryToolWorkflow:
             )
         except ActivityError as e:
             if classify_timeout and isinstance(e.cause, TemporalTimeoutError):
-                # An outer timeout does not prove the workload exceeded its limit:
-                # setup, persistence, or a lost worker may also be responsible.
                 # Do not retry a tool whose side effects may already have occurred.
-                classification = RuntimeErrorClassification.platform(
-                    kind=RuntimeErrorKind.EXECUTOR_ACTIVITY_TIMED_OUT,
-                    message="Tracecat executor activity timed out",
-                    retry_disposition=RetryDisposition.NON_RETRYABLE,
-                    cause=e.cause,
-                )
-                raise application_error_from_classification(classification) from e
+                raise _activity_timeout_error(e.cause) from e
             raise ApplicationError(
                 _activity_error_message(e),
                 non_retryable=True,
