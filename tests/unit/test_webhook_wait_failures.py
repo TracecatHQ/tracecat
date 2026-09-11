@@ -3,7 +3,7 @@
 from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Annotated
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import orjson
 import pytest
@@ -27,6 +27,7 @@ from tracecat.runtime.errors import (
     RuntimeErrorClassification,
     RuntimeErrorKind,
 )
+from tracecat.storage.object import InlineObject
 from tracecat.temporal.errors import (
     application_error_from_classification,
     build_error_transport_detail,
@@ -111,6 +112,41 @@ def webhook(monkeypatch: pytest.MonkeyPatch) -> Iterator[_WebhookHarness]:
         sentry_sdk.init(
             dsn=None, default_integrations=False, auto_enabling_integrations=False
         )
+
+
+@pytest.mark.parametrize("unwrap", [False, True])
+@pytest.mark.parametrize("workflow_fails", [False, True])
+def test_trace_annotation_failure_does_not_block_workflow(
+    webhook: _WebhookHarness, unwrap: bool, workflow_fails: bool
+) -> None:
+    if workflow_fails:
+        webhook.execute.side_effect = WorkflowFailureError(
+            cause=application_error_from_classification(_USER_ERROR)
+        )
+    else:
+        webhook.execute.return_value = {"result": InlineObject(data={"ok": True})}
+
+    with patch(
+        "tracecat.webhooks.router.set_current_span_attributes",
+        side_effect=RuntimeError(_PRIVATE_VALUE),
+    ) as annotate:
+        response = webhook.client.post(
+            _WEBHOOK_PATH, json={}, params={"unwrap": unwrap}
+        )
+
+    sentry_sdk.flush()
+    annotate.assert_called_once()
+    webhook.execute.assert_awaited_once()
+    if workflow_fails:
+        assert response.status_code == 422
+        assert response.json()["detail"]["code"] == _USER_ERROR.kind.value
+    else:
+        assert response.status_code == 200
+        assert response.json() == (
+            {"ok": True} if unwrap else {"kind": "value", "value": {"ok": True}}
+        )
+    assert _PRIVATE_VALUE not in response.text
+    assert webhook.sentry_events == []
 
 
 @pytest.mark.parametrize("unwrap", [False, True])

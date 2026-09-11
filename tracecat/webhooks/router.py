@@ -124,21 +124,27 @@ def _annotate_webhook_trace(
     wf_exec_id: WorkflowExecutionID,
     response: WorkflowExecutionCreateResponse | None = None,
 ) -> None:
-    """Correlate a webhook request span with the workflow it dispatched."""
-    role = ctx_role.get()
-    set_current_span_attributes(
-        {
-            "tracecat.organization.id": (
-                role.organization_id if role is not None else None
-            ),
-            "tracecat.workspace.id": role.workspace_id if role is not None else None,
-            "tracecat.workflow.id": wf_id,
-            "tracecat.workflow.execution.id": wf_exec_id,
-            "tracecat.trigger.type": TriggerType.WEBHOOK,
-        }
-    )
-    if response is not None and (trace_id := current_trace_id()):
-        response["trace_id"] = trace_id
+    """Best-effort correlation that never blocks dispatch on tracing errors."""
+    try:
+        role = ctx_role.get()
+        set_current_span_attributes(
+            {
+                "tracecat.organization.id": (
+                    role.organization_id if role is not None else None
+                ),
+                "tracecat.workspace.id": role.workspace_id
+                if role is not None
+                else None,
+                "tracecat.workflow.id": wf_id,
+                "tracecat.workflow.execution.id": wf_exec_id,
+                "tracecat.trigger.type": TriggerType.WEBHOOK,
+            }
+        )
+        if response is not None and (trace_id := current_trace_id()):
+            response["trace_id"] = trace_id
+    except Exception:
+        # Tracing is optional; omit exception details that may contain request data.
+        logger.warning("Could not annotate webhook trace")
 
 
 async def _to_external_download_response(
