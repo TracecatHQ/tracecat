@@ -34,6 +34,7 @@ with workflow.unsafe.imports_passed_through():
         extract_error_classifications,
         iter_error_chain,
     )
+    from tracecat.temporal.failure_metadata import extract_activity_timeout
     from tracecat.temporal.patches import WorkflowPatch
     from tracecat.workflow.executions.enums import TemporalSearchAttr
 
@@ -81,6 +82,7 @@ def _report_terminal_failure(
                 attempt=info.attempt,
                 trigger_type=trigger_type.value,
             ),
+            activity_timeout=extract_activity_timeout(error),
         )
     else:
         terminal_logger.warning("Terminal user workflow failure")
