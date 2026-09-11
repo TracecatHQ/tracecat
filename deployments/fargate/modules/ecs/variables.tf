@@ -301,10 +301,10 @@ variable "result_externalization_enabled" {
   default     = true
 }
 
-variable "withhold_secret_error_details" {
+variable "unsafe_disable_secret_error_withholding" {
   type        = bool
-  description = "Replace action and expression error details with a generic message when secrets are in scope. Disabling may expose secret-derived values in error messages."
-  default     = true
+  description = "UNSAFE: surface original action and expression error details even when secrets are in scope, instead of the generic 'Details withheld' message. Not recommended; may expose secret-derived values in error messages."
+  default     = false
 }
 
 variable "collection_manifests_enabled" {

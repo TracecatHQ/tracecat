@@ -133,7 +133,7 @@ class Expression:
             from tracecat.expressions.policy import references_secret_derived_value
 
             if (
-                config.TRACECAT__WITHHOLD_SECRET_ERROR_DETAILS
+                not config.TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING
                 and references_secret_derived_value(parse_tree, taint=self._taint)
             ):
                 secret_error = TracecatExpressionError(

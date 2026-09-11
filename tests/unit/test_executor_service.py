@@ -1273,7 +1273,9 @@ async def test_invoke_once_keeps_action_error_when_withholding_disabled(
     """Operators can opt out of redaction and receive the original message."""
     from tracecat.exceptions import ExecutionError
 
-    monkeypatch.setattr(config, "TRACECAT__WITHHOLD_SECRET_ERROR_DETAILS", False)
+    monkeypatch.setattr(
+        config, "TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING", True
+    )
     role = _expression_policy_role("tracecat-executor")
     action_input = _expression_policy_input(
         "core.probe", {"value": "${{ ACTIONS.fetch.result }}"}

@@ -488,12 +488,13 @@ TRACECAT__UNSAFE_DISABLE_SM_MASKING = env_bool(
     development and should never be enabled in production.
 """
 
-TRACECAT__WITHHOLD_SECRET_ERROR_DETAILS = env_bool(
-    "TRACECAT__WITHHOLD_SECRET_ERROR_DETAILS", default=True
+TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING = env_bool(
+    "TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING", default=False
 )
-"""Replace action and expression error details with a generic message when
-secrets are in scope. Disabling this surfaces the original error text, which
-may echo transformed secret values that exact-string masking cannot catch.
+"""UNSAFE: surface original action and expression error details even when
+secrets are in scope, instead of the generic "Details withheld" message. The
+original text may echo transformed secret values that exact-string masking
+cannot catch. Not recommended outside debugging.
 """
 
 # === M2M config === #

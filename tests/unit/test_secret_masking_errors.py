@@ -154,7 +154,9 @@ def test_secret_gate_disabled_by_config_keeps_full_error(
 ) -> None:
     from tracecat import config
 
-    monkeypatch.setattr(config, "TRACECAT__WITHHOLD_SECRET_ERROR_DETAILS", False)
+    monkeypatch.setattr(
+        config, "TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING", True
+    )
     context = {ExprContext.SECRETS: {"svc": {"value": "not-a-number"}}}
 
     with pytest.raises(TracecatExpressionError) as exc_info:

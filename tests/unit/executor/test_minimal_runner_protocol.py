@@ -607,7 +607,7 @@ def test_main_minimal_keeps_error_message_when_withholding_disabled(
                 "evaluated_args": {},
             },
             "secret_env": {"API_KEY": "sk-test"},
-            "withhold_secret_error_details": False,
+            "unsafe_disable_secret_error_withholding": True,
         }
     )
 
