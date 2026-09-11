@@ -16655,6 +16655,13 @@ export const $MCPHTTPOAuth2ConnectionSpec = {
       ],
       title: "Oauth Resource",
     },
+    oauth_resource_ignored_query_params: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Oauth Resource Ignored Query Params",
+    },
     oauth_authorization_endpoint: {
       anyOf: [
         {
