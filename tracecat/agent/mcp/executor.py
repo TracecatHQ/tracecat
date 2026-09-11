@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-from typing import Any, Never
+import asyncio
+from datetime import UTC, datetime, timedelta
+from typing import Any
 from uuid import UUID, uuid4
 
-from temporalio.client import WorkflowFailureError
+import anyio
+from temporalio.client import WorkflowFailureError, WorkflowHandle
 from temporalio.common import SearchAttributePair, TypedSearchAttributes
 from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
+from temporalio.service import RPCError, RPCStatusCode
 from tracecat_ee.agent.workflows.registry_tool import ExecuteRegistryToolWorkflow
 
 from tracecat import config
@@ -40,6 +43,8 @@ from tracecat.storage.object import (
 )
 from tracecat.workflow.executions.correlation import build_agent_session_correlation_id
 from tracecat.workflow.executions.enums import TemporalSearchAttr
+
+_WORKFLOW_RPC_TIMEOUT = timedelta(seconds=10)
 
 
 class ActionNotAllowedError(Exception):
@@ -196,30 +201,78 @@ async def _execute_action_workflow(
     """Execute a single registry UDF via a short workflow on agent-worker."""
     client = await get_temporal_client()
 
-    def _raise_action_execution_error(error: WorkflowFailureError) -> Never:
-        cause = error.cause
-        if isinstance(cause, ApplicationError):
-            raise ActionExecutionError(str(cause)) from error
-        raise ActionExecutionError(str(error)) from error
-
-    try:
-        stored = await client.execute_workflow(
-            ExecuteRegistryToolWorkflow.run,
-            input,
-            id=workflow_id,
-            task_queue=config.TRACECAT__AGENT_QUEUE,
-            priority=AGENT_TOOL_PRIORITY,
-            memo=memo.model_dump(mode="json", exclude_none=True),
-            search_attributes=search_attributes,
-        )
-    except WorkflowAlreadyStartedError:
+    async def start() -> WorkflowHandle[ExecuteRegistryToolWorkflow, StoredObject]:
         try:
-            stored = await client.get_workflow_handle(workflow_id).result()
-        except WorkflowFailureError as error:
-            _raise_action_execution_error(error)
-    except WorkflowFailureError as e:
-        _raise_action_execution_error(e)
+            return await client.start_workflow(
+                ExecuteRegistryToolWorkflow.run,
+                input,
+                id=workflow_id,
+                task_queue=config.TRACECAT__AGENT_QUEUE,
+                priority=AGENT_TOOL_PRIORITY,
+                memo=memo.model_dump(mode="json", exclude_none=True),
+                search_attributes=search_attributes,
+                rpc_timeout=_WORKFLOW_RPC_TIMEOUT,
+            )
+        except WorkflowAlreadyStartedError as error:
+            return client.get_workflow_handle_for(
+                ExecuteRegistryToolWorkflow.run,
+                workflow_id,
+                first_execution_run_id=error.run_id,
+            )
+
+    # A cancelled start RPC can still create the workflow on the server. Keep
+    # the request alive so cleanup can cancel the run returned by Temporal.
+    start_task = asyncio.create_task(start())
+    try:
+        handle = await asyncio.shield(start_task)
+        stored = await handle.result()
+    except (asyncio.CancelledError, RPCError):
+        cleanup = asyncio.create_task(
+            _cancel_started_workflow(
+                start_task,
+                client.get_workflow_handle_for(
+                    ExecuteRegistryToolWorkflow.run, workflow_id
+                ),
+            )
+        )
+        # MCP uses AnyIO cancellation scopes; repeated asyncio cancellation
+        # must also leave cleanup alive until its bounded RPCs finish.
+        with anyio.CancelScope(shield=True):
+            while not cleanup.done():
+                try:
+                    await asyncio.shield(cleanup)
+                except asyncio.CancelledError:
+                    continue
+            cleanup.result()
+        raise
+    except WorkflowFailureError as error:
+        cause = error.cause
+        message = str(cause) if isinstance(cause, ApplicationError) else str(error)
+        raise ActionExecutionError(message) from error
     return StoredObjectValidator.validate_python(stored)
+
+
+async def _cancel_started_workflow(
+    start_task: asyncio.Task[WorkflowHandle[ExecuteRegistryToolWorkflow, StoredObject]],
+    fallback_handle: WorkflowHandle[ExecuteRegistryToolWorkflow, StoredObject],
+) -> None:
+    """Request cancellation without replacing the caller's original failure."""
+    try:
+        try:
+            handle = await start_task
+        except RPCError:
+            # A lost start response leaves acceptance uncertain. The fresh,
+            # per-call workflow ID still identifies any accepted execution.
+            handle = fallback_handle
+        await handle.cancel(rpc_timeout=_WORKFLOW_RPC_TIMEOUT)
+    except Exception as error:
+        if isinstance(error, RPCError) and error.status == RPCStatusCode.NOT_FOUND:
+            return
+        logger.warning(
+            "Failed to cancel registry tool workflow",
+            workflow_id=fallback_handle.id,
+            error_type=type(error).__name__,
+        )
 
 
 def build_tool_workflow_correlation_attr(session_id: UUID) -> SearchAttributePair[str]:
