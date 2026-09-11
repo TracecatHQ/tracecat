@@ -11,7 +11,6 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.agent.workflows.tool_execution import (
         AGENT_TOOL_PRIORITY,
         REGISTRY_TOOL_ACTIVITY_BUFFER_SECONDS,
-        REGISTRY_TOOL_WORKFLOW_BUFFER_SECONDS,
         ExecuteRegistryToolWorkflowInput,
     )
     from tracecat.dsl.common import RETRY_POLICIES
@@ -23,7 +22,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.storage.object import StoredObject, StoredObjectValidator
     from tracecat.temporal.errors import application_error_from_classification
-    from tracecat.temporal.patches import WorkflowPatch
+    from tracecat.temporal.patches import ExecuteRegistryToolWorkflowPatch
 
 
 def _activity_error_message(error: ActivityError) -> str:
@@ -34,9 +33,7 @@ def _activity_error_message(error: ActivityError) -> str:
     return str(error)
 
 
-def _activity_timeout_error(
-    cause: TemporalTimeoutError | None = None,
-) -> ApplicationError:
+def _activity_timeout_error(cause: TemporalTimeoutError) -> ApplicationError:
     # Queueing, setup, persistence, or a lost worker can exhaust this budget;
     # it does not prove that the workload exceeded its own resource limit.
     classification = RuntimeErrorClassification.platform(
@@ -55,25 +52,13 @@ class ExecuteRegistryToolWorkflow:
     @workflow.run
     async def run(self, input: ExecuteRegistryToolWorkflowInput) -> StoredObject:
         classify_timeout = workflow.patched(
-            WorkflowPatch.REGISTRY_TOOL_ACTIVITY_TIMEOUT
+            ExecuteRegistryToolWorkflowPatch.ACTIVITY_TIMEOUT
         )
         timeout_seconds = config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT
         schedule_to_close_timeout = None
         if classify_timeout:
             timeout_seconds += REGISTRY_TOOL_ACTIVITY_BUFFER_SECONDS
             schedule_to_close_timeout = timedelta(seconds=timeout_seconds)
-            info = workflow.info()
-            if info.run_timeout is not None:
-                # Workflow startup may already have consumed part of the budget.
-                remaining = (
-                    info.workflow_start_time
-                    + info.run_timeout
-                    - workflow.now()
-                    - timedelta(seconds=REGISTRY_TOOL_WORKFLOW_BUFFER_SECONDS)
-                )
-                if remaining <= timedelta(0):
-                    raise _activity_timeout_error()
-                schedule_to_close_timeout = min(schedule_to_close_timeout, remaining)
         else:
             timeout_seconds = int(timeout_seconds)
         try:

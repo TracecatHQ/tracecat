@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import uuid
-from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -36,14 +35,9 @@ def _build_registry_lock() -> RegistryLock:
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("executor_timeout", [300, 45.5])
 async def test_execute_action_starts_registry_tool_workflow_with_alias_correlation(
     monkeypatch: pytest.MonkeyPatch,
-    executor_timeout: float,
 ) -> None:
-    monkeypatch.setattr(
-        executor.config, "TRACECAT__EXECUTOR_CLIENT_TIMEOUT", executor_timeout
-    )
     claims = _build_claims()
     untrusted_session_id = uuid.UUID("00000000-0000-0000-0000-000000000099")
     monkeypatch.setattr(
@@ -76,7 +70,8 @@ async def test_execute_action_starts_registry_tool_workflow_with_alias_correlati
 
     call = fake_client.execute_workflow.await_args
     assert call.kwargs["id"] == "agent-tool/tool-wf-123"
-    assert call.kwargs["run_timeout"] == timedelta(seconds=executor_timeout + 90)
+    assert call.kwargs.get("run_timeout") is None
+    assert call.kwargs.get("execution_timeout") is None
     workflow_input = call.args[1]
     assert workflow_input.run_input.agent_session_id == claims.session_id
     assert workflow_input.run_input.task.args["agent_session_id"] == str(

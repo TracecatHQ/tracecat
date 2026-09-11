@@ -7,7 +7,6 @@ from enum import StrEnum, unique
 class WorkflowPatch(StrEnum):
     """Patch IDs recorded in Temporal workflow histories."""
 
-    REGISTRY_TOOL_ACTIVITY_TIMEOUT = "registry-tool-activity-timeout-v1"
     ACTION_HEARTBEAT_TIMEOUT_RETRY = "dsl-action-heartbeat-timeout-retry-v1"
     ERROR_OWNER_SEARCH_ATTRIBUTE = "dsl-error-owner-search-attribute-v1"
     ERROR_OWNER_CONTROL_FLOW = "dsl-error-owner-control-flow-v1"
@@ -17,6 +16,13 @@ class WorkflowPatch(StrEnum):
     )
     PRESERVE_TEMPORAL_CANCELLATION = "dsl-preserve-temporal-cancellation-v1"
     RUNTIME_ERROR_ATTRIBUTION_INTERCEPTOR = "runtime-error-attribution-interceptor-v1"
+
+
+@unique
+class ExecuteRegistryToolWorkflowPatch(StrEnum):
+    """Stable patch IDs recorded in ExecuteRegistryToolWorkflow histories."""
+
+    ACTIVITY_TIMEOUT = "registry-tool-activity-timeout-v1"
 
 
 @unique

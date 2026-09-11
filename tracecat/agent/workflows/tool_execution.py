@@ -13,8 +13,6 @@ AGENT_TOOL_PRIORITY = Priority(priority_key=2)
 AGENT_TOOL_WORKFLOW_PREFIX = "agent-tool"
 # Allow sandbox termination and classified results to reach the activity caller.
 REGISTRY_TOOL_ACTIVITY_BUFFER_SECONDS = 60
-# Reserve time after the activity deadline to persist the terminal workflow result.
-REGISTRY_TOOL_WORKFLOW_BUFFER_SECONDS = 30
 
 
 def build_agent_tool_workflow_id() -> str:
