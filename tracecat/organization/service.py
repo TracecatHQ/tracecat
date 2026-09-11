@@ -47,6 +47,7 @@ from tracecat.exceptions import (
 )
 from tracecat.identifiers import OrganizationID, SessionID, UserID
 from tracecat.invitations.enums import InvitationStatus
+from tracecat.invitations.service import reset_invitation_email
 from tracecat.organization.management import (
     delete_organization_with_cleanup,
     validate_organization_delete_confirmation,
@@ -622,11 +623,15 @@ class OrgService(BaseOrgService):
         Raises:
             NoResultFound: If the invitation doesn't exist or belongs to another org.
         """
-        statement = select(OrganizationInvitation).where(
-            and_(
-                OrganizationInvitation.id == invitation_id,
-                OrganizationInvitation.organization_id == self.organization_id,
+        statement = (
+            select(OrganizationInvitation)
+            .where(
+                and_(
+                    OrganizationInvitation.id == invitation_id,
+                    OrganizationInvitation.organization_id == self.organization_id,
+                )
             )
+            .options(selectinload(OrganizationInvitation.role_obj))
         )
         result = await self.session.execute(statement)
         return result.scalar_one()
@@ -820,4 +825,32 @@ class OrgService(BaseOrgService):
         invitation.status = InvitationStatus.REVOKED
         await self.session.commit()
         await self.session.refresh(invitation)
+        return invitation
+
+    @require_scope("org:member:invite")
+    @audit_log(
+        resource_type="organization_invitation",
+        action="resend",
+        resource_id_attr="invitation_id",
+    )
+    async def resend_invitation(
+        self, invitation_id: uuid.UUID
+    ) -> OrganizationInvitation:
+        """Re-enter a pending invitation into the email outbox.
+
+        Args:
+            invitation_id: The invitation UUID.
+
+        Returns:
+            OrganizationInvitation: The updated invitation record.
+
+        Raises:
+            NoResultFound: If the invitation doesn't exist or belongs to another org.
+            TracecatValidationError: If the invitation is not pending, has expired,
+                or email delivery is not configured.
+            TracecatConflictError: If the invitation was claimed within the cooldown.
+        """
+        invitation = await self.get_invitation(invitation_id)
+        await reset_invitation_email(self.session, invitation)
+        await self.session.commit()
         return invitation

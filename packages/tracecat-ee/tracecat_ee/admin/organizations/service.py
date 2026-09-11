@@ -31,6 +31,7 @@ from tracecat.db.models import (
 from tracecat.db.models import Role as DBRole
 from tracecat.exceptions import TracecatValidationError
 from tracecat.invitations.enums import InvitationStatus
+from tracecat.invitations.service import reset_invitation_email
 from tracecat.organization.domains import normalize_domain
 from tracecat.organization.management import (
     create_organization_with_defaults,
@@ -355,6 +356,22 @@ class AdminOrgService(BasePlatformService):
         invitation.status = InvitationStatus.REVOKED
         await self.session.commit()
 
+    @audit_log(
+        resource_type="organization_invitation",
+        action="resend",
+        resource_id_attr="invitation_id",
+    )
+    async def resend_organization_invitation(
+        self,
+        org_id: uuid.UUID,
+        invitation_id: uuid.UUID,
+    ) -> AdminOrgInvitationRead:
+        """Re-enter a pending platform-created invitation into the email outbox."""
+        invitation = await self._get_platform_invitation(org_id, invitation_id)
+        await reset_invitation_email(self.session, invitation)
+        await self.session.commit()
+        return self._serialize_invitation(invitation)
+
     async def _get_org_invitation_role(
         self,
         org_id: uuid.UUID,
@@ -414,6 +431,7 @@ class AdminOrgService(BasePlatformService):
             created_at=invitation.created_at,
             accepted_at=invitation.accepted_at,
             created_by_platform_admin=invitation.created_by_platform_admin,
+            last_emailed_at=invitation.email_sent_at,
         )
 
     def _serialize_invitation_create(

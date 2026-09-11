@@ -25,6 +25,7 @@ from tracecat.db.models import (
 )
 from tracecat.exceptions import (
     TracecatAuthorizationError,
+    TracecatConflictError,
     TracecatNotFoundError,
     TracecatValidationError,
 )
@@ -521,6 +522,7 @@ async def create_invitation(
         expires_at=invitation.expires_at,
         created_at=invitation.created_at,
         accepted_at=invitation.accepted_at,
+        last_emailed_at=invitation.email_sent_at,
     )
 
 
@@ -548,6 +550,7 @@ async def list_invitations(
             expires_at=inv.expires_at,
             created_at=inv.created_at,
             accepted_at=inv.accepted_at,
+            last_emailed_at=inv.email_sent_at,
         )
         for inv in invitations
     ]
@@ -571,6 +574,48 @@ async def revoke_invitation(
         ) from e
     except TracecatAuthorizationError as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
+
+
+@router.post("/invitations/{invitation_id}/resend", response_model=OrgInvitationRead)
+@require_scope("org:member:invite")
+async def resend_invitation(
+    *,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+    invitation_id: UUID,
+) -> OrgInvitationRead:
+    """Queue another delivery of a pending invitation email."""
+    service = OrgService(session, role=role)
+    try:
+        invitation = await service.resend_invitation(invitation_id)
+    except NoResultFound as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Invitation not found"
+        ) from e
+    except TracecatConflictError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Invitation email was sent less than a minute ago",
+        ) from e
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
+
+    return OrgInvitationRead(
+        id=invitation.id,
+        organization_id=invitation.organization_id,
+        email=invitation.email,
+        role_id=invitation.role_id,
+        role_name=invitation.role_obj.name,
+        role_slug=invitation.role_obj.slug,
+        status=invitation.status,
+        invited_by=invitation.invited_by,
+        expires_at=invitation.expires_at,
+        created_at=invitation.created_at,
+        accepted_at=invitation.accepted_at,
+        last_emailed_at=invitation.email_sent_at,
+    )
 
 
 @router.get("/invitations/{invitation_id}/token")

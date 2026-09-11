@@ -22,8 +22,9 @@ from tracecat.db.models import (
     User,
 )
 from tracecat.db.models import Role as DBRole
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import TracecatConflictError, TracecatValidationError
 from tracecat.invitations.enums import InvitationStatus
+from tracecat.invitations.service import RESEND_COOLDOWN
 from tracecat.pagination import CursorPaginationParams
 
 
@@ -438,3 +439,115 @@ async def test_revoke_organization_invitation_only_revokes_pending_platform_invi
 
     with pytest.raises(TracecatValidationError, match="Cannot revoke invitation"):
         await service.revoke_organization_invitation(org.id, platform_invitation.id)
+
+
+@pytest.mark.anyio
+async def test_resend_organization_invitation_resets_claim_and_keeps_sent_timestamp(
+    session: AsyncSession,
+    org: Organization,
+    org_roles: dict[str, DBRole],
+    platform_role: PlatformRole,
+    smtp_configured: None,
+) -> None:
+    service = AdminOrgService(session, platform_role)
+    invitation = await service.create_organization_invitation(
+        org.id,
+        AdminOrgInvitationCreate(email="resend@example.com"),
+    )
+    db_invitation = await session.scalar(
+        select(OrganizationInvitation).where(OrganizationInvitation.id == invitation.id)
+    )
+    assert db_invitation is not None
+    db_invitation.email_claimed_at = datetime.now(UTC) - timedelta(minutes=5)
+    emailed_at = datetime.now(UTC) - timedelta(minutes=5)
+    db_invitation.email_sent_at = emailed_at
+    db_invitation.email_attempts = 2
+    await session.commit()
+
+    resent = await service.resend_organization_invitation(org.id, invitation.id)
+
+    assert resent.last_emailed_at == emailed_at
+    # The ORM-enabled UPDATE synchronizes the loaded instance without a refresh.
+    assert db_invitation.email_claimed_at is None
+    assert db_invitation.email_sent_at == emailed_at
+    assert db_invitation.email_attempts == 0
+
+    # The reset must be committed, not just flushed, or the poller never sees it.
+    await session.rollback()
+    await session.refresh(db_invitation)
+    assert db_invitation.email_claimed_at is None
+    assert db_invitation.email_attempts == 0
+
+
+@pytest.mark.anyio
+async def test_resend_organization_invitation_rejects_unknown_and_non_pending(
+    session: AsyncSession,
+    org: Organization,
+    org_roles: dict[str, DBRole],
+    platform_role: PlatformRole,
+    smtp_configured: None,
+) -> None:
+    service = AdminOrgService(session, platform_role)
+
+    with pytest.raises(NoResultFound):
+        await service.resend_organization_invitation(org.id, uuid.uuid4())
+
+    invitation = await service.create_organization_invitation(
+        org.id,
+        AdminOrgInvitationCreate(email="resend-revoked@example.com"),
+    )
+    await service.revoke_organization_invitation(org.id, invitation.id)
+
+    with pytest.raises(TracecatValidationError, match="Cannot resend invitation"):
+        await service.resend_organization_invitation(org.id, invitation.id)
+
+
+@pytest.mark.anyio
+async def test_resend_organization_invitation_requires_email_delivery(
+    session: AsyncSession,
+    org: Organization,
+    org_roles: dict[str, DBRole],
+    platform_role: PlatformRole,
+    smtp_unconfigured: None,
+) -> None:
+    service = AdminOrgService(session, platform_role)
+    invitation = await service.create_organization_invitation(
+        org.id,
+        AdminOrgInvitationCreate(email="resend-nosmtp@example.com"),
+    )
+
+    with pytest.raises(
+        TracecatValidationError, match="Email delivery is not configured"
+    ):
+        await service.resend_organization_invitation(org.id, invitation.id)
+
+
+@pytest.mark.anyio
+async def test_resend_organization_invitation_enforces_cooldown(
+    session: AsyncSession,
+    org: Organization,
+    org_roles: dict[str, DBRole],
+    platform_role: PlatformRole,
+    smtp_configured: None,
+) -> None:
+    service = AdminOrgService(session, platform_role)
+    invitation = await service.create_organization_invitation(
+        org.id,
+        AdminOrgInvitationCreate(email="resend-cooldown@example.com"),
+    )
+    db_invitation = await session.scalar(
+        select(OrganizationInvitation).where(OrganizationInvitation.id == invitation.id)
+    )
+    assert db_invitation is not None
+
+    db_invitation.email_claimed_at = datetime.now(UTC) - (RESEND_COOLDOWN / 2)
+    await session.commit()
+    with pytest.raises(TracecatConflictError):
+        await service.resend_organization_invitation(org.id, invitation.id)
+
+    db_invitation.email_claimed_at = datetime.now(UTC) - (
+        RESEND_COOLDOWN + timedelta(seconds=1)
+    )
+    await session.commit()
+    resent = await service.resend_organization_invitation(org.id, invitation.id)
+    assert resent.id == invitation.id

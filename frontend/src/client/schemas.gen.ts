@@ -966,6 +966,18 @@ export const $AdminOrgInvitationCreateResponse = {
       type: "boolean",
       title: "Created By Platform Admin",
     },
+    last_emailed_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Emailed At",
+    },
     token: {
       type: "string",
       title: "Token",
@@ -1067,6 +1079,18 @@ export const $AdminOrgInvitationRead = {
     created_by_platform_admin: {
       type: "boolean",
       title: "Created By Platform Admin",
+    },
+    last_emailed_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Emailed At",
     },
   },
   type: "object",
@@ -18644,6 +18668,18 @@ export const $OrgInvitationRead = {
         },
       ],
       title: "Accepted At",
+    },
+    last_emailed_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Emailed At",
     },
   },
   type: "object",
