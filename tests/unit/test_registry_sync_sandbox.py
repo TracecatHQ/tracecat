@@ -451,7 +451,7 @@ async def test_registry_discovery_runs_without_network_or_worker_environment(
         assert cache_key is None
         assert script_name == "wrapper.py"
         assert sandbox_config.network is None
-        assert sandbox_config.env_vars == {}
+        assert sandbox_config.env_vars == {"PYTHONFAULTHANDLER": "1"}
         assert job_dir.parent.name.startswith("tracecat_registry_discovery_")
         assert job_dir.parent != site_packages.parent.parent / "sandbox-discovery"
         assert sandbox_config.python_path_dirs == [
