@@ -31,6 +31,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.temporal.errors import (
         application_error_from_classification,
+        extract_error_capture,
         extract_error_classifications,
         iter_error_chain,
     )
@@ -72,10 +73,12 @@ def _report_terminal_failure(
     )
     if classification.owner is RuntimeErrorOwner.PLATFORM:
         terminal_logger.error("Terminal platform workflow failure")
+        capture = extract_error_capture(error, classification)
         capture_platform_failure(
             error,
             classification,
             WorkflowFailureEventContext(
+                source_event_id=capture.event_id if capture is not None else None,
                 run_id=info.run_id,
                 workflow_type=info.workflow_type,
                 attempt=info.attempt,

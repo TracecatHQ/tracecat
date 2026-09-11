@@ -1557,7 +1557,8 @@ class DurableAgentWorkflow:
                 # a broken executor contract. Treat it as a platform invariant,
                 # never infer ownership from the free-form error string.
                 raise_application_error_from_classification(
-                    result.classification or agent_workflow_internal_error()
+                    result.classification or agent_workflow_internal_error(),
+                    capture=result.sentry_capture,
                 )
 
             if result.approval_requested:
