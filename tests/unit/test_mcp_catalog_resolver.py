@@ -217,6 +217,12 @@ def test_user_supplied_uri_rejects_embedded_credentials() -> None:
             "https://acme.splunkcloud.com/services/mcp",
             id="splunk-cloud-oauth-endpoint",
         ),
+        pytest.param(
+            "runreveal-mcp",
+            MCPAuthType.OAUTH2,
+            "https://runreveal.selfhosted.example/mcp",
+            id="runreveal-self-hosted-endpoint",
+        ),
     ],
 )
 def test_user_supplied_uri_accepts_any_host(

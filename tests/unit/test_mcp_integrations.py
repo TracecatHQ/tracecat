@@ -6288,6 +6288,140 @@ class TestMCPProviderOAuth:
         assert captured_hosts == [frozenset({"app.example.com"})]
         assert captured_resources == ["https://mcp.example.com"]
 
+    async def test_runreveal_catalog_follows_self_hosted_server_uri(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A self-hosted RunReveal URI discovers OAuth on that host, not the cloud.
+
+        The shipped row defaults to RunReveal cloud, whose metadata sends OAuth
+        to www-api.runreveal.com. A user-supplied URI must not be rejected, and
+        the authorize redirect and token audience must follow the user's host.
+        """
+        await _seed_service_user(session, integration_service)
+        self_hosted = "https://runreveal.selfhosted.example"
+        docs = {
+            f"{self_hosted}/.well-known/oauth-protected-resource/mcp": None,
+            f"{self_hosted}/.well-known/oauth-protected-resource": None,
+            f"{self_hosted}/.well-known/oauth-authorization-server": {
+                "authorization_endpoint": f"{self_hosted}/oauth/authorize",
+                "token_endpoint": f"{self_hosted}/oauth/token",
+                "registration_endpoint": f"{self_hosted}/oauth/client",
+                "token_endpoint_auth_methods_supported": ["none"],
+            },
+        }
+        fetched: list[str] = []
+
+        async def fake_fetch(url: str) -> OAuthServerMetadata | None:
+            fetched.append(url)
+            assert urlparse(url).hostname == "runreveal.selfhosted.example", url
+            return OAuthServerMetadata.from_json(docs[url])
+
+        monkeypatch.setattr(integration_service, "_fetch_oauth_json", fake_fetch)
+
+        async def fake_register(
+            *,
+            registration_endpoint: str,
+            client_name: str,
+            token_auth_method: str | None,
+            requested_scopes: list[str],
+        ) -> integration_service_module.MCPOAuthRegistrationResult:
+            _ = client_name, token_auth_method, requested_scopes
+            assert registration_endpoint == f"{self_hosted}/oauth/client"
+            return integration_service_module.MCPOAuthRegistrationResult(
+                client_id="self-hosted-client",
+                client_secret=None,
+                auth_method="none",
+                registered_scopes=None,
+            )
+
+        monkeypatch.setattr(
+            integration_service, "_perform_mcp_dynamic_registration", fake_register
+        )
+        authorize_captured: dict[str, object] = {}
+        _patch_mcp_oauth_client(monkeypatch, authorize_captured=authorize_captured)
+
+        result = await integration_service.connect_mcp_oauth_discovery(
+            params=MCPHttpIntegrationCreate(
+                name="RunReveal (self-hosted)",
+                catalog_slug="runreveal-mcp",
+                server_uri=f"{self_hosted}/mcp",
+                auth_type=MCPAuthType.OAUTH2,
+            ),
+        )
+
+        assert fetched
+        assert result.oauth_connect is not None
+        parsed = urlparse(result.oauth_connect.auth_url)
+        assert parsed.hostname == "runreveal.selfhosted.example"
+        assert parsed.path == "/oauth/authorize"
+        assert authorize_captured["resource"] == f"{self_hosted}/mcp"
+        assert result.mcp_integration is not None
+        assert result.mcp_integration.server_uri == f"{self_hosted}/mcp"
+
+    async def test_runreveal_catalog_default_uri_reaches_cloud_oauth(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The default cloud URI still trusts RunReveal's separate OAuth host."""
+        await _seed_service_user(session, integration_service)
+        docs = {
+            "https://api.runreveal.com/.well-known/oauth-protected-resource/mcp": None,
+            "https://api.runreveal.com/.well-known/oauth-protected-resource": None,
+            "https://api.runreveal.com/.well-known/oauth-authorization-server": {
+                "issuer": "https://www-api.runreveal.com",
+                "authorization_endpoint": "https://www-api.runreveal.com/oauth/authorize",
+                "token_endpoint": "https://www-api.runreveal.com/oauth/token",
+                "registration_endpoint": "https://www-api.runreveal.com/oauth/client",
+                "token_endpoint_auth_methods_supported": ["none"],
+            },
+        }
+
+        async def fake_fetch(url: str) -> OAuthServerMetadata | None:
+            return OAuthServerMetadata.from_json(docs[url])
+
+        monkeypatch.setattr(integration_service, "_fetch_oauth_json", fake_fetch)
+
+        async def fake_register(
+            *,
+            registration_endpoint: str,
+            client_name: str,
+            token_auth_method: str | None,
+            requested_scopes: list[str],
+        ) -> integration_service_module.MCPOAuthRegistrationResult:
+            _ = registration_endpoint, client_name, token_auth_method
+            _ = requested_scopes
+            return integration_service_module.MCPOAuthRegistrationResult(
+                client_id="cloud-client",
+                client_secret=None,
+                auth_method="none",
+                registered_scopes=None,
+            )
+
+        monkeypatch.setattr(
+            integration_service, "_perform_mcp_dynamic_registration", fake_register
+        )
+        authorize_captured: dict[str, object] = {}
+        _patch_mcp_oauth_client(monkeypatch, authorize_captured=authorize_captured)
+
+        result = await integration_service.connect_mcp_oauth_discovery(
+            params=MCPHttpIntegrationCreate(
+                name="RunReveal",
+                catalog_slug="runreveal-mcp",
+                server_uri="https://api.runreveal.com/mcp",
+                auth_type=MCPAuthType.OAUTH2,
+            ),
+        )
+
+        assert result.oauth_connect is not None
+        parsed = urlparse(result.oauth_connect.auth_url)
+        assert parsed.hostname == "www-api.runreveal.com"
+        assert authorize_captured["resource"] == "https://api.runreveal.com/mcp"
+
     def test_feedly_catalog_pins_origin_level_oauth_resource(
         self,
     ) -> None:
