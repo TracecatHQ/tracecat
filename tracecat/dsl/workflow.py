@@ -685,6 +685,10 @@ class DSLWorkflow:
             self.logger.info("DSL workflow completed")
             return await self._handle_return()
         except Exception as e:
+            if is_cancelled_exception(e) and workflow.patched(
+                WorkflowPatch.PRESERVE_RETURN_CANCELLATION
+            ):
+                raise
             if classifications := extract_error_classifications(
                 e,
                 include_implicit_context=False,
