@@ -557,6 +557,8 @@ class NsjailExecutor:
         config: SandboxConfig,
         cache_key: str | None = None,
         script_name: str = "wrapper.py",
+        *,
+        log_raw_crash_stderr: bool = False,
     ) -> SandboxResult:
         """Execute a Python script inside the nsjail sandbox.
 
@@ -565,6 +567,8 @@ class NsjailExecutor:
             config: Sandbox configuration.
             cache_key: Cache key for package lookup.
             script_name: Name of the script to execute (default: wrapper.py).
+            log_raw_crash_stderr: Enable only for registry discovery, which does
+                not receive user secrets or executor credentials.
 
         Returns:
             SandboxResult with execution outcome.
@@ -647,12 +651,16 @@ class NsjailExecutor:
         # nsjail startup output can fill the prefix before Python emits a fatal
         # error. Keep a bounded tail as well so crash diagnostics survive.
         stderr_tail = stderr[-_FAILURE_STDERR_TAIL_CHARS:]
+        # Scripts can print injected credentials or user secrets. Only registry
+        # discovery opts into raw crash diagnostics.
+        raw_stderr_fields: dict[str, str] = {}
+        if log_raw_crash_stderr:
+            raw_stderr_fields = {"stderr": stderr[:500], "stderr_tail": stderr_tail}
         logger.error(
             "Sandbox execution did not produce a usable result",
             error_code=error_code,
             returncode=returncode,
-            stderr=stderr[:500],
-            stderr_tail=stderr_tail,
+            **raw_stderr_fields,
             stderr_chars=len(stderr),
             stderr_tail_truncated=len(stderr) > _FAILURE_STDERR_TAIL_CHARS,
             workload_started=workload_started,

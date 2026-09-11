@@ -750,6 +750,7 @@ class RegistrySyncSandbox:
                     env_vars={"PYTHONFAULTHANDLER": "1"},
                 ),
                 script_name="wrapper.py",
+                log_raw_crash_stderr=True,
             )
             if not result.success:
                 detail = result.error or result.stderr or "Unknown discovery error"

@@ -447,9 +447,12 @@ async def test_registry_discovery_runs_without_network_or_worker_environment(
         sandbox_config,
         cache_key=None,
         script_name: str = "wrapper.py",
+        *,
+        log_raw_crash_stderr: bool = False,
     ) -> SandboxResult:
         assert cache_key is None
         assert script_name == "wrapper.py"
+        assert log_raw_crash_stderr is True
         assert sandbox_config.network is None
         assert sandbox_config.env_vars == {"PYTHONFAULTHANDLER": "1"}
         assert job_dir.parent.name.startswith("tracecat_registry_discovery_")
@@ -530,9 +533,12 @@ async def test_registry_discovery_ignores_installer_planted_symlinks(
         _sandbox_config,
         cache_key=None,
         script_name: str = "wrapper.py",
+        *,
+        log_raw_crash_stderr: bool = False,
     ) -> SandboxResult:
         assert cache_key is None
         assert script_name == "wrapper.py"
+        assert log_raw_crash_stderr is True
         assert job_dir != old_job_dir
         assert not (job_dir / "script.py").is_symlink()
         discovery_job_dirs.append(job_dir)

@@ -116,8 +116,12 @@ def test_classify_missing_nsjail_result(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("startup_chars", [0, 20_000])
+@pytest.mark.parametrize("log_raw_crash_stderr", [False, True])
 async def test_missing_result_preserves_crash_tail_and_launch_status(
-    tmp_path: Path, mocker: MockerFixture, startup_chars: int
+    tmp_path: Path,
+    mocker: MockerFixture,
+    startup_chars: int,
+    log_raw_crash_stderr: bool,
 ) -> None:
     crash = (
         'Fatal Python error: Segmentation fault\n  File "native_module.py", line 7\n'
@@ -136,7 +140,9 @@ async def test_missing_result_preserves_crash_tail_and_launch_status(
     executor = NsjailExecutor(cache_dir=str(tmp_path / "cache"))
     mocker.patch.object(executor, "_build_config", return_value="")
 
-    result = await executor.execute(tmp_path, SandboxConfig())
+    result = await executor.execute(
+        tmp_path, SandboxConfig(), log_raw_crash_stderr=log_raw_crash_stderr
+    )
 
     assert result.success is False
     assert result.exit_code == 139
@@ -145,9 +151,44 @@ async def test_missing_result_preserves_crash_tail_and_launch_status(
     assert result.stderr.endswith(crash)
     assert result.error == "Sandbox workload exited without producing a result"
     fields = log_error.call_args.kwargs
-    assert fields["stderr"] == stderr[:500]
-    assert fields["stderr_tail"] == result.stderr
+    if log_raw_crash_stderr:
+        assert fields["stderr"] == stderr[:500]
+        assert fields["stderr_tail"] == result.stderr
+    else:
+        assert "stderr" not in fields
+        assert "stderr_tail" not in fields
     assert fields["stderr_chars"] == len(stderr)
     assert fields["stderr_tail_truncated"] is (len(stderr) > 8192)
     assert fields["workload_started"] is True
     assert fields["result_file_exists"] is False
+
+
+@pytest.mark.anyio
+async def test_script_crash_does_not_log_injected_secrets(
+    tmp_path: Path, mocker: MockerFixture
+) -> None:
+    env_vars = {
+        "TRACECAT__EXECUTOR_TOKEN": "synthetic-executor-token",
+        "USER_SECRET": "synthetic-user-secret",
+    }
+    stderr = "\n".join(env_vars.values())
+    mocker.patch(
+        "tracecat.sandbox.executor.invoke_nsjail",
+        return_value=NsjailCompletedProcess(
+            returncode=1,
+            stdout=b"",
+            stderr=stderr.encode(),
+            workload_started=True,
+        ),
+    )
+    log_error = mocker.patch("tracecat.sandbox.executor.logger.error")
+    executor = NsjailExecutor(cache_dir=str(tmp_path / "cache"))
+    mocker.patch.object(executor, "_build_config", return_value="")
+
+    result = await executor.execute(tmp_path, SandboxConfig(env_vars=env_vars))
+
+    assert result.stderr == stderr
+    log_error.assert_called_once()
+    for secret in env_vars.values():
+        assert secret not in str(log_error.call_args)
+    assert log_error.call_args.kwargs["returncode"] == 1
