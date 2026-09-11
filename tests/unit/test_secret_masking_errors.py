@@ -149,6 +149,26 @@ def test_untainted_expression_keeps_full_error() -> None:
     assert "abc" in str(exc_info.value)
 
 
+def test_secret_gate_disabled_by_config_keeps_full_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tracecat import config
+
+    monkeypatch.setattr(
+        config, "TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING", True
+    )
+    context = {ExprContext.SECRETS: {"svc": {"value": "not-a-number"}}}
+
+    with pytest.raises(TracecatExpressionError) as exc_info:
+        eval_templated_object(
+            {"value": "${{ int(SECRETS.svc.value) }}"}, operand=context
+        )
+
+    message = str(exc_info.value)
+    assert "Details withheld:" not in message
+    assert "invalid literal for int()" in message
+
+
 def test_structured_error_codes_do_not_bypass_secret_gate() -> None:
     from tracecat.expressions.policy import _CollectionPolicy
 

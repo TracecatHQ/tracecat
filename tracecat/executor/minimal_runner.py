@@ -467,6 +467,8 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
         input_data: Dict containing:
             - resolved_context: ResolvedContext with action_impl and evaluated_args
             - secret_env: Flat env-ready secret mapping
+            - unsafe_disable_secret_error_withholding: Surface the original
+              error text even when secrets are in scope (defaults to False)
             - input: RunActionInput (for metadata only)
 
     Returns:
@@ -474,6 +476,9 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
     """
     action_impl: dict[str, Any] | None = None
     secret_env: dict[str, str] = input_data.get("secret_env", {})
+    unsafe_disable_secret_error_withholding: bool = input_data.get(
+        "unsafe_disable_secret_error_withholding", False
+    )
     try:
         # Extract what we need from resolved_context
         resolved_context = input_data.get("resolved_context", {})
@@ -537,7 +542,7 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
         last_frame = tb[-1] if tb else None
 
         # Action exceptions can echo transformed secrets that exact masking misses.
-        if secret_env:
+        if secret_env and not unsafe_disable_secret_error_withholding:
             message = "The action failed. Details withheld: this action uses secrets."
         else:
             message = str(e)
