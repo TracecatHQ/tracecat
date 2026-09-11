@@ -231,27 +231,18 @@ def _gateway_routing_plan(
     route: GatewayRoute,
     provider_configuration: Literal["builtin", "custom"],
 ) -> tuple[LLMRoutingPlan, str]:
-    fallback = LLMRoute(
+    managed_route = LLMRoute(
         base_url="http://managed-litellm.invalid",
-        model_provider=None,
+        model_provider="openai",
         mode="managed",
-        local_provider_cleanup=False,
     )
     if route is GatewayRoute.MANAGED_LITELLM:
         model = "synthetic-managed-model"
-        managed_route = LLMRoute(
-            base_url="http://managed-litellm.invalid",
-            model_provider=(
-                "custom-model-provider"
-                if provider_configuration == "custom"
-                else "openai"
-            ),
-            mode="managed",
-        )
         return (
             LLMRoutingPlan(
-                routes={model: managed_route},
-                fallback=fallback,
+                managed_route=managed_route,
+                direct_routes={},
+                managed_provider_configurations={model: provider_configuration},
             ),
             model,
         )
@@ -265,19 +256,16 @@ def _gateway_routing_plan(
     direct_route = LLMRoute(
         base_url=base_url,
         model_provider=(
-            "custom-model-provider"
-            if provider_configuration == "custom"
-            else "anthropic"
-            if route is GatewayRoute.DIRECT_PROVIDER
-            else "openai"
+            "anthropic" if route is GatewayRoute.DIRECT_PROVIDER else "openai"
         ),
         mode="direct",
         authorization="Bearer synthetic-test-key",
+        provider_configuration=provider_configuration,
     )
     return (
         LLMRoutingPlan(
-            routes={model: direct_route},
-            fallback=fallback,
+            managed_route=managed_route,
+            direct_routes={model: direct_route},
         ),
         model,
     )
