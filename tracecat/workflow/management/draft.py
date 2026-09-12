@@ -233,6 +233,8 @@ def build_workflow_edit_document(
                 "workflow_id",
                 "created_at",
                 "updated_at",
+                "last_run_at",
+                "next_run_at",
             },
         )
         if schedule_payload["timeout"] is None:

@@ -24,6 +24,8 @@ class ScheduleRead(Schema):
     end_at: datetime | None = None
     timeout: float | None = None
     status: Literal["online", "offline"]
+    last_run_at: datetime | None = None
+    next_run_at: datetime | None = None
 
 
 class ScheduleCreate(BaseModel):
