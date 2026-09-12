@@ -175,5 +175,6 @@ class TierService(BaseService):
             rbac_addons=resolve_entitlement("rbac_addons"),
             service_accounts=resolve_entitlement("service_accounts"),
             workspace_chat=resolve_entitlement("workspace_chat"),
+            multi_workspace=resolve_entitlement("multi_workspace"),
             watchtower=resolve_entitlement("watchtower"),
         )

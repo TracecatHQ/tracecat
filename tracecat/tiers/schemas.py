@@ -70,6 +70,11 @@ class EffectiveEntitlements(Schema):
         default=False,
         description="Whether Workspace Chat is enabled",
     )
+    multi_workspace: bool = Field(
+        default=False,
+        title="Multi-workspace",
+        description="Whether multiple workspaces per organization are enabled",
+    )
     watchtower: bool = Field(
         default=False,
         description="Whether Watchtower agent monitoring is enabled"

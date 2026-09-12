@@ -13,4 +13,5 @@ class Entitlement(StrEnum):
     RBAC_ADDONS = "rbac_addons"
     SERVICE_ACCOUNTS = "service_accounts"
     WORKSPACE_CHAT = "workspace_chat"
+    MULTI_WORKSPACE = "multi_workspace"
     WATCHTOWER = "watchtower"
