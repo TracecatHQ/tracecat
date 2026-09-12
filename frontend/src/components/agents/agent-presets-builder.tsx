@@ -59,10 +59,10 @@ import type {
   MCPIntegrationRead,
   SkillReadMinimal,
 } from "@/client"
+import { AgentPresetApprovalRules } from "@/components/agents/agent-preset-approval-rules"
 import { AgentPresetDetailActions } from "@/components/agents/agent-preset-detail-actions"
 import { AgentPresetVersionSelect } from "@/components/agents/agent-preset-version-select"
 import { SlackChannelPanel } from "@/components/agents/external-channels/slack-channel-panel"
-import { ActionSelect } from "@/components/chat/action-select"
 import {
   ChatHistoryDropdown,
   type ChatHistoryScope,
@@ -1492,14 +1492,6 @@ function AgentPresetForm({
   })
 
   const {
-    fields: toolApprovalFields,
-    append: appendToolApproval,
-    remove: removeToolApproval,
-  } = useFieldArray({
-    control: form.control,
-    name: "toolApprovals",
-  })
-  const {
     fields: subagentFields,
     append: appendSubagent,
     remove: removeSubagent,
@@ -1720,13 +1712,6 @@ function AgentPresetForm({
     return () => registerDetailActions(null)
   }, [detailActions, registerDetailActions])
 
-  const handleAddToolApproval = useCallback(() => {
-    appendToolApproval({
-      tool: "",
-      allow: true,
-    })
-  }, [appendToolApproval])
-
   const handleAddSubagent = useCallback(() => {
     appendSubagent({
       preset: "",
@@ -1780,9 +1765,6 @@ function AgentPresetForm({
       skillFields={skillFields}
       onAddSkillBinding={handleAddSkillBinding}
       onRemoveSkillBinding={removeSkillBinding}
-      toolApprovalFields={toolApprovalFields}
-      onAddToolApproval={handleAddToolApproval}
-      onRemoveToolApproval={removeToolApproval}
       subagentFields={subagentFields}
       onAddSubagent={handleAddSubagent}
       onRemoveSubagent={removeSubagent}
@@ -1980,9 +1962,6 @@ function AgentPresetRightPanel({
   skillFields,
   onAddSkillBinding,
   onRemoveSkillBinding,
-  toolApprovalFields,
-  onAddToolApproval,
-  onRemoveToolApproval,
   subagentFields,
   onAddSubagent,
   onRemoveSubagent,
@@ -2006,9 +1985,6 @@ function AgentPresetRightPanel({
   skillFields: Array<{ id: string }>
   onAddSkillBinding: (binding: SkillBindingFormValue) => void
   onRemoveSkillBinding: (index: number) => void
-  toolApprovalFields: Array<{ id: string }>
-  onAddToolApproval: () => void
-  onRemoveToolApproval: (index: number) => void
   subagentFields: Array<{ id: string }>
   onAddSubagent: () => void
   onRemoveSubagent: (index: number) => void
@@ -2108,9 +2084,6 @@ function AgentPresetRightPanel({
               mcpIntegrations={mcpIntegrations}
               mcpIntegrationsIsLoading={mcpIntegrationsIsLoading}
               hasStdioMcp={hasStdioMcp}
-              toolApprovalFields={toolApprovalFields}
-              onAddToolApproval={onAddToolApproval}
-              onRemoveToolApproval={onRemoveToolApproval}
             />
           </TabsContent>
 
@@ -2162,9 +2135,6 @@ function AgentPresetConfigurationPanel({
   mcpIntegrations,
   mcpIntegrationsIsLoading,
   hasStdioMcp,
-  toolApprovalFields,
-  onAddToolApproval,
-  onRemoveToolApproval,
 }: {
   form: UseFormReturn<AgentPresetFormValues>
   isSaving: boolean
@@ -2175,9 +2145,6 @@ function AgentPresetConfigurationPanel({
   mcpIntegrations: McpIntegrationOption[]
   mcpIntegrationsIsLoading: boolean
   hasStdioMcp: boolean
-  toolApprovalFields: Array<{ id: string }>
-  onAddToolApproval: () => void
-  onRemoveToolApproval: (index: number) => void
 }) {
   const catalogId = form.watch("catalog_id")
   const sourceId = form.watch("source_id")
@@ -2553,107 +2520,10 @@ function AgentPresetConfigurationPanel({
 
         <Separator />
 
-        <section className="space-y-4">
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-medium">Approval rules</p>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={onAddToolApproval}
-              disabled={isSaving}
-            >
-              <Plus className="mr-2 size-4" />
-              Add rule
-            </Button>
-          </div>
-          {toolApprovalFields.length === 0 ? (
-            <p className="rounded-md border border-dashed px-3 py-4 text-xs text-muted-foreground">
-              No manual approval rules yet. Add a tool to require human review
-              or to force manual overrides.
-            </p>
-          ) : (
-            <div className="space-y-3">
-              <div className="grid gap-3 px-3 md:grid-cols-[minmax(0,1fr)_220px_auto] md:items-center">
-                <div className="text-xs font-medium uppercase text-muted-foreground">
-                  Tool
-                </div>
-                <div className="text-xs font-medium uppercase text-muted-foreground md:text-center">
-                  Manual approval
-                </div>
-                <div className="w-10" aria-hidden="true" />
-              </div>
-
-              <div className="space-y-2">
-                {toolApprovalFields.map((item, index) => {
-                  const approvalSwitchId = `tool-approval-${item.id}-allow`
-
-                  return (
-                    <div
-                      key={item.id}
-                      className="grid gap-3 px-3 py-3 md:grid-cols-[minmax(0,1fr)_220px_auto] md:items-center"
-                    >
-                      <FormField
-                        control={form.control}
-                        name={`toolApprovals.${index}.tool`}
-                        render={({ field }) => (
-                          <FormItem className="flex-1">
-                            <FormControl>
-                              <ActionSelect
-                                field={field}
-                                suggestions={[...actionSuggestions]}
-                                searchKeys={[
-                                  "label",
-                                  "value",
-                                  "description",
-                                  "group",
-                                ]}
-                                placeholder="Select an action or MCP tool..."
-                                disabled={isSaving}
-                              />
-                            </FormControl>
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name={`toolApprovals.${index}.allow`}
-                        render={({ field }) => (
-                          <FormItem className="md:justify-self-center">
-                            <FormControl>
-                              <div className="flex items-center gap-3 px-3 py-2">
-                                <Switch
-                                  id={approvalSwitchId}
-                                  checked={Boolean(field.value)}
-                                  onCheckedChange={field.onChange}
-                                  disabled={isSaving}
-                                />
-                                <span className="text-sm font-medium min-w-[100px]">
-                                  {field.value ? "Required" : "Not required"}
-                                </span>
-                              </div>
-                            </FormControl>
-                          </FormItem>
-                        )}
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="justify-self-start self-start text-muted-foreground md:justify-self-end"
-                        onClick={() => onRemoveToolApproval(index)}
-                        disabled={isSaving}
-                        aria-label="Remove approval rule"
-                      >
-                        <Trash2 className="size-4" />
-                      </Button>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          )}
-        </section>
+        <AgentPresetApprovalRules
+          isSaving={isSaving}
+          actionSuggestions={actionSuggestions}
+        />
       </div>
     </ScrollArea>
   )

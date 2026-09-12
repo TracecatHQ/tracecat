@@ -110,6 +110,7 @@ from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets import secrets_manager
 from tracecat.secrets.common import call_with_masked_errors
 from tracecat.service import BaseWorkspaceService
+from tracecat.tiers.enums import Entitlement
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -495,6 +496,9 @@ class AgentPresetService(BaseWorkspaceService):
     async def create_preset(self, params: AgentPresetCreate) -> AgentPreset:
         """Create a new agent preset scoped to the current workspace."""
 
+        if params.tool_approvals:
+            await self.require_entitlement(Entitlement.AGENT_ADDONS)
+
         slug = await self._normalize_and_validate_slug(
             proposed_slug=params.slug,
             fallback_name=params.name,
@@ -605,6 +609,9 @@ class AgentPresetService(BaseWorkspaceService):
         self, preset: AgentPreset, params: AgentPresetUpdate
     ) -> AgentPreset:
         """Update an existing preset."""
+        if params.tool_approvals:
+            await self.require_entitlement(Entitlement.AGENT_ADDONS)
+
         set_fields = params.model_dump(exclude_unset=True, exclude={"skills"})
         execution_changed = False
         requested_skills = None
@@ -2210,6 +2217,9 @@ class AgentPresetService(BaseWorkspaceService):
         # A deletion may have removed dependencies since this snapshot was
         # loaded by the caller. Restore the stored membership, never that cache.
         await self.session.refresh(version)
+
+        if version.tool_approvals:
+            await self.require_entitlement(Entitlement.AGENT_ADDONS)
 
         restored_bindings = await self._current_skill_bindings_for_version(
             version.id,
