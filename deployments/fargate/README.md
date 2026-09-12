@@ -76,19 +76,64 @@ terraform apply
 
 For Terraform Cloud direct OIDC runs, the target account and role come from `TFC_AWS_RUN_ROLE_ARN`. This stack now uses the ambient AWS credentials from the execution environment and no longer accepts `aws_account_id` / `aws_role_name` inputs for a second provider-side assume-role hop.
 
-## Self-contained migrations
+## Database migrations
 
-- API task startup includes an internal migrations init container.
-- API container starts only if migrations succeed (`dependsOn: SUCCESS`).
-- `worker`, `executor`, and `agent-executor` are ordered after API in Terraform, so service updates do not proceed past API if migrations fail.
+Fargate migrations run as a standalone one-shot ECS task. API tasks do not run
+migrations on startup or scale-out.
 
-By default, the migrations init container uses the same backend image repository
-and tag as the application. Set these optional variables to decouple it:
+By default, the migrations task uses the same backend image repository and tag
+as the application. Set these optional variables to decouple it:
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `tracecat_migrations_image` | `tracecat_image` | Optional migrations image repository override |
 | `tracecat_migrations_image_tag` | `tracecat_image_tag` | Optional migrations image tag override |
+| `migrations_cpu` | `1024` | CPU units for the one-shot migrations task |
+| `migrations_memory` | `2048` | Memory for the one-shot migrations task |
+
+The runner script requires Terraform, AWS CLI, and `jq`.
+
+```bash
+cd deployments/fargate
+./scripts/run-migrations-task.sh
+```
+
+Production upgrades should use a two-phase apply so schema changes complete
+before app services move to the new image:
+
+```bash
+# Phase 1: register the migration task for the new release while app services
+# keep running the current application image.
+terraform apply \
+  -var 'tracecat_image_tag=<current-app-tag>' \
+  -var 'tracecat_migrations_image_tag=<new-release-tag>'
+
+./scripts/run-migrations-task.sh
+
+# Phase 2: update application services after migrations succeed.
+terraform apply \
+  -var 'tracecat_image_tag=<new-release-tag>' \
+  -var 'tracecat_migrations_image_tag=<new-release-tag>'
+```
+
+For fresh installs, create the infrastructure with DB-backed app services at
+zero desired count, run migrations, then apply again with the intended service
+counts:
+
+```bash
+terraform apply \
+  -var 'api_desired_count=0' \
+  -var 'worker_desired_count=0' \
+  -var 'agent_worker_desired_count=0' \
+  -var 'executor_desired_count=0' \
+  -var 'agent_executor_desired_count=0' \
+  -var 'litellm_desired_count=0' \
+  -var 'mcp_desired_count=0'
+
+./scripts/run-migrations-task.sh
+
+terraform apply
+```
 
 For app-only rollbacks, keep the migrations image on a version that understands
 the current Alembic database revision while rolling back the app images.
@@ -98,6 +143,9 @@ the current Alembic database revision while rolling back the app images.
 - `public_app_url`
 - `public_api_url`
 - `ecs_cluster_name`
+- `tracecat_migrations_task_definition_arn`
+- `tracecat_migrations_container_name`
+- `tracecat_migrations_security_group_ids`
 - `s3_attachments_bucket_name`
 - `s3_registry_bucket_name`
 - `s3_workflow_bucket_name`

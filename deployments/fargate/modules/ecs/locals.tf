@@ -2,9 +2,14 @@
 locals {
 
   # Tracecat version
-  tracecat_image_tag            = var.tracecat_image_tag
-  tracecat_migrations_image     = coalesce(var.tracecat_migrations_image, var.tracecat_image)
-  tracecat_migrations_image_tag = coalesce(var.tracecat_migrations_image_tag, local.tracecat_image_tag)
+  tracecat_image_tag                 = var.tracecat_image_tag
+  tracecat_migrations_image          = coalesce(var.tracecat_migrations_image, var.tracecat_image)
+  tracecat_migrations_image_tag      = coalesce(var.tracecat_migrations_image_tag, local.tracecat_image_tag)
+  tracecat_migrations_container_name = "TracecatMigrationsContainer"
+  tracecat_migrations_security_group_ids = [
+    aws_security_group.core.id,
+    aws_security_group.core_db.id,
+  ]
 
   # WAF regex pattern set names. Default to "${name_prefix}-..." so each stack
   # gets uniquely-named pattern sets within a shared AWS account; explicit
