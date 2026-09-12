@@ -898,9 +898,6 @@ class PlatformMCPCatalogRead(BaseModel):
     provider_id: str | None
     connection_spec: MCPConnectionSpec | None
     connection_options: list[MCPConnectionOption] = Field(default_factory=list)
-    locked: bool = Field(
-        description="Whether this platform MCP catalog row is locked by entitlement.",
-    )
     state: PlatformMCPCatalogState
     mcp_integration_id: UUID4 | None
     mcp_server_type: MCPServerType | None = None

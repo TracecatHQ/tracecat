@@ -338,7 +338,6 @@ class PlatformMCPCatalogService(BaseService):
             provider_id=entry.provider_id,
             connection_spec=entry.connection_spec,
             connection_options=entry.connection_options or [],
-            locked=False,
             state=cls._catalog_state(
                 mcp_integration=mcp_integration,
                 token_state=token_state,

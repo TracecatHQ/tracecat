@@ -667,13 +667,13 @@ class TestMCPIntegrationCRUD:
                 catalog_slug=catalog.slug, connection_option_id="gone"
             )
 
-    async def test_platform_mcp_catalog_exposes_setup_details_without_entitlement(
+    async def test_platform_mcp_catalog_exposes_setup_details(
         self,
         integration_service: IntegrationService,
         session: AsyncSession,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Catalog rows are open source: setup details are never redacted."""
+        """Catalog rows expose their setup details."""
         catalog = _catalog_entry(
             slug="open-http-mcp",
             name="Open HTTP MCP",
@@ -700,7 +700,6 @@ class TestMCPIntegrationCRUD:
         )
 
         item = next(item for item in items if item.slug == catalog.slug)
-        assert item.locked is False
         assert item.docs_url == catalog.docs_url
         assert item.provider_id == catalog.provider_id
         assert item.connection_spec is not None
@@ -724,7 +723,6 @@ class TestMCPIntegrationCRUD:
         )
 
         configured = next(item for item in items if item.slug == catalog.slug)
-        assert configured.locked is False
         assert configured.mcp_integration_id == existing_mcp.id
         assert configured.mcp_server_type == "http"
         assert configured.mcp_auth_type == MCPAuthType.NONE
@@ -1762,9 +1760,9 @@ class TestMCPIntegrationCRUD:
             ),
         )
         catalog = _catalog_entry(
-            slug="existing-locked-mcp",
-            name="Existing Locked MCP",
-            description="Existing locked catalog row",
+            slug="existing-mcp",
+            name="Existing MCP",
+            description="Existing catalog row",
             connection_spec={
                 "kind": "http_none",
                 "server_type": "http",
@@ -1774,7 +1772,7 @@ class TestMCPIntegrationCRUD:
                 "credentials": [],
                 "server_uri": "https://mcp.example.com/mcp",
             },
-            sort_key="0000:existing-locked-mcp",
+            sort_key="0000:existing-mcp",
         )
         _install_catalog_entry(monkeypatch, catalog)
         existing_mcp = MCPIntegration(

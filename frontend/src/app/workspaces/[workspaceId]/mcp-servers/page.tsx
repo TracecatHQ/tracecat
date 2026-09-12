@@ -1,6 +1,6 @@
 "use client"
 
-import { ArrowRight, ExternalLink, Loader2, Lock, Sparkles } from "lucide-react"
+import { ArrowRight, ExternalLink, Loader2, Sparkles } from "lucide-react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { type ReactNode, useEffect, useMemo, useState } from "react"
 import {
@@ -21,7 +21,6 @@ import { CatalogHeader } from "@/components/catalog/catalog-header"
 import { getMcpProviderIconId, ProviderIcon } from "@/components/icons"
 import { MCPIntegrationDialog } from "@/components/integrations/mcp-integration-dialog"
 import { OAuthIntegrationDialog } from "@/components/integrations/oauth-integration-dialog"
-import { LockedFeatureModal } from "@/components/locked-feature-modal"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -160,7 +159,6 @@ function workspaceIntegrationToCatalogEntry(
     provider_id: "custom",
     connection_spec: connectionSpecFromIntegration(integration),
     connection_options: [],
-    locked: false,
     state: integration.state,
     mcp_integration_id: integration.id,
     mcp_server_type: integration.server_type,
@@ -260,8 +258,6 @@ export default function McpServersPage() {
   const [configEntry, setConfigEntry] = useState<PlatformMCPCatalogRead | null>(
     null
   )
-  const [lockedCatalogEntry, setLockedCatalogEntry] =
-    useState<PlatformMCPCatalogRead | null>(null)
   const [providerConfigEntry, setProviderConfigEntry] =
     useState<PlatformMCPCatalogRead | null>(null)
   const [editingItem, setEditingItem] = useState<CatalogItem | null>(null)
@@ -513,10 +509,6 @@ export default function McpServersPage() {
 
   function handleConnect(item: CatalogItem) {
     const { entry } = item
-    if (entry.locked) {
-      setLockedCatalogEntry(entry)
-      return
-    }
     // Mirror McpCatalogCard's derivation: a row with no tool listing hasn't
     // been verified yet, so it is "configured"/reconnect, not a connected
     // disconnect. Keeping this in sync avoids showing "Reconnect" while
@@ -566,10 +558,6 @@ export default function McpServersPage() {
 
   function handleConfigure(item: CatalogItem) {
     const { entry } = item
-    if (entry.locked) {
-      setLockedCatalogEntry(entry)
-      return
-    }
     if (entry.mcp_integration_id) {
       setEditingItem(item)
       return
@@ -698,19 +686,6 @@ export default function McpServersPage() {
         />
       ) : null}
 
-      <LockedFeatureModal
-        open={lockedCatalogEntry !== null}
-        onOpenChange={(next) => {
-          if (!next) {
-            setLockedCatalogEntry(null)
-          }
-        }}
-        title="Upgrade to unlock this feature"
-        description="Tracecat-managed MCP catalog connectors are included with Enterprise. To use your own setup, create a custom MCP server."
-        bullets={[]}
-        hideFooter
-      />
-
       {configEntry ? (
         <MCPIntegrationDialog
           open
@@ -786,7 +761,6 @@ function McpCatalogCard({
   onConfigure,
 }: McpCatalogCardProps) {
   const { entry } = item
-  const locked = entry.locked === true
   const hasMcpRow = Boolean(entry.mcp_integration_id)
   // A row with no tool listing hasn't been verified yet, so it counts as
   // configured, not connected.
@@ -795,7 +769,7 @@ function McpCatalogCard({
   const hasWorkspaceConfig = configured || connected
   const connectable = isCatalogEntryConnectable(entry)
   const comingSoon =
-    !locked && !hasMcpRow && (entry.status === "coming_soon" || !connectable)
+    !hasMcpRow && (entry.status === "coming_soon" || !connectable)
   const specTransports = catalogTransports(entry)
   const transports =
     specTransports.length > 0
@@ -803,7 +777,7 @@ function McpCatalogCard({
       : entry.mcp_server_type
         ? [entry.mcp_server_type]
         : []
-  const docsUrl = locked ? null : entry.docs_url
+  const docsUrl = entry.docs_url
   const disconnectable = connected && hasMcpRow
   let actionLabel = "Connect"
   if (disconnectable) {
@@ -813,9 +787,7 @@ function McpCatalogCard({
   }
   const canManage = entry.mcp_integration_id ? canUpdate : false
   let canAct = false
-  if (locked) {
-    canAct = true
-  } else if (disconnectable) {
+  if (disconnectable) {
     canAct = canDelete
   } else if (item.kind === "workspace" && configured) {
     canAct = canManage
@@ -823,9 +795,7 @@ function McpCatalogCard({
     canAct = canCreate
   }
   let canConfigure = false
-  if (locked) {
-    canConfigure = true
-  } else if (hasWorkspaceConfig) {
+  if (hasWorkspaceConfig) {
     canConfigure = canManage
   } else if (isCatalogEntryConnectable(entry)) {
     canConfigure = canCreate
@@ -850,9 +820,6 @@ function McpCatalogCard({
   } else if (verificationStatus === "failed") {
     statusLabel = "Verification failed"
     statusTone = "danger"
-  } else if (locked) {
-    statusLabel = "Locked"
-    statusTone = "neutral"
   } else if (entry.state === "reauth_required") {
     // OAuth token expired with no refresh token: only re-auth revives it.
     statusLabel = "Reconnect required"
@@ -878,24 +845,18 @@ function McpCatalogCard({
   let buttonLabel = actionLabel
   if (comingSoon) {
     buttonLabel = "Coming soon"
-  } else if (locked) {
-    buttonLabel = "Connect"
   }
   if (isActionPending) {
     buttonLabel = statusLabel
   }
   let actionClassName = "text-blue-600 hover:text-blue-700"
-  if (locked) {
-    actionClassName = "text-muted-foreground hover:text-foreground"
-  } else if (disconnectable) {
+  if (disconnectable) {
     actionClassName = "text-destructive hover:text-destructive"
   }
   const tone = STATUS_TONES[statusTone]
   let statusIndicator: ReactNode
   if (isActionPending) {
     statusIndicator = <Loader2 className="size-3 animate-spin" />
-  } else if (locked) {
-    statusIndicator = <Lock className="size-3" />
   } else {
     statusIndicator = (
       <span
@@ -922,29 +883,11 @@ function McpCatalogCard({
   )
 
   return (
-    <Card
-      role={locked ? "button" : undefined}
-      tabIndex={locked ? 0 : undefined}
-      onClick={locked ? onConnect : undefined}
-      onKeyDown={
-        locked
-          ? (event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault()
-                onConnect()
-              }
-            }
-          : undefined
-      }
-      className={cn(
-        "flex h-full min-h-[132px] flex-col gap-2.5 border bg-card p-4 shadow-none transition-colors hover:border-foreground/30",
-        locked && "cursor-pointer"
-      )}
-    >
+    <Card className="flex h-full min-h-[132px] flex-col gap-2.5 border bg-card p-4 shadow-none transition-colors hover:border-foreground/30">
       <div className="flex items-start justify-between gap-3">
         <ProviderIcon
           providerId={getMcpProviderIconId(entry.provider_id ?? entry.slug)}
-          className={cn("size-9 shrink-0", locked && "opacity-50 grayscale")}
+          className="size-9 shrink-0"
         />
 
         <div className="flex flex-wrap justify-end gap-1">

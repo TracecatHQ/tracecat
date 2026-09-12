@@ -20006,12 +20006,6 @@ export const $PlatformMCPCatalogRead = {
       type: "array",
       title: "Connection Options",
     },
-    locked: {
-      type: "boolean",
-      title: "Locked",
-      description:
-        "Whether this platform MCP catalog row is locked by entitlement.",
-    },
     state: {
       type: "string",
       enum: [
@@ -20104,7 +20098,6 @@ export const $PlatformMCPCatalogRead = {
     "docs_url",
     "provider_id",
     "connection_spec",
-    "locked",
     "state",
     "mcp_integration_id",
     "created_at",
