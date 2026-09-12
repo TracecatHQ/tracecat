@@ -6,6 +6,7 @@ import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any, cast
+from unittest.mock import AsyncMock
 
 import pytest
 import sqlalchemy as sa
@@ -48,11 +49,14 @@ from tracecat.auth.types import Role
 from tracecat.db.models import (
     AgentCatalog,
     AgentChannelToken,
+    AgentFolder,
     AgentModelAccess,
     AgentPreset,
     AgentPresetSkill,
     AgentPresetVersion,
     AgentPresetVersionSkill,
+    AgentTag,
+    AgentTagLink,
     MCPIntegration,
     Organization,
     RegistryAction,
@@ -841,6 +845,51 @@ class TestAgentPresetService:
 
         # Verify ordering by created_at descending (most recent first)
         assert presets[0].created_at >= presets[1].created_at
+
+    async def test_preset_crud_without_agent_addons_ignores_folder_and_tags(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_create_params: AgentPresetCreate,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Existing folder/tag assignments must not block ungated preset CRUD."""
+        assert svc_role.workspace_id is not None
+        service = AgentPresetService(session=session, role=svc_role)
+        monkeypatch.setattr(service, "has_entitlement", AsyncMock(return_value=False))
+
+        preset = await service.create_preset(agent_preset_create_params)
+
+        folder = AgentFolder(
+            name="legacy", path="/legacy/", workspace_id=svc_role.workspace_id
+        )
+        tag = AgentTag(name="legacy", ref="legacy", workspace_id=svc_role.workspace_id)
+        session.add_all([folder, tag])
+        await session.flush()
+        preset.folder_id = folder.id
+        session.add(AgentTagLink(preset_id=preset.id, tag_id=tag.id))
+        await session.flush()
+        await session.refresh(preset, attribute_names=["folder_id", "tags"])
+        assert len(preset.tags) == 1
+
+        listed = await service.list_presets()
+        assert preset.id in {item.id for item in listed}
+
+        fetched = await service.get_preset(preset.id)
+        assert fetched is not None
+        assert fetched.folder_id == folder.id
+
+        updated = await service.update_preset(
+            fetched, AgentPresetUpdate(name="Renamed without add-ons")
+        )
+        assert updated.name == "Renamed without add-ons"
+
+        duplicate_params = agent_preset_create_params.model_copy(deep=True)
+        duplicate_params.name = "Duplicated without add-ons"
+        duplicated = await service.create_preset(duplicate_params)
+        await session.refresh(duplicated, attribute_names=["folder_id", "tags"])
+        assert duplicated.folder_id is None
+        assert duplicated.tags == []
 
     async def test_update_preset_name(
         self,

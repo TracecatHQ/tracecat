@@ -1,6 +1,7 @@
 """HTTP-level tests for agent folder API endpoints."""
 
 import uuid
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -14,7 +15,7 @@ from tracecat.agent.folders.service import (
 from tracecat.agent.preset import router as agent_preset_router
 from tracecat.agent.preset.schemas import AgentPresetMoveToFolder
 from tracecat.auth.types import Role
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import EntitlementRequired, TracecatValidationError
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 
 # Fixed UUID for parametrized test IDs — uuid.uuid4() at module level causes
@@ -306,6 +307,54 @@ async def test_move_agent_preset_to_root_skips_folder_lookup(
 
 
 @pytest.mark.anyio
+async def test_move_agent_preset_requires_agent_addons_entitlement(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Preset moves should surface AGENT_ADDONS entitlement failures as 403s."""
+    preset_id = uuid.uuid4()
+
+    with patch.object(agent_preset_router, "AgentFolderService") as mock_service_cls:
+        mock_service = _mock_service_with_async_method(
+            "move_preset",
+            side_effect=EntitlementRequired("agent_addons"),
+        )
+        mock_service_cls.return_value = mock_service
+
+        response = client.post(
+            f"/agent/presets/{preset_id}/move",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"folder_path": "/"},
+        )
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    payload = response.json()
+    assert payload["type"] == "EntitlementRequired"
+    assert payload["detail"]["entitlement"] == "agent_addons"
+
+
+@pytest.mark.anyio
+async def test_get_directory_requires_agent_addons_entitlement(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Folder directory reads should preserve the AGENT_ADDONS gate at HTTP level."""
+    with patch.object(agent_folder_router, "AgentFolderService") as mock_service_cls:
+        mock_service = _mock_service_with_async_method(
+            "get_directory_items",
+            side_effect=EntitlementRequired("agent_addons"),
+        )
+        mock_service_cls.return_value = mock_service
+
+        response = client.get("/agent-folders/directory", params={"path": "/"})
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    payload = response.json()
+    assert payload["type"] == "EntitlementRequired"
+    assert payload["detail"]["entitlement"] == "agent_addons"
+
+
+@pytest.mark.anyio
 async def test_delete_folder_without_body_defaults_to_non_recursive(
     client: TestClient,
     test_admin_role: Role,
@@ -321,3 +370,64 @@ async def test_delete_folder_without_body_defaults_to_non_recursive(
 
     assert response.status_code == status.HTTP_204_NO_CONTENT
     mock_service.delete_folder.assert_awaited_once_with(folder_id, recursive=False)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("method", "path", "kwargs", "service_method"),
+    [
+        (
+            "get",
+            "/agent-folders",
+            {"params": {"parent_path": "/"}},
+            "list_folders_paginated",
+        ),
+        (
+            "post",
+            "/agent-folders",
+            {"json": {"name": "agents", "parent_path": "/"}},
+            "create_folder",
+        ),
+        ("get", f"/agent-folders/{_FIXED_FOLDER_ID}", {}, "get_folder"),
+        (
+            "patch",
+            f"/agent-folders/{_FIXED_FOLDER_ID}",
+            {"json": {"name": "renamed"}},
+            "rename_folder",
+        ),
+        (
+            "delete",
+            f"/agent-folders/{_FIXED_FOLDER_ID}",
+            {"json": {"recursive": False}},
+            "delete_folder",
+        ),
+        (
+            "post",
+            f"/agent-folders/{_FIXED_FOLDER_ID}/move",
+            {"json": {"new_parent_path": "/"}},
+            "move_folder",
+        ),
+    ],
+)
+async def test_folder_management_routes_require_agent_addons_entitlement(
+    client: TestClient,
+    test_admin_role: Role,
+    method: str,
+    path: str,
+    kwargs: dict[str, Any],
+    service_method: str,
+) -> None:
+    """Folder management routes should surface AGENT_ADDONS failures as 403s."""
+    with patch.object(agent_folder_router, "AgentFolderService") as mock_service_cls:
+        mock_service = _mock_service_with_async_method(
+            service_method,
+            side_effect=EntitlementRequired("agent_addons"),
+        )
+        mock_service_cls.return_value = mock_service
+
+        response = client.request(method.upper(), path, **kwargs)
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    payload = response.json()
+    assert payload["type"] == "EntitlementRequired"
+    assert payload["detail"]["entitlement"] == "agent_addons"

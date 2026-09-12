@@ -23,8 +23,9 @@ from tracecat.pagination import (
     CursorPaginatedResponse,
     CursorPaginationParams,
 )
-from tracecat.service import BaseWorkspaceService
+from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.tags.schemas import TagCreate, TagUpdate
+from tracecat.tiers.enums import Entitlement
 
 
 class AgentTagsService(BaseWorkspaceService):
@@ -52,6 +53,7 @@ class AgentTagsService(BaseWorkspaceService):
         raise TracecatNotFoundError("Agent tag not found")
 
     @require_scope("agent:read")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def list_tags(self) -> Sequence[AgentTag]:
         """List all agent tags in the workspace."""
         statement = select(AgentTag).where(AgentTag.workspace_id == self.workspace_id)
@@ -59,6 +61,7 @@ class AgentTagsService(BaseWorkspaceService):
         return result.scalars().all()
 
     @require_scope("agent:read")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def list_tags_paginated(
         self, params: CursorPaginationParams
     ) -> CursorPaginatedResponse[AgentTag]:
@@ -140,6 +143,7 @@ class AgentTagsService(BaseWorkspaceService):
         )
 
     @require_scope("agent:read")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_tag(self, tag_id: AgentTagID) -> AgentTag:
         """Get an agent tag by ID."""
         return await self._get_tag(tag_id)
@@ -156,6 +160,7 @@ class AgentTagsService(BaseWorkspaceService):
         raise TracecatNotFoundError("Agent tag not found")
 
     @require_scope("agent:create")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def create_tag(self, tag: TagCreate) -> AgentTag:
         """Create a new agent tag."""
         ref = slugify(tag.name)
@@ -183,6 +188,7 @@ class AgentTagsService(BaseWorkspaceService):
         return db_tag
 
     @require_scope("agent:update")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def update_tag(self, tag: AgentTag, params: TagUpdate) -> AgentTag:
         """Update an agent tag and regenerate ref if name changed."""
         if params.name and params.name != tag.name:
@@ -211,12 +217,14 @@ class AgentTagsService(BaseWorkspaceService):
         return tag
 
     @require_scope("agent:delete")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def delete_tag(self, tag: AgentTag) -> None:
         """Delete an agent tag definition."""
         await self.session.delete(tag)
         await self.session.commit()
 
     @require_scope("agent:delete")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def delete_tag_by_id(self, tag_id: AgentTagID) -> None:
         """Delete an agent tag definition by ID."""
         tag = await self._get_tag(tag_id)
@@ -258,6 +266,7 @@ class AgentTagsService(BaseWorkspaceService):
             raise TracecatNotFoundError("Agent preset not found")
 
     @require_scope("agent:read")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def list_tags_for_preset(self, preset_id: uuid.UUID) -> Sequence[AgentTag]:
         """List all tags on a preset."""
         await self._require_preset_in_workspace(preset_id)
@@ -276,6 +285,7 @@ class AgentTagsService(BaseWorkspaceService):
         return result.scalars().all()
 
     @require_scope("agent:read")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def list_tags_for_preset_paginated(
         self,
         preset_id: uuid.UUID,
@@ -372,6 +382,7 @@ class AgentTagsService(BaseWorkspaceService):
         )
 
     @require_scope("agent:update")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_preset_tag(
         self, preset_id: uuid.UUID, tag_id: AgentTagID
     ) -> AgentTagLink:
@@ -394,6 +405,7 @@ class AgentTagsService(BaseWorkspaceService):
         raise TracecatNotFoundError("Tag not found")
 
     @require_scope("agent:update")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def add_preset_tag(
         self, preset_id: uuid.UUID, tag_id: AgentTagID
     ) -> AgentTagLink:
@@ -421,6 +433,7 @@ class AgentTagsService(BaseWorkspaceService):
         return link
 
     @require_scope("agent:update")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def remove_preset_tag(self, link: AgentTagLink) -> None:
         """Remove a tag from an agent preset."""
         await self.session.delete(link)

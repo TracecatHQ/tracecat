@@ -16,11 +16,13 @@ from tracecat.agent.folders.service import (
 from tracecat.auth.types import Role
 from tracecat.db.models import AgentFolder, AgentPreset
 from tracecat.exceptions import (
+    EntitlementRequired,
     ScopeDeniedError,
     TracecatNotFoundError,
     TracecatValidationError,
 )
 from tracecat.pagination import CursorPaginationParams
+from tracecat.tiers.enums import Entitlement
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -222,6 +224,36 @@ async def test_get_directory_items_escapes_like_wildcards(
 
 
 @pytest.mark.anyio
+async def test_get_directory_items_requires_agent_addons_entitlement(
+    folder_service: AgentFolderService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Directory reads should preserve the AGENT_ADDONS entitlement gate."""
+    mock_has_entitlement = AsyncMock(return_value=False)
+    monkeypatch.setattr(folder_service, "has_entitlement", mock_has_entitlement)
+
+    with pytest.raises(EntitlementRequired, match=Entitlement.AGENT_ADDONS.value):
+        await folder_service.get_directory_items("/")
+
+    mock_has_entitlement.assert_awaited_once_with(Entitlement.AGENT_ADDONS)
+
+
+@pytest.mark.anyio
+async def test_move_preset_requires_agent_addons_entitlement(
+    folder_service: AgentFolderService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Preset folder moves should preserve the AGENT_ADDONS entitlement gate."""
+    mock_has_entitlement = AsyncMock(return_value=False)
+    monkeypatch.setattr(folder_service, "has_entitlement", mock_has_entitlement)
+
+    with pytest.raises(EntitlementRequired, match=Entitlement.AGENT_ADDONS.value):
+        await folder_service.move_preset(uuid4(), None)
+
+    mock_has_entitlement.assert_awaited_once_with(Entitlement.AGENT_ADDONS)
+
+
+@pytest.mark.anyio
 async def test_move_preset_rejects_soft_deleted_preset(
     folder_service: AgentFolderService,
     monkeypatch: pytest.MonkeyPatch,
@@ -244,6 +276,37 @@ async def test_move_preset_rejects_soft_deleted_preset(
 
     with pytest.raises(TracecatNotFoundError):
         await folder_service.move_preset(preset.id, target)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "invoker",
+    [
+        lambda service: service.get_folder(uuid4()),
+        lambda service: service.get_folder_by_path("/parent/"),
+        lambda service: service.list_folders("/"),
+        lambda service: service.list_folders_paginated("/", CursorPaginationParams()),
+        lambda service: service.get_directory_items("/"),
+        lambda service: service.create_folder(name="parent", parent_path="/"),
+        lambda service: service.get_folder_tree("/"),
+        lambda service: service.rename_folder(uuid4(), "renamed"),
+        lambda service: service.move_folder(uuid4(), None),
+        lambda service: service.delete_folder(uuid4()),
+    ],
+)
+async def test_folder_management_methods_require_agent_addons_entitlement(
+    folder_service: AgentFolderService,
+    invoker,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Folder management methods should preserve the AGENT_ADDONS gate."""
+    mock_has_entitlement = AsyncMock(return_value=False)
+    monkeypatch.setattr(folder_service, "has_entitlement", mock_has_entitlement)
+
+    with pytest.raises(EntitlementRequired, match=Entitlement.AGENT_ADDONS.value):
+        await invoker(folder_service)
+
+    mock_has_entitlement.assert_awaited_once_with(Entitlement.AGENT_ADDONS)
 
 
 @pytest.mark.anyio
