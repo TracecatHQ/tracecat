@@ -29,6 +29,7 @@ from tracecat.db.models import (
 )
 from tracecat.exceptions import EntitlementRequired
 from tracecat.identifiers.workflow import WorkspaceUUID
+from tracecat.tiers import defaults as tier_defaults
 from tracecat.tiers.enums import Entitlement
 from tracecat.workspaces.schemas import WorkspaceUpdate
 from tracecat.workspaces.service import WorkspaceService
@@ -176,8 +177,17 @@ class WorkspaceDatabase:
 
 
 @pytest.fixture
-async def workspace_db(db: None) -> AsyncGenerator[WorkspaceDatabase, None]:
+async def workspace_db(
+    db: None, monkeypatch: pytest.MonkeyPatch
+) -> AsyncGenerator[WorkspaceDatabase, None]:
     """Provide a committed database and independent READ COMMITTED sessions."""
+    # Admission tests must use production OSS defaults, not the permissive
+    # entitlement baseline used by unrelated suites to provision test workspaces.
+    monkeypatch.setattr(
+        tier_defaults,
+        "DEFAULT_ENTITLEMENTS",
+        tier_defaults.resolve_oss_default_entitlements(None),
+    )
     engine = create_async_engine(
         TEST_DB_CONFIG.test_url,
         isolation_level="READ COMMITTED",
