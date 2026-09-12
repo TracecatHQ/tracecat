@@ -68,6 +68,40 @@ Make sure your `docker-compose.yml` and generated `.env` files are in the same d
 docker compose up
 ```
 
+## Configure Temporal workflow history retention
+
+A new Docker Compose installation retains closed Temporal workflow histories for 24 hours. Running workflows are not affected by this retention period.
+
+To use a different retention period for a new installation, create `docker-compose.override.yml` next to `docker-compose.yml`:
+
+```yaml
+services:
+  temporal:
+    environment:
+      DEFAULT_NAMESPACE_RETENTION: 720h # 30 days
+```
+
+Then start Tracecat with `docker compose up -d`. Temporal reads `DEFAULT_NAMESPACE_RETENTION` only when it creates the `default` namespace.
+
+If you already started Tracecat, update the existing namespace directly:
+
+```bash
+docker compose exec temporal \
+  temporal operator namespace update \
+  --namespace default \
+  --retention 720h
+```
+
+Verify the current retention period:
+
+```bash
+docker compose exec temporal \
+  temporal operator namespace describe \
+  --namespace default
+```
+
+Temporal deletes closed workflow histories after the configured period. This setting does not control workflow artifacts in object storage; configure those separately with `TRACECAT__WORKFLOW_ARTIFACT_RETENTION_DAYS`.
+
 ## Access Tracecat
 
 Once deployed, access your instance at:
