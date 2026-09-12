@@ -231,11 +231,7 @@ export interface ChatSessionPaneProps {
   onStatusChange?: (status: ChatStatus) => void
   modelInfo?: ModelInfo
   toolsEnabled?: boolean
-  agentAddonsEnabled?: boolean
-  /**
-   * Whether `@` offers agent presets on this surface. Independent of the
-   * entitlement: an un-entitled org still gets the trigger, on a lock row.
-   */
+  /** Whether `@` offers agent presets on this surface. */
   agentMentionsSupported?: boolean
   mcpEnabled?: boolean
   /** Autofocus the prompt input when the pane mounts. */
@@ -301,7 +297,6 @@ export function ChatSessionPane({
   onStatusChange,
   modelInfo,
   toolsEnabled = true,
-  agentAddonsEnabled = true,
   agentMentionsSupported = false,
   mcpEnabled = false,
   autoFocusInput = false,
@@ -338,10 +333,9 @@ export function ChatSessionPane({
     textareaRef: promptTextareaRef,
     getText: getInputText,
     setText: setInput,
-    // Presets are an agent add-on, so an un-entitled org gets the lock row
-    // rather than a dead `@`. Chat offers no `/` workflow commands.
+    // Chat offers no `/` workflow commands.
     agents: agentMentionsSupported
-      ? { entitlements: ["agent_addons"], single: true }
+      ? { entitlements: [], single: true }
       : undefined,
   })
   const {
@@ -363,17 +357,9 @@ export function ChatSessionPane({
     useCancelChatTurn(workspaceId)
   const { registryActions } = useBuilderRegistryActions()
   const sessionMcpEnabled = mcpEnabled && entityType === "copilot"
-  // Without agent add-ons a session may only use the servers the workspace
-  // configured itself, so ask the API for that half of the list. The picker
-  // then cannot offer a Tracecat-managed catalog connector the run would drop.
-  const mcpIntegrationsSource = agentAddonsEnabled ? undefined : "workspace"
-  const { mcpIntegrations } = useListMcpIntegrations(
-    workspaceId,
-    mcpIntegrationsSource,
-    {
-      enabled: toolsEnabled && sessionMcpEnabled,
-    }
-  )
+  const { mcpIntegrations } = useListMcpIntegrations(workspaceId, undefined, {
+    enabled: toolsEnabled && sessionMcpEnabled,
+  })
 
   // Check if this is a legacy read-only session
   const isReadonly = chat ? "is_readonly" in chat && chat.is_readonly : false
@@ -1224,7 +1210,6 @@ export function ChatSessionPane({
                   mcpIntegrations={mcpIntegrations ?? []}
                   selectedMcpIntegrations={selectedMcpIntegrations}
                   onMcpChange={commitSelectedMcpIntegrations}
-                  agentAddonsEnabled={agentAddonsEnabled}
                   mcpEnabled={sessionMcpEnabled}
                   disabled={inputDisabled || isUpdatingTools}
                   surface={surface}

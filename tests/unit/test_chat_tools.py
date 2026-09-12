@@ -68,15 +68,10 @@ def test_workspace_chat_default_tools_include_authoring_actions() -> None:
     ]
 
 
-def test_workspace_chat_default_tools_exclude_agent_actions_without_entitlement() -> (
-    None
-):
-    tools = get_default_tools(
-        AgentSessionEntity.WORKSPACE_CHAT.value,
-        agent_addons_enabled=False,
-    )
+def test_workspace_chat_default_tools_include_agent_actions() -> None:
+    tools = get_default_tools(AgentSessionEntity.WORKSPACE_CHAT.value)
 
-    assert all(tool not in tools for tool in WORKSPACE_CHAT_AGENT_DEFAULT_TOOLS)
+    assert all(tool in tools for tool in WORKSPACE_CHAT_AGENT_DEFAULT_TOOLS)
     assert "core.table.list_tables" in tools
     assert "core.cases.list_cases" in tools
 

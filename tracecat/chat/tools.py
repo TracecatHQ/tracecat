@@ -70,19 +70,6 @@ TOOL_DEFAULTS = {
 }
 
 
-def filter_workspace_chat_tools_for_entitlements(
-    tools: list[str],
-    *,
-    agent_addons_enabled: bool,
-) -> list[str]:
-    """Filter Workspace chat default tools by enabled entitlements."""
-    if agent_addons_enabled:
-        return list(tools)
-
-    blocked_defaults = set(WORKSPACE_CHAT_AGENT_DEFAULT_TOOLS)
-    return [tool for tool in tools if tool not in blocked_defaults]
-
-
 def filter_workspace_chat_tools_for_scopes(
     tools: list[str],
     *,
@@ -110,17 +97,7 @@ def filter_workspace_chat_tools_for_scopes(
     return [tool for tool in tools if has_scope(granted, f"action:{tool}:execute")]
 
 
-def get_default_tools(
-    entity_type: str,
-    *,
-    agent_addons_enabled: bool = True,
-) -> list[str]:
+def get_default_tools(entity_type: str) -> list[str]:
     """Get default tools for an entity type."""
     entity = AgentSessionEntity(entity_type)
-    tools = TOOL_DEFAULTS.get(entity, [])
-    if entity is AgentSessionEntity.WORKSPACE_CHAT:
-        return filter_workspace_chat_tools_for_entitlements(
-            tools,
-            agent_addons_enabled=agent_addons_enabled,
-        )
-    return list(tools)
+    return list(TOOL_DEFAULTS.get(entity, []))

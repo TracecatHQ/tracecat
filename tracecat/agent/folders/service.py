@@ -26,9 +26,8 @@ from tracecat.pagination import (
     CursorPaginatedResponse,
     CursorPaginationParams,
 )
-from tracecat.service import BaseWorkspaceService, requires_entitlement
+from tracecat.service import BaseWorkspaceService
 from tracecat.tags.schemas import TagRead
-from tracecat.tiers.enums import Entitlement
 
 
 class AgentFolderErrorCode(StrEnum):
@@ -106,7 +105,6 @@ class AgentFolderService(BaseWorkspaceService):
             ) from exc
 
     @require_scope("agent:create")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def create_folder(
         self, name: str, parent_path: str = "/", commit: bool = True
     ) -> AgentFolder:
@@ -165,13 +163,11 @@ class AgentFolderService(BaseWorkspaceService):
         return result.scalar_one_or_none()
 
     @require_scope("agent:read")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_folder(self, folder_id: uuid.UUID) -> AgentFolder | None:
         """Get a folder by ID."""
         return await self._get_folder(folder_id)
 
     @require_scope("agent:read")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_folder_by_path(self, path: str) -> AgentFolder | None:
         """Get a folder by its path."""
         return await self._get_folder_by_path(path)
@@ -188,7 +184,6 @@ class AgentFolderService(BaseWorkspaceService):
         return parent_path
 
     @require_scope("agent:read")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def list_folders(self, parent_path: str = "/") -> Sequence[AgentFolder]:
         """List all folders within the specified parent path subtree."""
         parent_path = await self._require_existing_parent_path(parent_path)
@@ -201,7 +196,6 @@ class AgentFolderService(BaseWorkspaceService):
         return result.scalars().all()
 
     @require_scope("agent:read")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def list_folders_paginated(
         self,
         parent_path: str = "/",
@@ -295,7 +289,6 @@ class AgentFolderService(BaseWorkspaceService):
         )
 
     @require_scope("agent:update")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def move_preset(
         self, preset_id: uuid.UUID, folder: AgentFolder | None = None
     ) -> AgentPreset:
@@ -317,7 +310,6 @@ class AgentFolderService(BaseWorkspaceService):
         return preset
 
     @require_scope("agent:update")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def rename_folder(self, folder_id: uuid.UUID, new_name: str) -> AgentFolder:
         """Rename a folder. Updates the folder name and path."""
         normalized_name = self._normalize_folder_name(new_name)
@@ -357,7 +349,6 @@ class AgentFolderService(BaseWorkspaceService):
         return folder
 
     @require_scope("agent:update")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def move_folder(
         self, folder_id: uuid.UUID, new_parent_id: uuid.UUID | None
     ) -> AgentFolder:
@@ -417,7 +408,6 @@ class AgentFolderService(BaseWorkspaceService):
         return folder
 
     @require_scope("agent:delete")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def delete_folder(
         self, folder_id: uuid.UUID, recursive: bool = False
     ) -> None:
@@ -471,7 +461,6 @@ class AgentFolderService(BaseWorkspaceService):
         await self.session.commit()
 
     @require_scope("agent:read")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_directory_items(
         self, path: str = "/", *, order_by: Literal["asc", "desc"] = "desc"
     ) -> Sequence[DirectoryItem]:
@@ -620,7 +609,6 @@ class AgentFolderService(BaseWorkspaceService):
         return directory_items
 
     @require_scope("agent:read")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_folder_tree(self, root_path: str = "/") -> Sequence[AgentFolder]:
         """Get the full folder tree starting from the given root path."""
         root_path = self._normalize_folder_path(root_path)

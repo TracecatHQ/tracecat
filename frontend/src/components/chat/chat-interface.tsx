@@ -54,7 +54,6 @@ import {
   useUpdateChat,
 } from "@/hooks/use-chat"
 import { useChatPresetManager } from "@/hooks/use-chat-preset-manager"
-import { useEntitlements } from "@/hooks/use-entitlements"
 import { getApiErrorDetail } from "@/lib/errors"
 import { useChatReadiness } from "@/lib/hooks"
 import { useQueryClient } from "@/lib/query"
@@ -115,8 +114,6 @@ export function ChatInterface({
   const workspaceId = useWorkspaceId()
   const queryClient = useQueryClient()
   const { user } = useAuth()
-  const { hasEntitlement } = useEntitlements()
-  const agentAddonsEnabled = hasEntitlement("agent_addons")
   const [selectedChatId, setSelectedChatId] = useState<string | undefined>(
     chatId
   )
@@ -157,13 +154,8 @@ export function ChatInterface({
 
   // Setting a session preset only means something where the session owns one;
   // preset-builder, approval and workflow sessions get no `@` trigger at all.
-  // The entitlement is deliberately not folded in here: an un-entitled org
-  // still sees the trigger, on the mention popover's lock row.
   const presetsSupported = entityType === "case" || entityType === "copilot"
-  const presetsEnabled = agentAddonsEnabled && presetsSupported
-  // Every workspace can attach the MCP servers it configured itself, so the
-  // entitlement is deliberately not folded in here. It only narrows what the
-  // picker lists: the Tracecat-managed catalog connectors stay entitled.
+  const presetsEnabled = presetsSupported
   // `integration:read` is folded in: the picker lists servers from the MCP
   // integration endpoint, which is guarded by it. Without it the request 403s
   // and the picker would offer to connect a server on a page the role cannot
@@ -497,7 +489,6 @@ export function ChatInterface({
           selectedPreset={activePreset}
           selectedPresetConfigError={selectedPresetConfigError}
           toolsEnabled={toolsEnabled}
-          agentAddonsEnabled={agentAddonsEnabled}
           agentMentionsSupported={presetsSupported}
           mcpEnabled={sessionMcpEnabled}
           draftMode={draftMode}
@@ -530,8 +521,7 @@ interface ChatBodyProps {
   selectedPreset?: PresetConfigLike
   selectedPresetConfigError?: unknown
   toolsEnabled: boolean
-  agentAddonsEnabled: boolean
-  /** Whether `@` offers agent presets, regardless of the entitlement. */
+  /** Whether `@` offers agent presets on this surface. */
   agentMentionsSupported: boolean
   mcpEnabled: boolean
   draftMode: boolean
@@ -568,7 +558,6 @@ function ChatBody({
   selectedPreset,
   selectedPresetConfigError,
   toolsEnabled,
-  agentAddonsEnabled,
   agentMentionsSupported,
   mcpEnabled,
   draftMode,
@@ -682,7 +671,6 @@ function ChatBody({
         className="flex-1 min-h-0"
         modelInfo={modelInfo ?? undefined}
         toolsEnabled={toolsEnabled}
-        agentAddonsEnabled={agentAddonsEnabled}
         agentMentionsSupported={agentMentionsSupported}
         mcpEnabled={mcpEnabled}
         presetSelector={presetSelector}
@@ -716,7 +704,6 @@ function ChatBody({
       className="flex-1 min-h-0"
       modelInfo={modelInfo ?? undefined}
       toolsEnabled={toolsEnabled}
-      agentAddonsEnabled={agentAddonsEnabled}
       agentMentionsSupported={agentMentionsSupported}
       mcpEnabled={mcpEnabled}
       presetSelector={presetSelector}

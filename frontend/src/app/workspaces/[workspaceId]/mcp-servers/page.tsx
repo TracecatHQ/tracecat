@@ -32,7 +32,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
-import { useEntitlements } from "@/hooks/use-entitlements"
 import {
   markStdioMcpVerificationStarted,
   useStdioMcpVerificationStatus,
@@ -254,8 +253,6 @@ export default function McpServersPage() {
   const canCreateMcp = canCreate === true
   const canUpdateIntegrations = canUpdate === true
   const canDeleteMcp = canDelete === true
-  const { hasEntitlement } = useEntitlements()
-  const agentAddonsEnabled = hasEntitlement("agent_addons")
 
   const [searchQuery, setSearchQuery] = useState("")
   const [activeCategory, setActiveCategory] = useState<string>(ALL_CATEGORY)
@@ -539,13 +536,6 @@ export default function McpServersPage() {
       return
     }
 
-    // Migrated catalog rows can be disconnected without the entitlement, but
-    // reconnecting through the platform catalog requires the upgrade.
-    if (entry.mcp_integration_id && !agentAddonsEnabled) {
-      setLockedCatalogEntry(entry)
-      return
-    }
-
     if (!connectable) {
       toast({
         title: `${entry.name} is coming soon`,
@@ -686,13 +676,6 @@ export default function McpServersPage() {
                       )
                     : undefined
                 }
-                reconnectLocked={
-                  item.kind === "catalog" &&
-                  !item.entry.locked &&
-                  Boolean(item.entry.mcp_integration_id) &&
-                  item.entry.state !== "connected" &&
-                  !agentAddonsEnabled
-                }
                 onConnect={() => handleConnect(item)}
                 onConfigure={() => handleConfigure(item)}
               />
@@ -787,7 +770,6 @@ interface McpCatalogCardProps {
   isActionPending: boolean
   isDisconnecting: boolean
   verification?: MCPVerificationStatusRead
-  reconnectLocked: boolean
   onConnect: () => void
   onConfigure: () => void
 }
@@ -800,7 +782,6 @@ function McpCatalogCard({
   isActionPending,
   isDisconnecting,
   verification,
-  reconnectLocked,
   onConnect,
   onConfigure,
 }: McpCatalogCardProps) {
@@ -813,8 +794,6 @@ function McpCatalogCard({
   const configured = !connected && (entry.state === "configured" || hasMcpRow)
   const hasWorkspaceConfig = configured || connected
   const connectable = isCatalogEntryConnectable(entry)
-  // Rows with a workspace integration stay actionable even when the catalog
-  // response hides connection specs (e.g. unentitled with a migrated row).
   const comingSoon =
     !locked && !hasMcpRow && (entry.status === "coming_soon" || !connectable)
   const specTransports = catalogTransports(entry)
@@ -834,7 +813,7 @@ function McpCatalogCard({
   }
   const canManage = entry.mcp_integration_id ? canUpdate : false
   let canAct = false
-  if (locked || reconnectLocked) {
+  if (locked) {
     canAct = true
   } else if (disconnectable) {
     canAct = canDelete
@@ -905,9 +884,8 @@ function McpCatalogCard({
   if (isActionPending) {
     buttonLabel = statusLabel
   }
-  const actionLocked = locked || reconnectLocked
   let actionClassName = "text-blue-600 hover:text-blue-700"
-  if (actionLocked) {
+  if (locked) {
     actionClassName = "text-muted-foreground hover:text-foreground"
   } else if (disconnectable) {
     actionClassName = "text-destructive hover:text-destructive"

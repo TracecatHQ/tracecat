@@ -109,8 +109,7 @@ from tracecat.pagination import (
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets import secrets_manager
 from tracecat.secrets.common import call_with_masked_errors
-from tracecat.service import BaseWorkspaceService, requires_entitlement
-from tracecat.tiers.enums import Entitlement
+from tracecat.service import BaseWorkspaceService
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -145,7 +144,6 @@ class AgentPresetService(BaseWorkspaceService):
         self.skill_tools = SkillToolDependencyService(session, role=self.role)
         self.tool_policy = PresetToolPolicyService(session, role=self.role)
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def list_presets(self) -> Sequence[AgentPreset]:
         """Return all agent presets for the current workspace ordered by recency."""
 
@@ -494,7 +492,6 @@ class AgentPresetService(BaseWorkspaceService):
 
     @require_scope("agent:create")
     @audit_log(resource_type="agent_preset", action="create")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def create_preset(self, params: AgentPresetCreate) -> AgentPreset:
         """Create a new agent preset scoped to the current workspace."""
 
@@ -604,7 +601,6 @@ class AgentPresetService(BaseWorkspaceService):
 
     @require_scope("agent:update")
     @audit_log(resource_type="agent_preset", action="update")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def update_preset(
         self, preset: AgentPreset, params: AgentPresetUpdate
     ) -> AgentPreset:
@@ -773,7 +769,6 @@ class AgentPresetService(BaseWorkspaceService):
 
     @require_scope("agent:delete")
     @audit_log(resource_type="agent_preset", action="delete")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def delete_preset(
         self,
         preset: AgentPreset,
@@ -839,7 +834,6 @@ class AgentPresetService(BaseWorkspaceService):
         self.session.add(preset)
         await self.session.commit()
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def resolve_agent_preset_config(
         self,
         *,
@@ -863,7 +857,6 @@ class AgentPresetService(BaseWorkspaceService):
             resolve_dependencies_from_heads=resolve_dependencies_from_heads,
         )
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def resolve_agent_preset_version(
         self,
         *,
@@ -1641,7 +1634,6 @@ class AgentPresetService(BaseWorkspaceService):
             )
         return slug
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_preset(
         self, preset_id: uuid.UUID, *, include_deleted: bool = False
     ) -> AgentPreset | None:
@@ -1658,7 +1650,6 @@ class AgentPresetService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return result.scalars().first()
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_preset_by_slug(
         self, slug: str, *, include_deleted: bool = False
     ) -> AgentPreset | None:
@@ -1675,7 +1666,6 @@ class AgentPresetService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return result.scalars().first()
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def list_versions(
         self,
         preset_id: uuid.UUID,
@@ -1804,7 +1794,6 @@ class AgentPresetService(BaseWorkspaceService):
             has_previous=params.cursor is not None,
         )
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_version(self, version_id: uuid.UUID) -> AgentPresetVersion | None:
         """Get a preset version by ID."""
         stmt = select(AgentPresetVersion).where(
@@ -1814,7 +1803,6 @@ class AgentPresetService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return result.scalars().first()
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_active_version(
         self,
         *,
@@ -1840,7 +1828,6 @@ class AgentPresetService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return result.scalars().first()
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_version_by_number(
         self, *, preset_id: uuid.UUID, version: int
     ) -> AgentPresetVersion | None:
@@ -2211,7 +2198,6 @@ class AgentPresetService(BaseWorkspaceService):
 
     @require_scope("agent:update")
     @audit_log(resource_type="agent_preset", action="update")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def restore_version(
         self, preset: AgentPreset, version: AgentPresetVersion
     ) -> AgentPreset:
@@ -2261,7 +2247,6 @@ class AgentPresetService(BaseWorkspaceService):
         )
         return agents
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def compare_versions(
         self,
         base_version: AgentPresetVersion,

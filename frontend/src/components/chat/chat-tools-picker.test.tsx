@@ -69,7 +69,7 @@ describe("DEFAULT_CAPABILITY_GROUPS", () => {
     const actual = DEFAULT_CAPABILITY_GROUPS.flatMap((group) => group.tools)
     expect([...actual].sort()).toEqual(
       [
-        // ai.agent.* (agent presets, add-on gated)
+        // ai.agent.* (agent presets)
         "ai.agent.create_preset",
         "ai.agent.get_preset",
         "ai.agent.list_presets",
@@ -466,7 +466,7 @@ describe("ChatToolsPicker", () => {
     expect(onToolsChange).toHaveBeenCalledWith([])
   })
 
-  it("hides add-on capabilities when agent add-ons are disabled", () => {
+  it("always offers the agent presets capability on workspace chat", () => {
     render(
       <ChatToolsPicker
         registryActions={[]}
@@ -475,12 +475,11 @@ describe("ChatToolsPicker", () => {
         mcpIntegrations={[]}
         selectedMcpIntegrations={[]}
         onMcpChange={jest.fn()}
-        agentAddonsEnabled={false}
         surface="workspace-chat"
       />
     )
 
     expect(screen.getByText("Cases")).toBeInTheDocument()
-    expect(screen.queryByText("Agent presets")).not.toBeInTheDocument()
+    expect(screen.getByText("Agent presets")).toBeInTheDocument()
   })
 })

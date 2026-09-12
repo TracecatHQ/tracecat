@@ -1,9 +1,6 @@
 "use client"
 
-import { useRouter } from "next/navigation"
-import { useEffect } from "react"
 import { EditorPanel } from "@/components/skills/editor-panel"
-import { useEntitlements } from "@/hooks/use-entitlements"
 import { useSkillsStudioContext } from "@/providers/skills-studio"
 
 function SkillsStudioContent() {
@@ -60,28 +57,8 @@ function SkillsStudioContent() {
  * controls header can render the same Versions/Save/Publish buttons that
  * act on this editor's working copy.
  *
- * @param props.workspaceId Current workspace identifier (used for the
- *   entitlement redirect target only).
  * @returns The skills studio editor view.
  */
-export function SkillsStudio({ workspaceId }: { workspaceId: string }) {
-  const router = useRouter()
-  const { hasEntitlement, isLoading } = useEntitlements()
-  const agentAddonsEnabled = hasEntitlement("agent_addons")
-
-  useEffect(() => {
-    if (!isLoading && !agentAddonsEnabled) {
-      router.replace(`/workspaces/${workspaceId}`)
-    }
-  }, [agentAddonsEnabled, isLoading, router, workspaceId])
-
-  if (isLoading) {
-    return <div className="size-full animate-pulse bg-muted/20" />
-  }
-
-  if (!agentAddonsEnabled) {
-    return null
-  }
-
+export function SkillsStudio() {
   return <SkillsStudioContent />
 }

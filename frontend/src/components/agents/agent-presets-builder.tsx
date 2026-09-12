@@ -143,7 +143,6 @@ import {
   useListChats,
   useUpdateChat,
 } from "@/hooks/use-chat"
-import { useEntitlements } from "@/hooks/use-entitlements"
 import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useSkills } from "@/hooks/use-skills"
 import {
@@ -413,17 +412,13 @@ export function AgentPresetsBuilder({
   const router = useRouter()
   const searchParams = useSearchParams()
   const workspaceId = useWorkspaceId()
-  const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
-  const agentAddonsEnabled = hasEntitlement("agent_addons")
   const activePresetId = presetId
   const queryTab = parseAgentPresetSideTab(
     searchParams.get(AGENT_PRESET_TAB_QUERY_PARAM)
   )
 
-  const { presets, presetsIsLoading, presetsError } = useAgentPresets(
-    workspaceId,
-    { enabled: agentAddonsEnabled && !entitlementsLoading }
-  )
+  const { presets, presetsIsLoading, presetsError } =
+    useAgentPresets(workspaceId)
   const { registryActions } = useRegistryActions()
   const { models, providers } = useWorkspaceAgentModels(workspaceId)
   const enabledModelsLoaded = models !== undefined
@@ -489,9 +484,7 @@ export function AgentPresetsBuilder({
     preset: selectedPreset,
     presetIsLoading: selectedPresetIsLoading,
     presetError: selectedPresetError,
-  } = useAgentPreset(workspaceId, activePresetId, {
-    enabled: agentAddonsEnabled && !entitlementsLoading,
-  })
+  } = useAgentPreset(workspaceId, activePresetId)
 
   const actionSuggestions: Suggestion[] = useMemo(() => {
     if (!registryActions) {

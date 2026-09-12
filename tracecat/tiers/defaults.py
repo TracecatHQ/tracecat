@@ -46,9 +46,9 @@ def resolve_oss_default_entitlements(
     Existing OSS deployments can preserve prior behavior by mapping enabled
     feature flags to their corresponding entitlement groups.
 
-    Workspace chat is open source, but agent presets are not: ``agent_addons``
-    stays off in both branches, which keeps preset management tools and ``@``
-    agent mentions behind the enterprise entitlement.
+    Agent presets, skills, and MCP catalog connectors are open source;
+    ``agent_addons`` only gates tool approvals, the agent inbox, and case agent
+    runs.
     """
     # Fresh install path.
     if not feature_flags_env:
