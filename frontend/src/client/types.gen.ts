@@ -4995,6 +4995,8 @@ export type IssuedServiceAccountApiKey = {
 
 export type JoinStrategy = "any" | "all"
 
+export type JsonValue = unknown
+
 /**
  * Authentication type for MCP integrations.
  */
@@ -6020,10 +6022,6 @@ export type PlatformMCPCatalogRead = {
   provider_id: string | null
   connection_spec: MCPConnectionSpec | null
   connection_options?: Array<MCPConnectionOption>
-  /**
-   * Whether this platform MCP catalog row is locked by entitlement.
-   */
-  locked: boolean
   state:
     | "not_configured"
     | "configured"
@@ -6964,6 +6962,53 @@ export type RunUsage = {
   input_tokens?: number
   output_tokens?: number
 }
+
+/**
+ * Stable machine-readable product failure identities.
+ */
+export type RuntimeErrorKind =
+  | "action.execution.failed"
+  | "tenant.quota.exhausted"
+  | "tenant.entitlement.denied"
+  | "integration.rate_limited"
+  | "registry.sync.validation_failed"
+  | "runtime.unclassified"
+  | "storage.materialization.transport_unavailable"
+  | "storage.materialization.invalid_data"
+  | "storage.persistence.transport_unavailable"
+  | "executor.activity.timed_out"
+  | "executor.backend.initialization_failed"
+  | "executor.registry.lease_contention"
+  | "executor.registry.capacity_exhausted"
+  | "executor.registry.extraction_failed"
+  | "executor.sandbox.infrastructure_failed"
+  | "sandbox.resource_limit_exceeded"
+  | "workflow.definition.not_found"
+  | "workflow.definition.lookup_unavailable"
+  | "workflow.definition.invalid_data"
+  | "workflow.trigger.input_invalid"
+  | "workflow.subflow.input_invalid"
+  | "workflow.subflow.preparation_failed"
+  | "workflow.bootstrap.invalid_data"
+  | "workflow.bootstrap.unavailable"
+  | "workflow.expression.invalid"
+  | "workflow.loop.limit_exceeded"
+  | "workflow.runtime.invariant_violation"
+  | "workflow.agent.input_invalid"
+  | "workflow.agent.preparation_failed"
+  | "agent.configuration.invalid"
+  | "agent.preparation.failed"
+  | "agent.session.initialization_failed"
+  | "agent.llm.gateway_auth_failed"
+  | "agent.llm.provider_auth_failed"
+  | "agent.llm.budget_exceeded"
+  | "agent.llm.rate_limited"
+  | "agent.llm.read_timeout"
+  | "agent.execution.failed"
+  | "agent.executor.unavailable"
+  | "agent.executor.timed_out"
+  | "agent.executor.protocol_failed"
+  | "agent.workflow.internal_error"
 
 export type SAMLDatabaseLoginResponse = {
   redirect_url: string
@@ -9109,6 +9154,19 @@ export type WebhookRead = {
   api_key?: WebhookApiKeyRead | null
 }
 
+/**
+ * Standard FastAPI request validation fields for the shared 422 response.
+ */
+export type WebhookRequestValidationError = {
+  loc: Array<string | number>
+  msg: string
+  type: string
+  input?: unknown
+  ctx?: {
+    [key: string]: JsonValue
+  } | null
+}
+
 export type WebhookStatus = "online" | "offline"
 
 export type WebhookStoredObjectDownloadResponse = {
@@ -9132,6 +9190,22 @@ export type WebhookUpdate = {
   entrypoint_ref?: string | null
   allowlisted_cidrs?: Array<string> | null
   include_headers?: boolean | null
+}
+
+/**
+ * Invalid request parameters or a classified user workflow failure.
+ */
+export type WebhookWaitErrorResponse = {
+  detail: WebhookWaitFailureDetail | Array<WebhookRequestValidationError>
+}
+
+/**
+ * Public metadata for a user-owned workflow failure.
+ */
+export type WebhookWaitFailureDetail = {
+  code: RuntimeErrorKind
+  wf_exec_id: string
+  message?: string
 }
 
 export type WorkflowAlias = {
@@ -14240,9 +14314,9 @@ export type $OpenApiTs = {
          */
         413: WaitResultUnwrapOverflowResponse
         /**
-         * Validation Error
+         * Invalid request parameters or a user-owned workflow failure.
          */
-        422: HTTPValidationError
+        422: WebhookWaitErrorResponse
       }
     }
   }

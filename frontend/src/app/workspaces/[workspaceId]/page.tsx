@@ -48,7 +48,6 @@ export default function WorkspacePage() {
   const canReadWorkspace = useScopeCheck("workspace:read")
 
   const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
-  const agentAddonsEnabled = hasEntitlement("agent_addons")
   const serviceAccountsEnabled = hasEntitlement("service_accounts")
   const workspaceChatEnabled = hasEntitlement("workspace_chat")
 
@@ -89,7 +88,7 @@ export default function WorkspacePage() {
     if (canViewCases === true) {
       return `${basePath}/cases`
     }
-    if (agentAddonsEnabled && canViewAgents === true) {
+    if (canViewAgents === true) {
       return `${basePath}/agents`
     }
     if (canViewTables === true) {
@@ -119,7 +118,6 @@ export default function WorkspacePage() {
     }
     return null
   }, [
-    agentAddonsEnabled,
     canExecuteAgents,
     workspaceChatEnabled,
     canViewAgents,

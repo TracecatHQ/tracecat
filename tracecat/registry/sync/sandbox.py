@@ -745,8 +745,12 @@ class RegistrySyncSandbox:
                         *_host_site_packages_paths(),
                         *other_trusted_roots,
                     ],
+                    # Enable before any imports, including the wrapper's. Fatal
+                    # signals bypass Python exceptions and result.json writing.
+                    env_vars={"PYTHONFAULTHANDLER": "1"},
                 ),
                 script_name="wrapper.py",
+                log_raw_crash_stderr=True,
             )
             if not result.success:
                 detail = result.error or result.stderr or "Unknown discovery error"

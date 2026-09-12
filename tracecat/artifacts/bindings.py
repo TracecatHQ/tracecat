@@ -346,6 +346,7 @@ ARTIFACT_BINDINGS: tuple[ArtifactBinding, ...] = (
             "core.table.lookup_many",
             "core.table.is_in",
             "core.table.search_rows",
+            "core.table.aggregate_rows",
             "core.table.insert_row",
             "core.table.insert_rows",
             "core.table.update_row",

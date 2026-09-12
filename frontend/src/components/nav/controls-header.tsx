@@ -431,11 +431,13 @@ function AgentFoldersBreadcrumb({
   workspaceId: string
   path: string | null
 }) {
+  const { hasEntitlement } = useEntitlements()
+  const organizationEnabled = hasEntitlement("agent_addons")
   return (
     <FolderPathBreadcrumb
       rootLabel="Agents"
       rootHref={`/workspaces/${workspaceId}/agents`}
-      folderPath={path}
+      folderPath={organizationEnabled ? path : "/"}
     />
   )
 }
@@ -444,8 +446,10 @@ function AgentsActions() {
   const pathname = usePathname()
   const workspaceId = useWorkspaceId()
   const searchParams = useSearchParams()
-  const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
   const canCreateAgent = useScopeCheck("agent:create")
+  const { hasEntitlement } = useEntitlements()
+  // Folders and tags are agent add-ons; core preset creation is not.
+  const organizationEnabled = hasEntitlement("agent_addons")
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [createTagDialogOpen, setCreateTagDialogOpen] = useState(false)
   const [folderDialogOpen, setFolderDialogOpen] = useState(false)
@@ -455,23 +459,24 @@ function AgentsActions() {
     : AgentsCatalogViewMode.Agents
   const agentsHref = `/workspaces/${workspaceId}/agents`
   const tagsHref = `/workspaces/${workspaceId}/agents/tags`
-  const isFoldersView = searchParams?.get("view") !== "list"
+  const isFoldersView =
+    organizationEnabled && searchParams?.get("view") !== "list"
   const currentPath = normalizeAgentActionPath(
     searchParams?.get("path") ?? null
   )
-  const agentAddonsEnabled = hasEntitlement("agent_addons")
-  const canUseAgentActions =
-    !entitlementsLoading && agentAddonsEnabled && canCreateAgent === true
+  const canUseAgentActions = canCreateAgent === true
   let agentActionControls: ReactNode = null
 
   if (canUseAgentActions) {
     if (catalogView === AgentsCatalogViewMode.Tags) {
-      agentActionControls = (
-        <AddAgentTag
-          open={createTagDialogOpen}
-          onOpenChange={setCreateTagDialogOpen}
-        />
-      )
+      if (organizationEnabled) {
+        agentActionControls = (
+          <AddAgentTag
+            open={createTagDialogOpen}
+            onOpenChange={setCreateTagDialogOpen}
+          />
+        )
+      }
     } else {
       agentActionControls = (
         <>
@@ -518,11 +523,13 @@ function AgentsActions() {
             onOpenChange={setCreateDialogOpen}
             currentPath={isFoldersView ? currentPath : null}
           />
-          <AgentFolderCreateDialog
-            open={folderDialogOpen}
-            onOpenChange={setFolderDialogOpen}
-            currentPath={currentPath}
-          />
+          {organizationEnabled ? (
+            <AgentFolderCreateDialog
+              open={folderDialogOpen}
+              onOpenChange={setFolderDialogOpen}
+              currentPath={currentPath}
+            />
+          ) : null}
         </>
       )
     }
@@ -530,11 +537,13 @@ function AgentsActions() {
 
   return (
     <>
-      <AgentsCatalogViewToggle
-        view={catalogView}
-        agentsHref={agentsHref}
-        tagsHref={tagsHref}
-      />
+      {organizationEnabled ? (
+        <AgentsCatalogViewToggle
+          view={catalogView}
+          agentsHref={agentsHref}
+          tagsHref={tagsHref}
+        />
+      ) : null}
       <WorkspaceResourceSyncActions
         label="agents"
         branchSlug="agents"
@@ -1901,12 +1910,15 @@ function AgentPresetBreadcrumb({
 }) {
   const { workspace } = useWorkspaceDetails()
   const { preset } = useAgentPreset(workspaceId, presetId)
+  const { hasEntitlement } = useEntitlements()
+  const organizationEnabled = hasEntitlement("agent_addons")
   const { folders } = useAgentFolders(workspaceId, {
-    enabled: Boolean(preset?.folder_id),
+    enabled: organizationEnabled && Boolean(preset?.folder_id),
   })
-  const folderPath = preset?.folder_id
-    ? folders?.find((folder) => folder.id === preset.folder_id)?.path
-    : null
+  const folderPath =
+    organizationEnabled && preset?.folder_id
+      ? folders?.find((folder) => folder.id === preset.folder_id)?.path
+      : null
 
   return (
     <FolderPathBreadcrumb

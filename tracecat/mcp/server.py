@@ -2548,14 +2548,14 @@ Workflow: `core.workflow.create_workflow`, `core.workflow.edit_workflow`,
 `core.workflow.run`, `core.workflow.update_case_trigger`,
 `core.workflow.update_webhook`
 
-Tables: `core.table.create_column`, `core.table.create_table`,
+Tables: `core.table.aggregate_rows`, `core.table.create_column`, `core.table.create_table`,
 `core.table.delete_column`, `core.table.delete_row`, `core.table.download`,
 `core.table.get_table_metadata`, `core.table.insert_row`,
 `core.table.insert_rows`, `core.table.is_in`, `core.table.list_tables`,
 `core.table.lookup`, `core.table.lookup_many`, `core.table.search_rows`,
 `core.table.update_column`, `core.table.update_row`, `core.table.update_table`
 
-Cases: `core.cases.add_case_tag`, `core.cases.assign_user`,
+Cases: `core.cases.add_case_tag`, `core.cases.aggregate_cases`, `core.cases.assign_user`,
 `core.cases.assign_user_by_email`, `core.cases.create_case`,
 `core.cases.create_comment`, `core.cases.create_task`,
 `core.cases.delete_attachment`, `core.cases.delete_case`,
@@ -4475,6 +4475,10 @@ async def get_action_context(
 
     Example action names: "core.http_request", "core.script.run_python",
     "core.transform.reshape".
+
+    For grouped counts and metrics in workflows, use
+    `core.cases.aggregate_cases` for cases or `core.table.aggregate_rows` for
+    table rows. Pass either action name to this tool to get its input schema.
 
     Args:
         workspace_id: The workspace ID (from list_workspaces).

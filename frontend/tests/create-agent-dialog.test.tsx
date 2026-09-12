@@ -16,6 +16,7 @@ const mockMoveAgentPreset = jest.fn()
 const mockOnOpenChange = jest.fn()
 const mockRouterPush = jest.fn()
 const mockRouterReplace = jest.fn()
+const mockHasEntitlement = jest.fn<boolean, [string]>(() => false)
 
 jest.mock("next/navigation", () => ({
   useRouter: jest.fn(),
@@ -55,6 +56,14 @@ jest.mock("@/lib/hooks", () => ({
 
 jest.mock("@/providers/workspace-id", () => ({
   useWorkspaceId: () => "workspace-1",
+}))
+
+jest.mock("@/hooks/use-entitlements", () => ({
+  useEntitlements: () => ({
+    hasEntitlement: (key: string) => mockHasEntitlement(key),
+    isLoading: false,
+    hasEntitlementData: true,
+  }),
 }))
 
 const catalogModels = [
@@ -132,13 +141,20 @@ function setupMocks({
   })
 }
 
-function renderCreateAgentDialog() {
-  render(<CreateAgentDialog open={true} onOpenChange={mockOnOpenChange} />)
+function renderCreateAgentDialog(currentPath?: string | null) {
+  render(
+    <CreateAgentDialog
+      open={true}
+      onOpenChange={mockOnOpenChange}
+      currentPath={currentPath}
+    />
+  )
 }
 
 describe("CreateAgentDialog", () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockHasEntitlement.mockReturnValue(false)
     mockCreateAgentPreset.mockResolvedValue({
       id: "preset-1",
       name: "QA agent",
@@ -197,6 +213,40 @@ describe("CreateAgentDialog", () => {
         catalog_id: "catalog-default",
         base_url: undefined,
         description: undefined,
+      })
+    })
+  })
+
+  it("does not move the preset into a folder without agent add-ons", async () => {
+    const user = userEvent.setup()
+    setupMocks()
+    renderCreateAgentDialog("/legacy/")
+
+    await user.type(screen.getByLabelText("Name"), "OSS agent")
+    await user.click(screen.getByRole("button", { name: "Create agent" }))
+
+    await waitFor(() => {
+      expect(mockCreateAgentPreset).toHaveBeenCalled()
+      expect(mockRouterPush).toHaveBeenCalledWith(
+        "/workspaces/workspace-1/agents/preset-1"
+      )
+    })
+    expect(mockMoveAgentPreset).not.toHaveBeenCalled()
+  })
+
+  it("moves the preset into the current folder with agent add-ons", async () => {
+    const user = userEvent.setup()
+    mockHasEntitlement.mockImplementation((key) => key === "agent_addons")
+    setupMocks()
+    renderCreateAgentDialog("/legacy/")
+
+    await user.type(screen.getByLabelText("Name"), "Enterprise agent")
+    await user.click(screen.getByRole("button", { name: "Create agent" }))
+
+    await waitFor(() => {
+      expect(mockMoveAgentPreset).toHaveBeenCalledWith({
+        presetId: "preset-1",
+        folder_path: "/legacy/",
       })
     })
   })

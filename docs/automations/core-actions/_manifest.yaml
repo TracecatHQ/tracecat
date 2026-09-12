@@ -437,6 +437,17 @@ pages:
         examples:
           - cases-search
       - id: core.cases.aggregate_cases
+        info: |
+          The example counts `new` and `in_progress` cases by priority and day.
+          It includes cases created on or after August 1, 2026 whose priority
+          is `high` or `critical`, or whose region is `emea`.
+
+          Before running it, create a TEXT custom case field named `region`.
+
+          Use `ACTIONS.cases_by_priority_per_day.result.groups` to read the results.
+          Each item contains a priority, a date, and a case count.
+          If `ACTIONS.cases_by_priority_per_day.result.truncated` is `true`,
+          the result reached the group limit and omitted some groups.
         examples:
           - cases-aggregate
       - id: core.cases.list_case_events
@@ -729,14 +740,19 @@ pages:
           - tables-search
       - id: core.table.aggregate_rows
         info: |
-          Group rows and calculate counts, totals, or averages in your workflow.
-          Create an `alerts` table with `source` (TEXT), `disposition` (TEXT),
-          and `bytes_out` (INTEGER) columns before running this example.
-          Use `[]` for `group_by` to calculate a single total across matching rows.
+          The example groups alerts by source and hour, then calculates the
+          alert count, total bytes, and median duration for each group.
 
-          Read the summaries from `ACTIONS.bytes_by_source_hourly.result.groups`.
-          If `truncated` is `true`, more groups matched than the result limit.
-          Omit `limit` to use your server's default, normally 100 groups.
+          Before running it, create an `alerts` table with these columns:
+
+          - `source`: TEXT.
+          - `disposition`: TEXT.
+          - `bytes_out`: INTEGER.
+          - `duration_ms`: NUMERIC.
+
+          Use `ACTIONS.bytes_by_source_hourly.result.groups` to read the results.
+          If `ACTIONS.bytes_by_source_hourly.result.truncated` is `true`,
+          the result reached the group limit and omitted some groups.
         examples:
           - tables-aggregate
 

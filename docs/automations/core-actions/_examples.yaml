@@ -438,7 +438,14 @@ examples:
                 value: [new, in_progress]
               - field: created_at
                 op: gte
-                value: "2026-01-01T00:00:00Z"
+                value: "2026-08-01T00:00:00Z"
+              - or:
+                  - field: priority
+                    op: gte
+                    value: high
+                  - field: fields.region
+                    op: eq
+                    value: emea
           group_by:
             - priority
             - field: created_at
@@ -918,6 +925,9 @@ examples:
             - function: sum
               field: bytes_out
               alias: total_bytes
+            - function: median
+              field: duration_ms
+          limit: 200
 
   tables-write:
     title: Insert, update, and delete rows
