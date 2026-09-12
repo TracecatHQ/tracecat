@@ -97,6 +97,7 @@ from tracecat.workflow.executions.service import (
 )
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
+from tracecat.workflow.management.types import WorkflowDraftPinsData
 
 router = APIRouter(prefix="/workflow-executions", tags=["workflow-executions"])
 workflow_router = APIRouter(prefix="/workflows", tags=["workflow-executions"])
@@ -690,7 +691,10 @@ async def get_workflow_execution_compact(
             detail="Workflow execution not found",
         )
 
-    compact_events = await service.list_workflow_execution_events_compact(execution_id)
+    compact_events = await service.list_workflow_execution_events_compact(
+        execution_id,
+        include_pinned_synthetic=True,
+    )
 
     for event in compact_events:
         # Project AgentOutput to UIMessages only in the compact workflow execution view
@@ -1080,12 +1084,14 @@ async def create_draft_workflow_execution(
     wf_id = WorkflowUUID.new(params.workflow_id)
 
     # Build DSL from the draft workflow, not from committed definition
+    draft_pins: WorkflowDraftPinsData | None = None
     async with WorkflowsManagementService.with_session(role=role) as mgmt_service:
         workflow = await mgmt_service.get_workflow(wf_id)
         if not workflow:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found"
             )
+        draft_pins = workflow.draft_pins
         try:
             dsl_input = await mgmt_service.build_dsl_from_workflow(workflow)
         except TracecatValidationError as e:
@@ -1118,12 +1124,23 @@ async def create_draft_workflow_execution(
             },
         )
 
+    pinned_action_results = await service.resolve_draft_pinned_action_results(
+        wf_id=wf_id,
+        dsl=dsl_input,
+        draft_pins=draft_pins,
+    )
+    parsed_draft_pins = service.parse_draft_pins(draft_pins)
+
     try:
         response = service.create_draft_workflow_execution_nowait(
             dsl=dsl_input,
             wf_id=wf_id,
             payload=params.inputs,
             time_anchor=params.time_anchor,
+            pinned_action_results=pinned_action_results,
+            pinned_source_execution_id=parsed_draft_pins.source_execution_id
+            if parsed_draft_pins
+            else None,
             # For draft workflow executions, pass None to dynamically resolve the registry lock
         )
         _annotate_execution_trace(role, response)

@@ -5,6 +5,7 @@ import {
   ChevronRightIcon,
   CircleDot,
   LoaderIcon,
+  PinIcon,
 } from "lucide-react"
 import dynamic from "next/dynamic"
 import type { ReactNode } from "react"
@@ -27,6 +28,9 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   getCompactEventTimestamp,
+  getEffectiveEventExecutionId,
+  getEffectiveEventSourceEventId,
+  getSyntheticPinnedEventMeta,
   parseStreamId,
   WF_TRIGGER_EVENT_REF,
   type WorkflowExecutionEventCompact,
@@ -418,6 +422,20 @@ function ActionEventContent({
   showStreamDetails?: boolean
 }) {
   const { status, session, stream_id, action_error } = actionEvent
+  const syntheticPinnedMeta = getSyntheticPinnedEventMeta(actionEvent)
+  const effectiveExecutionId = getEffectiveEventExecutionId(
+    actionEvent,
+    executionId
+  )
+  const effectiveEventId = getEffectiveEventSourceEventId(actionEvent)
+  const pinnedBadge = syntheticPinnedMeta ? (
+    <Badge variant="outline" className="items-center gap-1 border-dashed">
+      <PinIcon className="size-3" />
+      <span className="text-[10px]">
+        Pinned from {syntheticPinnedMeta.source_execution_id}
+      </span>
+    </Badge>
+  ) : null
 
   if (type === "result") {
     switch (status) {
@@ -448,6 +466,7 @@ function ActionEventContent({
       <Tabs defaultValue="session" className="flex flex-col gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <EventStatusBadge status={status} />
+          {pinnedBadge}
           <div className="ml-auto flex flex-wrap items-center gap-2">
             {showStreamDetails && <StreamDetails streamId={stream_id} />}
             <TabsList className="h-8">
@@ -475,8 +494,8 @@ function ActionEventContent({
           <ActionResultViewer
             result={actionEvent.action_result}
             eventRef={eventRef}
-            executionId={executionId}
-            eventId={actionEvent.source_event_id}
+            executionId={effectiveExecutionId}
+            eventId={effectiveEventId}
             defaultExpanded={true}
           />
         </TabsContent>
@@ -487,7 +506,10 @@ function ActionEventContent({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <EventStatusBadge status={status} />
+        <div className="flex flex-wrap items-center gap-2">
+          <EventStatusBadge status={status} />
+          {pinnedBadge}
+        </div>
         {showStreamDetails && <StreamDetails streamId={stream_id} />}
       </div>
       {type === "result" && action_error ? (
@@ -497,8 +519,8 @@ function ActionEventContent({
           event={actionEvent}
           type={type}
           eventRef={eventRef}
-          executionId={executionId}
-          eventId={actionEvent.source_event_id}
+          executionId={effectiveExecutionId}
+          eventId={effectiveEventId}
         />
       )}
     </div>

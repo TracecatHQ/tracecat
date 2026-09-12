@@ -17,6 +17,7 @@ import {
   LayoutListIcon,
   MessagesSquare,
   PencilIcon,
+  PinIcon,
   SquareArrowOutUpRightIcon,
   Trash2Icon,
 } from "lucide-react"
@@ -115,7 +116,7 @@ export default React.memo(function ActionNode({
     actionPanelRef,
     setSelectedActionEventRef,
   } = useWorkflowBuilder()
-  const { validationErrors } = useWorkflow()
+  const { validationErrors, pinDomains } = useWorkflow()
 
   const { toast } = useToast()
   // SAFETY: Node only exists if it's in the workflow
@@ -131,6 +132,23 @@ export default React.memo(function ActionNode({
       ) ?? []
     )
   }, [validationErrors, action])
+  const { pinnedRefs, forceSkipRefs } = pinDomains
+  const actionRef = useMemo(
+    () => (action?.title ? slugifyActionRef(action.title) : null),
+    [action?.title]
+  )
+  const isDraftPinned = useMemo(() => {
+    if (!actionRef) {
+      return false
+    }
+    return pinnedRefs.has(actionRef)
+  }, [actionRef, pinnedRefs])
+  const isConsequentiallySkipped = useMemo(() => {
+    if (!actionRef) {
+      return false
+    }
+    return forceSkipRefs.has(actionRef)
+  }, [actionRef, forceSkipRefs])
   const { registryAction } = useGetRegistryAction(action?.type)
   const [showToolbar, setShowToolbar] = useState(false)
   const [isMouseOverNode, setIsMouseOverNode] = useState(false)
@@ -371,7 +389,10 @@ export default React.memo(function ActionNode({
             className={cn(
               "min-w-64",
               nodeStyles.common,
-              selected ? nodeStyles.selected : nodeStyles.hover
+              selected ? nodeStyles.selected : nodeStyles.hover,
+              isDraftPinned && "border-sky-400 ring-2 ring-sky-400/40",
+              isConsequentiallySkipped &&
+                "border-dashed border-zinc-400 bg-zinc-50/60"
             )}
             onMouseEnter={handleNodeMouseEnter}
             onMouseLeave={handleNodeMouseLeave}
@@ -390,6 +411,8 @@ export default React.memo(function ActionNode({
               childWorkflowInfo={childWorkflowInfo}
               error={error}
               validationErrors={actionValidationErrors}
+              isDraftPinned={isDraftPinned}
+              isConsequentiallySkipped={isConsequentiallySkipped}
             />
             <ActionTargetHandle
               action={action}
@@ -433,6 +456,8 @@ function ActionNodeContent({
   childWorkflowInfo,
   error,
   validationErrors,
+  isDraftPinned,
+  isConsequentiallySkipped,
 }: {
   actionType?: string
   actionInputs?: Record<string, unknown>
@@ -446,6 +471,8 @@ function ActionNodeContent({
   childWorkflowInfo: ChildWorkflowInfo
   error: ActionConfigError | null
   validationErrors: ValidationResult[]
+  isDraftPinned: boolean
+  isConsequentiallySkipped: boolean
 }) {
   const form = useFormContext()
 
@@ -535,6 +562,20 @@ function ActionNodeContent({
           {/* Child workflow */}
 
           <div className="flex items-start gap-1">
+            {isDraftPinned && (
+              <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
+                <PinIcon className="mr-1 size-3" />
+                Pinned
+              </Badge>
+            )}
+            {isConsequentiallySkipped && !isDraftPinned && (
+              <Badge
+                variant="outline"
+                className="h-5 border-dashed px-1.5 text-[10px]"
+              >
+                Skipped
+              </Badge>
+            )}
             {childWorkflowInfo.isChildWorkflow && (
               <ChildWorkflowLink
                 workspaceId={workspaceId}

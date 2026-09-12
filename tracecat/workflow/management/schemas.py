@@ -18,7 +18,12 @@ from tracecat.dsl.common import DSLInput, DSLRunArgs
 from tracecat.dsl.schemas import ActionStatement, DSLConfig
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers import WorkspaceID
-from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowIDShort, WorkflowUUID
+from tracecat.identifiers.workflow import (
+    AnyWorkflowID,
+    WorkflowExecutionID,
+    WorkflowIDShort,
+    WorkflowUUID,
+)
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.tags.schemas import TagRead
 from tracecat.validation.schemas import ValidationResult
@@ -67,6 +72,13 @@ def format_registry_version(origin: str, version: str) -> str:
     return version[:12] if len(version) > 12 else version
 
 
+class WorkflowDraftPins(BaseModel):
+    """Draft-run pin configuration stored on Workflow."""
+
+    source_execution_id: WorkflowExecutionID
+    action_refs: list[str] = Field(default_factory=list)
+
+
 class WorkflowRead(Schema):
     id: WorkflowIDShort
     title: str
@@ -89,6 +101,7 @@ class WorkflowRead(Schema):
     trigger_position_x: float = 0.0
     trigger_position_y: float = 0.0
     graph_version: int = 1
+    draft_pins: WorkflowDraftPins | None = None
 
 
 class WorkflowDefinitionReadMinimal(Schema):
@@ -198,6 +211,7 @@ class WorkflowUpdate(BaseModel):
     config: DSLConfig | None = None
     alias: str | None = None
     error_handler: str | None = None
+    draft_pins: WorkflowDraftPins | None = None
 
     @field_validator("alias", "error_handler", mode="before")
     @classmethod
