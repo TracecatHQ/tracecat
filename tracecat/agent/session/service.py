@@ -120,7 +120,6 @@ from tracecat.chat.schemas import (
 )
 from tracecat.chat.service import ChatService
 from tracecat.chat.tools import (
-    filter_workspace_chat_tools_for_entitlements,
     filter_workspace_chat_tools_for_scopes,
     get_default_tools,
 )
@@ -137,13 +136,11 @@ from tracecat.db.models import (
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import RETRY_POLICIES
 from tracecat.exceptions import (
-    EntitlementRequired,
     TracecatConflictError,
     TracecatNotFoundError,
     TracecatValidationError,
 )
 from tracecat.identifiers import UserID
-from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
 from tracecat.redis.client import RedisClient, get_redis_client
 from tracecat.service import BaseWorkspaceService
@@ -419,26 +416,8 @@ class AgentSessionService(BaseWorkspaceService):
         return self.role.model_copy(update={"scopes": scopes})
 
     async def _get_default_tools(self, entity_type: AgentSessionEntity) -> list[str]:
-        """Get entitlement-aware default tools for a session entity type."""
-        agent_addons_enabled = True
-        if entity_type is AgentSessionEntity.WORKSPACE_CHAT:
-            agent_addons_enabled = await self.has_entitlement(Entitlement.AGENT_ADDONS)
-        return get_default_tools(
-            entity_type.value,
-            agent_addons_enabled=agent_addons_enabled,
-        )
-
-    async def _workspace_chat_tools_for_entitlements(
-        self,
-        tools: list[str] | None,
-    ) -> list[str] | None:
-        """Filter stored Workspace chat tools by current entitlements."""
-        if tools is None:
-            return None
-        return filter_workspace_chat_tools_for_entitlements(
-            tools,
-            agent_addons_enabled=await self.has_entitlement(Entitlement.AGENT_ADDONS),
-        )
+        """Get default tools for a session entity type."""
+        return get_default_tools(entity_type.value)
 
     async def _resolve_builtin_workspace_chat_skills(self) -> list[str] | None:
         """Always-on platform skills staged for entitled workspace-chat sessions.
@@ -470,41 +449,7 @@ class AgentSessionService(BaseWorkspaceService):
         # the chat user's RBAC. Enforce the caller's action scopes here -- the
         # last point where the user's real role is available -- so `agent:execute`
         # alone cannot grant workflow create/edit or case delete via these tools.
-        merged = filter_workspace_chat_tools_for_scopes(merged, role=self.role)
-        return await self._workspace_chat_tools_for_entitlements(merged)
-
-    async def _custom_mcp_integration_ids(self) -> set[uuid.UUID]:
-        """Return the ids of MCP servers the workspace configured itself.
-
-        Platform catalog connectors are excluded. ``source="workspace"`` is the
-        canonical split, so this stays in step with the picker's own listing.
-        """
-        integrations_service = IntegrationService(self.session, role=self.role)
-        custom = await integrations_service.list_mcp_integrations(source="workspace")
-        return {mcp_integration.id for mcp_integration in custom}
-
-    async def _mcp_integrations_for_entitlements(
-        self, mcp_integrations: list[str]
-    ) -> list[str]:
-        """Keep only the MCP servers the org's plan allows a session to use.
-
-        Every workspace may attach the MCP servers it configured itself; the
-        Tracecat-managed catalog connectors need ``AGENT_ADDONS``. An id that
-        is not a workspace-owned server drops out, malformed ids included --
-        they can never match a row, so there is nothing for them to reach.
-        """
-        if await self.has_entitlement(Entitlement.AGENT_ADDONS):
-            return mcp_integrations
-        custom_ids = await self._custom_mcp_integration_ids()
-        allowed: list[str] = []
-        for mcp_id in mcp_integrations:
-            try:
-                parsed_id = uuid.UUID(mcp_id)
-            except ValueError:
-                continue
-            if parsed_id in custom_ids:
-                allowed.append(mcp_id)
-        return allowed
+        return filter_workspace_chat_tools_for_scopes(merged, role=self.role)
 
     async def _resolve_session_mcp_servers(
         self,
@@ -514,15 +459,9 @@ class AgentSessionService(BaseWorkspaceService):
         """Resolve attached MCP integration IDs into boundary-safe server refs."""
         if not agent_session.mcp_integrations or agent_svc.presets is None:
             return None
-        # Filter the ids rather than the resolved refs: an ``MCPServerConfig``
-        # carries no catalog marker to filter on, and the resolver raises when a
-        # non-empty request resolves to nothing.
-        allowed = await self._mcp_integrations_for_entitlements(
+        return await agent_svc.presets.resolve_mcp_integration_refs(
             agent_session.mcp_integrations
         )
-        if not allowed:
-            return None
-        return await agent_svc.presets.resolve_mcp_integration_refs(allowed)
 
     async def _validate_session_mcp_integrations(
         self, mcp_integrations: list[str] | None
@@ -531,15 +470,7 @@ class AgentSessionService(BaseWorkspaceService):
         if not mcp_integrations:
             return
         preset_service = AgentPresetService(self.session, self.role)
-        selected = await preset_service.load_selected_mcp_integrations(mcp_integrations)
-        if await self.has_entitlement(Entitlement.AGENT_ADDONS):
-            return
-        # Reject a platform connector at write time so an un-entitled org gets a
-        # 403 here instead of a session that silently loses the server at run
-        # time. Its own custom servers persist as normal.
-        custom_ids = await self._custom_mcp_integration_ids()
-        if any(mcp_integration.id not in custom_ids for mcp_integration in selected):
-            raise EntitlementRequired(Entitlement.AGENT_ADDONS.value)
+        await preset_service.load_selected_mcp_integrations(mcp_integrations)
 
     def _build_direct_agent_search_attributes(
         self, session_id: uuid.UUID

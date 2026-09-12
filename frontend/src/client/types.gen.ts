@@ -6022,10 +6022,6 @@ export type PlatformMCPCatalogRead = {
   provider_id: string | null
   connection_spec: MCPConnectionSpec | null
   connection_options?: Array<MCPConnectionOption>
-  /**
-   * Whether this platform MCP catalog row is locked by entitlement.
-   */
-  locked: boolean
   state:
     | "not_configured"
     | "configured"

@@ -2664,14 +2664,6 @@ class IntegrationService(BaseWorkspaceService):
             mcp_integration = existing_mcp.scalars().first()
 
         if mcp_integration is None:
-            if not await self.has_entitlement(Entitlement.AGENT_ADDONS):
-                self.logger.info(
-                    "Skipped MCP provider auto-create due to missing entitlement",
-                    provider=provider_key.id,
-                    workspace_id=self.workspace_id,
-                )
-                return
-
             # Create new MCP integration
             metadata = mcp_provider_impl.metadata
 
@@ -3047,7 +3039,6 @@ class IntegrationService(BaseWorkspaceService):
             self._validate_catalog_url_credentials(
                 params=params, spec=resolved_catalog.spec
             )
-            await self.require_entitlement(Entitlement.AGENT_ADDONS)
         catalog_row = resolved_catalog.entry if resolved_catalog else None
         slug = await self._generate_mcp_integration_slug(
             name=params.name,
@@ -3247,11 +3238,6 @@ class IntegrationService(BaseWorkspaceService):
                     mcp_integration=existing
                 ):
                     return PlatformMCPCatalogConnectResult(mcp_integration=existing)
-                # Re-establishing auth on an existing (e.g. migrated) catalog row
-                # is a reconnect, gated the same as a fresh catalog connect.
-                # Unentitled workspaces keep connected rows and may disconnect,
-                # but must reconnect as a custom MCP server.
-                await self.require_entitlement(Entitlement.AGENT_ADDONS)
                 if custom_connect := await self._start_existing_custom_mcp_oauth(
                     mcp_integration=existing
                 ):
@@ -3276,8 +3262,6 @@ class IntegrationService(BaseWorkspaceService):
                 ):
                     return provider_connect
             return PlatformMCPCatalogConnectResult(mcp_integration=existing)
-
-        await self.require_entitlement(Entitlement.AGENT_ADDONS)
 
         if (
             connection is not None

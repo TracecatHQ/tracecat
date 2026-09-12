@@ -30,7 +30,6 @@ interface ChatToolsPickerProps {
   mcpIntegrations: MCPIntegrationRead[]
   selectedMcpIntegrations: string[]
   onMcpChange: (next: string[]) => void
-  agentAddonsEnabled?: boolean
   mcpEnabled?: boolean
   disabled?: boolean
   /** Selects which chat surface-specific default capabilities are read-only. */
@@ -61,7 +60,6 @@ type CapabilityGroup = {
   id: string
   label: string
   tools: string[]
-  addon?: boolean
 }
 
 const TOOL_SEARCH_LIMIT = 24
@@ -144,7 +142,6 @@ export const DEFAULT_CAPABILITY_GROUPS: CapabilityGroup[] = [
   {
     id: "presets",
     label: "Agent presets",
-    addon: true,
     tools: [
       "ai.agent.create_preset",
       "ai.agent.get_preset",
@@ -184,7 +181,6 @@ export function ChatToolsPicker({
   mcpIntegrations,
   selectedMcpIntegrations,
   onMcpChange,
-  agentAddonsEnabled = true,
   mcpEnabled = true,
   disabled = false,
   surface = "regular",
@@ -247,13 +243,8 @@ export function ChatToolsPicker({
   )
 
   const visibleCapabilityGroups = useMemo(
-    () =>
-      isWorkspaceChat
-        ? DEFAULT_CAPABILITY_GROUPS.filter(
-            (group) => !group.addon || agentAddonsEnabled
-          )
-        : [],
-    [agentAddonsEnabled, isWorkspaceChat]
+    () => (isWorkspaceChat ? DEFAULT_CAPABILITY_GROUPS : []),
+    [isWorkspaceChat]
   )
 
   // Tools the user can add: everything except this surface's always-on defaults.
@@ -708,7 +699,6 @@ function CapabilityRow({
         </span>
         <span className="text-[11px] text-muted-foreground">
           {toolCountLabel(group.tools.length)}
-          {group.addon ? " · add-on" : ""}
         </span>
       </button>
       {open ? (

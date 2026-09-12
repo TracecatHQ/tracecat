@@ -117,7 +117,6 @@ async def agent(
     description="Run an AI agent using a saved agent preset.",
     display_group="AI",
     namespace="ai",
-    required_entitlements=["agent_addons"],
 )
 async def preset_agent(
     preset: Annotated[

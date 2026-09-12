@@ -1534,10 +1534,9 @@ describe("ChatSessionPane", () => {
     )
   })
 
-  // A workspace without agent add-ons may only run the MCP servers it
-  // configured itself, so the picker must never offer a Tracecat-managed
-  // catalog connector -- the run would drop it and the write would 403.
-  it("offers only workspace-owned MCP servers without agent add-ons", () => {
+  // Catalog connectors are open source, so the picker always offers the whole
+  // MCP list; narrowing it would hide connectors the run would accept.
+  it("offers the whole MCP catalog", () => {
     mockUseVercelChat.mockReturnValue({
       sendMessage: jest.fn(),
       setMessages: jest.fn(),
@@ -1564,49 +1563,6 @@ describe("ChatSessionPane", () => {
             surface="workspace-chat"
             toolsEnabled
             mcpEnabled
-            agentAddonsEnabled={false}
-          />
-        </TooltipProvider>
-      </QueryClientProvider>
-    )
-
-    expect(mockUseListMcpIntegrations).toHaveBeenCalledWith(
-      "workspace-1",
-      "workspace",
-      { enabled: true }
-    )
-  })
-
-  // An entitled workspace can run the platform catalog too, so narrowing the
-  // list here would hide connectors the run would happily have accepted.
-  it("offers the whole MCP catalog with agent add-ons", () => {
-    mockUseVercelChat.mockReturnValue({
-      sendMessage: jest.fn(),
-      setMessages: jest.fn(),
-      regenerate: jest.fn(),
-      messages: [],
-      status: "ready",
-      lastError: null,
-      clearError: jest.fn(),
-      // biome-ignore lint/suspicious/noExplicitAny: mock return type needs flexibility for testing
-    } as any)
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <TooltipProvider>
-          <ChatSessionPane
-            chat={createChatFixture({
-              entity_type: "copilot",
-              entity_id: "workspace-1",
-            })}
-            workspaceId="workspace-1"
-            entityType="copilot"
-            entityId="workspace-1"
-            modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
-            surface="workspace-chat"
-            toolsEnabled
-            mcpEnabled
-            agentAddonsEnabled
           />
         </TooltipProvider>
       </QueryClientProvider>
@@ -2027,8 +1983,8 @@ describe("ChatSessionPane", () => {
     })
 
     it("abandons the turn when the selector goes before a bound mention", async () => {
-      // Losing agent add-ons mid-draft removes `presetSelector` while the bound
-      // range survives. Sending would run the turn under the previous agent,
+      // Losing `presetSelector` mid-draft (e.g. the surface changes) while the
+      // bound range survives. Sending would run the turn under the previous agent,
       // which is not the one the user named.
       const onSelect = jest.fn().mockResolvedValue(true)
       const { rerenderPane } = renderPane({
@@ -2545,7 +2501,7 @@ describe("ChatSessionPane", () => {
       expect(await screen.findByText("No agents found")).toBeInTheDocument()
     })
 
-    it("opens the Enterprise lock row without agent add-ons, and Enter still submits", async () => {
+    it("offers agent mentions without agent add-ons", async () => {
       mockEntitled(false)
       renderPane({
         agentMentionsSupported: true,
@@ -2559,19 +2515,13 @@ describe("ChatSessionPane", () => {
       const textarea = screen.getByRole("textbox")
       fireEvent.change(textarea, { target: { value: "@", selectionStart: 1 } })
 
+      expect(await screen.findByText("Triage agent")).toBeInTheDocument()
       expect(
-        await screen.findByText("Agent mentions are an Enterprise feature")
-      ).toBeInTheDocument()
-      expect(screen.queryByText("Triage agent")).not.toBeInTheDocument()
+        screen.queryByText("Agent mentions are an Enterprise feature")
+      ).not.toBeInTheDocument()
       expect(mockUseAgentPresets).toHaveBeenCalledWith(
         "workspace-1",
-        expect.objectContaining({ enabled: false })
-      )
-
-      fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
-
-      await waitFor(() =>
-        expect(sendMessage).toHaveBeenCalledWith({ text: "@" })
+        expect.objectContaining({ enabled: true })
       )
     })
 

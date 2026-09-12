@@ -128,6 +128,7 @@ import {
   useDeleteAgentPreset,
   useMoveAgentPreset,
 } from "@/hooks/use-agent-presets"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import { buildDuplicateAgentPresetPayload } from "@/lib/agent-presets"
 import type { AgentSessionWithStatus, AgentStatusTone } from "@/lib/agents"
 import {
@@ -1394,6 +1395,7 @@ function AgentPresetContextActions({
   canUpdateAgent,
   canDeleteAgent,
   canDuplicateAgent,
+  organizationEnabled = true,
 }: {
   item: AgentPresetDirectoryItem | AgentPresetReadMinimal
   setActiveDialog: (dialog: AgentActiveDialog | null) => void
@@ -1409,9 +1411,12 @@ function AgentPresetContextActions({
   canUpdateAgent: boolean
   canDeleteAgent: boolean
   canDuplicateAgent: boolean
+  /** Whether folder/tag organization (agent add-ons) is available. */
+  organizationEnabled?: boolean
 }) {
   const workspaceId = useWorkspaceId()
   const queryClient = useQueryClient()
+  const canOrganize = canUpdateAgent && organizationEnabled
   return (
     <ContextMenuGroup>
       <ContextMenuItem
@@ -1428,7 +1433,7 @@ function AgentPresetContextActions({
           Open in new tab
         </Link>
       </ContextMenuItem>
-      {canUpdateAgent ? (
+      {canOrganize ? (
         <ContextMenuItem
           className="text-xs"
           onClick={(e) => e.stopPropagation()}
@@ -1442,7 +1447,7 @@ function AgentPresetContextActions({
           Move to folder
         </ContextMenuItem>
       ) : null}
-      {canUpdateAgent ? (
+      {canOrganize ? (
         availableTags && availableTags.length > 0 ? (
           <ContextMenuSub>
             <ContextMenuSubTrigger
@@ -1599,6 +1604,7 @@ function AgentCatalogRow({
   canUpdateAgent,
   canDeleteAgent,
   canDuplicateAgent,
+  organizationEnabled = true,
 }: {
   item: AgentDirectoryItem
   onOpenPreset: (presetId: string) => void
@@ -1617,6 +1623,7 @@ function AgentCatalogRow({
   canUpdateAgent: boolean
   canDeleteAgent: boolean
   canDuplicateAgent: boolean
+  organizationEnabled?: boolean
 }) {
   const [isContextMenuOpen, setIsContextMenuOpen] = useState(false)
 
@@ -1727,7 +1734,9 @@ function AgentCatalogRow({
                     </TooltipContent>
                   </Tooltip>
                 </div>
-                <AgentPresetTagPills tags={item.tags} />
+                {organizationEnabled ? (
+                  <AgentPresetTagPills tags={item.tags} />
+                ) : null}
               </div>
             </div>
           </button>
@@ -1745,6 +1754,7 @@ function AgentCatalogRow({
           canUpdateAgent={canUpdateAgent}
           canDeleteAgent={canDeleteAgent}
           canDuplicateAgent={canDuplicateAgent}
+          organizationEnabled={organizationEnabled}
         />
       </ContextMenuContent>
     </ContextMenu>
@@ -1777,6 +1787,7 @@ function AgentsCatalogHeader({
   view,
   onViewChange,
   totalCount,
+  viewSwitchEnabled = true,
 }: {
   searchQuery: string
   onSearchChange: (query: string) => void
@@ -1785,6 +1796,7 @@ function AgentsCatalogHeader({
   view: AgentsViewMode
   onViewChange: (view: AgentsViewMode) => void
   totalCount: number
+  viewSwitchEnabled?: boolean
 }) {
   const selectedSortLabel =
     SORT_FIELD_OPTIONS.find((o) => o.value === sortBy.field)?.label ?? "Updated"
@@ -1818,22 +1830,24 @@ function AgentsCatalogHeader({
       </header>
 
       <div className="flex flex-wrap items-center gap-2 px-4 py-2">
-        <Select
-          value={view}
-          onValueChange={(v) => onViewChange(v as AgentsViewMode)}
-        >
-          <SelectTrigger className="h-6 w-[138px] rounded-md px-2 text-xs font-medium">
-            <div className="flex items-center gap-1.5">
-              {VIEW_ICON[view]}
-              <span>View</span>
-            </div>
-            <SelectValue placeholder={VIEW_LABEL[view]} />
-          </SelectTrigger>
-          <SelectContent align="start">
-            <SelectItem value="list">List</SelectItem>
-            <SelectItem value="folders">Folders</SelectItem>
-          </SelectContent>
-        </Select>
+        {viewSwitchEnabled ? (
+          <Select
+            value={view}
+            onValueChange={(v) => onViewChange(v as AgentsViewMode)}
+          >
+            <SelectTrigger className="h-6 w-[138px] rounded-md px-2 text-xs font-medium">
+              <div className="flex items-center gap-1.5">
+                {VIEW_ICON[view]}
+                <span>View</span>
+              </div>
+              <SelectValue placeholder={VIEW_LABEL[view]} />
+            </SelectTrigger>
+            <SelectContent align="start">
+              <SelectItem value="list">List</SelectItem>
+              <SelectItem value="folders">Folders</SelectItem>
+            </SelectContent>
+          </Select>
+        ) : null}
 
         <div className="inline-flex items-center rounded-md border border-input bg-transparent">
           <Select
@@ -1900,8 +1914,14 @@ export function AgentsDashboard() {
   const canUpdateAgent = useScopeCheck("agent:update") === true
   const canDeleteAgent = useScopeCheck("agent:delete") === true
   const canDuplicateAgent = canCreateAgent && canUpdateAgent
+  const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
+  // Folders and tags are agent add-ons; without them the catalog is a flat
+  // list and no folder/tag endpoint is called, whatever the URL says.
+  const organizationEnabled = hasEntitlement("agent_addons")
 
-  const view = parseAgentsViewMode(searchParams?.get("view"))
+  const view: AgentsViewMode = organizationEnabled
+    ? parseAgentsViewMode(searchParams?.get("view"))
+    : "list"
   const currentPath = normalizeAgentFolderPath(searchParams?.get("path"))
 
   const [searchQuery, setSearchQuery] = useState("")
@@ -1919,18 +1939,20 @@ export function AgentsDashboard() {
   // Data hooks
   const { presets, presetsIsLoading, presetsError } = useAgentPresets(
     workspaceId,
-    { enabled: view === "list" }
+    { enabled: !entitlementsLoading && view === "list" }
   )
   const { directoryItems, directoryItemsIsLoading, directoryItemsError } =
     useAgentDirectoryItems(currentPath, workspaceId, {
-      enabled: view === "folders",
+      enabled: organizationEnabled && view === "folders",
     })
-  const { agentTags, agentTagsIsLoading } = useAgentTagCatalog(workspaceId)
+  const { agentTags, agentTagsIsLoading } = useAgentTagCatalog(workspaceId, {
+    enabled: organizationEnabled,
+  })
   const { createAgentPreset, createAgentPresetIsPending } =
     useCreateAgentPreset(workspaceId)
   const { moveAgentPreset } = useMoveAgentPreset(workspaceId)
   const { folders, foldersIsLoading } = useAgentFolders(workspaceId, {
-    enabled: view === "list",
+    enabled: organizationEnabled && view === "list",
   })
   const folderPathById = useMemo(
     () => new Map((folders ?? []).map((folder) => [folder.id, folder.path])),
@@ -1966,24 +1988,26 @@ export function AgentsDashboard() {
           existingSlugs
         )
         const created = await createAgentPreset(payload)
-        const targetFolderPath =
-          view === "folders"
-            ? currentPath
-            : item.folder_id
-              ? folderPathById.get(item.folder_id)
-              : "/"
+        if (organizationEnabled) {
+          let targetFolderPath: string | undefined = "/"
+          if (view === "folders") {
+            targetFolderPath = currentPath
+          } else if (item.folder_id) {
+            targetFolderPath = folderPathById.get(item.folder_id)
+          }
 
-        if (targetFolderPath === undefined) {
-          throw new Error("Source agent folder is not loaded yet")
-        }
+          if (targetFolderPath === undefined) {
+            throw new Error("Source agent folder is not loaded yet")
+          }
 
-        try {
-          await moveAgentPreset({
-            presetId: created.id,
-            folder_path: targetFolderPath,
-          })
-        } catch {
-          // Move hook already toasts; continue to open the duplicated preset.
+          try {
+            await moveAgentPreset({
+              presetId: created.id,
+              folder_path: targetFolderPath,
+            })
+          } catch {
+            // Move hook already toasts; continue to open the duplicated preset.
+          }
         }
         router.push(`/workspaces/${workspaceId}/agents/${created.id}`)
       } catch (error) {
@@ -2000,6 +2024,7 @@ export function AgentsDashboard() {
       currentPath,
       folderPathById,
       moveAgentPreset,
+      organizationEnabled,
       presets,
       queryClient,
       router,
@@ -2097,7 +2122,8 @@ export function AgentsDashboard() {
   const visibleItems =
     view === "folders" ? sortedDirectoryItems : sortedListItems
   const isLoading =
-    view === "folders" ? directoryItemsIsLoading : presetsIsLoading
+    entitlementsLoading ||
+    (view === "folders" ? directoryItemsIsLoading : presetsIsLoading)
   const error = view === "folders" ? directoryItemsError : presetsError
 
   return (
@@ -2111,6 +2137,7 @@ export function AgentsDashboard() {
           view={view}
           onViewChange={handleViewChange}
           totalCount={visibleItems.length}
+          viewSwitchEnabled={organizationEnabled}
         />
 
         <div className="min-h-0 flex-1 overflow-auto">
@@ -2152,9 +2179,11 @@ export function AgentsDashboard() {
                   canUpdateAgent={canUpdateAgent}
                   canDeleteAgent={canDeleteAgent}
                   canDuplicateAgent={canDuplicateAgent}
+                  organizationEnabled={organizationEnabled}
                   duplicateDisabled={
                     createAgentPresetIsPending ||
-                    (item.type === "preset" &&
+                    (organizationEnabled &&
+                      item.type === "preset" &&
                       view === "list" &&
                       item.folder_id != null &&
                       (foldersIsLoading || !folderPathById.has(item.folder_id)))
@@ -2167,43 +2196,47 @@ export function AgentsDashboard() {
       </div>
 
       {/* Dialogs */}
-      <AgentFolderCreateDialog
-        open={activeDialog === AgentActiveDialog.FolderCreate}
-        onOpenChange={(isOpen) => {
-          if (!isOpen) setActiveDialog(null)
-        }}
-        currentPath={currentPath}
-      />
-      <AgentFolderRenameDialog
-        open={activeDialog === AgentActiveDialog.FolderRename}
-        onOpenChange={(isOpen) => {
-          if (!isOpen) {
-            setActiveDialog(null)
-            setSelectedFolder(null)
-          }
-        }}
-        folder={selectedFolder}
-      />
-      <AgentFolderDeleteDialog
-        open={activeDialog === AgentActiveDialog.FolderDelete}
-        onOpenChange={(isOpen) => {
-          if (!isOpen) {
-            setActiveDialog(null)
-            setSelectedFolder(null)
-          }
-        }}
-        folder={selectedFolder}
-      />
-      <AgentPresetMoveDialog
-        open={activeDialog === AgentActiveDialog.PresetMove}
-        onOpenChange={(isOpen) => {
-          if (!isOpen) {
-            setActiveDialog(null)
-            setSelectedPreset(null)
-          }
-        }}
-        preset={selectedPreset}
-      />
+      {organizationEnabled ? (
+        <>
+          <AgentFolderCreateDialog
+            open={activeDialog === AgentActiveDialog.FolderCreate}
+            onOpenChange={(isOpen) => {
+              if (!isOpen) setActiveDialog(null)
+            }}
+            currentPath={currentPath}
+          />
+          <AgentFolderRenameDialog
+            open={activeDialog === AgentActiveDialog.FolderRename}
+            onOpenChange={(isOpen) => {
+              if (!isOpen) {
+                setActiveDialog(null)
+                setSelectedFolder(null)
+              }
+            }}
+            folder={selectedFolder}
+          />
+          <AgentFolderDeleteDialog
+            open={activeDialog === AgentActiveDialog.FolderDelete}
+            onOpenChange={(isOpen) => {
+              if (!isOpen) {
+                setActiveDialog(null)
+                setSelectedFolder(null)
+              }
+            }}
+            folder={selectedFolder}
+          />
+          <AgentPresetMoveDialog
+            open={activeDialog === AgentActiveDialog.PresetMove}
+            onOpenChange={(isOpen) => {
+              if (!isOpen) {
+                setActiveDialog(null)
+                setSelectedPreset(null)
+              }
+            }}
+            preset={selectedPreset}
+          />
+        </>
+      ) : null}
       <AgentPresetDeleteDialog
         open={activeDialog === AgentActiveDialog.PresetDelete}
         onOpenChange={(isOpen) => {

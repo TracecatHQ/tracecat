@@ -29,6 +29,7 @@ import {
   useCreateAgentPreset,
   useMoveAgentPreset,
 } from "@/hooks/use-agent-presets"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import { useAgentDefaultModel, useWorkspaceAgentModels } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -83,6 +84,8 @@ function CreateAgentDialogContent({
     useCreateAgentPreset(workspaceId)
   const { moveAgentPreset, moveAgentPresetIsPending } =
     useMoveAgentPreset(workspaceId)
+  const { hasEntitlement } = useEntitlements()
+  const foldersEnabled = hasEntitlement("agent_addons")
 
   const initialAgentModel = useMemo(() => {
     if (!models) return null
@@ -136,7 +139,9 @@ function CreateAgentDialogContent({
         description: values.description || undefined,
       })
       const targetFolderPath =
-        currentPath && currentPath !== "/" ? currentPath : null
+        foldersEnabled && currentPath && currentPath !== "/"
+          ? currentPath
+          : null
       if (targetFolderPath) {
         try {
           await moveAgentPreset({
