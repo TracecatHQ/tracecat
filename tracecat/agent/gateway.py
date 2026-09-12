@@ -8,15 +8,23 @@ from typing import Any, TypedDict, cast
 from urllib.parse import parse_qsl, urlencode
 
 import boto3
+import httpx
 from aiocache import Cache
 from botocore.exceptions import BotoCoreError, ClientError
-from fastapi import Request
+from fastapi import HTTPException, Request
 from litellm.caching.dual_cache import DualCache
+from litellm.exceptions import (
+    AuthenticationError,
+    PermissionDeniedError,
+    RateLimitError,
+)
 from litellm.integrations.custom_logger import CustomLogger
 from litellm.proxy._types import LitellmUserRoles, ProxyException, UserAPIKeyAuth
 from litellm.types.utils import CallTypesLiteral
+from openai import RateLimitError as OpenAIRateLimitError
 
 from tracecat import config as app_config
+from tracecat.agent.diagnostics import parse_bounded_error_body
 from tracecat.agent.litellm_compat import apply_patch
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.tokens import verify_llm_token
@@ -24,6 +32,7 @@ from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.identifiers import OrganizationID, WorkspaceID
 from tracecat.logger import logger
+from tracecat.temporal.error_chain import iter_error_chain
 
 apply_patch()
 
@@ -201,6 +210,8 @@ async def _resolve_bedrock_runtime_credentials(
         except (BotoCoreError, ClientError, KeyError) as exc:
             raise ProxyException(
                 message="Failed to assume configured AWS role for Bedrock.",
+                # This broad SDK failure may be transport or service failure,
+                # so it does not establish that provider credentials are invalid.
                 type="auth_error",
                 param=None,
                 code=401,
@@ -216,7 +227,7 @@ async def _resolve_bedrock_runtime_credentials(
     if access_key or secret_key or session_token:
         raise ProxyException(
             message="Bedrock static credentials require AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY.",
-            type="auth_error",
+            type="tracecat_llm_provider_auth_failed",
             param=None,
             code=401,
         )
@@ -226,7 +237,7 @@ async def _resolve_bedrock_runtime_credentials(
 
     raise ProxyException(
         message="Bedrock requires one of AWS_ROLE_ARN, AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY, or AWS_BEARER_TOKEN_BEDROCK.",
-        type="auth_error",
+        type="tracecat_llm_provider_auth_failed",
         param=None,
         code=401,
     )
@@ -311,7 +322,7 @@ async def user_api_key_auth(request: Request, api_key: str | None) -> UserAPIKey
         logger.warning("LLM token validation failed")
         raise ProxyException(
             message="Invalid or expired token",
-            type="auth_error",
+            type="tracecat_llm_token_invalid",
             param=None,
             code=401,
         ) from exc
@@ -354,8 +365,93 @@ async def user_api_key_auth(request: Request, api_key: str | None) -> UserAPIKey
     )
 
 
+class _ProviderAuthHTTPException(HTTPException):
+    """Retain auth origin through LiteLLM's HTTPException serialization."""
+
+    type = "tracecat_llm_provider_auth_failed"
+
+
+class _ProviderQuotaHTTPException(HTTPException):
+    """Retain structured provider quota evidence through gateway serialization."""
+
+    type = "budget_exceeded"
+
+
+class _ProviderRateLimitHTTPException(HTTPException):
+    """Retain generic provider throttling through gateway serialization."""
+
+    type = "throttling_error"
+
+
+def _response_has_provider_quota_code(response: httpx.Response) -> bool:
+    if response.status_code != 429:
+        return False
+    try:
+        body = response.content
+    except httpx.ResponseNotRead:
+        return False
+    # Do not add an unbounded parse of a provider-controlled response.
+    match parse_bounded_error_body(body):
+        case {"error": {"code": "insufficient_quota"}} | {
+            "error": {"type": "insufficient_quota"}
+        }:
+            return True
+    return False
+
+
+def _is_provider_quota_exceeded(error: BaseException) -> bool:
+    # LiteLLM replaces the provider's code and response body, but retains the
+    # original SDK exception in the chain. Inspect only typed codes, never text.
+    for current in iter_error_chain(error):
+        if isinstance(current, OpenAIRateLimitError) and (
+            current.code == "insufficient_quota" or current.type == "insufficient_quota"
+        ):
+            return True
+        if isinstance(
+            current, httpx.HTTPStatusError
+        ) and _response_has_provider_quota_code(current.response):
+            return True
+    return False
+
+
 class TracecatCallbackHandler(CustomLogger):
     """LiteLLM callback handler that injects provider credentials per request."""
+
+    async def async_post_call_failure_hook(
+        self,
+        request_data: dict[str, Any],
+        original_exception: Exception,
+        user_api_key_dict: UserAPIKeyAuth,
+        traceback_str: str | None = None,
+    ) -> HTTPException | None:
+        """Label typed provider failures without copying provider details."""
+        del request_data, user_api_key_dict, traceback_str
+        if isinstance(original_exception, AuthenticationError | PermissionDeniedError):
+            replacement = _ProviderAuthHTTPException(
+                status_code=original_exception.status_code,
+                detail="The LLM provider rejected authentication or access",
+            )
+        elif isinstance(
+            original_exception, RateLimitError
+        ) and _is_provider_quota_exceeded(original_exception):
+            replacement = _ProviderQuotaHTTPException(
+                status_code=429,
+                detail="LLM provider quota exhausted; check billing or usage limits",
+            )
+        elif isinstance(original_exception, RateLimitError):
+            replacement = _ProviderRateLimitHTTPException(
+                status_code=429,
+                detail="LLM provider rate limit exceeded; retry later",
+            )
+        else:
+            return None
+
+        # LiteLLM's /v1/messages handler ignores the returned replacement and
+        # serializes the original exception. Normalize its wire fields too;
+        # other endpoints still use the bounded replacement above.
+        original_exception.type = replacement.type
+        original_exception.message = str(replacement.detail)
+        return replacement
 
     async def async_pre_call_hook(
         self,
@@ -418,7 +514,7 @@ class TracecatCallbackHandler(CustomLogger):
         if not creds:
             raise ProxyException(
                 message=f"No {provider} API credentials configured. Add them in workspace settings.",
-                type="credential_error",
+                type="tracecat_llm_provider_auth_failed",
                 param=None,
                 code=401,
             )
@@ -549,7 +645,7 @@ def _inject_provider_credentials(
             if not api_key:
                 raise ProxyException(
                     message="Provider credentials incomplete",
-                    type="auth_error",
+                    type="tracecat_llm_provider_auth_failed",
                     param=None,
                     code=401,
                 )
@@ -564,7 +660,7 @@ def _inject_provider_credentials(
             if not api_key:
                 raise ProxyException(
                     message="Provider credentials incomplete",
-                    type="auth_error",
+                    type="tracecat_llm_provider_auth_failed",
                     param=None,
                     code=401,
                 )
@@ -579,7 +675,7 @@ def _inject_provider_credentials(
             if not api_key:
                 raise ProxyException(
                     message="Provider credentials incomplete",
-                    type="auth_error",
+                    type="tracecat_llm_provider_auth_failed",
                     param=None,
                     code=401,
                 )
@@ -592,7 +688,7 @@ def _inject_provider_credentials(
             if not api_key:
                 raise ProxyException(
                     message="Provider credentials incomplete",
-                    type="auth_error",
+                    type="tracecat_llm_provider_auth_failed",
                     param=None,
                     code=401,
                 )
@@ -633,7 +729,7 @@ def _inject_provider_credentials(
             else:
                 raise ProxyException(
                     message="Bedrock credentials must be resolved before request dispatch.",
-                    type="auth_error",
+                    type="tracecat_llm_provider_auth_failed",
                     param=None,
                     code=401,
                 )
@@ -682,7 +778,7 @@ def _inject_provider_credentials(
             else:
                 raise ProxyException(
                     message="Azure OpenAI requires AZURE_API_KEY, AZURE_AD_TOKEN, or Azure Entra client credentials (AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET).",
-                    type="auth_error",
+                    type="tracecat_llm_provider_auth_failed",
                     param=None,
                     code=401,
                 )
@@ -708,7 +804,7 @@ def _inject_provider_credentials(
             else:
                 raise ProxyException(
                     message="Azure AI requires AZURE_API_KEY, AZURE_AD_TOKEN, or Azure Entra client credentials (AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET).",
-                    type="auth_error",
+                    type="tracecat_llm_provider_auth_failed",
                     param=None,
                     code=401,
                 )

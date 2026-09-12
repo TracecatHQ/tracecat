@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from collections.abc import Awaitable, Callable, Iterator, Mapping
 from dataclasses import dataclass, replace
-from typing import Any, cast
+from typing import Any, Literal, cast
 from unittest.mock import Mock
 
 import pytest
@@ -37,6 +37,7 @@ from temporalio.worker import (
     WorkflowInterceptorClassInput,
 )
 
+from tracecat.agent.diagnostics import LLMErrorDiagnostics
 from tracecat.agent.error_policy import (
     agent_executor_unavailable,
     invalid_agent_configuration,
@@ -81,7 +82,9 @@ from tracecat.runtime.errors import (
 from tracecat.temporal.errors import (
     activity_error_boundary,
     application_error_from_classification,
+    build_error_transport_detail,
     extract_error_capture,
+    raise_wrapped_application_error,
 )
 from tracecat.workflow.executions.enums import TriggerType
 
@@ -723,6 +726,8 @@ async def test_platform_agent_executor_failure_emits_one_sanitized_sentry_event(
         RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE.value
     )
     assert tags[SentryTag.ERROR_OWNER.value] == "platform"
+    assert SentryTag.LLM_ROUTE.value not in tags
+    assert SentryTag.LLM_PROVIDER_CONFIGURATION.value not in tags
     assert _SENSITIVE_VALUE not in json.dumps(event)
 
 
@@ -1313,9 +1318,13 @@ async def test_activity_capture_failure_keeps_terminal_fallback(
 
 def test_activity_user_failure_is_quiet(sentry_events: list[Event]) -> None:
     capture = ActivityEnvironment().run(
-        capture_activity_failure,
-        RuntimeError(_SENSITIVE_VALUE),
-        user_agent_execution_failed(),
+        lambda: capture_activity_failure(
+            RuntimeError(_SENSITIVE_VALUE),
+            user_agent_execution_failed(),
+            diagnostics=(
+                LLMErrorDiagnostics(route="managed", provider_configuration="builtin"),
+            ),
+        )
     )
     assert capture is None
     assert sentry_events == []
@@ -1364,3 +1373,75 @@ def test_activity_receipt_deduplicates_only_matching_source(
         )
         is None
     )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("provider_configuration", ["builtin", "custom", None])
+async def test_llm_dimensions_survive_activity_and_workflow_sentry_sanitization(
+    sentry_events: list[Event],
+    workflow_runtime: _WorkflowInfo,
+    provider_configuration: Literal["builtin", "custom"] | None,
+) -> None:
+    del workflow_runtime
+    classification = agent_executor_unavailable()
+    diagnostic = LLMErrorDiagnostics(
+        route="managed", provider_configuration=provider_configuration
+    )
+    error = application_error_from_classification(
+        classification,
+        build_error_transport_detail(classification, diagnostic),
+    )
+    error.__cause__ = RuntimeError(_SENSITIVE_VALUE)
+    with pytest.raises(ApplicationError) as wrapped:
+        ActivityEnvironment().run(
+            lambda: raise_wrapped_application_error(
+                error, fallback_classification=classification
+            )
+        )
+    error = wrapped.value
+    assert extract_error_capture(error, classification) is not None
+    attribution = _RuntimeErrorAttributionWorkflowInterceptor(_RaisingInbound(error))
+    with pytest.raises(ApplicationError):
+        await attribution.execute_workflow(_workflow_input())
+    assert len(sentry_events) == 2
+    for event in sentry_events:
+        assert "tags" in event
+        assert event["tags"][SentryTag.LLM_ROUTE.value] == "managed"
+        assert event["tags"][SentryTag.LLM_PROVIDER_CONFIGURATION.value] == (
+            provider_configuration or "unknown"
+        )
+        assert _SENSITIVE_VALUE not in json.dumps(event)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "diagnostic",
+    [
+        None,
+        {"unrelated": _SENSITIVE_VALUE},
+        {"route": "managed", "url": _SENSITIVE_VALUE},
+        {"route": "managed", "provider_configuration": _SENSITIVE_VALUE},
+    ],
+)
+async def test_invalid_domain_diagnostics_do_not_change_terminal_reporting(
+    sentry_events: list[Event],
+    workflow_runtime: _WorkflowInfo,
+    diagnostic: object,
+) -> None:
+    del workflow_runtime
+    classification = agent_executor_unavailable()
+    error = application_error_from_classification(
+        classification, build_error_transport_detail(classification, diagnostic)
+    )
+    attribution = _RuntimeErrorAttributionWorkflowInterceptor(_RaisingInbound(error))
+
+    with pytest.raises(ApplicationError) as raised:
+        await attribution.execute_workflow(_workflow_input())
+
+    assert raised.value is error
+    assert len(sentry_events) == 1
+    event = sentry_events[0]
+    assert "tags" in event
+    assert SentryTag.LLM_ROUTE.value not in event["tags"]
+    assert SentryTag.LLM_PROVIDER_CONFIGURATION.value not in event["tags"]
+    assert _SENSITIVE_VALUE not in json.dumps(event)

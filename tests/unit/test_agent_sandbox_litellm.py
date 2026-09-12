@@ -47,6 +47,7 @@ from tracecat.agent.common.types import (
     SandboxAgentConfig,
     SandboxSubagentConfig,
 )
+from tracecat.agent.diagnostics import LLMErrorDiagnostics
 from tracecat.agent.executor.activity import (
     AgentExecutorInput,
     AgentExecutorResult,
@@ -2482,6 +2483,7 @@ async def test_run_agent_activity_with_fake_litellm_provider_spawns_runtime_in_e
             base_url="https://customer-litellm.example",
             model_provider="custom-model-provider",
             authorization="Bearer sk-test",
+            provider_configuration="custom",
         )
     }
     assert proxy.routing_plan is not None
@@ -3209,6 +3211,7 @@ async def test_executor_keeps_direct_passthrough_available_for_root_with_subagen
             base_url="https://customer-litellm.example",
             model_provider="custom-model-provider",
             authorization="Bearer sk-test",
+            provider_configuration="custom",
         )
     }
 
@@ -3247,12 +3250,14 @@ async def test_executor_routes_passthrough_subagent_by_its_own_model_config(
             base_url="https://customer-litellm.example",
             model_provider="custom-model-provider",
             authorization="Bearer sk-test",
+            provider_configuration="custom",
         ),
         "child-alias::tracecat-subagent::analyst": LLMRoute(
             base_url="https://child-litellm.example",
             model_provider="custom-model-provider",
             upstream_model_name="child-alias",
             authorization="Bearer sk-test",
+            provider_configuration="custom",
         ),
     }
 
@@ -3529,3 +3534,41 @@ async def test_broker_deadline_captures_source_before_stream_and_cancellation(
     assert result.terminal_stream_error_emitted is True
     assert result.sentry_capture == captures[0]
     assert len(broker.cancelled_session_ids) == 1
+
+
+@pytest.mark.anyio
+async def test_executor_indexes_provider_configuration_by_exact_root_and_subagent_model() -> (
+    None
+):
+    executor_input = _make_executor_input(enable_internet_access=False)
+    executor_input.config.model_name = "synthetic-root"
+    executor_input.config.model_provider = "openai"
+    executor_input.subagents = [
+        SandboxSubagentConfig(
+            alias="synthetic-child",
+            description="Synthetic child",
+            prompt="Synthetic prompt",
+            model_route="synthetic-child-route",
+            config=SandboxAgentConfig(
+                model_name="synthetic-model", model_provider="custom-model-provider"
+            ),
+            mcp_auth_token="synthetic-token",
+        )
+    ]
+    plan = SandboxedAgentExecutor(input=executor_input)._llm_routing_plan()
+    # Materialization must preserve the managed index too.
+    plan = await plan.materialize(None)
+    assert plan.resolve(
+        "openai/synthetic-root"
+    ).error_diagnostics == LLMErrorDiagnostics(
+        route="managed", provider_configuration="builtin"
+    )
+    assert plan.resolve(
+        "synthetic-child-route"
+    ).error_diagnostics == LLMErrorDiagnostics(
+        route="managed", provider_configuration="custom"
+    )
+    assert plan.resolve("unrecognized-route").error_diagnostics == LLMErrorDiagnostics(
+        route="managed", provider_configuration=None
+    )
+    assert plan.resolve(None).error_diagnostics.provider_configuration is None

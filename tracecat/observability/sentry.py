@@ -1,7 +1,7 @@
 """Privacy-bounded Sentry configuration for Tracecat services."""
 
 import os
-from collections.abc import Callable, Mapping, MutableMapping
+from collections.abc import Callable, Mapping, MutableMapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from functools import partial
@@ -9,6 +9,7 @@ from typing import Any, Literal, Protocol, cast
 
 import sentry_sdk
 from opentelemetry import trace
+from pydantic import ValidationError
 from sentry_sdk.integrations import Integration
 from sentry_sdk.integrations.atexit import AtexitIntegration
 from sentry_sdk.integrations.fastapi import FastApiIntegration
@@ -21,6 +22,7 @@ from temporalio.exceptions import TimeoutError as TemporalTimeoutError
 
 from tracecat import __version__ as APP_VERSION
 from tracecat import config
+from tracecat.agent.diagnostics import LLMErrorDiagnostics
 from tracecat.db.exceptions import AuthPoolExhaustedError
 from tracecat.logger import logger
 from tracecat.observability.types import PlatformErrorCapture
@@ -42,6 +44,8 @@ class SentryTag(StrEnum):
     """Stable, privacy-reviewed Sentry tag keys."""
 
     SERVICE_NAME = "tracecat.service.name"
+    LLM_ROUTE = "tracecat.llm.route"
+    LLM_PROVIDER_CONFIGURATION = "tracecat.llm.provider_configuration"
     ERROR_OWNER = "tracecat.error.owner"
     ERROR_KIND = "tracecat.error.kind"
     ERROR_RETRY_DISPOSITION = "tracecat.error.retry_disposition"
@@ -62,6 +66,8 @@ class SentryTag(StrEnum):
 
 _WORKER_ALLOWED_TAGS = frozenset(
     {
+        SentryTag.LLM_ROUTE.value,
+        SentryTag.LLM_PROVIDER_CONFIGURATION.value,
         SentryTag.ACTIVITY_TIMEOUT_TYPE.value,
         SentryTag.CAPTURE_BOUNDARY.value,
         SentryTag.ACTIVITY_TYPE.value,
@@ -141,11 +147,29 @@ class _SentryInitializer(Protocol):
     ) -> None: ...
 
 
+def _set_diagnostic_tags(
+    scope: sentry_sdk.Scope, diagnostics: Sequence[object]
+) -> None:
+    """Render allowlisted domain diagnostics at the reporting boundary."""
+    for diagnostic in diagnostics:
+        try:
+            llm = LLMErrorDiagnostics.model_validate(diagnostic)
+        except ValidationError:
+            continue
+        scope.set_tag(SentryTag.LLM_ROUTE.value, llm.route)
+        scope.set_tag(
+            SentryTag.LLM_PROVIDER_CONFIGURATION.value,
+            llm.provider_configuration or "unknown",
+        )
+        return
+
+
 def capture_activity_failure(
     error: BaseException,
     classification: RuntimeErrorClassification,
     *,
     existing_capture: PlatformErrorCapture | None = None,
+    diagnostics: Sequence[object] = (),
 ) -> PlatformErrorCapture | None:
     """Capture a platform failure before its activity stack is serialized.
 
@@ -184,6 +208,7 @@ def capture_activity_failure(
             scope.set_tag(SentryTag.CAPTURE_BOUNDARY.value, "activity")
             scope.set_tag(SentryTag.ACTIVITY_TYPE.value, info.activity_type)
             scope.set_tag(SentryTag.ACTIVITY_ATTEMPT.value, str(info.attempt))
+            _set_diagnostic_tags(scope, diagnostics)
             scope.set_tag(SentryTag.ERROR_OWNER.value, classification.owner.value)
             scope.set_tag(SentryTag.ERROR_KIND.value, classification.kind.value)
             scope.set_tag(
@@ -220,6 +245,8 @@ def capture_platform_failure(
     error: BaseException,
     classification: RuntimeErrorClassification,
     context: WorkflowFailureEventContext,
+    *,
+    diagnostics: Sequence[object] = (),
 ) -> None:
     """Best-effort capture of a classified data-plane platform failure.
 
@@ -255,6 +282,7 @@ def capture_platform_failure(
                 SentryTag.SERVICE_NAME.value,
                 config.TRACECAT__SERVICE_NAME,
             )
+            _set_diagnostic_tags(scope, diagnostics)
             scope.set_tag(SentryTag.ERROR_OWNER.value, classification.owner.value)
             scope.set_tag(SentryTag.ERROR_KIND.value, classification.kind.value)
             scope.set_tag(

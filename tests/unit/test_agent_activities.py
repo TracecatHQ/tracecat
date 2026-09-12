@@ -49,6 +49,7 @@ from tracecat.agent.common.fs import force_rmtree
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.common.types import MCPToolDefinition
+from tracecat.agent.diagnostics import LLMErrorDiagnostics
 from tracecat.agent.error_policy import (
     agent_executor_timed_out,
     user_agent_execution_failed,
@@ -114,6 +115,8 @@ from tracecat.runtime.errors import (
     RuntimeErrorOwner,
 )
 from tracecat.temporal.errors import extract_error_classification
+from tracecat.tiers.entitlements import EntitlementService
+from tracecat.tiers.service import TierService
 
 
 @pytest.fixture
@@ -304,12 +307,12 @@ class TestBuildToolDefinitionsActivity:
                 return None
 
         monkeypatch.setattr(
-            agent_activities.TierService,
+            TierService,
             "with_session",
             lambda: _TierContext(),
         )
         monkeypatch.setattr(
-            agent_activities.EntitlementService,
+            EntitlementService,
             "check_entitlement",
             AsyncMock(side_effect=EntitlementRequired("agent_addons")),
         )
@@ -1904,6 +1907,7 @@ class TestSandboxedAgentExecutorHelpers:
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
         concurrent: bool = False,
+        cancel_fails: bool = False,
     ) -> AgentExecutorResult:
         executor._job_dir = tmp_path
         executor._llm_proxy = cast(
@@ -1935,6 +1939,8 @@ class TestSandboxedAgentExecutorHelpers:
                 await asyncio.Event().wait()
 
             async def cancel_turn(self, _session_id: str) -> None:
+                if cancel_fails:
+                    raise ConcurrentSessionTurnError("synthetic cleanup conflict")
                 return None
 
         async def wait_for_cancel_signal(**_kwargs: Any) -> None:
@@ -2045,6 +2051,9 @@ class TestSandboxedAgentExecutorHelpers:
         executor._fatal_error = LLMProxyError(
             message="raw gateway timeout",
             classification=agent_executor_timed_out(TimeoutError("secret")),
+            diagnostic=LLMErrorDiagnostics(
+                route="managed", provider_configuration="custom"
+            ),
         )
         executor._fatal_error_event.set()
 
@@ -2059,7 +2068,37 @@ class TestSandboxedAgentExecutorHelpers:
         assert result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_TIMED_OUT
         assert result.classification.retry_disposition is RetryDisposition.RETRYABLE
         assert "secret" not in result.classification.message
+        assert result.diagnostic == executor._fatal_error.diagnostic
+        assert "llm" not in result.model_dump(mode="json")["classification"]
         assert result.terminal_stream_error_emitted is True
+
+    @pytest.mark.anyio
+    async def test_cleanup_failure_drops_original_proxy_diagnostics(
+        self,
+        executor_input: AgentExecutorInput,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        executor = SandboxedAgentExecutor(input=executor_input)
+        executor._fatal_error = LLMProxyError(
+            message="synthetic proxy timeout",
+            classification=agent_executor_timed_out(),
+            diagnostic=LLMErrorDiagnostics(
+                route="managed", provider_configuration="custom"
+            ),
+        )
+        executor._fatal_error_event.set()
+
+        result = await self._run_broker_leaf(
+            executor=executor,
+            monkeypatch=monkeypatch,
+            tmp_path=tmp_path,
+            cancel_fails=True,
+        )
+
+        assert result.classification is not None
+        assert result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+        assert result.diagnostic is None
 
     @pytest.mark.anyio
     async def test_elapsed_deadline_is_platform_timeout(

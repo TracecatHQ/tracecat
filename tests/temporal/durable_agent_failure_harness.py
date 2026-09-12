@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import httpx
 import orjson
@@ -36,6 +36,7 @@ from tracecat_ee.agent.types import AgentWorkflowID
 from tracecat_ee.agent.workflows.durable import AgentWorkflowArgs, DurableAgentWorkflow
 
 from tracecat import config
+from tracecat.agent.diagnostics import LLMErrorDiagnostics
 from tracecat.agent.executor.activity import AgentExecutorInput, AgentExecutorResult
 from tracecat.agent.sandbox.llm_proxy import (
     LLMProxyError,
@@ -106,6 +107,7 @@ class GatewayFailureInjection:
 
     route: GatewayRoute
     mode: GatewayFailureMode
+    provider_configuration: Literal["builtin", "custom"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,6 +119,7 @@ class FailureInjection:
     activity_non_retryable: bool = False
     terminal_stream_error_emitted: bool | None = None
     gateway_failure: GatewayFailureInjection | None = None
+    llm_diagnostic: LLMErrorDiagnostics | None = None
     emit_session_error_fails: bool = False
 
 
@@ -224,14 +227,25 @@ def _gateway_status_code(mode: GatewayFailureMode) -> int | None:
             return None
 
 
-def _gateway_routing_plan(route: GatewayRoute) -> tuple[LLMRoutingPlan, str | None]:
+def _gateway_routing_plan(
+    route: GatewayRoute,
+    provider_configuration: Literal["builtin", "custom"],
+) -> tuple[LLMRoutingPlan, str]:
     managed_route = LLMRoute(
         base_url="http://managed-litellm.invalid",
         model_provider="openai",
         mode="managed",
     )
     if route is GatewayRoute.MANAGED_LITELLM:
-        return LLMRoutingPlan(managed_route=managed_route, direct_routes={}), None
+        model = "synthetic-managed-model"
+        return (
+            LLMRoutingPlan(
+                managed_route=managed_route,
+                direct_routes={},
+                managed_provider_configurations={model: provider_configuration},
+            ),
+            model,
+        )
 
     model = route.value
     base_url = (
@@ -246,6 +260,7 @@ def _gateway_routing_plan(route: GatewayRoute) -> tuple[LLMRoutingPlan, str | No
         ),
         mode="direct",
         authorization="Bearer synthetic-test-key",
+        provider_configuration=provider_configuration,
     )
     return (
         LLMRoutingPlan(
@@ -256,13 +271,15 @@ def _gateway_routing_plan(route: GatewayRoute) -> tuple[LLMRoutingPlan, str | No
     )
 
 
-async def _gateway_failure_classification(
+async def _gateway_failure(
     injection: GatewayFailureInjection,
     diagnostic: str,
-) -> RuntimeErrorClassification:
-    """Exercise the real proxy and return the classification it emits."""
+) -> LLMProxyError:
+    """Exercise the real proxy and return its classification and diagnostics."""
     errors: list[LLMProxyError] = []
-    routing_plan, request_model = _gateway_routing_plan(injection.route)
+    routing_plan, request_model = _gateway_routing_plan(
+        injection.route, injection.provider_configuration
+    )
 
     async def handler(request: httpx.Request) -> httpx.Response:
         status_code = _gateway_status_code(injection.mode)
@@ -314,7 +331,7 @@ async def _gateway_failure_classification(
         raise AssertionError(
             f"Expected one proxy error for {injection}, observed {len(errors)}"
         )
-    return errors[0].classification
+    return errors[0]
 
 
 @pytest.fixture
@@ -456,6 +473,7 @@ def _activities(state: _HarnessState) -> list[Callable[..., Any]]:
                 success=False,
                 error=state.diagnostic,
                 classification=state.injection.classification,
+                diagnostic=state.injection.llm_diagnostic,
                 terminal_stream_error_emitted=(
                     state.injection.terminal_stream_error_emitted
                 ),
@@ -499,12 +517,11 @@ async def run_failure_scenario(
 ) -> ScenarioObservation:
     """Execute one matrix row through the production workflow configuration."""
     if injection.gateway_failure is not None:
+        failure = await _gateway_failure(injection.gateway_failure, diagnostic)
         injection = replace(
             injection,
-            classification=await _gateway_failure_classification(
-                injection.gateway_failure,
-                diagnostic,
-            ),
+            classification=failure.classification,
+            llm_diagnostic=failure.diagnostic,
         )
     state = _HarnessState(injection=injection, diagnostic=diagnostic)
     args = _workflow_args(injection)

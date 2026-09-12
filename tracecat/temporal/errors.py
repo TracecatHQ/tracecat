@@ -236,7 +236,11 @@ def raise_wrapped_application_error(
         next_retry_delay=next_retry_delay,
         capture=(
             extract_error_capture(error, classification)
-            or capture_activity_failure(error, classification)
+            or capture_activity_failure(
+                error,
+                classification,
+                diagnostics=extract_error_diagnostics(error, classification),
+            )
         ),
     )
 
@@ -326,6 +330,29 @@ def extract_error_classifications_from_details(
     return tuple(classifications)
 
 
+def extract_error_diagnostics(
+    error: BaseException,
+    classification: RuntimeErrorClassification,
+) -> tuple[object, ...]:
+    """Read opaque diagnostics for this failure, excluding incidental context.
+
+    Reporting boundaries validate the domain-specific diagnostic models.
+    Diagnostics never participate in classification selection.
+    """
+    diagnostics: list[object] = []
+    for current in iter_error_chain(error, include_implicit_context=False):
+        if not isinstance(current, ApplicationError):
+            continue
+        for detail in current.details:
+            for transport in _transport_details_from_payload(detail):
+                if (
+                    transport.classification == classification
+                    and transport.diagnostic is not None
+                ):
+                    diagnostics.append(transport.diagnostic)
+    return tuple(diagnostics)
+
+
 def _classification_from_details(
     details: Sequence[Any],
 ) -> RuntimeErrorClassification | None:
@@ -335,18 +362,26 @@ def _classification_from_details(
     return None
 
 
-def _classifications_from_payload(
+def _transport_details_from_payload(
     payload: Any,
-) -> tuple[RuntimeErrorClassification, ...]:
+) -> tuple[OpaqueErrorTransportDetail, ...]:
+    """Read a transport payload as its transport details, in transport order."""
     match parse_classified_error_payload(payload):
         case None:
             return ()
         case ErrorTransportDetail() as parsed:
-            return (parsed.classification,)
+            return (parsed,)
         case parsed:
-            return tuple(
-                transport_detail.classification for transport_detail in parsed.values()
-            )
+            return tuple(parsed.values())
+
+
+def _classifications_from_payload(
+    payload: Any,
+) -> tuple[RuntimeErrorClassification, ...]:
+    return tuple(
+        transport_detail.classification
+        for transport_detail in _transport_details_from_payload(payload)
+    )
 
 
 def _serialized_detail(detail: Any) -> Any:
