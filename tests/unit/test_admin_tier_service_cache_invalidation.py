@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterator
 from typing import cast
 from unittest.mock import AsyncMock, patch
 
@@ -10,11 +11,34 @@ from tracecat_ee.admin.tiers.service import AdminTierService
 
 from tracecat import config
 from tracecat.auth.types import PlatformRole, Role
+from tracecat.authz.scopes import ADMIN_SCOPES, ORG_ADMIN_SCOPES
+from tracecat.contexts import ctx_role
 from tracecat.db.models import Organization, OrganizationTier, Tier
 from tracecat.tiers import defaults as tier_defaults
 from tracecat.tiers.schemas import OrganizationTierUpdate, TierCreate, TierUpdate
 
 pytestmark = pytest.mark.usefixtures("db")
+
+
+@pytest.fixture
+def test_admin_role(mock_org_id: uuid.UUID) -> Iterator[Role]:
+    """Provide admin context without provisioning an unrelated workspace.
+
+    These tests configure their own tiers, including an absent default tier.
+    Workspace provisioning would require those tiers before each test runs.
+    """
+    role = Role(
+        type="user",
+        user_id=mock_org_id,
+        organization_id=mock_org_id,
+        service_id="tracecat-runner",
+        scopes=ADMIN_SCOPES | ORG_ADMIN_SCOPES,
+    )
+    token = ctx_role.set(role)
+    try:
+        yield role
+    finally:
+        ctx_role.reset(token)
 
 
 @pytest.fixture(autouse=True)
