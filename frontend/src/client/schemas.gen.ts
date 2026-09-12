@@ -13442,6 +13442,12 @@ export const $EffectiveEntitlements = {
       description: "Whether Workspace Chat is enabled",
       default: false,
     },
+    multi_workspace: {
+      type: "boolean",
+      title: "Multi-workspace",
+      description: "Whether multiple workspaces per organization are enabled",
+      default: false,
+    },
     watchtower: {
       type: "boolean",
       title: "Watchtower",
@@ -13496,6 +13502,11 @@ export const $EntitlementsDict = {
       type: "boolean",
       title: "Workspace Chat",
       description: "Whether Workspace Chat is enabled",
+    },
+    multi_workspace: {
+      type: "boolean",
+      title: "Multi-workspace",
+      description: "Whether multiple workspaces per organization are enabled",
     },
     watchtower: {
       type: "boolean",

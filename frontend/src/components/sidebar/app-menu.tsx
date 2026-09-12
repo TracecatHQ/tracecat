@@ -38,6 +38,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import {
   useOrganization,
   useOrganizationMemberships,
@@ -55,12 +56,22 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
   const { organizations } = useOrganizationMemberships()
   const canAdministerOrg = useScopeCheck("org:update")
   const canCreateWorkspace = useScopeCheck("workspace:create")
+  const {
+    hasEntitlement,
+    hasEntitlementData,
+    isLoading: entitlementsLoading,
+  } = useEntitlements()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [workspaceName, setWorkspaceName] = useState("")
   const [isCreating, setIsCreating] = useState(false)
 
   const activeWorkspace = workspaces?.find((ws) => ws.id === workspaceId)
   const showOrganizationSelector = (organizations?.length ?? 0) > 1
+  const canCreateAdditionalWorkspace =
+    canCreateWorkspace === true &&
+    hasEntitlementData &&
+    !entitlementsLoading &&
+    hasEntitlement("multi_workspace")
 
   const buildWorkspaceHref = (
     targetWorkspaceId: string,
@@ -83,7 +94,7 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
 
   const handleCreateWorkspace = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!workspaceName.trim()) return
+    if (!canCreateAdditionalWorkspace || !workspaceName.trim()) return
 
     setIsCreating(true)
     try {
@@ -174,7 +185,7 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
                 </Link>
               </DropdownMenuItem>
             ))}
-            {canCreateWorkspace === true && (
+            {canCreateAdditionalWorkspace && (
               <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
                 <DialogTrigger asChild>
                   <DropdownMenuItem

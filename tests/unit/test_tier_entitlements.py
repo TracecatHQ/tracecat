@@ -9,6 +9,7 @@ from tracecat import config
 from tracecat.db.models import Organization, OrganizationTier, Tier
 from tracecat.exceptions import EntitlementRequired
 from tracecat.tiers import defaults as tier_defaults
+from tracecat.tiers.access import is_org_entitled
 from tracecat.tiers.entitlements import Entitlement, EntitlementService
 from tracecat.tiers.service import TierService
 
@@ -94,6 +95,7 @@ async def test_specific_tier_entitlements_drive_effective_values(
             "case_addons": True,
             "agent_addons": False,
             "workspace_chat": True,
+            "multi_workspace": True,
             "git_sync": True,
         },
     )
@@ -104,7 +106,9 @@ async def test_specific_tier_entitlements_drive_effective_values(
     assert effective.case_addons is True
     assert effective.agent_addons is False
     assert effective.workspace_chat is True
+    assert effective.multi_workspace is True
     assert effective.git_sync is True
+    assert await is_org_entitled(session, test_org.id, Entitlement.MULTI_WORKSPACE)
 
 
 @pytest.mark.anyio
@@ -124,6 +128,35 @@ async def test_org_entitlement_overrides_take_precedence_over_tier(
 
     assert effective.case_addons is False
     assert effective.agent_addons is False
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("tier_value", "override_value", "expected"),
+    [(False, True, True), (True, False, False)],
+)
+async def test_multi_workspace_overrides_match_effective_entitlement_check(
+    session: AsyncSession,
+    test_org: Organization,
+    tier_value: bool,
+    override_value: bool,
+    expected: bool,
+) -> None:
+    """Hosted tier and org override resolution agree for multi-workspace."""
+    await _create_org_tier(
+        session,
+        test_org.id,
+        entitlements={"multi_workspace": tier_value},
+        entitlement_overrides={"multi_workspace": override_value},
+    )
+
+    tier_service = TierService(session)
+    effective = await tier_service.get_effective_entitlements(test_org.id)
+
+    assert effective.multi_workspace is expected
+    assert (
+        await is_org_entitled(session, test_org.id, Entitlement.MULTI_WORKSPACE)
+    ) is expected
 
 
 @pytest.mark.anyio

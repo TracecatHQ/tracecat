@@ -15,7 +15,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
 from pydantic import BaseModel
 from pydantic_core import to_jsonable_python
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.admin.router import router as admin_router
 from tracecat_ee.agent.approvals.router import router as approvals_router
@@ -281,16 +280,7 @@ async def setup_org_settings(session: AsyncSession, admin_role: Role):
 
 async def setup_workspace_defaults(session: AsyncSession, admin_role: Role):
     ws_service = WorkspaceService(session, role=admin_role)
-    workspaces = await ws_service.admin_list_workspaces()
-    n_workspaces = len(workspaces)
-    logger.info(f"{n_workspaces} workspaces found")
-    if n_workspaces == 0:
-        # Create default workspace if there are no workspaces
-        try:
-            default_workspace = await ws_service.create_workspace("Default Workspace")
-            logger.info("Default workspace created", workspace=default_workspace)
-        except IntegrityError:
-            logger.info("Default workspace already exists, skipping")
+    await ws_service.ensure_default_workspace()
 
 
 async def setup_rbac_defaults(session: AsyncSession):

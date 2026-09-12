@@ -3967,6 +3967,10 @@ export type EffectiveEntitlements = {
    */
   workspace_chat?: boolean
   /**
+   * Whether multiple workspaces per organization are enabled
+   */
+  multi_workspace?: boolean
+  /**
    * Whether Watchtower agent monitoring is enabled (agent sessions, tool-call telemetry, and controls)
    */
   watchtower?: boolean
@@ -4006,6 +4010,10 @@ export type EntitlementsDict = {
    * Whether Workspace Chat is enabled
    */
   workspace_chat?: boolean
+  /**
+   * Whether multiple workspaces per organization are enabled
+   */
+  multi_workspace?: boolean
   /**
    * Whether Watchtower agent monitoring is enabled (agent sessions, tool-call telemetry, and controls)
    */
