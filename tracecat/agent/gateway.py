@@ -377,6 +377,12 @@ class _ProviderQuotaHTTPException(HTTPException):
     type = "budget_exceeded"
 
 
+class _ProviderRateLimitHTTPException(HTTPException):
+    """Retain generic provider throttling through gateway serialization."""
+
+    type = "throttling_error"
+
+
 def _response_has_provider_quota_code(response: httpx.Response) -> bool:
     if response.status_code != 429:
         return False
@@ -431,6 +437,11 @@ class TracecatCallbackHandler(CustomLogger):
             replacement = _ProviderQuotaHTTPException(
                 status_code=429,
                 detail="LLM provider quota exhausted; check billing or usage limits",
+            )
+        elif isinstance(original_exception, RateLimitError):
+            replacement = _ProviderRateLimitHTTPException(
+                status_code=429,
+                detail="LLM provider rate limit exceeded; retry later",
             )
         else:
             return None

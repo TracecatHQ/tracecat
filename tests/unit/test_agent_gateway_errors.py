@@ -128,6 +128,8 @@ async def test_anthropic_endpoint_distinguishes_provider_quota_from_throttling(
         assert classification.kind is RuntimeErrorKind.AGENT_LLM_RATE_LIMITED
         assert classification.owner is RuntimeErrorOwner.PLATFORM
         assert classification.retry_disposition is RetryDisposition.RETRYABLE
+        assert b"synthetic-sensitive-detail" not in body
+        assert b"LLM provider rate limit exceeded; retry later" in body
 
 
 @pytest.mark.anyio

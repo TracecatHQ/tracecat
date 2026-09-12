@@ -858,6 +858,8 @@ async def test_provider_quota_survives_litellm_request_and_serialization(
         assert classification.kind is RuntimeErrorKind.AGENT_LLM_RATE_LIMITED
         assert classification.owner is RuntimeErrorOwner.PLATFORM
         assert classification.retry_disposition is RetryDisposition.RETRYABLE
+        assert b"synthetic-sensitive-detail" not in wire_body
+        assert b"LLM provider rate limit exceeded; retry later" in wire_body
 
 
 @pytest.mark.anyio
@@ -871,21 +873,45 @@ async def test_provider_quota_survives_litellm_request_and_serialization(
         ),
     ],
 )
-async def test_quota_callback_ignores_unusable_provider_response(body: bytes) -> None:
+async def test_throttling_callback_uses_safe_message_without_provider_response(
+    body: bytes,
+) -> None:
     response = httpx.Response(
         429,
         request=httpx.Request("POST", "https://provider.example.invalid/v1/messages"),
         content=body,
     )
     error = RateLimitError(
-        message="synthetic throttling", llm_provider="hosted_vllm", model="synthetic"
+        message="synthetic-sensitive-detail",
+        llm_provider="hosted_vllm",
+        model="synthetic",
     )
     error.__cause__ = httpx.HTTPStatusError(
-        "synthetic throttling", request=response.request, response=response
+        "synthetic-sensitive-detail", request=response.request, response=response
     )
     result = await TracecatCallbackHandler().async_post_call_failure_hook(
         request_data={},
         original_exception=error,
         user_api_key_dict=UserAPIKeyAuth(),
     )
-    assert result is None
+    assert result is not None
+    assert result.status_code == 429
+    assert result.detail == "LLM provider rate limit exceeded; retry later"
+    assert error.type == "throttling_error"
+    assert error.message == "LLM provider rate limit exceeded; retry later"
+    wire_body = json.dumps(
+        {
+            "error": {
+                "type": error.type,
+                "code": str(result.status_code),
+                "message": error.message,
+            }
+        }
+    ).encode()
+    classification = _http_error_classification(
+        result.status_code, route_is_direct=False, body=wire_body
+    )
+    assert classification.kind is RuntimeErrorKind.AGENT_LLM_RATE_LIMITED
+    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert classification.retry_disposition is RetryDisposition.RETRYABLE
+    assert b"synthetic-sensitive-detail" not in wire_body
