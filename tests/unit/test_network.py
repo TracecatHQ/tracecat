@@ -24,7 +24,7 @@ from tracecat.network import (
     configured_http_egress_policy,
     validate_url_resolves_public_async,
 )
-from tracecat.outbound_http import guarded_async_client
+from tracecat.outbound_http import guarded_async_client, guarded_client
 
 _OK = b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK"
 _OK_CLOSE = b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK"
@@ -87,6 +87,47 @@ class _ResponseStream(httpcore.AsyncNetworkStream):
         return None
 
 
+class _SyncResponseStream(httpcore.NetworkStream):
+    """Synchronous in-memory HTTP/1.1 stream for transport tests."""
+
+    def __init__(
+        self,
+        tls_server_names: list[str | None],
+        responses: Iterable[bytes],
+    ) -> None:
+        self._responses = deque(responses)
+        self._response = b""
+        self._request = b""
+        self._tls_server_names = tls_server_names
+
+    def read(self, max_bytes: int, timeout: float | None = None) -> bytes:
+        data, self._response = self._response[:max_bytes], self._response[max_bytes:]
+        return data
+
+    def write(self, buffer: bytes, timeout: float | None = None) -> None:
+        self._request += buffer
+        if b"\r\n\r\n" in self._request and not self._response:
+            self._response = self._responses.popleft()
+            self._request = b""
+
+    def close(self) -> None:
+        return None
+
+    def start_tls(
+        self,
+        ssl_context: ssl.SSLContext,
+        server_hostname: str | None = None,
+        timeout: float | None = None,
+    ) -> httpcore.NetworkStream:
+        self._tls_server_names.append(server_hostname)
+        return self
+
+    def get_extra_info(self, info: str) -> Any:
+        if info == "is_readable":
+            return False
+        return None
+
+
 type ResponseFactory = Callable[[str, int], Iterable[bytes]]
 
 
@@ -122,6 +163,41 @@ class _RecordingBackend(httpcore.AsyncNetworkBackend):
         raise AssertionError("Unexpected Unix socket connection")
 
     async def sleep(self, seconds: float) -> None:
+        return None
+
+
+class _SyncRecordingBackend(httpcore.NetworkBackend):
+    """Record the numeric host selected by the synchronous guard."""
+
+    def __init__(self, responses: ResponseFactory | None = None) -> None:
+        self.hosts: list[str] = []
+        self.tls_server_names: list[str | None] = []
+        self._responses = responses or (lambda _host, _connection: (_OK,))
+
+    def connect_tcp(
+        self,
+        host: str,
+        port: int,
+        timeout: float | None = None,
+        local_address: str | None = None,
+        socket_options: Iterable[httpcore.SOCKET_OPTION] | None = None,
+    ) -> httpcore.NetworkStream:
+        connection = len(self.hosts)
+        self.hosts.append(host)
+        return _SyncResponseStream(
+            self.tls_server_names,
+            self._responses(host, connection),
+        )
+
+    def connect_unix_socket(
+        self,
+        path: str,
+        timeout: float | None = None,
+        socket_options: Iterable[httpcore.SOCKET_OPTION] | None = None,
+    ) -> httpcore.NetworkStream:
+        raise AssertionError("Unexpected Unix socket connection")
+
+    def sleep(self, seconds: float) -> None:
         return None
 
 
@@ -182,6 +258,22 @@ async def test_guarded_transport_connects_to_validated_numeric_address() -> None
     assert backend.hosts == ["93.184.216.34"]
 
 
+def test_sync_guarded_transport_connects_to_validated_numeric_address() -> None:
+    backend = _SyncRecordingBackend()
+    resolver_calls: list[tuple[str, int]] = []
+
+    def resolver(host: str, port: int) -> tuple[SocketInfo, ...]:
+        resolver_calls.append((host, port))
+        return (_socket_info("93.184.216.34"),)
+
+    with guarded_client(resolver=resolver, backend=backend) as client:
+        response = client.get("http://example.test/resource")
+
+    assert response.text == "OK"
+    assert resolver_calls == [("example.test", 80)]
+    assert backend.hosts == ["93.184.216.34"]
+
+
 @pytest.mark.anyio
 async def test_guarded_transport_preserves_hostname_for_tls() -> None:
     backend = _RecordingBackend()
@@ -191,6 +283,20 @@ async def test_guarded_transport_preserves_hostname_for_tls() -> None:
 
     async with guarded_async_client(resolver=resolver, backend=backend) as client:
         response = await client.get("https://secure.example.test/resource")
+
+    assert response.status_code == 200
+    assert backend.hosts == ["93.184.216.34"]
+    assert backend.tls_server_names == ["secure.example.test"]
+
+
+def test_sync_guarded_transport_preserves_hostname_for_tls() -> None:
+    backend = _SyncRecordingBackend()
+
+    def resolver(host: str, port: int) -> tuple[SocketInfo, ...]:
+        return (_socket_info("93.184.216.34"),)
+
+    with guarded_client(resolver=resolver, backend=backend) as client:
+        response = client.get("https://secure.example.test/resource")
 
     assert response.status_code == 200
     assert backend.hosts == ["93.184.216.34"]
@@ -207,6 +313,19 @@ async def test_guarded_transport_rejects_dns_rebinding_before_connect() -> None:
     async with guarded_async_client(resolver=resolver, backend=backend) as client:
         with pytest.raises(DisallowedUrlError, match="Host is not allowed"):
             await client.get("http://rebind.example.test/resource")
+
+    assert backend.hosts == []
+
+
+def test_sync_guarded_transport_rejects_dns_rebinding_before_connect() -> None:
+    backend = _SyncRecordingBackend()
+
+    def resolver(host: str, port: int) -> tuple[SocketInfo, ...]:
+        return (_socket_info("127.0.0.1"),)
+
+    with guarded_client(resolver=resolver, backend=backend) as client:
+        with pytest.raises(DisallowedUrlError, match="Host is not allowed"):
+            client.get("http://rebind.example.test/resource")
 
     assert backend.hosts == []
 
@@ -309,6 +428,27 @@ async def test_same_origin_is_revalidated_when_connection_is_recreated() -> None
         first = await client.get("http://rebind.example.test/first")
         with pytest.raises(DisallowedUrlError, match="Host is not allowed"):
             await client.get("http://rebind.example.test/second")
+
+    assert first.status_code == 200
+    assert resolver_calls == 2
+    assert backend.hosts == ["93.184.216.34"]
+
+
+def test_sync_same_origin_is_revalidated_when_connection_is_recreated() -> None:
+    backend = _SyncRecordingBackend(lambda _host, _connection: (_OK_CLOSE,))
+    resolver_calls = 0
+
+    def resolver(host: str, port: int) -> tuple[SocketInfo, ...]:
+        nonlocal resolver_calls
+        resolver_calls += 1
+        if resolver_calls == 1:
+            return (_socket_info("93.184.216.34"),)
+        return (_socket_info("127.0.0.1"),)
+
+    with guarded_client(resolver=resolver, backend=backend) as client:
+        first = client.get("http://rebind.example.test/first")
+        with pytest.raises(DisallowedUrlError, match="Host is not allowed"):
+            client.get("http://rebind.example.test/second")
 
     assert first.status_code == 200
     assert resolver_calls == 2

@@ -1,12 +1,9 @@
 """Base OAuth provider using authlib for standardized OAuth2 flows."""
 
 import asyncio
-import ipaddress
 import json
 import secrets
-import socket
 from abc import ABC
-from collections.abc import Sequence
 from json import JSONDecodeError
 from typing import Any, ClassVar, Self
 from urllib.parse import urlparse, urlunparse
@@ -31,9 +28,17 @@ from tracecat.integrations.types import (
 from tracecat.logger import logger
 from tracecat.network import (
     DisallowedUrlError,
-    SocketInfo,
-    is_disallowed_address,
-    validate_resolved_addresses,
+    HttpEgressPolicy,
+    HttpEgressPurpose,
+    HttpOrigin,
+    configured_http_egress_policy,
+    validate_url_resolves_for_policy,
+    validate_url_resolves_for_policy_async,
+)
+from tracecat.outbound_http import (
+    GuardedAsyncHTTPTransport,
+    guarded_async_client,
+    guarded_client,
 )
 
 _OAUTH_AUTHORIZATION_SERVER_WELL_KNOWN = "/.well-known/oauth-authorization-server"
@@ -92,34 +97,37 @@ def validate_oauth_endpoint(url: str, base_domain: str | None = None) -> None:
         ValueError: If the URL fails validation
     """
     parsed = urlparse(url)
-
-    # Enforce HTTPS
-    if parsed.scheme.lower() != "https":
-        raise ValueError(f"OAuth endpoint must use HTTPS: {url}")
-
-    hostname = parsed.hostname
-    if not hostname:
-        raise ValueError(f"OAuth endpoint must include a hostname: {url}")
-    normalized_hostname = hostname.rstrip(".").lower()
-    if normalized_hostname in {"localhost", "localhost.localdomain"}:
-        raise ValueError("OAuth endpoint host is not allowed")
     try:
-        address = ipaddress.ip_address(normalized_hostname)
-    except ValueError:
-        address = None
-    if address and is_disallowed_address(address):
-        raise ValueError("OAuth endpoint host is not allowed")
+        origin = HttpOrigin.from_url(url)
+    except DisallowedUrlError as exc:
+        raise ValueError(f"OAuth endpoint URL is invalid: {url}") from exc
+
+    # OAuth endpoint URIs may contain a query but never a fragment.
+    if origin.scheme != "https":
+        raise ValueError(f"OAuth endpoint must use HTTPS: {url}")
+    if parsed.fragment:
+        raise ValueError(f"OAuth endpoint must not include a fragment: {url}")
+
+    normalized_hostname = origin.host
 
     # Validate against base domain if provided
     if base_domain:
-        base_parsed = urlparse(base_domain) if base_domain.startswith("http") else None
-        expected_domain = (base_parsed.hostname if base_parsed else base_domain) or ""
-        expected_domain = expected_domain.rstrip(".").lower()
+        base_parsed = urlparse(base_domain)
+        expected_hostname = (
+            base_parsed.hostname if base_parsed.scheme else base_domain
+        ) or ""
+        try:
+            expected_domain = HttpOrigin.from_url(
+                httpx.URL(scheme="https", host=expected_hostname)
+            ).host
+        except (DisallowedUrlError, httpx.InvalidURL, ValueError) as exc:
+            raise ValueError(f"OAuth base domain is invalid: {base_domain}") from exc
         if normalized_hostname != expected_domain and not normalized_hostname.endswith(
             f".{expected_domain}"
         ):
             raise ValueError(
-                f"OAuth endpoint domain {hostname} does not match expected domain {expected_domain}"
+                "OAuth endpoint domain "
+                f"{normalized_hostname} does not match expected domain {expected_domain}"
             )
 
 
@@ -198,11 +206,19 @@ def mcp_requested_scopes(
     return requested
 
 
-def _validate_oauth_resolved_addresses(infos: Sequence[SocketInfo]) -> None:
-    try:
-        validate_resolved_addresses(infos)
-    except DisallowedUrlError as exc:
-        raise ValueError("OAuth endpoint host is not allowed") from exc
+def oauth_egress_policy() -> HttpEgressPolicy:
+    """Return the deployment policy for caller-influenced OAuth traffic."""
+    return configured_http_egress_policy(HttpEgressPurpose.OAUTH)
+
+
+def create_oauth2_client(**kwargs: Any) -> AsyncOAuth2Client:
+    """Build an Authlib client whose sockets use guarded OAuth egress."""
+    return AsyncOAuth2Client(
+        transport=GuardedAsyncHTTPTransport(oauth_egress_policy()),
+        trust_env=False,
+        follow_redirects=False,
+        **kwargs,
+    )
 
 
 def validate_oauth_endpoint_resolves_public(
@@ -211,24 +227,10 @@ def validate_oauth_endpoint_resolves_public(
     """Validate URL and require DNS resolution to public IP addresses."""
 
     validate_oauth_endpoint(url, base_domain=base_domain)
-    parsed = urlparse(url)
-    hostname = parsed.hostname
-    if not hostname:
-        raise ValueError(f"OAuth endpoint must include a hostname: {url}")
-    port = parsed.port or 443
     try:
-        infos = [
-            SocketInfo(*info)
-            for info in socket.getaddrinfo(
-                hostname,
-                port,
-                type=socket.SOCK_STREAM,
-                proto=socket.IPPROTO_TCP,
-            )
-        ]
-    except socket.gaierror as exc:
-        raise ValueError("OAuth endpoint host could not be resolved") from exc
-    _validate_oauth_resolved_addresses(infos)
+        validate_url_resolves_for_policy(url, oauth_egress_policy())
+    except DisallowedUrlError as exc:
+        raise ValueError("OAuth endpoint host is not allowed") from exc
 
 
 async def validate_oauth_endpoint_resolves_public_async(
@@ -237,25 +239,10 @@ async def validate_oauth_endpoint_resolves_public_async(
     """Async wrapper for DNS-backed OAuth endpoint validation."""
 
     validate_oauth_endpoint(url, base_domain=base_domain)
-    parsed = urlparse(url)
-    hostname = parsed.hostname
-    if not hostname:
-        raise ValueError(f"OAuth endpoint must include a hostname: {url}")
-    port = parsed.port or 443
     try:
-        infos = [
-            SocketInfo(*info)
-            for info in await asyncio.to_thread(
-                socket.getaddrinfo,
-                hostname,
-                port,
-                type=socket.SOCK_STREAM,
-                proto=socket.IPPROTO_TCP,
-            )
-        ]
-    except socket.gaierror as exc:
-        raise ValueError("OAuth endpoint host could not be resolved") from exc
-    _validate_oauth_resolved_addresses(infos)
+        await validate_url_resolves_for_policy_async(url, oauth_egress_policy())
+    except DisallowedUrlError as exc:
+        raise ValueError("OAuth endpoint host is not allowed") from exc
 
 
 class CustomOAuthProviderMixin:
@@ -370,7 +357,7 @@ class BaseOAuthProvider(ABC):
         # Let subclasses add grant-specific parameters
         client_kwargs.update(self._get_client_kwargs())
 
-        self.client = AsyncOAuth2Client(**client_kwargs)
+        self.client = create_oauth2_client(**client_kwargs)
 
         self.logger = logger.bind(service=f"{self.__class__.__name__}")
         self.logger.info(
@@ -446,7 +433,7 @@ class BaseOAuthProvider(ABC):
 
         await validate_oauth_endpoint_resolves_public_async(endpoint)
 
-        async with httpx.AsyncClient() as client:
+        async with guarded_async_client(oauth_egress_policy()) as client:
             response = await client.post(endpoint, json=payload, timeout=10.0)
         response.raise_for_status()
         return DCRResponse.model_validate(response.json())
@@ -944,7 +931,7 @@ class MCPAuthProvider(BaseMCPProvider, AuthorizationCodeOAuthProvider):
         try:
             # Synchronous discovery during initialization
             validate_oauth_endpoint_resolves_public(discovery_url)
-            with httpx.Client() as client:
+            with guarded_client(oauth_egress_policy()) as client:
                 response = client.get(discovery_url, timeout=10.0)
                 response.raise_for_status()
                 metadata = OAuthServerMetadata.from_json(response.json())
@@ -1045,7 +1032,7 @@ class MCPAuthProvider(BaseMCPProvider, AuthorizationCodeOAuthProvider):
 
         try:
             await validate_oauth_endpoint_resolves_public_async(discovery_url)
-            async with httpx.AsyncClient() as client:
+            async with guarded_async_client(oauth_egress_policy()) as client:
                 response = await client.get(discovery_url, timeout=10.0)
             response.raise_for_status()
             metadata = OAuthServerMetadata.from_json(response.json())

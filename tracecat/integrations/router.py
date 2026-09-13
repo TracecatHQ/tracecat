@@ -66,6 +66,7 @@ from tracecat.integrations.schemas import (
 from tracecat.integrations.service import (
     InsecureOAuthEndpointError,
     IntegrationService,
+    OAuthProviderConfigurationChangedError,
     PlatformMCPCatalogConnectResult,
     ProviderConfigurationRequiredError,
 )
@@ -282,8 +283,10 @@ async def oauth_callback(
     # Create service to resolve provider (including custom providers)
     svc = IntegrationService(session, role=role)
 
-    # Extract code_verifier before deleting state (needed for PKCE flows)
-    code_verifier = oauth_state_db.code_verifier
+    # Extract the callback binding before deleting the one-time state row.
+    encoded_callback_state = oauth_state_db.code_verifier
+    callback_state = svc._decode_oauth_callback_state(encoded_callback_state)
+    code_verifier = callback_state.code_verifier
 
     # Delete the state now that it's been used
     await session.delete(oauth_state_db)
@@ -295,7 +298,7 @@ async def oauth_callback(
                 provider_id=oauth_state_db.provider_id,
                 code=code,
                 state=str(state),
-                code_verifier=code_verifier,
+                code_verifier=encoded_callback_state,
             )
         except InsecureOAuthEndpointError as exc:
             raise HTTPException(
@@ -429,6 +432,16 @@ async def oauth_callback(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Provider configuration or credentials are not available",
         ) from exc
+    try:
+        svc._validate_oauth_callback_token_origin(
+            callback_state,
+            token_endpoint=provider.token_endpoint,
+        )
+    except OAuthProviderConfigurationChangedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
     token_result = await provider.exchange_code_for_token(
         code, str(state), code_verifier
     )
@@ -444,6 +457,7 @@ async def oauth_callback(
             scope=token_result.scope,
             authorization_endpoint=provider.authorization_endpoint,
             token_endpoint=provider.token_endpoint,
+            expected_token_origin=callback_state.token_endpoint_origin,
         )
     except InsecureOAuthEndpointError as exc:
         logger.warning(
@@ -456,6 +470,11 @@ async def oauth_callback(
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Provider returned insecure OAuth endpoints",
+        ) from exc
+    except OAuthProviderConfigurationChangedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
         ) from exc
     logger.info("Returning OAuth callback", status="connected", provider=key.id)
     if role.workspace_id is None:

@@ -244,7 +244,7 @@ def _patch_mcp_dcr_http(
             )
 
     monkeypatch.setattr(
-        integration_service_module.httpx, "AsyncClient", FakeAsyncClient
+        integration_service_module, "guarded_async_client", FakeAsyncClient
     )
     monkeypatch.setattr(
         integration_service_module,
@@ -296,7 +296,7 @@ def _patch_mcp_oauth_client(
             return refresh_response
 
     monkeypatch.setattr(
-        integration_service_module, "AsyncOAuth2Client", FakeOAuthClient
+        integration_service_module, "create_oauth2_client", FakeOAuthClient
     )
     monkeypatch.setattr(
         integration_service_module,
@@ -2314,7 +2314,12 @@ class TestMCPIntegrationCRUD:
                 )
             )
         ).scalar_one()
-        assert oauth_state.code_verifier == "pkce-verifier"
+        callback_state = integration_service._decode_oauth_callback_state(
+            oauth_state.code_verifier
+        )
+        assert callback_state.code_verifier == "pkce-verifier"
+        assert callback_state.token_endpoint_origin is not None
+        assert callback_state.token_endpoint_origin.host == "auth.example.com"
 
         provider_config = (
             await session.execute(
@@ -5175,7 +5180,7 @@ class TestMCPProviderOAuth:
             return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.10", port))]
 
         monkeypatch.setattr(
-            "tracecat.integrations.providers.base.socket.getaddrinfo",
+            "tracecat.network.socket.getaddrinfo",
             fake_getaddrinfo,
         )
 
@@ -5258,12 +5263,12 @@ class TestMCPProviderOAuth:
             integration_service, "_discover_mcp_oauth_endpoints", fake_discover
         )
         monkeypatch.setattr(
-            "tracecat.integrations.providers.base.socket.getaddrinfo",
+            "tracecat.network.socket.getaddrinfo",
             fake_getaddrinfo,
         )
         monkeypatch.setattr(
             integration_service_module,
-            "AsyncOAuth2Client",
+            "create_oauth2_client",
             FakeOAuthClient,
         )
 
@@ -5272,7 +5277,11 @@ class TestMCPProviderOAuth:
                 provider_id=provider_key.id,
                 code="auth-code",
                 state="oauth-state",
-                code_verifier="code-verifier",
+                code_verifier=integration_service._encode_oauth_callback_state(
+                    code_verifier="code-verifier",
+                    token_auth_method=None,
+                    token_endpoint="https://token.example.test/oauth/token",
+                ),
             )
 
         message = str(exc.value)
@@ -5433,7 +5442,7 @@ class TestMCPProviderOAuth:
 
         monkeypatch.setattr(
             integration_service_module,
-            "AsyncOAuth2Client",
+            "create_oauth2_client",
             FakeOAuthClient,
         )
         monkeypatch.setattr(
@@ -5464,7 +5473,7 @@ class TestMCPProviderOAuth:
         )
         oauth_state = await session.get(OAuthStateDB, state_id)
         assert oauth_state is not None
-        callback_state = integration_service._decode_mcp_oauth_callback_state(
+        callback_state = integration_service._decode_oauth_callback_state(
             oauth_state.code_verifier
         )
         assert callback_state.token_auth_method == "client_secret_post"
@@ -6005,12 +6014,12 @@ class TestMCPProviderOAuth:
             integration_service, "_discover_mcp_oauth_endpoints", fake_discover
         )
         monkeypatch.setattr(
-            "tracecat.integrations.providers.base.socket.getaddrinfo",
+            "tracecat.network.socket.getaddrinfo",
             fake_getaddrinfo,
         )
         monkeypatch.setattr(
             integration_service_module,
-            "AsyncOAuth2Client",
+            "create_oauth2_client",
             FakeOAuthClient,
         )
 
@@ -6195,6 +6204,9 @@ class TestMCPProviderOAuth:
         self, monkeypatch: pytest.MonkeyPatch, discovery_doc: dict[str, object]
     ) -> None:
         class FakeAsyncClient:
+            def __init__(self, *args: object, **kwargs: object) -> None:
+                _ = args, kwargs
+
             async def __aenter__(self) -> "FakeAsyncClient":
                 return self
 
@@ -6213,7 +6225,7 @@ class TestMCPProviderOAuth:
                 )
 
         monkeypatch.setattr(
-            "tracecat.integrations.providers.base.httpx.AsyncClient",
+            "tracecat.integrations.providers.base.guarded_async_client",
             FakeAsyncClient,
         )
 

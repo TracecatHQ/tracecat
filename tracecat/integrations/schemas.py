@@ -28,6 +28,26 @@ from tracecat.identifiers import UserID, WorkspaceID
 from tracecat.integrations.enums import IntegrationStatus, MCPAuthType, OAuthGrantType
 from tracecat.integrations.types import MCPServerType
 from tracecat.logger import logger
+from tracecat.network import DisallowedUrlError, HttpOrigin
+
+
+def _validate_https_oauth_endpoint(value: str, *, required: bool) -> str | None:
+    """Validate an OAuth endpoint before it reaches persistence."""
+    value = value.strip()
+    if not value:
+        if required:
+            raise ValueError("Endpoint must not be empty")
+        return None
+    parsed = urlparse(value)
+    try:
+        origin = HttpOrigin.from_url(value)
+    except DisallowedUrlError as exc:
+        raise ValueError("OAuth endpoint URL is invalid") from exc
+    if origin.scheme != "https":
+        raise ValueError("OAuth endpoints must use HTTPS")
+    if parsed.fragment:
+        raise ValueError("OAuth endpoints must not include fragments")
+    return value
 
 
 # Pydantic models for API responses
@@ -125,16 +145,7 @@ class IntegrationUpdate(BaseModel):
     def _validate_https_endpoint(cls, value: str | None) -> str | None:
         if value is None:
             return None
-        if isinstance(value, str):
-            value = value.strip()
-        if not value:
-            return None
-        parsed = urlparse(value)
-        if parsed.scheme.lower() != "https":
-            raise ValueError("OAuth endpoints must use HTTPS")
-        if not parsed.netloc:
-            raise ValueError("OAuth endpoints must include a hostname")
-        return value
+        return _validate_https_oauth_endpoint(value, required=False)
 
 
 class CustomOAuthProviderBase(BaseModel):
@@ -158,16 +169,9 @@ class CustomOAuthProviderBase(BaseModel):
     def _validate_https_endpoint(cls, value: str | None) -> str:
         if value is None:
             raise ValueError("Endpoint is required")
-        if isinstance(value, str):
-            value = value.strip()
-        if not value:
-            raise ValueError("Endpoint must not be empty")
-        parsed = urlparse(value)
-        if parsed.scheme.lower() != "https":
-            raise ValueError("OAuth endpoints must use HTTPS")
-        if not parsed.netloc:
-            raise ValueError("OAuth endpoints must include a hostname")
-        return value
+        endpoint = _validate_https_oauth_endpoint(value, required=True)
+        assert endpoint is not None
+        return endpoint
 
 
 class CustomOAuthProviderCreate(CustomOAuthProviderBase):

@@ -2,9 +2,10 @@ import asyncio
 import contextlib
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Any, ClassVar
+from typing import Any, ClassVar, cast
 from unittest.mock import AsyncMock, patch
 
+import httpx
 import pytest
 from authlib.integrations.httpx_client import AsyncOAuth2Client
 from authlib.oauth2.rfc7636 import create_s256_code_challenge
@@ -22,12 +23,13 @@ from tests.database import TEST_DB_CONFIG
 from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
-from tracecat.db.models import OAuthIntegration, Workspace
+from tracecat.db.models import OAuthIntegration, OAuthStateDB, User, Workspace
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.integrations.enums import IntegrationStatus, OAuthGrantType
 from tracecat.integrations.providers.base import (
     AuthorizationCodeOAuthProvider,
     ClientCredentialsOAuthProvider,
+    validate_oauth_endpoint,
 )
 from tracecat.integrations.schemas import (
     IntegrationUpdate,
@@ -40,9 +42,11 @@ from tracecat.integrations.schemas import (
 from tracecat.integrations.service import (
     InsecureOAuthEndpointError,
     IntegrationService,
+    OAuthProviderConfigurationChangedError,
     OAuthRefreshBusyError,
 )
 from tracecat.integrations.types import TokenResponse
+from tracecat.outbound_http import GuardedAsyncHTTPTransport
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -116,6 +120,21 @@ class MockCCOAuthProvider(ClientCredentialsOAuthProvider):
         description="A mock OAuth provider for client credentials testing",
         requires_config=True,
     )
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "base_domain"),
+    [
+        ("https://münich.example/token", "münich.example"),
+        ("https://xn--mnich-kva.example/token", "münich.example"),
+        ("https://münich.example/token", "xn--mnich-kva.example"),
+    ],
+)
+def test_oauth_endpoint_base_domain_normalizes_idna(
+    endpoint: str,
+    base_domain: str,
+) -> None:
+    validate_oauth_endpoint(endpoint, base_domain)
 
 
 @pytest.fixture
@@ -1550,6 +1569,247 @@ class TestIntegrationService:
         assert config.authorization_endpoint == authorization_endpoint
         assert config.token_endpoint == token_endpoint
 
+    async def test_provider_token_origin_change_clears_bound_credentials(
+        self,
+        integration_service: IntegrationService,
+        mock_token_response: TokenResponse,
+        session: AsyncSession,
+    ) -> None:
+        """A new token origin requires new secrets and authorization."""
+        provider_key = ProviderKey(
+            id="test_provider",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
+        integration = await integration_service.store_provider_config(
+            provider_key=provider_key,
+            client_id="test_client_id",
+            client_secret=SecretStr("old_client_secret"),
+            authorization_endpoint="https://auth.example.com/oauth/authorize",
+            token_endpoint="https://auth.example.com/oauth/token",
+            requested_scopes=["read", "write"],
+        )
+        integration = await integration_service.store_integration(
+            provider_key=provider_key,
+            access_token=mock_token_response.access_token,
+            refresh_token=mock_token_response.refresh_token,
+            expires_in=3600,
+            scope="read write",
+            token_endpoint_auth_method="client_secret_post",
+        )
+        user = User(
+            id=uuid.uuid4(),
+            email=f"oauth-origin-{uuid.uuid4().hex}@example.test",
+            hashed_password="synthetic-password-hash",
+            last_login_at=None,
+            is_active=True,
+            is_superuser=False,
+            is_verified=True,
+        )
+        session.add(user)
+        await session.flush()
+        user_integration = OAuthIntegration(
+            workspace_id=integration_service.workspace_id,
+            user_id=user.id,
+            provider_id=provider_key.id,
+            grant_type=provider_key.grant_type,
+            encrypted_access_token=b"user-access-token",
+            encrypted_refresh_token=b"user-refresh-token",
+            encrypted_client_secret=integration_service.encrypt_client_credential(
+                "old_user_client_secret"
+            ),
+            token_endpoint="https://auth.example.com/oauth/token",
+            token_endpoint_auth_method="client_secret_post",
+            expires_at=datetime.now(UTC) + timedelta(hours=1),
+            scope="read",
+        )
+        pending_state = OAuthStateDB(
+            workspace_id=integration_service.workspace_id,
+            user_id=user.id,
+            provider_id=provider_key.id,
+            expires_at=datetime.now(UTC) + timedelta(minutes=10),
+            code_verifier="pending-code-verifier",
+        )
+        session.add_all([user_integration, pending_state])
+        await session.commit()
+
+        updated = await integration_service.store_provider_config(
+            provider_key=provider_key,
+            token_endpoint="https://login.example.net/oauth/token",
+        )
+
+        assert updated.id == integration.id
+        assert updated.token_endpoint == "https://login.example.net/oauth/token"
+        assert updated.encrypted_client_secret is None
+        assert updated.encrypted_access_token == b""
+        assert updated.encrypted_refresh_token is None
+        assert updated.expires_at is None
+        assert updated.scope is None
+        assert updated.token_endpoint_auth_method is None
+        assert updated.requested_scopes == "read write"
+        assert updated.encrypted_client_id is not None
+        assert (
+            integration_service.decrypt_client_credential(updated.encrypted_client_id)
+            == "test_client_id"
+        )
+        await session.refresh(user_integration)
+        assert user_integration.encrypted_client_secret is None
+        assert user_integration.encrypted_access_token == b""
+        assert user_integration.encrypted_refresh_token is None
+        assert user_integration.expires_at is None
+        assert user_integration.scope is None
+        assert user_integration.token_endpoint_auth_method is None
+        assert await session.get(OAuthStateDB, pending_state.state) is None
+
+    async def test_provider_token_origin_change_accepts_replacement_secret(
+        self,
+        integration_service: IntegrationService,
+        mock_token_response: TokenResponse,
+    ) -> None:
+        """A secret supplied with an origin change is bound to the new origin."""
+        provider_key = ProviderKey(
+            id="test_provider",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
+        await integration_service.store_provider_config(
+            provider_key=provider_key,
+            client_id="test_client_id",
+            client_secret=SecretStr("old_client_secret"),
+            token_endpoint="https://auth.example.com/oauth/token",
+        )
+        await integration_service.store_integration(
+            provider_key=provider_key,
+            access_token=mock_token_response.access_token,
+            refresh_token=mock_token_response.refresh_token,
+        )
+
+        updated = await integration_service.store_provider_config(
+            provider_key=provider_key,
+            client_secret=SecretStr("new_client_secret"),
+            token_endpoint="https://login.example.net/oauth/token",
+        )
+
+        assert updated.encrypted_access_token == b""
+        assert updated.encrypted_refresh_token is None
+        assert updated.encrypted_client_secret is not None
+        assert (
+            integration_service.decrypt_client_credential(
+                updated.encrypted_client_secret
+            )
+            == "new_client_secret"
+        )
+
+    async def test_provider_token_path_change_preserves_credentials(
+        self,
+        integration_service: IntegrationService,
+        mock_token_response: TokenResponse,
+    ) -> None:
+        """Path-only endpoint changes preserve credentials on the same origin."""
+        provider_key = ProviderKey(
+            id="test_provider",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
+        await integration_service.store_provider_config(
+            provider_key=provider_key,
+            client_id="test_client_id",
+            client_secret=SecretStr("client_secret"),
+            token_endpoint="https://auth.example.com/oauth/token",
+            requested_scopes=["read"],
+        )
+        integration = await integration_service.store_integration(
+            provider_key=provider_key,
+            access_token=mock_token_response.access_token,
+            refresh_token=mock_token_response.refresh_token,
+            expires_in=3600,
+            scope="read",
+            token_endpoint_auth_method="client_secret_basic",
+        )
+        original_access_token = integration.encrypted_access_token
+        original_refresh_token = integration.encrypted_refresh_token
+        original_secret = integration.encrypted_client_secret
+        original_expiry = integration.expires_at
+
+        updated = await integration_service.store_provider_config(
+            provider_key=provider_key,
+            token_endpoint="https://auth.example.com/oauth/v2/token",
+        )
+
+        assert updated.encrypted_access_token == original_access_token
+        assert updated.encrypted_refresh_token == original_refresh_token
+        assert updated.encrypted_client_secret == original_secret
+        assert updated.expires_at == original_expiry
+        assert updated.scope == "read"
+        assert updated.requested_scopes == "read"
+        assert updated.token_endpoint_auth_method == "client_secret_basic"
+
+    async def test_stale_callback_cannot_restore_tokens_after_origin_change(
+        self,
+        integration_service: IntegrationService,
+        mock_token_response: TokenResponse,
+    ) -> None:
+        """A callback bound to the old origin cannot race a config update."""
+        provider_key = ProviderKey(
+            id="test_provider",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
+        await integration_service.store_provider_config(
+            provider_key=provider_key,
+            client_id="test_client_id",
+            client_secret=SecretStr("old_client_secret"),
+            token_endpoint="https://auth.example.com/oauth/token",
+        )
+        encoded_state = integration_service._encode_oauth_callback_state(
+            code_verifier="pkce-verifier",
+            token_auth_method=None,
+            token_endpoint="https://auth.example.com/oauth/token",
+        )
+        callback_state = integration_service._decode_oauth_callback_state(encoded_state)
+        assert callback_state.code_verifier == "pkce-verifier"
+        assert callback_state.token_endpoint_origin is not None
+
+        updated = await integration_service.store_provider_config(
+            provider_key=provider_key,
+            client_secret=SecretStr("new_client_secret"),
+            token_endpoint="https://login.example.net/oauth/token",
+        )
+
+        with pytest.raises(
+            OAuthProviderConfigurationChangedError,
+            match="configuration changed",
+        ):
+            await integration_service.store_integration(
+                provider_key=provider_key,
+                access_token=mock_token_response.access_token,
+                refresh_token=mock_token_response.refresh_token,
+                token_endpoint="https://auth.example.com/oauth/token",
+                expected_token_origin=callback_state.token_endpoint_origin,
+            )
+
+        await integration_service.session.refresh(updated)
+        assert updated.token_endpoint == "https://login.example.net/oauth/token"
+        assert updated.encrypted_access_token == b""
+        assert updated.encrypted_refresh_token is None
+
+    @pytest.mark.parametrize(
+        "encoded_state",
+        [None, "legacy-code-verifier", "{malformed", "{}"],
+    )
+    async def test_callback_state_without_bound_origin_fails_closed(
+        self,
+        integration_service: IntegrationService,
+        encoded_state: str | None,
+    ) -> None:
+        """Legacy and malformed states cannot authorize a token request."""
+        callback_state = integration_service._decode_oauth_callback_state(encoded_state)
+
+        with pytest.raises(
+            OAuthProviderConfigurationChangedError,
+            match="state is no longer valid",
+        ):
+            integration_service._validate_oauth_callback_token_origin(
+                callback_state,
+                token_endpoint="https://auth.example.com/oauth/token",
+            )
+
     @pytest.mark.parametrize(
         ("authorization_endpoint", "token_endpoint"),
         [
@@ -1560,6 +1820,18 @@ class TestIntegrationService:
             (
                 "https://api.example.com/oauth/authorize",
                 "http://api.example.com/oauth/token",
+            ),
+            (
+                "https://user:password@api.example.com/oauth/authorize",
+                "https://api.example.com/oauth/token",
+            ),
+            (
+                "https://api.example.com/oauth/authorize",
+                "https://api.example.com/oauth/token#fragment",
+            ),
+            (
+                "https://api.example.com:99999/oauth/authorize",
+                "https://api.example.com/oauth/token",
             ),
         ],
     )
@@ -1642,6 +1914,15 @@ class TestIntegrationService:
         [
             ("authorization_endpoint", "http://api.example.com/oauth/authorize"),
             ("token_endpoint", "http://api.example.com/oauth/token"),
+            (
+                "authorization_endpoint",
+                "https://user:password@api.example.com/oauth/authorize",
+            ),
+            ("token_endpoint", "https://api.example.com/oauth/token#fragment"),
+            (
+                "authorization_endpoint",
+                "https://api.example.com:99999/oauth/authorize",
+            ),
         ],
     )
     def test_integration_update_requires_https(
@@ -1666,6 +1947,17 @@ class TestIntegrationService:
                     )
                 case _:
                     raise ValueError(f"Unexpected field: {field}")
+
+    def test_integration_update_accepts_endpoint_query(self) -> None:
+        """OAuth endpoints may retain standards-compliant query parameters."""
+        update = IntegrationUpdate(
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+            token_endpoint="https://api.example.com/oauth/token?tenant=example",
+        )
+
+        assert update.token_endpoint == (
+            "https://api.example.com/oauth/token?tenant=example"
+        )
 
     async def test_store_provider_config_includes_default_endpoints(
         self,
@@ -1963,6 +2255,10 @@ class TestBaseOAuthProvider:
         }  # Compare as sets
         assert mock_provider.grant_type == OAuthGrantType.AUTHORIZATION_CODE
         assert mock_provider.redirect_uri() == "http://localhost/integrations/callback"
+        http_client = cast(httpx.AsyncClient, mock_provider.client)
+        assert isinstance(http_client._transport, GuardedAsyncHTTPTransport)
+        assert http_client.follow_redirects is False
+        assert http_client.trust_env is False
 
     async def test_get_authorization_url(
         self, mock_provider: MockOAuthProvider

@@ -12,7 +12,6 @@ from typing import Any, TypedDict, cast
 from urllib.parse import urlparse, urlunparse
 from uuid import uuid4
 
-import httpx
 import orjson
 import sqlalchemy as sa
 from authlib.integrations.base_client.errors import OAuthError
@@ -94,8 +93,10 @@ from tracecat.integrations.providers.base import (
     CustomOAuthProviderMixin,
     MCPAuthProvider,
     build_dcr_payload,
+    create_oauth2_client,
     mcp_requested_scopes,
     oauth_authorization_server_metadata_urls,
+    oauth_egress_policy,
     validate_oauth_endpoint,
     validate_oauth_endpoint_resolves_public_async,
 )
@@ -131,6 +132,8 @@ from tracecat.integrations.types import (
     OAuthServerMetadata,
     TokenResponse,
 )
+from tracecat.network import DisallowedUrlError, HttpOrigin
+from tracecat.outbound_http import guarded_async_client
 from tracecat.sanitization import sanitize_urls_in_text
 from tracecat.secrets.encryption import decrypt_value, encrypt_value, is_set
 from tracecat.service import BaseWorkspaceService
@@ -185,6 +188,10 @@ class OAuthRefreshBusyError(RuntimeError):
     """Raised when an OAuth integration stays locked past the retry deadline."""
 
 
+class OAuthProviderConfigurationChangedError(ValueError):
+    """Raised when an OAuth flow no longer matches the provider configuration."""
+
+
 @dataclass(frozen=True)
 class MCPOAuthDiscoveryEndpoints:
     """Discovered OAuth metadata for a generic MCP resource server."""
@@ -209,11 +216,12 @@ class MCPOAuthRegistrationResult:
 
 
 @dataclass(frozen=True)
-class MCPOAuthCallbackState:
-    """Custom MCP OAuth callback data stored in the short-lived state row."""
+class OAuthCallbackState:
+    """OAuth callback data stored in the short-lived state row."""
 
     code_verifier: str | None
     token_auth_method: str | None
+    token_endpoint_origin: HttpOrigin | None = None
 
 
 class _AuthorizeUrlKwargs(TypedDict, total=False):
@@ -263,12 +271,19 @@ class IntegrationService(BaseWorkspaceService):
         """Ensure OAuth endpoints use HTTPS before persistence or use."""
         if endpoint is None:
             return None
+        endpoint = endpoint.strip()
         parsed = urlparse(endpoint)
-        if parsed.scheme.lower() != "https":
-            raise InsecureOAuthEndpointError(f"{field_name} must use HTTPS: {endpoint}")
-        if not parsed.netloc:
+        try:
+            origin = HttpOrigin.from_url(endpoint)
+        except DisallowedUrlError as exc:
             raise InsecureOAuthEndpointError(
-                f"{field_name} must include a hostname: {endpoint}"
+                f"{field_name} must be a valid HTTP endpoint: {endpoint}"
+            ) from exc
+        if origin.scheme != "https":
+            raise InsecureOAuthEndpointError(f"{field_name} must use HTTPS: {endpoint}")
+        if parsed.fragment:
+            raise InsecureOAuthEndpointError(
+                f"{field_name} must not include a fragment: {endpoint}"
             )
         return endpoint
 
@@ -611,6 +626,7 @@ class IntegrationService(BaseWorkspaceService):
         *,
         provider_key: ProviderKey,
         user_id: UserID | None = None,
+        for_update: bool = False,
     ) -> OAuthIntegration | None:
         """Get a user's integration for a specific provider."""
 
@@ -621,6 +637,16 @@ class IntegrationService(BaseWorkspaceService):
         )
         if user_id is not None:
             statement = statement.where(OAuthIntegration.user_id == user_id)
+        else:
+            # Workspace-level provider configuration is stored on the NULL
+            # user row. Prefer it deterministically if legacy per-user rows
+            # coexist for the same provider.
+            statement = statement.order_by(
+                OAuthIntegration.user_id.asc().nulls_first(),
+                OAuthIntegration.created_at.asc(),
+            )
+        if for_update:
+            statement = statement.with_for_update()
         result = await self.session.execute(statement)
         return result.scalars().first()
 
@@ -695,20 +721,21 @@ class IntegrationService(BaseWorkspaceService):
 
         state_id = uuid.uuid4()
         expires_at = datetime.now(UTC) + timedelta(minutes=10)
+        auth_url, code_verifier = await provider.get_authorization_url(str(state_id))
         oauth_state = OAuthStateDB(
             state=state_id,
             workspace_id=self.workspace_id,
             user_id=self.role.user_id,
             provider_id=provider_key.id,
             expires_at=expires_at,
+            code_verifier=self._encode_oauth_callback_state(
+                code_verifier=code_verifier,
+                token_auth_method=None,
+                token_endpoint=provider.token_endpoint,
+            ),
         )
         self.session.add(oauth_state)
         await self.session.commit()
-
-        auth_url, code_verifier = await provider.get_authorization_url(str(state_id))
-        if code_verifier:
-            oauth_state.code_verifier = code_verifier
-            await self.session.commit()
 
         self.logger.info(
             "Generated authorization URL",
@@ -874,37 +901,43 @@ class IntegrationService(BaseWorkspaceService):
         )
 
     @classmethod
-    def _encode_mcp_oauth_callback_state(
+    def _encode_oauth_callback_state(
         cls,
         *,
-        code_verifier: str,
+        code_verifier: str | None,
         token_auth_method: str | None,
+        token_endpoint: str,
     ) -> str:
         token_auth_method = cls._normalize_mcp_token_auth_method(token_auth_method)
-        if token_auth_method is None:
-            return code_verifier
-        return orjson.dumps(
-            {
-                "code_verifier": code_verifier,
-                "token_endpoint_auth_method": token_auth_method,
+        origin = HttpOrigin.from_url(token_endpoint)
+        payload: dict[str, object] = {
+            "token_endpoint_origin": {
+                "scheme": origin.scheme,
+                "host": origin.host,
+                "port": origin.port,
             }
-        ).decode("utf-8")
+        }
+        if code_verifier is not None:
+            payload["code_verifier"] = code_verifier
+        if token_auth_method is not None:
+            payload["token_endpoint_auth_method"] = token_auth_method
+        return orjson.dumps(payload).decode("utf-8")
 
     @classmethod
-    def _decode_mcp_oauth_callback_state(
+    def _decode_oauth_callback_state(
         cls,
         value: str | None,
-    ) -> MCPOAuthCallbackState:
+    ) -> OAuthCallbackState:
         if not value:
-            return MCPOAuthCallbackState(code_verifier=None, token_auth_method=None)
+            return OAuthCallbackState(code_verifier=None, token_auth_method=None)
         if not value.lstrip().startswith("{"):
-            return MCPOAuthCallbackState(code_verifier=value, token_auth_method=None)
+            return OAuthCallbackState(code_verifier=value, token_auth_method=None)
         try:
             parsed = orjson.loads(value)
         except orjson.JSONDecodeError:
-            return MCPOAuthCallbackState(code_verifier=value, token_auth_method=None)
+            return OAuthCallbackState(code_verifier=value, token_auth_method=None)
         if not isinstance(parsed, dict):
-            return MCPOAuthCallbackState(code_verifier=value, token_auth_method=None)
+            return OAuthCallbackState(code_verifier=value, token_auth_method=None)
 
         raw_code_verifier = parsed.get("code_verifier")
         code_verifier = (
@@ -916,10 +949,49 @@ class IntegrationService(BaseWorkspaceService):
         token_auth_method = cls._normalize_mcp_token_auth_method(
             raw_auth_method if isinstance(raw_auth_method, str) else None
         )
-        return MCPOAuthCallbackState(
+        token_endpoint_origin: HttpOrigin | None = None
+        raw_origin = parsed.get("token_endpoint_origin")
+        if isinstance(raw_origin, dict):
+            scheme = raw_origin.get("scheme")
+            host = raw_origin.get("host")
+            port = raw_origin.get("port")
+            if (
+                isinstance(scheme, str)
+                and isinstance(host, str)
+                and isinstance(port, int)
+                and scheme in {"http", "https"}
+                and host
+                and 1 <= port <= 65535
+            ):
+                token_endpoint_origin = HttpOrigin(
+                    scheme=scheme,
+                    host=host,
+                    port=port,
+                )
+        return OAuthCallbackState(
             code_verifier=code_verifier,
             token_auth_method=token_auth_method,
+            token_endpoint_origin=token_endpoint_origin,
         )
+
+    @staticmethod
+    def _validate_oauth_callback_token_origin(
+        callback_state: OAuthCallbackState,
+        *,
+        token_endpoint: str,
+    ) -> None:
+        """Reject a callback if its token server changed after authorization."""
+        if callback_state.token_endpoint_origin is None:
+            # A state without a server-bound origin predates this hardening or
+            # is malformed. It cannot safely authorize a credential-bearing
+            # request after a concurrent provider configuration change.
+            raise OAuthProviderConfigurationChangedError(
+                "OAuth authorization state is no longer valid; start a new connection"
+            )
+        if callback_state.token_endpoint_origin != HttpOrigin.from_url(token_endpoint):
+            raise OAuthProviderConfigurationChangedError(
+                "OAuth provider configuration changed; start a new connection"
+            )
 
     @staticmethod
     def _mcp_oauth_redirect_uri() -> str:
@@ -958,11 +1030,11 @@ class IntegrationService(BaseWorkspaceService):
             client_kwargs["response_type"] = "code"
         if token_auth_method:
             client_kwargs["token_endpoint_auth_method"] = token_auth_method
-        return AsyncOAuth2Client(**client_kwargs)
+        return create_oauth2_client(**client_kwargs)
 
     async def _fetch_oauth_json(self, url: str) -> OAuthServerMetadata | None:
         await validate_oauth_endpoint_resolves_public_async(url)
-        async with httpx.AsyncClient() as client:
+        async with guarded_async_client(oauth_egress_policy()) as client:
             response = await client.get(url, timeout=10.0)
         if response.status_code == 404:
             return None
@@ -1103,7 +1175,7 @@ class IntegrationService(BaseWorkspaceService):
         )
 
         await validate_oauth_endpoint_resolves_public_async(registration_endpoint)
-        async with httpx.AsyncClient() as client:
+        async with guarded_async_client(oauth_egress_policy()) as client:
             response = await client.post(
                 registration_endpoint,
                 json=payload,
@@ -1223,9 +1295,10 @@ class IntegrationService(BaseWorkspaceService):
             user_id=self.role.user_id,
             provider_id=integration.provider_id,
             expires_at=datetime.now(UTC) + timedelta(minutes=10),
-            code_verifier=self._encode_mcp_oauth_callback_state(
+            code_verifier=self._encode_oauth_callback_state(
                 code_verifier=code_verifier,
                 token_auth_method=token_auth_method,
+                token_endpoint=endpoints.token_endpoint,
             ),
         )
         self.session.add(oauth_state)
@@ -1708,7 +1781,7 @@ class IntegrationService(BaseWorkspaceService):
             if provider_config.client_secret
             else None
         )
-        callback_state = self._decode_mcp_oauth_callback_state(code_verifier)
+        callback_state = self._decode_oauth_callback_state(code_verifier)
         token_auth_method = self._mcp_token_auth_method(
             methods=endpoints.token_methods,
             client_secret=client_secret,
@@ -1720,6 +1793,10 @@ class IntegrationService(BaseWorkspaceService):
             token_auth_method=token_auth_method,
         )
         token_endpoint = provider_config.token_endpoint or endpoints.token_endpoint
+        self._validate_oauth_callback_token_origin(
+            callback_state,
+            token_endpoint=token_endpoint,
+        )
         await validate_oauth_endpoint_resolves_public_async(token_endpoint)
         try:
             token = TokenResponse.from_oauth_response(
@@ -1756,6 +1833,7 @@ class IntegrationService(BaseWorkspaceService):
             # Persist the method that just worked so refresh keeps using it
             # instead of re-deriving one the server may reject.
             token_endpoint_auth_method=token_auth_method,
+            expected_token_origin=callback_state.token_endpoint_origin,
         )
 
     async def _refresh_custom_mcp_integration(
@@ -1885,6 +1963,7 @@ class IntegrationService(BaseWorkspaceService):
         authorization_endpoint: str | None = None,
         token_endpoint: str | None = None,
         token_endpoint_auth_method: str | None = None,
+        expected_token_origin: HttpOrigin | None = None,
     ) -> OAuthIntegration:
         """Store or update a user's integration."""
         # Calculate expiration time if expires_in is provided
@@ -1913,8 +1992,24 @@ class IntegrationService(BaseWorkspaceService):
                 return existing
             return default
 
-        if integration := await self.get_integration(provider_key=provider_key):
+        if integration := await self.get_integration(
+            provider_key=provider_key,
+            for_update=expected_token_origin is not None,
+        ):
             # Update existing integration
+            current_token_endpoint = integration.token_endpoint or default_token
+            if (
+                expected_token_origin is not None
+                and (
+                    HttpOrigin.from_url(current_token_endpoint)
+                    if current_token_endpoint
+                    else None
+                )
+                != expected_token_origin
+            ):
+                raise OAuthProviderConfigurationChangedError(
+                    "OAuth provider configuration changed; start a new connection"
+                )
             integration.encrypted_access_token = self._encrypt_token(
                 access_token.get_secret_value()
             )
@@ -1960,6 +2055,23 @@ class IntegrationService(BaseWorkspaceService):
             )
         else:
             # Create new integration
+            effective_token_endpoint = resolve_endpoint(
+                token_endpoint,
+                None,
+                default_token,
+            )
+            if (
+                expected_token_origin is not None
+                and (
+                    HttpOrigin.from_url(effective_token_endpoint)
+                    if effective_token_endpoint
+                    else None
+                )
+                != expected_token_origin
+            ):
+                raise OAuthProviderConfigurationChangedError(
+                    "OAuth provider configuration changed; start a new connection"
+                )
             integration = OAuthIntegration(
                 workspace_id=self.workspace_id,
                 user_id=user_id,
@@ -1984,7 +2096,7 @@ class IntegrationService(BaseWorkspaceService):
                     field_name="authorization_endpoint",
                 ),
                 token_endpoint=self._validate_https_endpoint(
-                    resolve_endpoint(token_endpoint, None, default_token),
+                    effective_token_endpoint,
                     field_name="token_endpoint",
                 ),
                 token_endpoint_auth_method=token_endpoint_auth_method,
@@ -2414,17 +2526,80 @@ class IntegrationService(BaseWorkspaceService):
             configured_authorization=authorization_endpoint,
             configured_token=token_endpoint,
         )
+        no_updates = (
+            client_id is None
+            and client_secret is None
+            and authorization_endpoint is None
+            and token_endpoint is None
+            and requested_scopes is None
+        )
+        if no_updates and (
+            existing := await self.get_integration(provider_key=provider_key)
+        ):
+            return existing
 
-        if integration := await self.get_integration(provider_key=provider_key):
+        existing_result = await self.session.scalars(
+            select(OAuthIntegration)
+            .where(
+                OAuthIntegration.workspace_id == self.workspace_id,
+                OAuthIntegration.provider_id == provider_key.id,
+                OAuthIntegration.grant_type == provider_key.grant_type,
+            )
+            .with_for_update()
+        )
+        provider_integrations = list(existing_result.all())
+        integration = next(
+            (item for item in provider_integrations if item.user_id is None),
+            provider_integrations[0] if provider_integrations else None,
+        )
+
+        if integration is not None:
             # Update existing integration with client credentials (patch operation)
-            if (
-                client_id is None
-                and client_secret is None
-                and authorization_endpoint is None
-                and token_endpoint is None
-                and requested_scopes is None
-            ):
-                return integration
+            new_authorization_endpoint = self._validate_https_endpoint(
+                authorization_endpoint
+                or integration.authorization_endpoint
+                or resolved_authorization,
+                field_name="authorization_endpoint",
+            )
+            new_token_endpoint = self._validate_https_endpoint(
+                token_endpoint or integration.token_endpoint or resolved_token,
+                field_name="token_endpoint",
+            )
+            default_token_endpoint = (
+                getattr(provider_impl, "default_token_endpoint", None)
+                if provider_impl
+                else None
+            )
+            previous_token_endpoint = (
+                integration.token_endpoint or default_token_endpoint
+            )
+            token_origin_changed = (
+                HttpOrigin.from_url(previous_token_endpoint)
+                if previous_token_endpoint
+                else None
+            ) != (
+                HttpOrigin.from_url(new_token_endpoint) if new_token_endpoint else None
+            )
+
+            if token_origin_changed:
+                # OAuth credentials are scoped to the token-server origin that
+                # received them. A host, scheme, or port change requires a new
+                # authorization so retained secrets and refresh tokens cannot
+                # be forwarded to a newly configured destination.
+                for item in provider_integrations:
+                    item.encrypted_access_token = b""
+                    item.encrypted_refresh_token = None
+                    item.expires_at = None
+                    item.scope = None
+                    item.token_endpoint_auth_method = None
+                    item.encrypted_client_secret = None
+                    self.session.add(item)
+                await self.session.execute(
+                    delete(OAuthStateDB).where(
+                        OAuthStateDB.workspace_id == self.workspace_id,
+                        OAuthStateDB.provider_id == provider_key.id,
+                    )
+                )
 
             if client_id is not None:
                 integration.encrypted_client_id = self.encrypt_client_credential(
@@ -2436,16 +2611,8 @@ class IntegrationService(BaseWorkspaceService):
                     client_secret.get_secret_value()
                 )
 
-            integration.authorization_endpoint = self._validate_https_endpoint(
-                authorization_endpoint
-                or integration.authorization_endpoint
-                or resolved_authorization,
-                field_name="authorization_endpoint",
-            )
-            integration.token_endpoint = self._validate_https_endpoint(
-                token_endpoint or integration.token_endpoint or resolved_token,
-                field_name="token_endpoint",
-            )
+            integration.authorization_endpoint = new_authorization_endpoint
+            integration.token_endpoint = new_token_endpoint
 
             if requested_scopes is not None:
                 integration.requested_scopes = (

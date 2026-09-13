@@ -253,6 +253,28 @@ async def resolve_host_async(host: str, port: int) -> tuple[SocketInfo, ...]:
     return await asyncio.to_thread(resolve_host, host, port)
 
 
+def validate_url_resolves_for_policy(url: str, policy: HttpEgressPolicy) -> None:
+    """Resolve a URL and enforce an outbound HTTP policy."""
+    origin = HttpOrigin.from_url(url)
+    infos = resolve_host(origin.host, origin.port)
+    validate_resolved_addresses(
+        infos,
+        allow_private=policy.allows_private_address(origin),
+    )
+
+
+async def validate_url_resolves_for_policy_async(
+    url: str, policy: HttpEgressPolicy
+) -> None:
+    """Resolve a URL off-thread and enforce an outbound HTTP policy."""
+    origin = HttpOrigin.from_url(url)
+    infos = await resolve_host_async(origin.host, origin.port)
+    validate_resolved_addresses(
+        infos,
+        allow_private=policy.allows_private_address(origin),
+    )
+
+
 async def validate_url_resolves_public_async(url: str) -> None:
     """Resolve a URL host off-thread and require public addresses.
 
@@ -261,6 +283,4 @@ async def validate_url_resolves_public_async(url: str) -> None:
     :mod:`tracecat.outbound_http` so validation and connection cannot be
     separated by a DNS lookup.
     """
-    origin = HttpOrigin.from_url(url)
-    infos = await resolve_host_async(origin.host, origin.port)
-    validate_resolved_addresses(infos)
+    await validate_url_resolves_for_policy_async(url, HttpEgressPolicy())
