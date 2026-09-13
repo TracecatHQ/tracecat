@@ -5,7 +5,7 @@ parts of it and can silently fall out of step:
 
 - the Release Drafter autolabeler regexes in `.github/release-drafter.yml`,
 - the release-notes categories in the same file,
-- the marker-delimited tables in `CONTRIBUTING.md` and `AGENTS.md`.
+- the marker-delimited tables in `CONTRIBUTING.md` and the `make-pr` skill.
 
 Each failure here is invisible in production: a stale regex just stops applying
 a label, and the pull requests it would have held render with no heading.
@@ -32,7 +32,10 @@ from commit_conventions import Conventions, LegacyType, load_conventions
 REPO_ROOT: Final = Path(__file__).resolve().parents[2]
 DRAFTER_PATH: Final = REPO_ROOT / ".github" / "release-drafter.yml"
 AUDIT_SCRIPT_PATH: Final = REPO_ROOT / "scripts" / "audit_commit_conventions.py"
-DOC_PATHS: Final = (REPO_ROOT / "CONTRIBUTING.md", REPO_ROOT / "AGENTS.md")
+DOC_PATHS: Final = (
+    REPO_ROOT / "CONTRIBUTING.md",
+    REPO_ROOT / ".agents" / "skills" / "make-pr" / "SKILL.md",
+)
 
 # Release Drafter accepts either a bare string or a JavaScript-style
 # `/pattern/flags` literal.
