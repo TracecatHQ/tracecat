@@ -1,0 +1,57 @@
+tracecat/settings/service.py
+  s_388fff4aaf5212::t_b1c08f2548835c 29-34,39,368-385,389-390,392-395
+  s_388fff4aaf5212::t_edd1a99ab893da 56
+frontend/src/lib/agent-otel.test.ts
+  s_388fff4aaf5212::t_4f7986bfb6a1ad 445-459,463-464
+  s_388fff4aaf5212::t_36e5a240b39635 460-462
+tracecat/settings/otel.py
+  s_388fff4aaf5212::t_596a15575ecf0c 23-24
+  s_388fff4aaf5212::t_32306d59f95fdc 1-22,25-37,39-50
+  s_388fff4aaf5212::t_a2f5caf8c94b94 38
+tracecat/agent/sandbox/otel_relay.py
+  s_388fff4aaf5212::t_852bb7744ecff4 44-45,50,258,323-331,368-369,487-491,494-498,834-839,1150,1159,1201,1214
+  s_388fff4aaf5212::t_8c38624a091820 40,812-814,816-817,820-821
+  s_388fff4aaf5212::t_36e5a240b39635 818-819
+tests/unit/test_agent_otel_relay.py
+  s_388fff4aaf5212::t_a4e61c7e6ec768 41,123-127,1287
+  s_388fff4aaf5212::t_810d9ed668a77a 334-370
+  s_388fff4aaf5212::t_27bede0ac65f6a 313-333
+  s_388fff4aaf5212::t_1be5db44f19d20 371-406
+tests/unit/test_organization_settings.py
+  s_388fff4aaf5212::t_e9f648d769fefb 520,755
+  s_388fff4aaf5212::t_9e0754d7c5ce7d 524,759
+  s_388fff4aaf5212::t_c53def266faf6d 561-611,613-654,720-740,742-744
+  s_388fff4aaf5212::t_08633348de5015 612,741
+  s_388fff4aaf5212::t_596a15575ecf0c 655-670,677-683,686-687
+  s_388fff4aaf5212::t_6f187181b0e8bc 671-676,684-685
+  s_388fff4aaf5212::t_3e86da0138b872 745-746
+tracecat/agent/otel_config.py
+  s_388fff4aaf5212::t_c8540e17671274 213-233,251-252
+frontend/src/lib/agent-otel.ts
+  s_388fff4aaf5212::t_cc0074e6a1fa2b 676-692,714-716
+  s_388fff4aaf5212::t_f9b4bc4aeef217 717
+tests/unit/test_agent_otel_config.py
+  s_388fff4aaf5212::t_8527f1b62cbae2 244-266
+frontend/src/components/organization/org-agent-otel-settings.test.tsx
+  s_388fff4aaf5212::t_bba49114dacb19 43-46,179-202,206-225,229-254,258-265
+  s_388fff4aaf5212::t_08633348de5015 203-205,226-228,255-257
+frontend/src/components/organization/org-agent-otel-settings.tsx
+  s_388fff4aaf5212::t_10fb9b15d660ef 68-79,98-103,124-128,213-214,223-224,237-254,294-302,304,319-321,381,524-529
+  s_388fff4aaf5212::t_dae026adc56666 530
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "9159afe6bb6a3bd0bc2667139c34a5efce83af5b",
+  "prompts": {},
+  "sessions": {
+    "s_388fff4aaf5212": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09b54-52c8-7d92-934c-882473f1ae27",
+        "model": "gpt-daybreak-blue-latest"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
