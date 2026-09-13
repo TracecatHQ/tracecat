@@ -882,12 +882,21 @@ async def test_with_preset_config_loads_custom_passthrough_base_url_from_workspa
 
 
 @pytest.mark.anyio
-async def test_list_providers_excludes_removed_litellm_provider(role: Role) -> None:
+async def test_list_providers_includes_gateway_providers_in_display_order(
+    role: Role,
+) -> None:
     service = AgentManagementService(AsyncMock(), role=role)
 
     providers = await service.list_providers()
 
-    assert "litellm" not in providers
+    assert providers[:2] == ["openai", "anthropic"]
+    assert providers[-5:] == [
+        "ollama",
+        "vllm",
+        "litellm",
+        "openrouter",
+        "custom-model-provider",
+    ]
 
 
 @pytest.mark.anyio

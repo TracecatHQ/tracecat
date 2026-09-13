@@ -566,7 +566,7 @@ class SandboxedAgentExecutor:
         """
         if base_url is None:
             raise AgentSandboxValidationError(
-                "Custom model provider passthrough requires a resolved base_url."
+                "Model provider passthrough requires a resolved base_url."
             )
         return LLMRoute(
             base_url=base_url,

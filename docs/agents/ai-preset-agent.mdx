@@ -1,9 +1,36 @@
 ---
 title: "AI preset agent"
-description: "Documentation for AI preset agent in Tracecat."
-icon: "lock"
+description: "Save reusable agent configurations with instructions, tools, skills, and MCP integrations, then run them from workflows and workspace chat."
 ---
 
-# AI preset agent
+<Badge icon="github" color="gray" size="lg" shape="pill">Open source</Badge>
 
-This page is coming soon. Add content for this topic.
+Agent presets save a model, instructions, tools, skills, and MCP integrations under a slug.
+Open `Agents` from the workspace navigation to create one, then run it from a workflow with `ai.preset_agent`.
+
+![Agents page](/img/agents/agents-list.png)
+
+## Configure a preset
+
+Click `Create new`, name the preset, and write instructions in the editor.
+Use the `Tools` tab to select the model, allowed Tracecat actions, and MCP integrations, and the `Skills` tab to attach published [skills](/agents/skills).
+
+![Agent preset tools](/img/agents/agent-preset-tools.png)
+
+## Availability
+
+Open source includes presets, [skills](/agents/skills), [secrets and variables](/agents/secrets-variables) in preset instructions, and the MCP catalog connectors.
+
+<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
+
+Enterprise adds:
+
+- Agent folders and tags to organize the `Agents` page.
+- `tool_approvals` and the agent inbox to review tool calls before they run.
+- `@` agent mentions in [workspace chat](/agents/workspace-chat#mention-an-agent) and [case comments](/automations/cases/agent-mentions).
+
+## Related pages
+
+- See [AI agent](/agents/ai-agent#ai-preset-agent) for the `ai.preset_agent` inputs and examples.
+- See [Skills](/agents/skills) to attach reusable instructions and files to a preset.
+- See [MCP servers](/automations/integrations/mcp-integrations) to connect servers a preset can call.

@@ -175,6 +175,8 @@ import type {
   AgentPresetsRestoreAgentPresetVersionResponse,
   AgentPresetsUpdateAgentPresetData,
   AgentPresetsUpdateAgentPresetResponse,
+  AgentRefreshProviderModelsData,
+  AgentRefreshProviderModelsResponse,
   AgentSessionsCancelSessionData,
   AgentSessionsCancelSessionResponse,
   AgentSessionsCreateSessionData,
@@ -4848,6 +4850,29 @@ export const agentDeleteProviderCredentials = (
   return __request(OpenAPI, {
     method: "DELETE",
     url: "/agent/credentials/{provider}",
+    path: {
+      provider: data.provider,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Refresh Provider Models
+ * Re-discover models for a built-in gateway provider (Ollama, vLLM, ...).
+ * @param data The data for the request.
+ * @param data.provider
+ * @returns number Successful Response
+ * @throws ApiError
+ */
+export const agentRefreshProviderModels = (
+  data: AgentRefreshProviderModelsData
+): CancelablePromise<AgentRefreshProviderModelsResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent/providers/{provider}/refresh",
     path: {
       provider: data.provider,
     },

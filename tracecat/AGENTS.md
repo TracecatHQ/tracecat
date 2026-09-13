@@ -11,13 +11,20 @@ set for related Python packages in this repo.
 - Use `uv run` for Python commands and tests.
 - Use `uv pip install` for package installation.
 - Avoid `type: ignore`. If imports are cyclical, prefer `if TYPE_CHECKING:`.
-- Prefer `frozen=True` dataclasses for immutable value objects.
-- Prefer `slots=True` when defining dataclasses.
+- Prefer `@dataclass(frozen=True, slots=True)` for immutable value objects,
+  and over `NamedTuple`. It is smaller and blocks positional/iteration access,
+  so fields stay named. Measured on this repo's CPython 3.12.8 (shallow
+  instance size): `NamedTuple` 56 bytes, `@dataclass(frozen=True, slots=True)`
+  48 bytes, plain dataclass 344 bytes including `__dict__`. Use `NamedTuple`
+  only when tuple unpacking or tuple compatibility is actually required.
 - Avoid `getattr()`; use direct attribute access so the type checker can verify
   the attribute. If `getattr()` is unavoidable, add a nearby comment clearly
   explaining why it is needed.
-- Prefer `TypedDict` for structured dictionaries and `Protocol` for structural
-  typing.
+- Never use untyped dictionaries unless there is a compelling reason. Model
+  structured data with a dataclass or Pydantic model; if dictionary semantics
+  are required, use `TypedDict`. Any unavoidable untyped-dictionary exception
+  must include a clear nearby explanation of why the typed alternatives are
+  unsuitable. Use `Protocol` for structural typing.
 - Use `TypedDict` with `NotRequired` for optional configuration keys.
 - Use `@runtime_checkable` on protocols that need runtime structural checks.
 - Use PEP 695 generics for new generic definitions.
@@ -84,6 +91,7 @@ Common role types:
 - Avoid N+1 query patterns; batch related reads with joins, `IN`, eager
   loading, or subqueries when that keeps the code clear.
 - Use `.tuples().all()` when iterating over multi-column result sets.
+- Do not assume PostgreSQL superuser access in migrations, queries, or scripts.
 
 ## Pagination and API shape
 
@@ -120,6 +128,9 @@ Common role types:
   `.env.example`, or deployment templates to provide them.
 - In `tracecat/config.py`, prefer `int(os.environ.get("VAR") or default)` for
   numeric config so empty environment variables do not break parsing.
+- Boolean environment variables in `tracecat/config.py` must use
+  `env_bool(...)`. Do not add inline `.lower() == "true"`,
+  `.lower() in (...)`, or `bool(os.environ.get(...))` parsing.
 - Prefer `orjson` over stdlib `json` when the dependency is available.
 - Expression errors can carry secret plaintext: failing operations echo their
   operand, and `repr()` escaping means exact-string masking will not match it.

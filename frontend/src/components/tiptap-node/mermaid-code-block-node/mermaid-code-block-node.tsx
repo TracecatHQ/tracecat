@@ -462,6 +462,7 @@ export const MermaidCodeBlock = CodeBlock.extend<MermaidCodeBlockOptions>({
       tabSize: 4,
       HTMLAttributes: {},
       ...this.parent?.(),
+      exitOnArrowUp: false,
       renderWhenBlurred: false,
     }
   },

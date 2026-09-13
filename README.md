@@ -2,7 +2,7 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="img/banner-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="img/banner-light.svg">
-    <img src="img/banner-light.svg" alt="The AI-native security automation platform.">
+    <img src="img/banner-light.svg" alt="The AI-native security automation platform." width="85%">
   </picture>
   <p align="center">
     The agentic security automation platform.
@@ -21,45 +21,81 @@
 
 ## Introduction
 
-[Tracecat](https://tracecat.com) is the open source security automation platform for teams and AI agents.
+[Tracecat](https://tracecat.com) is the open source security automation platform for teams and AI agents. A unified platform with everything AI-native security teams need to automate work and incident response.
 
-- **Prompt-to-automations**: build end-to-end automations with agents, workflows, cases, and tables from your own agent harness (e.g. Claude code, Codex, OpenCode).
-- **Code-native**: sync custom Python scripts from your Git repo into Tracecat.
-- **All-in-one**: agents, workflows, lookup tables, and case management. Everything security teams need to automate work in one place.
-- **Deployment options**: sign up for Tracecat managed Cloud, or self-host with Docker, AWS Fargate, or Kubernetes Helm.
+## Core Features
 
-Sandboxed-by-default with [`nsjail`](https://github.com/google/nsjail) and run on [Temporal](https://temporal.io) for security, reliability, and scale.
+<p align="center">Unlimited agents, cases, lookup tables, and workflows.</p>
 
-## Features
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="img/readme/agents.gif" alt="An agent preset in Tracecat with its tools and skills, then a chat where the agent investigates a case by calling tools" width="100%"/>
+      <p align="center"><b>Agents and skills</b> — build custom agents with prompts, tools, MCP, and skills</p>
+    </td>
+    <td width="50%" valign="top">
+      <img src="img/readme/cases.gif" alt="The Tracecat case list, then a case with an agent-written verdict, timeline, IoCs, and evidence" width="100%"/>
+      <p align="center"><b>Case management</b> — track, automate, and resolve incidents with agents</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="img/readme/workflows.gif" alt="A workflow DAG in the Tracecat builder, zoomed out to show every step, then an agent step opened for editing" width="100%"/>
+      <p align="center"><b>Workflows</b> — execute deterministic logic with resilience and scale on Temporal</p>
+    </td>
+    <td width="50%" valign="top">
+      <img src="img/readme/tables.gif" alt="Tracecat workspace tables, opening an entities table and an entity observations table" width="100%"/>
+      <p align="center"><b>Tables</b> — store and query structured data</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="img/readme/mcp.gif" alt="A Claude Code session that calls Tracecat MCP tools to list and summarize the open critical cases" width="100%"/>
+      <p align="center"><b>Tracecat MCP</b> — turn prompts into automations from Claude Code, Codex, Copilot, and more</p>
+    </td>
+    <td width="50%" valign="top">
+      <img src="img/readme/integrations.gif" alt="Tracecat credentials, OAuth integrations, and the hosted MCP server catalog" width="100%"/>
+      <p align="center"><b>Integrations</b> — 100+ pre-built connectors and hosted MCP servers for security tools</p>
+    </td>
+  </tr>
+</table>
 
-> [!IMPORTANT]
-> Tracecat is in active development. Review the release [changelog](https://github.com/TracecatHQ/tracecat/releases) before updating.
-
-### Key Capabilities
-
-- **Agents**: build custom agents with prompts, tools, and chat
-- **Workflows**: low-code builder with complex control flow (if-conditions, loops) and durable execution (Temporal)
-- **Case management**: track, automate, and resolve work items with agents and workflows
-- **Integrations**: over 100+ pre-built connectors to enterprise tools via HTTP, SMTP, gRPC, OAuth, and more
-- **Tracecat MCP**: turns prompts into automations through Claude Code, Codex, Copilot, etc.
-- **MCP client**: connect custom agents any MCP server (remote HTTP / OAuth or local via `npx` / `uvx` commands)
-- **Custom registry**: turn custom Python scripts into agent tools and workflow steps
-
-### Other OSS Highlights
-
-- **Sandboxed**: run untrusted code and agents within `nsjail` sandboxes or `pid` runtimes.
-- **Lookup tables**: store and query structured data
-- **Variables**: reuse values across workflows and agents
-- **No SSO tax**: SAML / OIDC support
-- **Audit logs**: exportable into your SIEM
-
-### Enterprise Edition
+## Other Highlights
 
 - **Pre-built MCP servers**: over 100+ Tracecat hosted MCP servers for security operations
+- **MCP client**: connect custom agents any MCP server (remote HTTP / OAuth or local via `npx` / `uvx` commands)
+- **Custom registry**: sync custom Python scripts from your Git repo into Tracecat
+- **Sandboxed**: run untrusted code and agents within `nsjail` sandboxes or `pid` runtimes
+- **Durable execution**: built on [Temporal](https://temporal.io) for resilience and scale
+- **Variables**: reuse values across workflows and agents
+- **No SSO tax**: SAML / OIDC support
+- **Free audit logs**: exportable into your SIEM
+- **Deploy anywhere**: sign up for Tracecat Cloud, or self-host with Docker, AWS Fargate, or Kubernetes. Runs fully [air-gapped](https://docs.tracecat.com/self-hosting/air-gapped).
+
+## Enterprise Edition
+
+- **Multi-tenant**: isoated different teams and dev / prod environments into workspaces
 - **Fine-grained access control**: RBAC, ABAC, OAuth2.0 scopes for humans and agents
 - **Human-in-the-loop**: review and approve sensitive tools calls from a unified inbox, Slack, or email
 - **Workspace version control**: sync workflows, agents, and table schemas to GitHub, GitLab, Bitbucket, etc.
 - **Metrics and monitoring**: for workflows, agents, and cases
+
+## Open Source vs Enterprise
+
+This repo is available under the [AGPL-3.0 license](https://github.com/TracecatHQ/tracecat/blob/main/LICENSE) except for:
+
+- Code under the `packages/tracecat-ee` directory
+- Code that gates `ee` features
+
+These exceptions are fall under Tracecat's paid EE (Enterprise Edition) license. Code that fall under the above exceptions must not be redistributed, sold, used in production, or otherwise commercialized without permission.
+
+> [!NOTE]
+> Tracecat Enterprise is available as managed Cloud with US or EU hosting, or as a self-hosted deployment with dedicated support.
+> [Book a demo today](https://www.tracecat.com/contact).
+
+## Community
+
+Have questions? Feedback? Come hang out with us in the [Tracecat Community Discord](https://discord.gg/H4XZwsYzY4).
 
 ## Tech Stack
 
@@ -69,24 +105,6 @@ Sandboxed-by-default with [`nsjail`](https://github.com/google/nsjail) and run o
 - Sandbox: nsjail
 - Database: PostgreSQL
 - Object store: S3-compatible
-
-## Open Source vs Enterprise
-
-> [!NOTE]
-> Tracecat Enterprise is available as managed Cloud with US or EU hosting, or as a self-hosted deployment with dedicated support.
-> [Book a demo today](https://cal.com/team/tracecat).
-
-This repo is available under the [AGPL-3.0 license](https://github.com/TracecatHQ/tracecat/blob/main/LICENSE) with the following exceptions:
-
-- The `packages/tracecat-ee` directory and code that gates `ee` features across the repo are under Tracecat's paid EE (Enterprise Edition) license. Production use requires a valid Tracecat Enterprise License.
-
-Code that fall under the above exceptions must not be redistributed, sold, or otherwise commercialized without permission.
-
-*If you are interested in Tracecat's Enterprise License or managed Cloud offering, check out [our website](https://tracecat.com) or [book a meeting with us](https://cal.com/team/tracecat).*
-
-## Community
-
-Have questions? Feedback? Come hang out with us in the [Tracecat Community Discord](https://discord.gg/H4XZwsYzY4).
 
 ## Contributors
 

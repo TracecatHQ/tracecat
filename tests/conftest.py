@@ -1227,6 +1227,7 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
                 "git_sync": True,
                 "agent_addons": True,
                 "case_addons": True,
+                "multi_workspace": True,
             }
         ),
     )

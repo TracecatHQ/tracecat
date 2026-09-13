@@ -81,6 +81,7 @@ from tracecat.agent.error_policy import (
     AGENT_SANDBOX_RESOURCE_LIMIT_EXIT_CODES,
     agent_runtime_failure,
 )
+from tracecat.agent.gateway_providers import is_gateway_provider
 from tracecat.agent.llm_routing import get_litellm_route_model
 from tracecat.agent.mcp.metadata import (
     PROXY_TOOL_CALL_ID_KEY,
@@ -1587,7 +1588,9 @@ class ClaudeAgentRuntime:
     def _sdk_env(payload: RuntimeInitPayload) -> dict[str, str]:
         """Return child-process environment overrides for the Claude SDK."""
         env = {"ANTHROPIC_AUTH_TOKEN": payload.llm_gateway_auth_token}
-        if payload.config.model_provider == "custom-model-provider":
+        # Gateway providers serve models the CLI cannot size, so pin a
+        # conservative auto-compact window instead of the Claude default.
+        if is_gateway_provider(payload.config.model_provider):
             env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = (
                 CUSTOM_MODEL_PROVIDER_AUTO_COMPACT_WINDOW
             )
