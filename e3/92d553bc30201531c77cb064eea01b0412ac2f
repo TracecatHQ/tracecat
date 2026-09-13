@@ -1,0 +1,22 @@
+tracecat/integrations/service.py
+  s_388fff4aaf5212::t_cd8c9127e28b68 2026-2044
+tests/unit/test_integrations_service.py
+  s_388fff4aaf5212::t_cd8c9127e28b68 1989-1990,1993-1995,2001-2008,2011,2065,2071
+  s_388fff4aaf5212::t_019a59f32e9dca 1991-1992,1996-2000,2009-2010,2012-2064,2066-2070
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e392d553bc30201531c77cb064eea01b0412ac2f",
+  "prompts": {},
+  "sessions": {
+    "s_388fff4aaf5212": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09b54-52c8-7d92-934c-882473f1ae27",
+        "model": "gpt-daybreak-blue-latest"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
