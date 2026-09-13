@@ -31,7 +31,12 @@ import {
   useMoveAgentPreset,
 } from "@/hooks/use-agent-presets"
 import { useEntitlements } from "@/hooks/use-entitlements"
-import { useAgentDefaultModel, useWorkspaceAgentModels } from "@/lib/hooks"
+import {
+  useAgentDefaultModel,
+  useUserScopes,
+  useWorkspaceAgentModels,
+} from "@/lib/hooks"
+import { hasGrantedScope } from "@/lib/scopes"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 const createAgentSchema = z.object({
@@ -77,6 +82,11 @@ function CreateAgentDialogContent({
 }) {
   const workspaceId = useWorkspaceId()
   const router = useRouter()
+  const { userScopes } = useUserScopes()
+  const canAdministerOrg = hasGrantedScope(
+    "org:update",
+    new Set(userScopes?.scopes ?? [])
+  )
   const { models, providers, modelsLoading, modelsError } =
     useWorkspaceAgentModels(workspaceId)
   const {
@@ -195,20 +205,23 @@ function CreateAgentDialogContent({
         <DialogHeader>
           <DialogTitle>Set up model provider</DialogTitle>
           <DialogDescription>
-            Choose a default model in organization settings before creating an
-            agent.
+            {canAdministerOrg
+              ? "Choose a default model in organization settings before creating an agent."
+              : "Ask an organization administrator to configure a default model before creating an agent."}
           </DialogDescription>
         </DialogHeader>
-        <DialogFooter>
-          <Button asChild variant="outline">
-            <Link
-              href="/organization/settings/agent"
-              onClick={() => onOpenChange(false)}
-            >
-              Configure models
-            </Link>
-          </Button>
-        </DialogFooter>
+        {canAdministerOrg ? (
+          <DialogFooter>
+            <Button asChild variant="outline">
+              <Link
+                href="/organization/settings/agent"
+                onClick={() => onOpenChange(false)}
+              >
+                Configure models
+              </Link>
+            </Button>
+          </DialogFooter>
+        ) : null}
       </DialogContent>
     )
   }

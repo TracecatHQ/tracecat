@@ -9,7 +9,11 @@ import {
   useCreateAgentPreset,
   useMoveAgentPreset,
 } from "@/hooks/use-agent-presets"
-import { useAgentDefaultModel, useWorkspaceAgentModels } from "@/lib/hooks"
+import {
+  useAgentDefaultModel,
+  useUserScopes,
+  useWorkspaceAgentModels,
+} from "@/lib/hooks"
 
 const mockCreateAgentPreset = jest.fn()
 const mockMoveAgentPreset = jest.fn()
@@ -48,6 +52,7 @@ jest.mock("@/hooks/use-agent-presets", () => ({
 jest.mock("@/lib/hooks", () => ({
   useAgentDefaultModel: jest.fn(),
   useWorkspaceAgentModels: jest.fn(),
+  useUserScopes: jest.fn(),
 }))
 
 jest.mock("@/providers/workspace-id", () => ({
@@ -96,6 +101,7 @@ const customProviders = [
 const modelReadError = new Error("request failed") as ApiError
 
 type SetupMocksOptions = {
+  orgScopes?: string[]
   defaultModel?: string | null
   defaultModelSelection?: DefaultModelSelection | null
   defaultModelLoading?: boolean
@@ -106,6 +112,7 @@ type SetupMocksOptions = {
 }
 
 function setupMocks({
+  orgScopes = ["org:update"],
   defaultModel = null,
   defaultModelSelection = null,
   models = catalogModels,
@@ -114,6 +121,11 @@ function setupMocks({
   modelsLoading = false,
   modelsError = null,
 }: SetupMocksOptions = {}) {
+  jest.mocked(useUserScopes).mockReturnValue({
+    userScopes: { scopes: orgScopes },
+    isLoading: false,
+    error: null,
+  })
   jest.mocked(useRouter).mockReturnValue({
     back: jest.fn(),
     forward: jest.fn(),
@@ -193,6 +205,35 @@ describe("CreateAgentDialog", () => {
 
     await user.click(screen.getByRole("link", { name: "Configure models" }))
     expect(mockOnOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it("directs non-admins to an organization administrator when no default is configured", () => {
+    setupMocks({ orgScopes: [] })
+    renderCreateAgentDialog()
+
+    expect(
+      screen.getByText(
+        "Ask an organization administrator to configure a default model before creating an agent."
+      )
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("link", { name: "Configure models" })
+    ).not.toBeInTheDocument()
+    expect(screen.queryByLabelText("Name")).not.toBeInTheDocument()
+  })
+
+  it("hides the configuration link while organization scopes are loading", () => {
+    setupMocks()
+    jest.mocked(useUserScopes).mockReturnValue({
+      userScopes: undefined,
+      isLoading: true,
+      error: null,
+    })
+    renderCreateAgentDialog()
+
+    expect(
+      screen.queryByRole("link", { name: "Configure models" })
+    ).not.toBeInTheDocument()
   })
 
   it("uses the configured default model when it is enabled for the workspace", async () => {
@@ -346,6 +387,7 @@ describe("CreateAgentDialog", () => {
 
     expect(useWorkspaceAgentModels).not.toHaveBeenCalled()
     expect(useAgentDefaultModel).not.toHaveBeenCalled()
+    expect(useUserScopes).not.toHaveBeenCalled()
   })
 
   it("uses the configured custom-provider default model and preserves its base URL", async () => {
