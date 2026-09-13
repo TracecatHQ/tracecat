@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import time
 import uuid
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any, Self
@@ -53,8 +53,11 @@ from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
 from tracecat.network import (
     DisallowedUrlError,
-    validate_url_resolves_public_async,
+    HttpEgressPurpose,
+    HttpOrigin,
+    configured_http_egress_policy,
 )
+from tracecat.outbound_http import guarded_async_client
 from tracecat.sanitization import redact_sensitive_text
 from tracecat.secrets.encryption import decrypt_value
 from tracecat.service import BaseService
@@ -116,6 +119,15 @@ _DELIVERY_ATTEMPTS = 3
 _RETRY_WAIT = wait_exponential(multiplier=1, min=1, max=10)
 
 
+def _audit_http_client(*, timeout: float, verify: bool) -> httpx.AsyncClient:
+    """Create an audit client whose connections enforce the audit policy."""
+    return guarded_async_client(
+        configured_http_egress_policy(HttpEgressPurpose.AUDIT),
+        timeout=timeout,
+        verify=verify,
+    )
+
+
 def _is_retryable(exc: BaseException) -> bool:
     if isinstance(exc, httpx.HTTPStatusError):
         return exc.response.status_code in _RETRYABLE_STATUS_CODES
@@ -166,15 +178,16 @@ async def _deliver(delivery: _AuditDelivery) -> None:
                 with attempt:
                     attempts = attempt.retry_state.attempt_number
                     response = None
-                    async with httpx.AsyncClient(
+                    async with _audit_http_client(
                         timeout=10.0, verify=delivery.verify_ssl
                     ) as client:
-                        response = await client.post(
+                        async with client.stream(
+                            "POST",
                             delivery.webhook_url,
                             json=delivery.request_payload,
                             headers=delivery.headers,
-                        )
-                        response.raise_for_status()
+                        ) as response:
+                            response.raise_for_status()
     except Exception as exc:
         # No exception text or URL on this path: the webhook URL is
         # operator-configured and may carry a credential in its path.
@@ -207,63 +220,92 @@ async def _deliver(delivery: _AuditDelivery) -> None:
     )
 
 
-async def _fetch_platform_setting(key: str) -> Any | None:
-    """Read a platform audit setting on a self-managed session; decrypt if needed."""
+@dataclass(frozen=True, slots=True)
+class _AuditSettingsSnapshot:
+    """One database generation of every setting used by a delivery."""
+
+    webhook_url: object = None
+    custom_headers: object = None
+    custom_payload: object = None
+    verify_ssl: object = True
+    payload_attribute: object = None
+
+
+_AUDIT_SETTINGS_KEYS = frozenset(AuditSettingsUpdate.keys())
+
+
+def _audit_settings_snapshot(
+    values: Mapping[str, object],
+) -> _AuditSettingsSnapshot:
+    return _AuditSettingsSnapshot(
+        webhook_url=values.get("audit_webhook_url"),
+        custom_headers=values.get("audit_webhook_custom_headers"),
+        custom_payload=values.get("audit_webhook_custom_payload"),
+        verify_ssl=values.get("audit_webhook_verify_ssl", True),
+        payload_attribute=values.get("audit_webhook_payload_attribute"),
+    )
+
+
+async def _fetch_platform_audit_settings() -> _AuditSettingsSnapshot:
+    """Read all platform audit settings in one database statement."""
     async with get_async_session_bypass_rls_context_manager() as session:
-        stmt = select(PlatformSetting).where(PlatformSetting.key == key)
-        setting = (await session.execute(stmt)).scalar_one_or_none()
-    if setting is None:
-        return None
-    value = setting.value
-    if setting.is_encrypted:
-        try:
-            value = decrypt_value(value, key=get_db_encryption_key())
-        except (InvalidToken, ValueError) as exc:
-            logger.warning(
-                "Failed to decrypt platform audit setting",
-                key=key,
-                error=redact_sensitive_text(str(exc), redact_emails=True),
-            )
-            return None
-    return orjson.loads(value)
+        stmt = select(PlatformSetting).where(
+            PlatformSetting.key.in_(_AUDIT_SETTINGS_KEYS)
+        )
+        settings = (await session.execute(stmt)).scalars().all()
+
+    values: dict[str, object] = {}
+    encryption_key = get_db_encryption_key()
+    for setting in settings:
+        value = setting.value
+        if setting.is_encrypted:
+            try:
+                value = decrypt_value(value, key=encryption_key)
+            except (InvalidToken, ValueError) as exc:
+                logger.warning(
+                    "Failed to decrypt platform audit setting",
+                    key=setting.key,
+                    error=redact_sensitive_text(str(exc), redact_emails=True),
+                )
+                continue
+        values[setting.key] = orjson.loads(value)
+    return _audit_settings_snapshot(values)
 
 
-@alru_cache(ttl=30)
-async def _get_audit_setting_cached(
-    sink: AuditSink,
-    organization_id: OrganizationID | None,
-    key: str,
-    default: Any = None,
-) -> Any | None:
-    """Cached audit-setting read keyed by (sink, org, key, default).
+async def _fetch_organization_audit_settings(
+    organization_id: OrganizationID,
+) -> _AuditSettingsSnapshot:
+    """Read all organization audit settings in one database statement."""
+    from tracecat.settings.service import SettingsService
 
-    Runs on its own session so no request session is captured or hashed; bounded
-    30s staleness. ``organization_id`` is ``None`` for the platform sink or
-    org-sink calls with no org identity. Decrypted values live in process memory
-    only and are never logged.
-    """
-    logger.debug("Audit setting cache miss", sink=sink, key=key)
-    if sink == "platform":
-        value = await _fetch_platform_setting(key)
-        return default if value is None and default is not None else value
-
-    from tracecat.settings.service import get_setting
-
-    if organization_id is None:
-        # No org identity: preserve get_setting(role=None) semantics.
-        return default
-    # Minimal org-bound role so get_setting opens its own org-scoped session.
     role = Role(
         type="service",
         organization_id=organization_id,
         service_id="tracecat-service",
     )
-    return await get_setting(key, role=role, session=None, default=default)
+    async with SettingsService.with_session(role=role) as service:
+        settings = await service.list_org_settings(keys=_AUDIT_SETTINGS_KEYS)
+        values, _ = service.get_values_with_decryption_fallback(settings)
+    return _audit_settings_snapshot(values)
+
+
+@alru_cache(ttl=30)
+async def _get_audit_settings_cached(
+    sink: AuditSink,
+    organization_id: OrganizationID | None,
+) -> _AuditSettingsSnapshot:
+    """Cache one atomic settings snapshot by sink and organization."""
+    logger.debug("Audit settings cache miss", sink=sink)
+    if sink == "platform":
+        return await _fetch_platform_audit_settings()
+    if organization_id is None:
+        return _AuditSettingsSnapshot()
+    return await _fetch_organization_audit_settings(organization_id)
 
 
 def clear_audit_setting_cache() -> None:
     """Make committed audit setting changes visible to the next event."""
-    _get_audit_setting_cached.cache_clear()
+    _get_audit_settings_cached.cache_clear()
 
 
 _AUDIT_WEBHOOK_TEST_TIMEOUT_SECONDS = 5.0
@@ -326,57 +368,47 @@ class AuditService(BaseService):
             async with get_async_session_context_manager() as session:
                 yield cls(session, role=role, audit_sink=audit_sink)
 
-    async def _get_audit_setting(self, key: str, *, default: Any = None) -> Any | None:
-        """Fetch an audit setting from the active audit sink (30s TTL cache).
-
-        Keyed on (sink, org, key, default) so platform and per-org configs never
-        share an entry. The cache runs its own session, so this stays safe inside
-        a live request session.
-        """
-        if self.audit_sink == "organization" and (
-            isinstance(self.role, Role) and self.role.organization_id is None
-        ):
-            # Rare org-sink role without an org id: skip the cache and let
-            # get_setting resolve the default org, preserving prior semantics.
-            from tracecat.settings.service import get_setting
-
-            return await get_setting(
-                key, role=self.role, session=self.session, default=default
-            )
-
+    async def _get_audit_config(self) -> AuditWebhookConfig | None:
+        """Resolve one atomically loaded and cached delivery configuration."""
         organization_id = (
             self.role.organization_id
             if self.audit_sink == "organization" and isinstance(self.role, Role)
             else None
         )
-        return await _get_audit_setting_cached(
-            self.audit_sink, organization_id, key, default
+        if (
+            self.audit_sink == "organization"
+            and isinstance(self.role, Role)
+            and organization_id is None
+        ):
+            # Preserve the historical default-organization fallback for the
+            # rare service role that is not already bound to an organization.
+            from tracecat.api.common import get_default_organization_id
+
+            organization_id = await get_default_organization_id(self.session)
+
+        snapshot = await _get_audit_settings_cached(
+            self.audit_sink,
+            organization_id,
         )
+        return self._config_from_snapshot(snapshot)
 
-    async def _get_webhook_url(self) -> str | None:
-        """Fetch the configured audit webhook URL.
-
-        Precedence:
-        1. `AUDIT_WEBHOOK_URL` env var
-        2. Organization setting `audit_webhook_url`
-        """
-
-        value = await self._get_audit_setting("audit_webhook_url")
-        if value is None:
+    def _config_from_snapshot(
+        self, snapshot: _AuditSettingsSnapshot
+    ) -> AuditWebhookConfig | None:
+        webhook_url = snapshot.webhook_url
+        if webhook_url is None:
             return None
-        if not isinstance(value, str):
+        if not isinstance(webhook_url, str):
             self.logger.warning(
                 "audit_webhook_url must be a string",
-                value_type=type(value),
+                value_type=type(webhook_url),
             )
             return None
+        webhook_url = webhook_url.strip()
+        if not webhook_url:
+            return None
 
-        cleaned = value.strip()
-        return cleaned or None
-
-    async def _resolve_config(self, *, webhook_url: str) -> AuditWebhookConfig:
-        """Resolve loosely typed stored settings into one delivery config."""
-        custom_headers = await self._get_audit_setting("audit_webhook_custom_headers")
+        custom_headers = snapshot.custom_headers
         if custom_headers is not None and not isinstance(custom_headers, dict):
             self.logger.warning(
                 "audit_webhook_custom_headers must be a dict",
@@ -384,7 +416,7 @@ class AuditService(BaseService):
             )
             custom_headers = None
 
-        custom_payload = await self._get_audit_setting("audit_webhook_custom_payload")
+        custom_payload = snapshot.custom_payload
         if custom_payload is not None and not isinstance(custom_payload, dict):
             self.logger.warning(
                 "audit_webhook_custom_payload must be a dict",
@@ -392,9 +424,7 @@ class AuditService(BaseService):
             )
             custom_payload = None
 
-        verify_ssl = await self._get_audit_setting(
-            "audit_webhook_verify_ssl", default=True
-        )
+        verify_ssl = snapshot.verify_ssl
         if not isinstance(verify_ssl, bool):
             self.logger.warning(
                 "audit_webhook_verify_ssl must be a bool",
@@ -402,9 +432,7 @@ class AuditService(BaseService):
             )
             verify_ssl = True
 
-        payload_attribute = await self._get_audit_setting(
-            "audit_webhook_payload_attribute"
-        )
+        payload_attribute = snapshot.payload_attribute
         if payload_attribute is not None and not isinstance(payload_attribute, str):
             self.logger.warning(
                 "audit_webhook_payload_attribute must be a string",
@@ -421,6 +449,26 @@ class AuditService(BaseService):
             verify_ssl=verify_ssl,
             payload_attribute=payload_attribute,
         )
+
+    async def _get_webhook_url(self) -> str | None:
+        """Fetch the configured audit webhook URL.
+
+        Precedence:
+        1. `AUDIT_WEBHOOK_URL` env var
+        2. Organization setting `audit_webhook_url`
+        """
+
+        config = await self._get_audit_config()
+        return config.webhook_url if config is not None else None
+
+    async def _resolve_config(self, *, webhook_url: str) -> AuditWebhookConfig:
+        """Resolve the latest atomic config before a delivery is detached."""
+        config = await self._get_audit_config()
+        if config is None:
+            raise AuditWebhookNotConfiguredError
+        if config.webhook_url != webhook_url:
+            self.logger.debug("Audit webhook changed while event was assembled")
+        return config
 
     async def _build_delivery(
         self, *, webhook_url: str, payload: AuditEvent
@@ -496,12 +544,10 @@ class AuditService(BaseService):
 
         try:
             async with asyncio.timeout(_AUDIT_WEBHOOK_TEST_TIMEOUT_SECONDS):
-                # A probe is a caller-controlled request that echoes the
-                # receiver's status, so an unresolved-to-public URL would be an
-                # internal-network oracle. Reject before any connection; the
-                # error carries no address.
                 try:
-                    await validate_url_resolves_public_async(webhook_url)
+                    # Normalize structural errors here for a stable 400. DNS is
+                    # resolved and pinned only inside the guarded connection.
+                    HttpOrigin.from_url(webhook_url)
                 except DisallowedUrlError as exc:
                     raise AuditWebhookUrlNotAllowedError from exc
 
@@ -521,7 +567,7 @@ class AuditService(BaseService):
                 # delivery; one that cannot get a slot within the wall clock
                 # times out instead of queueing without bound.
                 async with _get_post_semaphore():
-                    async with httpx.AsyncClient(
+                    async with _audit_http_client(
                         timeout=_AUDIT_WEBHOOK_TEST_TIMEOUT_SECONDS,
                         verify=delivery.verify_ssl,
                     ) as client:
@@ -535,6 +581,8 @@ class AuditService(BaseService):
                         ) as response:
                             ok = response.is_success
                             receiver_status_code = response.status_code
+        except DisallowedUrlError as exc:
+            raise AuditWebhookUrlNotAllowedError from exc
         except (TimeoutError, httpx.TimeoutException) as exc:
             logger.warning(
                 "Audit webhook test timed out",

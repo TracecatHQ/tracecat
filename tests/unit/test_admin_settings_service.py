@@ -111,3 +111,72 @@ async def test_platform_audit_settings_can_clear(
     )
 
     assert settings.audit_webhook_url is None
+
+
+@pytest.mark.anyio
+async def test_platform_audit_url_clears_headers_on_origin_change(
+    session: AsyncSession,
+    platform_role: PlatformRole,
+) -> None:
+    service = AdminSettingsService(session, platform_role)
+    await service.update_audit_settings(
+        PlatformAuditSettingsUpdate(
+            audit_webhook_url="https://audit.example.com/first",
+            audit_webhook_custom_headers={"Authorization": "Bearer old-secret"},
+        )
+    )
+
+    settings = await service.update_audit_settings(
+        PlatformAuditSettingsUpdate(
+            audit_webhook_url="https://other.example.com/second"
+        )
+    )
+
+    assert settings.audit_webhook_custom_headers is None
+
+
+@pytest.mark.anyio
+async def test_platform_audit_url_preserves_headers_on_same_origin(
+    session: AsyncSession,
+    platform_role: PlatformRole,
+) -> None:
+    service = AdminSettingsService(session, platform_role)
+    headers = {"Authorization": "Bearer retained-secret"}
+    await service.update_audit_settings(
+        PlatformAuditSettingsUpdate(
+            audit_webhook_url="https://audit.example.com/first",
+            audit_webhook_custom_headers=headers,
+        )
+    )
+
+    settings = await service.update_audit_settings(
+        PlatformAuditSettingsUpdate(
+            audit_webhook_url="https://AUDIT.example.com:443/second?version=2"
+        )
+    )
+
+    assert settings.audit_webhook_custom_headers == headers
+
+
+@pytest.mark.anyio
+async def test_platform_audit_url_accepts_explicit_cross_origin_headers(
+    session: AsyncSession,
+    platform_role: PlatformRole,
+) -> None:
+    service = AdminSettingsService(session, platform_role)
+    replacement_headers = {"Authorization": "Bearer replacement-secret"}
+    await service.update_audit_settings(
+        PlatformAuditSettingsUpdate(
+            audit_webhook_url="https://audit.example.com/first",
+            audit_webhook_custom_headers={"Authorization": "Bearer old-secret"},
+        )
+    )
+
+    settings = await service.update_audit_settings(
+        PlatformAuditSettingsUpdate(
+            audit_webhook_url="https://other.example.com/second",
+            audit_webhook_custom_headers=replacement_headers,
+        )
+    )
+
+    assert settings.audit_webhook_custom_headers == replacement_headers

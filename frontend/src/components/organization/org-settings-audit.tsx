@@ -219,6 +219,18 @@ function normalizePayloadAttribute(value: string | null | undefined): string {
   return value?.trim() ?? ""
 }
 
+function normalizeWebhookOrigin(value: string): string | null {
+  try {
+    const url = new URL(value.trim())
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return null
+    }
+    return url.origin
+  } catch {
+    return null
+  }
+}
+
 function maskWebhookUrl(url: string): string {
   const trimmed = url.trim()
   if (trimmed === "") {
@@ -252,6 +264,10 @@ export function AuditSettingsForm({
   decryptFailureTitle = "Unable to decrypt organization settings",
 }: AuditSettingsFormProps) {
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [headersOrigin, setHeadersOrigin] = useState<string | null>(null)
+  const [headersReadyForOrigin, setHeadersReadyForOrigin] = useState(true)
+  const [headersClearedForOriginChange, setHeadersClearedForOriginChange] =
+    useState(false)
 
   const form = useForm<AuditDialogFormValues>({
     resolver: zodResolver(auditDialogFormSchema),
@@ -267,6 +283,7 @@ export function AuditSettingsForm({
     fields: headerFields,
     append: appendHeader,
     remove: removeHeader,
+    replace: replaceHeaders,
   } = useFieldArray({
     control: form.control,
     name: "headers",
@@ -298,6 +315,12 @@ export function AuditSettingsForm({
       },
       {}
     )
+    const nextOrigin = normalizeWebhookOrigin(nextUrl)
+    const headersMatchOrigin =
+      Object.keys(nextHeaders).length === 0 ||
+      (headersReadyForOrigin &&
+        nextOrigin !== null &&
+        nextOrigin === headersOrigin)
 
     let customPayload: Record<string, unknown> | null
     try {
@@ -313,7 +336,9 @@ export function AuditSettingsForm({
     return {
       audit_webhook_url: nextUrl,
       audit_webhook_custom_headers:
-        Object.keys(nextHeaders).length > 0 ? nextHeaders : null,
+        headersMatchOrigin && Object.keys(nextHeaders).length > 0
+          ? nextHeaders
+          : null,
       audit_webhook_payload_attribute:
         data.audit_webhook_payload_attribute.trim() === ""
           ? null
@@ -421,8 +446,36 @@ export function AuditSettingsForm({
         audit_webhook_payload_attribute: currentPayloadAttribute,
         audit_webhook_verify_ssl: currentVerifySsl,
       })
+      setHeadersOrigin(normalizeWebhookOrigin(currentWebhookUrl))
+      setHeadersReadyForOrigin(true)
+      setHeadersClearedForOriginChange(false)
     }
     setDialogOpen(open)
+  }
+
+  const bindHeadersToCurrentFormOrigin = () => {
+    setHeadersOrigin(
+      normalizeWebhookOrigin(form.getValues("audit_webhook_url"))
+    )
+    setHeadersReadyForOrigin(true)
+  }
+
+  const handleWebhookUrlBlur = () => {
+    const nextOrigin = normalizeWebhookOrigin(
+      form.getValues("audit_webhook_url")
+    )
+    if (
+      nextOrigin !== null &&
+      nextOrigin !== headersOrigin &&
+      form.getValues("headers").length > 0
+    ) {
+      replaceHeaders([])
+      setHeadersReadyForOrigin(false)
+      setHeadersClearedForOriginChange(true)
+    }
+    if (nextOrigin !== null) {
+      setHeadersOrigin(nextOrigin)
+    }
   }
 
   return (
@@ -508,6 +561,10 @@ export function AuditSettingsForm({
                           type="url"
                           placeholder="https://example.com/webhooks/audit"
                           {...field}
+                          onBlur={() => {
+                            field.onBlur()
+                            handleWebhookUrlBlur()
+                          }}
                         />
                       </FormControl>
                       <FormMessage />
@@ -529,6 +586,16 @@ export function AuditSettingsForm({
                     </p>
                   )}
 
+                  {headersClearedForOriginChange && (
+                    <Alert>
+                      <AlertTriangleIcon className="size-4" />
+                      <AlertDescription>
+                        Saved headers were cleared because the webhook origin
+                        changed. Re-enter any headers for the new endpoint.
+                      </AlertDescription>
+                    </Alert>
+                  )}
+
                   {headerFields.map((field, index) => (
                     <div
                       key={field.id}
@@ -542,6 +609,10 @@ export function AuditSettingsForm({
                             <FormControl>
                               <Input
                                 {...headerField}
+                                onChange={(event) => {
+                                  headerField.onChange(event)
+                                  bindHeadersToCurrentFormOrigin()
+                                }}
                                 placeholder="X-Custom-Header"
                                 autoComplete="off"
                               />
@@ -558,6 +629,10 @@ export function AuditSettingsForm({
                             <FormControl>
                               <Input
                                 {...valueField}
+                                onChange={(event) => {
+                                  valueField.onChange(event)
+                                  bindHeadersToCurrentFormOrigin()
+                                }}
                                 type="password"
                                 placeholder="Header value"
                                 autoComplete="off"
@@ -571,7 +646,10 @@ export function AuditSettingsForm({
                         type="button"
                         variant="ghost"
                         size="icon"
-                        onClick={() => removeHeader(index)}
+                        onClick={() => {
+                          removeHeader(index)
+                          bindHeadersToCurrentFormOrigin()
+                        }}
                         className="mt-0.5"
                       >
                         <Trash2Icon className="size-4" />
@@ -584,7 +662,10 @@ export function AuditSettingsForm({
                     type="button"
                     variant="outline"
                     size="sm"
-                    onClick={() => appendHeader({ key: "", value: "" })}
+                    onClick={() => {
+                      bindHeadersToCurrentFormOrigin()
+                      appendHeader({ key: "", value: "" })
+                    }}
                     className="gap-2"
                   >
                     <PlusIcon className="size-4" />

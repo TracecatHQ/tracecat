@@ -29,6 +29,7 @@ from tracecat.logger import logger
 from tracecat.network import DisallowedUrlError, validate_url_resolves_public_async
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
 from tracecat.service import BaseOrgService
+from tracecat.settings.audit import bind_audit_headers_to_webhook_origin
 from tracecat.settings.constants import SENSITIVE_SETTINGS_KEYS
 from tracecat.settings.schemas import (
     AgentOtelSettingsUpdate,
@@ -326,6 +327,20 @@ class SettingsService(BaseOrgService):
     @audit_log(resource_type="organization_setting", action="update")
     async def update_audit_settings(self, params: AuditSettingsUpdate) -> None:
         audit_settings = await self.list_org_settings(keys=AUDIT_SETTINGS_KEYS)
+        settings_by_key = {setting.key: setting for setting in audit_settings}
+        current_url_setting = settings_by_key.get("audit_webhook_url")
+        try:
+            current_url = (
+                self.get_value(current_url_setting)
+                if current_url_setting is not None
+                else None
+            )
+        except (InvalidToken, ValueError):
+            current_url = None
+        params = bind_audit_headers_to_webhook_origin(
+            params,
+            current_url=current_url,
+        )
         await self._update_grouped_settings(audit_settings, params)
         clear_audit_setting_cache()
 

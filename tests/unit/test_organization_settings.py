@@ -288,6 +288,76 @@ async def test_update_audit_custom_headers_encrypted_at_rest(
 
 
 @pytest.mark.anyio
+async def test_update_audit_url_clears_headers_on_origin_change(
+    settings_service_with_defaults: SettingsService,
+) -> None:
+    service = settings_service_with_defaults
+    await service.update_audit_settings(
+        AuditSettingsUpdate(
+            audit_webhook_url="https://audit.example.com/first",
+            audit_webhook_custom_headers={"Authorization": "Bearer old-secret"},
+        )
+    )
+
+    await service.update_audit_settings(
+        AuditSettingsUpdate(audit_webhook_url="https://other.example.com/second")
+    )
+
+    setting = await service.get_org_setting("audit_webhook_custom_headers")
+    assert setting is not None
+    assert service.get_value(setting) is None
+
+
+@pytest.mark.anyio
+async def test_update_audit_url_preserves_headers_on_same_origin(
+    settings_service_with_defaults: SettingsService,
+) -> None:
+    service = settings_service_with_defaults
+    headers = {"Authorization": "Bearer retained-secret"}
+    await service.update_audit_settings(
+        AuditSettingsUpdate(
+            audit_webhook_url="https://audit.example.com/first",
+            audit_webhook_custom_headers=headers,
+        )
+    )
+
+    await service.update_audit_settings(
+        AuditSettingsUpdate(
+            audit_webhook_url="https://AUDIT.example.com:443/second?version=2"
+        )
+    )
+
+    setting = await service.get_org_setting("audit_webhook_custom_headers")
+    assert setting is not None
+    assert service.get_value(setting) == headers
+
+
+@pytest.mark.anyio
+async def test_update_audit_url_accepts_explicit_cross_origin_headers(
+    settings_service_with_defaults: SettingsService,
+) -> None:
+    service = settings_service_with_defaults
+    replacement_headers = {"Authorization": "Bearer replacement-secret"}
+    await service.update_audit_settings(
+        AuditSettingsUpdate(
+            audit_webhook_url="https://audit.example.com/first",
+            audit_webhook_custom_headers={"Authorization": "Bearer old-secret"},
+        )
+    )
+
+    await service.update_audit_settings(
+        AuditSettingsUpdate(
+            audit_webhook_url="https://other.example.com/second",
+            audit_webhook_custom_headers=replacement_headers,
+        )
+    )
+
+    setting = await service.get_org_setting("audit_webhook_custom_headers")
+    assert setting is not None
+    assert service.get_value(setting) == replacement_headers
+
+
+@pytest.mark.anyio
 async def test_update_audit_custom_payload_encrypted_at_rest(
     settings_service_with_defaults: SettingsService,
 ) -> None:

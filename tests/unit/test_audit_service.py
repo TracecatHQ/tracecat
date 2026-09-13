@@ -19,6 +19,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from tenacity import wait_none
 
+from tracecat import service as base_service_module
 from tracecat.audit import service as audit_service_module
 from tracecat.audit.enums import AuditEventActor, AuditEventStatus
 from tracecat.audit.logger import (
@@ -37,6 +38,8 @@ from tracecat.auth.users import UserManager
 from tracecat.authz.scopes import ADMIN_SCOPES
 from tracecat.contexts import RequestAuditContext, ctx_request_audit, ctx_role
 from tracecat.service import BaseService
+from tracecat.settings.schemas import AuditSettingsUpdate
+from tracecat.settings.service import SettingsService
 
 
 @pytest.fixture
@@ -54,6 +57,17 @@ def role() -> Role:
 @pytest.fixture
 def audit_service(role: Role) -> AuditService:
     return AuditService(AsyncMock(), role=role)
+
+
+def _settings_snapshot(
+    webhook_url: str,
+    *,
+    custom_headers: dict[str, str] | None = None,
+) -> audit_service_module._AuditSettingsSnapshot:
+    return audit_service_module._AuditSettingsSnapshot(
+        webhook_url=webhook_url,
+        custom_headers=custom_headers,
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -774,14 +788,16 @@ async def test_platform_role_defaults_to_platform_audit_sink(
         service_id="tracecat-api",
     )
     audit_service = AuditService(AsyncMock(), role=role)
-    fetch_platform_setting = AsyncMock(return_value="https://example.com/audit")
+    fetch_platform_settings = AsyncMock(
+        return_value=_settings_snapshot("https://example.com/audit")
+    )
     monkeypatch.setattr(
-        audit_service_module, "_fetch_platform_setting", fetch_platform_setting
+        audit_service_module, "_fetch_platform_audit_settings", fetch_platform_settings
     )
 
     assert audit_service.audit_sink == "platform"
     assert await audit_service._get_webhook_url() == "https://example.com/audit"
-    fetch_platform_setting.assert_awaited_once_with("audit_webhook_url")
+    fetch_platform_settings.assert_awaited_once_with()
 
 
 @pytest.mark.anyio
@@ -791,14 +807,14 @@ async def test_audit_setting_cache_hits_within_ttl(
     """A repeat lookup within the TTL is served from cache, not the DB."""
     role = PlatformRole(type="user", user_id=uuid.uuid4(), service_id="tracecat-api")
     audit_service = AuditService(AsyncMock(), role=role)
-    fetch = AsyncMock(return_value="https://example.com/audit")
-    monkeypatch.setattr(audit_service_module, "_fetch_platform_setting", fetch)
+    fetch = AsyncMock(return_value=_settings_snapshot("https://example.com/audit"))
+    monkeypatch.setattr(audit_service_module, "_fetch_platform_audit_settings", fetch)
 
     first = await audit_service._get_webhook_url()
     second = await audit_service._get_webhook_url()
 
     assert first == second == "https://example.com/audit"
-    fetch.assert_awaited_once_with("audit_webhook_url")
+    fetch.assert_awaited_once_with()
 
 
 @pytest.mark.anyio
@@ -827,8 +843,10 @@ async def test_audit_setting_cache_separates_sinks_and_orgs(
     platform_service = AuditService(AsyncMock(), role=platform_role)
     monkeypatch.setattr(
         audit_service_module,
-        "_fetch_platform_setting",
-        AsyncMock(return_value="https://platform.example.com/audit"),
+        "_fetch_platform_audit_settings",
+        AsyncMock(
+            return_value=_settings_snapshot("https://platform.example.com/audit")
+        ),
     )
 
     org_values = {
@@ -836,13 +854,16 @@ async def test_audit_setting_cache_separates_sinks_and_orgs(
         org_b: "https://org-b.example.com/audit",
     }
 
-    async def fake_get_setting(
-        key: str, *, role: Role | None = None, session: Any = None, default: Any = None
-    ) -> Any:
-        assert role is not None and role.organization_id is not None
-        return org_values[role.organization_id]
+    async def fetch_org_settings(
+        organization_id: uuid.UUID,
+    ) -> audit_service_module._AuditSettingsSnapshot:
+        return _settings_snapshot(org_values[organization_id])
 
-    monkeypatch.setattr("tracecat.settings.service.get_setting", fake_get_setting)
+    monkeypatch.setattr(
+        audit_service_module,
+        "_fetch_organization_audit_settings",
+        fetch_org_settings,
+    )
 
     assert (
         await platform_service._get_webhook_url()
@@ -867,11 +888,11 @@ async def test_audit_setting_cache_clear_restores_fresh_reads(
     audit_service = AuditService(AsyncMock(), role=role)
     fetch = AsyncMock(
         side_effect=[
-            "https://first.example.com/audit",
-            "https://second.example.com/audit",
+            _settings_snapshot("https://first.example.com/audit"),
+            _settings_snapshot("https://second.example.com/audit"),
         ]
     )
-    monkeypatch.setattr(audit_service_module, "_fetch_platform_setting", fetch)
+    monkeypatch.setattr(audit_service_module, "_fetch_platform_audit_settings", fetch)
 
     assert await audit_service._get_webhook_url() == "https://first.example.com/audit"
     assert await audit_service._get_webhook_url() == "https://first.example.com/audit"
@@ -880,6 +901,98 @@ async def test_audit_setting_cache_clear_restores_fresh_reads(
 
     assert await audit_service._get_webhook_url() == "https://second.example.com/audit"
     assert fetch.await_count == 2
+
+
+@pytest.mark.anyio
+async def test_organization_audit_config_loads_one_complete_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+    svc_admin_role: Role,
+    session: AsyncSession,
+) -> None:
+    monkeypatch.setattr(AuditService, "create_event", AsyncMock())
+    settings_service = SettingsService(session, role=svc_admin_role)
+    await settings_service.update_audit_settings(
+        AuditSettingsUpdate(
+            audit_webhook_url="https://audit.example.com/events",
+            audit_webhook_custom_headers={"Authorization": "Bearer secret"},
+            audit_webhook_verify_ssl=False,
+        )
+    )
+    await session.commit()
+
+    @asynccontextmanager
+    async def use_test_session() -> AsyncIterator[AsyncSession]:
+        yield session
+
+    monkeypatch.setattr(
+        base_service_module,
+        "get_async_session_context_manager",
+        use_test_session,
+    )
+    audit_service = AuditService(session, role=svc_admin_role)
+
+    config = await audit_service._get_audit_config()
+
+    assert config == AuditWebhookConfig(
+        webhook_url="https://audit.example.com/events",
+        custom_headers={"Authorization": "Bearer secret"},
+        verify_ssl=False,
+    )
+
+
+@pytest.mark.anyio
+async def test_delivery_never_mixes_settings_generations(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A cache refresh switches URL and credentials as one snapshot."""
+    old_url = "https://old.example.com/audit"
+    new_url = "https://new.example.com/audit"
+    fetch = AsyncMock(
+        side_effect=[
+            _settings_snapshot(
+                old_url,
+                custom_headers={"Authorization": "Bearer old-secret"},
+            ),
+            _settings_snapshot(
+                new_url,
+                custom_headers={"Authorization": "Bearer new-secret"},
+            ),
+        ]
+    )
+    monkeypatch.setattr(
+        audit_service_module,
+        "_fetch_platform_audit_settings",
+        fetch,
+    )
+    role = PlatformRole(
+        type="user",
+        user_id=uuid.uuid4(),
+        service_id="tracecat-api",
+    )
+    service = AuditService(AsyncMock(), role=role)
+    stale_url = await service._get_webhook_url()
+    assert stale_url == old_url
+
+    audit_service_module.clear_audit_setting_cache()
+    deliveries: list[_AuditDelivery] = []
+    monkeypatch.setattr(audit_service_module, "_spawn_delivery", deliveries.append)
+    event = AuditEvent(
+        organization_id=None,
+        workspace_id=None,
+        actor_type=AuditEventActor.USER,
+        actor_id=role.user_id,
+        actor_label=None,
+        resource_type="workflow",
+        resource_id=None,
+        action="update",
+        status=AuditEventStatus.SUCCESS,
+    )
+
+    await service._post_event(webhook_url=stale_url, payload=event)
+
+    assert len(deliveries) == 1
+    assert deliveries[0].webhook_url == new_url
+    assert deliveries[0].headers == {"Authorization": "Bearer new-secret"}
 
 
 @pytest.mark.anyio
@@ -907,8 +1020,11 @@ async def test_post_event_uses_custom_payload_headers_and_verify_ssl(
 
     response_mock = MagicMock()
     response_mock.raise_for_status = MagicMock()
-    client_mock = AsyncMock()
-    client_mock.post = AsyncMock(return_value=response_mock)
+    stream_context_mock = AsyncMock()
+    stream_context_mock.__aenter__.return_value = response_mock
+    stream_context_mock.__aexit__.return_value = None
+    client_mock = MagicMock()
+    client_mock.stream.return_value = stream_context_mock
     async_client_context_mock = AsyncMock()
     async_client_context_mock.__aenter__.return_value = client_mock
     async_client_context_mock.__aexit__.return_value = None
@@ -926,17 +1042,17 @@ async def test_post_event_uses_custom_payload_headers_and_verify_ssl(
     )
 
     with patch(
-        "tracecat.audit.service.httpx.AsyncClient",
+        "tracecat.audit.service._audit_http_client",
         return_value=async_client_context_mock,
     ) as async_client_ctor:
         await audit_service._post_event(webhook_url=webhook_url, payload=event)
         await flush_audit_deliveries()
 
     async_client_ctor.assert_called_once_with(timeout=10.0, verify=False)
-    assert client_mock.post.await_count == 1
-    args = client_mock.post.await_args.args
-    kwargs = client_mock.post.await_args.kwargs
-    assert args[0] == webhook_url
+    assert client_mock.stream.call_count == 1
+    args = client_mock.stream.call_args.args
+    kwargs = client_mock.stream.call_args.kwargs
+    assert args == ("POST", webhook_url)
     assert kwargs["headers"] == {"X-Custom-Header": "custom-value"}
     assert kwargs["json"]["custom"] == "yes"
     assert kwargs["json"]["resource_type"] == "workflow"
@@ -965,8 +1081,11 @@ async def test_post_event_wraps_payload_when_attribute_configured(
 
     response_mock = MagicMock()
     response_mock.raise_for_status = MagicMock()
-    client_mock = AsyncMock()
-    client_mock.post = AsyncMock(return_value=response_mock)
+    stream_context_mock = AsyncMock()
+    stream_context_mock.__aenter__.return_value = response_mock
+    stream_context_mock.__aexit__.return_value = None
+    client_mock = MagicMock()
+    client_mock.stream.return_value = stream_context_mock
     async_client_context_mock = AsyncMock()
     async_client_context_mock.__aenter__.return_value = client_mock
     async_client_context_mock.__aexit__.return_value = None
@@ -984,14 +1103,14 @@ async def test_post_event_wraps_payload_when_attribute_configured(
     )
 
     with patch(
-        "tracecat.audit.service.httpx.AsyncClient",
+        "tracecat.audit.service._audit_http_client",
         return_value=async_client_context_mock,
     ) as async_client_ctor:
         await audit_service._post_event(webhook_url=webhook_url, payload=event)
         await flush_audit_deliveries()
 
     async_client_ctor.assert_called_once_with(timeout=10.0, verify=True)
-    kwargs = client_mock.post.await_args.kwargs
+    kwargs = client_mock.stream.call_args.kwargs
     wrapped_payload = kwargs["json"]
     assert set(wrapped_payload.keys()) == {"event"}
     assert wrapped_payload["event"]["custom"] == "yes"
@@ -1009,10 +1128,12 @@ async def test_post_event_failure_does_not_log_webhook_url(
         AsyncMock(return_value=AuditWebhookConfig(webhook_url=webhook_url)),
     )
 
-    client_mock = AsyncMock()
-    client_mock.post = AsyncMock(
-        side_effect=httpx.ConnectError(f"cannot connect to {webhook_url}")
+    stream_context_mock = AsyncMock()
+    stream_context_mock.__aenter__.side_effect = httpx.ConnectError(
+        f"cannot connect to {webhook_url}"
     )
+    client_mock = MagicMock()
+    client_mock.stream.return_value = stream_context_mock
     async_client_context_mock = AsyncMock()
     async_client_context_mock.__aenter__.return_value = client_mock
     async_client_context_mock.__aexit__.return_value = None
@@ -1036,7 +1157,7 @@ async def test_post_event_failure_does_not_log_webhook_url(
 
     with (
         patch(
-            "tracecat.audit.service.httpx.AsyncClient",
+            "tracecat.audit.service._audit_http_client",
             return_value=async_client_context_mock,
         ),
         patch("tracecat.audit.service.logger.warning", side_effect=capture_warning),
@@ -1045,7 +1166,7 @@ async def test_post_event_failure_does_not_log_webhook_url(
         await flush_audit_deliveries()
 
     # ConnectError is retryable; all attempts exhaust before the warning.
-    assert client_mock.post.await_count == 3
+    assert stream_context_mock.__aenter__.await_count == 3
     delivery_warnings = [
         kwargs for m, kwargs in warnings if m == "Failed to deliver audit webhook"
     ]
@@ -1125,6 +1246,16 @@ def _delivery(
 def no_retry_backoff(monkeypatch: pytest.MonkeyPatch) -> None:
     """Zero the delivery retry backoff so retry-path tests don't sleep."""
     monkeypatch.setattr(audit_service_module, "_RETRY_WAIT", wait_none())
+
+
+@pytest.fixture(autouse=True)
+def use_respx_compatible_audit_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep service tests on HTTPX's mockable default transport."""
+
+    def client_factory(*, timeout: float, verify: bool) -> httpx.AsyncClient:
+        return httpx.AsyncClient(timeout=timeout, verify=verify)
+
+    monkeypatch.setattr(audit_service_module, "_audit_http_client", client_factory)
 
 
 async def flush_audit_deliveries() -> None:

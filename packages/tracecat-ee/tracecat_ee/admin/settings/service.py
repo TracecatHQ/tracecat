@@ -18,6 +18,7 @@ from tracecat.auth.types import PlatformRole
 from tracecat.db.models import PlatformSetting
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
 from tracecat.service import BasePlatformService
+from tracecat.settings.audit import bind_audit_headers_to_webhook_origin
 from tracecat.settings.schemas import AuditSettingsUpdate
 from tracecat_ee.admin.settings.schemas import (
     PlatformAuditSettingsRead,
@@ -144,6 +145,13 @@ class AdminSettingsService(BasePlatformService):
         self, params: PlatformAuditSettingsUpdate
     ) -> PlatformAuditSettingsRead:
         """Update platform audit settings."""
+        current_settings, _ = await self._get_settings_with_decryption_fallback(
+            {"audit_webhook_url"}
+        )
+        params = bind_audit_headers_to_webhook_origin(
+            params,
+            current_url=current_settings.get("audit_webhook_url"),
+        )
         for key, value in params.model_dump(exclude_unset=True).items():
             await self._upsert_setting(key, value)
         await self.session.commit()
