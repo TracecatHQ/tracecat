@@ -1,0 +1,29 @@
+tests/unit/test_audit_service.py
+  s_388fff4aaf5212::t_fbafce52e4447e 999-1038
+  s_388fff4aaf5212::t_d5a7be78912fea 998
+tracecat/audit/service.py
+  s_388fff4aaf5212::t_cd8c9127e28b68 15,502-522,524,569
+  s_388fff4aaf5212::t_95a2158398c780 526,570-572,576
+tests/unit/api/test_api_audit_webhook_test.py
+  s_388fff4aaf5212::t_47dd5dc7629213 146-149,154,162-163,168,173,175
+  s_388fff4aaf5212::t_03c57a7d70b69c 151-153,155-161,164-167,169-172,174,176-177
+  s_388fff4aaf5212::t_9f30ae1115f009 150
+  s_388fff4aaf5212::t_91137dc2c95c07 145
+  s_388fff4aaf5212::t_bccf0298d24766 178-179
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "26ea658a1e7e7c97cac24126e166d10d201cb988",
+  "prompts": {},
+  "sessions": {
+    "s_388fff4aaf5212": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09b54-52c8-7d92-934c-882473f1ae27",
+        "model": "gpt-daybreak-blue-latest"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
