@@ -1,0 +1,35 @@
+tests/unit/test_admin_settings_service.py
+  s_388fff4aaf5212::t_b8c9a5496b0950 3,9-15,18-21,23-24,194-319
+tracecat/settings/service.py
+  s_388fff4aaf5212::t_a668b5b98763b7 152,161,181,186,337-340
+  s_388fff4aaf5212::t_7ac02c287857db 182-185
+packages/tracecat-ee/tracecat_ee/admin/settings/service.py
+  s_388fff4aaf5212::t_7ac02c287857db 79-82,86-91,158-159
+tests/unit/test_organization_settings.py
+  s_388fff4aaf5212::t_a43e0f6d4eb98f 322-329,339,361,380,383
+  s_388fff4aaf5212::t_64a947313bb8a6 8,285-289
+  s_388fff4aaf5212::t_a668b5b98763b7 1-2,12-17,19,25,279-284,290-321,330-338,340-360,362-379,381-382,384-406
+  s_388fff4aaf5212::t_7ac02c287857db 10,420-423,433-440
+  s_388fff4aaf5212::t_1e6c5160d9f99e 43
+  s_388fff4aaf5212::t_e6dfbae7d5490c 407-408
+  s_388fff4aaf5212::t_73cb22f5bec865 441-442
+tracecat/settings/schemas.py
+  s_388fff4aaf5212::t_7ac02c287857db 2,4-10,179-188
+  s_388fff4aaf5212::t_57833d8702f2b2 189
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6f9b37248d51c044541a7417a6ccf8792160522f",
+  "prompts": {},
+  "sessions": {
+    "s_388fff4aaf5212": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09b54-52c8-7d92-934c-882473f1ae27",
+        "model": "gpt-daybreak-blue-latest"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
