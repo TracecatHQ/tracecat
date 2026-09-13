@@ -1,0 +1,20 @@
+README.md
+  s_dc44f2868be58e::t_9cd6660a18cad4 24,28
+  s_dc44f2868be58e::t_b4e72273effdac 44
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "cd628396f4693499b5cb0ff93d3ad288cc2bf9b4",
+  "prompts": {},
+  "sessions": {
+    "s_dc44f2868be58e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cb136825-4c47-4a77-896f-17b198986e00",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
