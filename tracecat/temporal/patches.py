@@ -24,6 +24,7 @@ class ExecuteRegistryToolWorkflowPatch(StrEnum):
     """Stable patch IDs recorded in ExecuteRegistryToolWorkflow histories."""
 
     ACTIVITY_TIMEOUT = "registry-tool-activity-timeout-v1"
+    PRESERVE_TEMPORAL_CANCELLATION = "registry-tool-preserve-temporal-cancellation-v1"
 
 
 @unique

@@ -10,7 +10,11 @@ from uuid import UUID, uuid4
 import anyio
 from temporalio.client import WorkflowFailureError, WorkflowHandle
 from temporalio.common import SearchAttributePair, TypedSearchAttributes
-from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
+from temporalio.exceptions import (
+    ApplicationError,
+    WorkflowAlreadyStartedError,
+    is_cancelled_exception,
+)
 from temporalio.service import RPCError, RPCStatusCode
 from tracecat_ee.agent.workflows.registry_tool import ExecuteRegistryToolWorkflow
 
@@ -247,6 +251,12 @@ async def _execute_action_workflow(
         raise
     except WorkflowFailureError as error:
         cause = error.cause
+        if is_cancelled_exception(cause):
+            # The workflow service reports cancellation as a Temporal failure
+            # object. MCP callers use asyncio cancellation to abort the active
+            # request, so translate it before FastMCP's Exception handler can
+            # turn it into a regular tool error.
+            raise asyncio.CancelledError() from error
         message = str(cause) if isinstance(cause, ApplicationError) else str(error)
         raise ActionExecutionError(message) from error
     return StoredObjectValidator.validate_python(stored)

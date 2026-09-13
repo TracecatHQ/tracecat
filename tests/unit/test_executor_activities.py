@@ -16,7 +16,13 @@ from opentelemetry.propagate import get_global_textmap, set_global_textmap
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
     InMemorySpanExporter,
 )
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import (
+    ActivityError,
+    ApplicationError,
+)
+from temporalio.exceptions import (
+    CancelledError as TemporalCancelledError,
+)
 
 from tests.shared import to_data
 from tracecat import config
@@ -139,6 +145,21 @@ class _AsyncContext:
 
 def _stdio_probe_input(mcp_integration_id: uuid.UUID, role: Role) -> StdioMCPProbeInput:
     return StdioMCPProbeInput(mcp_integration_id=mcp_integration_id, role=role)
+
+
+def _activity_error_from(cause: BaseException) -> ActivityError:
+    try:
+        raise ActivityError(
+            "Synthetic activity cancellation",
+            scheduled_event_id=1,
+            started_event_id=2,
+            identity="test-executor",
+            activity_type="execute_action_activity",
+            activity_id="synthetic-activity-id",
+            retry_state=None,
+        ) from cause
+    except ActivityError as error:
+        return error
 
 
 class TestExecutorActivities:
@@ -319,6 +340,46 @@ class TestExecuteActionActivity:
             assert app_error.type == RuntimeErrorKind.ACTION_EXECUTION_FAILED.value
             # Check that the error info is in the details
             assert len(app_error.details) > 0
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        "cancellation",
+        [
+            pytest.param(
+                TemporalCancelledError("activity cancelled"),
+                id="direct-temporal-cancellation",
+            ),
+            pytest.param(
+                _activity_error_from(TemporalCancelledError("activity cancelled")),
+                id="wrapped-temporal-cancellation",
+            ),
+        ],
+    )
+    async def test_temporal_cancellation_is_not_classified(
+        self,
+        mock_run_action_input: RunActionInput,
+        mock_role: Role,
+        cancellation: BaseException,
+    ) -> None:
+        with (
+            patch("tracecat.executor.activities.activity") as mock_activity,
+            patch("tracecat.executor.activities.get_executor_backend") as mock_backend,
+            patch(
+                "tracecat.executor.activities.dispatch_action",
+                new_callable=AsyncMock,
+            ) as mock_dispatch,
+        ):
+            mock_activity.info.return_value = MagicMock(attempt=1)
+            mock_backend.return_value = MagicMock()
+            mock_dispatch.side_effect = cancellation
+
+            with pytest.raises(type(cancellation)) as exc_info:
+                await ExecutorActivities.execute_action_activity(
+                    mock_run_action_input,
+                    mock_role,
+                )
+
+        assert exc_info.value is cancellation
 
     @pytest.mark.anyio
     @pytest.mark.parametrize(

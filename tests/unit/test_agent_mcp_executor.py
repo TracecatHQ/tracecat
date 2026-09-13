@@ -10,7 +10,14 @@ import anyio
 import pytest
 from anyio.abc import TaskStatus
 from temporalio.client import Client, WorkflowFailureError, WorkflowHandle
-from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
+from temporalio.exceptions import (
+    ActivityError,
+    ApplicationError,
+    WorkflowAlreadyStartedError,
+)
+from temporalio.exceptions import (
+    CancelledError as TemporalCancelledError,
+)
 from temporalio.service import RPCError, RPCStatusCode
 
 from tracecat.agent.mcp import executor
@@ -208,6 +215,55 @@ async def test_execute_action_maps_existing_workflow_failures_on_duplicate_start
             _build_registry_lock(),
             tool_call_id="toolu_123",
         )
+
+
+def _cancelled_activity_error() -> ActivityError:
+    try:
+        raise ActivityError(
+            "Activity cancelled",
+            scheduled_event_id=1,
+            started_event_id=2,
+            identity="test-executor",
+            activity_type="execute_action_activity",
+            activity_id="1",
+            retry_state=None,
+        ) from TemporalCancelledError("tool cancelled")
+    except ActivityError as error:
+        return error
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "cause",
+    [
+        TemporalCancelledError("tool cancelled"),
+        _cancelled_activity_error(),
+    ],
+)
+async def test_execute_action_translates_remote_cancellation(
+    cause: BaseException,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    claims = _build_claims()
+    handle = SimpleNamespace(
+        result=AsyncMock(side_effect=WorkflowFailureError(cause=cause)),
+    )
+    fake_client = SimpleNamespace(
+        start_workflow=AsyncMock(return_value=handle),
+    )
+    monkeypatch.setattr(
+        executor, "get_temporal_client", AsyncMock(return_value=fake_client)
+    )
+
+    with pytest.raises(asyncio.CancelledError) as raised:
+        await executor.execute_action(
+            "core.http_request",
+            {"url": "https://example.com"},
+            claims,
+            _build_registry_lock(),
+        )
+
+    assert isinstance(raised.value.__cause__, WorkflowFailureError)
 
 
 @pytest.mark.anyio

@@ -3,7 +3,11 @@ from __future__ import annotations
 from datetime import timedelta
 
 from temporalio import workflow
-from temporalio.exceptions import ActivityError, ApplicationError
+from temporalio.exceptions import (
+    ActivityError,
+    ApplicationError,
+    is_cancelled_exception,
+)
 from temporalio.exceptions import TimeoutError as TemporalTimeoutError
 
 with workflow.unsafe.imports_passed_through():
@@ -51,6 +55,9 @@ class ExecuteRegistryToolWorkflow:
 
     @workflow.run
     async def run(self, input: ExecuteRegistryToolWorkflowInput) -> StoredObject:
+        preserve_cancellation = workflow.patched(
+            ExecuteRegistryToolWorkflowPatch.PRESERVE_TEMPORAL_CANCELLATION
+        )
         classify_timeout = workflow.patched(
             ExecuteRegistryToolWorkflowPatch.ACTIVITY_TIMEOUT
         )
@@ -77,6 +84,8 @@ class ExecuteRegistryToolWorkflow:
                 priority=AGENT_TOOL_PRIORITY,
             )
         except ActivityError as e:
+            if preserve_cancellation and is_cancelled_exception(e):
+                raise
             if classify_timeout and isinstance(e.cause, TemporalTimeoutError):
                 # Do not retry a tool whose side effects may already have occurred.
                 raise _activity_timeout_error(e.cause) from e

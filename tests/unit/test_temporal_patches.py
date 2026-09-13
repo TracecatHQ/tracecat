@@ -21,4 +21,7 @@ def test_workflow_patch_ids_are_history_stable() -> None:
 def test_registry_tool_workflow_patch_ids_are_history_stable() -> None:
     assert {patch.name: patch.value for patch in ExecuteRegistryToolWorkflowPatch} == {
         "ACTIVITY_TIMEOUT": "registry-tool-activity-timeout-v1",
+        "PRESERVE_TEMPORAL_CANCELLATION": (
+            "registry-tool-preserve-temporal-cancellation-v1"
+        ),
     }

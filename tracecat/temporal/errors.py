@@ -20,7 +20,7 @@ from datetime import timedelta
 from typing import Any, Literal, Never
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ApplicationError, is_cancelled_exception
 
 from tracecat.logger import logger
 from tracecat.observability.sentry import capture_activity_failure
@@ -87,6 +87,8 @@ def activity_error_boundary(
     except asyncio.CancelledError:
         raise
     except Exception as error:
+        if is_cancelled_exception(error):
+            raise
         if extract_error_classifications(
             error,
             include_implicit_context=False,

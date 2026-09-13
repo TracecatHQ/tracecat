@@ -1,10 +1,17 @@
 """Registry tool timeout ordering and terminal attribution regressions."""
 
 from datetime import timedelta
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, call, patch
 
 import pytest
-from temporalio.exceptions import ActivityError, ApplicationError, TimeoutType
+from temporalio.exceptions import (
+    ActivityError,
+    ApplicationError,
+    TimeoutType,
+)
+from temporalio.exceptions import (
+    CancelledError as TemporalCancelledError,
+)
 from temporalio.exceptions import TimeoutError as TemporalTimeoutError
 from tracecat_ee.agent.workflows.registry_tool import ExecuteRegistryToolWorkflow
 
@@ -20,6 +27,7 @@ from tracecat.temporal.errors import (
     application_error_from_classification,
     extract_error_classifications,
 )
+from tracecat.temporal.patches import ExecuteRegistryToolWorkflowPatch
 
 MODULE = "tracecat_ee.agent.workflows.registry_tool"
 
@@ -127,3 +135,55 @@ async def test_classified_sandbox_failure_keeps_user_ownership() -> None:
         )
     assert extract_error_classifications(raised.value) == (classification,)
     assert raised.value.non_retryable
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("preserve_cancellation", [True, False])
+async def test_activity_cancellation_respects_replay_gate(
+    preserve_cancellation: bool,
+) -> None:
+    error = _activity_error(TemporalCancelledError("tool cancelled"))
+    patch_values = {
+        ExecuteRegistryToolWorkflowPatch.PRESERVE_TEMPORAL_CANCELLATION: (
+            preserve_cancellation
+        ),
+        ExecuteRegistryToolWorkflowPatch.ACTIVITY_TIMEOUT: True,
+    }
+
+    def workflow_patch(patch_id: ExecuteRegistryToolWorkflowPatch) -> bool:
+        return patch_values[patch_id]
+
+    with (
+        patch(f"{MODULE}.workflow.patched", side_effect=workflow_patch) as patched,
+        patch(f"{MODULE}.workflow.execute_activity", AsyncMock(side_effect=error)),
+    ):
+        if preserve_cancellation:
+            with pytest.raises(ActivityError) as raised:
+                await ExecuteRegistryToolWorkflow().run(
+                    Mock(
+                        spec=ExecuteRegistryToolWorkflowInput,
+                        run_input=Mock(),
+                        role=Mock(),
+                    )
+                )
+            assert raised.value is error
+        else:
+            with pytest.raises(ApplicationError) as raised:
+                await ExecuteRegistryToolWorkflow().run(
+                    Mock(
+                        spec=ExecuteRegistryToolWorkflowInput,
+                        run_input=Mock(),
+                        role=Mock(),
+                    )
+                )
+            assert raised.value.non_retryable
+
+    patched.assert_any_call(
+        ExecuteRegistryToolWorkflowPatch.PRESERVE_TEMPORAL_CANCELLATION
+    )
+    patched.assert_has_calls(
+        [
+            call(ExecuteRegistryToolWorkflowPatch.PRESERVE_TEMPORAL_CANCELLATION),
+            call(ExecuteRegistryToolWorkflowPatch.ACTIVITY_TIMEOUT),
+        ]
+    )
