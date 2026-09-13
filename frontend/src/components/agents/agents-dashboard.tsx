@@ -30,7 +30,6 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import type {
   AgentFolderDirectoryItem,
   AgentPresetDirectoryItem,
-  AgentPresetReadMinimal,
   AgentTagRead,
   ApprovalRead,
 } from "@/client"
@@ -782,9 +781,8 @@ const DEFAULT_AGENT_SORT: AgentsSortValue = {
 enum AgentActiveDialog {
   FolderCreate,
   FolderRename,
-  FolderDelete,
   PresetMove,
-  PresetDelete,
+  Delete,
 }
 
 const ROW_NAME_COLUMN_CLASS = "min-w-0 w-[340px] shrink-0 truncate text-xs"
@@ -999,7 +997,7 @@ function AgentFolderRenameDialog({
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  folder: AgentFolderDirectoryItem | null
+  folder: AgentFolderDirectoryItem
 }) {
   const workspaceId = useWorkspaceId()
   const { updateFolder, updateFolderIsPending } = useAgentFolders(workspaceId, {
@@ -1008,13 +1006,13 @@ function AgentFolderRenameDialog({
   const [name, setName] = useState("")
 
   useEffect(() => {
-    if (open && folder) {
+    if (open) {
       setName(folder.name)
     }
   }, [open, folder])
 
   const handleSubmit = async () => {
-    if (!folder || !name.trim()) return
+    if (!name.trim()) return
     try {
       await updateFolder({ folderId: folder.id, name: name.trim() })
       onOpenChange(false)
@@ -1074,71 +1072,6 @@ function AgentFolderRenameDialog({
   )
 }
 
-function AgentFolderDeleteDialog({
-  open,
-  onOpenChange,
-  folder,
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  folder: AgentFolderDirectoryItem | null
-}) {
-  const workspaceId = useWorkspaceId()
-  const { deleteFolder } = useAgentFolders(workspaceId, { enabled: open })
-  const [confirmName, setConfirmName] = useState("")
-
-  useEffect(() => {
-    if (open) {
-      setConfirmName("")
-    }
-  }, [open])
-
-  return (
-    <AlertDialog
-      open={open}
-      onOpenChange={(isOpen) => {
-        onOpenChange(isOpen)
-      }}
-    >
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Delete folder</AlertDialogTitle>
-          <AlertDialogDescription>
-            Are you sure you want to delete this folder? This action cannot be
-            undone. You cannot delete a folder that contains agents or other
-            folders.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <div className="my-4">
-          <Input
-            placeholder={`Type "${folder?.name}" to confirm`}
-            value={confirmName}
-            onChange={(e) => setConfirmName(e.target.value)}
-          />
-        </div>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction
-            variant="destructive"
-            disabled={!folder || confirmName !== folder?.name}
-            onClick={async () => {
-              if (folder) {
-                try {
-                  await deleteFolder({ folderId: folder.id })
-                } catch {
-                  // toast handled by hook
-                }
-              }
-            }}
-          >
-            Confirm
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
-  )
-}
-
 function AgentPresetMoveDialog({
   open,
   onOpenChange,
@@ -1146,7 +1079,7 @@ function AgentPresetMoveDialog({
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  preset: AgentPresetDirectoryItem | AgentPresetReadMinimal | null
+  preset: AgentPresetDirectoryItem
 }) {
   const workspaceId = useWorkspaceId()
   const { moveAgentPreset, moveAgentPresetIsPending } =
@@ -1162,7 +1095,6 @@ function AgentPresetMoveDialog({
   }, [open])
 
   const handleMove = async () => {
-    if (!preset) return
     try {
       await moveAgentPreset({
         presetId: preset.id,
@@ -1189,7 +1121,7 @@ function AgentPresetMoveDialog({
           <DialogTitle>Move agent</DialogTitle>
           <DialogDescription>
             Choose a folder to move{" "}
-            <span className="font-medium">{preset?.name}</span> to.
+            <span className="font-medium">{preset.name}</span> to.
           </DialogDescription>
         </DialogHeader>
         <div className="flex w-full items-center py-4">
@@ -1256,16 +1188,19 @@ function AgentPresetMoveDialog({
   )
 }
 
-function AgentPresetDeleteDialog({
+function AgentItemDeleteDialog({
   open,
   onOpenChange,
-  preset,
+  item,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  preset: AgentPresetDirectoryItem | AgentPresetReadMinimal | null
+  item: AgentDirectoryItem
 }) {
   const workspaceId = useWorkspaceId()
+  const { deleteFolder } = useAgentFolders(workspaceId, {
+    enabled: open && item.type === "folder",
+  })
   const { deleteAgentPreset } = useDeleteAgentPreset(workspaceId)
   const [confirmName, setConfirmName] = useState("")
 
@@ -1275,21 +1210,47 @@ function AgentPresetDeleteDialog({
     }
   }, [open])
 
+  const handleDelete = async () => {
+    try {
+      if (item.type === "folder") {
+        await deleteFolder({ folderId: item.id })
+      } else {
+        await deleteAgentPreset({ presetId: item.id, presetName: item.name })
+      }
+    } catch {
+      // toast handled by hook
+    }
+  }
+
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Delete agent</AlertDialogTitle>
+          <AlertDialogTitle>
+            {item.type === "folder" ? "Delete folder" : "Delete agent"}
+          </AlertDialogTitle>
           <AlertDialogDescription>
-            Are you sure you want to delete this agent? It will also be removed
-            as a subagent from every agent that uses it, including saved
-            versions. Restoring an older agent version will not bring this
-            subagent back. This cannot be undone.
+            {item.type === "folder" ? (
+              <>
+                Are you sure you want to delete the{" "}
+                <span className="font-medium">{item.name}</span> folder? This
+                action cannot be undone. You cannot delete a folder that
+                contains agents or other folders.
+              </>
+            ) : (
+              <>
+                Are you sure you want to delete the{" "}
+                <span className="font-medium">{item.name}</span> agent? It will
+                also be removed as a subagent from every agent that uses it,
+                including saved versions. Restoring an older agent version will
+                not bring this subagent back. This cannot be undone.
+              </>
+            )}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <div className="my-4">
           <Input
-            placeholder={`Type "${preset?.name}" to confirm`}
+            placeholder={`Type "${item.name}" to confirm`}
             value={confirmName}
             onChange={(e) => setConfirmName(e.target.value)}
           />
@@ -1298,19 +1259,8 @@ function AgentPresetDeleteDialog({
           <AlertDialogCancel>Cancel</AlertDialogCancel>
           <AlertDialogAction
             variant="destructive"
-            disabled={!preset || confirmName !== preset?.name}
-            onClick={async () => {
-              if (preset) {
-                try {
-                  await deleteAgentPreset({
-                    presetId: preset.id,
-                    presetName: preset.name,
-                  })
-                } catch {
-                  // toast handled by hook
-                }
-              }
-            }}
+            disabled={confirmName !== item.name}
+            onClick={handleDelete}
           >
             Confirm
           </AlertDialogAction>
@@ -1325,13 +1275,13 @@ function AgentPresetDeleteDialog({
 function AgentFolderContextActions({
   item,
   setActiveDialog,
-  setSelectedFolder,
+  setSelectedItem,
   canUpdateAgent,
   canDeleteAgent,
 }: {
   item: AgentFolderDirectoryItem
   setActiveDialog: (dialog: AgentActiveDialog | null) => void
-  setSelectedFolder: (folder: AgentFolderDirectoryItem | null) => void
+  setSelectedItem: (item: AgentDirectoryItem) => void
   canUpdateAgent: boolean
   canDeleteAgent: boolean
 }) {
@@ -1355,7 +1305,7 @@ function AgentFolderContextActions({
           onClick={(e) => e.stopPropagation()}
           onSelect={(e) => {
             e.stopPropagation()
-            setSelectedFolder(item)
+            setSelectedItem(item)
             setActiveDialog(AgentActiveDialog.FolderRename)
           }}
         >
@@ -1371,8 +1321,8 @@ function AgentFolderContextActions({
             onClick={(e) => e.stopPropagation()}
             onSelect={(e) => {
               e.stopPropagation()
-              setSelectedFolder(item)
-              setActiveDialog(AgentActiveDialog.FolderDelete)
+              setSelectedItem(item)
+              setActiveDialog(AgentActiveDialog.Delete)
             }}
           >
             <Trash2 className="mr-2 size-3.5" />
@@ -1387,7 +1337,7 @@ function AgentFolderContextActions({
 function AgentPresetContextActions({
   item,
   setActiveDialog,
-  setSelectedPreset,
+  setSelectedItem,
   availableTags,
   areTagsLoading = false,
   onDuplicate,
@@ -1397,16 +1347,12 @@ function AgentPresetContextActions({
   canDuplicateAgent,
   organizationEnabled = true,
 }: {
-  item: AgentPresetDirectoryItem | AgentPresetReadMinimal
+  item: AgentPresetDirectoryItem
   setActiveDialog: (dialog: AgentActiveDialog | null) => void
-  setSelectedPreset: (
-    preset: AgentPresetDirectoryItem | AgentPresetReadMinimal | null
-  ) => void
+  setSelectedItem: (item: AgentDirectoryItem) => void
   availableTags?: AgentTagRead[]
   areTagsLoading?: boolean
-  onDuplicate?: (
-    item: AgentPresetDirectoryItem | AgentPresetReadMinimal
-  ) => void
+  onDuplicate?: (item: AgentPresetDirectoryItem) => void
   duplicateDisabled?: boolean
   canUpdateAgent: boolean
   canDeleteAgent: boolean
@@ -1439,7 +1385,7 @@ function AgentPresetContextActions({
           onClick={(e) => e.stopPropagation()}
           onSelect={(e) => {
             e.stopPropagation()
-            setSelectedPreset(item)
+            setSelectedItem(item)
             setActiveDialog(AgentActiveDialog.PresetMove)
           }}
         >
@@ -1575,8 +1521,8 @@ function AgentPresetContextActions({
             onClick={(e) => e.stopPropagation()}
             onSelect={(e) => {
               e.stopPropagation()
-              setSelectedPreset(item)
-              setActiveDialog(AgentActiveDialog.PresetDelete)
+              setSelectedItem(item)
+              setActiveDialog(AgentActiveDialog.Delete)
             }}
           >
             <Trash2 className="mr-2 size-3.5" />
@@ -1594,8 +1540,7 @@ function AgentCatalogRow({
   item,
   onOpenPreset,
   onOpenFolder,
-  setSelectedPreset,
-  setSelectedFolder,
+  setSelectedItem,
   setActiveDialog,
   availableTags,
   areTagsLoading,
@@ -1609,16 +1554,11 @@ function AgentCatalogRow({
   item: AgentDirectoryItem
   onOpenPreset: (presetId: string) => void
   onOpenFolder: (path: string) => void
-  setSelectedPreset: (
-    preset: AgentPresetDirectoryItem | AgentPresetReadMinimal | null
-  ) => void
-  setSelectedFolder: (folder: AgentFolderDirectoryItem | null) => void
+  setSelectedItem: (item: AgentDirectoryItem) => void
   setActiveDialog: (dialog: AgentActiveDialog | null) => void
   availableTags?: AgentTagRead[]
   areTagsLoading?: boolean
-  onDuplicate?: (
-    item: AgentPresetDirectoryItem | AgentPresetReadMinimal
-  ) => void
+  onDuplicate?: (item: AgentPresetDirectoryItem) => void
   duplicateDisabled?: boolean
   canUpdateAgent: boolean
   canDeleteAgent: boolean
@@ -1678,7 +1618,7 @@ function AgentCatalogRow({
           <AgentFolderContextActions
             item={item}
             setActiveDialog={setActiveDialog}
-            setSelectedFolder={setSelectedFolder}
+            setSelectedItem={setSelectedItem}
             canUpdateAgent={canUpdateAgent}
             canDeleteAgent={canDeleteAgent}
           />
@@ -1746,7 +1686,7 @@ function AgentCatalogRow({
         <AgentPresetContextActions
           item={item}
           setActiveDialog={setActiveDialog}
-          setSelectedPreset={setSelectedPreset}
+          setSelectedItem={setSelectedItem}
           availableTags={availableTags}
           areTagsLoading={areTagsLoading}
           onDuplicate={onDuplicate}
@@ -1930,11 +1870,9 @@ export function AgentsDashboard() {
   const [activeDialog, setActiveDialog] = useState<AgentActiveDialog | null>(
     null
   )
-  const [selectedFolder, setSelectedFolder] =
-    useState<AgentFolderDirectoryItem | null>(null)
-  const [selectedPreset, setSelectedPreset] = useState<
-    AgentPresetDirectoryItem | AgentPresetReadMinimal | null
-  >(null)
+  const [selectedItem, setSelectedItem] = useState<AgentDirectoryItem | null>(
+    null
+  )
 
   // Data hooks
   const { presets, presetsIsLoading, presetsError } = useAgentPresets(
@@ -1960,7 +1898,7 @@ export function AgentsDashboard() {
   )
 
   const handleDuplicatePreset = useCallback(
-    async (item: AgentPresetDirectoryItem | AgentPresetReadMinimal) => {
+    async (item: AgentPresetDirectoryItem) => {
       try {
         const [fullPreset, allPresets] = await Promise.all([
           queryClient.fetchQuery({
@@ -2170,8 +2108,7 @@ export function AgentsDashboard() {
                   item={item}
                   onOpenPreset={handleOpenPreset}
                   onOpenFolder={handleOpenFolder}
-                  setSelectedPreset={setSelectedPreset}
-                  setSelectedFolder={setSelectedFolder}
+                  setSelectedItem={setSelectedItem}
                   setActiveDialog={setActiveDialog}
                   availableTags={agentTags}
                   areTagsLoading={agentTagsIsLoading}
@@ -2195,7 +2132,9 @@ export function AgentsDashboard() {
         </div>
       </div>
 
-      {/* Dialogs */}
+      {/* Dialogs. Closing only clears the active dialog; the selection is
+          kept so the dialog stays mounted through its exit animation and is
+          always replaced before the next open. */}
       {organizationEnabled ? (
         <>
           <AgentFolderCreateDialog
@@ -2205,48 +2144,35 @@ export function AgentsDashboard() {
             }}
             currentPath={currentPath}
           />
-          <AgentFolderRenameDialog
-            open={activeDialog === AgentActiveDialog.FolderRename}
-            onOpenChange={(isOpen) => {
-              if (!isOpen) {
-                setActiveDialog(null)
-                setSelectedFolder(null)
-              }
-            }}
-            folder={selectedFolder}
-          />
-          <AgentFolderDeleteDialog
-            open={activeDialog === AgentActiveDialog.FolderDelete}
-            onOpenChange={(isOpen) => {
-              if (!isOpen) {
-                setActiveDialog(null)
-                setSelectedFolder(null)
-              }
-            }}
-            folder={selectedFolder}
-          />
-          <AgentPresetMoveDialog
-            open={activeDialog === AgentActiveDialog.PresetMove}
-            onOpenChange={(isOpen) => {
-              if (!isOpen) {
-                setActiveDialog(null)
-                setSelectedPreset(null)
-              }
-            }}
-            preset={selectedPreset}
-          />
+          {selectedItem?.type === "folder" ? (
+            <AgentFolderRenameDialog
+              open={activeDialog === AgentActiveDialog.FolderRename}
+              onOpenChange={(isOpen) => {
+                if (!isOpen) setActiveDialog(null)
+              }}
+              folder={selectedItem}
+            />
+          ) : null}
+          {selectedItem?.type === "preset" ? (
+            <AgentPresetMoveDialog
+              open={activeDialog === AgentActiveDialog.PresetMove}
+              onOpenChange={(isOpen) => {
+                if (!isOpen) setActiveDialog(null)
+              }}
+              preset={selectedItem}
+            />
+          ) : null}
         </>
       ) : null}
-      <AgentPresetDeleteDialog
-        open={activeDialog === AgentActiveDialog.PresetDelete}
-        onOpenChange={(isOpen) => {
-          if (!isOpen) {
-            setActiveDialog(null)
-            setSelectedPreset(null)
-          }
-        }}
-        preset={selectedPreset}
-      />
+      {selectedItem ? (
+        <AgentItemDeleteDialog
+          open={activeDialog === AgentActiveDialog.Delete}
+          onOpenChange={(isOpen) => {
+            if (!isOpen) setActiveDialog(null)
+          }}
+          item={selectedItem}
+        />
+      ) : null}
     </TooltipProvider>
   )
 }
