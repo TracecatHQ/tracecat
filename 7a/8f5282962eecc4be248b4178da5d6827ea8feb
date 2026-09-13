@@ -1,0 +1,33 @@
+tests/unit/test_integrations_service.py
+  s_388fff4aaf5212::t_ec23818be4b0d0 1724-1762,1764-1774,1789-1803
+  s_388fff4aaf5212::t_de96bb73c8a30e 1763,1775-1788
+tests/unit/test_mcp_integrations.py
+  s_388fff4aaf5212::t_0d70562e934e5b 218-234,2301,2341,2413,2429-2431,7043,7086
+tracecat/integrations/service.py
+  s_644e0236e3110b::t_858d2100f74e26 263,1294
+  s_388fff4aaf5212::t_d37d01944c9d12 264-272,728-729,1293
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "7a8f5282962eecc4be248b4178da5d6827ea8feb",
+  "prompts": {},
+  "sessions": {
+    "s_388fff4aaf5212": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09b54-52c8-7d92-934c-882473f1ae27",
+        "model": "gpt-daybreak-blue-latest"
+      },
+      "human_author": null
+    },
+    "s_644e0236e3110b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09b87-9b6d-7393-a77c-33195bead7cd",
+        "model": "gpt-daybreak-blue-latest"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
