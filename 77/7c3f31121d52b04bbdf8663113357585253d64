@@ -1,0 +1,287 @@
+tracecat/outbound_http.py
+  s_388fff4aaf5212::t_fc11d3caf1e5df 14,275,287-291,372,390
+  s_388fff4aaf5212::t_4b11e0053732ec 69
+  s_388fff4aaf5212::t_73c0ad987fb703 257,265,360-361
+  s_388fff4aaf5212::t_26c79315930f0d 7,22,28,55-68,70-80,91-109,112-125,216-256,258-264,266,318-359
+  s_388fff4aaf5212::t_f5f5501098a881 81-90
+  s_388fff4aaf5212::t_d3bc71ee368a1f 165
+  s_388fff4aaf5212::t_06840d76913dc4 110-111
+tests/unit/test_agent_litellm_egress.py
+  s_388fff4aaf5212::t_eab08fb4ed86ae 14
+  s_388fff4aaf5212::t_97ccc30a3d5886 1-13,15-44
+  s_388fff4aaf5212::t_7c1d68796f866b 60,62-68,71,74,79,87
+  s_388fff4aaf5212::t_2b0c84a9dbdf78 45-59,61,69-70,72-73,75-78,80-86,88-94
+tracecat/agent/provider/service.py
+  s_388fff4aaf5212::t_a389a76b0ff8ec 28-29,484-485
+tests/unit/test_agent_llm.py
+  s_388fff4aaf5212::t_97ccc30a3d5886 1-96
+tests/unit/test_agent_vertex_credentials.py
+  s_388fff4aaf5212::t_234cb254b6408f 12-38
+  s_388fff4aaf5212::t_b2e5d1c0c58c26 62-88
+  s_388fff4aaf5212::t_6c4af211264790 1-11,39-61
+tracecat/agent/llm.py
+  s_388fff4aaf5212::t_cc3c905d50c8d5 175-176
+  s_388fff4aaf5212::t_a389a76b0ff8ec 28-33,126-127
+tracecat/agent/gateway.py
+  s_388fff4aaf5212::t_fc11d3caf1e5df 28,37
+tracecat/agent/sandbox/llm_proxy.py
+  s_388fff4aaf5212::t_a30c0ef2de6592 1037
+  s_388fff4aaf5212::t_a389a76b0ff8ec 43-48,656,676-680,683-684,724-730,1005,1039-1051,1060,1098-1109
+  s_388fff4aaf5212::t_cc3c905d50c8d5 682,686-687,1036
+  s_388fff4aaf5212::t_04a096450cf8e6 681,1038,1110
+tracecat/agent/litellm.py
+  s_388fff4aaf5212::t_fc11d3caf1e5df 42
+tracecat/agent/litellm_egress.py
+  s_388fff4aaf5212::t_fc11d3caf1e5df 1-14,16-111
+  s_388fff4aaf5212::t_6eb403191ecf2e 15
+tests/unit/test_agent_llm_proxy.py
+  s_388fff4aaf5212::t_7991d75d69704f 21-22,161-246,248-250
+  s_388fff4aaf5212::t_7984aacbecd385 247
+  s_388fff4aaf5212::t_2d41ba39e0f203 251-252
+tracecat/agent/service.py
+  s_388fff4aaf5212::t_6c4af211264790 58,72,197-200,204,212-217,227
+  s_388fff4aaf5212::t_b2e5d1c0c58c26 9,195-196,201-203,205-211,218-220,226,229,245,248-250
+tests/unit/test_agent_provider_service.py
+  s_388fff4aaf5212::t_eab08fb4ed86ae 287-294
+  s_388fff4aaf5212::t_97ccc30a3d5886 244,277
+  s_388fff4aaf5212::t_f53d5a4ce427c2 29
+  s_388fff4aaf5212::t_aa86f5cf8a8b2e 295-296
+tracecat/integrations/providers/google/service_account.py
+  s_388fff4aaf5212::t_218d86d1a90652 91
+  s_388fff4aaf5212::t_44a87729e66e07 24,87-90,92-95
+tests/unit/test_google_service_account_provider.py
+  s_388fff4aaf5212::t_44a87729e66e07 1-37,39,43-44,46,48-60,62,88-91
+  s_388fff4aaf5212::t_0201670f732409 38,40-42,45,47,61,63-87
+tracecat/agent/mcp/http_limits.py
+  s_388fff4aaf5212::t_94bf01e10eca76 27-28,136,149,152,157-177,188
+  s_388fff4aaf5212::t_a367900f915c0a 21-26,106-127,133,144-148,178-181,183
+  s_388fff4aaf5212::t_bde78062e70aa9 187
+tests/unit/test_agent_mcp_http_limits.py
+  s_388fff4aaf5212::t_94bf01e10eca76 14,120,122,124,130,209,222,227,229-238,240
+  s_388fff4aaf5212::t_c12192ecceb78b 251-255
+  s_388fff4aaf5212::t_5039c4dadc0b06 239,241-250
+  s_388fff4aaf5212::t_a367900f915c0a 10,13,127,134-202
+  s_644e0236e3110b::t_c9536e358ba5b3 203-204
+tests/unit/test_agent_mcp_user_client.py
+  s_388fff4aaf5212::t_2e8d57ed938293 256-257
+  s_388fff4aaf5212::t_a367900f915c0a 17-20,148-163
+  s_388fff4aaf5212::t_d38ec55dba388f 164-165
+tracecat/agent/mcp/user_client.py
+  s_388fff4aaf5212::t_a367900f915c0a 39,52,56,69-71,76,97
+tracecat/integrations/schemas.py
+  s_388fff4aaf5212::t_a7ae6793f34fec 31-50,148,172-174
+tracecat/integrations/providers/base.py
+  s_388fff4aaf5212::t_b2700f43ca75b0 31
+  s_388fff4aaf5212::t_4a1e2e62dc466f 32,34-41,210-216,218-221,232-233,244-245,360
+  s_388fff4aaf5212::t_a7ae6793f34fec 33,100-103,105-106,108-109,111,129-130
+  s_388fff4aaf5212::t_4f503e21e3379f 115-124
+  s_388fff4aaf5212::t_639068346512ec 209,217,231,243,436,934,1035
+tests/unit/test_network.py
+  s_388fff4aaf5212::t_2d53e93f6b8965 130
+  s_388fff4aaf5212::t_7d28a682cf4a30 27,90-128,169-203,276-291,307-320,335-347,468-482
+  s_388fff4aaf5212::t_90ca1d1fecaa2f 129,483-488
+  s_388fff4aaf5212::t_f5f5501098a881 615-634,650-659,661
+  s_644e0236e3110b::t_68a98aac60287f 660,662-663
+  s_388fff4aaf5212::t_06840d76913dc4 204-218,403-414
+  s_388fff4aaf5212::t_879215eeb565d4 415-417
+  s_d29a18a8305c37::t_5828f5e6d99412 418
+tracecat/network.py
+  s_388fff4aaf5212::t_6eed70b34a9202 257-277,286
+  s_388fff4aaf5212::t_4986a5a0ad8cc7 256
+tests/unit/test_mcp_integrations.py
+  s_388fff4aaf5212::t_31ab9afa6e9cc3 2318-2322
+  s_388fff4aaf5212::t_7405591e050407 5280-5284
+  s_388fff4aaf5212::t_08162237780c61 247,299,5183,5266,5271,5445,6017,6022,6207-6209,6228
+  s_388fff4aaf5212::t_f1b3b332206d58 2317,5476
+tracecat/integrations/service.py
+  s_388fff4aaf5212::t_7f80f23b14b098 96,136
+  s_388fff4aaf5212::t_214d2689fcc98d 629,649,1969,1998-2001,2003-2015,2066-2070,2095
+  s_388fff4aaf5212::t_7e36643e067749 2525-2535
+  s_388fff4aaf5212::t_b1830f759ab153 99
+  s_388fff4aaf5212::t_ea8e8f9ba72665 191-194,224,910,912,915-920,922-927,955-973,977,980-981,983-987,994-997
+  s_388fff4aaf5212::t_de1a20f2896577 1036,1040,1181
+  s_388fff4aaf5212::t_8afcfb975ff34b 2537-2543,2549,2551-2556,2558,2591-2598,2608
+  s_388fff4aaf5212::t_05513a595ed7ed 2560-2590,2620-2621
+  s_388fff4aaf5212::t_f1b3b332206d58 219-220,907,930,933,935,937,941,943,974,982,1301,1787
+  s_388fff4aaf5212::t_7405591e050407 988-993
+  s_388fff4aaf5212::t_c78bc464217938 1304,1799-1802,1839
+  s_388fff4aaf5212::t_a7ae6793f34fec 135,274,276-282,284,286,727,734-738
+  s_388fff4aaf5212::t_e09f145de22609 640-644,646,648
+  s_388fff4aaf5212::t_4cc8a2cffa6f7d 998
+  s_388fff4aaf5212::t_c6d9a7196c5661 2536
+  s_388fff4aaf5212::t_ff6d2febca2f20 650-652
+  s_388fff4aaf5212::t_7e5909c78ed976 2550
+  s_388fff4aaf5212::t_826ac80e22540c 645,647,2544-2548,2602-2607
+  s_388fff4aaf5212::t_847d6c6e9a3ebb 2599-2601
+  s_388fff4aaf5212::t_06c5ebf985fa4b 2061-2064
+tracecat/integrations/router.py
+  s_388fff4aaf5212::t_acbd3a3858d697 69,287-288,290,302,436-445,461,475-479
+  s_388fff4aaf5212::t_f1b3b332206d58 289
+  s_388fff4aaf5212::t_46f33b9fe57b13 75,771,782
+tests/unit/test_integrations_service.py
+  s_388fff4aaf5212::t_8ee2d350237f32 5,8,2871-2874
+  s_388fff4aaf5212::t_9413fb7f40d03a 26,1728,1749-1772,1774-1782,1784-1785,1806-1813
+  s_388fff4aaf5212::t_7ad6d45075ceba 1962
+  s_388fff4aaf5212::t_c86f77a31b8e3f 2409
+  s_388fff4aaf5212::t_7405591e050407 2406-2408,2410-2414,2416-2425
+  s_388fff4aaf5212::t_2d5ab83902ffd0 2415
+  s_388fff4aaf5212::t_d0302158cfdd50 2437-2448,2530-2538,2564-2573
+  s_388fff4aaf5212::t_30f44b1ef4796d 49,1940-1956,1958-1961,1963-1987
+  s_388fff4aaf5212::t_4f503e21e3379f 33,130-142
+  s_388fff4aaf5212::t_229a7f8314c268 1724-1727,1729-1748,1773,1783,1786-1805,1814-1852,1898-1939,1988
+  s_388fff4aaf5212::t_d005201a7d86f8 54
+  s_388fff4aaf5212::t_f1b3b332206d58 1957
+  s_388fff4aaf5212::t_7f75fa9ed31ce1 143-144,2405,2574
+  s_388fff4aaf5212::t_ff6d2febca2f20 2072-2169
+  s_388fff4aaf5212::t_3a0415d2040481 53
+  s_388fff4aaf5212::t_317e7cef5e569b 462,521,2326-2329,2337-2358,2365,2369,2371,2373,2390,2392
+  s_388fff4aaf5212::t_70cdd8dddedb5d 2319-2325,2330-2336,2359-2364,2366-2368,2370,2372,2374-2389,2391,2393-2404
+  s_388fff4aaf5212::t_7e5909c78ed976 416-419,429-432,442,449-450,453,455-461,463-465,468-520,522-523
+  s_388fff4aaf5212::t_1b65f317313769 378-415,420-428,433-441,443-448,451-452,454,466-467,524,1853-1896
+  s_388fff4aaf5212::t_41951c3a27d66d 1897
+  s_388fff4aaf5212::t_ac0170d23801b6 28,35-37,2170-2186,2188-2210,2212-2214,2216-2217,2221-2232,2234-2289,2291,2293,2295,2297-2298,2300,2314
+  s_388fff4aaf5212::t_06c5ebf985fa4b 2187,2211,2215,2218-2220,2233,2290,2292,2294,2296,2299,2301-2313,2315-2318
+packages/tracecat-ee/tracecat_ee/admin/settings/service.py
+  s_388fff4aaf5212::t_dfe2fc42df5106 21,157,160-164
+  s_388fff4aaf5212::t_7ac02c287857db 79-82,86-91,158-159
+tracecat/audit/service.py
+  s_388fff4aaf5212::t_7b706a59617c08 372-373,379-386,388,390-394,396-400,402,405,408-410,412,420,428,436,454-472
+  s_388fff4aaf5212::t_dfe2fc42df5106 57-59,61,123-131,182,185-186,190-191,574-575,591,605-606
+  s_388fff4aaf5212::t_e8548b57b1fd64 16
+  s_388fff4aaf5212::t_7863cfbd874fa1 224-226,228-232,235-280,287-304,309
+  s_b8ea12cc0d3094::t_2a9ec6c92b912b 473
+frontend/src/components/organization/org-settings-audit.tsx
+  s_388fff4aaf5212::t_0b075ee33cbd1c 257,310-312,439,447,458
+  s_388fff4aaf5212::t_11826ca34e567f 256,258-259,308-309,328-330,440,445,448-450,452-456,459-465,549-552,574-583,597-600,617-620,634-637,650-653
+  s_388fff4aaf5212::t_e40d5be34ececb 275,457
+  s_388fff4aaf5212::t_4f39a94f4fc8f1 40,307,438
+  s_388fff4aaf5212::t_4abce6e7206468 446,451
+tests/unit/test_admin_settings_service.py
+  s_388fff4aaf5212::t_8ec60f6cdabd5c 125-193
+  s_388fff4aaf5212::t_b8c9a5496b0950 3,9-15,18-21,23-24,194-319
+tracecat/settings/audit.py
+  s_388fff4aaf5212::t_c5d763f35b1a9e 10
+  s_388fff4aaf5212::t_dfe2fc42df5106 1-4,6-9,12-43
+  s_388fff4aaf5212::t_437a8e6353f89a 5,11
+tracecat/settings/service.py
+  s_388fff4aaf5212::t_dfe2fc42df5106 37,347-360
+  s_388fff4aaf5212::t_a668b5b98763b7 158,167,187,192,343-346
+  s_388fff4aaf5212::t_7ac02c287857db 188-191
+  s_388fff4aaf5212::t_b1c08f2548835c 29-34,39,379-396,400-401,403-406
+  s_388fff4aaf5212::t_edd1a99ab893da 56
+tests/unit/api/test_api_audit_webhook_test.py
+  s_388fff4aaf5212::t_b487a79e083492 116,188,212,235,301,321,391
+  s_388fff4aaf5212::t_24b12629a5f873 18,258,263-272,349-351
+  s_388fff4aaf5212::t_fbc5298e47cc8b 17,256
+tests/unit/test_audit_service.py
+  s_388fff4aaf5212::t_092ef189d38299 62-72,791-793,795,800,810-811,817,846-849,857-860,862-866,891-892,895,941-995
+  s_388fff4aaf5212::t_2e19e8a5a8b1d2 909,913,932
+  s_388fff4aaf5212::t_e5a592b974ccda 22
+  s_388fff4aaf5212::t_1680f640ebba9c 1064-1068,1093-1096,1125-1129,1154,1172-1174,1176-1177,1210
+  s_388fff4aaf5212::t_a6538001a7d583 922-930
+  s_388fff4aaf5212::t_b487a79e083492 1086,1147,1201
+  s_388fff4aaf5212::t_ea21ec5c7af148 1292-1301
+  s_388fff4aaf5212::t_b95d95ca43792a 41-42,906-908,910-912,914-920,933-940
+  s_388fff4aaf5212::t_e0eca4e1339c77 921
+  s_388fff4aaf5212::t_70db17c4242448 931
+  s_388fff4aaf5212::t_ae52ad572f8a07 996-997
+tests/unit/test_organization_settings.py
+  s_388fff4aaf5212::t_8ec60f6cdabd5c 443-512
+  s_388fff4aaf5212::t_a43e0f6d4eb98f 322-329,339,361,380,383
+  s_388fff4aaf5212::t_64a947313bb8a6 8,285-289
+  s_388fff4aaf5212::t_a668b5b98763b7 1-2,12-17,19,25,279-284,290-321,330-338,340-360,362-379,381-382,384-406
+  s_388fff4aaf5212::t_7ac02c287857db 10,420-423,433-440
+  s_388fff4aaf5212::t_1e6c5160d9f99e 43
+  s_388fff4aaf5212::t_e6dfbae7d5490c 407-408
+  s_388fff4aaf5212::t_73cb22f5bec865 441-442
+  s_388fff4aaf5212::t_e9f648d769fefb 673,908
+  s_388fff4aaf5212::t_9e0754d7c5ce7d 677,912
+  s_388fff4aaf5212::t_c53def266faf6d 714-764,766-807,873-893,895-897
+  s_388fff4aaf5212::t_08633348de5015 765,894
+  s_388fff4aaf5212::t_596a15575ecf0c 808-823,830-836,839-840
+  s_388fff4aaf5212::t_6f187181b0e8bc 824-829,837-838
+  s_388fff4aaf5212::t_3e86da0138b872 898-899
+frontend/src/components/organization/org-settings-audit.test.tsx
+  s_388fff4aaf5212::t_5d396311fe306b 59-66,77-80,82-127,129,175-202
+  s_388fff4aaf5212::t_3f1f7808c8f7c6 46-48,70-71,74-76,204-205
+  s_388fff4aaf5212::t_dd65a11db09e69 55
+  s_388fff4aaf5212::t_253781f49c1ddf 1-45,50,52-54,56-58,67-69,72-73,81,128,203
+  s_388fff4aaf5212::t_374054f6a78852 49,51,130-171
+  s_388fff4aaf5212::t_ae3be9fd27c45c 172-174
+tracecat/settings/schemas.py
+  s_388fff4aaf5212::t_7ac02c287857db 2,4-10,179-188
+  s_388fff4aaf5212::t_57833d8702f2b2 189
+frontend/src/lib/http-origin.test.ts
+  s_388fff4aaf5212::t_4f39a94f4fc8f1 1-29
+frontend/src/lib/http-origin.ts
+  s_388fff4aaf5212::t_4f39a94f4fc8f1 1-21
+frontend/src/lib/agent-otel.test.ts
+  s_388fff4aaf5212::t_4f7986bfb6a1ad 445-459,463-464
+  s_388fff4aaf5212::t_36e5a240b39635 460-462
+tracecat/settings/otel.py
+  s_388fff4aaf5212::t_596a15575ecf0c 23-24
+  s_388fff4aaf5212::t_32306d59f95fdc 1-22,25-37,39-50
+  s_388fff4aaf5212::t_a2f5caf8c94b94 38
+tracecat/agent/sandbox/otel_relay.py
+  s_388fff4aaf5212::t_852bb7744ecff4 44-45,50,258,323-331,368-369,487-491,494-498,834-839,1150,1159,1201,1214
+  s_388fff4aaf5212::t_8c38624a091820 40,812-814,816-817,820-821
+  s_388fff4aaf5212::t_36e5a240b39635 818-819
+tests/unit/test_agent_otel_relay.py
+  s_388fff4aaf5212::t_a4e61c7e6ec768 41,123-127,1287
+  s_388fff4aaf5212::t_810d9ed668a77a 334-370
+  s_388fff4aaf5212::t_27bede0ac65f6a 313-333
+  s_388fff4aaf5212::t_1be5db44f19d20 371-406
+tracecat/agent/otel_config.py
+  s_388fff4aaf5212::t_c8540e17671274 213-233,251-252
+frontend/src/lib/agent-otel.ts
+  s_388fff4aaf5212::t_cc0074e6a1fa2b 676-692,714-716
+  s_388fff4aaf5212::t_f9b4bc4aeef217 717
+tests/unit/test_agent_otel_config.py
+  s_388fff4aaf5212::t_8527f1b62cbae2 244-266
+frontend/src/components/organization/org-agent-otel-settings.test.tsx
+  s_388fff4aaf5212::t_bba49114dacb19 43-46,179-202,206-225,229-254,258-265
+  s_388fff4aaf5212::t_08633348de5015 203-205,226-228,255-257
+frontend/src/components/organization/org-agent-otel-settings.tsx
+  s_388fff4aaf5212::t_10fb9b15d660ef 68-79,98-103,124-128,213-214,223-224,237-254,294-302,304,319-321,381,524-529
+  s_388fff4aaf5212::t_dae026adc56666 530
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "777c3f31121d52b04bbdf8663113357585253d64",
+  "prompts": {},
+  "sessions": {
+    "s_388fff4aaf5212": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09b54-52c8-7d92-934c-882473f1ae27",
+        "model": "gpt-daybreak-blue-latest"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    },
+    "s_644e0236e3110b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09b87-9b6d-7393-a77c-33195bead7cd",
+        "model": "gpt-daybreak-blue-latest"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    },
+    "s_b8ea12cc0d3094": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09b68-505b-7e91-bd59-e7d528fcaf93",
+        "model": "gpt-daybreak-blue-latest"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    },
+    "s_d29a18a8305c37": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09b59-3810-7b23-a63b-848f8e195ce0",
+        "model": "unknown"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
