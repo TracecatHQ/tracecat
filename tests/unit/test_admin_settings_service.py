@@ -194,9 +194,11 @@ async def test_platform_audit_url_accepts_explicit_cross_origin_headers(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("seed_existing_settings", [False, True])
 async def test_concurrent_platform_audit_updates_cannot_misbind_headers(
     platform_role: PlatformRole,
     monkeypatch: pytest.MonkeyPatch,
+    seed_existing_settings: bool,
 ) -> None:
     monkeypatch.setattr(
         config,
@@ -244,17 +246,20 @@ async def test_concurrent_platform_audit_updates_cannot_misbind_headers(
         )
 
     try:
-        async with session_factory() as seed_session:
-            seed_service = AdminSettingsService(
-                session=seed_session,
-                role=platform_role.model_copy(deep=True),
-            )
-            await seed_service.update_audit_settings(
-                PlatformAuditSettingsUpdate(
-                    audit_webhook_url="https://collector-a.example.com/first",
-                    audit_webhook_custom_headers={"Authorization": "Bearer origin-a"},
+        if seed_existing_settings:
+            async with session_factory() as seed_session:
+                seed_service = AdminSettingsService(
+                    session=seed_session,
+                    role=platform_role.model_copy(deep=True),
                 )
-            )
+                await seed_service.update_audit_settings(
+                    PlatformAuditSettingsUpdate(
+                        audit_webhook_url="https://collector-a.example.com/first",
+                        audit_webhook_custom_headers={
+                            "Authorization": "Bearer origin-a"
+                        },
+                    )
+                )
 
         async with (
             session_factory() as first_session,

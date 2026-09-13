@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import orjson
+import sqlalchemy as sa
 from cryptography.fernet import InvalidToken
 from pydantic import SecretStr
 from pydantic_core import to_jsonable_python
@@ -42,6 +43,7 @@ REGISTRY_SETTINGS_KEYS = {
 }
 
 AUDIT_SETTINGS_KEYS = AuditSettingsUpdate.keys()
+PLATFORM_AUDIT_SETTINGS_LOCK_KEY = "tracecat:platform:audit-settings"
 
 
 class AdminSettingsService(BasePlatformService):
@@ -154,6 +156,14 @@ class AdminSettingsService(BasePlatformService):
         self, params: PlatformAuditSettingsUpdate
     ) -> PlatformAuditSettingsRead:
         """Update platform audit settings."""
+        # Row locks cannot serialize the first update, before any settings exist.
+        await self.session.execute(
+            select(
+                sa.func.pg_advisory_xact_lock(
+                    sa.func.hashtextextended(PLATFORM_AUDIT_SETTINGS_LOCK_KEY, 0)
+                )
+            )
+        )
         current_settings, _ = await self._get_settings_with_decryption_fallback(
             AUDIT_SETTINGS_KEYS,
             for_update=True,
