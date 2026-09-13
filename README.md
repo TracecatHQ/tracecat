@@ -48,26 +48,31 @@
       <p align="center"><b>Tables</b> — store and query structured data</p>
     </td>
   </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="img/readme/mcp.gif" alt="A Claude Code session that calls Tracecat MCP tools to list and summarize the open critical cases" width="100%"/>
+      <p align="center"><b>Tracecat MCP</b> — turn prompts into automations from Claude Code, Codex, Copilot, and more</p>
+    </td>
+    <td width="50%" valign="top">
+      <img src="img/readme/integrations.gif" alt="Tracecat credentials, OAuth integrations, and the hosted MCP server catalog" width="100%"/>
+      <p align="center"><b>Integrations</b> — 100+ pre-built connectors and hosted MCP servers for security tools</p>
+    </td>
+  </tr>
 </table>
 
-### More Capabilities
+## Other Highlights
 
-- **Integrations**: over 100+ pre-built connectors to enterprise tools via HTTP, SMTP, gRPC, OAuth, and more
-- **Tracecat MCP**: turns prompts into automations through Claude Code, Codex, Copilot, etc
 - **Pre-built MCP servers**: over 100+ Tracecat hosted MCP servers for security operations
-- **Custom registry**: sync custom Python scripts from your Git repo into Tracecat
-- **Deploy anywhere**: sign up for Tracecat Cloud, or self-host with Docker, AWS Fargate, or Kubernetes. Runs fully [air-gapped](https://docs.tracecat.com/self-hosting/air-gapped).
-
-### Other OSS Highlights
-
 - **MCP client**: connect custom agents any MCP server (remote HTTP / OAuth or local via `npx` / `uvx` commands)
+- **Custom registry**: sync custom Python scripts from your Git repo into Tracecat
 - **Sandboxed**: run untrusted code and agents within `nsjail` sandboxes or `pid` runtimes
 - **Durable execution**: built on [Temporal](https://temporal.io) for resilience and scale
 - **Variables**: reuse values across workflows and agents
 - **No SSO tax**: SAML / OIDC support
 - **Free audit logs**: exportable into your SIEM
+- **Deploy anywhere**: sign up for Tracecat Cloud, or self-host with Docker, AWS Fargate, or Kubernetes. Runs fully [air-gapped](https://docs.tracecat.com/self-hosting/air-gapped).
 
-### Enterprise Edition
+## Enterprise Edition
 
 - **Multi-tenant**: isoated different teams and dev / prod environments into workspaces
 - **Fine-grained access control**: RBAC, ABAC, OAuth2.0 scopes for humans and agents
