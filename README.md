@@ -21,11 +21,11 @@
 
 ## Introduction
 
-[Tracecat](https://tracecat.com) is the open source security automation platform for teams and AI agents. A unified platform with everything security teams need to automate work and respond to incidents. Unlimited agents and workflows.
+[Tracecat](https://tracecat.com) is the open source security automation platform for teams and AI agents.
 
 ## Features
 
-<p align="center">Agents, cases, workflows, and tables live in one workspace, so every investigation and every automation shares the same data.</p>
+<p align="center">A unified platform with everything security teams need to automate work and respond to incidents. Unlimited agents and workflows.</p>
 
 <table>
   <tr>
@@ -41,7 +41,7 @@
   <tr>
     <td width="50%" valign="top">
       <img src="img/readme/workflows.gif" alt="A workflow DAG in the Tracecat builder, zoomed out to show every step, then an agent step opened for editing" width="100%"/>
-      <p align="center"><b>Workflows</b> — durable orchestration with if-conditions, loops, and Temporal</p>
+      <p align="center"><b>Workflows</b> — execute deterministic logic with resilience and scale on Temporal</p>
     </td>
     <td width="50%" valign="top">
       <img src="img/readme/tables.gif" alt="Tracecat workspace tables, opening an entities table and an entity observations table" width="100%"/>
