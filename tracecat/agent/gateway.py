@@ -659,14 +659,14 @@ def _inject_gateway_provider_credentials(
     if runtime is None or not runtime.base_url:
         raise ProxyException(
             message="Provider credentials incomplete",
-            type="auth_error",
+            type="tracecat_llm_provider_auth_failed",
             param=None,
             code=401,
         )
     if spec.requires_api_key and not runtime.api_key:
         raise ProxyException(
             message="Provider credentials incomplete",
-            type="auth_error",
+            type="tracecat_llm_provider_auth_failed",
             param=None,
             code=401,
         )

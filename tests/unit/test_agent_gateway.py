@@ -376,7 +376,17 @@ async def test_user_api_key_auth_rejects_invalid_token(
 
 
 @pytest.mark.parametrize(
-    "provider", ["openai", "anthropic", "gemini", "mistral", "bedrock"]
+    "provider",
+    [
+        "openai",
+        "anthropic",
+        "gemini",
+        "mistral",
+        "bedrock",
+        "vllm",
+        "litellm",
+        "openrouter",
+    ],
 )
 def test_missing_provider_credentials_have_distinct_wire_code(provider: str) -> None:
     with pytest.raises(ProxyException) as exc_info:
@@ -384,6 +394,13 @@ def test_missing_provider_credentials_have_distinct_wire_code(provider: str) -> 
 
     assert exc_info.value.code == "401"
     assert exc_info.value.to_dict()["type"] == "tracecat_llm_provider_auth_failed"
+    classification = _http_error_classification(
+        int(exc_info.value.code),
+        route_is_direct=False,
+        body=json.dumps({"error": exc_info.value.to_dict()}).encode(),
+    )
+    assert classification.kind is RuntimeErrorKind.AGENT_LLM_PROVIDER_AUTH_FAILED
+    assert classification.owner is RuntimeErrorOwner.USER
 
 
 @pytest.mark.anyio
