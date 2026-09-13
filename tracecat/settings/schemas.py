@@ -256,6 +256,14 @@ class AgentOtelSettingsUpdate(BaseSettingsGroup):
         validate_otel_header_items(cast(dict[str, Any], value))
         return value
 
+    @model_validator(mode="after")
+    def validate_header_origin(self) -> Self:
+        if self.agent_otel_headers and "agent_otel_config" not in self.model_fields_set:
+            raise ValueError(
+                "agent_otel_config is required when setting exporter headers"
+            )
+        return self
+
 
 class ValueType(StrEnum):
     # This is the default type

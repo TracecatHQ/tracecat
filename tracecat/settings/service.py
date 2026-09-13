@@ -390,8 +390,21 @@ class SettingsService(BaseOrgService):
     @require_scope("org:settings:update")
     @audit_log(resource_type="organization_setting", action="update")
     async def update_agent_otel_settings(self, params: AgentOtelSettingsUpdate) -> None:
+        otel_config = params.agent_otel_config
+        if otel_config.enabled and otel_config.endpoint is not None:
+            # Validate before taking the settings lock so DNS does not extend
+            # the serialization window. Runtime delivery repeats this policy.
+            try:
+                await validate_url_resolves_for_policy_async(
+                    str(otel_config.endpoint),
+                    configured_http_egress_policy(HttpEgressPurpose.OTEL),
+                )
+            except DisallowedUrlError as exc:
+                raise AgentOtelEndpointNotAllowedError from exc
+
         otel_settings = await self.list_org_settings(
-            keys=AgentOtelSettingsUpdate.keys()
+            keys=AgentOtelSettingsUpdate.keys(),
+            for_update=True,
         )
         settings_by_key = {setting.key: setting for setting in otel_settings}
         current_config_setting = settings_by_key.get("agent_otel_config")
@@ -407,20 +420,6 @@ class SettingsService(BaseOrgService):
             params,
             current_config=current_config,
         )
-
-        otel_config = params.agent_otel_config
-        if otel_config.enabled and otel_config.endpoint is not None:
-            # The host posts tenant telemetry to this endpoint, so a private
-            # address is allowed only for an operator-approved exact origin.
-            # Runtime delivery repeats this policy inside the socket path.
-            try:
-                await validate_url_resolves_for_policy_async(
-                    str(otel_config.endpoint),
-                    configured_http_egress_policy(HttpEgressPurpose.OTEL),
-                )
-            except DisallowedUrlError as exc:
-                raise AgentOtelEndpointNotAllowedError from exc
-
         await self._update_grouped_settings(otel_settings, params)
 
 

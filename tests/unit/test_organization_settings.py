@@ -716,6 +716,165 @@ async def test_update_agent_otel_settings_encrypts_headers(
     }
 
 
+def test_agent_otel_headers_require_config_in_same_update() -> None:
+    with pytest.raises(
+        ValidationError,
+        match="agent_otel_config is required when setting exporter headers",
+    ):
+        AgentOtelSettingsUpdate(agent_otel_headers={"Authorization": "Bearer secret"})
+
+
+@pytest.mark.anyio
+async def test_concurrent_agent_otel_updates_cannot_misbind_headers(
+    svc_admin_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A stale same-origin update must not retain another origin's headers."""
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__DB_ENCRYPTION_KEY",
+        Fernet.generate_key().decode(),
+    )
+
+    async def allow_endpoint(_url: str, _policy: object) -> None:
+        return None
+
+    monkeypatch.setattr(
+        settings_service_module,
+        "validate_url_resolves_for_policy_async",
+        allow_endpoint,
+    )
+    engine = create_async_engine(TEST_DB_CONFIG.test_url)
+    session_factory = async_sessionmaker(bind=engine, expire_on_commit=False)
+    first_at_write = asyncio.Event()
+    release_first = asyncio.Event()
+    second_started = asyncio.Event()
+    second_at_write = asyncio.Event()
+    release_second = asyncio.Event()
+    first_task: asyncio.Task[None] | None = None
+    second_task: asyncio.Task[None] | None = None
+    original_update = SettingsService._update_grouped_settings
+
+    async def hold_grouped_update(
+        service: SettingsService,
+        settings: Sequence[OrganizationSetting],
+        params: BaseModel,
+    ) -> None:
+        if service is first_service:
+            first_at_write.set()
+            await release_first.wait()
+        elif service is second_service:
+            second_at_write.set()
+            await release_second.wait()
+        await original_update(service, settings, params)
+
+    async def run_first_update() -> None:
+        await first_service.update_agent_otel_settings(
+            AgentOtelSettingsUpdate(
+                agent_otel_config=AgentOtelConfig(
+                    enabled=True,
+                    endpoint=HttpUrl("https://collector-b.example.com"),
+                ),
+                agent_otel_headers={"Authorization": "Bearer origin-b"},
+            )
+        )
+
+    async def run_second_update() -> None:
+        second_started.set()
+        await second_service.update_agent_otel_settings(
+            AgentOtelSettingsUpdate(
+                agent_otel_config=AgentOtelConfig(
+                    enabled=True,
+                    endpoint=HttpUrl("https://collector-a.example.com/second"),
+                )
+            )
+        )
+
+    try:
+        async with session_factory() as seed_session:
+            seed_service = SettingsService(
+                session=seed_session,
+                role=svc_admin_role.model_copy(deep=True),
+            )
+            await seed_service.update_agent_otel_settings(
+                AgentOtelSettingsUpdate(
+                    agent_otel_config=AgentOtelConfig(
+                        enabled=True,
+                        endpoint=HttpUrl("https://collector-a.example.com/first"),
+                    ),
+                    agent_otel_headers={"Authorization": "Bearer origin-a"},
+                )
+            )
+
+        async with (
+            session_factory() as first_session,
+            session_factory() as second_session,
+        ):
+            first_service = SettingsService(
+                session=first_session,
+                role=svc_admin_role.model_copy(deep=True),
+            )
+            second_service = SettingsService(
+                session=second_session,
+                role=svc_admin_role.model_copy(deep=True),
+            )
+            monkeypatch.setattr(
+                SettingsService,
+                "_update_grouped_settings",
+                hold_grouped_update,
+            )
+
+            first_task = asyncio.create_task(run_first_update())
+            await asyncio.wait_for(first_at_write.wait(), timeout=5)
+
+            second_task = asyncio.create_task(run_second_update())
+            await asyncio.wait_for(second_started.wait(), timeout=5)
+            with pytest.raises(TimeoutError):
+                await asyncio.wait_for(second_at_write.wait(), timeout=0.2)
+
+            release_first.set()
+            await first_task
+            await asyncio.wait_for(second_at_write.wait(), timeout=5)
+            release_second.set()
+            await second_task
+
+        async with session_factory() as verify_session:
+            verify_service = SettingsService(
+                session=verify_session,
+                role=svc_admin_role.model_copy(deep=True),
+            )
+            settings = await verify_service.list_org_settings(
+                keys=AgentOtelSettingsUpdate.keys()
+            )
+            values, _ = verify_service.get_values_with_decryption_fallback(settings)
+            assert (
+                values["agent_otel_config"]["endpoint"]
+                == "https://collector-a.example.com/second"
+            )
+            assert values["agent_otel_headers"] is None
+    finally:
+        for task in (first_task, second_task):
+            if task is not None and not task.done():
+                task.cancel()
+        pending_tasks = [
+            task
+            for task in (first_task, second_task)
+            if task is not None and not task.done()
+        ]
+        if pending_tasks:
+            await asyncio.gather(*pending_tasks, return_exceptions=True)
+        async with session_factory() as cleanup_session:
+            await cleanup_session.execute(
+                delete(OrganizationSetting).where(
+                    OrganizationSetting.organization_id
+                    == svc_admin_role.organization_id,
+                    OrganizationSetting.key.in_(AgentOtelSettingsUpdate.keys()),
+                )
+            )
+            await cleanup_session.commit()
+        await engine.dispose()
+
+
 @pytest.mark.anyio
 async def test_update_agent_otel_endpoint_clears_headers_on_origin_change(
     settings_service_with_defaults: SettingsService,
