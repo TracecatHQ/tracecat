@@ -977,6 +977,12 @@ variable "redis_node_type" {
   default     = "cache.t4g.small"
 }
 
+variable "tempo_trace_url_template" {
+  description = "Optional HTTPS Grafana trace URL containing a literal {trace_id}; must not contain credentials"
+  type        = string
+  default     = null
+}
+
 variable "sentry_dsn" {
   description = "The Sentry DSN to use for error reporting"
   type        = string
