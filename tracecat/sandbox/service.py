@@ -283,8 +283,11 @@ class SandboxService:
             logger.error(
                 "Package installation failed",
                 dependencies=dependencies,
-                error=result.error,
-                stderr=result.stderr[:500],
+                error_code=result.error_code,
+                exit_code=result.exit_code,
+                execution_time_ms=result.execution_time_ms,
+                stdout_chars=len(result.stdout),
+                stderr_chars=len(result.stderr),
             )
             if result.error_code is SandboxErrorCode.INFRASTRUCTURE_FAILURE:
                 raise_for_sandbox_error_code(
@@ -515,9 +518,11 @@ class SandboxService:
                 error_msg = result.error or "Unknown error"
                 logger.error(
                     "Script execution failed (unsafe PID executor)",
-                    error=error_msg,
-                    stdout=result.stdout[:500] if result.stdout else None,
-                    stderr=result.stderr[:500] if result.stderr else None,
+                    error_code=result.error_code,
+                    exit_code=result.exit_code,
+                    execution_time_ms=result.execution_time_ms,
+                    stdout_chars=len(result.stdout),
+                    stderr_chars=len(result.stderr),
                 )
                 # Same trust boundary as the nsjail path: a rejected result
                 # envelope was produced by sandbox-controlled code and must
@@ -633,9 +638,11 @@ class SandboxService:
                 error_msg = result.error or "Unknown error"
                 logger.error(
                     "Script execution failed",
-                    error=error_msg,
-                    stdout=result.stdout[:500] if result.stdout else None,
-                    stderr=result.stderr[:500] if result.stderr else None,
+                    error_code=result.error_code,
+                    exit_code=result.exit_code,
+                    execution_time_ms=result.execution_time_ms,
+                    stdout_chars=len(result.stdout),
+                    stderr_chars=len(result.stderr),
                 )
                 # Envelope errors may carry a structured dict; the typed
                 # exceptions take plain strings only. A resource-limit death

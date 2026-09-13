@@ -12,8 +12,10 @@ from typing import Any, cast
 import pytest
 import pytest_mock
 
+from tracecat.sandbox import service as service_module
+from tracecat.sandbox.exceptions import PackageInstallError, SandboxWorkloadError
 from tracecat.sandbox.service import SandboxService, _await_task_rejoined
-from tracecat.sandbox.types import SandboxResult
+from tracecat.sandbox.types import SandboxErrorCode, SandboxResult
 
 
 @pytest.mark.anyio
@@ -257,3 +259,112 @@ async def test_await_task_rejoined_returns_result_without_cancellation() -> None
 
     result = await _await_task_rejoined(asyncio.create_task(asyncio.to_thread(worker)))
     assert result == {"value": 5}
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("use_nsjail", [False, True])
+async def test_run_python_failure_log_omits_sandbox_payload(
+    tmp_path: Path,
+    mocker: pytest_mock.MockerFixture,
+    use_nsjail: bool,
+) -> None:
+    """Failure logs contain diagnostics metadata, never sandbox output."""
+    secret = "synthetic-secret-token"
+    derived_secret = "nekot-terces-citehtnys"
+    error = f"ValueError: {secret}"
+    stdout = f"stdout={secret} derived={derived_secret}"
+    stderr = f"stderr={secret} derived={derived_secret}"
+    result = SandboxResult(
+        success=False,
+        error=error,
+        stdout=stdout,
+        stderr=stderr,
+        error_code=SandboxErrorCode.WORKLOAD_FAILURE,
+        exit_code=1,
+        execution_time_ms=12.5,
+    )
+    service = SandboxService(cache_dir=str(tmp_path / "cache"))
+    executor = mocker.Mock()
+    executor.execute = mocker.AsyncMock(return_value=result)
+    if use_nsjail:
+        mocker.patch.object(service, "_is_nsjail_available", return_value=True)
+        service._nsjail_executor = cast(Any, executor)
+    else:
+        mocker.patch.object(service, "_is_nsjail_available", return_value=False)
+        service._unsafe_pid_executor = cast(Any, executor)
+
+    log_error = mocker.patch.object(service_module.logger, "error")
+    resolved_env_vars = {"USER_SECRET": secret}
+
+    with pytest.raises(SandboxWorkloadError) as exc_info:
+        await service.run_python(
+            "def main():\n    return None\n",
+            env_vars=resolved_env_vars,
+        )
+
+    # The service preserves the result message for the outer, secret-aware
+    # executor boundary to mask; this test covers the host log trust boundary.
+    assert str(exc_info.value) == error
+    log_error.assert_called_once()
+    fields = log_error.call_args.kwargs
+    assert set(fields) == {
+        "error_code",
+        "exit_code",
+        "execution_time_ms",
+        "stdout_chars",
+        "stderr_chars",
+    }
+    assert fields["error_code"] is SandboxErrorCode.WORKLOAD_FAILURE
+    assert fields["exit_code"] == 1
+    assert fields["execution_time_ms"] == 12.5
+    assert fields["stdout_chars"] == len(stdout)
+    assert fields["stderr_chars"] == len(stderr)
+    assert secret not in repr(log_error.call_args)
+    assert derived_secret not in repr(log_error.call_args)
+
+
+@pytest.mark.anyio
+async def test_package_install_failure_log_omits_sandbox_payload(
+    tmp_path: Path,
+    mocker: pytest_mock.MockerFixture,
+) -> None:
+    """Package failure logs retain status metadata without installer output."""
+    secret = "synthetic-package-secret"
+    result = SandboxResult(
+        success=False,
+        error=f"InstallError: {secret}",
+        stdout=f"downloaded {secret}",
+        stderr=f"registry response {secret}",
+        error_code=SandboxErrorCode.WORKLOAD_FAILURE,
+        exit_code=1,
+        execution_time_ms=25.0,
+    )
+    service = SandboxService(cache_dir=str(tmp_path / "cache"))
+    executor = mocker.Mock()
+    executor.execute_install = mocker.AsyncMock(return_value=result)
+    service._nsjail_executor = cast(Any, executor)
+    log_error = mocker.patch.object(service_module.logger, "error")
+
+    with pytest.raises(PackageInstallError) as exc_info:
+        await service._install_packages(
+            tmp_path,
+            ["synthetic-package==1.0.0"],
+            "deadbeef",
+        )
+
+    assert str(exc_info.value) == f"Failed to install packages: InstallError: {secret}"
+    log_error.assert_called_once()
+    fields = log_error.call_args.kwargs
+    assert set(fields) == {
+        "dependencies",
+        "error_code",
+        "exit_code",
+        "execution_time_ms",
+        "stdout_chars",
+        "stderr_chars",
+    }
+    assert fields["error_code"] is SandboxErrorCode.WORKLOAD_FAILURE
+    assert fields["exit_code"] == 1
+    assert fields["stdout_chars"] == len(result.stdout)
+    assert fields["stderr_chars"] == len(result.stderr)
+    assert secret not in repr(log_error.call_args)
