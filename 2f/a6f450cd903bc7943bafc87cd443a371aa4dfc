@@ -1,0 +1,127 @@
+tracecat/outbound_http.py
+  s_388fff4aaf5212::t_fc11d3caf1e5df 14,258,270-274,355,373
+  s_388fff4aaf5212::t_4b11e0053732ec 68
+  s_388fff4aaf5212::t_73c0ad987fb703 240,248,343-344
+  s_388fff4aaf5212::t_26c79315930f0d 7,21,27,54-67,69-117,199-239,241-247,249,301-342
+tests/unit/test_agent_litellm_egress.py
+  s_388fff4aaf5212::t_eab08fb4ed86ae 14
+  s_388fff4aaf5212::t_97ccc30a3d5886 1-13,15-44
+  s_388fff4aaf5212::t_7c1d68796f866b 60,62-68,71,74,79,87
+  s_388fff4aaf5212::t_2b0c84a9dbdf78 45-59,61,69-70,72-73,75-78,80-86,88-94
+tracecat/agent/provider/service.py
+  s_388fff4aaf5212::t_a389a76b0ff8ec 28-29,484-485
+tests/unit/test_agent_llm.py
+  s_388fff4aaf5212::t_97ccc30a3d5886 1-96
+tests/unit/test_agent_vertex_credentials.py
+  s_388fff4aaf5212::t_234cb254b6408f 12-38
+  s_388fff4aaf5212::t_b2e5d1c0c58c26 62-88
+  s_388fff4aaf5212::t_6c4af211264790 1-11,39-61
+tracecat/agent/llm.py
+  s_388fff4aaf5212::t_cc3c905d50c8d5 175-176
+  s_388fff4aaf5212::t_a389a76b0ff8ec 28-33,126-127
+tracecat/agent/gateway.py
+  s_388fff4aaf5212::t_fc11d3caf1e5df 28,37
+tracecat/agent/sandbox/llm_proxy.py
+  s_388fff4aaf5212::t_a30c0ef2de6592 1037
+  s_388fff4aaf5212::t_a389a76b0ff8ec 43-48,656,676-680,683-684,724-730,1005,1039-1051,1060,1098-1109
+  s_388fff4aaf5212::t_cc3c905d50c8d5 682,686-687,1036
+  s_388fff4aaf5212::t_04a096450cf8e6 681,1038,1110
+tracecat/agent/litellm.py
+  s_388fff4aaf5212::t_fc11d3caf1e5df 42
+tracecat/agent/litellm_egress.py
+  s_388fff4aaf5212::t_fc11d3caf1e5df 1-14,16-111
+  s_388fff4aaf5212::t_6eb403191ecf2e 15
+tests/unit/test_agent_llm_proxy.py
+  s_388fff4aaf5212::t_7991d75d69704f 21-22,161-246,248-250
+  s_388fff4aaf5212::t_7984aacbecd385 247
+  s_388fff4aaf5212::t_2d41ba39e0f203 251-252
+tracecat/agent/service.py
+  s_388fff4aaf5212::t_6c4af211264790 58,72,197-200,204,212-217,227
+  s_388fff4aaf5212::t_b2e5d1c0c58c26 9,195-196,201-203,205-211,218-220,226,229,245,248-250
+tests/unit/test_agent_provider_service.py
+  s_388fff4aaf5212::t_eab08fb4ed86ae 287-294
+  s_388fff4aaf5212::t_97ccc30a3d5886 244,277
+  s_388fff4aaf5212::t_f53d5a4ce427c2 29
+  s_388fff4aaf5212::t_aa86f5cf8a8b2e 295-296
+tracecat/integrations/providers/google/service_account.py
+  s_388fff4aaf5212::t_218d86d1a90652 91
+  s_388fff4aaf5212::t_44a87729e66e07 24,87-90,92-95
+tests/unit/test_google_service_account_provider.py
+  s_388fff4aaf5212::t_44a87729e66e07 1-37,39,43-44,46,48-60,62,88-91
+  s_388fff4aaf5212::t_0201670f732409 38,40-42,45,47,61,63-87
+tracecat/agent/mcp/http_limits.py
+  s_388fff4aaf5212::t_94bf01e10eca76 27-28,136,149,152,157-177,188
+tests/unit/test_agent_mcp_http_limits.py
+  s_388fff4aaf5212::t_94bf01e10eca76 14,120,122,124,130,209,222,227,229-238,240
+  s_388fff4aaf5212::t_c12192ecceb78b 251-255
+  s_388fff4aaf5212::t_5039c4dadc0b06 239,241-250
+tracecat/integrations/schemas.py
+  s_388fff4aaf5212::t_a7ae6793f34fec 31-50,148,172-174
+tracecat/integrations/providers/base.py
+  s_388fff4aaf5212::t_b2700f43ca75b0 31
+  s_388fff4aaf5212::t_4a1e2e62dc466f 32,34-41,210-216,218-221,232-233,244-245,360
+  s_388fff4aaf5212::t_a7ae6793f34fec 33,100-103,105-106,108-109,111,129-130
+  s_388fff4aaf5212::t_4f503e21e3379f 115-124
+  s_388fff4aaf5212::t_639068346512ec 209,217,231,243,436,934,1035
+tests/unit/test_network.py
+  s_388fff4aaf5212::t_2d53e93f6b8965 127
+  s_388fff4aaf5212::t_7d28a682cf4a30 24,87-125,166-200,243-258,274-287,302-314,402-416
+  s_388fff4aaf5212::t_90ca1d1fecaa2f 126,417-422
+tracecat/network.py
+  s_388fff4aaf5212::t_6eed70b34a9202 247-267,276
+  s_388fff4aaf5212::t_4986a5a0ad8cc7 246
+tests/unit/test_mcp_integrations.py
+  s_388fff4aaf5212::t_31ab9afa6e9cc3 2318-2322
+  s_388fff4aaf5212::t_7405591e050407 5280-5284
+  s_388fff4aaf5212::t_08162237780c61 247,299,5183,5266,5271,5445,6017,6022,6207-6209,6228
+  s_388fff4aaf5212::t_f1b3b332206d58 2317,5476
+tracecat/integrations/service.py
+  s_388fff4aaf5212::t_7f80f23b14b098 96,136
+  s_388fff4aaf5212::t_214d2689fcc98d 629,648-649,1966,1995-1998,2000-2012,2058-2074,2099
+  s_388fff4aaf5212::t_7e36643e067749 2529-2539
+  s_388fff4aaf5212::t_b1830f759ab153 99
+  s_388fff4aaf5212::t_ea8e8f9ba72665 191-194,224,907,909,912-917,919-924,952-970,974,977-978,980-984,991-994
+  s_388fff4aaf5212::t_de1a20f2896577 1033,1037,1178
+  s_388fff4aaf5212::t_8afcfb975ff34b 2541-2554,2556,2589-2602
+  s_388fff4aaf5212::t_05513a595ed7ed 2558-2588,2614-2615
+  s_388fff4aaf5212::t_f1b3b332206d58 219-220,904,927,930,932,934,938,940,971,979,1298,1784
+  s_388fff4aaf5212::t_7405591e050407 985-990
+  s_388fff4aaf5212::t_c78bc464217938 1301,1796-1799,1836
+  s_388fff4aaf5212::t_a7ae6793f34fec 135,274,276-282,284,286,724,731-735
+  s_388fff4aaf5212::t_e09f145de22609 640-647
+  s_388fff4aaf5212::t_4cc8a2cffa6f7d 995
+  s_388fff4aaf5212::t_c6d9a7196c5661 2540
+tracecat/integrations/router.py
+  s_388fff4aaf5212::t_acbd3a3858d697 69,286-287,289,301,435-444,460,474-478
+  s_388fff4aaf5212::t_f1b3b332206d58 288
+tests/unit/test_integrations_service.py
+  s_388fff4aaf5212::t_8ee2d350237f32 5,8,2258-2261
+  s_388fff4aaf5212::t_9413fb7f40d03a 26,1576,1597-1620,1622-1630,1632-1633,1654-1661
+  s_388fff4aaf5212::t_7ad6d45075ceba 1765
+  s_388fff4aaf5212::t_c86f77a31b8e3f 1796
+  s_388fff4aaf5212::t_7405591e050407 1793-1795,1797-1801,1803-1812
+  s_388fff4aaf5212::t_2d5ab83902ffd0 1802
+  s_388fff4aaf5212::t_d0302158cfdd50 1824-1835,1917-1925,1951-1960
+  s_388fff4aaf5212::t_30f44b1ef4796d 45,1743-1759,1761-1764,1766-1790
+  s_388fff4aaf5212::t_4f503e21e3379f 32,125-137
+  s_388fff4aaf5212::t_229a7f8314c268 1572-1575,1577-1596,1621,1631,1634-1653,1662-1742,1791
+  s_388fff4aaf5212::t_d005201a7d86f8 49
+  s_388fff4aaf5212::t_f1b3b332206d58 1760
+  s_388fff4aaf5212::t_7f75fa9ed31ce1 138-139,1792,1961
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2fa6f450cd903bc7943bafc87cd443a371aa4dfc",
+  "prompts": {},
+  "sessions": {
+    "s_388fff4aaf5212": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09b54-52c8-7d92-934c-882473f1ae27",
+        "model": "gpt-daybreak-blue-latest"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
