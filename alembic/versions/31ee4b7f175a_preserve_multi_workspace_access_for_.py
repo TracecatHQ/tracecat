@@ -18,14 +18,19 @@ depends_on: str | None = None
 def upgrade() -> None:
     # Existing hosted tiers retain their workspace creation behavior. OSS uses
     # static entitlements and remains limited regardless of these stored values.
-    # Preserve any explicit choice already made for this entitlement.
+    # Only rows without the key are touched, so an explicit true/false already
+    # stored for this entitlement is preserved. `entitlements` is NOT NULL.
     op.execute(
         sa.text(
             """
             UPDATE tier
-            SET entitlements = COALESCE(entitlements, '{}'::jsonb)
-                || '{"multi_workspace": true}'::jsonb
-            WHERE NOT (COALESCE(entitlements, '{}'::jsonb) ? 'multi_workspace')
+            SET entitlements = jsonb_set(
+                entitlements,
+                '{multi_workspace}',
+                'true'::jsonb,
+                true  -- create_if_missing
+            )
+            WHERE NOT (entitlements ? 'multi_workspace')
             """
         )
     )
