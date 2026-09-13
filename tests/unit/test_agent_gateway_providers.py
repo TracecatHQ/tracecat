@@ -4,6 +4,7 @@ from litellm.proxy._types import ProxyException
 from tracecat.agent.config import PROVIDER_CREDENTIAL_CONFIGS, provider_display_rank
 from tracecat.agent.gateway import _inject_provider_credentials
 from tracecat.agent.gateway_providers import (
+    API_ROUTE_DEFAULT_BASE_URL,
     OLLAMA_DEFAULT_BASE_URL,
     OPENROUTER_DEFAULT_BASE_URL,
     is_builtin_gateway_provider,
@@ -20,17 +21,18 @@ def test_provider_display_order_matches_requested_ordering() -> None:
     assert ordered[:2] == ["openai", "anthropic"]
     assert ordered.index("bedrock") < ordered.index("azure_openai")
     assert ordered.index("gemini") < ordered.index("mistral")
-    assert ordered[-5:] == [
+    assert ordered[-6:] == [
         "ollama",
         "vllm",
         "litellm",
         "openrouter",
+        "api-route",
         "custom-model-provider",
     ]
 
 
 def test_gateway_provider_classification() -> None:
-    for provider in ("ollama", "vllm", "litellm", "openrouter"):
+    for provider in ("ollama", "vllm", "litellm", "openrouter", "api-route"):
         assert is_builtin_gateway_provider(provider)
         assert is_gateway_provider(provider)
     assert is_gateway_provider("custom-model-provider")
@@ -139,3 +141,24 @@ def test_openrouter_gateway_injection_requires_api_key() -> None:
     assert data["api_key"] == "sk-or"
     assert data["api_base"] == OPENROUTER_DEFAULT_BASE_URL
     assert data["model"] == "openrouter/anthropic/claude-sonnet-4"
+
+def test_resolve_api_route_default_and_override() -> None:
+    default = resolve_gateway_provider_config(
+        "api-route", {"API_ROUTE_API_KEY": "sk-ar"}
+    )
+    assert default is not None
+    assert default.base_url == API_ROUTE_DEFAULT_BASE_URL
+    assert default.api_key == "sk-ar"
+    assert default.passthrough is True
+
+    override = resolve_gateway_provider_config(
+        "api-route",
+        {
+            "API_ROUTE_API_KEY": "sk-ar",
+            "API_ROUTE_BASE_URL": "https://custom.api-route.com/v1",
+            "API_ROUTE_PASSTHROUGH": "false",
+        },
+    )
+    assert override is not None
+    assert override.base_url == "https://custom.api-route.com/v1"
+    assert override.passthrough is False

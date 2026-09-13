@@ -1,4 +1,5 @@
 from tracecat.agent.gateway_providers import (
+    API_ROUTE_DEFAULT_BASE_URL,
     OLLAMA_DEFAULT_BASE_URL,
     OPENROUTER_DEFAULT_BASE_URL,
 )
@@ -433,6 +434,34 @@ PROVIDER_CREDENTIAL_CONFIGS = {
             ),
         ],
     ),
+    "api-route": ProviderCredentialConfig(
+        provider="api-route",
+        label="API Route",
+        fields=[
+            ProviderCredentialField(
+                key="API_ROUTE_API_KEY",
+                label="API Key",
+                type="password",
+                description="Your API Route API key from api-route.com.",
+            ),
+            ProviderCredentialField(
+                key="API_ROUTE_BASE_URL",
+                label="Base URL",
+                type="text",
+                description="API Route base URL. Defaults to https://global.api-route.com/v1.",
+                required=False,
+                default=API_ROUTE_DEFAULT_BASE_URL,
+            ),
+            ProviderCredentialField(
+                key="API_ROUTE_PASSTHROUGH",
+                label="Passthrough",
+                type="boolean",
+                description="Forward requests directly to API Route instead of going through the managed LiteLLM proxy.",
+                required=False,
+                default="true",
+            ),
+        ],
+    ),
     "azure_openai": ProviderCredentialConfig(
         provider="azure_openai",
         label="Azure OpenAI",
@@ -557,6 +586,7 @@ PROVIDER_DISPLAY_ORDER: tuple[str, ...] = (
     "vllm",
     "litellm",
     "openrouter",
+    "api-route",
     "custom-model-provider",
 )
 

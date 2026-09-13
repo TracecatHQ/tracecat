@@ -24,11 +24,13 @@ type GatewayProviderSlug = Literal[
     "vllm",
     "litellm",
     "openrouter",
+    "api-route",
     "custom-model-provider",
 ]
 
 OLLAMA_DEFAULT_BASE_URL = "http://localhost:11434/v1"
 OPENROUTER_DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
+API_ROUTE_DEFAULT_BASE_URL = "https://global.api-route.com/v1"
 
 _TRUTHY_FLAGS = frozenset({"1", "true", "yes", "on"})
 _OPENAI_VERSION_SUFFIX_RE = re.compile(r"/v\d+/?$")
@@ -117,6 +119,17 @@ GATEWAY_PROVIDER_SPECS: dict[str, GatewayProviderSpec] = {
         litellm_prefix="openrouter",
         default_base_url=OPENROUTER_DEFAULT_BASE_URL,
         default_passthrough=False,
+        requires_api_key=True,
+    ),
+    "api-route": GatewayProviderSpec(
+        slug="api-route",
+        api_key_key="API_ROUTE_API_KEY",
+        base_url_key="API_ROUTE_BASE_URL",
+        passthrough_key="API_ROUTE_PASSTHROUGH",
+        model_name_key=None,
+        litellm_prefix="openai",
+        default_base_url=API_ROUTE_DEFAULT_BASE_URL,
+        default_passthrough=True,
         requires_api_key=True,
     ),
     CUSTOM_MODEL_PROVIDER_SLUG: GatewayProviderSpec(

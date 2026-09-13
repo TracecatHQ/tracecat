@@ -27,6 +27,7 @@ Tracecat lists providers in this order in Organization settings > Agent > Config
 | vLLM | Optional API key | Required, e.g. `http://vllm:8000/v1` | Off |
 | LiteLLM | Optional API key | Required, e.g. `http://litellm:4000/v1` | On |
 | OpenRouter | API key | Defaults to `https://openrouter.ai/api/v1`, optional override | Off |
+| API Route | API key | Defaults to `https://global.api-route.com/v1`, optional override | On |
 
 Ollama, vLLM, and LiteLLM base URLs must include the `/v1` segment and be reachable from the Tracecat services. Inside a container, `localhost` points at the container itself, not your host.
 
