@@ -18,6 +18,8 @@ from typing import Any, Self
 
 import httpx
 
+from tracecat import config
+
 type IPAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
 
 
@@ -152,8 +154,6 @@ class HttpEgressPolicy:
 
 def configured_http_egress_policy(purpose: HttpEgressPurpose) -> HttpEgressPolicy:
     """Load the operator-owned private-origin policy for one product surface."""
-    from tracecat import config
-
     if (
         config.TRACECAT__EE_MULTI_TENANT
         and config.TRACECAT__HTTP_EGRESS_ALLOWED_PRIVATE_ORIGINS
