@@ -1394,6 +1394,14 @@ except ValueError:
 
 
 # === Agent config === #
+TRACECAT__MCP_ALLOW_PRIVATE_HOSTS = env_bool(
+    "TRACECAT__MCP_ALLOW_PRIVATE_HOSTS", default=False
+)
+"""Allow HTTP MCP server URIs that resolve to private, loopback, or link-local
+addresses. Off by default so workspace members cannot steer the backend MCP
+client at internal services or cloud metadata. Enable on single-tenant
+deployments that run MCP servers on the same network."""
+
 TRACECAT__UNIFIED_AGENT_STREAMING_ENABLED = env_bool(
     "TRACECAT__UNIFIED_AGENT_STREAMING_ENABLED", default=False
 )

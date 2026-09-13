@@ -33,6 +33,7 @@ import tracecat.integrations.catalog.resolver as catalog_resolver_module
 import tracecat.integrations.catalog.service as catalog_service_module
 import tracecat.integrations.router as integration_router_module
 import tracecat.integrations.service as integration_service_module
+from tracecat import config as tracecat_config
 from tracecat.agent.mcp.stdio_probe import (
     StdioMCPProbeResult,
     StdioMCPProbeWorkflowInput,
@@ -104,6 +105,13 @@ from tracecat.integrations.types import DCRResponse, OAuthServerMetadata
 from tracecat.tiers import defaults as tier_defaults
 
 pytestmark = pytest.mark.usefixtures("db")
+
+
+@pytest.fixture(autouse=True)
+def allow_private_mcp_hosts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Skip DNS-backed egress checks so fixtures can use unresolvable hosts."""
+    monkeypatch.setattr(tracecat_config, "TRACECAT__MCP_ALLOW_PRIVATE_HOSTS", True)
+
 
 _MCP_CONNECTION_SPEC_ADAPTER: TypeAdapter[MCPConnectionSpec] = TypeAdapter(
     MCPConnectionSpec
@@ -7757,6 +7765,121 @@ class TestMCPProviderOAuth:
 @pytest.mark.anyio
 class TestMCPConnectionVerification:
     """Tests for HTTP MCP config resolution and connection verification."""
+
+    @staticmethod
+    def _resolve_to(address: str):
+        def fake_getaddrinfo(
+            host: str,
+            port: int,
+            *,
+            type: socket.SocketKind,
+            proto: int,
+        ) -> list[
+            tuple[socket.AddressFamily, socket.SocketKind, int, str, tuple[str, int]]
+        ]:
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (address, port))]
+
+        return fake_getaddrinfo
+
+    @pytest.mark.parametrize(
+        "address", ["127.0.0.1", "10.0.0.5", "192.168.1.9", "169.254.169.254"]
+    )
+    async def test_resolve_http_config_rejects_private_server_uri(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+        address: str,
+    ) -> None:
+        """Egress guard rejects private targets before the MCP client connects."""
+        monkeypatch.setattr(tracecat_config, "TRACECAT__MCP_ALLOW_PRIVATE_HOSTS", False)
+        monkeypatch.setattr(
+            "tracecat.network.socket.getaddrinfo", self._resolve_to(address)
+        )
+        mcp_integration = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="Internal MCP",
+                server_uri="http://internal.example.test/mcp",
+                auth_type=MCPAuthType.NONE,
+            )
+        )
+
+        with pytest.raises(MCPConfigurationError) as exc_info:
+            await integration_service.resolve_mcp_http_server_config(mcp_integration)
+        assert address not in str(exc_info.value)
+
+    async def test_resolve_http_config_rejects_private_uri_before_oauth_token(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The guard runs before any OAuth access token is loaded or attached."""
+        monkeypatch.setattr(tracecat_config, "TRACECAT__MCP_ALLOW_PRIVATE_HOSTS", False)
+        monkeypatch.setattr(
+            "tracecat.network.socket.getaddrinfo", self._resolve_to("127.0.0.1")
+        )
+
+        async def _unexpected_token(*args: object, **kwargs: object) -> None:
+            raise AssertionError("access token must not be read for a rejected URI")
+
+        monkeypatch.setattr(integration_service, "get_access_token", _unexpected_token)
+        mcp_integration = MCPIntegration(
+            id=uuid.uuid4(),
+            workspace_id=integration_service.workspace_id,
+            name="OAuth MCP",
+            slug="oauth-mcp",
+            server_type="http",
+            server_uri="http://internal.example.test/mcp",
+            auth_type=MCPAuthType.OAUTH2,
+            oauth_integration_id=uuid.uuid4(),
+        )
+
+        with pytest.raises(MCPConfigurationError):
+            await integration_service.resolve_mcp_http_server_config(mcp_integration)
+
+    async def test_resolve_http_config_allows_public_server_uri(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A public-resolving host passes the egress guard."""
+        monkeypatch.setattr(tracecat_config, "TRACECAT__MCP_ALLOW_PRIVATE_HOSTS", False)
+        monkeypatch.setattr(
+            "tracecat.network.socket.getaddrinfo", self._resolve_to("93.184.216.34")
+        )
+        mcp_integration = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="Public MCP",
+                server_uri="https://public.example.test/mcp",
+                auth_type=MCPAuthType.NONE,
+            )
+        )
+
+        server_config = await integration_service.resolve_mcp_http_server_config(
+            mcp_integration
+        )
+        assert server_config["url"] == "https://public.example.test/mcp"
+
+    async def test_resolve_http_config_opt_out_allows_private_server_uri(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """TRACECAT__MCP_ALLOW_PRIVATE_HOSTS skips the egress guard."""
+        monkeypatch.setattr(
+            "tracecat.network.socket.getaddrinfo", self._resolve_to("127.0.0.1")
+        )
+        mcp_integration = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="Local MCP",
+                server_uri="http://localhost:8000/mcp",
+                auth_type=MCPAuthType.NONE,
+            )
+        )
+
+        server_config = await integration_service.resolve_mcp_http_server_config(
+            mcp_integration
+        )
+        assert server_config["url"] == "http://localhost:8000/mcp"
 
     async def test_resolve_http_config_none_auth(
         self, integration_service: IntegrationService

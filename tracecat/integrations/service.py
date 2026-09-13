@@ -85,6 +85,7 @@ from tracecat.integrations.mcp_validation import (
     MCPConnectionVerificationError,
     MCPValidationError,
     validate_mcp_command_config,
+    validate_mcp_server_uri_egress,
 )
 from tracecat.integrations.providers import get_provider_class
 from tracecat.integrations.providers.base import (
@@ -4286,6 +4287,7 @@ class IntegrationService(BaseWorkspaceService):
             )
         if not mcp_integration.server_uri:
             raise MCPConfigurationError("HTTP MCP integration has no server URI")
+        await validate_mcp_server_uri_egress(mcp_integration.server_uri)
 
         headers: dict[str, str] = {}
         if mcp_integration.auth_type == MCPAuthType.OAUTH2:

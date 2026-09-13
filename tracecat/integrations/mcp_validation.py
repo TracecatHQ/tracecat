@@ -7,7 +7,9 @@ command injection and other security vulnerabilities.
 import re
 import uuid
 
+from tracecat import config
 from tracecat.agent.common.config import AGENT_RUNTIME_PROTECTED_ENV_VARS
+from tracecat.network import DisallowedUrlError, validate_url_resolves_public_async
 
 # Allowlist of commands that can be used for MCP servers
 ALLOWED_MCP_COMMANDS = frozenset({"npx", "uvx", "python", "python3", "node"})
@@ -96,6 +98,35 @@ class MCPConfigurationError(Exception):
     """Raised when an MCP integration cannot be resolved into a usable server config."""
 
     pass
+
+
+MCP_SERVER_URI_NOT_ALLOWED_MESSAGE = (
+    "MCP server URI is not allowed: it must resolve to a public address. Set "
+    "TRACECAT__MCP_ALLOW_PRIVATE_HOSTS=true to permit private or internal hosts "
+    "on this deployment."
+)
+
+
+async def validate_mcp_server_uri_egress(server_uri: str) -> None:
+    """Reject ``server_uri`` unless its host resolves to public addresses.
+
+    Runs before the backend MCP client connects and before any OAuth token is
+    attached, so a workspace member cannot steer the trusted backend at
+    loopback, private, link-local, or cloud-metadata targets. Deployments that
+    run MCP servers on a private network opt out with
+    ``TRACECAT__MCP_ALLOW_PRIVATE_HOSTS``.
+
+    Raises:
+        MCPConfigurationError: If the host is missing, cannot be resolved, or
+            resolves to a non-public address. The message never echoes the
+            resolved address.
+    """
+    if config.TRACECAT__MCP_ALLOW_PRIVATE_HOSTS:
+        return
+    try:
+        await validate_url_resolves_public_async(server_uri)
+    except DisallowedUrlError as e:
+        raise MCPConfigurationError(MCP_SERVER_URI_NOT_ALLOWED_MESSAGE) from e
 
 
 class MCPSecretResolutionError(Exception):
