@@ -76,10 +76,19 @@ class AdminSettingsService(BasePlatformService):
         return {s.key: self._get_value(s) for s in result.scalars().all()}
 
     async def _get_settings_with_decryption_fallback(
-        self, keys: set[str]
+        self,
+        keys: set[str],
+        *,
+        for_update: bool = False,
     ) -> tuple[dict[str, Any], list[str]]:
         """Get platform settings while tolerating encrypted decrypt failures."""
         stmt = select(PlatformSetting).where(PlatformSetting.key.in_(keys))
+        if for_update:
+            stmt = (
+                stmt.order_by(PlatformSetting.key)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
         result = await self.session.execute(stmt)
         values: dict[str, Any] = {}
         decryption_failed_keys: list[str] = []
@@ -146,7 +155,8 @@ class AdminSettingsService(BasePlatformService):
     ) -> PlatformAuditSettingsRead:
         """Update platform audit settings."""
         current_settings, _ = await self._get_settings_with_decryption_fallback(
-            {"audit_webhook_url"}
+            AUDIT_SETTINGS_KEYS,
+            for_update=True,
         )
         params = bind_audit_headers_to_webhook_origin(
             params,

@@ -1,7 +1,13 @@
 from enum import StrEnum
-from typing import Any, Literal, cast
+from typing import Any, Literal, Self, cast
 
-from pydantic import BaseModel, Field, ValidationInfo, field_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 from tracecat.agent.otel_config import AgentOtelConfig, validate_otel_header_items
 from tracecat.git.constants import GIT_SSH_URL_REGEX
@@ -169,6 +175,17 @@ class AuditSettingsUpdate(BaseSettingsGroup):
             "Disable only for trusted on-prem/self-signed endpoints."
         ),
     )
+
+    @model_validator(mode="after")
+    def validate_custom_header_origin(self) -> Self:
+        if (
+            self.audit_webhook_custom_headers
+            and "audit_webhook_url" not in self.model_fields_set
+        ):
+            raise ValueError(
+                "audit_webhook_url is required when setting custom headers"
+            )
+        return self
 
 
 AuditWebhookTestErrorCategory = Literal[

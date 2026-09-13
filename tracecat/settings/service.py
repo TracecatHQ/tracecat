@@ -149,6 +149,7 @@ class SettingsService(BaseOrgService):
         value_type: str | None = None,
         is_encrypted: bool | None = None,
         limit: int | None = None,
+        for_update: bool = False,
     ) -> Sequence[OrganizationSetting]:
         """List organization settings with optional filters.
 
@@ -157,6 +158,7 @@ class SettingsService(BaseOrgService):
             value_type: Filter settings by their value type
             is_encrypted: Filter settings by their encryption status
             limit: Maximum number of settings to return
+            for_update: Lock and refresh matching rows for a grouped update
 
         Returns:
             Sequence[OrganizationSetting]: List of matching organization settings
@@ -176,6 +178,12 @@ class SettingsService(BaseOrgService):
 
         if limit is not None:
             statement = statement.limit(limit)
+        if for_update:
+            statement = (
+                statement.order_by(OrganizationSetting.key)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
 
         result = await self.session.execute(statement)
         return result.scalars().all()
@@ -326,7 +334,10 @@ class SettingsService(BaseOrgService):
     @require_scope("org:settings:update")
     @audit_log(resource_type="organization_setting", action="update")
     async def update_audit_settings(self, params: AuditSettingsUpdate) -> None:
-        audit_settings = await self.list_org_settings(keys=AUDIT_SETTINGS_KEYS)
+        audit_settings = await self.list_org_settings(
+            keys=AUDIT_SETTINGS_KEYS,
+            for_update=True,
+        )
         settings_by_key = {setting.key: setting for setting in audit_settings}
         current_url_setting = settings_by_key.get("audit_webhook_url")
         try:

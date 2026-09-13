@@ -1,19 +1,28 @@
+import asyncio
+from collections.abc import Sequence
 from typing import Any
 from unittest.mock import MagicMock
 
 import orjson
 import pytest
+from cryptography.fernet import Fernet
 from fastapi import HTTPException
-from pydantic import HttpUrl
+from pydantic import BaseModel, HttpUrl, ValidationError
 from pydantic_core import to_jsonable_python
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import delete
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
+from tests.database import TEST_DB_CONFIG
 from tracecat import config
 from tracecat.agent.otel_config import AgentOtelConfig
 from tracecat.auth.enums import AuthType
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
-from tracecat.db.models import OrganizationDomain
+from tracecat.db.models import OrganizationDomain, OrganizationSetting
 from tracecat.organization.domains import normalize_domain
 from tracecat.settings import service as settings_service_module
 from tracecat.settings.constants import SENSITIVE_SETTINGS_KEYS
@@ -31,6 +40,7 @@ from tracecat.settings.schemas import (
     ValueType,
 )
 from tracecat.settings.service import (
+    AUDIT_SETTINGS_KEYS,
     AgentOtelEndpointNotAllowedError,
     SettingsService,
     get_setting,
@@ -267,6 +277,136 @@ async def test_update_audit_settings_can_clear(
 
 
 @pytest.mark.anyio
+async def test_concurrent_audit_origin_updates_cannot_misbind_headers(
+    svc_admin_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A stale same-origin update must not retain another origin's headers."""
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__DB_ENCRYPTION_KEY",
+        Fernet.generate_key().decode(),
+    )
+    engine = create_async_engine(TEST_DB_CONFIG.test_url)
+    session_factory = async_sessionmaker(bind=engine, expire_on_commit=False)
+    first_at_write = asyncio.Event()
+    release_first = asyncio.Event()
+    second_started = asyncio.Event()
+    second_at_write = asyncio.Event()
+    release_second = asyncio.Event()
+    first_task: asyncio.Task[None] | None = None
+    second_task: asyncio.Task[None] | None = None
+    original_update = SettingsService._update_grouped_settings
+
+    async def hold_grouped_update(
+        service: SettingsService,
+        settings: Sequence[OrganizationSetting],
+        params: BaseModel,
+    ) -> None:
+        if service is first_service:
+            first_at_write.set()
+            await release_first.wait()
+        elif service is second_service:
+            second_at_write.set()
+            await release_second.wait()
+        await original_update(service, settings, params)
+
+    async def run_second_update() -> None:
+        second_started.set()
+        await second_service.update_audit_settings(
+            AuditSettingsUpdate(
+                audit_webhook_url="https://collector-a.example.com/second"
+            )
+        )
+
+    async def run_first_update() -> None:
+        await first_service.update_audit_settings(
+            AuditSettingsUpdate(
+                audit_webhook_url="https://collector-b.example.com",
+                audit_webhook_custom_headers={"Authorization": "Bearer origin-b"},
+            )
+        )
+
+    try:
+        async with session_factory() as seed_session:
+            seed_service = SettingsService(
+                session=seed_session,
+                role=svc_admin_role.model_copy(deep=True),
+            )
+            await seed_service.update_audit_settings(
+                AuditSettingsUpdate(
+                    audit_webhook_url="https://collector-a.example.com/first",
+                    audit_webhook_custom_headers={"Authorization": "Bearer origin-a"},
+                )
+            )
+
+        async with (
+            session_factory() as first_session,
+            session_factory() as second_session,
+        ):
+            first_service = SettingsService(
+                session=first_session,
+                role=svc_admin_role.model_copy(deep=True),
+            )
+            second_service = SettingsService(
+                session=second_session,
+                role=svc_admin_role.model_copy(deep=True),
+            )
+            monkeypatch.setattr(
+                SettingsService,
+                "_update_grouped_settings",
+                hold_grouped_update,
+            )
+
+            first_task = asyncio.create_task(run_first_update())
+            await asyncio.wait_for(first_at_write.wait(), timeout=5)
+
+            second_task = asyncio.create_task(run_second_update())
+            await asyncio.wait_for(second_started.wait(), timeout=5)
+            with pytest.raises(TimeoutError):
+                await asyncio.wait_for(second_at_write.wait(), timeout=0.2)
+
+            release_first.set()
+            await first_task
+            await asyncio.wait_for(second_at_write.wait(), timeout=5)
+            release_second.set()
+            await second_task
+
+        async with session_factory() as verify_session:
+            verify_service = SettingsService(
+                session=verify_session,
+                role=svc_admin_role.model_copy(deep=True),
+            )
+            settings = await verify_service.list_org_settings(keys=AUDIT_SETTINGS_KEYS)
+            values, _ = verify_service.get_values_with_decryption_fallback(settings)
+            assert (
+                values["audit_webhook_url"] == "https://collector-a.example.com/second"
+            )
+            assert values["audit_webhook_custom_headers"] is None
+    finally:
+        for task in (first_task, second_task):
+            if task is not None and not task.done():
+                task.cancel()
+        pending_tasks = [
+            task
+            for task in (first_task, second_task)
+            if task is not None and not task.done()
+        ]
+        if pending_tasks:
+            await asyncio.gather(*pending_tasks, return_exceptions=True)
+        async with session_factory() as cleanup_session:
+            await cleanup_session.execute(
+                delete(OrganizationSetting).where(
+                    OrganizationSetting.organization_id
+                    == svc_admin_role.organization_id,
+                    OrganizationSetting.key.in_(AUDIT_SETTINGS_KEYS),
+                )
+            )
+            await cleanup_session.commit()
+        await engine.dispose()
+
+
+@pytest.mark.anyio
 async def test_update_audit_custom_headers_encrypted_at_rest(
     settings_service_with_defaults: SettingsService,
 ) -> None:
@@ -277,7 +417,10 @@ async def test_update_audit_custom_headers_encrypted_at_rest(
         "X-Tracecat-Source": "audit",
     }
     await service.update_audit_settings(
-        AuditSettingsUpdate(audit_webhook_custom_headers=custom_headers)
+        AuditSettingsUpdate(
+            audit_webhook_url="https://audit.example.com",
+            audit_webhook_custom_headers=custom_headers,
+        )
     )
 
     setting = await service.get_org_setting("audit_webhook_custom_headers")
@@ -285,6 +428,16 @@ async def test_update_audit_custom_headers_encrypted_at_rest(
     assert setting.is_encrypted is True
     assert service.get_value(setting) == custom_headers
     assert setting.value != orjson.dumps(custom_headers, option=orjson.OPT_SORT_KEYS)
+
+
+def test_audit_custom_headers_require_url_in_same_update() -> None:
+    with pytest.raises(
+        ValidationError,
+        match="audit_webhook_url is required when setting custom headers",
+    ):
+        AuditSettingsUpdate(
+            audit_webhook_custom_headers={"Authorization": "Bearer secret"}
+        )
 
 
 @pytest.mark.anyio
