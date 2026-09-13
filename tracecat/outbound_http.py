@@ -78,11 +78,16 @@ class GuardedNetworkBackend(httpcore.NetworkBackend):
     ) -> httpcore.NetworkStream:
         origin = self._request_origin.require(host, port)
         deadline = None if timeout is None else time.monotonic() + timeout
-        infos = self._resolver(host, port)
-        addresses = validate_resolved_addresses(
-            infos,
-            allow_private=self._policy.allows_private_address(origin),
-        )
+        try:
+            infos = self._resolver(host, port)
+            addresses = validate_resolved_addresses(
+                infos,
+                allow_private=self._policy.allows_private_address(origin),
+            )
+        except HostResolutionError as exc:
+            # Resolution failures are connection failures and may be
+            # transient. Other policy validation remains terminal.
+            raise httpcore.ConnectError("Host could not be resolved") from exc
         last_error: httpcore.ConnectError | httpcore.ConnectTimeout | None = None
         for index, address in enumerate(addresses):
             if deadline is None:
@@ -155,7 +160,7 @@ class GuardedAsyncNetworkBackend(httpcore.AsyncNetworkBackend):
                     )
                 except HostResolutionError as exc:
                     # Resolution failures are connection failures and may be
-                    # transient. Policy validation below remains terminal.
+                    # transient. Other policy validation remains terminal.
                     raise httpcore.ConnectError("Host could not be resolved") from exc
                 last_error: httpcore.ConnectError | httpcore.ConnectTimeout | None = (
                     None

@@ -581,6 +581,26 @@ async def test_dns_resolution_failure_is_a_retryable_connect_error(
     assert backend.hosts == []
 
 
+@pytest.mark.parametrize("error_code", [socket.EAI_AGAIN, socket.EAI_NONAME])
+def test_sync_dns_resolution_failure_is_a_retryable_connect_error(
+    monkeypatch: pytest.MonkeyPatch,
+    error_code: int,
+) -> None:
+    backend = _SyncRecordingBackend()
+
+    def fail_resolution(*args: object, **kwargs: object) -> list[object]:
+        del args, kwargs
+        raise socket.gaierror(error_code, "Name resolution failed")
+
+    monkeypatch.setattr(socket, "getaddrinfo", fail_resolution)
+
+    with guarded_client(backend=backend) as client:
+        with pytest.raises(httpx.ConnectError, match="Host could not be resolved"):
+            client.get("http://temporary-dns-failure.example.test/resource")
+
+    assert backend.hosts == []
+
+
 @pytest.mark.anyio
 async def test_empty_dns_result_is_a_retryable_connect_error() -> None:
     backend = _RecordingBackend()
@@ -592,6 +612,20 @@ async def test_empty_dns_result_is_a_retryable_connect_error() -> None:
     async with guarded_async_client(resolver=resolver, backend=backend) as client:
         with pytest.raises(httpx.ConnectError, match="Host could not be resolved"):
             await client.get("http://empty-dns-result.example.test/resource")
+
+    assert backend.hosts == []
+
+
+def test_sync_empty_dns_result_is_a_retryable_connect_error() -> None:
+    backend = _SyncRecordingBackend()
+
+    def resolver(host: str, port: int) -> tuple[SocketInfo, ...]:
+        del host, port
+        return ()
+
+    with guarded_client(resolver=resolver, backend=backend) as client:
+        with pytest.raises(httpx.ConnectError, match="Host could not be resolved"):
+            client.get("http://empty-dns-result.example.test/resource")
 
     assert backend.hosts == []
 
