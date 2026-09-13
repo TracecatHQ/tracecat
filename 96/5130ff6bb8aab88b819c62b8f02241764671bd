@@ -1,0 +1,25 @@
+tracecat/agent/mcp/user_client.py
+  s_388fff4aaf5212::t_3616d2b402dc4f 66-69
+tracecat/agent/mcp/http_limits.py
+  s_388fff4aaf5212::t_94bf01e10eca76 21-23,108,116-121,124,126,130-150,152,156-157
+tests/unit/test_agent_mcp_http_limits.py
+  s_388fff4aaf5212::t_94bf01e10eca76 12-13,119,121,123,130,138,151,156,158-167,169
+  s_388fff4aaf5212::t_c12192ecceb78b 180-184
+  s_388fff4aaf5212::t_5039c4dadc0b06 168,170-179
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "965130ff6bb8aab88b819c62b8f02241764671bd",
+  "prompts": {},
+  "sessions": {
+    "s_388fff4aaf5212": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09b54-52c8-7d92-934c-882473f1ae27",
+        "model": "gpt-daybreak-blue-latest"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
