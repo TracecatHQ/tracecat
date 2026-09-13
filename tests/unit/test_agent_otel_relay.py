@@ -38,6 +38,7 @@ from tracecat.agent.sandbox.otel_relay import (
     tenant_signal_enabled,
 )
 from tracecat.agent.tokens import mint_agent_otel_token
+from tracecat.network import DisallowedUrlError
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,6 +118,11 @@ def mock_transport(monkeypatch: pytest.MonkeyPatch) -> _MockTransport:
     monkeypatch.setattr(
         otel_relay,
         "_client_factory",
+        lambda: httpx.AsyncClient(transport=transport),
+    )
+    monkeypatch.setattr(
+        otel_relay,
+        "_platform_client_factory",
         lambda: httpx.AsyncClient(transport=transport),
     )
     return transport
@@ -302,6 +308,100 @@ async def test_resolve_collector_url_returns_none_for_unknown_path() -> None:
         )
         is None
     )
+
+
+@pytest.mark.anyio
+async def test_tenant_client_rejects_loopback_at_connection_time(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", False)
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__HTTP_EGRESS_ALLOWED_PRIVATE_ORIGINS",
+        [],
+    )
+
+    async with otel_relay._client_factory() as client:
+        with pytest.raises(DisallowedUrlError):
+            async with client.stream(
+                "POST",
+                "http://127.0.0.1:4318/v1/traces",
+                content=b"telemetry",
+            ):
+                pass
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("destination", ["tenant", "platform"])
+async def test_delivery_uses_destination_specific_client(
+    destination: otel_relay.DestinationKind,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transport = _MockTransport()
+    factories_used: list[str] = []
+
+    def factory(kind: str) -> httpx.AsyncClient:
+        factories_used.append(kind)
+        return httpx.AsyncClient(transport=transport)
+
+    monkeypatch.setattr(otel_relay, "_client_factory", lambda: factory("tenant"))
+    monkeypatch.setattr(
+        otel_relay,
+        "_platform_client_factory",
+        lambda: factory("platform"),
+    )
+    delivery = otel_relay._OtelDelivery(
+        collector_url="https://collector.example.com/v1/logs",
+        content_type="application/x-protobuf",
+        body=b"telemetry",
+        headers={},
+        destination=destination,
+        signal_path="/v1/logs",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        session_id=uuid.uuid4(),
+    )
+
+    await otel_relay._deliver(delivery)
+
+    assert factories_used == [destination]
+    assert len(transport.requests) == 1
+
+
+@pytest.mark.anyio
+async def test_delivery_drops_tenant_routing_and_framing_headers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transport = _MockTransport()
+    monkeypatch.setattr(
+        otel_relay,
+        "_client_factory",
+        lambda: httpx.AsyncClient(transport=transport),
+    )
+    delivery = otel_relay._OtelDelivery(
+        collector_url="https://collector.example.com/v1/logs",
+        content_type="application/x-protobuf",
+        body=b"telemetry",
+        headers={
+            "Authorization": "Bearer collector-secret",
+            "Content-Type": "text/plain",
+            "Host": "attacker.example.com",
+            "Transfer-Encoding": "chunked",
+        },
+        destination="tenant",
+        signal_path="/v1/logs",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        session_id=uuid.uuid4(),
+    )
+
+    await otel_relay._deliver(delivery)
+
+    request = transport.requests[0]
+    assert request.headers["authorization"] == "Bearer collector-secret"
+    assert request.headers["content-type"] == "application/x-protobuf"
+    assert request.headers["host"] == "collector.example.com"
+    assert "transfer-encoding" not in request.headers
 
 
 def test_tenant_signal_enabled_reads_the_per_signal_exporter() -> None:
@@ -1184,6 +1284,7 @@ def test_sweep_refunds_budget_for_tasks_stranded_on_closed_loops() -> None:
         content_type="application/x-protobuf",
         body=b"stranded-payload",
         headers={},
+        destination="tenant",
         signal_path="/v1/logs",
         workspace_id=uuid.uuid4(),
         organization_id=uuid.uuid4(),

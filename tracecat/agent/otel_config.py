@@ -210,6 +210,27 @@ def resolve_agent_otel_config(
 # RFC 7230 token: the only characters legal in an HTTP header name.
 _HEADER_NAME_RE = re.compile(r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+")
 
+# Request routing, framing, and hop-by-hop headers belong to HTTPX and the
+# relay. Allowing tenant values here can retarget a virtual host or create an
+# ambiguous request even when the socket itself is pinned to an approved IP.
+OTEL_MANAGED_HEADER_NAMES = frozenset(
+    {
+        "connection",
+        "content-length",
+        "content-type",
+        "expect",
+        "host",
+        "keep-alive",
+        "proxy-authenticate",
+        "proxy-authorization",
+        "proxy-connection",
+        "te",
+        "trailer",
+        "transfer-encoding",
+        "upgrade",
+    }
+)
+
 
 def _invalid_header_value(value: str) -> bool:
     # CR/LF, control bytes, edge whitespace, or non-ASCII make httpx reject
@@ -227,6 +248,8 @@ def validate_otel_header_items(headers: Mapping[str, Any]) -> None:
                 "OTel header names must be valid HTTP header names "
                 "(letters, digits, and !#$%&'*+-.^_`|~)"
             )
+        if key.lower() in OTEL_MANAGED_HEADER_NAMES:
+            raise ValueError(f"OTel header {key} is managed by Tracecat")
         raw_value = value.get_secret_value() if isinstance(value, SecretStr) else value
         if not isinstance(raw_value, str) or not raw_value.strip():
             raise ValueError(f"OTel header {key} must have a non-empty string value")

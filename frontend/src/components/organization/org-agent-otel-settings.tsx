@@ -65,6 +65,18 @@ function newHeaderRow(): HeaderRow {
   return { id: crypto.randomUUID(), name: "", value: "" }
 }
 
+function normalizeCollectorOrigin(value: string): string | null {
+  try {
+    const url = new URL(value.trim())
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return null
+    }
+    return url.origin
+  } catch {
+    return null
+  }
+}
+
 /**
  * Organization-level agent telemetry settings form. Presents the flat OTel
  * `env` map as dedicated form controls, offers a one-shot paste import for
@@ -83,6 +95,12 @@ export function OrgAgentOtelSettings() {
   const [form, setForm] = useState<AgentOtelForm>(emptyAgentOtelForm)
   const [headerRows, setHeaderRows] = useState<HeaderRow[]>([])
   const [clearSavedHeaders, setClearSavedHeaders] = useState(false)
+  const [savedHeadersOrigin, setSavedHeadersOrigin] = useState<string | null>(
+    null
+  )
+  const [headerRowsOrigin, setHeaderRowsOrigin] = useState<string | null>(null)
+  const [headersClearedForOriginChange, setHeadersClearedForOriginChange] =
+    useState(false)
   const [dirty, setDirty] = useState(false)
   const settingsLoadFailed =
     !agentOtelSettingsIsLoading && agentOtelSettings === undefined
@@ -103,6 +121,11 @@ export function OrgAgentOtelSettings() {
     setForm(envMapToForm(agentOtelConfigToEnvMap(settings?.agent_otel_config)))
     setHeaderRows([])
     setClearSavedHeaders(false)
+    setSavedHeadersOrigin(
+      normalizeCollectorOrigin(settings?.agent_otel_config?.endpoint ?? "")
+    )
+    setHeaderRowsOrigin(null)
+    setHeadersClearedForOriginChange(false)
     setDirty(false)
   }
 
@@ -187,6 +210,8 @@ export function OrgAgentOtelSettings() {
   function handleHeaderRowChange(id: string, patch: Partial<HeaderRow>): void {
     setDirty(true)
     setClearSavedHeaders(false)
+    setHeaderRowsOrigin(normalizeCollectorOrigin(form.endpoint))
+    setHeadersClearedForOriginChange(false)
     setHeaderRows((prev) =>
       prev.map((row) => (row.id === id ? { ...row, ...patch } : row))
     )
@@ -195,6 +220,8 @@ export function OrgAgentOtelSettings() {
   function handleAddHeaderRow() {
     setDirty(true)
     setClearSavedHeaders(false)
+    setHeaderRowsOrigin(normalizeCollectorOrigin(form.endpoint))
+    setHeadersClearedForOriginChange(false)
     setHeaderRows((prev) => [...prev, newHeaderRow()])
   }
 
@@ -207,6 +234,24 @@ export function OrgAgentOtelSettings() {
     setDirty(true)
     setHeaderRows([])
     setClearSavedHeaders(true)
+    setHeaderRowsOrigin(null)
+    setHeadersClearedForOriginChange(false)
+  }
+
+  function handleCollectorEndpointBlur() {
+    const nextOrigin = normalizeCollectorOrigin(form.endpoint)
+    if (nextOrigin === null) {
+      return
+    }
+    const draftsMatchOrigin =
+      nonEmptyHeaderRows.length > 0 && headerRowsOrigin === nextOrigin
+    if (nonEmptyHeaderRows.length > 0 && !draftsMatchOrigin) {
+      setHeaderRows([])
+      setHeaderRowsOrigin(null)
+    }
+    setHeadersClearedForOriginChange(
+      nextOrigin !== savedHeadersOrigin && !draftsMatchOrigin
+    )
   }
 
   function handleReset() {
@@ -246,9 +291,17 @@ export function OrgAgentOtelSettings() {
     // Headers are write-only: non-blank draft rows replace the entire saved
     // map, an explicit clear sends {}, and blank rows leave it unchanged.
     let headersField: Record<string, string> | undefined
-    if (clearSavedHeaders) {
+    const nextOrigin = normalizeCollectorOrigin(form.endpoint)
+    const originChanged =
+      nextOrigin !== null && nextOrigin !== savedHeadersOrigin
+    const draftHeadersMatchOrigin =
+      nextOrigin !== null && nextOrigin === headerRowsOrigin
+    if (
+      clearSavedHeaders ||
+      (originChanged && (!headersDirty || !draftHeadersMatchOrigin))
+    ) {
       headersField = {}
-    } else if (headersDirty) {
+    } else if (headersDirty && draftHeadersMatchOrigin) {
       headersField = headerRowsToMap()
     }
 
@@ -263,6 +316,9 @@ export function OrgAgentOtelSettings() {
     // cache read matches the pre-save baseline sig, so it cannot reseed.
     setHeaderRows([])
     setClearSavedHeaders(false)
+    setSavedHeadersOrigin(nextOrigin)
+    setHeaderRowsOrigin(null)
+    setHeadersClearedForOriginChange(false)
     setDirty(false)
   }
 
@@ -322,6 +378,7 @@ export function OrgAgentOtelSettings() {
               id="otel-endpoint"
               value={form.endpoint}
               onChange={(e) => updateForm({ endpoint: e.target.value })}
+              onBlur={handleCollectorEndpointBlur}
               disabled={fieldsDisabled}
               placeholder="https://collector.example.com"
               className="text-xs"
@@ -463,6 +520,13 @@ export function OrgAgentOtelSettings() {
               <p className="text-xs text-destructive" role="alert">
                 {headerIssues[0]}
               </p>
+            )}
+            {headersClearedForOriginChange && (
+              <AlertNotification
+                level="warning"
+                message="Saved collector headers will be cleared because the endpoint origin changed. Enter replacement headers for the new collector."
+                className="m-0"
+              />
             )}
             <div className="flex items-center gap-2">
               <Button

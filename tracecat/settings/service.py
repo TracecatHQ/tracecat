@@ -27,11 +27,17 @@ from tracecat.db.models import OrganizationSetting
 from tracecat.db.rls import set_rls_context_from_role
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
-from tracecat.network import DisallowedUrlError, validate_url_resolves_public_async
+from tracecat.network import (
+    DisallowedUrlError,
+    HttpEgressPurpose,
+    configured_http_egress_policy,
+    validate_url_resolves_for_policy_async,
+)
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
 from tracecat.service import BaseOrgService
 from tracecat.settings.audit import bind_audit_headers_to_webhook_origin
 from tracecat.settings.constants import SENSITIVE_SETTINGS_KEYS
+from tracecat.settings.otel import bind_otel_headers_to_endpoint_origin
 from tracecat.settings.schemas import (
     AgentOtelSettingsUpdate,
     AgentSettingsUpdate,
@@ -48,7 +54,7 @@ AUDIT_SETTINGS_KEYS = frozenset(AuditSettingsUpdate.keys())
 
 
 class AgentOtelEndpointNotAllowedError(Exception):
-    """Raised when the OTel collector endpoint resolves to a non-public address."""
+    """Raised when the OTel collector endpoint violates its egress policy."""
 
 
 def _deserialize_setting_value(
@@ -384,19 +390,37 @@ class SettingsService(BaseOrgService):
     @require_scope("org:settings:update")
     @audit_log(resource_type="organization_setting", action="update")
     async def update_agent_otel_settings(self, params: AgentOtelSettingsUpdate) -> None:
-        otel_config = params.agent_otel_config
-        if otel_config.enabled and otel_config.endpoint is not None:
-            # The host posts tenant telemetry to this endpoint, so a private
-            # address would make it an internal-network oracle. Reject before
-            # persisting; the error carries no address.
-            try:
-                await validate_url_resolves_public_async(str(otel_config.endpoint))
-            except DisallowedUrlError as exc:
-                raise AgentOtelEndpointNotAllowedError from exc
-
         otel_settings = await self.list_org_settings(
             keys=AgentOtelSettingsUpdate.keys()
         )
+        settings_by_key = {setting.key: setting for setting in otel_settings}
+        current_config_setting = settings_by_key.get("agent_otel_config")
+        try:
+            current_config = (
+                self.get_value(current_config_setting)
+                if current_config_setting is not None
+                else None
+            )
+        except (InvalidToken, ValueError):
+            current_config = None
+        params = bind_otel_headers_to_endpoint_origin(
+            params,
+            current_config=current_config,
+        )
+
+        otel_config = params.agent_otel_config
+        if otel_config.enabled and otel_config.endpoint is not None:
+            # The host posts tenant telemetry to this endpoint, so a private
+            # address is allowed only for an operator-approved exact origin.
+            # Runtime delivery repeats this policy inside the socket path.
+            try:
+                await validate_url_resolves_for_policy_async(
+                    str(otel_config.endpoint),
+                    configured_http_egress_policy(HttpEgressPurpose.OTEL),
+                )
+            except DisallowedUrlError as exc:
+                raise AgentOtelEndpointNotAllowedError from exc
+
         await self._update_grouped_settings(otel_settings, params)
 
 

@@ -241,6 +241,29 @@ def test_validate_otel_header_items_accepts_token_names() -> None:
     assert secret_otel_headers({}) == {}
 
 
+@pytest.mark.parametrize(
+    "name",
+    [
+        "Connection",
+        "Content-Length",
+        "content-TYPE",
+        "Expect",
+        "HOST",
+        "Keep-Alive",
+        "Proxy-Authenticate",
+        "Proxy-Authorization",
+        "Proxy-Connection",
+        "TE",
+        "Trailer",
+        "Transfer-Encoding",
+        "Upgrade",
+    ],
+)
+def test_validate_otel_header_items_rejects_managed_headers(name: str) -> None:
+    with pytest.raises(ValueError, match="is managed by Tracecat"):
+        validate_otel_header_items({name: "value"})
+
+
 def test_validate_otel_header_items_rejects_empty_header_value() -> None:
     with pytest.raises(ValueError, match="must have a non-empty string value"):
         validate_otel_header_items({"x-api-key": ""})

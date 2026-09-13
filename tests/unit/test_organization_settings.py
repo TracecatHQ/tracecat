@@ -675,11 +675,11 @@ async def test_update_saml_settings(
 def allow_agent_otel_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
     """Resolve the example collector to a public address without real DNS."""
 
-    async def _noop(url: str) -> None:
+    async def _noop(_url: str, _policy: object) -> None:
         return None
 
     monkeypatch.setattr(
-        settings_service_module, "validate_url_resolves_public_async", _noop
+        settings_service_module, "validate_url_resolves_for_policy_async", _noop
     )
 
 
@@ -717,6 +717,133 @@ async def test_update_agent_otel_settings_encrypts_headers(
 
 
 @pytest.mark.anyio
+async def test_update_agent_otel_endpoint_clears_headers_on_origin_change(
+    settings_service_with_defaults: SettingsService,
+    allow_agent_otel_endpoint: None,
+) -> None:
+    service = settings_service_with_defaults
+    await service.update_agent_otel_settings(
+        AgentOtelSettingsUpdate(
+            agent_otel_config=AgentOtelConfig(
+                enabled=True,
+                endpoint=HttpUrl("https://collector.example.com/first"),
+            ),
+            agent_otel_headers={"Authorization": "Bearer old-secret"},
+        )
+    )
+
+    await service.update_agent_otel_settings(
+        AgentOtelSettingsUpdate(
+            agent_otel_config=AgentOtelConfig(
+                enabled=True,
+                endpoint=HttpUrl("https://other.example.com/second"),
+            )
+        )
+    )
+
+    setting = await service.get_org_setting("agent_otel_headers")
+    assert setting is not None
+    assert service.get_value(setting) is None
+
+
+@pytest.mark.anyio
+async def test_update_agent_otel_endpoint_preserves_headers_on_same_origin(
+    settings_service_with_defaults: SettingsService,
+    allow_agent_otel_endpoint: None,
+) -> None:
+    service = settings_service_with_defaults
+    headers = {"Authorization": "Bearer retained-secret"}
+    await service.update_agent_otel_settings(
+        AgentOtelSettingsUpdate(
+            agent_otel_config=AgentOtelConfig(
+                enabled=True,
+                endpoint=HttpUrl("https://collector.example.com/first"),
+            ),
+            agent_otel_headers=headers,
+        )
+    )
+
+    await service.update_agent_otel_settings(
+        AgentOtelSettingsUpdate(
+            agent_otel_config=AgentOtelConfig(
+                enabled=True,
+                endpoint=HttpUrl("https://COLLECTOR.example.com:443/second"),
+            )
+        )
+    )
+
+    setting = await service.get_org_setting("agent_otel_headers")
+    assert setting is not None
+    assert service.get_value(setting) == headers
+
+
+@pytest.mark.anyio
+async def test_update_agent_otel_endpoint_accepts_explicit_replacement_headers(
+    settings_service_with_defaults: SettingsService,
+    allow_agent_otel_endpoint: None,
+) -> None:
+    service = settings_service_with_defaults
+    replacement = {"Authorization": "Bearer replacement-secret"}
+    await service.update_agent_otel_settings(
+        AgentOtelSettingsUpdate(
+            agent_otel_config=AgentOtelConfig(
+                enabled=True,
+                endpoint=HttpUrl("https://collector.example.com/first"),
+            ),
+            agent_otel_headers={"Authorization": "Bearer old-secret"},
+        )
+    )
+
+    await service.update_agent_otel_settings(
+        AgentOtelSettingsUpdate(
+            agent_otel_config=AgentOtelConfig(
+                enabled=True,
+                endpoint=HttpUrl("https://other.example.com/second"),
+            ),
+            agent_otel_headers=replacement,
+        )
+    )
+
+    setting = await service.get_org_setting("agent_otel_headers")
+    assert setting is not None
+    assert service.get_value(setting) == replacement
+
+
+@pytest.mark.anyio
+async def test_empty_agent_otel_update_preserves_config_and_headers(
+    settings_service_with_defaults: SettingsService,
+    allow_agent_otel_endpoint: None,
+) -> None:
+    service = settings_service_with_defaults
+    config_value = AgentOtelConfig(
+        enabled=True,
+        endpoint=HttpUrl("https://collector.example.com/first"),
+    )
+    headers = {"Authorization": "Bearer retained-secret"}
+    await service.update_agent_otel_settings(
+        AgentOtelSettingsUpdate(
+            agent_otel_config=config_value,
+            agent_otel_headers=headers,
+        )
+    )
+    config_setting = await service.get_org_setting("agent_otel_config")
+    header_setting = await service.get_org_setting("agent_otel_headers")
+    assert config_setting is not None
+    assert header_setting is not None
+    config_before = service.get_value(config_setting)
+    headers_before = service.get_value(header_setting)
+
+    await service.update_agent_otel_settings(AgentOtelSettingsUpdate())
+
+    config_setting = await service.get_org_setting("agent_otel_config")
+    header_setting = await service.get_org_setting("agent_otel_headers")
+    assert config_setting is not None
+    assert header_setting is not None
+    assert service.get_value(config_setting) == config_before
+    assert service.get_value(header_setting) == headers_before == headers
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     "endpoint",
     ["http://127.0.0.1:4318", "http://169.254.169.254"],
@@ -749,6 +876,33 @@ async def test_update_agent_otel_settings_rejects_private_endpoint(
 
 
 @pytest.mark.anyio
+async def test_update_agent_otel_settings_allows_operator_approved_private_origin(
+    settings_service_with_defaults: SettingsService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", False)
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__HTTP_EGRESS_ALLOWED_PRIVATE_ORIGINS",
+        ["otel=http://127.0.0.1:4318"],
+    )
+
+    await settings_service_with_defaults.update_agent_otel_settings(
+        AgentOtelSettingsUpdate(
+            agent_otel_config=AgentOtelConfig(
+                enabled=True,
+                endpoint=HttpUrl("http://127.0.0.1:4318/otel"),
+            )
+        )
+    )
+
+    setting = await settings_service_with_defaults.get_org_setting("agent_otel_config")
+    assert setting is not None
+    value = settings_service_with_defaults.get_value(setting)
+    assert value["endpoint"] == "http://127.0.0.1:4318/otel"
+
+
+@pytest.mark.anyio
 async def test_update_agent_otel_settings_skips_validation_when_disabled(
     settings_service_with_defaults: SettingsService,
     monkeypatch: pytest.MonkeyPatch,
@@ -756,11 +910,11 @@ async def test_update_agent_otel_settings_skips_validation_when_disabled(
     """Disabled telemetry never resolves the endpoint host."""
     calls: list[str] = []
 
-    async def _record(url: str) -> None:
+    async def _record(url: str, _policy: object) -> None:
         calls.append(url)
 
     monkeypatch.setattr(
-        settings_service_module, "validate_url_resolves_public_async", _record
+        settings_service_module, "validate_url_resolves_for_policy_async", _record
     )
 
     await settings_service_with_defaults.update_agent_otel_settings(

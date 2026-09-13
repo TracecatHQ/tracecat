@@ -673,6 +673,23 @@ export interface AgentOtelHeaderEntry {
 // RFC 7230 token: the only characters legal in an HTTP header name.
 const HEADER_NAME_PATTERN = /^[!#$%&'*+\-.^_\x60|~0-9A-Za-z]+$/
 
+// Routing, framing, and hop-by-hop headers are owned by the relay/HTTP client.
+const MANAGED_HEADER_NAMES = new Set([
+  "connection",
+  "content-length",
+  "content-type",
+  "expect",
+  "host",
+  "keep-alive",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "proxy-connection",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+])
+
 // Control bytes make the exporter reject the request before it is sent.
 // Control bytes and non-ASCII are unsendable: httpx ASCII-encodes header
 // values, so the relay's request construction would fail client-side.
@@ -694,12 +711,15 @@ export function validateAgentOtelHeaderEntries(
           "(letters, digits, and !#$%&'*+-.^_`|~).",
       ]
     }
+    const normalizedName = name.toLowerCase()
+    if (MANAGED_HEADER_NAMES.has(normalizedName)) {
+      return [`Header ${name} is managed by Tracecat.`]
+    }
     if (HEADER_VALUE_INVALID_PATTERN.test(entry.value)) {
       return [
         `Header ${name} value must contain only printable ASCII characters.`,
       ]
     }
-    const normalizedName = name.toLowerCase()
     if (seenNames.has(normalizedName)) {
       return [`Header name ${name} is duplicated.`]
     }

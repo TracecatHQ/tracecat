@@ -40,6 +40,10 @@ function mockSettingsHook(
   } as ReturnType<typeof useOrgAgentOtelSettings>)
 }
 
+beforeEach(() => {
+  updateAgentOtelSettings.mockClear()
+})
+
 describe("OrgAgentOtelSettings edit gating", () => {
   beforeEach(() => {
     jest.mocked(useScopeCheck).mockReturnValue(true)
@@ -172,6 +176,93 @@ describe("OrgAgentOtelSettings server resync", () => {
     expect(reset).toBeEnabled()
   })
 })
+
+describe("OrgAgentOtelSettings collector header origin binding", () => {
+  beforeEach(() => {
+    jest.mocked(useScopeCheck).mockReturnValue(true)
+    mockSettingsHook()
+  })
+
+  it("clears retained headers when the collector origin changes", async () => {
+    const user = userEvent.setup()
+    render(<OrgAgentOtelSettings />)
+
+    const endpoint = screen.getByLabelText("Collector endpoint")
+    await waitFor(() =>
+      expect(endpoint).toHaveValue("https://collector.example.com")
+    )
+    await user.clear(endpoint)
+    await user.type(endpoint, "https://other.example.com/otel")
+    await user.tab()
+
+    expect(
+      screen.getByText(/Saved collector headers will be cleared/)
+    ).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Save config" }))
+
+    await waitFor(() =>
+      expect(updateAgentOtelSettings).toHaveBeenCalledTimes(1)
+    )
+    expect(updateAgentOtelSettings).toHaveBeenCalledWith({
+      requestBody: expect.objectContaining({
+        agent_otel_headers: {},
+      }),
+    })
+  })
+
+  it("preserves retained headers for a same-origin path change", async () => {
+    const user = userEvent.setup()
+    render(<OrgAgentOtelSettings />)
+
+    const endpoint = screen.getByLabelText("Collector endpoint")
+    await waitFor(() =>
+      expect(endpoint).toHaveValue("https://collector.example.com")
+    )
+    await user.clear(endpoint)
+    await user.type(endpoint, "https://COLLECTOR.example.com:443/otel")
+    await user.tab()
+    await user.click(screen.getByRole("button", { name: "Save config" }))
+
+    await waitFor(() =>
+      expect(updateAgentOtelSettings).toHaveBeenCalledTimes(1)
+    )
+    expect(updateAgentOtelSettings).toHaveBeenCalledWith({
+      requestBody: expect.objectContaining({
+        agent_otel_headers: undefined,
+      }),
+    })
+  })
+
+  it("accepts replacement headers after an origin change", async () => {
+    const user = userEvent.setup()
+    render(<OrgAgentOtelSettings />)
+
+    const endpoint = screen.getByLabelText("Collector endpoint")
+    await waitFor(() =>
+      expect(endpoint).toHaveValue("https://collector.example.com")
+    )
+    await user.clear(endpoint)
+    await user.type(endpoint, "https://other.example.com/otel")
+    await user.tab()
+    await user.click(screen.getByRole("button", { name: "Add header" }))
+    await user.type(screen.getByPlaceholderText("Header name"), "Authorization")
+    await user.type(
+      screen.getByPlaceholderText("Header value"),
+      "Bearer replacement"
+    )
+    await user.click(screen.getByRole("button", { name: "Save config" }))
+
+    await waitFor(() =>
+      expect(updateAgentOtelSettings).toHaveBeenCalledTimes(1)
+    )
+    expect(updateAgentOtelSettings).toHaveBeenCalledWith({
+      requestBody: expect.objectContaining({
+        agent_otel_headers: { Authorization: "Bearer replacement" },
+      }),
+    })
+  })
+})
+
 describe("OrgAgentOtelSettings save reseed guard", () => {
   beforeEach(() => {
     jest.mocked(useScopeCheck).mockReturnValue(true)

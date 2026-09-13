@@ -37,13 +37,17 @@ from opentelemetry.proto.resource.v1.resource_pb2 import Resource
 from opentelemetry.proto.trace.v1.trace_pb2 import Span
 from pydantic import SecretStr
 
+from tracecat.agent.otel_config import OTEL_MANAGED_HEADER_NAMES
 from tracecat.agent.tokens import AgentOtelTokenClaims, verify_agent_otel_token
 from tracecat.identifiers import OrganizationID, WorkspaceID
 from tracecat.logger import logger
+from tracecat.network import HttpEgressPurpose, configured_http_egress_policy
+from tracecat.outbound_http import guarded_async_client
 
 OTEL_SOCKET_NAME = "otel.sock"
 
 SignalPath = Literal["/v1/metrics", "/v1/logs", "/v1/traces"]
+DestinationKind = Literal["tenant", "platform"]
 
 _TRACES_PATH: Final[SignalPath] = "/v1/traces"
 
@@ -251,6 +255,7 @@ class _OtelDelivery:
     content_type: str
     body: bytes
     headers: dict[str, str]
+    destination: DestinationKind
     # Non-sensitive discriminators for delivery logging; never the payload
     # contents and never the collector URL, whose path may carry a credential.
     signal_path: SignalPath
@@ -315,7 +320,15 @@ def _get_projection_semaphore() -> asyncio.Semaphore:
 
 
 def _client_factory() -> httpx.AsyncClient:
-    """Outbound client for one delivery; tests swap in a mock transport."""
+    """Guard tenant collector connections at the socket boundary."""
+    return guarded_async_client(
+        configured_http_egress_policy(HttpEgressPurpose.OTEL),
+        timeout=httpx.Timeout(_TIMEOUT_SECONDS),
+    )
+
+
+def _platform_client_factory() -> httpx.AsyncClient:
+    """Client for the operator-controlled platform telemetry collector."""
     return httpx.AsyncClient(timeout=httpx.Timeout(_TIMEOUT_SECONDS))
 
 
@@ -352,6 +365,8 @@ class OtelTarget:
     """Full collector URL for this signal."""
     headers: Mapping[str, str] = field(repr=False)
     """Outbound headers, already unwrapped from their secrets."""
+    destination: DestinationKind
+    """Whether the destination is tenant- or operator-controlled."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -469,10 +484,18 @@ class OtelRoutingPlan:
         """
         tenant: OtelTarget | None = None
         if self.tenant is not None and (url := self.tenant.url_for(path)) is not None:
-            tenant = OtelTarget(url=url, headers=self.tenant.headers)
+            tenant = OtelTarget(
+                url=url,
+                headers=self.tenant.headers,
+                destination="tenant",
+            )
         platform: OtelTarget | None = None
         if self.platform_endpoint is not None and path == _TRACES_PATH:
-            platform = OtelTarget(url=self.platform_endpoint, headers={})
+            platform = OtelTarget(
+                url=self.platform_endpoint,
+                headers={},
+                destination="platform",
+            )
         return OtelDestinations(tenant=tenant, platform=platform)
 
 
@@ -786,10 +809,16 @@ async def _deliver(delivery: _OtelDelivery) -> None:
     """
     started = time.perf_counter()
     outbound_headers = {
-        "content-type": delivery.content_type,
-        "user-agent": _USER_AGENT,
-        **delivery.headers,
+        key: value
+        for key, value in delivery.headers.items()
+        if key.lower() not in OTEL_MANAGED_HEADER_NAMES
     }
+    outbound_headers.update(
+        {
+            "content-type": delivery.content_type,
+            "user-agent": _USER_AGENT,
+        }
+    )
     status_code: int | None = None
     error_type: str | None = None
     attempts = 0
@@ -802,7 +831,12 @@ async def _deliver(delivery: _OtelDelivery) -> None:
             retryable = False
             retry_after: float | None = None
             try:
-                async with _client_factory() as client:
+                client_factory = (
+                    _client_factory
+                    if delivery.destination == "tenant"
+                    else _platform_client_factory
+                )
+                async with client_factory() as client:
                     # Streamed so a hostile collector cannot make the host
                     # buffer its response; only status and headers are read.
                     async with client.stream(
@@ -1113,6 +1147,7 @@ class OtelSocketReceiver:
         content_type: str,
         body: bytes,
         headers: dict[str, str],
+        destination: DestinationKind,
         path: SignalPath,
     ) -> _OtelDelivery:
         """Bind one resolved destination to this receiver's turn identity."""
@@ -1121,6 +1156,7 @@ class OtelSocketReceiver:
             content_type=content_type,
             body=body,
             headers=headers,
+            destination=destination,
             signal_path=path,
             workspace_id=self._expected_workspace_id,
             organization_id=self._expected_organization_id,
@@ -1162,6 +1198,7 @@ class OtelSocketReceiver:
                     content_type=content_type,
                     body=tenant_body,
                     headers=dict(tenant.headers),
+                    destination=tenant.destination,
                     path=path,
                 )
             )
@@ -1174,6 +1211,7 @@ class OtelSocketReceiver:
                     content_type=content_type,
                     body=platform_body,
                     headers=dict(platform.headers),
+                    destination=platform.destination,
                     path=path,
                 )
             )

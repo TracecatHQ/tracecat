@@ -442,6 +442,26 @@ describe("validateAgentOtelHeaderEntries", () => {
     ).toEqual([])
   })
 
+  it.each([
+    "Connection",
+    "Content-Length",
+    "content-TYPE",
+    "Expect",
+    "HOST",
+    "Keep-Alive",
+    "Proxy-Authenticate",
+    "Proxy-Authorization",
+    "Proxy-Connection",
+    "TE",
+    "Trailer",
+    "Transfer-Encoding",
+    "Upgrade",
+  ])("rejects relay-managed header %s", (name) => {
+    expect(validateAgentOtelHeaderEntries([{ name, value: "value" }])).toEqual([
+      `Header ${name} is managed by Tracecat.`,
+    ])
+  })
+
   it("rejects header names that are not HTTP tokens", () => {
     expect(
       validateAgentOtelHeaderEntries([{ name: "Bad Header", value: "x" }])
