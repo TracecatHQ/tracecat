@@ -117,6 +117,7 @@ locals {
         TRACECAT__DB_ENDPOINT                      = local.core_db_hostname
         TRACECAT__SERVICE_NAME                     = "api"
         SENTRY_DSN                                 = var.sentry_dsn
+        TRACECAT__TEMPO_TRACE_URL_TEMPLATE         = var.tempo_trace_url_template
         OIDC_ISSUER                                = var.oidc_issuer
         OIDC_SCOPES                                = var.oidc_scopes
         TEMPORAL__CLUSTER_QUEUE                    = local.temporal_cluster_queue
@@ -134,15 +135,16 @@ locals {
       local.tracecat_blob_storage_env,
       local.tracecat_db_configs,
       {
-        TRACECAT__API_ROOT_PATH           = "/api"
-        TRACECAT__API_URL                 = local.internal_api_url
-        TRACECAT__DB_ENDPOINT             = local.core_db_hostname
-        TRACECAT__SERVICE_NAME            = "worker"
-        TRACECAT__PUBLIC_API_URL          = local.public_api_url
-        TRACECAT__PUBLIC_APP_URL          = local.public_app_url
-        TRACECAT__EXECUTOR_CLIENT_TIMEOUT = var.executor_client_timeout
-        TEMPORAL__CLUSTER_QUEUE           = local.temporal_cluster_queue
-        SENTRY_DSN                        = var.sentry_dsn
+        TRACECAT__API_ROOT_PATH            = "/api"
+        TRACECAT__API_URL                  = local.internal_api_url
+        TRACECAT__DB_ENDPOINT              = local.core_db_hostname
+        TRACECAT__SERVICE_NAME             = "worker"
+        TRACECAT__PUBLIC_API_URL           = local.public_api_url
+        TRACECAT__PUBLIC_APP_URL           = local.public_app_url
+        TRACECAT__EXECUTOR_CLIENT_TIMEOUT  = var.executor_client_timeout
+        TEMPORAL__CLUSTER_QUEUE            = local.temporal_cluster_queue
+        SENTRY_DSN                         = var.sentry_dsn
+        TRACECAT__TEMPO_TRACE_URL_TEMPLATE = var.tempo_trace_url_template
         # Worker concurrency tuning (see tracecat/dsl/worker.py)
         TEMPORAL__THREADPOOL_MAX_WORKERS        = var.worker_threadpool_max_workers
         TEMPORAL__MAX_CONCURRENT_ACTIVITIES     = var.worker_max_concurrent_activities
@@ -171,6 +173,7 @@ locals {
         TRACECAT__AGENT_MAX_CONCURRENT_ACTIVITIES = var.agent_worker_max_concurrent_activities
         TEMPORAL__CLUSTER_QUEUE                   = local.temporal_cluster_queue
         SENTRY_DSN                                = var.sentry_dsn
+        TRACECAT__TEMPO_TRACE_URL_TEMPLATE        = var.tempo_trace_url_template
       }
     ) :
     { name = k, value = tostring(v) } if v != null
@@ -188,6 +191,7 @@ locals {
         TRACECAT__DB_ENDPOINT                         = local.core_db_hostname
         TRACECAT__SERVICE_NAME                        = "executor"
         SENTRY_DSN                                    = var.sentry_dsn
+        TRACECAT__TEMPO_TRACE_URL_TEMPLATE            = var.tempo_trace_url_template
         TRACECAT__EXECUTOR_BACKEND                    = "direct"
         TRACECAT__EXECUTOR_QUEUE                      = var.executor_queue
         TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES = var.executor_registry_cache_max_entries
@@ -219,6 +223,7 @@ locals {
         TRACECAT__DB_ENDPOINT                              = local.core_db_hostname
         TRACECAT__SERVICE_NAME                             = "agent-executor"
         SENTRY_DSN                                         = var.sentry_dsn
+        TRACECAT__TEMPO_TRACE_URL_TEMPLATE                 = var.tempo_trace_url_template
         TRACECAT__EXECUTOR_BACKEND                         = "direct"
         TRACECAT__AGENT_QUEUE                              = var.agent_queue
         TRACECAT__AGENT_EXECUTOR_QUEUE                     = var.agent_executor_queue

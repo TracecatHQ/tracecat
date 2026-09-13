@@ -218,5 +218,6 @@ module "ecs" {
   mcp_startup_retry_delay_seconds = var.mcp_startup_retry_delay_seconds
 
   # Sentry configuration
-  sentry_dsn = var.sentry_dsn
+  sentry_dsn               = var.sentry_dsn
+  tempo_trace_url_template = var.tempo_trace_url_template
 }
