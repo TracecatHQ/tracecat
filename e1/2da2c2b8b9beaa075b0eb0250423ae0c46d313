@@ -1,0 +1,23 @@
+tracecat/settings/service.py
+  s_388fff4aaf5212::t_f7db6d2fe86f0a 379-390,392-393
+tracecat/settings/schemas.py
+  s_388fff4aaf5212::t_f7db6d2fe86f0a 259-266
+tests/unit/test_organization_settings.py
+  s_388fff4aaf5212::t_f7db6d2fe86f0a 714-872
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e12da2c2b8b9beaa075b0eb0250423ae0c46d313",
+  "prompts": {},
+  "sessions": {
+    "s_388fff4aaf5212": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09b54-52c8-7d92-934c-882473f1ae27",
+        "model": "gpt-daybreak-blue-latest"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
