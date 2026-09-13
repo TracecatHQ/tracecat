@@ -745,9 +745,14 @@ class RegistrySyncSandbox:
                         *_host_site_packages_paths(),
                         *other_trusted_roots,
                     ],
-                    # Enable before any imports, including the wrapper's. Fatal
-                    # signals bypass Python exceptions and result.json writing.
-                    env_vars={"PYTHONFAULTHANDLER": "1"},
+                    env_vars={
+                        # Fatal signals bypass exceptions and result.json writing.
+                        "PYTHONFAULTHANDLER": "1",
+                        # Native import-time thread pools can reserve a glibc
+                        # arena per thread and exhaust RLIMIT_AS despite low RSS.
+                        # Set before Python starts so discovery keeps headroom.
+                        "MALLOC_ARENA_MAX": "2",
+                    },
                 ),
                 script_name="wrapper.py",
                 log_raw_crash_stderr=True,
