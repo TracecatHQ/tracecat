@@ -2057,24 +2057,16 @@ class IntegrationService(BaseWorkspaceService):
                 provider=provider_key,
             )
         else:
+            if expected_token_origin is not None:
+                raise OAuthProviderConfigurationChangedError(
+                    "OAuth provider configuration changed; start a new connection"
+                )
             # Create new integration
             effective_token_endpoint = resolve_endpoint(
                 token_endpoint,
                 None,
                 default_token,
             )
-            if (
-                expected_token_origin is not None
-                and (
-                    HttpOrigin.from_url(effective_token_endpoint)
-                    if effective_token_endpoint
-                    else None
-                )
-                != expected_token_origin
-            ):
-                raise OAuthProviderConfigurationChangedError(
-                    "OAuth provider configuration changed; start a new connection"
-                )
             integration = OAuthIntegration(
                 workspace_id=self.workspace_id,
                 user_id=user_id,

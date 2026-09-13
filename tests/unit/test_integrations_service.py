@@ -25,11 +25,15 @@ from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.models import OAuthIntegration, OAuthStateDB, User, Workspace
 from tracecat.exceptions import TracecatAuthorizationError
+from tracecat.integrations.dependencies import ProviderInfo
 from tracecat.integrations.enums import IntegrationStatus, OAuthGrantType
 from tracecat.integrations.providers.base import (
     AuthorizationCodeOAuthProvider,
     ClientCredentialsOAuthProvider,
     validate_oauth_endpoint,
+)
+from tracecat.integrations.router import (
+    test_connection as run_client_credentials_test_connection,
 )
 from tracecat.integrations.schemas import (
     IntegrationUpdate,
@@ -2079,6 +2083,155 @@ class TestIntegrationService:
                 assert stored.encrypted_refresh_token is None
         finally:
             await engine.dispose()
+
+    async def test_client_credentials_test_cannot_restore_old_origin(
+        self,
+        svc_role: Role,
+        encryption_key: str,
+        mock_token_response: TokenResponse,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A token test cannot pair a new secret with its stale endpoint."""
+        del encryption_key
+        role = svc_role.model_copy(
+            update={"workspace_id": uuid.uuid4()},
+            deep=True,
+        )
+        provider_key = ProviderKey(
+            id=MockCCOAuthProvider.id,
+            grant_type=OAuthGrantType.CLIENT_CREDENTIALS,
+        )
+        old_token_endpoint = MockCCOAuthProvider.default_token_endpoint
+        new_token_endpoint = "https://login.example.net/oauth/token"
+        engine = create_async_engine(TEST_DB_CONFIG.test_url)
+        session_factory = async_sessionmaker(bind=engine, expire_on_commit=False)
+        monkeypatch.setattr(
+            integration_service_module,
+            "get_provider_class",
+            lambda _provider_key: MockCCOAuthProvider,
+        )
+
+        try:
+            async with session_factory() as seed_session:
+                seed_session.add(
+                    Workspace(
+                        id=role.workspace_id,
+                        name=f"oauth-test-race-{role.workspace_id}",
+                        organization_id=role.organization_id,
+                    )
+                )
+                await seed_session.commit()
+                seed_service = IntegrationService(
+                    session=seed_session,
+                    role=role.model_copy(deep=True),
+                )
+                legacy_config = await seed_service.store_provider_config(
+                    provider_key=provider_key,
+                    client_id="client-id",
+                    client_secret=SecretStr("old-client-secret"),
+                    authorization_endpoint=MockCCOAuthProvider.default_authorization_endpoint,
+                    token_endpoint=old_token_endpoint,
+                )
+                legacy_config.token_endpoint = None
+                seed_session.add(legacy_config)
+                await seed_session.commit()
+
+            async with (
+                session_factory() as request_session,
+                session_factory() as editor_session,
+            ):
+                editor_service = IntegrationService(
+                    session=editor_session,
+                    role=role.model_copy(deep=True),
+                )
+                tested_provider = MockCCOAuthProvider(
+                    client_id="client-id",
+                    client_secret="old-client-secret",
+                    authorization_endpoint=MockCCOAuthProvider.default_authorization_endpoint,
+                    token_endpoint=old_token_endpoint,
+                )
+
+                async def update_config_then_return_token() -> TokenResponse:
+                    await editor_service.store_provider_config(
+                        provider_key=provider_key,
+                        client_secret=SecretStr("new-client-secret"),
+                        token_endpoint=new_token_endpoint,
+                    )
+                    return mock_token_response
+
+                monkeypatch.setattr(
+                    MockCCOAuthProvider,
+                    "instantiate",
+                    AsyncMock(return_value=tested_provider),
+                )
+                monkeypatch.setattr(
+                    tested_provider,
+                    "get_client_credentials_token",
+                    AsyncMock(side_effect=update_config_then_return_token),
+                )
+
+                result = await run_client_credentials_test_connection(
+                    role=role,
+                    session=request_session,
+                    provider_info=ProviderInfo[type[ClientCredentialsOAuthProvider]](
+                        impl=MockCCOAuthProvider,
+                        key=provider_key,
+                    ),
+                )
+
+                assert result.success is False
+                assert result.error is not None
+                assert "configuration changed" in result.error
+
+            async with session_factory() as verification_session:
+                verification_service = IntegrationService(
+                    session=verification_session,
+                    role=role.model_copy(deep=True),
+                )
+                stored = await verification_service.get_integration(
+                    provider_key=provider_key
+                )
+                assert stored is not None
+                assert stored.token_endpoint == new_token_endpoint
+                assert stored.encrypted_access_token == b""
+                assert stored.encrypted_client_secret is not None
+                assert (
+                    verification_service.decrypt_client_credential(
+                        stored.encrypted_client_secret
+                    )
+                    == "new-client-secret"
+                )
+        finally:
+            await engine.dispose()
+
+    async def test_expected_origin_requires_existing_provider_config(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        """A callback cannot insert tokens without authoritative configuration."""
+        provider_key = ProviderKey(
+            id="missing_provider_config",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
+        token_endpoint = "https://auth.example.com/oauth/token"
+
+        with pytest.raises(
+            OAuthProviderConfigurationChangedError,
+            match="configuration changed",
+        ):
+            await integration_service.store_integration(
+                provider_key=provider_key,
+                user_id=uuid.uuid4(),
+                access_token=SecretStr("access-token"),
+                refresh_token=SecretStr("refresh-token"),
+                authorization_endpoint="https://auth.example.com/oauth/authorize",
+                token_endpoint=token_endpoint,
+                expected_token_origin=HttpOrigin.from_url(token_endpoint),
+            )
+
+        assert (
+            await integration_service.get_integration(provider_key=provider_key) is None
+        )
 
     async def test_store_provider_config_refreshes_stale_locked_identity(
         self,

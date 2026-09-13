@@ -72,6 +72,7 @@ from tracecat.integrations.service import (
 )
 from tracecat.integrations.types import MCPServerType
 from tracecat.logger import logger
+from tracecat.network import HttpOrigin
 from tracecat.pagination import CursorPaginationParams
 
 integrations_router = APIRouter(prefix="/integrations", tags=["integrations"])
@@ -767,6 +768,7 @@ async def test_connection(
     try:
         # Create provider instance and attempt to get token
         provider = await impl.instantiate(config=provider_config)
+        tested_token_origin = HttpOrigin.from_url(provider.token_endpoint)
         token_response = await provider.get_client_credentials_token()
 
         # Store the token if successful
@@ -777,6 +779,7 @@ async def test_connection(
             scope=token_response.scope,
             authorization_endpoint=provider.authorization_endpoint,
             token_endpoint=provider.token_endpoint,
+            expected_token_origin=tested_token_origin,
         )
 
         logger.info(
