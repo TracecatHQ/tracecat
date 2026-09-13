@@ -89,6 +89,9 @@ changes.
   supported by config or Compose is not a reason to advertise a variable.
 - Never add `pull_request_target` to GitHub Actions. Read `.github/AGENTS.md`
   before changing any workflow.
+- Read `deployments/AGENTS.md` before changing any root `docker-compose*.yml`
+  file. Infrastructure changes are reviewed across Compose, Fargate, and the
+  separate `TracecatHQ/k8s` repository.
 - Ask clarifying questions when the task lacks enough context to make a safe
   change.
 
