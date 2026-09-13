@@ -1,0 +1,37 @@
+tests/unit/test_agent_mcp_http_limits.py
+  s_388fff4aaf5212::t_a367900f915c0a 10,13,127,134-202
+  s_644e0236e3110b::t_c9536e358ba5b3 203-204
+tracecat/agent/mcp/http_limits.py
+  s_388fff4aaf5212::t_a367900f915c0a 21-26,106-127,133,144-148,178-181,183
+  s_388fff4aaf5212::t_bde78062e70aa9 187
+tests/unit/test_agent_mcp_user_client.py
+  s_388fff4aaf5212::t_2e8d57ed938293 256-257
+  s_388fff4aaf5212::t_a367900f915c0a 17-20,148-163
+  s_388fff4aaf5212::t_d38ec55dba388f 164-165
+tracecat/agent/mcp/user_client.py
+  s_388fff4aaf5212::t_a367900f915c0a 39,52,56,69-71,76,97
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "77e9f4e99a78574c90f328a2fe4298d580ddc0b5",
+  "prompts": {},
+  "sessions": {
+    "s_388fff4aaf5212": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09b54-52c8-7d92-934c-882473f1ae27",
+        "model": "gpt-daybreak-blue-latest"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    },
+    "s_644e0236e3110b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09b87-9b6d-7393-a77c-33195bead7cd",
+        "model": "gpt-daybreak-blue-latest"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
