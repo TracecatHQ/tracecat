@@ -143,6 +143,41 @@ async def test_org_audit_webhook_test_posts_marked_event_from_submitted_config(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    "path",
+    ["/settings/audit/test", "/admin/settings/audit/test"],
+)
+async def test_audit_webhook_test_preserves_url_basic_auth(
+    client: TestClient,
+    test_admin_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
+    path: str,
+) -> None:
+    monkeypatch.setattr(
+        "tracecat.audit.service._audit_http_client", FakeAuditWebhookClient
+    )
+    body = {
+        **_TEST_BODY,
+        "audit_webhook_url": (
+            "https://synthetic%40user:synthetic%3Apassword@"
+            "audit.example.test/ingest?source=legacy"
+        ),
+        "audit_webhook_custom_headers": {"authorization": "Bearer replaced"},
+    }
+
+    response = client.post(path, json=body)
+
+    assert response.status_code == status.HTTP_200_OK
+    assert len(FakeAuditWebhookClient.calls) == 1
+    call = FakeAuditWebhookClient.calls[0]
+    assert call["url"] == "https://audit.example.test/ingest?source=legacy"
+    assert call["headers"]["Authorization"] == (
+        "Basic c3ludGhldGljQHVzZXI6c3ludGhldGljOnBhc3N3b3Jk"
+    )
+    assert "authorization" not in call["headers"]
+
+
+@pytest.mark.anyio
 async def test_org_audit_webhook_test_probes_submitted_not_saved_url(
     client: TestClient,
     test_admin_role: Role,

@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import time
 import uuid
+from base64 import b64encode
 from collections.abc import AsyncGenerator, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -498,10 +499,31 @@ class AuditService(BaseService):
             request_payload = {config.payload_attribute: event_payload}
         else:
             request_payload = event_payload
+        webhook_url = config.webhook_url
+        headers = config.custom_headers
+        try:
+            parsed_url = httpx.URL(webhook_url)
+        except (httpx.InvalidURL, TypeError, ValueError):
+            pass
+        else:
+            if parsed_url.username or parsed_url.password:
+                # HTTPX previously converted URL userinfo into Basic auth. Keep
+                # that behavior while presenting a credential-free URL to the
+                # guarded transport and its origin validator.
+                credentials = f"{parsed_url.username}:{parsed_url.password}".encode()
+                headers = {
+                    key: value
+                    for key, value in (headers or {}).items()
+                    if key.lower() != "authorization"
+                }
+                headers["Authorization"] = (
+                    f"Basic {b64encode(credentials).decode('ascii')}"
+                )
+                webhook_url = str(parsed_url.copy_with(username=None, password=None))
         return _AuditDelivery(
-            webhook_url=config.webhook_url,
+            webhook_url=webhook_url,
             request_payload=request_payload,
-            headers=config.custom_headers,
+            headers=headers,
             verify_ssl=config.verify_ssl,
             resource_type=payload.resource_type,
             action=payload.action,
@@ -544,17 +566,16 @@ class AuditService(BaseService):
 
         try:
             async with asyncio.timeout(_AUDIT_WEBHOOK_TEST_TIMEOUT_SECONDS):
-                try:
-                    # Normalize structural errors here for a stable 400. DNS is
-                    # resolved and pinned only inside the guarded connection.
-                    HttpOrigin.from_url(webhook_url)
-                except DisallowedUrlError as exc:
-                    raise AuditWebhookUrlNotAllowedError from exc
-
                 event = cls._build_test_event(
                     sink=sink, organization_id=organization_id, role=role
                 )
                 delivery = cls._assemble_delivery(config=config, payload=event)
+                try:
+                    # Normalize structural errors here for a stable 400. DNS is
+                    # resolved and pinned only inside the guarded connection.
+                    HttpOrigin.from_url(delivery.webhook_url)
+                except DisallowedUrlError as exc:
+                    raise AuditWebhookUrlNotAllowedError from exc
 
                 headers = {
                     key: value

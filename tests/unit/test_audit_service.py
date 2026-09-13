@@ -996,6 +996,47 @@ async def test_delivery_never_mixes_settings_generations(
 
 
 @pytest.mark.anyio
+async def test_delivery_preserves_url_basic_auth(
+    monkeypatch: pytest.MonkeyPatch,
+    audit_service: AuditService,
+) -> None:
+    configured_url = (
+        "https://synthetic-user:synthetic-password@audit.example.com/events"
+    )
+    monkeypatch.setattr(
+        audit_service,
+        "_resolve_config",
+        AsyncMock(
+            return_value=AuditWebhookConfig(
+                webhook_url=configured_url,
+                custom_headers={"authorization": "Bearer replaced"},
+            )
+        ),
+    )
+    event = AuditEvent(
+        organization_id=uuid.uuid4(),
+        workspace_id=None,
+        actor_type=AuditEventActor.USER,
+        actor_id=uuid.uuid4(),
+        actor_label=None,
+        resource_type="workflow",
+        resource_id=None,
+        action="create",
+        status=AuditEventStatus.SUCCESS,
+    )
+
+    delivery = await audit_service._build_delivery(
+        webhook_url=configured_url,
+        payload=event,
+    )
+
+    assert delivery.webhook_url == "https://audit.example.com/events"
+    assert delivery.headers == {
+        "Authorization": ("Basic c3ludGhldGljLXVzZXI6c3ludGhldGljLXBhc3N3b3Jk")
+    }
+
+
+@pytest.mark.anyio
 async def test_post_event_uses_custom_payload_headers_and_verify_ssl(
     monkeypatch: pytest.MonkeyPatch, audit_service: AuditService
 ) -> None:
