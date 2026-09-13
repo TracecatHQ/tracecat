@@ -9,7 +9,7 @@ import {
   RadarIcon,
 } from "lucide-react"
 import Link from "next/link"
-import { usePathname, useRouter, useSearchParams } from "next/navigation"
+import { useRouter } from "next/navigation"
 import { useState } from "react"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { Button } from "@/components/ui/button"
@@ -49,8 +49,6 @@ import { getWorkspaceLandingPath } from "@/lib/workspace-navigation"
 
 export function AppMenu({ workspaceId }: { workspaceId: string }) {
   const router = useRouter()
-  const pathname = usePathname()
-  const searchParams = useSearchParams()
   const { workspaces, createWorkspace } = useWorkspaceManager()
   const { organization: activeOrganization } = useOrganization()
   const { organizations } = useOrganizationMemberships()
@@ -73,25 +71,6 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
     !entitlementsLoading &&
     hasEntitlement("multi_workspace")
 
-  const buildWorkspaceHref = (
-    targetWorkspaceId: string,
-    options: { preserveRelativePath?: boolean } = {}
-  ) => {
-    const { preserveRelativePath = true } = options
-    const currentPath = pathname ?? ""
-    const search = searchParams?.toString()
-    if (!preserveRelativePath || !currentPath.startsWith("/workspaces/")) {
-      return getWorkspaceLandingPath(targetWorkspaceId)
-    }
-    const relativePath = currentPath.replace(/^\/workspaces\/[^/]+/, "")
-    const normalizedPath =
-      relativePath && relativePath !== "/" ? relativePath : "/chat"
-
-    return `/workspaces/${targetWorkspaceId}${normalizedPath}${
-      search ? `?${search}` : ""
-    }`
-  }
-
   const handleCreateWorkspace = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!canCreateAdditionalWorkspace || !workspaceName.trim()) return
@@ -102,9 +81,7 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
       setDialogOpen(false)
       setWorkspaceName("")
       // Navigate to the new workspace
-      router.push(
-        buildWorkspaceHref(newWorkspace.id, { preserveRelativePath: false })
-      )
+      router.push(getWorkspaceLandingPath(newWorkspace.id))
     } catch (error) {
       console.error("Failed to create workspace:", error)
     } finally {
@@ -168,7 +145,7 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
               <DropdownMenuItem key={workspace.id} asChild>
                 <Link
                   key={workspace.id}
-                  href={buildWorkspaceHref(workspace.id)}
+                  href={getWorkspaceLandingPath(workspace.id)}
                   className={cn(
                     "flex items-center gap-2 py-1 px-2",
                     workspace.id === workspaceId &&

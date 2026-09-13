@@ -215,10 +215,10 @@ describe("AppMenu workspace creation", () => {
 
     expect(
       screen.getByRole("link", { name: /First workspace$/ })
-    ).toHaveAttribute("href", "/workspaces/workspace-1/workflows")
+    ).toHaveAttribute("href", "/workspaces/workspace-1")
     expect(
       screen.getByRole("link", { name: /Second workspace$/ })
-    ).toHaveAttribute("href", "/workspaces/workspace-2/workflows")
+    ).toHaveAttribute("href", "/workspaces/workspace-2")
   })
 
   it.each([
@@ -257,7 +257,7 @@ describe("AppMenu workspace creation", () => {
         name: "Third workspace",
       })
     })
-    expect(mockRouterPush).toHaveBeenCalledWith("/workspaces/workspace-3/chat")
+    expect(mockRouterPush).toHaveBeenCalledWith("/workspaces/workspace-3")
   })
 
   it("removes the open dialog if entitlement disappears before submit", () => {

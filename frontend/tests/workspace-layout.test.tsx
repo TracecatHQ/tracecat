@@ -194,9 +194,7 @@ describe("WorkspaceLayout empty workspace access", () => {
       expect(mockCreateWorkspace).toHaveBeenCalledWith({
         name: "New Workspace",
       })
-      expect(mockRouterReplace).toHaveBeenCalledWith(
-        "/workspaces/workspace-1/chat"
-      )
+      expect(mockRouterReplace).toHaveBeenCalledWith("/workspaces/workspace-1")
     })
   })
 

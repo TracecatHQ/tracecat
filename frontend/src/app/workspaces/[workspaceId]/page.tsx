@@ -8,7 +8,6 @@ import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { Button } from "@/components/ui/button"
 import { useEntitlements } from "@/hooks"
-import { getWorkspaceLandingPath } from "@/lib/workspace-navigation"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 function NoAccessibleSections() {
@@ -80,7 +79,7 @@ export default function WorkspacePage() {
       workspaceChatEnabled
 
     if (canUseWorkspaceChat) {
-      return getWorkspaceLandingPath(workspaceId)
+      return `${basePath}/chat`
     }
     if (canViewWorkflows === true) {
       return `${basePath}/workflows`

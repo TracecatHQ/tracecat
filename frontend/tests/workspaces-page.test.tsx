@@ -55,9 +55,7 @@ describe("WorkspacesPage", () => {
     render(<WorkspacesPage />)
 
     await waitFor(() => {
-      expect(mockRouterReplace).toHaveBeenCalledWith(
-        "/workspaces/workspace-2/chat"
-      )
+      expect(mockRouterReplace).toHaveBeenCalledWith("/workspaces/workspace-2")
     })
     expect(mockCreateWorkspace).not.toHaveBeenCalled()
   })
