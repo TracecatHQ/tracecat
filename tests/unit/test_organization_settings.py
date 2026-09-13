@@ -277,11 +277,13 @@ async def test_update_audit_settings_can_clear(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("seed_existing_settings", [False, True])
 async def test_concurrent_audit_origin_updates_cannot_misbind_headers(
     svc_admin_role: Role,
     monkeypatch: pytest.MonkeyPatch,
+    seed_existing_settings: bool,
 ) -> None:
-    """A stale same-origin update must not retain another origin's headers."""
+    """Concurrent initial and existing updates serialize origin binding."""
     monkeypatch.setattr(
         config,
         "TRACECAT__DB_ENCRYPTION_KEY",
@@ -328,17 +330,20 @@ async def test_concurrent_audit_origin_updates_cannot_misbind_headers(
         )
 
     try:
-        async with session_factory() as seed_session:
-            seed_service = SettingsService(
-                session=seed_session,
-                role=svc_admin_role.model_copy(deep=True),
-            )
-            await seed_service.update_audit_settings(
-                AuditSettingsUpdate(
-                    audit_webhook_url="https://collector-a.example.com/first",
-                    audit_webhook_custom_headers={"Authorization": "Bearer origin-a"},
+        if seed_existing_settings:
+            async with session_factory() as seed_session:
+                seed_service = SettingsService(
+                    session=seed_session,
+                    role=svc_admin_role.model_copy(deep=True),
                 )
-            )
+                await seed_service.update_audit_settings(
+                    AuditSettingsUpdate(
+                        audit_webhook_url="https://collector-a.example.com/first",
+                        audit_webhook_custom_headers={
+                            "Authorization": "Bearer origin-a"
+                        },
+                    )
+                )
 
         async with (
             session_factory() as first_session,

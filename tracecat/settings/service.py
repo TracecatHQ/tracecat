@@ -3,6 +3,7 @@ from collections.abc import Collection, Sequence
 from typing import Any
 
 import orjson
+import sqlalchemy as sa
 from async_lru import alru_cache
 from cryptography.fernet import InvalidToken
 from pydantic import BaseModel, SecretStr
@@ -296,6 +297,17 @@ class SettingsService(BaseOrgService):
 
     # Grouped settings
 
+    async def _lock_settings_group(self, group: type[BaseSettingsGroup]) -> None:
+        """Serialize one settings group, including its first row creation."""
+        lock_name = (
+            f"tracecat:organization:{self.organization_id}:settings:{group.__name__}"
+        )
+        await self.session.execute(
+            select(
+                sa.func.pg_advisory_xact_lock(sa.func.hashtextextended(lock_name, 0))
+            )
+        )
+
     async def _update_grouped_settings(
         self, settings: Sequence[OrganizationSetting], params: BaseModel
     ) -> None:
@@ -334,6 +346,8 @@ class SettingsService(BaseOrgService):
     @require_scope("org:settings:update")
     @audit_log(resource_type="organization_setting", action="update")
     async def update_audit_settings(self, params: AuditSettingsUpdate) -> None:
+        # Row locks cannot serialize the first update, before any settings exist.
+        await self._lock_settings_group(AuditSettingsUpdate)
         audit_settings = await self.list_org_settings(
             keys=AUDIT_SETTINGS_KEYS,
             for_update=True,
