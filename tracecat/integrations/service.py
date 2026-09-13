@@ -642,8 +642,9 @@ class IntegrationService(BaseWorkspaceService):
             # user row. Prefer it deterministically if legacy per-user rows
             # coexist for the same provider.
             statement = statement.order_by(
-                OAuthIntegration.user_id.asc().nulls_first(),
+                OAuthIntegration.user_id.is_(None).desc(),
                 OAuthIntegration.created_at.asc(),
+                OAuthIntegration.id.asc(),
             )
         if for_update:
             statement = statement.with_for_update().execution_options(
@@ -2547,7 +2548,13 @@ class IntegrationService(BaseWorkspaceService):
                 OAuthIntegration.provider_id == provider_key.id,
                 OAuthIntegration.grant_type == provider_key.grant_type,
             )
+            .order_by(
+                OAuthIntegration.user_id.is_(None).desc(),
+                OAuthIntegration.created_at.asc(),
+                OAuthIntegration.id.asc(),
+            )
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
         provider_integrations = list(existing_result.all())
         integration = next(
@@ -2596,12 +2603,16 @@ class IntegrationService(BaseWorkspaceService):
                     item.token_endpoint_auth_method = None
                     item.encrypted_client_secret = None
                     self.session.add(item)
-                await self.session.execute(
-                    delete(OAuthStateDB).where(
-                        OAuthStateDB.workspace_id == self.workspace_id,
-                        OAuthStateDB.provider_id == provider_key.id,
+                # OAuthStateDB stores authorization-code callbacks only. A
+                # client-credentials variant can share this provider ID, but
+                # changing it must not invalidate the interactive flow.
+                if provider_key.grant_type == OAuthGrantType.AUTHORIZATION_CODE:
+                    await self.session.execute(
+                        delete(OAuthStateDB).where(
+                            OAuthStateDB.workspace_id == self.workspace_id,
+                            OAuthStateDB.provider_id == provider_key.id,
+                        )
                     )
-                )
 
             if client_id is not None:
                 integration.encrypted_client_id = self.encrypt_client_credential(

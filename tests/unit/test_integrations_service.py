@@ -371,6 +371,153 @@ class TestIntegrationService:
         )
         assert not_found_wrong_grant is None
 
+    async def test_legacy_provider_config_fallback_uses_earliest_row(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+    ) -> None:
+        """Legacy reads and locked updates select the same earliest user row."""
+        provider_key = ProviderKey(
+            id="legacy_provider_config",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
+        first_user_id, second_user_id = sorted((uuid.uuid4(), uuid.uuid4()))
+        newer_user = User(
+            id=first_user_id,
+            email=f"legacy-newer-{uuid.uuid4().hex}@example.test",
+            hashed_password="synthetic-password-hash",
+            last_login_at=None,
+            is_active=True,
+            is_superuser=False,
+            is_verified=True,
+        )
+        older_user = User(
+            id=second_user_id,
+            email=f"legacy-older-{uuid.uuid4().hex}@example.test",
+            hashed_password="synthetic-password-hash",
+            last_login_at=None,
+            is_active=True,
+            is_superuser=False,
+            is_verified=True,
+        )
+        session.add_all([newer_user, older_user])
+        await session.flush()
+
+        now = datetime.now(UTC)
+        newer = OAuthIntegration(
+            workspace_id=integration_service.workspace_id,
+            user_id=newer_user.id,
+            provider_id=provider_key.id,
+            grant_type=provider_key.grant_type,
+            encrypted_access_token=b"newer-access-token",
+            encrypted_client_secret=integration_service.encrypt_client_credential(
+                "newer-client-secret"
+            ),
+            authorization_endpoint="https://auth.example.com/oauth/authorize",
+            token_endpoint="https://auth.example.com/oauth/token",
+            created_at=now,
+        )
+        older = OAuthIntegration(
+            workspace_id=integration_service.workspace_id,
+            user_id=older_user.id,
+            provider_id=provider_key.id,
+            grant_type=provider_key.grant_type,
+            encrypted_access_token=b"older-access-token",
+            encrypted_client_secret=integration_service.encrypt_client_credential(
+                "older-client-secret"
+            ),
+            authorization_endpoint="https://auth.example.com/oauth/authorize",
+            token_endpoint="https://auth.example.com/oauth/token",
+            created_at=now - timedelta(days=1),
+        )
+        # Insert the newer, lower-user-ID row first so neither physical row
+        # order nor UUID order can accidentally satisfy the fallback policy.
+        session.add_all([newer, older])
+        await session.commit()
+
+        selected = await integration_service.get_integration(provider_key=provider_key)
+        assert selected is not None
+        assert selected.id == older.id
+
+        updated = await integration_service.store_provider_config(
+            provider_key=provider_key,
+            client_id="updated-client-id",
+            client_secret=SecretStr("replacement-client-secret"),
+            token_endpoint="https://login.example.net/oauth/token",
+        )
+        assert updated.id == older.id
+        assert updated.token_endpoint == "https://login.example.net/oauth/token"
+        assert updated.encrypted_client_id is not None
+        assert updated.encrypted_client_secret is not None
+        assert (
+            integration_service.decrypt_client_credential(
+                updated.encrypted_client_secret
+            )
+            == "replacement-client-secret"
+        )
+        selected = await integration_service.get_integration(provider_key=provider_key)
+        assert selected is not None
+        assert selected.id == older.id
+        assert selected.token_endpoint == "https://login.example.net/oauth/token"
+        await session.refresh(newer)
+        assert newer.encrypted_client_id is None
+        assert newer.encrypted_client_secret is None
+        assert newer.encrypted_access_token == b""
+
+    async def test_legacy_provider_config_fallback_breaks_timestamp_ties_by_id(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+    ) -> None:
+        """Legacy rows with equal timestamps have a stable UUID tie-breaker."""
+        provider_key = ProviderKey(
+            id="legacy_provider_config_tie",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
+        users = [
+            User(
+                id=uuid.uuid4(),
+                email=f"legacy-tie-{index}-{uuid.uuid4().hex}@example.test",
+                hashed_password="synthetic-password-hash",
+                last_login_at=None,
+                is_active=True,
+                is_superuser=False,
+                is_verified=True,
+            )
+            for index in range(2)
+        ]
+        session.add_all(users)
+        await session.flush()
+
+        first_id, second_id = sorted((uuid.uuid4(), uuid.uuid4()))
+        created_at = datetime.now(UTC)
+        rows = [
+            OAuthIntegration(
+                id=second_id,
+                workspace_id=integration_service.workspace_id,
+                user_id=users[0].id,
+                provider_id=provider_key.id,
+                grant_type=provider_key.grant_type,
+                encrypted_access_token=b"",
+                created_at=created_at,
+            ),
+            OAuthIntegration(
+                id=first_id,
+                workspace_id=integration_service.workspace_id,
+                user_id=users[1].id,
+                provider_id=provider_key.id,
+                grant_type=provider_key.grant_type,
+                encrypted_access_token=b"",
+                created_at=created_at,
+            ),
+        ]
+        session.add_all(rows)
+        await session.commit()
+
+        selected = await integration_service.get_integration(provider_key=provider_key)
+        assert selected is not None
+        assert selected.id == first_id
+
     async def test_store_integration_with_user_id(
         self,
         integration_service: IntegrationService,
@@ -1699,6 +1846,51 @@ class TestIntegrationService:
             == "new_client_secret"
         )
 
+    async def test_client_credentials_origin_change_preserves_callback_state(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+    ) -> None:
+        """A client-credentials edit leaves authorization-code state intact."""
+        provider_key = ProviderKey(
+            id="shared_grant_provider",
+            grant_type=OAuthGrantType.CLIENT_CREDENTIALS,
+        )
+        await integration_service.store_provider_config(
+            provider_key=provider_key,
+            client_id="client-id",
+            client_secret=SecretStr("client-secret"),
+            authorization_endpoint="https://auth.example.com/oauth/authorize",
+            token_endpoint="https://auth.example.com/oauth/token",
+        )
+        user = User(
+            id=uuid.uuid4(),
+            email=f"pending-oauth-{uuid.uuid4().hex}@example.test",
+            hashed_password="synthetic-password-hash",
+            last_login_at=None,
+            is_active=True,
+            is_superuser=False,
+            is_verified=True,
+        )
+        session.add(user)
+        await session.flush()
+        pending_state = OAuthStateDB(
+            workspace_id=integration_service.workspace_id,
+            user_id=user.id,
+            provider_id=provider_key.id,
+            expires_at=datetime.now(UTC) + timedelta(minutes=10),
+            code_verifier="authorization-code-state",
+        )
+        session.add(pending_state)
+        await session.commit()
+
+        await integration_service.store_provider_config(
+            provider_key=provider_key,
+            token_endpoint="https://login.example.net/oauth/token",
+        )
+
+        assert await session.get(OAuthStateDB, pending_state.state) is not None
+
     async def test_provider_token_path_change_preserves_credentials(
         self,
         integration_service: IntegrationService,
@@ -1885,6 +2077,92 @@ class TestIntegrationService:
                 assert stored.token_endpoint == "https://login.example.net/oauth/token"
                 assert stored.encrypted_access_token == b""
                 assert stored.encrypted_refresh_token is None
+        finally:
+            await engine.dispose()
+
+    async def test_store_provider_config_refreshes_stale_locked_identity(
+        self,
+        svc_role: Role,
+        encryption_key: str,
+    ) -> None:
+        """A locked update refreshes an endpoint cached before another commit."""
+        del encryption_key
+        role = svc_role.model_copy(
+            update={"workspace_id": uuid.uuid4()},
+            deep=True,
+        )
+        provider_key = ProviderKey(
+            id="stale_provider_config",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
+        engine = create_async_engine(TEST_DB_CONFIG.test_url)
+        session_factory = async_sessionmaker(bind=engine, expire_on_commit=False)
+        try:
+            async with session_factory() as seed_session:
+                seed_session.add(
+                    Workspace(
+                        id=role.workspace_id,
+                        name=f"oauth-config-race-{role.workspace_id}",
+                        organization_id=role.organization_id,
+                    )
+                )
+                await seed_session.commit()
+                seed_service = IntegrationService(
+                    session=seed_session,
+                    role=role.model_copy(deep=True),
+                )
+                seeded = await seed_service.store_provider_config(
+                    provider_key=provider_key,
+                    client_id="client-id",
+                    client_secret=SecretStr("origin-a-secret"),
+                    authorization_endpoint="https://auth.example.com/oauth/authorize",
+                    token_endpoint="https://auth.example.com/oauth/token",
+                )
+                seeded_id = seeded.id
+
+            async with (
+                session_factory() as stale_session,
+                session_factory() as editor_session,
+            ):
+                stale_service = IntegrationService(
+                    session=stale_session,
+                    role=role.model_copy(deep=True),
+                )
+                editor_service = IntegrationService(
+                    session=editor_session,
+                    role=role.model_copy(deep=True),
+                )
+                cached = await stale_service.get_integration(provider_key=provider_key)
+                assert cached is not None
+                assert cached.id == seeded_id
+                assert cached.token_endpoint == "https://auth.example.com/oauth/token"
+
+                await editor_service.store_provider_config(
+                    provider_key=provider_key,
+                    client_secret=SecretStr("origin-b-secret"),
+                    token_endpoint="https://login.example.net/oauth/token",
+                )
+                await stale_service.store_provider_config(
+                    provider_key=provider_key,
+                    client_secret=SecretStr("replacement-origin-a-secret"),
+                    token_endpoint="https://auth.example.com/oauth/token",
+                )
+
+            async with session_factory() as verify_session:
+                verify_service = IntegrationService(
+                    session=verify_session,
+                    role=role.model_copy(deep=True),
+                )
+                final = await verify_service.get_integration(provider_key=provider_key)
+                assert final is not None
+                assert final.token_endpoint == "https://auth.example.com/oauth/token"
+                assert final.encrypted_client_secret is not None
+                assert (
+                    verify_service.decrypt_client_credential(
+                        final.encrypted_client_secret
+                    )
+                    == "replacement-origin-a-secret"
+                )
         finally:
             await engine.dispose()
 
