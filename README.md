@@ -2,7 +2,7 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="img/banner-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="img/banner-light.svg">
-    <img src="img/banner-light.svg" alt="The AI-native security automation platform.">
+    <img src="img/banner-light.svg" alt="The AI-native security automation platform." width="85%">
   </picture>
   <p align="center">
     The agentic security automation platform.
