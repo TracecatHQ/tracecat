@@ -751,6 +751,12 @@ class MCPHTTPOAuth2ConnectionSpec(_MCPConnectionSpecBase):
     This may differ from ``server_uri`` when a provider protects every MCP
     route under one origin-level audience.
     """
+    oauth_resource_ignored_query_params: list[str] = Field(default_factory=list)
+    """Transport-only query parameters omitted from the OAuth resource URI.
+
+    This exception is catalog-controlled because query components are part of
+    generic RFC 9728 resource identities unless a provider defines otherwise.
+    """
     oauth_authorization_endpoint: str | None = None
     """Known OAuth authorization endpoint pinned by the repo-owned catalog row.
 
