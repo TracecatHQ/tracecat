@@ -1,0 +1,24 @@
+tests/unit/test_network.py
+  s_388fff4aaf5212::t_1849f21cb049de 8,590
+  s_388fff4aaf5212::t_cd8c9127e28b68 573-589,591-599
+  s_388fff4aaf5212::t_dd8548a48c6111 600
+  s_388fff4aaf5212::t_dc5bacc2af6230 601
+tracecat/network.py
+  s_388fff4aaf5212::t_cd8c9127e28b68 104,107-110,113-114,118-121,136,146,148-149
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "fe2386b48f18a06d7577c0753a54f05de22929db",
+  "prompts": {},
+  "sessions": {
+    "s_388fff4aaf5212": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09b54-52c8-7d92-934c-882473f1ae27",
+        "model": "gpt-daybreak-blue-latest"
+      },
+      "human_author": null
+    }
+  }
+}
