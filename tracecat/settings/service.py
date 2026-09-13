@@ -402,6 +402,8 @@ class SettingsService(BaseOrgService):
             except DisallowedUrlError as exc:
                 raise AgentOtelEndpointNotAllowedError from exc
 
+        # Row locks cannot serialize the first update, before any settings exist.
+        await self._lock_settings_group(AgentOtelSettingsUpdate)
         otel_settings = await self.list_org_settings(
             keys=AgentOtelSettingsUpdate.keys(),
             for_update=True,
