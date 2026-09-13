@@ -210,28 +210,51 @@ describe("OrgAgentOtelSettings collector header origin binding", () => {
     })
   })
 
-  it("preserves retained headers for a same-origin path change", async () => {
-    const user = userEvent.setup()
-    render(<OrgAgentOtelSettings />)
+  it.each([
+    [
+      "changes only path, case, and default port",
+      "https://collector.example.com",
+      "https://COLLECTOR.example.com:443/otel",
+    ],
+    [
+      "adds a DNS root dot",
+      "https://collector.example.com/first",
+      "https://COLLECTOR.example.com.:443/second",
+    ],
+    [
+      "removes a DNS root dot",
+      "https://collector.example.com./first",
+      "https://COLLECTOR.example.com:443/second",
+    ],
+  ])(
+    "preserves retained headers when a same-origin edit %s",
+    async (_scenario, savedEndpoint, nextEndpoint) => {
+      mockSettingsHook({
+        agentOtelSettings: settingsWithEndpoint(savedEndpoint),
+      })
+      const user = userEvent.setup()
+      render(<OrgAgentOtelSettings />)
 
-    const endpoint = screen.getByLabelText("Collector endpoint")
-    await waitFor(() =>
-      expect(endpoint).toHaveValue("https://collector.example.com")
-    )
-    await user.clear(endpoint)
-    await user.type(endpoint, "https://COLLECTOR.example.com:443/otel")
-    await user.tab()
-    await user.click(screen.getByRole("button", { name: "Save config" }))
+      const endpoint = screen.getByLabelText("Collector endpoint")
+      await waitFor(() => expect(endpoint).toHaveValue(savedEndpoint))
+      await user.clear(endpoint)
+      await user.type(endpoint, nextEndpoint)
+      await user.tab()
+      expect(
+        screen.queryByText(/Saved collector headers will be cleared/)
+      ).not.toBeInTheDocument()
+      await user.click(screen.getByRole("button", { name: "Save config" }))
 
-    await waitFor(() =>
-      expect(updateAgentOtelSettings).toHaveBeenCalledTimes(1)
-    )
-    expect(updateAgentOtelSettings).toHaveBeenCalledWith({
-      requestBody: expect.objectContaining({
-        agent_otel_headers: undefined,
-      }),
-    })
-  })
+      await waitFor(() =>
+        expect(updateAgentOtelSettings).toHaveBeenCalledTimes(1)
+      )
+      expect(updateAgentOtelSettings).toHaveBeenCalledWith({
+        requestBody: expect.objectContaining({
+          agent_otel_headers: undefined,
+        }),
+      })
+    }
+  )
 
   it("accepts replacement headers after an origin change", async () => {
     const user = userEvent.setup()

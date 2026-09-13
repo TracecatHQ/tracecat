@@ -33,6 +33,7 @@ import {
   validateAgentOtelHeaderEntries,
   validateForm,
 } from "@/lib/agent-otel"
+import { normalizeHttpOrigin } from "@/lib/http-origin"
 import { cn } from "@/lib/utils"
 
 /** Radix Select forbids an empty item value, so unset is a named sentinel. */
@@ -63,18 +64,6 @@ interface HeaderRow {
 /** Generate a stable client-side id for a new header row. */
 function newHeaderRow(): HeaderRow {
   return { id: crypto.randomUUID(), name: "", value: "" }
-}
-
-function normalizeCollectorOrigin(value: string): string | null {
-  try {
-    const url = new URL(value.trim())
-    if (url.protocol !== "http:" && url.protocol !== "https:") {
-      return null
-    }
-    return url.origin
-  } catch {
-    return null
-  }
 }
 
 /**
@@ -122,7 +111,7 @@ export function OrgAgentOtelSettings() {
     setHeaderRows([])
     setClearSavedHeaders(false)
     setSavedHeadersOrigin(
-      normalizeCollectorOrigin(settings?.agent_otel_config?.endpoint ?? "")
+      normalizeHttpOrigin(settings?.agent_otel_config?.endpoint ?? "")
     )
     setHeaderRowsOrigin(null)
     setHeadersClearedForOriginChange(false)
@@ -210,7 +199,7 @@ export function OrgAgentOtelSettings() {
   function handleHeaderRowChange(id: string, patch: Partial<HeaderRow>): void {
     setDirty(true)
     setClearSavedHeaders(false)
-    setHeaderRowsOrigin(normalizeCollectorOrigin(form.endpoint))
+    setHeaderRowsOrigin(normalizeHttpOrigin(form.endpoint))
     setHeadersClearedForOriginChange(false)
     setHeaderRows((prev) =>
       prev.map((row) => (row.id === id ? { ...row, ...patch } : row))
@@ -220,7 +209,7 @@ export function OrgAgentOtelSettings() {
   function handleAddHeaderRow() {
     setDirty(true)
     setClearSavedHeaders(false)
-    setHeaderRowsOrigin(normalizeCollectorOrigin(form.endpoint))
+    setHeaderRowsOrigin(normalizeHttpOrigin(form.endpoint))
     setHeadersClearedForOriginChange(false)
     setHeaderRows((prev) => [...prev, newHeaderRow()])
   }
@@ -239,7 +228,7 @@ export function OrgAgentOtelSettings() {
   }
 
   function handleCollectorEndpointBlur() {
-    const nextOrigin = normalizeCollectorOrigin(form.endpoint)
+    const nextOrigin = normalizeHttpOrigin(form.endpoint)
     if (nextOrigin === null) {
       return
     }
@@ -291,7 +280,7 @@ export function OrgAgentOtelSettings() {
     // Headers are write-only: non-blank draft rows replace the entire saved
     // map, an explicit clear sends {}, and blank rows leave it unchanged.
     let headersField: Record<string, string> | undefined
-    const nextOrigin = normalizeCollectorOrigin(form.endpoint)
+    const nextOrigin = normalizeHttpOrigin(form.endpoint)
     const originChanged =
       nextOrigin !== null && nextOrigin !== savedHeadersOrigin
     const draftHeadersMatchOrigin =
