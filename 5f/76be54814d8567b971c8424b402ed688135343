@@ -1,0 +1,21 @@
+frontend/package.json
+  s_b8ea12cc0d3094::t_1cc54b0beb491a 204-205
+frontend/pnpm-lock.yaml
+  s_b8ea12cc0d3094::t_b2eb5603a43d8c 26-27,4408-4409,4412-4413,5985,6762,7986,10314,10319
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "5f76be54814d8567b971c8424b402ed688135343",
+  "prompts": {},
+  "sessions": {
+    "s_b8ea12cc0d3094": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09b68-505b-7e91-bd59-e7d528fcaf93",
+        "model": "gpt-daybreak-blue-latest"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
