@@ -1,0 +1,22 @@
+tracecat/agent/sandbox/otel_relay.py
+  s_388fff4aaf5212::t_a2c0888e6b1be6 812,817
+  s_388fff4aaf5212::t_32684b8953938a 816
+tests/unit/test_agent_otel_relay.py
+  s_388fff4aaf5212::t_32684b8953938a 772-810
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "cedee58cb08dc5f5032c542fe8a93a40237f59fa",
+  "prompts": {},
+  "sessions": {
+    "s_388fff4aaf5212": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09b54-52c8-7d92-934c-882473f1ae27",
+        "model": "gpt-daybreak-blue-latest"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
