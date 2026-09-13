@@ -1,0 +1,27 @@
+tests/unit/test_integrations_service.py
+  s_388fff4aaf5212::t_317e7cef5e569b 458,517,2090-2093,2101-2122,2129,2133,2135,2137,2154,2156
+  s_388fff4aaf5212::t_70cdd8dddedb5d 2083-2089,2094-2100,2123-2128,2130-2132,2134,2136,2138-2153,2155,2157-2168
+  s_388fff4aaf5212::t_7e5909c78ed976 412-415,425-428,438,445-446,449,451-457,459-461,464-516,518-519
+  s_388fff4aaf5212::t_1b65f317313769 374-411,416-424,429-437,439-444,447-448,450,462-463,520,1849-1892
+  s_388fff4aaf5212::t_41951c3a27d66d 1893
+tracecat/integrations/service.py
+  s_388fff4aaf5212::t_7e5909c78ed976 2557
+  s_388fff4aaf5212::t_826ac80e22540c 645,647,2551-2555,2609-2614
+  s_388fff4aaf5212::t_847d6c6e9a3ebb 2606-2608
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "9df1dbbc3da4f09c321adfb560fbc9667d386614",
+  "prompts": {},
+  "sessions": {
+    "s_388fff4aaf5212": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09b54-52c8-7d92-934c-882473f1ae27",
+        "model": "gpt-daybreak-blue-latest"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
