@@ -479,6 +479,15 @@ TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_MAX_ITEMS = int(
 SENTRY_ENVIRONMENT_OVERRIDE = os.environ.get("SENTRY_ENVIRONMENT_OVERRIDE")
 """Override the Sentry environment. If not set, defaults to '{app_env}-{temporal_namespace}'."""
 
+TRACECAT__TEMPO_TRACE_URL_TEMPLATE = (
+    os.environ.get("TRACECAT__TEMPO_TRACE_URL_TEMPLATE") or None
+)
+"""Deployment-specific HTTPS Grafana trace URL containing a literal '{trace_id}'.
+
+Optional operator setting. Copy a Tempo trace link from the deployment's Grafana
+Explore UI and replace only the trace ID with '{trace_id}'. Never include credentials.
+"""
+
 # === Secrets manager config === #
 TRACECAT__UNSAFE_DISABLE_SM_MASKING = env_bool(
     "TRACECAT__UNSAFE_DISABLE_SM_MASKING", default=False

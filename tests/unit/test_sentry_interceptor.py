@@ -1075,11 +1075,18 @@ def test_unexpected_database_failures_capture_once_with_safe_request_metadata(
 
 
 @pytest.mark.parametrize("component", ["api", "action_gateway"])
+@pytest.mark.parametrize(
+    "tempo_template", [None, "https://grafana.example.com/explore?trace={trace_id}"]
+)
 def test_request_trace_survives_span_unwind(
     request: pytest.FixtureRequest,
     monkeypatch: pytest.MonkeyPatch,
     component: str,
+    tempo_template: str | None,
 ) -> None:
+    monkeypatch.setattr(
+        sentry_module.config, "TRACECAT__TEMPO_TRACE_URL_TEMPLATE", tempo_template
+    )
     previous_propagator = get_global_textmap()
     # Register cleanup before initialization so setup failures restore it too.
     request.addfinalizer(lambda: set_global_textmap(previous_propagator))
@@ -1129,10 +1136,17 @@ def test_request_trace_survives_span_unwind(
             assert "contexts" in event
             span_context = span.get_span_context()
             assert span_context is not None
-            assert event["contexts"]["tracecat_otel"] == {
+            expected_context = {
                 "trace_id": f"{span_context.trace_id:032x}",
                 "span_id": f"{span_context.span_id:016x}",
             }
+            if tempo_template:
+                expected_context["tempo_url"] = tempo_template.replace(
+                    "{trace_id}", expected_context["trace_id"]
+                )
+            assert event["contexts"]["tracecat_otel"] == expected_context
+            assert "tags" in event
+            assert event["tags"]["otel.trace_id"] == expected_context["trace_id"]
             captured_id = event["contexts"]["tracecat_otel"]["trace_id"]
             assert isinstance(captured_id, str)
             captured_ids.append(captured_id)
@@ -1364,3 +1378,51 @@ def test_activity_receipt_deduplicates_only_matching_source(
         )
         is None
     )
+
+
+@pytest.mark.parametrize("trace_id", [None, "", "0" * 32, "not-a-trace", "f" * 33])
+def test_invalid_otel_id_does_not_create_correlation(trace_id: str | None) -> None:
+    event: Event = {
+        "tags": {"tracecat.error.owner": "platform", "otel.trace_id": "spoofed"},
+        "contexts": {
+            "tracecat_otel": {
+                "trace_id": trace_id,
+                "tempo_url": "https://untrusted.example.com",
+            }
+        },
+    }
+    result = _sanitize_platform_event(event, {})
+    assert result is not None
+    assert "tags" in result and "contexts" in result
+    assert "otel.trace_id" not in result["tags"]
+    assert "tempo_url" not in result["contexts"]["tracecat_otel"]
+
+
+@pytest.mark.parametrize(
+    "template",
+    [
+        None,
+        "",
+        "https://grafana.example.com/no-placeholder",
+        "http://grafana.example.com/{trace_id}",
+        "https://user:password@grafana.example.com/{trace_id}",
+        "https://[invalid/{trace_id}",
+        "https://grafana.example.com/{trace_id}\n",
+        "https://grafana.example.com/{trace_id}/{trace_id}",
+    ],
+)
+def test_bad_tempo_config_preserves_platform_error_and_trace_tag(
+    monkeypatch: pytest.MonkeyPatch, template: str | None
+) -> None:
+    monkeypatch.setattr(
+        sentry_module.config, "TRACECAT__TEMPO_TRACE_URL_TEMPLATE", template
+    )
+    event: Event = {
+        "tags": {"tracecat.error.owner": "platform"},
+        "contexts": {"tracecat_otel": {"trace_id": "A" * 32}},
+    }
+    result = _sanitize_platform_event(event, {})
+    assert result is not None
+    assert "tags" in result and "contexts" in result
+    assert result["tags"]["otel.trace_id"] == "a" * 32
+    assert "tempo_url" not in result["contexts"]["tracecat_otel"]

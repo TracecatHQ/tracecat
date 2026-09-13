@@ -1,11 +1,13 @@
 """Privacy-bounded Sentry configuration for Tracecat services."""
 
 import os
+import re
 from collections.abc import Callable, Mapping, MutableMapping
 from dataclasses import dataclass
 from enum import StrEnum
 from functools import partial
 from typing import Any, Literal, Protocol, cast
+from urllib.parse import urlsplit
 
 import sentry_sdk
 from opentelemetry import trace
@@ -41,6 +43,7 @@ class WorkflowFailureEventContext:
 class SentryTag(StrEnum):
     """Stable, privacy-reviewed Sentry tag keys."""
 
+    OTEL_TRACE_ID = "otel.trace_id"
     SERVICE_NAME = "tracecat.service.name"
     ERROR_OWNER = "tracecat.error.owner"
     ERROR_KIND = "tracecat.error.kind"
@@ -481,7 +484,44 @@ def _sanitize_event(
     if exception := _sanitize_exception(event.get("exception"), safe_value=safe_value):
         sanitized_event["exception"] = exception
 
+    _enrich_trace_correlation(sanitized_event)
     return sanitized_event
+
+
+def _enrich_trace_correlation(event: Event) -> None:
+    """Derive correlation metadata only from the preserved OTel context.
+
+    Run after sanitization so caller-supplied tags and URLs cannot override the
+    request's trace or bypass the context allowlist. Bad optional link config
+    must never prevent delivery of the error itself.
+    """
+    context = event.get("contexts", {}).get("tracecat_otel", {})
+    trace_id = context.get("trace_id")
+    if (
+        not isinstance(trace_id, str)
+        or re.fullmatch(r"[0-9a-fA-F]{32}", trace_id) is None
+        or int(trace_id, 16) == 0
+    ):
+        return
+    trace_id = trace_id.lower()
+    event.setdefault("tags", {})[SentryTag.OTEL_TRACE_ID.value] = trace_id
+    template = config.TRACECAT__TEMPO_TRACE_URL_TEMPLATE
+    if not template or template.count("{trace_id}") != 1:
+        return
+    url = template.replace("{trace_id}", trace_id)
+    try:
+        parsed = urlsplit(url)
+        if (
+            parsed.scheme != "https"
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or any(character.isspace() for character in url)
+        ):
+            return
+    except ValueError:
+        return
+    context["tempo_url"] = url
 
 
 def _sanitize_platform_event(event: Event, hint: Hint) -> Event | None:
