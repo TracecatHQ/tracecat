@@ -25,6 +25,7 @@ from tracecat.agent.gateway_providers import (
     strip_openai_version_suffix,
 )
 from tracecat.agent.litellm_compat import apply_patch
+from tracecat.agent.litellm_egress import install_litellm_egress_guard
 from tracecat.agent.llm_routing import get_litellm_route_model
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.tokens import verify_llm_token
@@ -33,6 +34,7 @@ from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.identifiers import OrganizationID, WorkspaceID
 from tracecat.logger import logger
 
+install_litellm_egress_guard()
 apply_patch()
 
 _UNAUTHENTICATED_HEALTH_ROUTES = frozenset(

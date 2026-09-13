@@ -39,6 +39,7 @@ def build_exec_env() -> dict[str, str]:
     pythonpath = env.get("PYTHONPATH", "")
     app_paths = "/app:/app/packages/tracecat-registry:/app/packages/tracecat-ee"
     env["PYTHONPATH"] = f"{app_paths}:{pythonpath}" if pythonpath else app_paths
+    env["DISABLE_AIOHTTP_TRANSPORT"] = "True"
     return env
 
 

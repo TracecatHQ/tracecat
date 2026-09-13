@@ -25,6 +25,12 @@ from tracecat.exceptions import (
     TracecatNotFoundError,
     TracecatValidationError,
 )
+from tracecat.network import (
+    DisallowedUrlError,
+    HttpEgressPurpose,
+    configured_http_egress_policy,
+)
+from tracecat.outbound_http import guarded_async_client
 
 
 class LLMCompletionError(RuntimeError):
@@ -117,6 +123,8 @@ async def complete(
         raise LLMCompletionError(message) from e
     except httpx.RequestError as e:
         raise LLMCompletionError(f"LLM request failed: {e}") from e
+    except DisallowedUrlError as e:
+        raise LLMCompletionError("LLM provider URL is not allowed") from e
     except TracecatValidationError as e:
         detail = str(e) or "model configuration failed validation"
         raise LLMCompletionError(f"LLM model configuration is invalid: {detail}") from e
@@ -164,7 +172,8 @@ async def _call_passthrough(
     }
     if max_tokens is not None:
         body["max_tokens"] = max_tokens
-    async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+    policy = configured_http_egress_policy(HttpEgressPurpose.LLM)
+    async with guarded_async_client(policy, timeout=timeout_seconds) as client:
         resp = await client.post(
             f"{base_url.rstrip('/')}/chat/completions",
             headers=headers,

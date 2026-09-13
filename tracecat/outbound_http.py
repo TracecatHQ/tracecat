@@ -10,6 +10,7 @@ from typing import cast
 
 import httpcore
 import httpx
+from httpx._types import CertTypes
 
 from tracecat.network import (
     DisallowedUrlError,
@@ -146,6 +147,7 @@ class GuardedAsyncHTTPTransport(httpx.AsyncHTTPTransport):
         policy: HttpEgressPolicy | None = None,
         *,
         verify: ssl.SSLContext | str | bool = True,
+        cert: CertTypes | None = None,
         ca_from_env: bool = True,
         http1: bool = True,
         http2: bool = False,
@@ -157,7 +159,11 @@ class GuardedAsyncHTTPTransport(httpx.AsyncHTTPTransport):
         self._policy = policy or HttpEgressPolicy()
         self._request_origin = _RequestOrigin()
         effective_limits = _http_limits(limits)
-        ssl_context = httpx.create_ssl_context(verify=verify, trust_env=ca_from_env)
+        ssl_context = httpx.create_ssl_context(
+            verify=verify,
+            cert=cert,
+            trust_env=ca_from_env,
+        )
         network_backend = GuardedAsyncNetworkBackend(
             self._policy,
             self._request_origin,
@@ -194,6 +200,7 @@ def guarded_async_client(
     follow_redirects: bool = False,
     max_redirects: int = 20,
     verify: ssl.SSLContext | str | bool = True,
+    cert: CertTypes | None = None,
     ca_from_env: bool = True,
     http1: bool = True,
     http2: bool = False,
@@ -211,6 +218,7 @@ def guarded_async_client(
     transport = GuardedAsyncHTTPTransport(
         policy,
         verify=verify,
+        cert=cert,
         ca_from_env=ca_from_env,
         http1=http1,
         http2=http2,

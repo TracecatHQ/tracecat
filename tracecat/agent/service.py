@@ -6,7 +6,7 @@ import uuid
 from collections.abc import AsyncIterator, Iterator, Mapping
 from dataclasses import replace
 from datetime import UTC, datetime
-from typing import Literal, NamedTuple, TypeGuard
+from typing import Literal, NamedTuple, TypeGuard, cast
 
 import orjson
 import sqlalchemy as sa
@@ -55,6 +55,7 @@ from tracecat.db.models import (
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.integrations.aws_assume_role import build_workspace_external_id
 from tracecat.logger import logger
+from tracecat.network import DisallowedUrlError
 from tracecat.secrets import secrets_manager
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.encryption import decrypt_keyvalues, decrypt_value
@@ -68,6 +69,7 @@ from tracecat.settings.service import SettingsService
 _AWS_ASSUME_ROLE_EXTERNAL_ID_SECRET_KEY = "TRACECAT_AWS_EXTERNAL_ID"
 _VERTEX_BEARER_TOKEN_KEY = "VERTEX_AI_BEARER_TOKEN"
 _GOOGLE_CLOUD_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
+_GOOGLE_OAUTH_TOKEN_URI = "https://oauth2.googleapis.com/token"
 _AZURE_COGNITIVE_SCOPE = "https://cognitiveservices.azure.com/.default"
 _DEFAULT_MODEL_SETTING_KEY = "agent_default_model"
 _DEFAULT_MODEL_CATALOG_ID_SETTING_KEY = "agent_default_model_catalog_id"
@@ -190,13 +192,41 @@ def _decrypt_custom_provider_config(
     return credentials
 
 
+def _normalize_vertex_credentials_blob(credentials_blob: str) -> str:
+    """Validate and normalize a Vertex service-account credential document."""
+    try:
+        raw_info: object = orjson.loads(credentials_blob)
+    except orjson.JSONDecodeError as exc:
+        raise DisallowedUrlError("Vertex AI credentials are invalid") from exc
+    if not isinstance(raw_info, dict) or not all(
+        isinstance(key, str) for key in raw_info
+    ):
+        raise DisallowedUrlError("Vertex AI credentials are invalid")
+    info = cast(dict[str, object], raw_info)
+    if info.get("type") != "service_account":
+        # LiteLLM dispatches external_account blobs to Google's identity-pool
+        # loader, which honors additional caller-controlled metadata and STS
+        # URLs that the service-account loader ignores.
+        raise DisallowedUrlError("Vertex AI credentials must be a service account")
+    token_uri = info.get("token_uri")
+    if token_uri != _GOOGLE_OAUTH_TOKEN_URI:
+        # google-auth refreshes token_uri through requests, outside Tracecat's
+        # guarded HTTPX transport. Requiring Google's canonical endpoint keeps
+        # workspace-controlled credential JSON from becoming an SSRF sink and
+        # also protects the same blob when LiteLLM parses it downstream.
+        raise DisallowedUrlError("Vertex AI token URL is not allowed")
+    return orjson.dumps(info).decode()
+
+
 def _refresh_vertex_token(credentials_blob: str) -> str:
     """Synchronous helper that refreshes a Vertex AI SA token.
 
     Isolated so it can be called via ``asyncio.to_thread``.
     """
+    normalized_blob = _normalize_vertex_credentials_blob(credentials_blob)
+
     creds = service_account.Credentials.from_service_account_info(
-        orjson.loads(credentials_blob),
+        orjson.loads(normalized_blob),
         scopes=[_GOOGLE_CLOUD_SCOPE],
     )
     creds.refresh(GoogleAuthRequest())
@@ -212,9 +242,12 @@ async def _resolve_vertex_bearer_token(
     ``credentials.py``, so the blocking ``refresh()`` round-trip only
     happens once per cache window (~60 s by default).
     """
-    blob = credentials["GOOGLE_API_CREDENTIALS"]
+    blob = _normalize_vertex_credentials_blob(credentials["GOOGLE_API_CREDENTIALS"])
     token = await asyncio.to_thread(_refresh_vertex_token, blob)
     augmented = credentials.copy()
+    # Forward the normalized service-account document so LiteLLM cannot parse a
+    # duplicate-key or cross-credential-type document differently.
+    augmented["GOOGLE_API_CREDENTIALS"] = blob
     augmented[_VERTEX_BEARER_TOKEN_KEY] = token
     return augmented
 

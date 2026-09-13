@@ -40,6 +40,12 @@ from tracecat.agent.service import AgentManagementService
 from tracecat.auth.types import Role
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.logger import logger
+from tracecat.network import (
+    DisallowedUrlError,
+    HttpEgressPurpose,
+    configured_http_egress_policy,
+)
+from tracecat.outbound_http import guarded_async_client
 from tracecat.runtime.errors import RuntimeErrorClassification
 
 # Strip a trailing "/vN" segment (with optional trailing slash) from a
@@ -647,6 +653,7 @@ class LLMSocketProxy:
         self.socket_path = socket_path
         self.routing_plan = routing_plan
         self._server: asyncio.Server | None = None
+        self._managed_client: httpx.AsyncClient | None = None
         self._client: httpx.AsyncClient | None = None
         self._connection_tasks: set[asyncio.Task[None]] = set()
         self._stopping = False
@@ -666,14 +673,18 @@ class LLMSocketProxy:
         if self.socket_path.exists():
             self.socket_path.unlink()
 
-        self._client = httpx.AsyncClient(
-            timeout=httpx.Timeout(
-                connect=app_config.TRACECAT__LLM_GATEWAY_CONNECT_TIMEOUT_SECONDS,
-                read=app_config.TRACECAT__LLM_PROXY_READ_TIMEOUT,
-                write=app_config.TRACECAT__LLM_GATEWAY_WRITE_TIMEOUT_SECONDS,
-                pool=app_config.TRACECAT__LLM_GATEWAY_POOL_TIMEOUT_SECONDS,
-            )
+        timeout = httpx.Timeout(
+            connect=app_config.TRACECAT__LLM_GATEWAY_CONNECT_TIMEOUT_SECONDS,
+            read=app_config.TRACECAT__LLM_PROXY_READ_TIMEOUT,
+            write=app_config.TRACECAT__LLM_GATEWAY_WRITE_TIMEOUT_SECONDS,
+            pool=app_config.TRACECAT__LLM_GATEWAY_POOL_TIMEOUT_SECONDS,
         )
+        direct_client = guarded_async_client(
+            configured_http_egress_policy(HttpEgressPurpose.LLM),
+            timeout=timeout,
+        )
+        self._managed_client = httpx.AsyncClient(timeout=timeout)
+        self._client = direct_client
 
         self._stopping = False
         self._error_emitted = False
@@ -710,9 +721,13 @@ class LLMSocketProxy:
             await self._server.wait_closed()
             self._server = None
 
-        if self._client is not None:
-            await self._client.aclose()
-            self._client = None
+        closed_client_ids: set[int] = set()
+        for client in (self._managed_client, self._client):
+            if client is not None and id(client) not in closed_client_ids:
+                await client.aclose()
+                closed_client_ids.add(id(client))
+        self._managed_client = None
+        self._client = None
 
         # Remove socket file
         if self.socket_path.exists():
@@ -987,7 +1002,7 @@ class LLMSocketProxy:
         request_counter: int,
         started_at: float,
     ) -> None:
-        if self._client is None:
+        if self._client is None and self._managed_client is None:
             await self._write_error_response(
                 writer,
                 status_code=503,
@@ -1018,6 +1033,22 @@ class LLMSocketProxy:
         route = self.routing_plan.resolve(
             data.get("model") if data is not None else None
         )
+        client = (
+            self._client if route.is_direct else self._managed_client or self._client
+        )
+        if client is None:
+            await self._write_error_response(
+                writer,
+                status_code=503,
+                detail="LiteLLM proxy not initialized",
+                request_counter=request_counter,
+                trace_request_id=trace_request_id,
+            )
+            self._emit_error(
+                "LiteLLM proxy not initialized",
+                agent_executor_unavailable(),
+            )
+            return
         upstream_request = route.prepare_forward_request(
             path=path,
             headers=headers,
@@ -1026,7 +1057,7 @@ class LLMSocketProxy:
         )
 
         try:
-            async with self._client.stream(
+            async with client.stream(
                 method=method,
                 url=upstream_request.url,
                 headers=upstream_request.headers,
@@ -1063,6 +1094,19 @@ class LLMSocketProxy:
                     method=method,
                     path=path,
                     route_is_direct=route.is_direct,
+                )
+        except DisallowedUrlError:
+            await self._write_error_response(
+                writer,
+                status_code=400,
+                detail="LLM provider URL is not allowed",
+                request_counter=request_counter,
+                trace_request_id=trace_request_id,
+            )
+            if not _is_non_critical_path(path):
+                self._emit_error(
+                    "LLM provider URL is not allowed",
+                    user_agent_execution_failed(),
                 )
         except httpx.TransportError as exc:
             if self._stopping:

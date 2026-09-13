@@ -26,6 +26,7 @@ from tracecat.db.models import (
     Organization,
 )
 from tracecat.exceptions import TracecatNotFoundError
+from tracecat.network import DisallowedUrlError
 from tracecat.pagination import CursorPaginationParams
 from tracecat.secrets.encryption import decrypt_value, encrypt_keyvalues
 from tracecat.secrets.schemas import SecretKeyValue
@@ -240,7 +241,7 @@ async def test_validate_provider_success(
             return _Response()
 
     with patch.object(
-        provider_service_module.httpx, "AsyncClient", return_value=_Client()
+        provider_service_module, "guarded_async_client", return_value=_Client()
     ):
         result = await service.validate_provider(
             base_url="https://api.example.com",
@@ -273,7 +274,7 @@ async def test_validate_provider_defaults_to_bearer_authorization(
             return _Response()
 
     with patch.object(
-        provider_service_module.httpx, "AsyncClient", return_value=_Client()
+        provider_service_module, "guarded_async_client", return_value=_Client()
     ):
         result = await service.validate_provider(
             base_url="https://api.example.com",
@@ -281,6 +282,16 @@ async def test_validate_provider_defaults_to_bearer_authorization(
         )
 
     assert result is True
+
+
+@pytest.mark.anyio
+async def test_provider_model_discovery_blocks_private_target() -> None:
+    with pytest.raises(DisallowedUrlError, match="Host is not allowed"):
+        await provider_service_module.fetch_openai_compatible_models(
+            base_url="http://127.0.0.1:1/v1",
+            api_key="secret",
+            timeout=1.0,
+        )
 
 
 async def _load_raw_provider(

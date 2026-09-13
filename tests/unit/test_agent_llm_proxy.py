@@ -18,6 +18,8 @@ from tracecat.agent.sandbox.llm_proxy import (
     LLMRoutingPlan,
     LLMSocketProxy,
 )
+from tracecat.network import HttpEgressPolicy
+from tracecat.outbound_http import guarded_async_client
 from tracecat.runtime.errors import (
     RetryDisposition,
     RuntimeErrorKind,
@@ -154,6 +156,98 @@ async def test_forward_request_streams_litellm_response(
     assert ttft_logs[0]["path"] == "/v1/messages"
     assert isinstance(ttft_logs[0]["trace_request_id"], str)
     assert ttft_logs[0]["ttft_ms"] == pytest.approx(25.0)
+
+
+@pytest.mark.anyio
+async def test_forward_request_separates_managed_and_direct_clients(
+    tmp_path: Path,
+) -> None:
+    managed_requests: list[httpx.Request] = []
+    direct_requests: list[httpx.Request] = []
+
+    def managed_handler(request: httpx.Request) -> httpx.Response:
+        managed_requests.append(request)
+        return httpx.Response(200, json={})
+
+    def direct_handler(request: httpx.Request) -> httpx.Response:
+        direct_requests.append(request)
+        return httpx.Response(200, json={})
+
+    proxy = LLMSocketProxy(
+        tmp_path / "llm.sock",
+        _routing_plan(
+            direct_routes={
+                "customer-model": LLMRoute(
+                    base_url="https://provider.example",
+                    model_provider="custom-model-provider",
+                )
+            }
+        ),
+    )
+    proxy._managed_client = httpx.AsyncClient(
+        transport=httpx.MockTransport(managed_handler)
+    )
+    proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(direct_handler))
+
+    try:
+        for body in (b"{}", b'{"model":"customer-model"}'):
+            await proxy._forward_request(
+                {
+                    "method": "POST",
+                    "path": "/v1/chat/completions",
+                    "headers": {"Content-Type": "application/json"},
+                    "body": body,
+                },
+                cast(asyncio.StreamWriter, _FakeWriter()),
+            )
+    finally:
+        await proxy.stop()
+
+    assert [str(request.url) for request in managed_requests] == [
+        "http://litellm:4000/v1/chat/completions"
+    ]
+    assert [str(request.url) for request in direct_requests] == [
+        "https://provider.example/v1/chat/completions"
+    ]
+
+
+@pytest.mark.anyio
+async def test_forward_request_blocks_private_direct_provider(
+    tmp_path: Path,
+) -> None:
+    errors: list[LLMProxyError] = []
+    proxy = LLMSocketProxy(
+        tmp_path / "llm.sock",
+        _routing_plan(
+            direct_routes={
+                "customer-model": LLMRoute(
+                    base_url="http://127.0.0.1:1",
+                    model_provider="custom-model-provider",
+                )
+            }
+        ),
+        errors.append,
+    )
+    proxy._client = guarded_async_client(HttpEgressPolicy(), timeout=1.0)
+    writer = _FakeWriter()
+
+    try:
+        await proxy._forward_request(
+            {
+                "method": "POST",
+                "path": "/v1/chat/completions",
+                "headers": {"Content-Type": "application/json"},
+                "body": b'{"model":"customer-model"}',
+            },
+            cast(asyncio.StreamWriter, writer),
+        )
+    finally:
+        await proxy.stop()
+
+    assert writer.buffer.startswith(b"HTTP/1.1 400 ")
+    assert b"LLM provider URL is not allowed" in writer.buffer
+    assert len(errors) == 1
+    assert errors[0].classification.owner is RuntimeErrorOwner.USER
 
 
 @pytest.mark.anyio
