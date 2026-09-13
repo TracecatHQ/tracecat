@@ -27,6 +27,27 @@ export type WebPreviewContextValue = {
 
 const WebPreviewContext = createContext<WebPreviewContextValue | null>(null)
 
+const SAFE_PREVIEW_PROTOCOLS = new Set(["http:", "https:"])
+
+function getSafePreviewUrl(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined
+  }
+
+  try {
+    const parsedUrl = new URL(value, "https://preview.invalid")
+    if (!SAFE_PREVIEW_PROTOCOLS.has(parsedUrl.protocol)) {
+      return undefined
+    }
+    return value.replace(
+      /[<>"']/g,
+      (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`
+    )
+  } catch {
+    return undefined
+  }
+}
+
 const useWebPreview = () => {
   const context = useContext(WebPreviewContext)
   if (!context) {
@@ -165,7 +186,10 @@ export const WebPreviewUrl = ({
   )
 }
 
-export type WebPreviewBodyProps = ComponentProps<"iframe"> & {
+export type WebPreviewBodyProps = Omit<
+  ComponentProps<"iframe">,
+  "sandbox" | "srcDoc"
+> & {
   loading?: ReactNode
 }
 
@@ -173,6 +197,7 @@ export const WebPreviewBody = ({
   className,
   loading,
   src,
+  title = "Preview",
   ...props
 }: WebPreviewBodyProps) => {
   const { url } = useWebPreview()
@@ -180,11 +205,12 @@ export const WebPreviewBody = ({
   return (
     <div className="flex-1">
       <iframe
-        className={cn("size-full", className)}
-        sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-presentation"
-        src={(src ?? url) || undefined}
-        title="Preview"
         {...props}
+        className={cn("size-full", className)}
+        sandbox="allow-scripts allow-forms allow-popups allow-presentation"
+        src={getSafePreviewUrl(src ?? url)}
+        srcDoc={undefined}
+        title={title}
       />
       {loading}
     </div>
