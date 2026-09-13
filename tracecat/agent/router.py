@@ -131,6 +131,31 @@ async def update_provider_credentials(
         ) from e
 
 
+@router.post("/providers/{provider}/refresh")
+@require_scope("agent:update")
+async def refresh_provider_models(
+    *,
+    provider: str,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+) -> dict[str, int]:
+    """Re-discover models for a built-in gateway provider (Ollama, vLLM, ...)."""
+    service = AgentManagementService(session, role=role)
+    try:
+        count = await service.refresh_gateway_provider_catalog(provider)
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to discover models: {e}",
+        ) from e
+    return {"models_discovered": count}
+
+
 @router.delete("/credentials/{provider}")
 @require_scope("agent:update")
 async def delete_provider_credentials(

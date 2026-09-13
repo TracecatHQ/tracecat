@@ -85,6 +85,7 @@
               "agents/workspace-chat",
               "agents/ai-action",
               "agents/ai-agent",
+              "agents/llm-providers",
               "agents/custom-llm-providers",
               "agents/skills",
               "agents/secrets-variables"
