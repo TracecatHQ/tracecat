@@ -109,6 +109,20 @@ const customProviders = [
 
 const modelReadError = new Error("request failed") as ApiError
 
+const builtInDefaultSelection: DefaultModelSelection = {
+  catalog_id: "catalog-default",
+  model_name: "gpt-5.5",
+  model_provider: "openai",
+  custom_provider_id: null,
+}
+
+const customDefaultSelection: DefaultModelSelection = {
+  catalog_id: "catalog-fallback",
+  model_name: "custom-fast",
+  model_provider: "custom",
+  custom_provider_id: "provider-custom",
+}
+
 type SetupMocksOptions = {
   orgScopes?: string[]
   workspaceScopes?: string[]
@@ -166,8 +180,6 @@ function setupMocks({
   jest.mocked(useAgentDefaultModel).mockReturnValue({
     defaultModel,
     defaultModelSelection,
-    legacyDefaultModelLoading: defaultModelLoading,
-    legacyDefaultModelError: defaultModelError,
     defaultModelSelectionLoading,
     defaultModelSelectionError,
     defaultModelLoading: defaultModelLoading || defaultModelSelectionLoading,
@@ -292,7 +304,7 @@ describe("CreateAgentDialog", () => {
 
   it("does not move the preset into a folder without agent add-ons", async () => {
     const user = userEvent.setup()
-    setupMocks({ defaultModel: "custom-fast" })
+    setupMocks({ defaultModelSelection: customDefaultSelection })
     renderCreateAgentDialog("/legacy/")
 
     await user.type(screen.getByLabelText("Name"), "OSS agent")
@@ -310,7 +322,7 @@ describe("CreateAgentDialog", () => {
   it("moves the preset into the current folder with agent add-ons", async () => {
     const user = userEvent.setup()
     mockHasEntitlement.mockImplementation((key) => key === "agent_addons")
-    setupMocks({ defaultModel: "custom-fast" })
+    setupMocks({ defaultModelSelection: customDefaultSelection })
     renderCreateAgentDialog("/legacy/")
 
     await user.type(screen.getByLabelText("Name"), "Enterprise agent")
@@ -490,7 +502,7 @@ describe("CreateAgentDialog", () => {
   })
 
   it("shows a loading state without the create form while the default query loads", () => {
-    setupMocks({ defaultModelLoading: true })
+    setupMocks({ defaultModelSelectionLoading: true })
     renderCreateAgentDialog()
 
     expect(
@@ -519,7 +531,10 @@ describe("CreateAgentDialog", () => {
     "creates a built-in agent despite unavailable provider data: %o",
     async (providerState) => {
       const user = userEvent.setup()
-      setupMocks({ defaultModel: "gpt-5.5", ...providerState })
+      setupMocks({
+        defaultModelSelection: builtInDefaultSelection,
+        ...providerState,
+      })
       renderCreateAgentDialog()
 
       await user.type(screen.getByLabelText("Name"), "Built-in agent")
@@ -539,7 +554,10 @@ describe("CreateAgentDialog", () => {
   )
 
   it("blocks custom-model creation when provider data fails", () => {
-    setupMocks({ defaultModel: "custom-fast", providersError: modelReadError })
+    setupMocks({
+      defaultModelSelection: customDefaultSelection,
+      providersError: modelReadError,
+    })
     renderCreateAgentDialog()
 
     expect(
@@ -550,7 +568,10 @@ describe("CreateAgentDialog", () => {
   })
 
   it("waits for provider data before allowing custom-model creation", () => {
-    setupMocks({ defaultModel: "custom-fast", providersLoading: true })
+    setupMocks({
+      defaultModelSelection: customDefaultSelection,
+      providersLoading: true,
+    })
     renderCreateAgentDialog()
 
     expect(
@@ -561,7 +582,7 @@ describe("CreateAgentDialog", () => {
   })
 
   it("shows a neutral error state when the default model query fails", () => {
-    setupMocks({ defaultModelError: new Error("request failed") })
+    setupMocks({ defaultModelSelectionError: new Error("request failed") })
     renderCreateAgentDialog()
 
     expect(
@@ -617,7 +638,7 @@ describe("CreateAgentDialog", () => {
     expect(screen.queryByLabelText("Name")).not.toBeInTheDocument()
   })
 
-  it("waits for the canonical query before using a legacy default", () => {
+  it("waits for the canonical query even when a legacy default is available", () => {
     setupMocks({
       defaultModel: "gpt-5.5",
       defaultModelSelectionLoading: true,
@@ -666,13 +687,27 @@ describe("CreateAgentDialog", () => {
     })
   })
 
-  it("keeps the create form available while the default is configured by legacy name", () => {
-    setupMocks({ defaultModel: "gpt-5.5" })
-    renderCreateAgentDialog()
+  it.each([
+    ["fails", { defaultModelError: new Error("request failed") }],
+    ["is loading", { defaultModelLoading: true }],
+    ["returns a stale model name", { defaultModel: "gpt-5.5" }],
+  ] as const)(
+    "shows setup guidance when the canonical default is null and the legacy query %s",
+    (_label, legacyState) => {
+      setupMocks({ defaultModelSelection: null, ...legacyState })
+      renderCreateAgentDialog()
 
-    expect(screen.getByLabelText("Name")).toBeInTheDocument()
-    expect(
-      screen.getByRole("button", { name: "Create agent" })
-    ).toBeInTheDocument()
-  })
+      expect(
+        screen.getByRole("heading", { name: "Set up model provider" })
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole("link", { name: "Configure models" })
+      ).toHaveAttribute("href", "/organization/settings/agent")
+      expect(screen.queryByLabelText("Name")).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole("button", { name: "Create agent" })
+      ).not.toBeInTheDocument()
+      expect(mockCreateAgentPreset).not.toHaveBeenCalled()
+    }
+  )
 })

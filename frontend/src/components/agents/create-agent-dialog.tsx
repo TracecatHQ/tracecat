@@ -103,19 +103,10 @@ function CreateAgentDialogContent({
     providersError,
   } = useWorkspaceAgentModels(workspaceId)
   const {
-    defaultModel,
     defaultModelSelection,
-    legacyDefaultModelLoading,
-    legacyDefaultModelError,
-    defaultModelSelectionLoading,
-    defaultModelSelectionError,
+    defaultModelSelectionLoading: defaultModelLoading,
+    defaultModelSelectionError: defaultModelError,
   } = useAgentDefaultModel()
-  const defaultModelLoading =
-    defaultModelSelectionLoading ||
-    (!defaultModelSelection && legacyDefaultModelLoading)
-  const defaultModelError =
-    defaultModelSelectionError ||
-    (!defaultModelSelection && legacyDefaultModelError)
   const { createAgentPreset, createAgentPresetIsPending } =
     useCreateAgentPreset(workspaceId)
   const { moveAgentPreset, moveAgentPresetIsPending } =
@@ -124,18 +115,13 @@ function CreateAgentDialogContent({
   const foldersEnabled = hasEntitlement("agent_addons")
 
   const initialAgentModel = useMemo(() => {
-    if (!models) return null
-    if (defaultModelSelection) {
-      return (
-        models.find((model) => model.id === defaultModelSelection.catalog_id) ??
-        null
-      )
-    }
-    if (defaultModel) {
-      return models.find((model) => model.model_name === defaultModel) ?? null
-    }
-    return null
-  }, [defaultModel, defaultModelSelection, models])
+    // The canonical endpoint also resolves legacy settings; null means no usable default.
+    if (!models || !defaultModelSelection) return null
+    return (
+      models.find((model) => model.id === defaultModelSelection.catalog_id) ??
+      null
+    )
+  }, [defaultModelSelection, models])
 
   const needsCustomProvider = Boolean(initialAgentModel?.custom_provider_id)
   const modelsLoading =

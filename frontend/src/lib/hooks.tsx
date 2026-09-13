@@ -5951,8 +5951,6 @@ export function useAgentDefaultModel() {
   return {
     defaultModel,
     defaultModelSelection,
-    legacyDefaultModelLoading: defaultModelLoading,
-    legacyDefaultModelError: defaultModelError,
     defaultModelSelectionLoading,
     defaultModelSelectionError,
     defaultModelLoading: defaultModelLoading || defaultModelSelectionLoading,
