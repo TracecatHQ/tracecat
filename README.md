@@ -25,17 +25,38 @@
 
 ## Features
 
-### Key Capabilities
+<p align="center">Agents, cases, workflows, and tables live in one workspace, so every investigation and every automation shares the same data.</p>
 
-- **Agents and skills**: build custom agents with prompts, tools, MCP, and skills
-- **Case management**: track, automate, and resolve incidents with agents
-- **Workflows**: orchestration engine with complex control flow (if-conditions, loops) and durable execution (Temporal)
-- **Lookup tables**: store and query structured data
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="img/readme/agents.gif" alt="An agent preset in Tracecat with its tools and skills, then a chat where the agent investigates a case by calling tools" width="100%"/>
+      <p align="center"><b>Agents and skills</b> — build custom agents with prompts, tools, MCP, and skills</p>
+    </td>
+    <td width="50%" valign="top">
+      <img src="img/readme/cases.gif" alt="The Tracecat case list, then a case with an agent-written verdict, timeline, IoCs, and evidence" width="100%"/>
+      <p align="center"><b>Case management</b> — track, automate, and resolve incidents with agents</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="img/readme/workflows.gif" alt="A workflow DAG in the Tracecat builder, zoomed out to show every step, then an agent step opened for editing" width="100%"/>
+      <p align="center"><b>Workflows</b> — durable orchestration with if-conditions, loops, and Temporal</p>
+    </td>
+    <td width="50%" valign="top">
+      <img src="img/readme/tables.gif" alt="Tracecat workspace tables, opening an entities table and an entity observations table" width="100%"/>
+      <p align="center"><b>Tables</b> — store and query structured data</p>
+    </td>
+  </tr>
+</table>
+
+### More Capabilities
+
 - **Integrations**: over 100+ pre-built connectors to enterprise tools via HTTP, SMTP, gRPC, OAuth, and more
 - **Tracecat MCP**: turns prompts into automations through Claude Code, Codex, Copilot, etc
 - **Pre-built MCP servers**: over 100+ Tracecat hosted MCP servers for security operations
 - **Custom registry**: sync custom Python scripts from your Git repo into Tracecat
-- **Deploy anywhere**: sign up for Tracecat Cloud, or self-host with Docker, AWS Fargate, or Kubernetes. Runs fully [air-gapped](https://docs.tracecat.com/self-hosting/air-gapped). 
+- **Deploy anywhere**: sign up for Tracecat Cloud, or self-host with Docker, AWS Fargate, or Kubernetes. Runs fully [air-gapped](https://docs.tracecat.com/self-hosting/air-gapped).
 
 ### Other OSS Highlights
 
