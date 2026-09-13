@@ -106,6 +106,8 @@ type SetupMocksOptions = {
   defaultModelSelection?: DefaultModelSelection | null
   defaultModelLoading?: boolean
   defaultModelError?: Error | null
+  defaultModelSelectionLoading?: boolean
+  defaultModelSelectionError?: Error | null
   models?: typeof catalogModels
   modelsLoading?: boolean
   modelsError?: ApiError | null
@@ -120,6 +122,8 @@ function setupMocks({
   models = catalogModels,
   defaultModelLoading = false,
   defaultModelError = null,
+  defaultModelSelectionLoading = false,
+  defaultModelSelectionError = null,
   modelsLoading = false,
   modelsError = null,
   providersLoading = false,
@@ -151,8 +155,12 @@ function setupMocks({
   jest.mocked(useAgentDefaultModel).mockReturnValue({
     defaultModel,
     defaultModelSelection,
-    defaultModelLoading,
-    defaultModelError,
+    legacyDefaultModelLoading: defaultModelLoading,
+    legacyDefaultModelError: defaultModelError,
+    defaultModelSelectionLoading,
+    defaultModelSelectionError,
+    defaultModelLoading: defaultModelLoading || defaultModelSelectionLoading,
+    defaultModelError: defaultModelError ?? defaultModelSelectionError,
     updateDefaultModel: jest.fn(),
     isUpdating: false,
     updateError: null,
@@ -430,6 +438,66 @@ describe("CreateAgentDialog", () => {
 
     expect(
       screen.getByRole("heading", { name: "Unable to load models" })
+    ).toBeInTheDocument()
+    expect(screen.queryByLabelText("Name")).not.toBeInTheDocument()
+  })
+
+  it.each([
+    ["fails", { defaultModelError: new Error("request failed") }],
+    ["is loading", { defaultModelLoading: true }],
+  ] as const)(
+    "creates with the canonical default when the legacy query %s",
+    async (_label, legacyState) => {
+      const user = userEvent.setup()
+      setupMocks({
+        defaultModelSelection: {
+          catalog_id: "catalog-default",
+          model_name: "gpt-5.5",
+          model_provider: "openai",
+          custom_provider_id: null,
+        },
+        ...legacyState,
+      })
+      renderCreateAgentDialog()
+
+      await user.type(screen.getByLabelText("Name"), "Canonical default agent")
+      await user.click(screen.getByRole("button", { name: "Create agent" }))
+
+      await waitFor(() => {
+        expect(mockCreateAgentPreset).toHaveBeenCalledWith({
+          name: "Canonical default agent",
+          model_provider: "openai",
+          model_name: "gpt-5.5",
+          catalog_id: "catalog-default",
+          base_url: undefined,
+          description: undefined,
+        })
+      })
+    }
+  )
+
+  it("blocks creation when the canonical query fails despite a legacy default", () => {
+    setupMocks({
+      defaultModel: "gpt-5.5",
+      defaultModelSelectionError: new Error("request failed"),
+    })
+    renderCreateAgentDialog()
+
+    expect(
+      screen.getByRole("heading", { name: "Unable to load models" })
+    ).toBeInTheDocument()
+    expect(screen.queryByLabelText("Name")).not.toBeInTheDocument()
+  })
+
+  it("waits for the canonical query before using a legacy default", () => {
+    setupMocks({
+      defaultModel: "gpt-5.5",
+      defaultModelSelectionLoading: true,
+    })
+    renderCreateAgentDialog()
+
+    expect(
+      screen.getByRole("heading", { name: "Loading models" })
     ).toBeInTheDocument()
     expect(screen.queryByLabelText("Name")).not.toBeInTheDocument()
   })
