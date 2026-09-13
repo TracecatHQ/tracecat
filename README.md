@@ -74,15 +74,14 @@ Sandboxed-by-default with [`nsjail`](https://github.com/google/nsjail) and run o
 
 > [!NOTE]
 > Tracecat Enterprise is available as managed Cloud with US or EU hosting, or as a self-hosted deployment with dedicated support.
-> [Book a demo today](https://cal.com/team/tracecat).
+> [Book a demo today](https://www.tracecat.com/contact).
 
-This repo is available under the [AGPL-3.0 license](https://github.com/TracecatHQ/tracecat/blob/main/LICENSE) with the following exceptions:
+This repo is available under the [AGPL-3.0 license](https://github.com/TracecatHQ/tracecat/blob/main/LICENSE) except for:
 
-- The `packages/tracecat-ee` directory and code that gates `ee` features across the repo are under Tracecat's paid EE (Enterprise Edition) license. Production use requires a valid Tracecat Enterprise License.
+- Code under the `packages/tracecat-ee` directory
+- Code that gates `ee` features
 
-Code that fall under the above exceptions must not be redistributed, sold, or otherwise commercialized without permission.
-
-*If you are interested in Tracecat's Enterprise License or managed Cloud offering, check out [our website](https://tracecat.com) or [book a meeting with us](https://cal.com/team/tracecat).*
+These exceptions are fall under Tracecat's paid EE (Enterprise Edition) license. Code that fall under the above exceptions must not be redistributed, sold, used in production, or otherwise commercialized without permission.
 
 ## Community
 
