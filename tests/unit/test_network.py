@@ -201,6 +201,21 @@ class _SyncRecordingBackend(httpcore.NetworkBackend):
         return None
 
 
+class _SyncAlwaysTimeoutBackend(_SyncRecordingBackend):
+    """Fail every numeric address with a synchronous connect timeout."""
+
+    def connect_tcp(
+        self,
+        host: str,
+        port: int,
+        timeout: float | None = None,
+        local_address: str | None = None,
+        socket_options: Iterable[httpcore.SOCKET_OPTION] | None = None,
+    ) -> httpcore.NetworkStream:
+        self.hosts.append(host)
+        raise httpcore.ConnectTimeout("Synthetic address timeout")
+
+
 class _FirstAddressTimeoutBackend(_RecordingBackend):
     """Spend the first address budget, then connect to the fallback."""
 
@@ -381,6 +396,22 @@ async def test_guarded_transport_preserves_exhausted_connect_timeout() -> None:
     async with guarded_async_client(resolver=resolver, backend=backend) as client:
         with pytest.raises(httpx.ConnectTimeout, match="Connection timed out"):
             await client.get("http://timeout.example.test/resource")
+
+    assert backend.hosts == ["93.184.216.34", "142.250.72.14"]
+
+
+def test_sync_guarded_transport_preserves_exhausted_connect_timeout() -> None:
+    backend = _SyncAlwaysTimeoutBackend()
+
+    def resolver(host: str, port: int) -> tuple[SocketInfo, ...]:
+        return (
+            _socket_info("93.184.216.34"),
+            _socket_info("142.250.72.14"),
+        )
+
+    with guarded_client(resolver=resolver, backend=backend) as client:
+        with pytest.raises(httpx.ConnectTimeout, match="Connection timed out"):
+            client.get("http://timeout.example.test/resource")
 
     assert backend.hosts == ["93.184.216.34", "142.250.72.14"]
 
