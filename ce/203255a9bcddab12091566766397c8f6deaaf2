@@ -1,0 +1,21 @@
+README.md
+  s_dc44f2868be58e::t_63cee29f1de19a 44
+  s_dc44f2868be58e::t_ef47674b4d039b 28-43,45-53
+  s_dc44f2868be58e::t_a2aa7e005c8c86 59
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ce203255a9bcddab12091566766397c8f6deaaf2",
+  "prompts": {},
+  "sessions": {
+    "s_dc44f2868be58e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cb136825-4c47-4a77-896f-17b198986e00",
+        "model": "unknown"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
