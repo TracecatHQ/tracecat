@@ -1,0 +1,24 @@
+tracecat/integrations/router.py
+  s_388fff4aaf5212::t_46f33b9fe57b13 75,771,782
+tracecat/integrations/service.py
+  s_388fff4aaf5212::t_06c5ebf985fa4b 2060-2063
+tests/unit/test_integrations_service.py
+  s_388fff4aaf5212::t_ac0170d23801b6 28,35-37,2087-2103,2105-2127,2129-2131,2133-2134,2138-2149,2151-2206,2208,2210,2212,2214-2215,2217,2231
+  s_388fff4aaf5212::t_06c5ebf985fa4b 2104,2128,2132,2135-2137,2150,2207,2209,2211,2213,2216,2218-2230,2232-2235
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2102c145be355548789d93d08b324c8f11f6476b",
+  "prompts": {},
+  "sessions": {
+    "s_388fff4aaf5212": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09b54-52c8-7d92-934c-882473f1ae27",
+        "model": "gpt-daybreak-blue-latest"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}

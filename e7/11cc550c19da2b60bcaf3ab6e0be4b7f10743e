@@ -1,0 +1,31 @@
+tracecat/outbound_http.py
+  s_388fff4aaf5212::t_06840d76913dc4 110-111
+tests/unit/test_network.py
+  s_388fff4aaf5212::t_06840d76913dc4 204-218,403-414
+  s_388fff4aaf5212::t_879215eeb565d4 415-417
+  s_d29a18a8305c37::t_5828f5e6d99412 418
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e711cc550c19da2b60bcaf3ab6e0be4b7f10743e",
+  "prompts": {},
+  "sessions": {
+    "s_388fff4aaf5212": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09b54-52c8-7d92-934c-882473f1ae27",
+        "model": "gpt-daybreak-blue-latest"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    },
+    "s_d29a18a8305c37": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09b59-3810-7b23-a63b-848f8e195ce0",
+        "model": "unknown"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
