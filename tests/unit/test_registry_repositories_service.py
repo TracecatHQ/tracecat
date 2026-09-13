@@ -183,10 +183,6 @@ async def test_temporal_git_sync_skips_api_ssh_context(
         return_value=actions_service,
     )
     mocker.patch(
-        "tracecat.registry.repositories.service.check_entitlement",
-        mocker.AsyncMock(),
-    )
-    mocker.patch(
         "tracecat.registry.repositories.service.get_setting",
         mocker.AsyncMock(side_effect=["registry", {"git.example.test"}]),
     )
@@ -233,10 +229,6 @@ async def test_direct_git_sync_preserves_api_ssh_context(
     mocker.patch(
         "tracecat.registry.actions.service.RegistryActionsService",
         return_value=actions_service,
-    )
-    mocker.patch(
-        "tracecat.registry.repositories.service.check_entitlement",
-        mocker.AsyncMock(),
     )
     mocker.patch(
         "tracecat.registry.repositories.service.get_setting",
