@@ -1,0 +1,36 @@
+tracecat/expressions/patterns.py
+  s_004de9188375fd::t_af4e895f5fa1f5 8-9
+tests/unit/test_expressions.py
+  s_004de9188375fd::t_af4e895f5fa1f5 114-119
+frontend/src/components/ai-elements/web-preview.test.tsx
+  s_004de9188375fd::t_b1cdf301b13783 23,27-28
+  s_004de9188375fd::t_0e84923d8eee03 24-26
+  s_004de9188375fd::t_af4e895f5fa1f5 1-22,29-48
+tracecat/cases/mentions.py
+  s_004de9188375fd::t_0e84923d8eee03 14-17
+  s_004de9188375fd::t_0a95610b2b4f1b 18-20
+  s_004de9188375fd::t_af4e895f5fa1f5 33-35
+frontend/src/components/ai-elements/web-preview.tsx
+  s_004de9188375fd::t_8054980249dbea 44
+  s_004de9188375fd::t_af4e895f5fa1f5 30-38,46-50,189-192,200,209-213
+  s_004de9188375fd::t_b1cdf301b13783 39-41
+  s_004de9188375fd::t_0e84923d8eee03 42-43,45
+tests/unit/test_case_comment_mentions.py
+  s_004de9188375fd::t_af4e895f5fa1f5 134-140
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "edcf23ef5ac7943518b0f4e9a6ccdace8dc8fd15",
+  "prompts": {},
+  "sessions": {
+    "s_004de9188375fd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09c08-0640-7113-8f43-f31cd7b8352b",
+        "model": "gpt-daybreak-blue-latest"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
