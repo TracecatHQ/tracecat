@@ -168,7 +168,6 @@ class TierService(BaseService):
             return tier_entitlements.get(key, default)
 
         return EffectiveEntitlements(
-            custom_registry=resolve_entitlement("custom_registry"),
             git_sync=resolve_entitlement("git_sync"),
             agent_addons=resolve_entitlement("agent_addons"),
             case_addons=resolve_entitlement("case_addons"),

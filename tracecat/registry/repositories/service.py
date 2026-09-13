@@ -11,7 +11,6 @@ from tracecat import config
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import RegistryRepository, RegistryVersion
 from tracecat.exceptions import RegistryError, RegistryNotFound
-from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.repositories.schemas import (
     RegistryRepositoryCreate,
     RegistryRepositorySync,
@@ -22,7 +21,6 @@ from tracecat.registry.versions.service import RegistryVersionsService
 from tracecat.service import BaseOrgService
 from tracecat.settings.service import get_setting
 from tracecat.ssh import ssh_context
-from tracecat.tiers.entitlements import Entitlement, check_entitlement
 
 
 class RegistryReposService(BaseOrgService):
@@ -105,7 +103,6 @@ class RegistryReposService(BaseOrgService):
                 caller's organization. Surfaced as the same 404 the route
                 returns for missing IDs so this defense-in-depth check
                 cannot be used to probe for cross-org repository IDs.
-            EntitlementRequired: for non-default origins without the entitlement.
             RegistryActionValidationError, TracecatCredentialsNotFoundError:
                 surfaced from the underlying sync.
         """
@@ -122,11 +119,6 @@ class RegistryReposService(BaseOrgService):
         # the same as "not found" so this check cannot enable probing.
         if repository.organization_id != self.organization_id:
             raise RegistryNotFound("Registry repository not found")
-
-        if repository.origin != DEFAULT_REGISTRY_ORIGIN:
-            await check_entitlement(
-                self.session, self.role, Entitlement.CUSTOM_REGISTRY
-            )
 
         actions_service = RegistryActionsService(self.session, self.role)
         last_synced_at = datetime.now(UTC)

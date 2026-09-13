@@ -11,8 +11,6 @@ from tracecat.registry.constants import DEFAULT_LOCAL_REGISTRY_ORIGIN
 from tracecat.registry.repositories.schemas import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.settings.service import get_setting
-from tracecat.tiers.access import is_org_entitled
-from tracecat.tiers.enums import Entitlement
 
 
 async def ensure_org_repositories(session: AsyncSession, role: Role) -> None:
@@ -35,22 +33,11 @@ async def ensure_org_repositories(session: AsyncSession, role: Role) -> None:
     needs_custom_registry = config.TRACECAT__LOCAL_REPOSITORY_ENABLED or bool(
         remote_url
     )
-    if needs_custom_registry:
-        if role.organization_id is None:
-            logger.warning(
-                "Skipping custom repository setup due to missing organization context"
-            )
-            return
-        entitled = await is_org_entitled(
-            session, role.organization_id, Entitlement.CUSTOM_REGISTRY
+    if needs_custom_registry and role.organization_id is None:
+        logger.warning(
+            "Skipping custom repository setup due to missing organization context"
         )
-        if not entitled:
-            logger.info(
-                "Skipping custom repository setup because entitlement is disabled",
-                organization_id=role.organization_id,
-                entitlement=Entitlement.CUSTOM_REGISTRY.value,
-            )
-            return
+        return
 
     repos_service = RegistryReposService(session, role=role)
 

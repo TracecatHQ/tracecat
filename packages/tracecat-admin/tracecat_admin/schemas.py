@@ -145,7 +145,6 @@ class OrgRegistryVersionPromoteResponse(BaseModel):
 class EntitlementsDict(BaseModel):
     """Feature entitlements for a tier."""
 
-    custom_registry: bool = False
     sso: bool = False
     git_sync: bool = False
 

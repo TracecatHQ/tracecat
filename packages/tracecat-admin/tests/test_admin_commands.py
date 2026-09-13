@@ -12,6 +12,8 @@ import respx
 from httpx import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_admin.cli import app
+from tracecat_admin.commands.tiers import _parse_entitlements
+from typer import BadParameter
 from typer.testing import CliRunner
 
 from .conftest import API_URL
@@ -253,7 +255,7 @@ class TestCreateDevUser:
                 workspace_id=str(uuid.uuid4()),
                 default_tier_id=str(uuid.uuid4()),
                 default_tier_entitlements={
-                    "custom_registry": True,
+                    "git_sync": True,
                     "case_addons": True,
                 },
                 org_role=kwargs["org_role"],
@@ -280,7 +282,7 @@ class TestCreateDevUser:
                 "--superuser-password",
                 "password1234",
                 "--default-tier-entitlements",
-                "custom_registry,case_addons",
+                "git_sync,case_addons",
                 "--org-role",
                 "organization-admin",
                 "--workspace-role",
@@ -294,7 +296,7 @@ class TestCreateDevUser:
         )
         assert "[dev-seed] Created dev user 'dev@example.com'" in result.stdout
         assert (
-            "[dev-seed] Default tier entitlements: custom_registry, case_addons"
+            "[dev-seed] Default tier entitlements: git_sync, case_addons"
             in result.stdout
         )
         assert captured == {
@@ -302,7 +304,7 @@ class TestCreateDevUser:
             "password": "password1234",
             "superuser_email": "test@tracecat.com",
             "superuser_password": "password1234",
-            "default_tier_entitlements": "custom_registry,case_addons",
+            "default_tier_entitlements": "git_sync,case_addons",
             "org_role": "organization-admin",
             "workspace_role": "workspace-editor",
         }
@@ -353,12 +355,17 @@ class TestCreateDevUser:
         assert all(resolve_default_tier_entitlements("all").values())
         assert not any(resolve_default_tier_entitlements("none").values())
 
-        selected = resolve_default_tier_entitlements("custom_registry,case-addons")
-        assert selected["custom_registry"] is True
+        selected = resolve_default_tier_entitlements("git_sync,case-addons")
+        assert selected["git_sync"] is True
         assert selected["case_addons"] is True
         assert {name for name in ALL_ENTITLEMENTS if not selected[name]} == set(
             ALL_ENTITLEMENTS
-        ) - {"custom_registry", "case_addons"}
+        ) - {"git_sync", "case_addons"}
+
+    def test_custom_registry_is_not_an_entitlement(self) -> None:
+        """The removed custom registry key cannot be configured as a tier entitlement."""
+        with pytest.raises(BadParameter, match="core functionality"):
+            _parse_entitlements(["custom_registry=true"])
 
     @pytest.mark.anyio
     async def test_role_assignment_lookup_is_organization_scoped(self) -> None:

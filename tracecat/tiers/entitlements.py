@@ -21,7 +21,7 @@ class EntitlementService:
     Usage:
         async with TierService.with_session(role=role) as tier_svc:
             entitlement_svc = EntitlementService(tier_svc)
-            await entitlement_svc.check_entitlement(org_id, Entitlement.CUSTOM_REGISTRY)
+            await entitlement_svc.check_entitlement(org_id, Entitlement.GIT_SYNC)
     """
 
     def __init__(self, tier_service: TierService):

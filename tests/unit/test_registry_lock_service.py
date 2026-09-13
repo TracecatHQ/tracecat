@@ -9,8 +9,6 @@ This test suite validates:
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
-
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,7 +23,6 @@ from tracecat.db.models import (
 from tracecat.dsl.enums import PlatformAction
 from tracecat.exceptions import (
     BuiltinRegistryHasNoSelectionError,
-    EntitlementRequired,
     RegistryLockInvalidDataError,
 )
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
@@ -306,11 +303,11 @@ async def test_resolve_lock_org_overrides_platform(
 
 
 @pytest.mark.anyio
-async def test_resolve_lock_requires_entitlement_for_custom_only_action(
+async def test_resolve_lock_includes_custom_only_action(
     svc_role: Role,
     session: AsyncSession,
 ) -> None:
-    """Custom-only actions should require custom registry entitlement."""
+    """Custom-only actions are available to every organization."""
     org_repo = RegistryRepository(
         organization_id=svc_role.organization_id,
         origin="git+ssh://git@github.com/acme/custom.git",
@@ -333,25 +330,20 @@ async def test_resolve_lock_requires_entitlement_for_custom_only_action(
     await session.commit()
 
     service = RegistryLockService(session, role=svc_role)
-    service.has_entitlement = AsyncMock(return_value=False)  # pyright: ignore[reportAttributeAccessIssue]
+    lock = await service.resolve_lock_with_bindings({"tools.custom.only_action"})
 
-    with pytest.raises(EntitlementRequired, match="custom_registry") as exc_info:
-        await service.resolve_lock_with_bindings({"tools.custom.only_action"})
-
-    assert exc_info.value.detail is not None
-    assert exc_info.value.detail["entitlement"] == "custom_registry"
-    assert exc_info.value.detail["unavailable_actions"] == ["tools.custom.only_action"]
-    assert "tools.custom.only_action" in str(exc_info.value)
-    assert "\n\nUnavailable actions on your current plan:\n-" in str(exc_info.value)
-    assert "git+ssh://git@github.com/acme/custom.git" not in str(exc_info.value)
+    assert lock.origins["git+ssh://git@github.com/acme/custom.git"] == "1.0.0"
+    assert lock.actions["tools.custom.only_action"] == (
+        "git+ssh://git@github.com/acme/custom.git"
+    )
 
 
 @pytest.mark.anyio
-async def test_resolve_lock_prefers_platform_when_custom_registry_disabled(
+async def test_resolve_lock_prefers_org_override(
     svc_role: Role,
     session: AsyncSession,
 ) -> None:
-    """When custom registry is disabled, org-scoped overrides should be ignored."""
+    """Org-scoped overrides remain available for the same registry origin."""
     origin = "shared_origin"
     action_name = "shared.action"
 
@@ -391,11 +383,9 @@ async def test_resolve_lock_prefers_platform_when_custom_registry_disabled(
     await session.commit()
 
     service = RegistryLockService(session, role=svc_role)
-    service.has_entitlement = AsyncMock(return_value=False)  # pyright: ignore[reportAttributeAccessIssue]
-
     lock = await service.resolve_lock_with_bindings({action_name})
 
-    assert lock.origins[origin] == "platform-1.0"
+    assert lock.origins[origin] == "org-2.0"
     assert lock.actions[action_name] == origin
 
 
