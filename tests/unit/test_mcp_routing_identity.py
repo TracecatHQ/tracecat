@@ -50,6 +50,12 @@ def db_encryption_key(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+@pytest.fixture(autouse=True)
+def allow_private_mcp_hosts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Skip DNS-backed egress checks so fixtures can use unresolvable hosts."""
+    monkeypatch.setattr(config, "TRACECAT__MCP_ALLOW_PRIVATE_HOSTS", True)
+
+
 @pytest.mark.anyio
 @pytest.mark.parametrize(
     "slugs", [("alpha", "beta"), ("user-tracecat-registry", "user-tracecat_registry")]
