@@ -1,10 +1,12 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useMemo } from "react"
 import { useForm } from "react-hook-form"
 import z from "zod"
+import { Spinner } from "@/components/loading/spinner"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -24,7 +26,6 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
-import { toast } from "@/components/ui/use-toast"
 import {
   useCreateAgentPreset,
   useMoveAgentPreset,
@@ -76,10 +77,14 @@ function CreateAgentDialogContent({
 }) {
   const workspaceId = useWorkspaceId()
   const router = useRouter()
-  const { models, providers, modelsLoading } =
+  const { models, providers, modelsLoading, modelsError } =
     useWorkspaceAgentModels(workspaceId)
-  const { defaultModel, defaultModelSelection, defaultModelLoading } =
-    useAgentDefaultModel()
+  const {
+    defaultModel,
+    defaultModelSelection,
+    defaultModelLoading,
+    defaultModelError,
+  } = useAgentDefaultModel()
   const { createAgentPreset, createAgentPresetIsPending } =
     useCreateAgentPreset(workspaceId)
   const { moveAgentPreset, moveAgentPresetIsPending } =
@@ -89,16 +94,16 @@ function CreateAgentDialogContent({
 
   const initialAgentModel = useMemo(() => {
     if (!models) return null
-    return (
-      (defaultModelSelection
-        ? models.find((model) => model.id === defaultModelSelection.catalog_id)
-        : null) ??
-      (defaultModel
-        ? models.find((model) => model.model_name === defaultModel)
-        : null) ??
-      models[0] ??
-      null
-    )
+    if (defaultModelSelection) {
+      return (
+        models.find((model) => model.id === defaultModelSelection.catalog_id) ??
+        null
+      )
+    }
+    if (defaultModel) {
+      return models.find((model) => model.model_name === defaultModel) ?? null
+    }
+    return null
   }, [defaultModel, defaultModelSelection, models])
 
   const initialAgentModelBaseUrl = useMemo(() => {
@@ -120,12 +125,6 @@ function CreateAgentDialogContent({
 
   const handleSubmit = async (values: CreateAgentFormValues) => {
     if (!initialAgentModel) {
-      toast({
-        title: "Agent model required",
-        description:
-          "Enable an agent model in organization settings before creating an agent.",
-        variant: "destructive",
-      })
       return
     }
 
@@ -158,6 +157,60 @@ function CreateAgentDialogContent({
     } catch (error) {
       console.error("Failed to create agent:", error)
     }
+  }
+
+  if (modelsError || defaultModelError) {
+    return (
+      <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Unable to load models</DialogTitle>
+          <DialogDescription>
+            We couldn&apos;t load the models available for this workspace.
+            Please try again later.
+          </DialogDescription>
+        </DialogHeader>
+      </DialogContent>
+    )
+  }
+
+  if (modelsLoading || defaultModelLoading || !models) {
+    return (
+      <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Loading models</DialogTitle>
+          <DialogDescription>
+            Loading the models available for this workspace.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex justify-center py-4" aria-label="Loading models">
+          <Spinner className="size-6" />
+        </div>
+      </DialogContent>
+    )
+  }
+
+  if (!initialAgentModel) {
+    return (
+      <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Set up model provider</DialogTitle>
+          <DialogDescription>
+            Choose a default model in organization settings before creating an
+            agent.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button asChild variant="outline">
+            <Link
+              href="/organization/settings/agent"
+              onClick={() => onOpenChange(false)}
+            >
+              Configure models
+            </Link>
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    )
   }
 
   return (

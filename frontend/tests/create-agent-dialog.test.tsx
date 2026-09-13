@@ -3,8 +3,8 @@ import userEvent from "@testing-library/user-event"
 import { useRouter } from "next/navigation"
 import type { ReactNode } from "react"
 import type { DefaultModelSelection } from "@/client"
+import type { ApiError } from "@/client/core/ApiError"
 import { CreateAgentDialog } from "@/components/agents/create-agent-dialog"
-import { toast } from "@/components/ui/use-toast"
 import {
   useCreateAgentPreset,
   useMoveAgentPreset,
@@ -38,10 +38,6 @@ jest.mock("@/components/ui/dialog", () => ({
     <div>{children}</div>
   ),
   DialogTitle: ({ children }: { children: ReactNode }) => <h2>{children}</h2>,
-}))
-
-jest.mock("@/components/ui/use-toast", () => ({
-  toast: jest.fn(),
 }))
 
 jest.mock("@/hooks/use-agent-presets", () => ({
@@ -97,15 +93,27 @@ const customProviders = [
   },
 ]
 
+const modelReadError = new Error("request failed") as ApiError
+
+type SetupMocksOptions = {
+  defaultModel?: string | null
+  defaultModelSelection?: DefaultModelSelection | null
+  defaultModelLoading?: boolean
+  defaultModelError?: Error | null
+  models?: typeof catalogModels
+  modelsLoading?: boolean
+  modelsError?: ApiError | null
+}
+
 function setupMocks({
   defaultModel = null,
   defaultModelSelection = null,
   models = catalogModels,
-}: {
-  defaultModel?: string | null
-  defaultModelSelection?: DefaultModelSelection | null
-  models?: typeof catalogModels
-} = {}) {
+  defaultModelLoading = false,
+  defaultModelError = null,
+  modelsLoading = false,
+  modelsError = null,
+}: SetupMocksOptions = {}) {
   jest.mocked(useRouter).mockReturnValue({
     back: jest.fn(),
     forward: jest.fn(),
@@ -117,14 +125,14 @@ function setupMocks({
   jest.mocked(useWorkspaceAgentModels).mockReturnValue({
     models,
     providers: customProviders,
-    modelsLoading: false,
-    modelsError: null,
+    modelsLoading,
+    modelsError,
   })
   jest.mocked(useAgentDefaultModel).mockReturnValue({
     defaultModel,
     defaultModelSelection,
-    defaultModelLoading: false,
-    defaultModelError: null,
+    defaultModelLoading,
+    defaultModelError,
     updateDefaultModel: jest.fn(),
     isUpdating: false,
     updateError: null,
@@ -162,32 +170,29 @@ describe("CreateAgentDialog", () => {
     mockMoveAgentPreset.mockResolvedValue(undefined)
   })
 
-  it("falls back to the first enabled workspace model when no default is set", async () => {
+  it("requires a configured default model even when workspace models are available", async () => {
     const user = userEvent.setup()
     setupMocks()
     renderCreateAgentDialog()
 
-    await user.type(screen.getByLabelText("Name"), "QA agent")
-    await user.type(
-      screen.getByLabelText("Description (optional)"),
-      "Created during QA"
-    )
-    await user.click(screen.getByRole("button", { name: "Create agent" }))
-
-    await waitFor(() => {
-      expect(mockCreateAgentPreset).toHaveBeenCalledWith({
-        name: "QA agent",
-        model_provider: "custom",
-        model_name: "custom-fast",
-        catalog_id: "catalog-fallback",
-        base_url: "https://models.example.com/v1",
-        description: "Created during QA",
-      })
-      expect(mockOnOpenChange).toHaveBeenCalledWith(false)
-      expect(mockRouterPush).toHaveBeenCalledWith(
-        "/workspaces/workspace-1/agents/preset-1"
+    expect(
+      screen.getByRole("heading", { name: "Set up model provider" })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        "Choose a default model in organization settings before creating an agent."
       )
-    })
+    ).toBeInTheDocument()
+    expect(screen.queryByLabelText("Name")).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Create agent" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole("link", { name: "Configure models" })
+    ).toHaveAttribute("href", "/organization/settings/agent")
+
+    await user.click(screen.getByRole("link", { name: "Configure models" }))
+    expect(mockOnOpenChange).toHaveBeenCalledWith(false)
   })
 
   it("uses the configured default model when it is enabled for the workspace", async () => {
@@ -219,7 +224,7 @@ describe("CreateAgentDialog", () => {
 
   it("does not move the preset into a folder without agent add-ons", async () => {
     const user = userEvent.setup()
-    setupMocks()
+    setupMocks({ defaultModel: "custom-fast" })
     renderCreateAgentDialog("/legacy/")
 
     await user.type(screen.getByLabelText("Name"), "OSS agent")
@@ -237,7 +242,7 @@ describe("CreateAgentDialog", () => {
   it("moves the preset into the current folder with agent add-ons", async () => {
     const user = userEvent.setup()
     mockHasEntitlement.mockImplementation((key) => key === "agent_addons")
-    setupMocks()
+    setupMocks({ defaultModel: "custom-fast" })
     renderCreateAgentDialog("/legacy/")
 
     await user.type(screen.getByLabelText("Name"), "Enterprise agent")
@@ -251,22 +256,132 @@ describe("CreateAgentDialog", () => {
     })
   })
 
-  it("shows a destructive toast when no workspace models are enabled", async () => {
-    const user = userEvent.setup()
+  it("shows setup guidance when no workspace models are enabled", () => {
     setupMocks({ models: [] })
     renderCreateAgentDialog()
 
-    await user.type(screen.getByLabelText("Name"), "No model agent")
+    expect(
+      screen.getByRole("heading", { name: "Set up model provider" })
+    ).toBeInTheDocument()
+    expect(screen.queryByLabelText("Name")).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Create agent" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole("link", { name: "Configure models" })
+    ).toBeInTheDocument()
+    expect(mockCreateAgentPreset).not.toHaveBeenCalled()
+  })
+
+  it("does not fall back to a legacy model name when the selected catalog model is unavailable", () => {
+    setupMocks({
+      defaultModel: "gpt-5.5",
+      defaultModelSelection: {
+        catalog_id: "catalog-missing",
+        model_name: "gpt-5.5",
+        model_provider: "openai",
+        custom_provider_id: null,
+      },
+    })
+    renderCreateAgentDialog()
+
+    expect(
+      screen.getByRole("heading", { name: "Set up model provider" })
+    ).toBeInTheDocument()
+    expect(screen.queryByLabelText("Name")).not.toBeInTheDocument()
+  })
+
+  it("shows a loading state without the create form while model queries load", () => {
+    setupMocks({ modelsLoading: true })
+    renderCreateAgentDialog()
+
+    expect(
+      screen.getByRole("heading", { name: "Loading models" })
+    ).toBeInTheDocument()
+    expect(screen.queryByLabelText("Name")).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("link", { name: "Configure models" })
+    ).not.toBeInTheDocument()
+  })
+
+  it("shows a loading state without the create form while the default query loads", () => {
+    setupMocks({ defaultModelLoading: true })
+    renderCreateAgentDialog()
+
+    expect(
+      screen.getByRole("heading", { name: "Loading models" })
+    ).toBeInTheDocument()
+    expect(screen.queryByLabelText("Name")).not.toBeInTheDocument()
+  })
+
+  it("shows a neutral error state without setup guidance when a model query fails", () => {
+    setupMocks({ modelsError: modelReadError })
+    renderCreateAgentDialog()
+
+    expect(
+      screen.getByRole("heading", { name: "Unable to load models" })
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("heading", { name: "Set up model provider" })
+    ).not.toBeInTheDocument()
+    expect(screen.queryByLabelText("Name")).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("link", { name: "Configure models" })
+    ).not.toBeInTheDocument()
+  })
+
+  it("shows a neutral error state when the default model query fails", () => {
+    setupMocks({ defaultModelError: new Error("request failed") })
+    renderCreateAgentDialog()
+
+    expect(
+      screen.getByRole("heading", { name: "Unable to load models" })
+    ).toBeInTheDocument()
+    expect(screen.queryByLabelText("Name")).not.toBeInTheDocument()
+  })
+
+  it("does not query models while the dialog is closed", () => {
+    setupMocks()
+    render(<CreateAgentDialog open={false} onOpenChange={mockOnOpenChange} />)
+
+    expect(useWorkspaceAgentModels).not.toHaveBeenCalled()
+    expect(useAgentDefaultModel).not.toHaveBeenCalled()
+  })
+
+  it("uses the configured custom-provider default model and preserves its base URL", async () => {
+    const user = userEvent.setup()
+    setupMocks({
+      defaultModelSelection: {
+        catalog_id: "catalog-fallback",
+        model_name: "custom-fast",
+        model_provider: "custom",
+        custom_provider_id: "provider-custom",
+      },
+    })
+    renderCreateAgentDialog()
+
+    await user.type(screen.getByLabelText("Name"), "Custom agent")
     await user.click(screen.getByRole("button", { name: "Create agent" }))
 
     await waitFor(() => {
-      expect(mockCreateAgentPreset).not.toHaveBeenCalled()
-      expect(toast).toHaveBeenCalledWith({
-        title: "Agent model required",
-        description:
-          "Enable an agent model in organization settings before creating an agent.",
-        variant: "destructive",
+      expect(mockCreateAgentPreset).toHaveBeenCalledWith({
+        name: "Custom agent",
+        model_provider: "custom",
+        model_name: "custom-fast",
+        catalog_id: "catalog-fallback",
+        base_url: "https://models.example.com/v1",
+        description: undefined,
       })
     })
+  })
+
+  it("keeps the create form available while the default is configured by legacy name", () => {
+    setupMocks({ defaultModel: "gpt-5.5" })
+    renderCreateAgentDialog()
+
+    expect(screen.getByLabelText("Name")).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Create agent" })
+    ).toBeInTheDocument()
   })
 })

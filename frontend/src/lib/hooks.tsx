@@ -5920,6 +5920,7 @@ export function useAgentDefaultModel() {
   const {
     data: defaultModelSelection,
     isLoading: defaultModelSelectionLoading,
+    error: defaultModelSelectionError,
   } = useQuery<DefaultModelSelection | null>({
     queryKey: ["agent-default-model-selection"],
     queryFn: async () => await agentGetDefaultModelSelection(),
@@ -5947,7 +5948,7 @@ export function useAgentDefaultModel() {
     defaultModel,
     defaultModelSelection,
     defaultModelLoading: defaultModelLoading || defaultModelSelectionLoading,
-    defaultModelError,
+    defaultModelError: defaultModelError ?? defaultModelSelectionError,
     updateDefaultModel,
     isUpdating,
     updateError,
