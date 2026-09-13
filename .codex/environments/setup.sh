@@ -17,8 +17,14 @@ fi
 
 # Use this checkout's Python version and lockfile, including test/lint and admin
 # tools. Cloning avoids making the virtualenv depend on prunable uv cache symlinks.
-uv sync --locked --python "$(cat .python-version)" --group dev --group admin --link-mode clone
-pnpm -C frontend install --frozen-lockfile
+# The two installs touch disjoint paths (.venv vs frontend/node_modules), so run
+# them concurrently. `set -e` does not cover background jobs, so wait on each.
+uv sync --locked --python "$(cat .python-version)" --group dev --group admin --link-mode clone &
+uv_pid=$!
+pnpm -C frontend install --frozen-lockfile &
+pnpm_pid=$!
+wait "$uv_pid"
+wait "$pnpm_pid"
 
 echo "Tracecat dependencies are ready."
 echo "Use the Start cluster action when you need local services."
