@@ -18,6 +18,9 @@ from typing import Any
 
 import httpx
 
+from tracecat.network import HttpEgressPurpose, configured_http_egress_policy
+from tracecat.outbound_http import GuardedAsyncHTTPTransport
+
 MCP_MAX_RESPONSE_BYTES = 16 * 1024 * 1024
 
 
@@ -102,7 +105,7 @@ def create_bounded_mcp_http_client(
     follow_redirects: bool = True,
     **kwargs: Any,
 ) -> httpx.AsyncClient:
-    """Create an httpx client mirroring MCP defaults with a bounded transport.
+    """Create a byte-capped MCP client with guarded outbound connections.
 
     Matches ``mcp.shared._httpx_utils.McpHttpClientFactory`` so fastmcp
     transports can install it via ``httpx_client_factory``. The extra
@@ -110,27 +113,48 @@ def create_bounded_mcp_http_client(
     passes it positionally-by-name to the factory. Additional keyword arguments
     are forwarded to ``httpx.AsyncClient``.
 
+    Redirects and environment proxies are disabled even when FastMCP requests
+    them. Configured MCP credentials otherwise follow redirects and can reach a
+    second origin before the caller can inspect the response. DNS is validated
+    inside the TCP connection path so a hostname cannot rebind after a separate
+    preflight lookup.
+
     ``httpx`` does not expose a public ``TypedDict`` for these constructor
     options. Keeping this passthrough typed as ``Any`` avoids coupling to
-    private aliases while ``AsyncClient`` still validates the arguments.
+    private aliases while ``AsyncClient`` still validates safe arguments.
     """
+    del follow_redirects
     if timeout is None:
         timeout = httpx.Timeout(30.0, read=300.0)
 
+    bypass_options = {"mounts", "proxy", "transport"}.intersection(kwargs)
+    if bypass_options:
+        names = ", ".join(sorted(bypass_options))
+        raise ValueError(f"MCP HTTP client does not allow transport overrides: {names}")
+
+    # These options belong to the transport when an explicit transport is used.
+    verify = kwargs.pop("verify", True)
+    cert = kwargs.pop("cert", None)
+    http1 = kwargs.pop("http1", True)
+    http2 = kwargs.pop("http2", False)
+    limits = kwargs.pop("limits", None)
+    kwargs.pop("trust_env", None)
+
+    guarded_transport = GuardedAsyncHTTPTransport(
+        configured_http_egress_policy(HttpEgressPurpose.MCP),
+        verify=verify,
+        cert=cert,
+        http1=http1,
+        http2=http2,
+        limits=limits,
+    )
     client = httpx.AsyncClient(
-        follow_redirects=follow_redirects,
+        follow_redirects=False,
         timeout=timeout,
         headers=headers,
         auth=auth,
+        transport=BoundedResponseTransport(guarded_transport),
+        trust_env=False,
         **kwargs,
     )
-    # Wrapping the private transports is the only way to bound httpx's
-    # env-derived default and proxy transports without re-implementing proxy
-    # resolution. A None mount means "no proxy for this pattern" (NO_PROXY);
-    # preserve it. Requests matching a mount bypass _transport, so wrap both.
-    client._transport = BoundedResponseTransport(client._transport)
-    client._mounts = {
-        pattern: BoundedResponseTransport(mount) if mount is not None else None
-        for pattern, mount in client._mounts.items()
-    }
     return client

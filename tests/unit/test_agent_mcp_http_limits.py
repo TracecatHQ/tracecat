@@ -9,6 +9,8 @@ from tracecat.agent.mcp.http_limits import (
     MCPResponseTooLargeError,
     create_bounded_mcp_http_client,
 )
+from tracecat.network import DisallowedUrlError
+from tracecat.outbound_http import GuardedAsyncHTTPTransport
 
 
 class _AsyncStream(httpx.AsyncByteStream):
@@ -114,16 +116,18 @@ async def test_identity_content_encoding_is_allowed() -> None:
 def test_factory_mirrors_mcp_defaults_and_installs_bounded_transport() -> None:
     client = create_bounded_mcp_http_client()
 
-    assert client.follow_redirects is True
+    assert client.follow_redirects is False
     assert client.timeout.read == 300.0
+    assert client.trust_env is False
     assert isinstance(client._transport, BoundedResponseTransport)
+    assert isinstance(client._transport._transport, GuardedAsyncHTTPTransport)
 
 
 def test_factory_accepts_follow_redirects_kwarg() -> None:
     """fastmcp's HTTP transport passes follow_redirects to the factory."""
     client = create_bounded_mcp_http_client(follow_redirects=True)
 
-    assert client.follow_redirects is True
+    assert client.follow_redirects is False
     assert isinstance(client._transport, BoundedResponseTransport)
 
 
@@ -131,7 +135,7 @@ def test_factory_forwards_extra_httpx_kwargs() -> None:
     client = create_bounded_mcp_http_client(
         base_url="https://mcp.test/base",
         max_redirects=7,
-        trust_env=False,
+        trust_env=True,
     )
 
     assert str(client.base_url) == "https://mcp.test/base/"
@@ -144,14 +148,37 @@ def test_default_cap_is_16_mib() -> None:
     assert MCP_MAX_RESPONSE_BYTES == 16 * 1024 * 1024
 
 
-def test_factory_wraps_env_proxy_mounts(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Env-derived proxy transports must also be bounded, not just _transport."""
+def test_factory_ignores_environment_proxies(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("HTTPS_PROXY", "http://proxy.test:8080")
 
     client = create_bounded_mcp_http_client()
 
+    assert client.trust_env is False
     assert isinstance(client._transport, BoundedResponseTransport)
-    assert client._mounts, "expected an env-derived proxy mount"
-    for mount in client._mounts.values():
-        if mount is not None:
-            assert isinstance(mount, BoundedResponseTransport)
+    assert client._mounts == {}
+
+
+@pytest.mark.anyio
+async def test_factory_blocks_private_mcp_target() -> None:
+    async with create_bounded_mcp_http_client() as client:
+        with pytest.raises(DisallowedUrlError, match="Host is not allowed"):
+            await client.get("http://127.0.0.1:1/mcp")
+
+
+def test_factory_rejects_transport_mount_bypass() -> None:
+    with pytest.raises(ValueError, match="does not allow transport overrides"):
+        create_bounded_mcp_http_client(mounts={})
+
+
+def test_factory_rejects_proxy_bypass() -> None:
+    with pytest.raises(ValueError, match="does not allow transport overrides"):
+        create_bounded_mcp_http_client(proxy="http://proxy.example:8080")
+
+
+def test_factory_rejects_transport_bypass() -> None:
+    with pytest.raises(ValueError, match="does not allow transport overrides"):
+        create_bounded_mcp_http_client(
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(200, request=request)
+            )
+        )

@@ -63,7 +63,10 @@ def _drop_forwarded_authorization(
             merged.pop("authorization", None)
         if timeout is None:
             timeout = httpx.Timeout(30.0, read=300.0)
-        kwargs.setdefault("follow_redirects", True)
+        # Remote MCP credentials must stay on the configured origin. The
+        # shared client factory also forces this off when FastMCP supplies its
+        # own default.
+        kwargs["follow_redirects"] = False
         return create_bounded_mcp_http_client(
             headers=merged,
             timeout=timeout,
