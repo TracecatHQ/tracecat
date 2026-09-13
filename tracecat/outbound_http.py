@@ -110,6 +110,10 @@ class GuardedAsyncNetworkBackend(httpcore.AsyncNetworkBackend):
                         )
                     except (httpcore.ConnectError, httpcore.ConnectTimeout) as exc:
                         last_error = exc
+                if isinstance(last_error, httpcore.ConnectTimeout):
+                    raise httpcore.ConnectTimeout(
+                        "Connection timed out"
+                    ) from last_error
                 raise httpcore.ConnectError("Connection failed") from last_error
         except TimeoutError as exc:
             raise httpcore.ConnectTimeout("Connection timed out") from exc
