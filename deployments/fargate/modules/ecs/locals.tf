@@ -69,6 +69,9 @@ locals {
     # Audit client-IP attribution: both api and mcp resolve X-Forwarded-For,
     # so it rides the common env. Empty uses the built-in private-range default.
     TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS = var.audit_trusted_proxy_cidrs
+    # Host-side outbound clients share purpose-scoped, operator-owned private
+    # origin exceptions, so every Tracecat process receives the same policy.
+    TRACECAT__HTTP_EGRESS_ALLOWED_PRIVATE_ORIGINS = var.http_egress_allowed_private_origins
   }
 
   tracecat_temporal_payload_encryption_env = {

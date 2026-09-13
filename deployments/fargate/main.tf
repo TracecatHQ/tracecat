@@ -72,6 +72,7 @@ module "ecs" {
   # Container environment variables
   tracecat_app_env                              = var.tracecat_app_env
   audit_trusted_proxy_cidrs                     = var.audit_trusted_proxy_cidrs
+  http_egress_allowed_private_origins           = var.http_egress_allowed_private_origins
   log_level                                     = var.log_level
   log_format                                    = var.log_format
   temporal_log_level                            = var.temporal_log_level

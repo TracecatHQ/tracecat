@@ -236,6 +236,44 @@ def test_audit_trusted_proxy_env_is_wired_to_deployments() -> None:
         assert "audit_trusted_proxy_cidrs" in (fargate / tf).read_text(), tf
 
 
+def test_http_egress_private_origins_are_wired_to_deployments() -> None:
+    """Every host-side service must receive private-origin exceptions."""
+    name = "TRACECAT__HTTP_EGRESS_ALLOWED_PRIVATE_ORIGINS"
+    services = (*TRACED_COMPOSE_SERVICES, "litellm", "mcp")
+    for path in SANDBOX_POLICY_COMPOSE_ENV_FILES:
+        source = path.read_text()
+        for service in services:
+            match = re.search(
+                rf"(?ms)^  {service}:\n(?P<body>.*?)(?=^  [a-z][a-z0-9_-]*:\n|\Z)",
+                source,
+            )
+            assert match is not None, f"{path.name}: no {service} service block"
+            assert name in match.group("body"), f"{path.name}: {service}"
+
+    fargate = REPO_ROOT / "deployments/fargate"
+    assert name in (fargate / "modules/ecs/locals.tf").read_text()
+    variable = "http_egress_allowed_private_origins"
+    for tf in ("variables.tf", "main.tf", "modules/ecs/variables.tf"):
+        assert variable in (fargate / tf).read_text(), tf
+
+
+def test_private_http_origins_are_rejected_in_multi_tenant_deployments(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    try:
+        with monkeypatch.context() as env:
+            env.setenv("TRACECAT__EE_MULTI_TENANT", "true")
+            env.setenv(
+                "TRACECAT__HTTP_EGRESS_ALLOWED_PRIVATE_ORIGINS",
+                "llm=http://llm.internal:11434",
+            )
+
+            with pytest.raises(ValueError, match="multi-tenant deployments"):
+                importlib.reload(tracecat_config)
+    finally:
+        importlib.reload(tracecat_config)
+
+
 def test_sandbox_policy_env_vars_are_wired_to_compose_files() -> None:
     missing_by_file = {
         str(path.relative_to(REPO_ROOT)): sorted(

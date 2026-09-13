@@ -730,6 +730,22 @@ def env_ports(name: str, *, default: tuple[int, ...]) -> tuple[int, ...]:
     return tuple(ports)
 
 
+TRACECAT__HTTP_EGRESS_ALLOWED_PRIVATE_ORIGINS = tuple(
+    value.strip()
+    for value in os.environ.get(
+        "TRACECAT__HTTP_EGRESS_ALLOWED_PRIVATE_ORIGINS", ""
+    ).split(",")
+    if value.strip()
+)
+"""Exact private HTTP origins approved per host-side product surface.
+
+Entries use ``purpose=origin``, such as
+``llm=http://ollama.internal:11434``. Supported purposes are defined by
+``HttpEgressPurpose`` in ``tracecat.network``. This setting is intentionally
+operator-only and is not advertised in ``.env.example``.
+"""
+
+
 TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS = env_networks(
     "TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS",
     default=(
@@ -1365,6 +1381,12 @@ ENTERPRISE_EDITION = env_bool("ENTERPRISE_EDITION", default=False)
 
 TRACECAT__EE_MULTI_TENANT = env_bool("TRACECAT__EE_MULTI_TENANT", default=False)
 """Whether multi-tenant features are enabled for Enterprise Edition."""
+
+if TRACECAT__EE_MULTI_TENANT and TRACECAT__HTTP_EGRESS_ALLOWED_PRIVATE_ORIGINS:
+    raise ValueError(
+        "TRACECAT__HTTP_EGRESS_ALLOWED_PRIVATE_ORIGINS is unavailable in "
+        "multi-tenant deployments"
+    )
 
 # === Feature Flags === #
 TRACECAT__FEATURE_FLAGS: set[FeatureFlag] = set()

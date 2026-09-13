@@ -224,6 +224,12 @@ variable "audit_trusted_proxy_cidrs" {
   default     = ""
 }
 
+variable "http_egress_allowed_private_origins" {
+  type        = string
+  description = "Comma-separated purpose=origin entries that permit exact private HTTP origins for host-side egress"
+  default     = ""
+}
+
 variable "log_level" {
   type        = string
   description = "Log level for the application"

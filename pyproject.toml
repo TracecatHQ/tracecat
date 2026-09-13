@@ -44,6 +44,7 @@ dependencies = [
     "google-auth==2.48.0",
     "greenlet==3.0.3",
     "griffe==2.0.2",
+    "httpcore==1.0.9",
     "httpx==0.28.1",
     "jsonpath_ng==1.7.0",
     "lark==1.1.9",
