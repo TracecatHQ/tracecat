@@ -809,16 +809,12 @@ async def _deliver(delivery: _OtelDelivery) -> None:
     """
     started = time.perf_counter()
     outbound_headers = {
-        key: value
+        key.lower(): value
         for key, value in delivery.headers.items()
         if key.lower() not in OTEL_MANAGED_HEADER_NAMES
     }
-    outbound_headers.update(
-        {
-            "content-type": delivery.content_type,
-            "user-agent": _USER_AGENT,
-        }
-    )
+    outbound_headers["content-type"] = delivery.content_type
+    outbound_headers.setdefault("user-agent", _USER_AGENT)
     status_code: int | None = None
     error_type: str | None = None
     attempts = 0

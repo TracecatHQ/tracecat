@@ -769,6 +769,45 @@ async def test_receiver_forwards_post_with_injected_headers(
     assert request.headers["user-agent"].startswith("tracecat-agent-otel-relay/")
 
 
+@pytest.mark.parametrize("header_name", ["user-agent", "User-Agent"])
+@pytest.mark.anyio
+async def test_receiver_preserves_configured_user_agent_case_insensitively(
+    header_name: str,
+    short_socket_dir: Path,
+    mock_transport: _MockTransport,
+    receiver_identity: _ReceiverIdentity,
+) -> None:
+    receiver = OtelSocketReceiver(
+        socket_path=short_socket_dir / "custom-user-agent.sock",
+        plan=OtelRoutingPlan.build(
+            collector_env={
+                "OTEL_EXPORTER_OTLP_ENDPOINT": "https://collector.example.com"
+            },
+            headers={header_name: SecretStr("collector-required-agent")},
+        ),
+        expected_workspace_id=receiver_identity.workspace_id,
+        expected_organization_id=receiver_identity.organization_id,
+        expected_session_id=receiver_identity.session_id,
+    )
+    await receiver.start()
+    try:
+        status, _, _ = await _send_request(
+            receiver.socket_path,
+            method="POST",
+            path="/v1/metrics",
+            body=b"metrics",
+            authorization=f"Bearer {receiver_identity.token}",
+        )
+        assert status == 202
+        await _wait_until(lambda: len(mock_transport.requests) == 1)
+    finally:
+        await receiver.stop()
+
+    assert mock_transport.requests[0].headers.get_list("user-agent") == [
+        "collector-required-agent"
+    ]
+
+
 @pytest.mark.anyio
 async def test_receiver_uses_signal_specific_endpoint(
     started_receiver: OtelSocketReceiver,
