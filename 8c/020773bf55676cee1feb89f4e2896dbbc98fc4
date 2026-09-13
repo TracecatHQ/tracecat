@@ -1,0 +1,27 @@
+tracecat/outbound_http.py
+  s_388fff4aaf5212::t_5edc19928fb7e8 82-83,89-91
+  s_388fff4aaf5212::t_1e4566909d9a85 16,84-88
+tests/unit/test_network.py
+  s_388fff4aaf5212::t_1e4566909d9a85 18,24,391,394,400,409-441
+  s_388fff4aaf5212::t_9acdaab897225c 390
+  s_388fff4aaf5212::t_004dfe94adb009 442-443
+  s_388fff4aaf5212::t_5edc19928fb7e8 392-393,395-399,401-408
+tracecat/network.py
+  s_388fff4aaf5212::t_1e4566909d9a85 174-177,194,241-243
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8c020773bf55676cee1feb89f4e2896dbbc98fc4",
+  "prompts": {},
+  "sessions": {
+    "s_388fff4aaf5212": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09b54-52c8-7d92-934c-882473f1ae27",
+        "model": "gpt-daybreak-blue-latest"
+      },
+      "human_author": null
+    }
+  }
+}
