@@ -1,0 +1,23 @@
+tracecat/integrations/providers/google/service_account.py
+  s_388fff4aaf5212::t_218d86d1a90652 91
+  s_388fff4aaf5212::t_44a87729e66e07 24,87-90,92-95
+tests/unit/test_google_service_account_provider.py
+  s_388fff4aaf5212::t_44a87729e66e07 1-37,39,43-44,46,48-60,62,88-91
+  s_388fff4aaf5212::t_0201670f732409 38,40-42,45,47,61,63-87
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2558ffdf2cfc8b9e3d74389fb697580601e4a89b",
+  "prompts": {},
+  "sessions": {
+    "s_388fff4aaf5212": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09b54-52c8-7d92-934c-882473f1ae27",
+        "model": "gpt-daybreak-blue-latest"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
