@@ -20352,9 +20352,9 @@ export const $ProviderCredentialField = {
     },
     type: {
       type: "string",
-      enum: ["text", "password"],
+      enum: ["text", "password", "boolean"],
       title: "Type",
-      description: "Input type: 'text' or 'password'",
+      description: "Input type: 'text', 'password', or 'boolean'",
     },
     description: {
       type: "string",
@@ -20368,6 +20368,19 @@ export const $ProviderCredentialField = {
       title: "Required",
       description: "Whether this field is required",
       default: true,
+    },
+    default: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 500,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Default",
+      description: "Default value pre-filled when no credential is stored yet",
     },
   },
   type: "object",
