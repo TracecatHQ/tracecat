@@ -436,7 +436,7 @@ PROVIDER_CREDENTIAL_CONFIGS = {
     ),
     "api-route": ProviderCredentialConfig(
         provider="api-route",
-        label="API Route",
+        label="API-Route",
         fields=[
             ProviderCredentialField(
                 key="API_ROUTE_API_KEY",
