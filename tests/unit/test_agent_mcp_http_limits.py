@@ -7,9 +7,10 @@ from tracecat.agent.mcp.http_limits import (
     MCP_MAX_RESPONSE_BYTES,
     BoundedResponseTransport,
     MCPResponseTooLargeError,
+    OriginBoundTransport,
     create_bounded_mcp_http_client,
 )
-from tracecat.network import DisallowedUrlError
+from tracecat.network import DisallowedUrlError, HttpOrigin
 from tracecat.outbound_http import GuardedAsyncHTTPTransport
 
 
@@ -123,12 +124,82 @@ def test_factory_mirrors_mcp_defaults_and_installs_bounded_transport() -> None:
     assert isinstance(client._transport._transport, GuardedAsyncHTTPTransport)
 
 
-def test_factory_accepts_follow_redirects_kwarg() -> None:
-    """fastmcp's HTTP transport passes follow_redirects to the factory."""
+def test_factory_disables_redirects_without_an_origin_bound() -> None:
     client = create_bounded_mcp_http_client(follow_redirects=True)
 
     assert client.follow_redirects is False
     assert isinstance(client._transport, BoundedResponseTransport)
+
+
+def test_factory_enables_redirects_with_an_origin_bound() -> None:
+    allowed_origin = HttpOrigin.from_url("https://mcp.test/mcp")
+    client = create_bounded_mcp_http_client(
+        follow_redirects=True,
+        allowed_origin=allowed_origin,
+    )
+
+    assert client.follow_redirects is True
+    assert isinstance(client._transport, OriginBoundTransport)
+    assert client._transport._allowed_origin == allowed_origin
+    assert isinstance(client._transport._transport, BoundedResponseTransport)
+
+
+@pytest.mark.anyio
+async def test_origin_bound_transport_follows_same_origin_redirect() -> None:
+    seen_urls: list[httpx.URL] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_urls.append(request.url)
+        if request.url.path == "/mcp":
+            return httpx.Response(307, headers={"location": "/mcp/"})
+        return httpx.Response(200, content=b"ok")
+
+    transport = OriginBoundTransport(
+        httpx.MockTransport(handler),
+        HttpOrigin.from_url("https://mcp.test/mcp"),
+    )
+    async with httpx.AsyncClient(
+        transport=transport,
+        follow_redirects=True,
+        headers={"x-api-key": "secret"},
+    ) as client:
+        response = await client.get("https://mcp.test/mcp")
+
+    assert response.content == b"ok"
+    assert seen_urls == [
+        httpx.URL("https://mcp.test/mcp"),
+        httpx.URL("https://mcp.test/mcp/"),
+    ]
+
+
+@pytest.mark.anyio
+async def test_origin_bound_transport_blocks_cross_origin_redirect() -> None:
+    seen_requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_requests.append(request)
+        return httpx.Response(
+            302,
+            headers={"location": "https://redirected.example/mcp"},
+        )
+
+    transport = OriginBoundTransport(
+        httpx.MockTransport(handler),
+        HttpOrigin.from_url("https://mcp.test/mcp"),
+    )
+    async with httpx.AsyncClient(
+        transport=transport,
+        follow_redirects=True,
+        headers={"authorization": "Bearer secret", "x-api-key": "secret"},
+    ) as client:
+        with pytest.raises(
+            DisallowedUrlError,
+            match="must remain on the configured server origin",
+        ):
+            await client.get("https://mcp.test/mcp")
+
+    assert len(seen_requests) == 1
+    assert seen_requests[0].url == httpx.URL("https://mcp.test/mcp")
 
 
 def test_factory_forwards_extra_httpx_kwargs() -> None:

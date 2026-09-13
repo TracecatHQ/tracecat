@@ -36,6 +36,7 @@ from tracecat.agent.mcp.utils import (
 )
 from tracecat.integrations.schemas import MCPToolSummary
 from tracecat.logger import logger
+from tracecat.network import HttpOrigin
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,9 +49,11 @@ class UserMCPDiscoveryResult:
 
 def _drop_forwarded_authorization(
     configured: dict[str, str] | None,
+    server_url: str,
 ) -> McpHttpClientFactory:
     """Build a client factory that strips fastmcp's forwarded inbound auth."""
     keeps_authorization = configured is not None and "authorization" in configured
+    allowed_origin = HttpOrigin.from_url(server_url)
 
     def factory(
         headers: dict[str, str] | None = None,
@@ -63,14 +66,14 @@ def _drop_forwarded_authorization(
             merged.pop("authorization", None)
         if timeout is None:
             timeout = httpx.Timeout(30.0, read=300.0)
-        # Remote MCP credentials must stay on the configured origin. The
-        # shared client factory also forces this off when FastMCP supplies its
-        # own default.
-        kwargs["follow_redirects"] = False
+        # Same-origin redirects preserve canonical endpoint behavior while the
+        # bound transport prevents credentials from reaching another origin.
+        kwargs["follow_redirects"] = True
         return create_bounded_mcp_http_client(
             headers=merged,
             timeout=timeout,
             auth=auth,
+            allowed_origin=allowed_origin,
             **kwargs,
         )
 
@@ -91,7 +94,7 @@ def _create_transport(
         headers = {name.lower(): value for name, value in headers.items()}
     # Lowercasing alone only wins the merge when our credential is itself an
     # Authorization header; strip the forwarded token in every other case.
-    httpx_client_factory = _drop_forwarded_authorization(headers)
+    httpx_client_factory = _drop_forwarded_authorization(headers, url)
     if transport_type == "sse":
         return SSETransport(
             url=url,

@@ -14,7 +14,10 @@ from mcp.types import (
 from pydantic import AnyUrl
 
 from tracecat.agent.common.types import MCPHttpServerConfig, MCPToolDefinition
-from tracecat.agent.mcp.http_limits import BoundedResponseTransport
+from tracecat.agent.mcp.http_limits import (
+    BoundedResponseTransport,
+    OriginBoundTransport,
+)
 from tracecat.agent.mcp.user_client import UserMCPClient, _create_transport
 from tracecat.agent.mcp.utils import (
     flatten_mcp_content_blocks,
@@ -142,6 +145,24 @@ def test_create_transport_lowercased_headers_survive_inbound_merge() -> None:
     assert auth_keys == ["authorization"]
 
 
+def test_create_transport_follows_only_bound_same_origin_redirects() -> None:
+    transport = _create_transport(
+        url="https://mcp.example.com/mcp",
+        transport_type="http",
+        headers={"Authorization": "Bearer real-token"},
+        timeout=None,
+    )
+    assert isinstance(transport, StreamableHttpTransport)
+    factory = transport.httpx_client_factory
+    assert factory is not None
+
+    client = factory(headers=transport.headers, timeout=None, auth=None)
+
+    assert client.follow_redirects is True
+    assert isinstance(client._transport, OriginBoundTransport)
+    assert isinstance(client._transport._transport, BoundedResponseTransport)
+
+
 # Regression: lowercasing only wins fastmcp's `inbound | self.headers` union
 # when our own credential is an Authorization header. Servers authenticating
 # via non-Authorization headers (e.g. Wiz client-credentials sends
@@ -232,7 +253,8 @@ def test_sse_transport_also_strips_forwarded_auth() -> None:
 
     assert "authorization" not in client.headers
     assert client.headers["wiz-client-id"] == "svc-account-id"
-    assert isinstance(client._transport, BoundedResponseTransport)
+    assert isinstance(client._transport, OriginBoundTransport)
+    assert isinstance(client._transport._transport, BoundedResponseTransport)
 
 
 def test_flatten_keeps_status_text_and_nested_embedded_resource_body() -> None:

@@ -18,7 +18,12 @@ from typing import Any
 
 import httpx
 
-from tracecat.network import HttpEgressPurpose, configured_http_egress_policy
+from tracecat.network import (
+    DisallowedUrlError,
+    HttpEgressPurpose,
+    HttpOrigin,
+    configured_http_egress_policy,
+)
 from tracecat.outbound_http import GuardedAsyncHTTPTransport
 
 MCP_MAX_RESPONSE_BYTES = 16 * 1024 * 1024
@@ -98,11 +103,34 @@ class BoundedResponseTransport(httpx.AsyncBaseTransport):
         await self._transport.aclose()
 
 
+class OriginBoundTransport(httpx.AsyncBaseTransport):
+    """Allow requests only to one configured HTTP origin."""
+
+    def __init__(
+        self,
+        transport: httpx.AsyncBaseTransport,
+        allowed_origin: HttpOrigin,
+    ) -> None:
+        self._transport = transport
+        self._allowed_origin = allowed_origin
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        if HttpOrigin.from_url(request.url) != self._allowed_origin:
+            raise DisallowedUrlError(
+                "MCP request must remain on the configured server origin"
+            )
+        return await self._transport.handle_async_request(request)
+
+    async def aclose(self) -> None:
+        await self._transport.aclose()
+
+
 def create_bounded_mcp_http_client(
     headers: dict[str, str] | None = None,
     timeout: httpx.Timeout | None = None,
     auth: httpx.Auth | None = None,
     follow_redirects: bool = True,
+    allowed_origin: HttpOrigin | None = None,
     **kwargs: Any,
 ) -> httpx.AsyncClient:
     """Create a byte-capped MCP client with guarded outbound connections.
@@ -113,17 +141,16 @@ def create_bounded_mcp_http_client(
     passes it positionally-by-name to the factory. Additional keyword arguments
     are forwarded to ``httpx.AsyncClient``.
 
-    Redirects and environment proxies are disabled even when FastMCP requests
-    them. Configured MCP credentials otherwise follow redirects and can reach a
-    second origin before the caller can inspect the response. DNS is validated
-    inside the TCP connection path so a hostname cannot rebind after a separate
-    preflight lookup.
+    Redirects are honored only when every request is bound to ``allowed_origin``;
+    this preserves canonical same-origin redirects without forwarding configured
+    MCP credentials to another origin. Environment proxies are always disabled.
+    DNS is validated inside the TCP connection path so a hostname cannot rebind
+    after a separate preflight lookup.
 
     ``httpx`` does not expose a public ``TypedDict`` for these constructor
     options. Keeping this passthrough typed as ``Any`` avoids coupling to
     private aliases while ``AsyncClient`` still validates safe arguments.
     """
-    del follow_redirects
     if timeout is None:
         timeout = httpx.Timeout(30.0, read=300.0)
 
@@ -148,12 +175,16 @@ def create_bounded_mcp_http_client(
         http2=http2,
         limits=limits,
     )
+    transport: httpx.AsyncBaseTransport = BoundedResponseTransport(guarded_transport)
+    if allowed_origin is not None:
+        transport = OriginBoundTransport(transport, allowed_origin)
+
     client = httpx.AsyncClient(
-        follow_redirects=False,
+        follow_redirects=follow_redirects and allowed_origin is not None,
         timeout=timeout,
         headers=headers,
         auth=auth,
-        transport=BoundedResponseTransport(guarded_transport),
+        transport=transport,
         trust_env=False,
         **kwargs,
     )
