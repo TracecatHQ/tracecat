@@ -87,8 +87,14 @@ function CreateAgentDialogContent({
     "org:update",
     new Set(userScopes?.scopes ?? [])
   )
-  const { models, providers, modelsLoading, modelsError } =
-    useWorkspaceAgentModels(workspaceId)
+  const {
+    models,
+    providers,
+    catalogLoading,
+    catalogError,
+    providersLoading,
+    providersError,
+  } = useWorkspaceAgentModels(workspaceId)
   const {
     defaultModel,
     defaultModelSelection,
@@ -115,6 +121,11 @@ function CreateAgentDialogContent({
     }
     return null
   }, [defaultModel, defaultModelSelection, models])
+
+  const needsCustomProvider = Boolean(initialAgentModel?.custom_provider_id)
+  const modelsLoading =
+    catalogLoading || (needsCustomProvider && providersLoading)
+  const modelsError = catalogError || (needsCustomProvider && providersError)
 
   const initialAgentModelBaseUrl = useMemo(() => {
     if (!initialAgentModel?.custom_provider_id) return null

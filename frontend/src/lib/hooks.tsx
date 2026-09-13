@@ -5827,6 +5827,10 @@ export function useWorkspaceAgentModels(
   return {
     models,
     providers,
+    catalogLoading: modelsLoading,
+    catalogError: modelsError,
+    providersLoading,
+    providersError,
     modelsLoading: modelsLoading || providersLoading,
     modelsError: modelsError ?? providersError,
   }

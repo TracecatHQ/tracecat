@@ -109,6 +109,8 @@ type SetupMocksOptions = {
   models?: typeof catalogModels
   modelsLoading?: boolean
   modelsError?: ApiError | null
+  providersLoading?: boolean
+  providersError?: ApiError | null
 }
 
 function setupMocks({
@@ -120,6 +122,8 @@ function setupMocks({
   defaultModelError = null,
   modelsLoading = false,
   modelsError = null,
+  providersLoading = false,
+  providersError = null,
 }: SetupMocksOptions = {}) {
   jest.mocked(useUserScopes).mockReturnValue({
     userScopes: { scopes: orgScopes },
@@ -136,9 +140,13 @@ function setupMocks({
   })
   jest.mocked(useWorkspaceAgentModels).mockReturnValue({
     models,
-    providers: customProviders,
-    modelsLoading,
-    modelsError,
+    providers: providersLoading || providersError ? undefined : customProviders,
+    catalogLoading: modelsLoading,
+    catalogError: modelsError,
+    providersLoading,
+    providersError,
+    modelsLoading: modelsLoading || providersLoading,
+    modelsError: modelsError ?? providersError,
   })
   jest.mocked(useAgentDefaultModel).mockReturnValue({
     defaultModel,
@@ -369,6 +377,51 @@ describe("CreateAgentDialog", () => {
     expect(
       screen.queryByRole("link", { name: "Configure models" })
     ).not.toBeInTheDocument()
+  })
+
+  it.each([{ providersError: modelReadError }, { providersLoading: true }])(
+    "creates a built-in agent despite unavailable provider data: %o",
+    async (providerState) => {
+      const user = userEvent.setup()
+      setupMocks({ defaultModel: "gpt-5.5", ...providerState })
+      renderCreateAgentDialog()
+
+      await user.type(screen.getByLabelText("Name"), "Built-in agent")
+      await user.click(screen.getByRole("button", { name: "Create agent" }))
+
+      await waitFor(() => {
+        expect(mockCreateAgentPreset).toHaveBeenCalledWith({
+          name: "Built-in agent",
+          model_provider: "openai",
+          model_name: "gpt-5.5",
+          catalog_id: "catalog-default",
+          base_url: undefined,
+          description: undefined,
+        })
+      })
+    }
+  )
+
+  it("blocks custom-model creation when provider data fails", () => {
+    setupMocks({ defaultModel: "custom-fast", providersError: modelReadError })
+    renderCreateAgentDialog()
+
+    expect(
+      screen.getByRole("heading", { name: "Unable to load models" })
+    ).toBeInTheDocument()
+    expect(screen.queryByLabelText("Name")).not.toBeInTheDocument()
+    expect(mockCreateAgentPreset).not.toHaveBeenCalled()
+  })
+
+  it("waits for provider data before allowing custom-model creation", () => {
+    setupMocks({ defaultModel: "custom-fast", providersLoading: true })
+    renderCreateAgentDialog()
+
+    expect(
+      screen.getByRole("heading", { name: "Loading models" })
+    ).toBeInTheDocument()
+    expect(screen.queryByLabelText("Name")).not.toBeInTheDocument()
+    expect(mockCreateAgentPreset).not.toHaveBeenCalled()
   })
 
   it("shows a neutral error state when the default model query fails", () => {
