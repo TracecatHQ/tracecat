@@ -21,54 +21,38 @@
 
 ## Introduction
 
-[Tracecat](https://tracecat.com) is the open source security automation platform for teams and AI agents.
-
-- **Prompt-to-automations**: build end-to-end automations with agents, workflows, cases, and tables from your own agent harness (e.g. Claude code, Codex, OpenCode).
-- **Code-native**: sync custom Python scripts from your Git repo into Tracecat.
-- **All-in-one**: agents, workflows, lookup tables, and case management. Everything security teams need to automate work in one place.
-- **Deployment options**: sign up for Tracecat managed Cloud, or self-host with Docker, AWS Fargate, or Kubernetes Helm.
-
-Sandboxed-by-default with [`nsjail`](https://github.com/google/nsjail) and run on [Temporal](https://temporal.io) for security, reliability, and scale.
+[Tracecat](https://tracecat.com) is the open source security automation platform for teams and AI agents. A unified platform with everything security teams need to automate work and respond to incidents. Unlimited agents and workflows.
 
 ## Features
 
-> [!IMPORTANT]
-> Tracecat is in active development. Review the release [changelog](https://github.com/TracecatHQ/tracecat/releases) before updating.
-
 ### Key Capabilities
 
-- **Agents**: build custom agents with prompts, tools, and chat
-- **Workflows**: low-code builder with complex control flow (if-conditions, loops) and durable execution (Temporal)
-- **Case management**: track, automate, and resolve work items with agents and workflows
+- **Agents and skills**: build custom agents with prompts, tools, MCP, and skills
+- **Case management**: track, automate, and resolve incidents with agents
+- **Workflows**: orchestration engine with complex control flow (if-conditions, loops) and durable execution (Temporal)
+- **Lookup tables**: store and query structured data
 - **Integrations**: over 100+ pre-built connectors to enterprise tools via HTTP, SMTP, gRPC, OAuth, and more
-- **Tracecat MCP**: turns prompts into automations through Claude Code, Codex, Copilot, etc.
-- **MCP client**: connect custom agents any MCP server (remote HTTP / OAuth or local via `npx` / `uvx` commands)
-- **Custom registry**: turn custom Python scripts into agent tools and workflow steps
+- **Tracecat MCP**: turns prompts into automations through Claude Code, Codex, Copilot, etc
+- **Pre-built MCP servers**: over 100+ Tracecat hosted MCP servers for security operations
+- **Custom registry**: sync custom Python scripts from your Git repo into Tracecat
+- **Deploy anywhere**: sign up for Tracecat Cloud, or self-host with Docker, AWS Fargate, or Kubernetes. Runs fully [air-gapped](https://docs.tracecat.com/self-hosting/air-gapped). 
 
 ### Other OSS Highlights
 
-- **Sandboxed**: run untrusted code and agents within `nsjail` sandboxes or `pid` runtimes.
-- **Lookup tables**: store and query structured data
+- **MCP client**: connect custom agents any MCP server (remote HTTP / OAuth or local via `npx` / `uvx` commands)
+- **Sandboxed**: run untrusted code and agents within `nsjail` sandboxes or `pid` runtimes
+- **Durable execution**: built on [Temporal](https://temporal.io) for resilience and scale
 - **Variables**: reuse values across workflows and agents
 - **No SSO tax**: SAML / OIDC support
-- **Audit logs**: exportable into your SIEM
+- **Free audit logs**: exportable into your SIEM
 
 ### Enterprise Edition
 
-- **Pre-built MCP servers**: over 100+ Tracecat hosted MCP servers for security operations
+- **Multi-tenant**: isoated different teams and dev / prod environments into workspaces
 - **Fine-grained access control**: RBAC, ABAC, OAuth2.0 scopes for humans and agents
 - **Human-in-the-loop**: review and approve sensitive tools calls from a unified inbox, Slack, or email
 - **Workspace version control**: sync workflows, agents, and table schemas to GitHub, GitLab, Bitbucket, etc.
 - **Metrics and monitoring**: for workflows, agents, and cases
-
-## Tech Stack
-
-- Backend: Python with FastAPI, SQLAlchemy, Pydantic, uv
-- Frontend: Next.js with TypeScript, React Query, Shadcn UI
-- Durable workflows and jobs: Temporal
-- Sandbox: nsjail
-- Database: PostgreSQL
-- Object store: S3-compatible
 
 ## Open Source vs Enterprise
 
@@ -86,6 +70,15 @@ These exceptions are fall under Tracecat's paid EE (Enterprise Edition) license.
 ## Community
 
 Have questions? Feedback? Come hang out with us in the [Tracecat Community Discord](https://discord.gg/H4XZwsYzY4).
+
+## Tech Stack
+
+- Backend: Python with FastAPI, SQLAlchemy, Pydantic, uv
+- Frontend: Next.js with TypeScript, React Query, Shadcn UI
+- Durable workflows and jobs: Temporal
+- Sandbox: nsjail
+- Database: PostgreSQL
+- Object store: S3-compatible
 
 ## Contributors
 
