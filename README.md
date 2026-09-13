@@ -82,16 +82,16 @@
 
 ## Open Source vs Enterprise
 
-> [!NOTE]
-> Tracecat Enterprise is available as managed Cloud with US or EU hosting, or as a self-hosted deployment with dedicated support.
-> [Book a demo today](https://www.tracecat.com/contact).
-
 This repo is available under the [AGPL-3.0 license](https://github.com/TracecatHQ/tracecat/blob/main/LICENSE) except for:
 
 - Code under the `packages/tracecat-ee` directory
 - Code that gates `ee` features
 
 These exceptions are fall under Tracecat's paid EE (Enterprise Edition) license. Code that fall under the above exceptions must not be redistributed, sold, used in production, or otherwise commercialized without permission.
+
+> [!NOTE]
+> Tracecat Enterprise is available as managed Cloud with US or EU hosting, or as a self-hosted deployment with dedicated support.
+> [Book a demo today](https://www.tracecat.com/contact).
 
 ## Community
 
