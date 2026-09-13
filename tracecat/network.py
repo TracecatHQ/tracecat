@@ -171,6 +171,10 @@ class DisallowedUrlError(ValueError):
     """Raised when an outbound URL violates the network policy."""
 
 
+class HostResolutionError(DisallowedUrlError):
+    """Raised when DNS resolution produces no usable addresses."""
+
+
 def is_disallowed_address(address: IPAddress) -> bool:
     """Return whether an address is not publicly routable."""
     return (
@@ -187,7 +191,7 @@ def is_disallowed_address(address: IPAddress) -> bool:
 def _addresses_from_socket_infos(infos: Sequence[SocketInfo]) -> tuple[IPAddress, ...]:
     """Extract unique IP addresses from resolver results."""
     if not infos:
-        raise DisallowedUrlError("Host could not be resolved")
+        raise HostResolutionError("Host could not be resolved")
 
     addresses: list[IPAddress] = []
     for info in infos:
@@ -234,7 +238,9 @@ def resolve_host(host: str, port: int) -> tuple[SocketInfo, ...]:
                 proto=socket.IPPROTO_TCP,
             )
         )
-    except (socket.gaierror, UnicodeError) as exc:
+    except socket.gaierror as exc:
+        raise HostResolutionError("Host could not be resolved") from exc
+    except UnicodeError as exc:
         raise DisallowedUrlError("Host could not be resolved") from exc
 
 

@@ -15,11 +15,13 @@ import pytest
 
 from tracecat.network import (
     DisallowedUrlError,
+    HostResolutionError,
     HttpEgressPolicy,
     HttpEgressPurpose,
     HttpOrigin,
     SocketInfo,
     configured_http_egress_policy,
+    validate_url_resolves_public_async,
 )
 from tracecat.outbound_http import guarded_async_client
 
@@ -383,6 +385,60 @@ async def test_async_dns_resolution_obeys_connect_timeout() -> None:
             await client.get("http://slow-dns.example.test/resource")
 
     assert backend.hosts == []
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("error_code", [socket.EAI_AGAIN, socket.EAI_NONAME])
+async def test_dns_resolution_failure_is_a_retryable_connect_error(
+    monkeypatch: pytest.MonkeyPatch,
+    error_code: int,
+) -> None:
+    backend = _RecordingBackend()
+
+    def fail_resolution(*args: object, **kwargs: object) -> list[object]:
+        del args, kwargs
+        raise socket.gaierror(error_code, "Name resolution failed")
+
+    monkeypatch.setattr(socket, "getaddrinfo", fail_resolution)
+
+    async with guarded_async_client(backend=backend) as client:
+        with pytest.raises(httpx.ConnectError, match="Host could not be resolved"):
+            await client.get("http://temporary-dns-failure.example.test/resource")
+
+    assert backend.hosts == []
+
+
+@pytest.mark.anyio
+async def test_empty_dns_result_is_a_retryable_connect_error() -> None:
+    backend = _RecordingBackend()
+
+    async def resolver(host: str, port: int) -> tuple[SocketInfo, ...]:
+        del host, port
+        return ()
+
+    async with guarded_async_client(resolver=resolver, backend=backend) as client:
+        with pytest.raises(httpx.ConnectError, match="Host could not be resolved"):
+            await client.get("http://empty-dns-result.example.test/resource")
+
+    assert backend.hosts == []
+
+
+@pytest.mark.anyio
+async def test_validation_only_dns_failure_remains_disallowed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_resolution(*args: object, **kwargs: object) -> list[object]:
+        del args, kwargs
+        raise socket.gaierror(socket.EAI_AGAIN, "Name resolution failed")
+
+    monkeypatch.setattr(socket, "getaddrinfo", fail_resolution)
+
+    with pytest.raises(HostResolutionError, match="Host could not be resolved") as exc:
+        await validate_url_resolves_public_async(
+            "http://temporary-dns-failure.example.test/resource"
+        )
+
+    assert isinstance(exc.value, DisallowedUrlError)
 
 
 @pytest.mark.anyio

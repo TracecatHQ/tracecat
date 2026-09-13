@@ -13,6 +13,7 @@ import httpx
 
 from tracecat.network import (
     DisallowedUrlError,
+    HostResolutionError,
     HttpEgressPolicy,
     HttpOrigin,
     SocketInfo,
@@ -78,11 +79,16 @@ class GuardedAsyncNetworkBackend(httpcore.AsyncNetworkBackend):
         deadline = None if timeout is None else loop.time() + timeout
         try:
             async with asyncio.timeout(timeout):
-                infos = await self._resolver(host, port)
-                addresses = validate_resolved_addresses(
-                    infos,
-                    allow_private=self._policy.allows_private_address(origin),
-                )
+                try:
+                    infos = await self._resolver(host, port)
+                    addresses = validate_resolved_addresses(
+                        infos,
+                        allow_private=self._policy.allows_private_address(origin),
+                    )
+                except HostResolutionError as exc:
+                    # Resolution failures are connection failures and may be
+                    # transient. Policy validation below remains terminal.
+                    raise httpcore.ConnectError("Host could not be resolved") from exc
                 last_error: httpcore.ConnectError | httpcore.ConnectTimeout | None = (
                     None
                 )
