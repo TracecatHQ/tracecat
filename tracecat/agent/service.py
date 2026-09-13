@@ -34,6 +34,7 @@ from tracecat.agent.gateway_providers import (
 )
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.provider.service import discover_openai_compatible_models
+from tracecat.agent.provider.url_guard import validate_llm_provider_url
 from tracecat.agent.schemas import (
     DefaultModelSelection,
     ModelConfig,
@@ -416,7 +417,15 @@ class AgentManagementService(BaseOrgService):
     async def create_provider_credentials(
         self, params: ModelCredentialCreate
     ) -> OrganizationSecret:
-        """Create or update credentials for an AI provider."""
+        """Create or update credentials for an AI provider.
+
+        Raises:
+            LLMProviderUrlNotAllowedError: If a gateway provider base URL
+                resolves to a disallowed (non-public) address.
+        """
+        await self._validate_gateway_provider_base_url(
+            params.provider, params.credentials
+        )
         secret_name = self._get_credential_secret_name(params.provider)
 
         # Check if credentials already exist
@@ -454,7 +463,13 @@ class AgentManagementService(BaseOrgService):
     async def update_provider_credentials(
         self, provider: str, params: ModelCredentialUpdate
     ) -> OrganizationSecret:
-        """Update existing credentials for an AI provider."""
+        """Update existing credentials for an AI provider.
+
+        Raises:
+            LLMProviderUrlNotAllowedError: If a gateway provider base URL
+                resolves to a disallowed (non-public) address.
+        """
+        await self._validate_gateway_provider_base_url(provider, params.credentials)
         secret_name = self._get_credential_secret_name(provider)
         secret = await self.secrets_service.get_org_secret_by_name(secret_name)
 
@@ -467,6 +482,22 @@ class AgentManagementService(BaseOrgService):
         await self._refresh_gateway_provider_catalog_best_effort(provider)
         await self._auto_grant_provider_access(provider)
         return secret
+
+    @staticmethod
+    async def _validate_gateway_provider_base_url(
+        provider: str, credentials: Mapping[str, str]
+    ) -> None:
+        """Run the SSRF guard over a gateway provider's submitted base URL.
+
+        Only the URL present in ``credentials`` is checked; a provider default
+        (e.g. OpenRouter's public endpoint) is trusted, and an unset value
+        leaves the stored URL untouched.
+        """
+        spec = GATEWAY_PROVIDER_SPECS.get(provider)
+        if spec is None:
+            return
+        if base_url := credentials.get(spec.base_url_key):
+            await validate_llm_provider_url(base_url)
 
     async def _refresh_gateway_provider_catalog_best_effort(
         self, provider: str

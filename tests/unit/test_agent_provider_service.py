@@ -34,6 +34,14 @@ pytestmark = pytest.mark.usefixtures("db")
 
 
 @pytest.fixture(autouse=True)
+def allow_private_llm_hosts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Skip DNS-backed SSRF checks so fixtures can use unresolvable hosts."""
+    monkeypatch.setattr(
+        tracecat_config, "TRACECAT__AGENT_ALLOW_PRIVATE_LLM_HOSTS", True
+    )
+
+
+@pytest.fixture(autouse=True)
 def set_db_encryption_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         tracecat_config,

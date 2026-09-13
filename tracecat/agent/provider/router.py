@@ -11,6 +11,7 @@ from tracecat.agent.provider.schemas import (
     AgentCustomProviderUpdate,
 )
 from tracecat.agent.provider.service import AgentCustomProviderService
+from tracecat.agent.provider.url_guard import LLMProviderUrlNotAllowedError
 from tracecat.auth.dependencies import OrgUserRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
@@ -32,7 +33,13 @@ async def create_custom_provider(
 ) -> AgentCustomProviderRead:
     """Create a new custom LLM provider."""
     service = AgentCustomProviderService(session=session, role=role)
-    return await service.create_provider(provider)
+    try:
+        return await service.create_provider(provider)
+    except LLMProviderUrlNotAllowedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
 
 
 @router.get(
@@ -103,6 +110,11 @@ async def update_custom_provider(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
         ) from e
+    except LLMProviderUrlNotAllowedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
 
 
 @router.delete(
@@ -164,10 +176,16 @@ async def validate_custom_provider_connection(
 ) -> dict[str, bool]:
     """Test provider connectivity without saving."""
     service = AgentCustomProviderService(session=session, role=role)
-    is_valid = await service.validate_provider(
-        base_url=provider.base_url or "",
-        api_key=provider.api_key,
-        api_key_header=provider.api_key_header,
-        custom_headers=provider.custom_headers,
-    )
+    try:
+        is_valid = await service.validate_provider(
+            base_url=provider.base_url or "",
+            api_key=provider.api_key,
+            api_key_header=provider.api_key_header,
+            custom_headers=provider.custom_headers,
+        )
+    except LLMProviderUrlNotAllowedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
     return {"valid": is_valid}

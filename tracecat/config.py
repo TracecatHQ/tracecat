@@ -1394,6 +1394,14 @@ except ValueError:
 
 
 # === Agent config === #
+TRACECAT__AGENT_ALLOW_PRIVATE_LLM_HOSTS = env_bool(
+    "TRACECAT__AGENT_ALLOW_PRIVATE_LLM_HOSTS", default=False
+)
+"""Allow LLM provider base URLs that resolve to private, loopback, or
+link-local addresses. Off by default so org members cannot steer server-side
+requests at internal services or cloud metadata. Enable on single-tenant
+deployments that run Ollama, vLLM, or a LiteLLM proxy on the same network."""
+
 TRACECAT__UNIFIED_AGENT_STREAMING_ENABLED = env_bool(
     "TRACECAT__UNIFIED_AGENT_STREAMING_ENABLED", default=False
 )

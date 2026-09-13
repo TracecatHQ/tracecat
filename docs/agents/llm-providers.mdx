@@ -30,6 +30,8 @@ Tracecat lists providers in this order in Organization settings > Agent > Config
 
 Ollama, vLLM, and LiteLLM base URLs must include the `/v1` segment and be reachable from the Tracecat services. Inside a container, `localhost` points at the container itself, not your host.
 
+Tracecat rejects base URLs that resolve to private, loopback, or link-local addresses by default. To run Ollama, vLLM, or a LiteLLM proxy on the same network as a single-tenant deployment, set `TRACECAT__AGENT_ALLOW_PRIVATE_LLM_HOSTS=true` on the `api` service. See [Custom LLM providers](/agents/custom-llm-providers#troubleshooting).
+
 <Info>
   Can't find the provider you're using? Add it as a custom source instead. See [Custom LLM providers](/agents/custom-llm-providers) to connect any OpenAI-compatible gateway.
 </Info>

@@ -20,6 +20,7 @@ from tracecat.agent.provider.schemas import (
     AgentCustomProviderUpdate,
 )
 from tracecat.agent.provider.types import ResolvedCustomProviderCredentials
+from tracecat.agent.provider.url_guard import validate_llm_provider_url
 from tracecat.audit.logger import audit_log
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.authz.controls import require_scope
@@ -70,7 +71,14 @@ class AgentCustomProviderService(BaseOrgService):
         self,
         provider: AgentCustomProviderCreate,
     ) -> AgentCustomProviderRead:
-        """Create a new custom LLM provider for the organization."""
+        """Create a new custom LLM provider for the organization.
+
+        Raises:
+            LLMProviderUrlNotAllowedError: If ``base_url`` resolves to a
+                disallowed (non-public) address.
+        """
+        if provider.base_url:
+            await validate_llm_provider_url(provider.base_url)
         encrypted_config = None
         secrets_dict: dict[str, object] = {}
         if provider.api_key:
@@ -243,7 +251,14 @@ class AgentCustomProviderService(BaseOrgService):
         provider_id: UUID,
         updates: AgentCustomProviderUpdate,
     ) -> AgentCustomProviderRead:
-        """Update custom provider configuration."""
+        """Update custom provider configuration.
+
+        Raises:
+            LLMProviderUrlNotAllowedError: If the new ``base_url`` resolves to
+                a disallowed (non-public) address.
+        """
+        if updates.base_url:
+            await validate_llm_provider_url(updates.base_url)
         stmt = select(AgentCustomProvider).where(
             sa.and_(
                 AgentCustomProvider.id == provider_id,
@@ -433,9 +448,15 @@ class AgentCustomProviderService(BaseOrgService):
         api_key_header: str | None = None,
         custom_headers: dict[str, str] | None = None,
     ) -> bool:
-        """Test provider connectivity."""
+        """Test provider connectivity.
+
+        Raises:
+            LLMProviderUrlNotAllowedError: If ``base_url`` resolves to a
+                disallowed (non-public) address.
+        """
         if not base_url or not base_url.strip():
             return False
+        await validate_llm_provider_url(base_url)
         try:
             response = await self._fetch_models(
                 base_url=base_url,
@@ -472,14 +493,20 @@ async def fetch_openai_compatible_models(
     custom_headers: dict[str, str] | None = None,
     timeout: float,
 ) -> httpx.Response:
-    """Make a GET /models request against an OpenAI-compatible base URL."""
+    """Make a GET /models request against an OpenAI-compatible base URL.
+
+    Raises:
+        LLMProviderUrlNotAllowedError: If ``base_url`` resolves to a
+            disallowed (non-public) address.
+    """
+    await validate_llm_provider_url(base_url)
     headers = custom_headers.copy() if custom_headers else {}
     if api_key:
         if not api_key_header:
             headers["Authorization"] = f"Bearer {api_key}"
         else:
             headers[api_key_header] = api_key
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
         return await client.get(
             f"{base_url.rstrip('/')}/models",
             headers=headers,
