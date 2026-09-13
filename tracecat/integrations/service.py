@@ -2023,24 +2023,25 @@ class IntegrationService(BaseWorkspaceService):
             )
             integration.expires_at = expires_at
             integration.scope = scope
-            new_authorization_endpoint = resolve_endpoint(
-                authorization_endpoint,
-                integration.authorization_endpoint,
-                default_authorization,
-            )
-            integration.authorization_endpoint = self._validate_https_endpoint(
-                new_authorization_endpoint,
-                field_name="authorization_endpoint",
-            )
-            new_token_endpoint = resolve_endpoint(
-                token_endpoint,
-                integration.token_endpoint,
-                default_token,
-            )
-            integration.token_endpoint = self._validate_https_endpoint(
-                new_token_endpoint,
-                field_name="token_endpoint",
-            )
+            if expected_token_origin is None:
+                new_authorization_endpoint = resolve_endpoint(
+                    authorization_endpoint,
+                    integration.authorization_endpoint,
+                    default_authorization,
+                )
+                integration.authorization_endpoint = self._validate_https_endpoint(
+                    new_authorization_endpoint,
+                    field_name="authorization_endpoint",
+                )
+                new_token_endpoint = resolve_endpoint(
+                    token_endpoint,
+                    integration.token_endpoint,
+                    default_token,
+                )
+                integration.token_endpoint = self._validate_https_endpoint(
+                    new_token_endpoint,
+                    field_name="token_endpoint",
+                )
             # Always sync to the method used by the exchange that just
             # succeeded; a retained stale method (e.g. after the client lost
             # its secret) would make refresh send client auth the server

@@ -1986,6 +1986,89 @@ class TestIntegrationService:
         assert updated.encrypted_access_token == b""
         assert updated.encrypted_refresh_token is None
 
+    async def test_callback_preserves_concurrent_same_origin_endpoint_edits(
+        self,
+        svc_role: Role,
+        encryption_key: str,
+        mock_token_response: TokenResponse,
+    ) -> None:
+        """A callback stores tokens without reverting current endpoint paths."""
+        del encryption_key
+        role = svc_role.model_copy(
+            update={"workspace_id": uuid.uuid4()},
+            deep=True,
+        )
+        provider_key = ProviderKey(
+            id="same_origin_callback_race",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
+        old_authorization_endpoint = "https://auth.example.com/oauth/authorize"
+        old_token_endpoint = "https://auth.example.com/oauth/token"
+        new_authorization_endpoint = "https://auth.example.com/oauth/v2/authorize"
+        new_token_endpoint = "https://auth.example.com/oauth/v2/token?audience=api"
+        engine = create_async_engine(TEST_DB_CONFIG.test_url)
+        session_factory = async_sessionmaker(bind=engine, expire_on_commit=False)
+
+        try:
+            async with session_factory() as seed_session:
+                seed_session.add(
+                    Workspace(
+                        id=role.workspace_id,
+                        name=f"oauth-same-origin-race-{role.workspace_id}",
+                        organization_id=role.organization_id,
+                    )
+                )
+                await seed_session.commit()
+                seed_service = IntegrationService(
+                    session=seed_session,
+                    role=role.model_copy(deep=True),
+                )
+                await seed_service.store_provider_config(
+                    provider_key=provider_key,
+                    client_id="client-id",
+                    client_secret=SecretStr("client-secret"),
+                    authorization_endpoint=old_authorization_endpoint,
+                    token_endpoint=old_token_endpoint,
+                )
+
+            async with (
+                session_factory() as callback_session,
+                session_factory() as editor_session,
+            ):
+                callback_service = IntegrationService(
+                    session=callback_session,
+                    role=role.model_copy(deep=True),
+                )
+                editor_service = IntegrationService(
+                    session=editor_session,
+                    role=role.model_copy(deep=True),
+                )
+                stale = await callback_service.get_integration(
+                    provider_key=provider_key
+                )
+                assert stale is not None
+                assert stale.token_endpoint == old_token_endpoint
+
+                await editor_service.store_provider_config(
+                    provider_key=provider_key,
+                    authorization_endpoint=new_authorization_endpoint,
+                    token_endpoint=new_token_endpoint,
+                )
+                stored = await callback_service.store_integration(
+                    provider_key=provider_key,
+                    access_token=mock_token_response.access_token,
+                    refresh_token=mock_token_response.refresh_token,
+                    authorization_endpoint=old_authorization_endpoint,
+                    token_endpoint=old_token_endpoint,
+                    expected_token_origin=HttpOrigin.from_url(old_token_endpoint),
+                )
+
+                assert stored.authorization_endpoint == new_authorization_endpoint
+                assert stored.token_endpoint == new_token_endpoint
+                assert stored.encrypted_access_token != b""
+        finally:
+            await engine.dispose()
+
     async def test_stale_identity_cannot_restore_tokens_after_origin_change(
         self,
         svc_role: Role,
