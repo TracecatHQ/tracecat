@@ -1,0 +1,68 @@
+packages/tracecat-ee/tracecat_ee/admin/settings/service.py
+  s_388fff4aaf5212::t_dfe2fc42df5106 21,148-154
+tracecat/audit/service.py
+  s_388fff4aaf5212::t_7b706a59617c08 371-372,378-385,387,389-393,395-399,401,404,407-409,411,419,427,435,453-471
+  s_388fff4aaf5212::t_dfe2fc42df5106 56-58,60,122-130,181,184-185,189-190,548-550,570,584-585
+  s_388fff4aaf5212::t_e8548b57b1fd64 15
+  s_388fff4aaf5212::t_7863cfbd874fa1 223-225,227-231,234-279,286-303,308
+  s_b8ea12cc0d3094::t_2a9ec6c92b912b 472
+frontend/src/components/organization/org-settings-audit.tsx
+  s_388fff4aaf5212::t_0b075ee33cbd1c 268,321-323,450,460,473
+  s_388fff4aaf5212::t_11826ca34e567f 222-233,267,269-270,318-320,339-341,449,451,456-459,461-471,474-480,564-567,589-598,612-615,632-635,649-652,665-668
+  s_388fff4aaf5212::t_e40d5be34ececb 286,472
+tests/unit/test_admin_settings_service.py
+  s_388fff4aaf5212::t_8ec60f6cdabd5c 114-182
+tracecat/settings/audit.py
+  s_388fff4aaf5212::t_c5d763f35b1a9e 10
+  s_388fff4aaf5212::t_dfe2fc42df5106 1-4,6-9,12-43
+  s_388fff4aaf5212::t_437a8e6353f89a 5,11
+tracecat/settings/service.py
+  s_388fff4aaf5212::t_dfe2fc42df5106 32,330-343
+tests/unit/api/test_api_audit_webhook_test.py
+  s_388fff4aaf5212::t_b487a79e083492 116,153,177,200,266,286,356
+  s_388fff4aaf5212::t_24b12629a5f873 18,223,228-237,314-316
+  s_388fff4aaf5212::t_fbc5298e47cc8b 17,221
+tests/unit/test_audit_service.py
+  s_388fff4aaf5212::t_092ef189d38299 62-72,791-793,795,800,810-811,817,846-849,857-860,862-866,891-892,895,941-995
+  s_388fff4aaf5212::t_2e19e8a5a8b1d2 909,913,932
+  s_388fff4aaf5212::t_e5a592b974ccda 22
+  s_388fff4aaf5212::t_1680f640ebba9c 1023-1027,1052-1055,1084-1088,1113,1131-1133,1135-1136,1169
+  s_388fff4aaf5212::t_a6538001a7d583 922-930
+  s_388fff4aaf5212::t_b487a79e083492 1045,1106,1160
+  s_388fff4aaf5212::t_ea21ec5c7af148 1251-1260
+  s_388fff4aaf5212::t_b95d95ca43792a 41-42,906-908,910-912,914-920,933-940
+  s_388fff4aaf5212::t_e0eca4e1339c77 921
+  s_388fff4aaf5212::t_70db17c4242448 931
+  s_388fff4aaf5212::t_ae52ad572f8a07 996-997
+tests/unit/test_organization_settings.py
+  s_388fff4aaf5212::t_8ec60f6cdabd5c 290-359
+frontend/src/components/organization/org-settings-audit.test.tsx
+  s_388fff4aaf5212::t_5d396311fe306b 59-66,77-80,82-127,129-157
+  s_388fff4aaf5212::t_3f1f7808c8f7c6 46-48,70-71,74-76,159-160
+  s_388fff4aaf5212::t_dd65a11db09e69 55
+  s_388fff4aaf5212::t_253781f49c1ddf 1-45,49-54,56-58,67-69,72-73,81,128,158
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a9f7f82704ae9907386ae31d731019f3d87fe7d2",
+  "prompts": {},
+  "sessions": {
+    "s_388fff4aaf5212": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09b54-52c8-7d92-934c-882473f1ae27",
+        "model": "gpt-daybreak-blue-latest"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    },
+    "s_b8ea12cc0d3094": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09b68-505b-7e91-bd59-e7d528fcaf93",
+        "model": "gpt-daybreak-blue-latest"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
