@@ -33,6 +33,23 @@ def test_resolve_org_agent_otel_config_keeps_endpoint_host_side() -> None:
     assert resolved.headers["Authorization"].get_secret_value() == "Bearer token"
 
 
+def test_resolve_agent_otel_config_filters_legacy_managed_headers() -> None:
+    resolved = resolve_agent_otel_config(
+        org_config=AgentOtelConfig(
+            enabled=True,
+            endpoint=HttpUrl("https://collector.example.com"),
+        ),
+        org_headers={
+            "Authorization": "Bearer token",
+            "Host": "legacy.example.com",
+            "content-TYPE": "application/json",
+        },
+    )
+
+    assert set(resolved.headers) == {"Authorization"}
+    assert resolved.headers["Authorization"].get_secret_value() == "Bearer token"
+
+
 def test_disabled_org_config_resolves_to_empty_envs() -> None:
     resolved = resolve_agent_otel_config(
         org_config=None,

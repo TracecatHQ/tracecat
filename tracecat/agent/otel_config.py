@@ -191,7 +191,19 @@ def resolve_agent_otel_config(
     host-side in `collector_env`.
     """
     config_value = org_config or AgentOtelConfig()
-    headers = secret_otel_headers(org_headers)
+    # Existing organizations may have saved routing/framing headers before
+    # they became managed. Ignore those at runtime so the hardening does not
+    # disable telemetry; new settings submissions still reject them.
+    runtime_headers = (
+        {
+            key: value
+            for key, value in org_headers.items()
+            if key.lower() not in OTEL_MANAGED_HEADER_NAMES
+        }
+        if org_headers
+        else None
+    )
+    headers = secret_otel_headers(runtime_headers)
 
     if not config_value.enabled:
         return ResolvedAgentOtelConfig(enabled=False)
