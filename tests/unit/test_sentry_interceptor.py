@@ -742,7 +742,7 @@ async def test_reporting_failure_does_not_replace_the_workflow_error(
     monkeypatch.setattr(
         interceptor_module,
         "capture_platform_failure",
-        lambda *_: (_ for _ in ()).throw(RuntimeError("capture unavailable")),
+        lambda *_, **__: (_ for _ in ()).throw(RuntimeError("capture unavailable")),
     )
     attribution = _RuntimeErrorAttributionWorkflowInterceptor(_RaisingInbound(error))
 

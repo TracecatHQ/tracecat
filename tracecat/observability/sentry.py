@@ -16,8 +16,6 @@ from sentry_sdk.integrations.starlette import StarletteIntegration
 from sentry_sdk.transport import Transport
 from sentry_sdk.types import Event, Hint
 from temporalio import activity
-from temporalio.exceptions import ActivityError
-from temporalio.exceptions import TimeoutError as TemporalTimeoutError
 
 from tracecat import __version__ as APP_VERSION
 from tracecat import config
@@ -26,6 +24,7 @@ from tracecat.logger import logger
 from tracecat.observability.types import PlatformErrorCapture
 from tracecat.runtime.errors import RuntimeErrorClassification, RuntimeErrorOwner
 from tracecat.temporal.error_chain import iter_error_chain
+from tracecat.temporal.failure_metadata import ActivityTimeout
 
 
 @dataclass(frozen=True, slots=True)
@@ -220,6 +219,8 @@ def capture_platform_failure(
     error: BaseException,
     classification: RuntimeErrorClassification,
     context: WorkflowFailureEventContext,
+    *,
+    activity_timeout: ActivityTimeout | None = None,
 ) -> None:
     """Best-effort capture of a classified data-plane platform failure.
 
@@ -231,20 +232,11 @@ def capture_platform_failure(
         if not client.is_active() or client.options.get("dsn") is None:
             return
 
-        timeout_type = next(
-            (
-                cause.type
-                for current in iter_error_chain(error, include_implicit_context=False)
-                if isinstance(current, ActivityError)
-                and isinstance(cause := current.cause, TemporalTimeoutError)
-                and cause.type is not None
-            ),
-            None,
-        )
         with sentry_sdk.isolation_scope() as scope:
-            if timeout_type is not None:
+            if activity_timeout is not None:
                 scope.set_tag(
-                    SentryTag.ACTIVITY_TIMEOUT_TYPE.value, timeout_type.name.lower()
+                    SentryTag.ACTIVITY_TIMEOUT_TYPE.value,
+                    activity_timeout.timeout_type.name.lower(),
                 )
             scope.fingerprint = [
                 "tracecat-runtime-v1",
