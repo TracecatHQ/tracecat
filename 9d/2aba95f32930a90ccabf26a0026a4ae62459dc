@@ -1,0 +1,27 @@
+frontend/src/components/organization/org-settings-audit.test.tsx
+  s_388fff4aaf5212::t_374054f6a78852 49,51,130-171
+  s_388fff4aaf5212::t_ae3be9fd27c45c 172-174
+frontend/src/lib/http-origin.test.ts
+  s_388fff4aaf5212::t_4f39a94f4fc8f1 1-29
+frontend/src/lib/http-origin.ts
+  s_388fff4aaf5212::t_4f39a94f4fc8f1 1-21
+frontend/src/components/organization/org-settings-audit.tsx
+  s_388fff4aaf5212::t_4f39a94f4fc8f1 40,307,438
+  s_388fff4aaf5212::t_4abce6e7206468 446,451
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "9d2aba95f32930a90ccabf26a0026a4ae62459dc",
+  "prompts": {},
+  "sessions": {
+    "s_388fff4aaf5212": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09b54-52c8-7d92-934c-882473f1ae27",
+        "model": "gpt-daybreak-blue-latest"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
