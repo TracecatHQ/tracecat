@@ -46,6 +46,7 @@ from tracecat.integrations.service import (
     OAuthRefreshBusyError,
 )
 from tracecat.integrations.types import TokenResponse
+from tracecat.network import HttpOrigin
 from tracecat.outbound_http import GuardedAsyncHTTPTransport
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -1788,6 +1789,104 @@ class TestIntegrationService:
         assert updated.token_endpoint == "https://login.example.net/oauth/token"
         assert updated.encrypted_access_token == b""
         assert updated.encrypted_refresh_token is None
+
+    async def test_stale_identity_cannot_restore_tokens_after_origin_change(
+        self,
+        svc_role: Role,
+        encryption_key: str,
+        mock_token_response: TokenResponse,
+    ) -> None:
+        """The locked callback read refreshes an object cached before an edit."""
+        del encryption_key
+        role = svc_role.model_copy(
+            update={"workspace_id": uuid.uuid4()},
+            deep=True,
+        )
+        engine = create_async_engine(TEST_DB_CONFIG.test_url)
+        session_factory = async_sessionmaker(bind=engine, expire_on_commit=False)
+        provider_key = ProviderKey(
+            id="stale_identity_provider",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
+
+        try:
+            async with session_factory() as seed_session:
+                seed_session.add(
+                    Workspace(
+                        id=role.workspace_id,
+                        name=f"oauth-origin-race-{role.workspace_id}",
+                        organization_id=role.organization_id,
+                    )
+                )
+                await seed_session.commit()
+                seed_service = IntegrationService(
+                    session=seed_session,
+                    role=role.model_copy(deep=True),
+                )
+                await seed_service.store_provider_config(
+                    provider_key=provider_key,
+                    client_id="test_client_id",
+                    client_secret=SecretStr("old_client_secret"),
+                    token_endpoint="https://auth.example.com/oauth/token",
+                )
+                integration = await seed_service.store_integration(
+                    provider_key=provider_key,
+                    access_token=mock_token_response.access_token,
+                    refresh_token=mock_token_response.refresh_token,
+                    token_endpoint="https://auth.example.com/oauth/token",
+                )
+                integration_id = integration.id
+
+            async with (
+                session_factory() as callback_session,
+                session_factory() as editor_session,
+            ):
+                callback_service = IntegrationService(
+                    session=callback_session,
+                    role=role.model_copy(deep=True),
+                )
+                editor_service = IntegrationService(
+                    session=editor_session,
+                    role=role.model_copy(deep=True),
+                )
+                stale = await callback_service.get_integration(
+                    provider_key=provider_key
+                )
+                assert stale is not None
+                assert stale.token_endpoint == "https://auth.example.com/oauth/token"
+
+                await editor_service.store_provider_config(
+                    provider_key=provider_key,
+                    client_secret=SecretStr("new_client_secret"),
+                    token_endpoint="https://login.example.net/oauth/token",
+                )
+
+                with pytest.raises(
+                    OAuthProviderConfigurationChangedError,
+                    match="configuration changed",
+                ):
+                    await callback_service.store_integration(
+                        provider_key=provider_key,
+                        access_token=mock_token_response.access_token,
+                        refresh_token=mock_token_response.refresh_token,
+                        token_endpoint="https://auth.example.com/oauth/token",
+                        expected_token_origin=HttpOrigin.from_url(
+                            "https://auth.example.com/oauth/token"
+                        ),
+                    )
+                await callback_session.rollback()
+
+            async with session_factory() as verification_session:
+                stored = await verification_session.get(
+                    OAuthIntegration,
+                    integration_id,
+                )
+                assert stored is not None
+                assert stored.token_endpoint == "https://login.example.net/oauth/token"
+                assert stored.encrypted_access_token == b""
+                assert stored.encrypted_refresh_token is None
+        finally:
+            await engine.dispose()
 
     @pytest.mark.parametrize(
         "encoded_state",
