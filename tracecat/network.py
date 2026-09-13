@@ -101,20 +101,24 @@ class HttpEgressPolicy:
     def from_allowed_private_origins(cls, origins: Iterable[str]) -> Self:
         """Create a policy from exact, path-free HTTP origins."""
         parsed_origins: set[HttpOrigin] = set()
-        for value in origins:
+        for position, value in enumerate(origins, start=1):
             try:
                 url = httpx.URL(value)
-            except (httpx.InvalidURL, TypeError, ValueError) as exc:
-                raise ValueError(f"Invalid private HTTP origin: {value!r}") from exc
+            except (httpx.InvalidURL, TypeError, ValueError):
+                raise ValueError(
+                    f"Invalid private HTTP origin at position {position}"
+                ) from None
             if url.path not in {"", "/"} or url.query or url.fragment:
                 raise ValueError(
-                    "Private HTTP origin must not include a path, query, or "
-                    f"fragment: {value!r}"
+                    f"Private HTTP origin at position {position} must not include "
+                    "a path, query, or fragment"
                 )
             try:
                 parsed_origins.add(HttpOrigin.from_url(url))
-            except DisallowedUrlError as exc:
-                raise ValueError(f"Invalid private HTTP origin: {value!r}") from exc
+            except DisallowedUrlError:
+                raise ValueError(
+                    f"Invalid private HTTP origin at position {position}"
+                ) from None
         return cls(allowed_private_origins=frozenset(parsed_origins))
 
     @classmethod
@@ -129,7 +133,7 @@ class HttpEgressPolicy:
         for example, does not make that origin reachable through MCP.
         """
         selected: list[str] = []
-        for entry in configured_origins:
+        for position, entry in enumerate(configured_origins, start=1):
             configured_purpose, separator, origin = entry.partition("=")
             configured_purpose = configured_purpose.strip()
             origin = origin.strip()
@@ -139,10 +143,10 @@ class HttpEgressPolicy:
                 )
             try:
                 parsed_purpose = HttpEgressPurpose(configured_purpose)
-            except ValueError as exc:
+            except ValueError:
                 raise ValueError(
-                    f"Unknown private HTTP origin purpose: {configured_purpose!r}"
-                ) from exc
+                    f"Unknown private HTTP origin purpose at position {position}"
+                ) from None
             if parsed_purpose is purpose:
                 selected.append(origin)
         return cls.from_allowed_private_origins(selected)

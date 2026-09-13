@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import socket
 import ssl
+import traceback
 from collections import deque
 from collections.abc import Callable, Iterable
 from typing import Any, cast
@@ -569,3 +570,32 @@ def test_http_origin_rejects_invalid_ports_and_malformed_hosts(url: str) -> None
 def test_private_origin_config_normalizes_malformed_url_errors() -> None:
     with pytest.raises(ValueError, match="Invalid private HTTP origin"):
         HttpEgressPolicy.from_allowed_private_origins(["http://[::1"])
+
+
+@pytest.mark.parametrize(
+    ("origin", "sensitive_text"),
+    [
+        ("https://user:synthetic-secret@service.internal", "synthetic-secret"),
+        ("https://service.internal/synthetic-secret", "synthetic-secret"),
+    ],
+)
+def test_private_origin_config_errors_redact_rejected_values(
+    origin: str,
+    sensitive_text: str,
+) -> None:
+    with pytest.raises(ValueError) as exc_info:
+        HttpEgressPolicy.from_allowed_private_origins([origin])
+
+    assert sensitive_text not in str(exc_info.value)
+    assert sensitive_text not in "".join(traceback.format_exception(exc_info.value))
+
+
+def test_private_origin_config_errors_redact_unknown_purpose() -> None:
+    with pytest.raises(ValueError) as exc_info:
+        HttpEgressPolicy.for_purpose(
+            HttpEgressPurpose.LLM,
+            ("synthetic-secret=https://service.internal",),
+        )
+
+    assert "synthetic-secret" not in str(exc_info.value)
+    assert "synthetic-secret" not in "".join(traceback.format_exception(exc_info.value))
