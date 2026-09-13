@@ -46,9 +46,9 @@ const auditSettings = {
 const updateOrgAuditSettings = jest.fn(async () => undefined)
 const updatePlatformAuditSettings = jest.fn(async () => auditSettings)
 
-function mockAuditHooks() {
+function mockAuditHooks(settings = auditSettings) {
   const value = {
-    auditSettings,
+    auditSettings: settings,
     auditSettingsIsLoading: false,
     auditSettingsError: null,
     updateAuditSettingsIsPending: false,
@@ -126,6 +126,51 @@ describe.each(surfaces)(
         }),
       })
     })
+
+    it.each([
+      [
+        "adds a DNS root dot",
+        "https://audit.example.com/first",
+        "https://AUDIT.example.com.:443/second",
+      ],
+      [
+        "removes a DNS root dot",
+        "https://audit.example.com./first",
+        "https://AUDIT.example.com:443/second",
+      ],
+    ])(
+      "preserves retained headers when a same-origin edit %s",
+      async (_scenario, savedUrl, nextUrl) => {
+        mockAuditHooks({
+          ...auditSettings,
+          audit_webhook_url: savedUrl,
+        })
+        const user = userEvent.setup()
+        render(<SettingsForm />)
+        await user.click(screen.getByRole("button", { name: "Update" }))
+
+        const url = screen.getByLabelText("Audit webhook URL")
+        await user.clear(url)
+        await user.type(url, nextUrl)
+        await user.tab()
+        expect(
+          screen.queryByText(
+            /Saved headers were cleared because the webhook origin/
+          )
+        ).toBeNull()
+        await user.click(screen.getByRole("button", { name: "Save changes" }))
+
+        await waitFor(() =>
+          expect(updateAuditSettings).toHaveBeenCalledTimes(1)
+        )
+        expect(updateAuditSettings).toHaveBeenCalledWith({
+          requestBody: expect.objectContaining({
+            audit_webhook_custom_headers:
+              auditSettings.audit_webhook_custom_headers,
+          }),
+        })
+      }
+    )
 
     it("accepts replacement headers after an origin change", async () => {
       const user = userEvent.setup()

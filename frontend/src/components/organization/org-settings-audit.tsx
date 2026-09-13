@@ -37,6 +37,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { useOrgAuditSettings } from "@/lib/hooks"
+import { normalizeHttpOrigin } from "@/lib/http-origin"
 
 const headerFormSchema = z.object({
   key: z.string(),
@@ -219,18 +220,6 @@ function normalizePayloadAttribute(value: string | null | undefined): string {
   return value?.trim() ?? ""
 }
 
-function normalizeWebhookOrigin(value: string): string | null {
-  try {
-    const url = new URL(value.trim())
-    if (url.protocol !== "http:" && url.protocol !== "https:") {
-      return null
-    }
-    return url.origin
-  } catch {
-    return null
-  }
-}
-
 function maskWebhookUrl(url: string): string {
   const trimmed = url.trim()
   if (trimmed === "") {
@@ -315,7 +304,7 @@ export function AuditSettingsForm({
       },
       {}
     )
-    const nextOrigin = normalizeWebhookOrigin(nextUrl)
+    const nextOrigin = normalizeHttpOrigin(nextUrl)
     const headersMatchOrigin =
       Object.keys(nextHeaders).length === 0 ||
       (headersReadyForOrigin &&
@@ -446,7 +435,7 @@ export function AuditSettingsForm({
         audit_webhook_payload_attribute: currentPayloadAttribute,
         audit_webhook_verify_ssl: currentVerifySsl,
       })
-      setHeadersOrigin(normalizeWebhookOrigin(currentWebhookUrl))
+      setHeadersOrigin(normalizeHttpOrigin(currentWebhookUrl))
       setHeadersReadyForOrigin(true)
       setHeadersClearedForOriginChange(false)
     }
@@ -454,16 +443,12 @@ export function AuditSettingsForm({
   }
 
   const bindHeadersToCurrentFormOrigin = () => {
-    setHeadersOrigin(
-      normalizeWebhookOrigin(form.getValues("audit_webhook_url"))
-    )
+    setHeadersOrigin(normalizeHttpOrigin(form.getValues("audit_webhook_url")))
     setHeadersReadyForOrigin(true)
   }
 
   const handleWebhookUrlBlur = () => {
-    const nextOrigin = normalizeWebhookOrigin(
-      form.getValues("audit_webhook_url")
-    )
+    const nextOrigin = normalizeHttpOrigin(form.getValues("audit_webhook_url"))
     if (
       nextOrigin !== null &&
       nextOrigin !== headersOrigin &&
