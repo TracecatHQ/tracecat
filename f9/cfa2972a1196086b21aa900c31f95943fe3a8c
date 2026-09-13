@@ -1,0 +1,21 @@
+tests/unit/test_agent_otel_config.py
+  s_388fff4aaf5212::t_f0e802f3564fd6 36-52
+tracecat/agent/otel_config.py
+  s_388fff4aaf5212::t_f0e802f3564fd6 194-206
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "f9cfa2972a1196086b21aa900c31f95943fe3a8c",
+  "prompts": {},
+  "sessions": {
+    "s_388fff4aaf5212": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09b54-52c8-7d92-934c-882473f1ae27",
+        "model": "gpt-daybreak-blue-latest"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
