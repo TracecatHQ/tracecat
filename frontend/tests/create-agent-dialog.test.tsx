@@ -20,10 +20,19 @@ const mockMoveAgentPreset = jest.fn()
 const mockOnOpenChange = jest.fn()
 const mockRouterPush = jest.fn()
 const mockRouterReplace = jest.fn()
+const mockSetSettingsOpen = jest.fn()
+const mockSetActiveSection = jest.fn()
 const mockHasEntitlement = jest.fn<boolean, [string]>(() => false)
 
 jest.mock("next/navigation", () => ({
   useRouter: jest.fn(),
+}))
+
+jest.mock("@/components/settings/settings-modal-context", () => ({
+  useSettingsModal: () => ({
+    setOpen: mockSetSettingsOpen,
+    setActiveSection: mockSetActiveSection,
+  }),
 }))
 
 jest.mock("@/components/ui/dialog", () => ({
@@ -102,6 +111,7 @@ const modelReadError = new Error("request failed") as ApiError
 
 type SetupMocksOptions = {
   orgScopes?: string[]
+  workspaceScopes?: string[]
   defaultModel?: string | null
   defaultModelSelection?: DefaultModelSelection | null
   defaultModelLoading?: boolean
@@ -117,6 +127,7 @@ type SetupMocksOptions = {
 
 function setupMocks({
   orgScopes = ["org:update"],
+  workspaceScopes = [],
   defaultModel = null,
   defaultModelSelection = null,
   models = catalogModels,
@@ -129,11 +140,11 @@ function setupMocks({
   providersLoading = false,
   providersError = null,
 }: SetupMocksOptions = {}) {
-  jest.mocked(useUserScopes).mockReturnValue({
-    userScopes: { scopes: orgScopes },
+  jest.mocked(useUserScopes).mockImplementation((workspaceId) => ({
+    userScopes: { scopes: workspaceId ? workspaceScopes : orgScopes },
     isLoading: false,
     error: null,
-  })
+  }))
   jest.mocked(useRouter).mockReturnValue({
     back: jest.fn(),
     forward: jest.fn(),
@@ -343,9 +354,126 @@ describe("CreateAgentDialog", () => {
     renderCreateAgentDialog()
 
     expect(
-      screen.getByRole("heading", { name: "Set up model provider" })
+      screen.getByRole("heading", { name: "Enable the default model" })
     ).toBeInTheDocument()
     expect(screen.queryByLabelText("Name")).not.toBeInTheDocument()
+  })
+
+  it("opens workspace model settings for a workspace admin when the default is excluded", async () => {
+    const user = userEvent.setup()
+    setupMocks({
+      orgScopes: [],
+      workspaceScopes: ["workspace:update"],
+      defaultModelSelection: {
+        catalog_id: "catalog-default",
+        model_name: "gpt-5.5",
+        model_provider: "openai",
+        custom_provider_id: null,
+      },
+      models: catalogModels.filter((model) => model.id !== "catalog-default"),
+    })
+    renderCreateAgentDialog()
+
+    expect(
+      screen.getByRole("heading", { name: "Enable the default model" })
+    ).toBeInTheDocument()
+    expect(screen.queryByLabelText("Name")).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("link", { name: "Configure models" })
+    ).not.toBeInTheDocument()
+
+    await user.click(
+      screen.getByRole("button", { name: "Configure workspace models" })
+    )
+
+    expect(mockOnOpenChange).toHaveBeenCalledWith(false)
+    expect(mockSetActiveSection).toHaveBeenCalledWith("workspace-models")
+    expect(mockSetSettingsOpen).toHaveBeenCalledWith(true)
+    expect(mockCreateAgentPreset).not.toHaveBeenCalled()
+  })
+
+  it("directs non-managers to a workspace administrator when the default is excluded", () => {
+    setupMocks({
+      orgScopes: [],
+      workspaceScopes: ["agent:create"],
+      defaultModelSelection: {
+        catalog_id: "catalog-default",
+        model_name: "gpt-5.5",
+        model_provider: "openai",
+        custom_provider_id: null,
+      },
+      models: [],
+    })
+    renderCreateAgentDialog()
+
+    expect(
+      screen.getByText(
+        "The organization default model is not enabled for this workspace. Ask a workspace administrator to enable it before creating an agent."
+      )
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Configure workspace models" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("link", { name: "Configure models" })
+    ).not.toBeInTheDocument()
+  })
+
+  it("keeps organization setup guidance for workspace admins when no default exists", () => {
+    setupMocks({ orgScopes: [], workspaceScopes: ["workspace:update"] })
+    renderCreateAgentDialog()
+
+    expect(
+      screen.getByText(
+        "Ask an organization administrator to configure a default model before creating an agent."
+      )
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Configure workspace models" })
+    ).not.toBeInTheDocument()
+  })
+
+  it("hides the workspace settings action until workspace permissions load", () => {
+    setupMocks({
+      defaultModelSelection: {
+        catalog_id: "catalog-default",
+        model_name: "gpt-5.5",
+        model_provider: "openai",
+        custom_provider_id: null,
+      },
+      models: [],
+    })
+    jest.mocked(useUserScopes).mockImplementation((workspaceId) => ({
+      userScopes: workspaceId ? undefined : { scopes: ["org:update"] },
+      isLoading: Boolean(workspaceId),
+      error: null,
+    }))
+    renderCreateAgentDialog()
+
+    expect(
+      screen.queryByRole("button", { name: "Configure workspace models" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("link", { name: "Configure models" })
+    ).not.toBeInTheDocument()
+  })
+
+  it("keeps organization setup guidance when only an unresolved legacy name remains", () => {
+    setupMocks({
+      defaultModel: "unavailable-model",
+      workspaceScopes: ["workspace:update"],
+    })
+    renderCreateAgentDialog()
+
+    expect(
+      screen.getByRole("heading", { name: "Set up model provider" })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("link", { name: "Configure models" })
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Configure workspace models" })
+    ).not.toBeInTheDocument()
   })
 
   it("shows a loading state without the create form while model queries load", () => {

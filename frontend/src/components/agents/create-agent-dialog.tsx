@@ -7,6 +7,7 @@ import { useMemo } from "react"
 import { useForm } from "react-hook-form"
 import z from "zod"
 import { Spinner } from "@/components/loading/spinner"
+import { useSettingsModal } from "@/components/settings/settings-modal-context"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -82,10 +83,16 @@ function CreateAgentDialogContent({
 }) {
   const workspaceId = useWorkspaceId()
   const router = useRouter()
+  const { setOpen: setSettingsOpen, setActiveSection } = useSettingsModal()
   const { userScopes } = useUserScopes()
   const canAdministerOrg = hasGrantedScope(
     "org:update",
     new Set(userScopes?.scopes ?? [])
+  )
+  const { userScopes: workspaceScopes } = useUserScopes(workspaceId)
+  const canAdministerWorkspace = hasGrantedScope(
+    "workspace:update",
+    new Set(workspaceScopes?.scopes ?? [])
   )
   const {
     models,
@@ -219,17 +226,44 @@ function CreateAgentDialogContent({
   }
 
   if (!initialAgentModel) {
+    // A legacy name may remain after its model is disabled organization-wide.
+    const hasDefaultModel = Boolean(defaultModelSelection)
+    let description: string
+    if (hasDefaultModel) {
+      description = canAdministerWorkspace
+        ? "The organization default model is not enabled for this workspace. Enable it in workspace AI model settings before creating an agent."
+        : "The organization default model is not enabled for this workspace. Ask a workspace administrator to enable it before creating an agent."
+    } else {
+      description = canAdministerOrg
+        ? "Choose a default model in organization settings before creating an agent."
+        : "Ask an organization administrator to configure a default model before creating an agent."
+    }
+
     return (
       <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Set up model provider</DialogTitle>
-          <DialogDescription>
-            {canAdministerOrg
-              ? "Choose a default model in organization settings before creating an agent."
-              : "Ask an organization administrator to configure a default model before creating an agent."}
-          </DialogDescription>
+          <DialogTitle>
+            {hasDefaultModel
+              ? "Enable the default model"
+              : "Set up model provider"}
+          </DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
-        {canAdministerOrg ? (
+        {hasDefaultModel && canAdministerWorkspace ? (
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                onOpenChange(false)
+                setActiveSection("workspace-models")
+                setSettingsOpen(true)
+              }}
+            >
+              Configure workspace models
+            </Button>
+          </DialogFooter>
+        ) : null}
+        {!hasDefaultModel && canAdministerOrg ? (
           <DialogFooter>
             <Button asChild variant="outline">
               <Link
