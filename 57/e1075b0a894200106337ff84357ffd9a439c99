@@ -1,0 +1,59 @@
+tracecat/outbound_http.py
+  s_388fff4aaf5212::t_fc11d3caf1e5df 13,140,152-156,193,211
+tests/unit/test_agent_litellm_egress.py
+  s_388fff4aaf5212::t_eab08fb4ed86ae 14
+  s_388fff4aaf5212::t_97ccc30a3d5886 1-13,15-44
+  s_388fff4aaf5212::t_7c1d68796f866b 60,62-68,71,74,79,87
+  s_388fff4aaf5212::t_2b0c84a9dbdf78 45-59,61,69-70,72-73,75-78,80-86,88-94
+tracecat/agent/provider/service.py
+  s_388fff4aaf5212::t_a389a76b0ff8ec 28-29,484-485
+tests/unit/test_agent_llm.py
+  s_388fff4aaf5212::t_97ccc30a3d5886 1-96
+tests/unit/test_agent_vertex_credentials.py
+  s_388fff4aaf5212::t_234cb254b6408f 12-38
+  s_388fff4aaf5212::t_b2e5d1c0c58c26 62-88
+  s_388fff4aaf5212::t_6c4af211264790 1-11,39-61
+tracecat/agent/llm.py
+  s_388fff4aaf5212::t_cc3c905d50c8d5 175-176
+  s_388fff4aaf5212::t_a389a76b0ff8ec 28-33,126-127
+tracecat/agent/gateway.py
+  s_388fff4aaf5212::t_fc11d3caf1e5df 28,37
+tracecat/agent/sandbox/llm_proxy.py
+  s_388fff4aaf5212::t_a30c0ef2de6592 1037
+  s_388fff4aaf5212::t_a389a76b0ff8ec 43-48,656,676-680,683-684,724-730,1005,1039-1051,1060,1098-1109
+  s_388fff4aaf5212::t_cc3c905d50c8d5 682,686-687,1036
+  s_388fff4aaf5212::t_04a096450cf8e6 681,1038,1110
+tracecat/agent/litellm.py
+  s_388fff4aaf5212::t_fc11d3caf1e5df 42
+tracecat/agent/litellm_egress.py
+  s_388fff4aaf5212::t_fc11d3caf1e5df 1-14,16-111
+  s_388fff4aaf5212::t_6eb403191ecf2e 15
+tests/unit/test_agent_llm_proxy.py
+  s_388fff4aaf5212::t_7991d75d69704f 21-22,161-246,248-250
+  s_388fff4aaf5212::t_7984aacbecd385 247
+  s_388fff4aaf5212::t_2d41ba39e0f203 251-252
+tracecat/agent/service.py
+  s_388fff4aaf5212::t_6c4af211264790 58,72,197-200,204,212-217,227
+  s_388fff4aaf5212::t_b2e5d1c0c58c26 9,195-196,201-203,205-211,218-220,226,229,245,248-250
+tests/unit/test_agent_provider_service.py
+  s_388fff4aaf5212::t_eab08fb4ed86ae 287-294
+  s_388fff4aaf5212::t_97ccc30a3d5886 244,277
+  s_388fff4aaf5212::t_f53d5a4ce427c2 29
+  s_388fff4aaf5212::t_aa86f5cf8a8b2e 295-296
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "57e1075b0a894200106337ff84357ffd9a439c99",
+  "prompts": {},
+  "sessions": {
+    "s_388fff4aaf5212": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09b54-52c8-7d92-934c-882473f1ae27",
+        "model": "gpt-daybreak-blue-latest"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
