@@ -6123,9 +6123,9 @@ export type ProviderCredentialField = {
    */
   label: string
   /**
-   * Input type: 'text' or 'password'
+   * Input type: 'text', 'password', or 'boolean'
    */
-  type: "text" | "password"
+  type: "text" | "password" | "boolean"
   /**
    * Help text describing this credential
    */
@@ -6134,12 +6134,16 @@ export type ProviderCredentialField = {
    * Whether this field is required
    */
   required?: boolean
+  /**
+   * Default value pre-filled when no credential is stored yet
+   */
+  default?: string | null
 }
 
 /**
- * Input type: 'text' or 'password'
+ * Input type: 'text', 'password', or 'boolean'
  */
-export type type2 = "text" | "password"
+export type type2 = "text" | "password" | "boolean"
 
 /**
  * Metadata for a provider.
@@ -11507,6 +11511,14 @@ export type AgentDeleteProviderCredentialsResponse = {
   [key: string]: string
 }
 
+export type AgentRefreshProviderModelsData = {
+  provider: string
+}
+
+export type AgentRefreshProviderModelsResponse = {
+  [key: string]: number
+}
+
 export type AgentGetDefaultModelResponse = string | null
 
 export type AgentSetDefaultModelData = {
@@ -16387,6 +16399,23 @@ export type $OpenApiTs = {
          */
         200: {
           [key: string]: string
+        }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/providers/{provider}/refresh": {
+    post: {
+      req: AgentRefreshProviderModelsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: number
         }
         /**
          * Validation Error

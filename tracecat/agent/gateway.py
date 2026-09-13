@@ -17,7 +17,15 @@ from litellm.proxy._types import LitellmUserRoles, ProxyException, UserAPIKeyAut
 from litellm.types.utils import CallTypesLiteral
 
 from tracecat import config as app_config
+from tracecat.agent.gateway_providers import (
+    CUSTOM_MODEL_PROVIDER_SLUG,
+    GATEWAY_PROVIDER_SPECS,
+    is_builtin_gateway_provider,
+    resolve_gateway_provider_config,
+    strip_openai_version_suffix,
+)
 from tracecat.agent.litellm_compat import apply_patch
+from tracecat.agent.llm_routing import get_litellm_route_model
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.tokens import verify_llm_token
 from tracecat.auth.types import Role
@@ -425,10 +433,12 @@ class TracecatCallbackHandler(CustomLogger):
 
         _inject_provider_credentials(data, provider, creds)
 
+        # Built-in gateway providers resolve api_base from their own
+        # credentials (Ollama needs the host root, not the /v1 base).
         if base_url and provider in {
             "openai",
             "anthropic",
-            "custom-model-provider",
+            CUSTOM_MODEL_PROVIDER_SLUG,
         }:
             data["api_base"] = base_url
 
@@ -537,12 +547,55 @@ def _strip_bedrock_unsupported_params(data: dict) -> None:
     data.pop("reasoning_effort", None)
 
 
+# LiteLLM's OpenAI-compatible adapters construct an OpenAI client, which
+# refuses to start without an API key even when the upstream ignores it.
+_UNAUTHENTICATED_UPSTREAM_API_KEY = "sk-no-auth"
+
+
+def _inject_gateway_provider_credentials(
+    data: dict,
+    provider: str,
+    creds: dict[str, str],
+) -> None:
+    """Inject credentials for a built-in OpenAI-compatible gateway provider."""
+    spec = GATEWAY_PROVIDER_SPECS[provider]
+    runtime = resolve_gateway_provider_config(provider, creds)
+    if runtime is None or not runtime.base_url:
+        raise ProxyException(
+            message="Provider credentials incomplete",
+            type="auth_error",
+            param=None,
+            code=401,
+        )
+    if spec.requires_api_key and not runtime.api_key:
+        raise ProxyException(
+            message="Provider credentials incomplete",
+            type="auth_error",
+            param=None,
+            code=401,
+        )
+    data["api_key"] = runtime.api_key or _UNAUTHENTICATED_UPSTREAM_API_KEY
+    data["api_base"] = (
+        strip_openai_version_suffix(runtime.base_url)
+        if spec.litellm_api_base_strips_version
+        else runtime.base_url
+    )
+    data["model"] = get_litellm_route_model(
+        model_provider=provider,
+        model_name=data.get("model", ""),
+    )
+
+
 def _inject_provider_credentials(
     data: dict,
     provider: str,
     creds: dict[str, str],
 ) -> None:
     """Inject provider-specific credentials into a LiteLLM request dict."""
+    if is_builtin_gateway_provider(provider):
+        _inject_gateway_provider_credentials(data, provider, creds)
+        return
+
     match provider:
         case "openai":
             api_key = creds.get("OPENAI_API_KEY")

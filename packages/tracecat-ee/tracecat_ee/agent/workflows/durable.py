@@ -43,6 +43,7 @@ with workflow.unsafe.imports_passed_through():
         run_agent_activity,
     )
     from tracecat.agent.executor.schemas import ToolExecutionResult
+    from tracecat.agent.gateway_providers import is_gateway_provider
     from tracecat.agent.llm_routing import get_litellm_route_model
     from tracecat.agent.mcp.executor import (
         AGENT_TOOL_PRIORITY,
@@ -640,11 +641,11 @@ class DurableAgentWorkflow:
         self,
         cfg: AgentConfig,
     ) -> None:
-        if cfg.model_provider != "custom-model-provider":
+        if not is_gateway_provider(cfg.model_provider):
             return
         result = await workflow.execute_activity(
             resolve_custom_model_provider_config_activity,
-            args=(self.role, cfg.catalog_id),
+            args=(self.role, cfg.catalog_id, False, cfg.model_provider),
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=RETRY_POLICIES["activity:fail_fast"],
         )
@@ -653,7 +654,8 @@ class DurableAgentWorkflow:
         if result.model_name:
             cfg.model_name = result.model_name
         logger.info(
-            "Applied custom model provider runtime config",
+            "Applied gateway provider runtime config",
+            provider=cfg.model_provider,
             passthrough=cfg.passthrough,
             has_model_name_override=result.model_name is not None,
             has_base_url=bool(cfg.base_url),

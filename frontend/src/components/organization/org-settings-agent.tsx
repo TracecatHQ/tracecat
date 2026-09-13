@@ -15,6 +15,7 @@ import {
   type AzureAICatalogCreate,
   type AzureOpenAICatalogCreate,
   agentDeleteProviderCredentials,
+  agentRefreshProviderModels,
   type BedrockCatalogCreate,
   createCatalogEntry,
   createCustomProvider,
@@ -512,6 +513,48 @@ function formatStatus(value?: string | null): string {
     .join(" ")
 }
 
+/**
+ * Display order for built-in providers. Providers missing from this list are
+ * appended after it in their API order.
+ */
+const PROVIDER_DISPLAY_ORDER: readonly string[] = [
+  "openai",
+  "anthropic",
+  "bedrock",
+  "azure_openai",
+  "azure_ai",
+  "gemini",
+  "vertex_ai",
+  "mistral",
+  "ollama",
+  "vllm",
+  "litellm",
+  "openrouter",
+]
+
+/**
+ * Built-in providers that expose an OpenAI-compatible `/models` endpoint and
+ * support re-discovering their catalog from the org credentials.
+ */
+const GATEWAY_PROVIDERS: ReadonlySet<string> = new Set([
+  "ollama",
+  "vllm",
+  "litellm",
+  "openrouter",
+])
+
+function isGatewayProvider(provider: string): boolean {
+  return GATEWAY_PROVIDERS.has(provider)
+}
+
+function providerDisplayRank(provider: string, fallbackIndex: number): number {
+  const index = PROVIDER_DISPLAY_ORDER.indexOf(provider)
+  if (index === -1) {
+    return PROVIDER_DISPLAY_ORDER.length + fallbackIndex
+  }
+  return index
+}
+
 function getProviderDisplayLabel(provider: string): string {
   if (isCloudCatalogProvider(provider)) {
     return getCloudProviderLabel(provider)
@@ -526,6 +569,14 @@ function getProviderDisplayLabel(provider: string): string {
       return "Mistral AI"
     case "openai":
       return "OpenAI"
+    case "ollama":
+      return "Ollama"
+    case "vllm":
+      return "vLLM"
+    case "litellm":
+      return "LiteLLM"
+    case "openrouter":
+      return "OpenRouter"
     case "custom-model-provider":
       return "Custom"
     default:
@@ -549,6 +600,14 @@ function getProviderIconId(provider?: string | null): string {
       return "mistral"
     case "openai":
       return "openai"
+    case "ollama":
+      return "ollama"
+    case "vllm":
+      return "vllm"
+    case "litellm":
+      return "litellm"
+    case "openrouter":
+      return "openrouter"
     default:
       return "custom"
   }
@@ -1321,8 +1380,10 @@ function ProviderConnectionItem({
   onEditCatalogModel,
   onEnableAllModels,
   onExpandedChange,
+  onRefreshModels,
   onToggleModel,
   provider,
+  refreshPending = false,
 }: {
   canManageModels: boolean
   disabled: boolean
@@ -1330,6 +1391,8 @@ function ProviderConnectionItem({
   isExpanded: boolean
   onAddCatalogModel?: (provider: string) => void
   onConfigureProvider: (provider: string) => void
+  onRefreshModels?: (provider: string) => void
+  refreshPending?: boolean
   onDeleteCatalogModel?: (model: BuiltInCatalogEntry) => void
   onDeleteCredentials: (provider: string, label: string) => Promise<void>
   onDisableAllModels: (provider: string, label: string) => Promise<void>
@@ -1394,6 +1457,19 @@ function ProviderConnectionItem({
             <ProviderMetaPill active={enabledSelectableProviderCount > 0}>
               {enabledSelectableProviderCount} enabled
             </ProviderMetaPill>
+          ) : null}
+          {onRefreshModels && provider.credentials_configured ? (
+            <Button
+              disabled={disabled || refreshPending}
+              onClick={() => onRefreshModels(provider.provider)}
+              size="sm"
+              variant="outline"
+            >
+              {refreshPending ? (
+                <Loader2 className="mr-2 size-3.5 animate-spin" />
+              ) : null}
+              Refresh models
+            </Button>
           ) : null}
           {onAddCatalogModel && provider.credentials_configured ? (
             <Button
@@ -2070,8 +2146,13 @@ export function OrgSettingsAgentForm() {
         // list prevents a duplicate card.
         (providerConfig) => providerConfig.provider !== "custom-model-provider"
       )
-      .sort((left, right) => left.label.localeCompare(right.label))
-      .map((providerConfig): BuiltInProviderConnection => {
+      .map((providerConfig, index) => ({ providerConfig, index }))
+      .sort(
+        (left, right) =>
+          providerDisplayRank(left.providerConfig.provider, left.index) -
+          providerDisplayRank(right.providerConfig.provider, right.index)
+      )
+      .map(({ providerConfig }): BuiltInProviderConnection => {
         const credentialsConfigured =
           providersStatus?.[providerConfig.provider] ?? false
         const discoveredModels = [
@@ -2244,6 +2325,15 @@ export function OrgSettingsAgentForm() {
     meta: { suppressErrorToast: true },
     onSuccess: () => {
       invalidateOrganizationAgentQueries()
+    },
+  })
+  const refreshBuiltInProviderMutation = useMutation({
+    mutationFn: async (provider: string) =>
+      await agentRefreshProviderModels({ provider }),
+    meta: { suppressErrorToast: true },
+    onSuccess: () => {
+      invalidateOrganizationAgentQueries()
+      invalidateBuiltInAgentQueries()
     },
   })
   const deleteCustomProviderMutation = useMutation({
@@ -2445,6 +2535,25 @@ export function OrgSettingsAgentForm() {
         variant: "destructive",
       })
       throw error
+    }
+  }
+
+  async function handleRefreshBuiltInProvider(provider: string) {
+    const label = getProviderDisplayLabel(provider)
+    try {
+      const result = await refreshBuiltInProviderMutation.mutateAsync(provider)
+      toast({
+        title: `${label} models refreshed`,
+        description: `Discovered ${result.models_discovered} models.`,
+      })
+    } catch (error) {
+      toast({
+        title: `Failed to refresh ${label} models`,
+        description:
+          getApiErrorDetail(error) ??
+          "Unable to reach the provider's /models endpoint.",
+        variant: "destructive",
+      })
     }
   }
 
@@ -2739,8 +2848,14 @@ export function OrgSettingsAgentForm() {
                     onExpandedChange={(expanded) => {
                       setExpandedProvider(expanded ? provider.provider : null)
                     }}
+                    onRefreshModels={
+                      isGatewayProvider(provider.provider)
+                        ? handleRefreshBuiltInProvider
+                        : undefined
+                    }
                     onToggleModel={handleModelToggle}
                     provider={provider}
+                    refreshPending={refreshBuiltInProviderMutation.isPending}
                   />
                 )
               })}
@@ -2760,8 +2875,8 @@ export function OrgSettingsAgentForm() {
               Custom sources
             </h3>
             <p className="text-sm text-muted-foreground">
-              Add custom sources like Ollama, vLLM, or other OpenAI-compatible
-              gateways.
+              Add any other OpenAI-compatible gateway. Ollama, vLLM, LiteLLM,
+              and OpenRouter are available as built-in providers above.
             </p>
           </div>
           <Button

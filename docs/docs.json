@@ -86,6 +86,7 @@
               "agents/ai-action",
               "agents/ai-agent",
               "agents/ai-preset-agent",
+              "agents/llm-providers",
               "agents/custom-llm-providers",
               "agents/skills",
               "agents/secrets-variables"

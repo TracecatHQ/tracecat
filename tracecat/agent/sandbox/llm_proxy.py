@@ -31,6 +31,10 @@ from tracecat.agent.error_policy import (
     agent_executor_unavailable,
     user_agent_execution_failed,
 )
+from tracecat.agent.gateway_providers import (
+    CUSTOM_MODEL_PROVIDER_SLUG,
+    resolve_gateway_provider_config,
+)
 from tracecat.agent.observability import get_load_tracker
 from tracecat.agent.service import AgentManagementService
 from tracecat.auth.types import Role
@@ -262,24 +266,24 @@ class LLMRoute:
         """
         if not self.is_direct:
             return None
+        provider = self.model_provider or CUSTOM_MODEL_PROVIDER_SLUG
         if self.catalog_id is not None:
             try:
                 creds = await svc.get_catalog_credentials(self.catalog_id)
             except TracecatAuthorizationError as exc:
                 raise AgentSandboxValidationError(
-                    "Custom model provider is not available for this workspace."
+                    f"Model provider {provider} is not available for this workspace."
                 ) from exc
         else:
-            creds = await svc.get_runtime_provider_credentials(
-                "custom-model-provider",
-            )
+            creds = await svc.get_runtime_provider_credentials(provider)
             if creds is None:
-                creds = await svc.get_workspace_provider_credentials(
-                    "custom-model-provider",
-                )
+                creds = await svc.get_workspace_provider_credentials(provider)
         if creds is None:
             return None
-        return creds.get("CUSTOM_MODEL_PROVIDER_API_KEY") or None
+        runtime = resolve_gateway_provider_config(provider, creds)
+        if runtime is None:
+            return None
+        return runtime.api_key
 
     def forward_url(self, path: str) -> str:
         """Build the upstream URL for a sandbox request path.
