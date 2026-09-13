@@ -13,7 +13,6 @@ from pydantic import SecretStr
 
 from tracecat.integrations.providers.base import (
     ServiceAccountOAuthProvider,
-    validate_oauth_endpoint,
 )
 from tracecat.integrations.providers.google.common import (
     GOOGLE_AUTH_URL,
@@ -22,7 +21,7 @@ from tracecat.integrations.providers.google.common import (
 )
 from tracecat.integrations.schemas import ProviderMetadata, ProviderScopes
 from tracecat.integrations.types import TokenResponse
-from tracecat.logger import logger
+from tracecat.network import DisallowedUrlError
 
 __all__ = [
     "GOOGLE_AUTH_URL",
@@ -85,14 +84,15 @@ class GoogleServiceAccountOAuthProvider(ServiceAccountOAuthProvider):
         if "private_key" not in info:
             raise ValueError("Service account JSON must include a 'private_key'.")
 
-        token_uri = info.get("token_uri")
-        if token_uri and token_uri != self.default_token_endpoint:
-            validate_oauth_endpoint(token_uri)
-            logger.debug(
-                "Overriding token endpoint from service account JSON",
-                configured=token_uri,
-            )
-            self._token_endpoint = token_uri
+        if info.get("token_uri") != GOOGLE_TOKEN_URL:
+            # google-auth refreshes this URI with requests, outside Tracecat's
+            # guarded HTTPX transport. Google-issued service-account keys use
+            # this canonical endpoint, so custom token servers are not needed.
+            raise DisallowedUrlError("Google service account token URL is not allowed")
+        # Pass one parsed, normalized document to google-auth. This avoids a
+        # second parser interpreting duplicate or non-string keys differently.
+        info["type"] = "service_account"
+        info["token_uri"] = GOOGLE_TOKEN_URL
 
         return info
 
