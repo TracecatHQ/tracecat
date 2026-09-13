@@ -261,6 +261,16 @@ class IntegrationService(BaseWorkspaceService):
     service_name = "integrations"
 
     @staticmethod
+    async def _validate_authorization_redirect(endpoint: str) -> None:
+        """Require browser-facing OAuth redirects to satisfy egress policy."""
+        try:
+            await validate_oauth_endpoint_resolves_public_async(endpoint)
+        except ValueError as exc:
+            raise InsecureOAuthEndpointError(
+                "OAuth authorization endpoint host is not allowed"
+            ) from exc
+
+    @staticmethod
     def _escape_like_pattern(value: str) -> str:
         return value.replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_")
 
@@ -714,6 +724,8 @@ class IntegrationService(BaseWorkspaceService):
                     token_endpoint=provider.token_endpoint,
                     requested_scopes=provider.requested_scopes,
                 )
+
+        await self._validate_authorization_redirect(provider.authorization_endpoint)
 
         # Clean up expired state entries globally before creating a new one.
         async with get_async_session_bypass_rls_context_manager() as bypass_session:
@@ -1277,6 +1289,8 @@ class IntegrationService(BaseWorkspaceService):
     ) -> IntegrationOAuthConnect:
         if self.role.user_id is None:
             raise ValueError("User ID is required")
+
+        await self._validate_authorization_redirect(endpoints.authorization_endpoint)
 
         async with get_async_session_bypass_rls_context_manager() as bypass_session:
             await bypass_session.execute(

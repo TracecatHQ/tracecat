@@ -215,6 +215,23 @@ async def _noop_validate_oauth_endpoint(endpoint: str) -> None:
     _ = endpoint
 
 
+def _capture_oauth_endpoint_validation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[str]:
+    """Stub DNS-backed validation while recording each authorization endpoint."""
+    captured: list[str] = []
+
+    async def _capture(endpoint: str) -> None:
+        captured.append(endpoint)
+
+    monkeypatch.setattr(
+        integration_service_module,
+        "validate_oauth_endpoint_resolves_public_async",
+        _capture,
+    )
+    return captured
+
+
 def _patch_mcp_dcr_http(
     monkeypatch: pytest.MonkeyPatch,
     response_json: dict[str, object],
@@ -2281,6 +2298,7 @@ class TestMCPIntegrationCRUD:
             "instantiate",
             classmethod(_instantiate),
         )
+        validated_endpoints = _capture_oauth_endpoint_validation(monkeypatch)
 
         result = await integration_service.connect_platform_mcp_catalog(
             catalog_slug=catalog.slug
@@ -2320,6 +2338,7 @@ class TestMCPIntegrationCRUD:
         assert callback_state.code_verifier == "pkce-verifier"
         assert callback_state.token_endpoint_origin is not None
         assert callback_state.token_endpoint_origin.host == "auth.example.com"
+        assert validated_endpoints == ["https://auth.example.com/authorize"]
 
         provider_config = (
             await session.execute(
@@ -2391,6 +2410,7 @@ class TestMCPIntegrationCRUD:
         monkeypatch.setattr(
             integration_service, "_discover_mcp_oauth_endpoints", fail_discover
         )
+        validated_endpoints = _capture_oauth_endpoint_validation(monkeypatch)
 
         result = await integration_service._start_existing_custom_mcp_oauth(
             mcp_integration=mcp_integration
@@ -2406,6 +2426,9 @@ class TestMCPIntegrationCRUD:
         assert parsed.path == "/o/oauth2/authorize"
         query = parse_qs(parsed.query)
         assert query["resource"] == ["https://mcp.example.test/mcp"]
+        assert validated_endpoints == [
+            "https://accounts.example.test/o/oauth2/authorize"
+        ]
 
     async def _run_reconnect_scope_case(
         self,
@@ -7017,6 +7040,7 @@ class TestMCPProviderOAuth:
         monkeypatch.setattr(
             integration_service, "_discover_mcp_oauth_endpoints", fail_discover
         )
+        validated_endpoints = _capture_oauth_endpoint_validation(monkeypatch)
 
         catalog_spec = _MCP_CONNECTION_SPEC_ADAPTER.validate_python(
             {
@@ -7059,6 +7083,7 @@ class TestMCPProviderOAuth:
         parsed = urlparse(result.oauth_connect.auth_url)
         assert parsed.hostname == "auth.example.test"
         assert parsed.path == "/oauth/authorize"
+        assert validated_endpoints == ["https://auth.example.test/oauth/authorize"]
         # Legacy overload: custom_credentials carried the OAuth client, so it
         # is consumed into the provider and never persisted as headers.
         assert result.mcp_integration is not None

@@ -1721,6 +1721,86 @@ class TestIntegrationService:
         assert config.authorization_endpoint == authorization_endpoint
         assert config.token_endpoint == token_endpoint
 
+    async def test_authorization_connect_rejects_unapproved_private_redirect(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+    ) -> None:
+        provider_key = ProviderKey(
+            id=MockOAuthProvider.id,
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
+        await integration_service.store_provider_config(
+            provider_key=provider_key,
+            client_id="private-redirect-client",
+            client_secret=SecretStr("private-redirect-secret"),
+            authorization_endpoint="https://127.0.0.1/oauth/authorize",
+            token_endpoint="https://tokens.example.com/oauth/token",
+        )
+
+        with pytest.raises(
+            InsecureOAuthEndpointError,
+            match="authorization endpoint host is not allowed",
+        ):
+            await integration_service.start_authorization_code_connect(
+                provider_key=provider_key,
+                provider_impl=MockOAuthProvider,
+            )
+
+        assert (
+            await session.scalar(
+                select(OAuthStateDB).where(
+                    OAuthStateDB.provider_id == MockOAuthProvider.id
+                )
+            )
+            is None
+        )
+
+    async def test_authorization_connect_allows_operator_approved_private_redirect(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+        session: AsyncSession,
+    ) -> None:
+        monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", False)
+        monkeypatch.setattr(
+            config,
+            "TRACECAT__HTTP_EGRESS_ALLOWED_PRIVATE_ORIGINS",
+            ("oauth=https://127.0.0.1",),
+        )
+        provider_key = ProviderKey(
+            id=MockOAuthProvider.id,
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
+        user_id = integration_service.role.user_id
+        assert user_id is not None
+        session.add(
+            User(
+                id=user_id,
+                email=f"approved-private-redirect-{uuid.uuid4().hex}@example.test",
+                hashed_password="synthetic-password-hash",
+                last_login_at=None,
+                is_active=True,
+                is_superuser=False,
+                is_verified=True,
+            )
+        )
+        await session.flush()
+        await integration_service.store_provider_config(
+            provider_key=provider_key,
+            client_id="approved-private-redirect-client",
+            client_secret=SecretStr("approved-private-redirect-secret"),
+            authorization_endpoint="https://127.0.0.1/oauth/authorize",
+            token_endpoint="https://tokens.example.com/oauth/token",
+        )
+
+        connect = await integration_service.start_authorization_code_connect(
+            provider_key=provider_key,
+            provider_impl=MockOAuthProvider,
+        )
+
+        assert connect.auth_url.startswith("https://127.0.0.1/oauth/authorize?")
+
     async def test_provider_token_origin_change_clears_bound_credentials(
         self,
         integration_service: IntegrationService,
