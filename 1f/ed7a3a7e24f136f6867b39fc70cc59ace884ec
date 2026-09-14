@@ -1,0 +1,35 @@
+tracecat/integrations/service.py
+  s_388fff4aaf5212::t_916c6a392c94d3 877-881
+  s_388fff4aaf5212::t_8d759715084157 278,281,301-305,581,584,790-796,800-805,816,883,1976,1980,2062,2071,2116,2124,2590,2596,2687,2691
+  s_388fff4aaf5212::t_7e24ee2bdfbf5b 298-300,807-809
+  s_388fff4aaf5212::t_0b290988b48321 285-286,288,290-294,296-297,308
+tracecat/integrations/providers/base.py
+  s_388fff4aaf5212::t_2ee3ed3f10ae45 112-118,148-152,157,162,169,172,879-880,882,888,900
+  s_388fff4aaf5212::t_7e24ee2bdfbf5b 891-893
+  s_388fff4aaf5212::t_916c6a392c94d3 99-100,102,104-109,120,126,128-131,135-138,142
+tracecat/integrations/schemas.py
+  s_388fff4aaf5212::t_8fbf292ee5802c 31-36,39,46-47,49,51-61,159,162,183,186
+tests/unit/test_integrations_service.py
+  s_388fff4aaf5212::t_5fbcb4172cd807 33-34,158-161,188-211,214-228,232-238,1865,1889-1890,1898,2710-2713,2732
+  s_388fff4aaf5212::t_916c6a392c94d3 147-157,162-187,239-240
+  s_388fff4aaf5212::t_5d7eabfbc75697 229-231
+  s_388fff4aaf5212::t_0b290988b48321 2702-2709,2714-2731,2733-2778
+  s_388fff4aaf5212::t_490745998e8821 212-213,2795,2800
+  s_388fff4aaf5212::t_2b15a4af67d418 2701
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "1fed7a3a7e24f136f6867b39fc70cc59ace884ec",
+  "prompts": {},
+  "sessions": {
+    "s_388fff4aaf5212": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09b54-52c8-7d92-934c-882473f1ae27",
+        "model": "gpt-daybreak-blue-latest"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
