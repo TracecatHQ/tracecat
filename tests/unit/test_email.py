@@ -6,6 +6,7 @@ from email.message import EmailMessage
 from unittest.mock import AsyncMock
 
 import pytest
+from aiosmtplib.response import SMTPResponse
 
 from tracecat import config
 from tracecat.email import transport as transport_module
@@ -105,7 +106,7 @@ def _outbound(to: str = "invitee@example.com") -> OutboundEmail:
 async def test_smtp_transport_send_builds_mime_and_selects_tls(
     monkeypatch: pytest.MonkeyPatch, port: int, use_tls: bool, start_tls: bool
 ) -> None:
-    send = AsyncMock()
+    send = AsyncMock(return_value=({}, "OK"))
     monkeypatch.setattr(transport_module.aiosmtplib, "send", send)
     transport = SMTPTransport(
         host="smtp.example.com",
@@ -163,3 +164,59 @@ async def test_smtp_transport_send_hides_host_and_recipient_on_failure(
     assert "invitee@example.com" not in message
     assert exc_info.value.__cause__ is None
     assert exc_info.value.__suppress_context__
+
+
+@pytest.mark.anyio
+async def test_partial_recipient_refusal_is_reported_as_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A relay that accepts one recipient and refuses another returns the
+    # refusals instead of raising.
+    refused = {"refused@example.com": SMTPResponse(550, "No such user here")}
+    monkeypatch.setattr(
+        transport_module.aiosmtplib,
+        "send",
+        AsyncMock(return_value=(refused, "OK")),
+    )
+    transport = SMTPTransport(
+        host="smtp.customer.internal",
+        port=587,
+        username="relay",
+        password="secret",
+        from_addr="Tracecat <no-reply@example.com>",
+    )
+
+    with pytest.raises(EmailDeliveryError) as exc_info:
+        await transport.send(
+            OutboundEmail(
+                to=("accepted@example.com", "refused@example.com"),
+                subject="Invitation",
+                html="<p>Join</p>",
+                text="Join",
+            )
+        )
+
+    message = str(exc_info.value)
+    assert "550" in message
+    assert "587" in message
+    assert "refused@example.com" not in message
+    assert "No such user here" not in message
+    assert "smtp.customer.internal" not in message
+
+
+@pytest.mark.anyio
+async def test_send_succeeds_when_no_recipient_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        transport_module.aiosmtplib, "send", AsyncMock(return_value=({}, "OK"))
+    )
+    transport = SMTPTransport(
+        host="smtp.example.com",
+        port=587,
+        username="relay",
+        password="secret",
+        from_addr="Tracecat <no-reply@example.com>",
+    )
+
+    await transport.send(_outbound())
