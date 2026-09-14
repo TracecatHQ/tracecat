@@ -103,18 +103,20 @@ async def create_invitation_row(
         .all()
     )
     now = datetime.now(UTC)
+    replaced = False
     for row in existing:
-        if (
-            row.status == InvitationStatus.PENDING
-            and row.expires_at >= now
-            and row.grants
-        ):
+        if row.status != InvitationStatus.PENDING:
+            # Accepted and revoked rows are history the admin listing exposes.
+            continue
+        if row.expires_at >= now and row.grants:
             raise TracecatValidationError(
                 f"An invitation already exists for {email} in this organization"
             )
-        # Expired, revoked, accepted or grantless rows are replaced.
+        # Only a pending row that confers nothing is replaced; the partial
+        # unique index covers pending rows alone, so settled rows may stay.
         await session.delete(row)
-    if existing:
+        replaced = True
+    if replaced:
         await session.flush()
 
     invitation = Invitation(
