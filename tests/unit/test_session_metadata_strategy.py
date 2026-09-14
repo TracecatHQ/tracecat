@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from fastapi_users_db_sqlalchemy.access_token import SQLAlchemyAccessTokenDatabase
 
 from tracecat import config
 from tracecat.auth.users import SessionMetadataDatabaseStrategy
@@ -10,9 +11,12 @@ from tracecat.contexts import RequestAuditContext, ctx_request_audit
 
 
 def _strategy() -> tuple[SessionMetadataDatabaseStrategy, MagicMock]:
-    database = MagicMock()
+    database = MagicMock(spec=SQLAlchemyAccessTokenDatabase)
     database.get_by_token = AsyncMock()
     database.update = AsyncMock()
+    database.session = MagicMock()
+    database.session.execute = AsyncMock()
+    database.session.commit = AsyncMock()
     return SessionMetadataDatabaseStrategy(database, lifetime_seconds=3600), database
 
 
@@ -55,20 +59,30 @@ async def test_read_token_touches_last_seen_only_when_stale(
     user_manager.parse_id = MagicMock(side_effect=lambda value: value)
     user_manager.get = AsyncMock(return_value=user)
 
-    fresh = MagicMock(user_id=uuid.uuid4(), last_seen_at=datetime.now(UTC))
+    fresh = MagicMock(
+        user_id=uuid.uuid4(), id=uuid.uuid4(), last_seen_at=datetime.now(UTC)
+    )
     database.get_by_token.return_value = fresh
     assert await strategy.read_token("tok", user_manager) is user
-    database.update.assert_not_called()
+    database.session.execute.assert_not_called()
 
     stale = MagicMock(
         user_id=uuid.uuid4(),
+        id=uuid.uuid4(),
         last_seen_at=datetime.now(UTC) - timedelta(seconds=600),
     )
     database.get_by_token.return_value = stale
     assert await strategy.read_token("tok", user_manager) is user
-    database.update.assert_awaited_once()
-    _, update_dict = database.update.await_args.args
-    assert set(update_dict) == {"last_seen_at"}
+    database.session.execute.assert_awaited_once()
+    database.session.commit.assert_awaited_once()
+    # The write is a conditional UPDATE keyed on the token that only advances a
+    # null or stale last_seen_at, so concurrent readers cannot regress it.
+    (statement,) = database.session.execute.await_args.args
+    sql = str(statement.compile(compile_kwargs={"literal_binds": False}))
+    assert sql.startswith("UPDATE access_token SET last_seen_at=")
+    assert "access_token.id = " in sql
+    assert "access_token.last_seen_at IS NULL" in sql
+    assert "access_token.last_seen_at < " in sql
 
 
 @pytest.mark.anyio
@@ -76,4 +90,4 @@ async def test_read_token_returns_none_for_unknown_token() -> None:
     strategy, database = _strategy()
     database.get_by_token.return_value = None
     assert await strategy.read_token("tok", MagicMock()) is None
-    database.update.assert_not_called()
+    database.session.execute.assert_not_called()

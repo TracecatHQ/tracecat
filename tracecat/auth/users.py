@@ -35,7 +35,7 @@ from fastapi_users.exceptions import (
 from fastapi_users.openapi import OpenAPIResponseType
 from fastapi_users_db_sqlalchemy.access_token import SQLAlchemyAccessTokenDatabase
 from pydantic import EmailStr
-from sqlalchemy import select
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
@@ -746,8 +746,24 @@ class SessionMetadataDatabaseStrategy(DatabaseStrategy[User, uuid.UUID, AccessTo
             and access_token.last_seen_at > stale_before
         ):
             return
+        if not isinstance(self.database, SQLAlchemyAccessTokenDatabase):
+            return
+        # Conditional UPDATE so concurrent requests on the same session issue at
+        # most one write per interval and never move the timestamp backwards.
+        statement = (
+            update(AccessToken)
+            .where(
+                AccessToken.id == access_token.id,
+                or_(
+                    AccessToken.last_seen_at.is_(None),
+                    AccessToken.last_seen_at < stale_before,
+                ),
+            )
+            .values(last_seen_at=now)
+        )
         try:
-            await self.database.update(access_token, {"last_seen_at": now})
+            await self.database.session.execute(statement)
+            await self.database.session.commit()
         except Exception as e:
             logger.warning(
                 "Failed to update session last seen",
