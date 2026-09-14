@@ -4856,10 +4856,13 @@ export const $AppSettingsRead = {
       type: "boolean",
       title: "App Action Form Mode Enabled",
     },
-    app_unsafe_disable_secret_error_withholding: {
-      type: "boolean",
-      title: "App Unsafe Disable Secret Error Withholding",
-      default: false,
+    app_unsafe_disable_secret_error_withholding_workspace_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      title: "App Unsafe Disable Secret Error Withholding Workspace Ids",
     },
   },
   type: "object",
@@ -4916,12 +4919,15 @@ export const $AppSettingsUpdate = {
         "Whether to enable form mode for action inputs. When disabled, only YAML mode is available, preserving raw YAML formatting.",
       default: true,
     },
-    app_unsafe_disable_secret_error_withholding: {
-      type: "boolean",
-      title: "App Unsafe Disable Secret Error Withholding",
+    app_unsafe_disable_secret_error_withholding_workspace_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      title: "App Unsafe Disable Secret Error Withholding Workspace Ids",
       description:
-        "UNSAFE: allow actions in this organization to opt into showing their original error message when secrets are in scope. Each action must still enable 'Show error details' individually. Known secret values are still masked.",
-      default: false,
+        "UNSAFE: workspaces whose actions may opt into showing their original error message when secrets are in scope. Each action must still enable 'Show error details' individually. Known secret values are still masked.",
     },
   },
   type: "object",
@@ -33617,6 +33623,13 @@ export const $WorkspaceRead = {
       type: "string",
       format: "uuid",
       title: "Organization Id",
+    },
+    unsafe_disable_secret_error_withholding_allowed: {
+      type: "boolean",
+      title: "Unsafe Disable Secret Error Withholding Allowed",
+      description:
+        "Whether the organization lets this workspace's actions opt into showing original error details when secrets are in scope.",
+      default: false,
     },
   },
   type: "object",

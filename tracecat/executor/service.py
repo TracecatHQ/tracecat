@@ -84,7 +84,7 @@ from tracecat.secrets.common import (
     ctx_unsafe_disable_secret_error_withholding,
     secret_error_withholding_disabled,
 )
-from tracecat.settings.service import get_setting_from_bypass_session
+from tracecat.settings.service import workspace_allows_error_details
 from tracecat.variables.schemas import VariableSearch
 from tracecat.variables.service import VariablesService
 
@@ -832,18 +832,16 @@ async def prepare_resolved_context(
     )
 
 
-async def _org_allows_error_details(role: Role) -> bool:
-    """Whether the organization lets actions opt out of secret error withholding."""
-    if role.organization_id is None:
+async def _workspace_allows_error_details(role: Role) -> bool:
+    """Whether the org allow-lists this workspace for per-action error details."""
+    if role.organization_id is None or role.workspace_id is None:
         return False
     async with get_async_session_bypass_rls_context_manager() as session:
-        value = await get_setting_from_bypass_session(
-            "app_unsafe_disable_secret_error_withholding",
+        return await workspace_allows_error_details(
             organization_id=role.organization_id,
+            workspace_id=role.workspace_id,
             session=session,
-            default=False,
         )
-    return value is True
 
 
 async def invoke_once(
@@ -877,7 +875,7 @@ async def invoke_once(
     try:
         if input.task.unsafe_disable_secret_error_withholding:
             ctx_unsafe_disable_secret_error_withholding.set(
-                await _org_allows_error_details(role)
+                await _workspace_allows_error_details(role)
             )
 
         # Prefetch registry lock manifests into cache for O(1) resolution.

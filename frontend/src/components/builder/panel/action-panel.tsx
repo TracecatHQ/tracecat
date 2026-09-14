@@ -111,6 +111,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { ValidationErrorView } from "@/components/validation-errors"
+import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import {
   DEFAULT_ACTION_TIMEOUT_SECONDS,
   isAgentAction,
@@ -140,9 +141,12 @@ function normalizeOptionalExpression(
   return trimmed
 }
 
-function errorDetailsStatusLabel(orgAllows: boolean, enabled: boolean): string {
-  if (!orgAllows) {
-    return "Not allowed by organization settings"
+function errorDetailsStatusLabel(
+  workspaceAllows: boolean,
+  enabled: boolean
+): string {
+  if (!workspaceAllows) {
+    return "Not allowed for this workspace by organization settings"
   }
   return enabled ? "Enabled" : "Disabled"
 }
@@ -319,8 +323,9 @@ function ActionPanelContent({
 }) {
   const { appSettings } = useOrgAppSettings()
   const workspaceId = useWorkspaceId()
-  const orgAllowsErrorDetails =
-    appSettings?.app_unsafe_disable_secret_error_withholding ?? false
+  const { workspace } = useWorkspaceDetails()
+  const workspaceAllowsErrorDetails =
+    workspace?.unsafe_disable_secret_error_withholding_allowed ?? false
   const { validationErrors } = useWorkflow()
   const { action, actionIsLoading, updateAction } = useAction(
     actionId,
@@ -1552,7 +1557,7 @@ function ActionPanelContent({
 
                       <ControlFlowField
                         label="Show error details"
-                        description="Unsafe: surface this action's original error message even when secrets are in scope, instead of the generic 'Details withheld' message. Known secret values are still masked, but transformed secrets may leak. Only takes effect when enabled in organization settings."
+                        description="Unsafe: surface this action's original error message even when secrets are in scope, instead of the generic 'Details withheld' message. Known secret values are still masked, but transformed secrets may leak. Only takes effect when organization settings allow it for this workspace."
                       >
                         <FormField
                           name="unsafe_disable_secret_error_withholding"
@@ -1565,12 +1570,12 @@ function ActionPanelContent({
                                   <Switch
                                     checked={field.value ?? false}
                                     onCheckedChange={field.onChange}
-                                    disabled={!orgAllowsErrorDetails}
+                                    disabled={!workspaceAllowsErrorDetails}
                                   />
                                 </FormControl>
                                 <span className="text-xs text-muted-foreground">
                                   {errorDetailsStatusLabel(
-                                    orgAllowsErrorDetails,
+                                    workspaceAllowsErrorDetails,
                                     field.value ?? false
                                   )}
                                 </span>

@@ -138,6 +138,13 @@ class WorkspaceRead(Schema):
     name: str
     settings: WorkspaceSettingsRead | None = None
     organization_id: OrganizationID
+    unsafe_disable_secret_error_withholding_allowed: bool = Field(
+        default=False,
+        description=(
+            "Whether the organization lets this workspace's actions opt into "
+            "showing original error details when secrets are in scope."
+        ),
+    )
 
 
 WorkspaceSettingsRead.model_rebuild()
