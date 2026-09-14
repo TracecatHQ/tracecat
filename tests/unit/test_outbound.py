@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Literal
 from unittest.mock import AsyncMock, Mock
 
+import anyio
 import certifi
 import httpcore
 import litellm
@@ -738,3 +739,172 @@ async def test_openai_responses_bridge_preserves_public_requests(
     assert response.choices[0].message.content == "hello"
     assert network.connections == [("8.8.8.8", 443)]
     assert b"POST /v1/responses " in b"".join(network.streams[0].writes)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("failure", ["stall", "error", "timeout"])
+async def test_address_failover_preserves_shared_deadline(
+    failure: str,
+    network: RecordingBackend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        asyncio.get_running_loop(),
+        "getaddrinfo",
+        AsyncMock(
+            return_value=[
+                dns_answer("8.8.8.8"),
+                dns_answer("1.1.1.1"),
+            ]
+        ),
+    )
+    cancelled = asyncio.Event()
+    attempts: list[str] = []
+    winner = RecordingStream(b"")
+
+    async def connect(host: str, *args, **kwargs):
+        attempts.append(host)
+        assert tuple(kwargs["socket_options"]) == (
+            (socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1),
+        )
+        if host == "1.1.1.1":
+            return winner
+        if failure == "error":
+            raise httpcore.ConnectError("synthetic refusal")
+        if failure == "timeout":
+            raise httpcore.ConnectTimeout("synthetic timeout")
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    monkeypatch.setattr(network, "connect_tcp", connect)
+    # Immediate failures must not wait for the 250ms stagger.
+    timeout = 1.0 if failure == "stall" else 0.15
+    stream = await OutboundNetworkBackend().connect_tcp(
+        "models.example.com",
+        443,
+        timeout=timeout,
+        socket_options=iter([(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)]),
+    )
+    assert stream is winner
+    assert attempts == ["8.8.8.8", "1.1.1.1"]
+    assert not winner.closed
+    if failure == "stall":
+        assert cancelled.is_set()
+    await stream.aclose()
+
+
+@pytest.mark.anyio
+async def test_all_stalled_addresses_share_one_timeout(
+    network: RecordingBackend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        asyncio.get_running_loop(),
+        "getaddrinfo",
+        AsyncMock(
+            return_value=[
+                dns_answer("8.8.8.8"),
+                dns_answer("1.1.1.1"),
+            ]
+        ),
+    )
+    started: list[str] = []
+    cancelled: list[str] = []
+
+    async def connect(host: str, *args, **kwargs):
+        started.append(host)
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.append(host)
+
+    monkeypatch.setattr(network, "connect_tcp", connect)
+    with pytest.raises(httpcore.ConnectTimeout):
+        await OutboundNetworkBackend().connect_tcp(
+            "models.example.com", 443, timeout=0.4
+        )
+    assert started == ["8.8.8.8", "1.1.1.1"]
+    assert sorted(cancelled) == sorted(started)
+
+
+@pytest.mark.anyio
+async def test_simultaneous_address_success_closes_loser(
+    network: RecordingBackend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        asyncio.get_running_loop(),
+        "getaddrinfo",
+        AsyncMock(
+            return_value=[
+                dns_answer("8.8.8.8"),
+                dns_answer("1.1.1.1"),
+            ]
+        ),
+    )
+    ready = anyio.Event()
+    streams: list[RecordingStream] = []
+
+    async def connect(host: str, *args, **kwargs):
+        stream = RecordingStream(b"")
+        streams.append(stream)
+        if len(streams) == 2:
+            ready.set()
+        # Simulate a socket completion racing cancellation of the losing dial.
+        with anyio.CancelScope(shield=True):
+            await ready.wait()
+        return stream
+
+    monkeypatch.setattr(network, "connect_tcp", connect)
+    winner = await OutboundNetworkBackend().connect_tcp(
+        "models.example.com", 443, timeout=1
+    )
+    assert len(streams) == 2
+    assert isinstance(winner, RecordingStream)
+    assert not winner.closed
+    assert all(stream.closed for stream in streams if stream is not winner)
+    await winner.aclose()
+
+
+@pytest.mark.anyio
+async def test_cancellation_closes_winner_during_loser_cleanup(
+    network: RecordingBackend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        asyncio.get_running_loop(),
+        "getaddrinfo",
+        AsyncMock(
+            return_value=[
+                dns_answer("8.8.8.8"),
+                dns_answer("1.1.1.1"),
+            ]
+        ),
+    )
+    cleanup_started = anyio.Event()
+    finish_cleanup = anyio.Event()
+    winner = RecordingStream(b"")
+
+    async def connect(host: str, *args, **kwargs):
+        if host == "1.1.1.1":
+            return winner
+        try:
+            await anyio.sleep_forever()
+        finally:
+            with anyio.CancelScope(shield=True):
+                cleanup_started.set()
+                await finish_cleanup.wait()
+
+    monkeypatch.setattr(network, "connect_tcp", connect)
+    task = asyncio.create_task(
+        OutboundNetworkBackend().connect_tcp("models.example.com", 443)
+    )
+    async with asyncio.timeout(2):
+        await cleanup_started.wait()
+        task.cancel()
+        finish_cleanup.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    assert winner.closed

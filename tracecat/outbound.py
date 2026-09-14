@@ -13,6 +13,7 @@ import socket
 from collections.abc import Iterable
 from typing import Any
 
+import anyio
 import httpcore
 import httpx
 from httpcore._backends.anyio import AnyIOBackend
@@ -52,21 +53,75 @@ class OutboundNetworkBackend(httpcore.AsyncNetworkBackend):
             # DNS and all address attempts share the connection timeout budget.
             async with asyncio.timeout(timeout):
                 addresses = await resolve_outbound_addresses(host, port)
-                for index, address in enumerate(addresses):
-                    try:
-                        return await self._backend.connect_tcp(
-                            str(address),
-                            port,
-                            timeout=timeout,
-                            local_address=local_address,
-                            socket_options=socket_options,
-                        )
-                    except httpcore.ConnectError:
-                        if index == len(addresses) - 1:
-                            raise
+                return await self._connect_addresses(
+                    addresses,
+                    port,
+                    timeout,
+                    local_address,
+                    tuple(socket_options) if socket_options is not None else None,
+                )
         except TimeoutError as exc:
             raise httpcore.ConnectTimeout("Outbound connection timed out") from exc
-        raise OutboundRequestDenied("Host could not be resolved")
+
+    async def _connect_addresses(
+        self,
+        addresses: list[ipaddress.IPv4Address | ipaddress.IPv6Address],
+        port: int,
+        timeout: float | None,
+        local_address: str | None,
+        socket_options: tuple[SocketOption, ...] | None,
+    ) -> httpcore.AsyncNetworkStream:
+        connected: httpcore.AsyncNetworkStream | None = None
+        errors: list[httpcore.ConnectError | httpcore.ConnectTimeout] = []
+        caller = asyncio.current_task()
+        cancellation_count = caller.cancelling() if caller is not None else 0
+
+        async def attempt(address: str, done: anyio.Event) -> None:
+            nonlocal connected
+            try:
+                stream = await self._backend.connect_tcp(
+                    address,
+                    port,
+                    timeout=timeout,
+                    local_address=local_address,
+                    socket_options=socket_options,
+                )
+            except (httpcore.ConnectError, httpcore.ConnectTimeout) as exc:
+                errors.append(exc)
+            else:
+                if connected is None:
+                    connected = stream
+                    group.cancel_scope.cancel()
+                else:
+                    # A competing connection may complete as cancellation arrives.
+                    with anyio.CancelScope(shield=True):
+                        await stream.aclose()
+            finally:
+                done.set()
+
+        try:
+            async with anyio.create_task_group() as group:
+                for address in addresses:
+                    done = anyio.Event()
+                    group.start_soon(attempt, str(address), done)
+                    # Preserve failover without repeating DNS resolution. A
+                    # failed attempt starts the next immediately; a stalled one
+                    # gets a short head start, all within the caller's deadline.
+                    with anyio.move_on_after(0.25):
+                        await done.wait()
+            # Our winner cancels the task group's scope. Preserve a concurrent
+            # external cancellation even if that scope consumed its exception.
+            if caller is not None and caller.cancelling() > cancellation_count:
+                raise asyncio.CancelledError
+        except BaseException:
+            if connected is not None:
+                with anyio.CancelScope(shield=True):
+                    await connected.aclose()
+            raise
+
+        if connected is not None:
+            return connected
+        raise errors[-1]
 
     async def sleep(self, seconds: float) -> None:
         await asyncio.sleep(seconds)
