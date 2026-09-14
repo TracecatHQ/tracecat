@@ -1324,6 +1324,60 @@ async def test_invoke_once_keeps_action_error_when_withholding_disabled(
 
 
 @pytest.mark.anyio
+async def test_invoke_once_keeps_action_error_when_task_opts_out(mocker, monkeypatch):
+    """A per-action opt-out surfaces the original message without the global knob."""
+    from tracecat.exceptions import ExecutionError
+
+    monkeypatch.setattr(
+        config, "TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING", False
+    )
+    role = _expression_policy_role("tracecat-executor")
+    action_input = _expression_policy_input(
+        "core.probe", {"value": "${{ ACTIONS.fetch.result }}"}
+    )
+    action_input.task.unsafe_disable_secret_error_withholding = True
+    resolved_context = mocker.Mock(logical_time=mocker.sentinel.logical_time)
+    prepared_context = executor_service.PreparedContext(
+        resolved_context=resolved_context,
+        mask_values={"sk-live-secret"},
+    )
+    mocker.patch.object(
+        executor_service.registry_resolver,
+        "prefetch_lock",
+        new=mocker.AsyncMock(),
+    )
+    mocker.patch.object(
+        executor_service,
+        "prepare_resolved_context",
+        new=mocker.AsyncMock(return_value=prepared_context),
+    )
+    action_error = ExecutionError(
+        info=ExecutorActionErrorInfo(
+            action_name="core.probe",
+            type="ValueError",
+            message="upstream rejected the request",
+            filename="probe.py",
+            function="run",
+        )
+    )
+    mocker.patch.object(
+        executor_service,
+        "_invoke_step",
+        new=mocker.AsyncMock(side_effect=action_error),
+    )
+
+    with pytest.raises(ExecutionError) as exc_info:
+        await executor_service.invoke_once(
+            backend=mocker.Mock(),
+            input=action_input,
+            ctx=executor_service.DispatchActionContext(role=role),
+        )
+
+    assert "Details withheld:" not in str(exc_info.value)
+    assert "upstream rejected the request" in str(exc_info.value)
+
+
+@pytest.mark.anyio
 async def test_template_expects_validation_leaves_no_plaintext_in_chain(mocker):
     """The sanitized message is only clean if nothing plaintext is chained."""
     from tracecat.exceptions import RegistryValidationError

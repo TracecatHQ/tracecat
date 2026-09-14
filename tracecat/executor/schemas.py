@@ -9,6 +9,7 @@ from pydantic import UUID4, BaseModel, Field
 
 from tracecat import config
 from tracecat.config import TRACECAT__APP_ENV
+from tracecat.dsl.schemas import ActionStatement
 from tracecat.executor.secret_preprocessors import SecretEnvProjection
 from tracecat.logger import logger
 from tracecat.secrets.common import CapturedFailure, MaskedSecretError
@@ -23,6 +24,18 @@ def _failure_site(e: Exception) -> CapturedFailure:
     if isinstance(e, MaskedSecretError) and e.captured is not None:
         return e.captured
     return CapturedFailure.from_exc(e)
+
+
+def secret_error_withholding_disabled(task: ActionStatement) -> bool:
+    """Whether original error text should surface for this task despite secrets in scope.
+
+    Either the deployment-wide knob or the per-action opt-in disables withholding.
+    Known secret values are still exact-string masked downstream.
+    """
+    return (
+        config.TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING
+        or task.unsafe_disable_secret_error_withholding
+    )
 
 
 class ExecutorResultSuccess(BaseModel):

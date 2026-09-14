@@ -112,6 +112,13 @@ export const $ActionControlFlow = {
         "If true, redact this action's result in workflow execution API responses while preserving internal workflow data flow between actions.",
       default: false,
     },
+    unsafe_disable_secret_error_withholding: {
+      type: "boolean",
+      title: "Unsafe Disable Secret Error Withholding",
+      description:
+        "UNSAFE: if true, surface this action's original error message even when secrets are in scope, instead of the generic 'Details withheld' message. Known secret values are still masked.",
+      default: false,
+    },
   },
   type: "object",
   title: "ActionControlFlow",
@@ -620,6 +627,13 @@ export const $ActionStatement = {
       title: "Mask Output",
       description:
         "If true, redact this action's result in workflow execution API responses while preserving internal workflow data flow between actions.",
+      default: false,
+    },
+    unsafe_disable_secret_error_withholding: {
+      type: "boolean",
+      title: "Unsafe Disable Secret Error Withholding",
+      description:
+        "UNSAFE: if true, surface this action's original error message even when secrets are in scope, instead of the generic 'Details withheld' message. Known secret values are still masked, but the original text may echo transformed secret values that exact-string masking cannot catch.",
       default: false,
     },
   },

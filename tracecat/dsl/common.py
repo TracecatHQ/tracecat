@@ -1346,6 +1346,7 @@ def build_action_statements_from_actions(
             interaction=interaction,
             environment=control_flow.environment,
             mask_output=control_flow.mask_output,
+            unsafe_disable_secret_error_withholding=control_flow.unsafe_disable_secret_error_withholding,
         )
         statements.append(action_stmt)
     return statements

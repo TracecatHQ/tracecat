@@ -50,6 +50,7 @@ from tracecat.executor.schemas import (
     ExecutorActionErrorInfo,
     ExecutorResultSuccess,
     ResolvedContext,
+    secret_error_withholding_disabled,
 )
 from tracecat.executor.secret_preprocessors import (
     collect_mask_values,
@@ -95,9 +96,11 @@ type ExecutionResult = Any | ExecutorActionErrorInfo
 def _withhold_error_info(
     info: ExecutorActionErrorInfo,
     classification: RuntimeErrorClassification | None,
+    *,
+    task: ActionStatement,
 ) -> ExecutorActionErrorInfo:
     """Replace unsafe diagnostics, retaining policy-authored platform messages."""
-    if config.TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING:
+    if secret_error_withholding_disabled(task):
         return info
     return info.model_copy(
         update={
@@ -431,7 +434,7 @@ async def _invoke_template_step(
             raise
         classification = chained_error_classification(e)
         error = ExecutionError(
-            info=_withhold_error_info(e.info, classification),
+            info=_withhold_error_info(e.info, classification, task=input.task),
             classification=classification,
             sentry_capture=e.sentry_capture,
         )
@@ -445,7 +448,7 @@ async def _invoke_template_step(
         info = ExecutorActionErrorInfo.from_exc(e, action_name=step_action)
         classification = chained_error_classification(e)
         if step_ref in taint.tainted_steps:
-            info = _withhold_error_info(info, classification)
+            info = _withhold_error_info(info, classification, task=input.task)
         error = ExecutionError(
             info=info,
             classification=classification,
@@ -892,7 +895,7 @@ async def invoke_once(
             raise
         classification = chained_error_classification(e)
         safe_error = ExecutionError(
-            info=_withhold_error_info(e.info, classification),
+            info=_withhold_error_info(e.info, classification, task=input.task),
             classification=classification,
             sentry_capture=e.sentry_capture,
         )
@@ -902,7 +905,9 @@ async def invoke_once(
         classification = chained_error_classification(e)
         _attach_loop_context(exec_result, iteration)
         if _error_may_contain_secrets(input.task.args, mask_values):
-            exec_result = _withhold_error_info(exec_result, classification)
+            exec_result = _withhold_error_info(
+                exec_result, classification, task=input.task
+            )
         # Log only the safe diagnostic when secrets may be in scope.
         logger.error(
             "Backend execution failed",

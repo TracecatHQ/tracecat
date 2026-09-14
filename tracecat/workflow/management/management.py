@@ -1598,6 +1598,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
                 join_strategy=act_stmt.join_strategy,
                 environment=act_stmt.environment,
                 mask_output=act_stmt.mask_output,
+                unsafe_disable_secret_error_withholding=act_stmt.unsafe_disable_secret_error_withholding,
             )
             pos = (action_positions or {}).get(act_stmt.ref)
             new_action = Action(
