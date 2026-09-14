@@ -11,6 +11,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from tests.database import TEST_DB_CONFIG
+from tracecat import config
+from tracecat.db.engine import get_async_engine, reset_async_engine
 from tracecat.db.models import (
     Organization,
     SearchChunk,
@@ -587,3 +589,106 @@ async def test_enumeration_must_finish_even_when_all_known_chunks_are_embedded(
             claim, before=after, after=after, chunks=(), complete=True
         )
         await store.publish(claim)
+
+
+@pytest.mark.anyio
+async def test_scoped_session_factory_preserves_caller_transaction(
+    storage_case: StorageCase,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = storage_case
+    async with case.sessions.begin() as session:
+        async with SearchStorage.with_session(
+            scope=case.scope, session=session
+        ) as store:
+            assert store.session is session
+            await store.set_state(SearchState.PAUSED)
+        assert session.in_transaction()
+        # The helper must not close or roll back the caller's transaction.
+        assert (
+            await session.scalar(
+                select(SearchWorkspaceState.state).where(
+                    SearchWorkspaceState.workspace_id == case.scope.workspace_id
+                )
+            )
+            == SearchState.PAUSED
+        )
+    # Route the standard session factory to this test's isolated database.
+    monkeypatch.setattr(config, "TRACECAT__DB_URI", TEST_DB_CONFIG.test_url_sync)
+    reset_async_engine()
+    try:
+        async with SearchStorage.with_session(scope=case.scope) as store:
+            assert (await store.status(case.collection_id)).state == SearchState.PAUSED
+            await store.set_state(SearchState.ACTIVE)
+            # No commit: the owned session must roll this change back on exit.
+        async with SearchStorage.with_session(scope=case.scope) as store:
+            assert (await store.status(case.collection_id)).state == SearchState.PAUSED
+    finally:
+        await get_async_engine().dispose()
+        reset_async_engine()
+    with pytest.raises(ValueError, match="explicit tenant scope"):
+        async with SearchStorage.with_session():
+            pytest.fail("An unscoped storage session must never be yielded")
+
+
+@pytest.mark.anyio
+async def test_reindex_recovery_requires_new_configuration(
+    storage_case: StorageCase,
+) -> None:
+    case = storage_case
+    old_claim = await prepared(case, 1)
+    async with case.sessions.begin() as session:
+        store = case.store(session)
+        await store.write_embeddings(old_claim, (embedding(old_claim),))
+        await store.publish(old_claim)
+        await store.set_state(SearchState.REINDEX_REQUIRED)
+    with pytest.raises(SearchError) as activation_error:
+        async with case.sessions.begin() as session:
+            await case.store(session).set_state(SearchState.ACTIVE)
+    assert activation_error.value.code == SearchErrorCode.INDEX_NOT_READY
+    with pytest.raises(SearchError) as configuration_error:
+        async with case.sessions.begin() as session:
+            await case.store(session).configure_collection(
+                source_id=case.source_id,
+                column_ids=(case.column_id,),
+                chunker=ChunkerSettings(tokenizer="synthetic"),
+                expected_generation=1,
+            )
+    assert configuration_error.value.code == SearchErrorCode.CONFIGURATION_CHANGED
+    async with case.sessions.begin() as session:
+        store = case.store(session)
+        await store.save_configuration(
+            provider="synthetic",
+            model="synthetic-v2",
+            endpoint=None,
+            credential_id=uuid.uuid4(),
+            credential_environment="default",
+            dimensions=3,
+            input_token_limit=1024,
+        )
+        await store.set_state(SearchState.ACTIVE)
+        assert not (await session.scalars(eligible_chunks(case.scope))).all()
+    with pytest.raises(SearchError):
+        async with case.sessions.begin() as session:
+            await case.store(session).publish(old_claim)
+    async with case.sessions.begin() as session:
+        store = case.store(session)
+        collection = await store.configure_collection(
+            source_id=case.source_id,
+            column_ids=(case.column_id,),
+            chunker=ChunkerSettings(tokenizer="synthetic"),
+            expected_generation=1,
+        )
+        claim = await store.claim(collection.id, old_claim.document_id)
+        assert claim is not None
+        assert claim.config_version > old_claim.config_version
+        await store.checkpoint(
+            claim,
+            before=EnumerationCursor(),
+            after=EnumerationCursor(character_offset=10, next_ordinal=1),
+            chunks=(manifest(case),),
+            complete=True,
+        )
+        await store.write_embeddings(claim, (embedding(claim),))
+        await store.publish(claim)
+        assert len((await session.scalars(eligible_chunks(case.scope))).all()) == 1
