@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Protocol, TypeVar
 
 from lark import Token, Tree, Visitor
 
+from tracecat import config
 from tracecat.exceptions import TracecatExpressionError
 from tracecat.expressions import patterns
 from tracecat.expressions.common import ExprContext, ExprOperand, ExprType
@@ -131,7 +132,10 @@ class Expression:
             # Local import: tracecat.expressions.policy imports this module transitively.
             from tracecat.expressions.policy import references_secret_derived_value
 
-            if references_secret_derived_value(parse_tree, taint=self._taint):
+            if (
+                not config.TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING
+                and references_secret_derived_value(parse_tree, taint=self._taint)
+            ):
                 secret_error = TracecatExpressionError(
                     f"Error evaluating expression `{self._expr}`\n\n"
                     "Details withheld: the expression may reference a secret.",

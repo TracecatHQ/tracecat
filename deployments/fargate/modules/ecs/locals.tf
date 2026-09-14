@@ -48,21 +48,22 @@ locals {
   }
 
   tracecat_common_env = {
-    LOG_LEVEL                                        = var.log_level
-    TEMPORAL__CLUSTER_NAMESPACE                      = local.temporal_namespace
-    TEMPORAL__CLUSTER_URL                            = local.temporal_cluster_url
-    TRACECAT__APP_ENV                                = var.tracecat_app_env
-    TRACECAT__LOG_FORMAT                             = var.log_format
-    TRACECAT__AWS_ASSUME_ROLE_ACCOUNT_ID             = data.aws_caller_identity.current.account_id
-    TRACECAT__AWS_ASSUME_ROLE_PRINCIPAL_ARN          = aws_iam_role.executor_task.arn
-    TRACECAT__FEATURE_FLAGS                          = var.feature_flags # Requires Tracecat Enterprise license to modify.
-    TRACECAT__EE_MULTI_TENANT                        = var.ee_multi_tenant
-    TRACECAT__CONTEXT_COMPRESSION_ENABLED            = var.context_compression_enabled
-    TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB       = var.context_compression_threshold_kb
-    TRACECAT__RESULT_EXTERNALIZATION_ENABLED         = var.result_externalization_enabled
-    TRACECAT__COLLECTION_MANIFESTS_ENABLED           = var.collection_manifests_enabled
-    TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES = var.result_externalization_threshold_bytes
-    TRACECAT__DB_SSLMODE                             = "require"
+    LOG_LEVEL                                         = var.log_level
+    TEMPORAL__CLUSTER_NAMESPACE                       = local.temporal_namespace
+    TEMPORAL__CLUSTER_URL                             = local.temporal_cluster_url
+    TRACECAT__APP_ENV                                 = var.tracecat_app_env
+    TRACECAT__LOG_FORMAT                              = var.log_format
+    TRACECAT__AWS_ASSUME_ROLE_ACCOUNT_ID              = data.aws_caller_identity.current.account_id
+    TRACECAT__AWS_ASSUME_ROLE_PRINCIPAL_ARN           = aws_iam_role.executor_task.arn
+    TRACECAT__FEATURE_FLAGS                           = var.feature_flags # Requires Tracecat Enterprise license to modify.
+    TRACECAT__EE_MULTI_TENANT                         = var.ee_multi_tenant
+    TRACECAT__CONTEXT_COMPRESSION_ENABLED             = var.context_compression_enabled
+    TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB        = var.context_compression_threshold_kb
+    TRACECAT__RESULT_EXTERNALIZATION_ENABLED          = var.result_externalization_enabled
+    TRACECAT__COLLECTION_MANIFESTS_ENABLED            = var.collection_manifests_enabled
+    TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES  = var.result_externalization_threshold_bytes
+    TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING = var.unsafe_disable_secret_error_withholding
+    TRACECAT__DB_SSLMODE                              = "require"
     # Agent timeout ceiling: every process that parses workflow DSL or
     # enforces the clamp must agree, so it rides the common env.
     TRACECAT__AGENT_SANDBOX_TIMEOUT = var.agent_sandbox_timeout

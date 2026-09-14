@@ -580,6 +580,42 @@ def test_main_minimal_errors_when_secret_value_stringify_fails(monkeypatch) -> N
     assert "BROKEN" not in result["error"]["message"]
 
 
+def test_main_minimal_keeps_error_message_when_withholding_disabled(
+    monkeypatch,
+) -> None:
+    test_module: Any = types.ModuleType("test_module")
+
+    def failing_action() -> None:
+        raise ValueError("upstream rejected the request")
+
+    test_module.failing_action = failing_action
+
+    monkeypatch.setattr(
+        minimal_runner.importlib,
+        "import_module",
+        lambda _p, *args, **kwargs: test_module,
+    )
+
+    result = minimal_runner.main_minimal(
+        {
+            "resolved_context": {
+                "action_impl": {
+                    "type": "udf",
+                    "module": "test_module",
+                    "name": "failing_action",
+                },
+                "evaluated_args": {},
+            },
+            "secret_env": {"API_KEY": "sk-test"},
+            "unsafe_disable_secret_error_withholding": True,
+        }
+    )
+
+    assert result["success"] is False
+    assert result["error"]["type"] == "ValueError"
+    assert result["error"]["message"] == "upstream rejected the request"
+
+
 def test_main_minimal_still_succeeds_when_warnings_raise(monkeypatch) -> None:
     test_module: Any = types.ModuleType("test_module")
 
