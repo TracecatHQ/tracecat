@@ -1,7 +1,7 @@
 """unify invitations
 
 Revision ID: e847d14eeb86
-Revises: 526f867f6a75
+Revises: 31ee4b7f175a
 Create Date: 2026-09-10 15:40:00.000000
 
 Makes ``invitation`` the single source of truth for invitations: org-scoped,
@@ -10,8 +10,9 @@ with its role grants in the child table ``invitation_grant``. The
 dropped, so foreign keys, not application code, retire a grant whose workspace
 or role is deleted.
 
-``organization_invitation`` is deliberately left untouched so the previous app
-version keeps working during a rolling deploy. Its live pending rows are copied
+``organization_invitation`` is retained for the previous app during a rolling
+deploy. Its role foreign key now cascades so retained rows do not block role
+deletion. Its live pending rows are copied
 verbatim into ``invitation``, keeping their ids and tokens so existing accept
 links keep working; expired pending rows are dropped. Accepted and revoked rows
 are copied as well, because the admin console reads only ``invitation`` and
@@ -39,7 +40,7 @@ from tracecat.db.tenant_rls import (
 
 # revision identifiers, used by Alembic.
 revision: str = "e847d14eeb86"
-down_revision: str | None = "526f867f6a75"
+down_revision: str | None = "31ee4b7f175a"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -312,6 +313,21 @@ def upgrade() -> None:
     # invitation is now purely org-scoped.
     op.execute(enable_org_table_rls("invitation"))
 
+    # Retained legacy invitations must not block deletion of unused roles.
+    op.drop_constraint(
+        "fk_organization_invitation_role_id_role",
+        "organization_invitation",
+        type_="foreignkey",
+    )
+    op.create_foreign_key(
+        "fk_organization_invitation_role_id_role",
+        "organization_invitation",
+        "role",
+        ["role_id"],
+        ["id"],
+        ondelete="CASCADE",
+    )
+
 
 def downgrade() -> None:
     """Recreate one legacy row per grant.
@@ -319,6 +335,21 @@ def downgrade() -> None:
     Split-off rows get fresh tokens, so the previous app version regenerates
     their links; the first workspace grant of each invitation keeps its token.
     """
+    # Restore the old deletion policy; rows deleted with a role stay deleted.
+    op.drop_constraint(
+        "fk_organization_invitation_role_id_role",
+        "organization_invitation",
+        type_="foreignkey",
+    )
+    op.create_foreign_key(
+        "fk_organization_invitation_role_id_role",
+        "organization_invitation",
+        "role",
+        ["role_id"],
+        ["id"],
+        ondelete="RESTRICT",
+    )
+
     # Acceptance now writes only assignments. Restore legacy reader visibility
     # from current direct access, not invitation history (access may be revoked).
     # Group paths stay indirect; workspace-only access must not become org access.
