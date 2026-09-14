@@ -6,11 +6,15 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from tracecat.auth.types import Role
+from tracecat.db.models import Invitation, Scope
 from tracecat.db.models import Role as DBRole
-from tracecat.db.models import Scope
 from tracecat.exceptions import TracecatAuthorizationError, TracecatValidationError
+from tracecat.invitations.enums import InvitationStatus
 from tracecat.invitations.schemas import InvitationCreate, InvitationGrant
-from tracecat.invitations.service import validate_grants
+from tracecat.invitations.service import (
+    revoke_invitation_row,
+    validate_grants,
+)
 
 
 @pytest.fixture(scope="session")
@@ -130,3 +134,32 @@ async def test_validate_grants_rejects_foreign_workspace() -> None:
     with pytest.raises(TracecatValidationError, match="Workspace not found"):
         await validate_grants(session, granter, organization_id, params)
     assert session.execute.await_count == 1
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("current_status", list(InvitationStatus))
+async def test_revoke_uses_database_status(current_status: InvitationStatus) -> None:
+    invitation = Invitation(id=uuid.uuid4(), status=InvitationStatus.PENDING)
+    session = AsyncMock()
+    result = MagicMock()
+    changed = current_status == InvitationStatus.PENDING
+    result.scalar_one_or_none.return_value = invitation.id if changed else None
+    session.execute.return_value = result
+
+    async def refresh(row: Invitation) -> None:
+        row.status = InvitationStatus.REVOKED if changed else current_status
+
+    session.refresh.side_effect = refresh
+    if changed:
+        await revoke_invitation_row(session, invitation)
+        assert invitation.status == InvitationStatus.REVOKED
+    else:
+        with pytest.raises(TracecatAuthorizationError, match=current_status.value):
+            await revoke_invitation_row(session, invitation)
+        assert invitation.status == current_status
+
+    query = session.execute.await_args.args[0]
+    compiled = query.compile()
+    assert "invitation.status =" in str(compiled).split("WHERE")[1]
+    assert InvitationStatus.PENDING in compiled.params.values()
+    assert query.get_execution_options()["synchronize_session"] is False

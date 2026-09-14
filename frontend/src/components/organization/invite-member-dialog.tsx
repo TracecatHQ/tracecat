@@ -84,7 +84,7 @@ export function InviteMemberDialog({
 }: InviteMemberDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="w-[calc(100%-2rem)] max-w-lg">
         {/* Mounted only while open so its queries stay idle when closed. */}
         {open && (
           <InviteMemberForm
@@ -182,12 +182,15 @@ function InviteMemberForm({
               {fields.map((field, index) => {
                 const scope = grantValues?.[index]?.scope ?? ORG_WIDE
                 return (
-                  <div key={field.id} className="flex items-start gap-2">
+                  <div
+                    key={field.id}
+                    className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]"
+                  >
                     <FormField
                       control={form.control}
                       name={`grants.${index}.scope`}
                       render={({ field: scopeField }) => (
-                        <FormItem className="w-[180px]">
+                        <FormItem className="col-start-1 min-w-0">
                           <Select
                             value={scopeField.value}
                             onValueChange={(value) => {
@@ -210,8 +213,8 @@ function InviteMemberForm({
                                   scope !== ORG_WIDE && usedScopes.has(ORG_WIDE)
                                 }
                               >
-                                <div className="flex items-center gap-2">
-                                  <GlobeIcon className="size-4 text-blue-500" />
+                                <div className="flex min-w-0 items-center gap-2">
+                                  <GlobeIcon className="size-4 shrink-0 text-blue-500" />
                                   Organization-wide
                                 </div>
                               </SelectItem>
@@ -240,7 +243,7 @@ function InviteMemberForm({
                       control={form.control}
                       name={`grants.${index}.role_id`}
                       render={({ field: roleField }) => (
-                        <FormItem className="flex-1">
+                        <FormItem className="col-start-1 row-start-2 min-w-0 sm:col-start-2 sm:row-start-1">
                           <Select
                             value={roleField.value}
                             onValueChange={roleField.onChange}
@@ -271,7 +274,7 @@ function InviteMemberForm({
                       aria-label={`Remove grant ${index + 1}`}
                       disabled={fields.length === 1}
                       onClick={() => remove(index)}
-                      className="text-rose-500 hover:text-rose-600"
+                      className="col-start-2 row-start-1 text-rose-500 hover:text-rose-600 sm:col-start-3"
                     >
                       <Trash2Icon className="size-4" />
                     </Button>

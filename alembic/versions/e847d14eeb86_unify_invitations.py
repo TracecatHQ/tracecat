@@ -314,6 +314,28 @@ def downgrade() -> None:
     Split-off rows get fresh tokens, so the previous app version regenerates
     their links; the first workspace grant of each invitation keeps its token.
     """
+    # Acceptance now writes only assignments. Restore legacy reader visibility
+    # from current direct access, not invitation history (access may be revoked).
+    # Group paths stay indirect; workspace-only access must not become org access.
+    op.execute(
+        """
+        INSERT INTO organization_membership (user_id, organization_id)
+        SELECT user_id, organization_id
+        FROM user_role_assignment
+        WHERE workspace_id IS NULL
+        ON CONFLICT (user_id, organization_id) DO NOTHING
+        """
+    )
+    op.execute(
+        """
+        INSERT INTO membership (user_id, workspace_id)
+        SELECT user_id, workspace_id
+        FROM user_role_assignment
+        WHERE workspace_id IS NOT NULL
+        ON CONFLICT (user_id, workspace_id) DO NOTHING
+        """
+    )
+
     op.execute(disable_org_table_rls("invitation"))
     op.execute(disable_org_optional_workspace_table_rls("invitation_grant"))
     op.drop_index("ix_invitation_org_email_pending_unique", table_name="invitation")
