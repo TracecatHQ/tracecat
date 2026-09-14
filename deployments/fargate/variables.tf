@@ -265,6 +265,12 @@ variable "result_externalization_enabled" {
   default     = true
 }
 
+variable "unsafe_disable_secret_error_withholding" {
+  type        = bool
+  description = "UNSAFE: surface original action and expression error details even when secrets are in scope, instead of the generic 'Details withheld' message. Not recommended; may expose secret-derived values in error messages."
+  default     = false
+}
+
 variable "collection_manifests_enabled" {
   type        = bool
   description = "Enable collection manifest externalization"
