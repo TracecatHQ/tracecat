@@ -10,6 +10,26 @@
 BEGIN;
 SET LOCAL search_path = pg_catalog, public;
 
+-- A working vector operator does not prove that existing text indexes remain
+-- valid after changing the database image's libc or ICU libraries.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT FROM pg_database
+        WHERE (datname = current_database() OR datname = 'template1')
+          AND datcollversion IS DISTINCT FROM pg_database_collation_actual_version(oid)
+    ) OR EXISTS (
+        SELECT FROM pg_collation
+        -- The default collation's version is stored in pg_database above.
+        WHERE collprovider <> 'd'
+          AND collversion IS DISTINCT FROM pg_collation_actual_version(oid)
+    ) THEN
+        RAISE EXCEPTION 'PostgreSQL collation version mismatch'
+            USING HINT = 'Stop the upgrade and restore compatible database libraries, or have an administrator rebuild affected objects before refreshing collation versions. Do not refresh versions without rebuilding indexes.';
+    END IF;
+END
+$$;
+
 \if :install
 DO $$
 BEGIN

@@ -5,7 +5,11 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 sql_file="$repo_root/scripts/postgres/pgvector.sql"
-vector_image=$(awk '/image: pgvector\/pgvector:/ {print $2}' "$repo_root/docker-compose.dev.yml")
+vector_image=$(awk '/image: pgvector\/pgvector:/ {print $2}' "$repo_root/docker-compose.pgvector.yml")
+# postgres:16 resolved to Trixie before this change. Pin that source version so
+# the regression remains reproducible after the floating tag advances.
+source_image=${1:-postgres:16.14-trixie}
+expect_mismatch=${2:-}
 test_id="tracecat-pgvector-test-$(date +%s)-$$"
 volume="$test_id-data"
 container="$test_id"
@@ -48,10 +52,11 @@ expect_failure() {
 }
 
 # Start with the previous plain PostgreSQL image and write durable source data.
-start_database postgres:16.14-bookworm
+start_database "$source_image"
 docker exec -i "$container" psql -X -U postgres -d postgres -v ON_ERROR_STOP=1 <<'SQL'
 CREATE TABLE source_rows (id integer PRIMARY KEY, body text NOT NULL);
 INSERT INTO source_rows VALUES (1, 'Synthetic source text survives the image upgrade');
+CREATE UNIQUE INDEX source_rows_body_idx ON source_rows (body);
 CREATE ROLE vector_test_reader LOGIN;
 GRANT USAGE, CREATE ON SCHEMA public TO vector_test_reader;
 GRANT SELECT ON source_rows TO vector_test_reader;
@@ -63,6 +68,18 @@ docker rm "$container" >/dev/null
 
 # Reuse the exact same PostgreSQL 16 data volume with the pinned pgvector image.
 start_database "$vector_image"
+if [[ "$expect_mismatch" == '--expect-collation-mismatch' ]]; then
+    expect_failure 'PostgreSQL collation version mismatch' \
+        docker exec -i "$container" psql -X -U postgres -d postgres -v install=true
+    expect_failure 'PostgreSQL collation version mismatch' \
+        docker exec -i "$container" psql -X -U vector_test_reader -d postgres
+    # The guard must fail before installation, not leave a partial extension.
+    installed=$(docker exec "$container" psql -X -U postgres -d postgres -At \
+        -c "SELECT count(*) FROM pg_extension WHERE extname = 'vector'")
+    [[ "$installed" == 0 ]]
+    echo 'PASS: incompatible collation libraries rejected before provisioning'
+    exit 0
+fi
 expect_failure 'pgvector is not enabled' \
     docker exec -i "$container" psql -X -U vector_test_reader -d postgres
 expect_failure 'permission denied to create extension' \

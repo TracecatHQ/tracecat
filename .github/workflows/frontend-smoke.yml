@@ -84,7 +84,7 @@ jobs:
         env:
           TRACECAT__CI_IMAGE_TAG: frontend-smoke-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
-          docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml build ui
+          docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml -f docker-compose.pgvector.yml build ui
 
       - name: Start Tracecat stack
         env:
@@ -96,7 +96,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          compose_files=(-f docker-compose.local.yml -f .github/docker-compose.integration.yml)
+          compose_files=(-f docker-compose.local.yml -f .github/docker-compose.integration.yml -f docker-compose.pgvector.yml)
           # Provision the application DB before starting migration containers.
           docker compose "${compose_files[@]}" up --no-build --wait --wait-timeout 120 postgres_db
           docker compose "${compose_files[@]}" exec -T postgres_db \
@@ -148,7 +148,7 @@ jobs:
         env:
           TRACECAT__CI_IMAGE_TAG: frontend-smoke-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
-          compose_files=(-f docker-compose.local.yml -f .github/docker-compose.integration.yml)
+          compose_files=(-f docker-compose.local.yml -f .github/docker-compose.integration.yml -f docker-compose.pgvector.yml)
 
           echo "=== Docker Service Status ==="
           docker compose "${compose_files[@]}" ps
@@ -173,4 +173,4 @@ jobs:
         env:
           TRACECAT__CI_IMAGE_TAG: frontend-smoke-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
-          docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml down -v
+          docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml -f docker-compose.pgvector.yml down -v

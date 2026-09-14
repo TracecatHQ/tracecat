@@ -1,0 +1,5 @@
+# Explicit opt-in for fresh databases or a verified compatible upgrade.
+# See deployments/postgres/README.md before using with an existing volume.
+services:
+  postgres_db:
+    image: pgvector/pgvector:0.8.6-pg16-trixie@sha256:c8483555ce48101872f888c1df8a895ff689d6c7c7a5f7ac266475f9dfe89e0b
