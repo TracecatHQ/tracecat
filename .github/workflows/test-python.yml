@@ -12,6 +12,8 @@ on:
       - pyproject.toml
       - uv.lock
       - docker-compose.dev.yml
+      - scripts/postgres/**
+      - scripts/tests/test_pgvector.sh
       - .env.example
       - env.sh
       - .github/workflows/test-python.yml
@@ -26,6 +28,8 @@ on:
       - pyproject.toml
       - uv.lock
       - docker-compose.dev.yml
+      - scripts/postgres/**
+      - scripts/tests/test_pgvector.sh
       - .env.example
       - env.sh
       - .github/workflows/test-python.yml
@@ -164,6 +168,15 @@ jobs:
           echo "Waiting for Python environment sync..."
           wait "$uv_sync_pid"
           trap - EXIT
+
+      - name: Provision application database vector extension
+        run: |
+          docker compose -f docker-compose.dev.yml exec -T postgres_db \
+            psql -X -U postgres -d postgres -v install=true < scripts/postgres/pgvector.sql
+
+      - name: Verify PostgreSQL image upgrade and vector permissions
+        if: matrix.test_group == 'unit'
+        run: bash scripts/tests/test_pgvector.sh
 
       - name: Register Temporal search attributes
         if: matrix.test_group == 'temporal'

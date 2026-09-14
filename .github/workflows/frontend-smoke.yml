@@ -97,6 +97,11 @@ jobs:
           set -euo pipefail
 
           compose_files=(-f docker-compose.local.yml -f .github/docker-compose.integration.yml)
+          # Provision the application DB before starting migration containers.
+          docker compose "${compose_files[@]}" up --no-build --wait --wait-timeout 120 postgres_db
+          docker compose "${compose_files[@]}" exec -T postgres_db \
+            psql -X -U postgres -d postgres -v install=true < scripts/postgres/pgvector.sql
+
           docker compose "${compose_files[@]}" up --no-build -d temporal api worker executor postgres_db caddy minio redis ui
 
           timeout 300 bash -c 'until curl -fsS http://localhost/api/health; do sleep 5; done'
