@@ -87,7 +87,6 @@ ADMIN_SCOPES: frozenset[str] = EDITOR_SCOPES | frozenset(
         "workspace:delete",
         "workspace:member:invite",
         "workspace:member:remove",
-        "workspace:member:update",
         # Workspace RBAC (delegated admin)
         "workspace:rbac:read",
         "workspace:rbac:manage",
@@ -153,7 +152,6 @@ ORG_OWNER_SCOPES: frozenset[str] = frozenset(
         "workspace:member:read",
         "workspace:member:invite",
         "workspace:member:remove",
-        "workspace:member:update",
         # Workspace RBAC (delegated admin)
         "workspace:rbac:read",
         "workspace:rbac:manage",
@@ -255,7 +253,6 @@ ORG_ADMIN_SCOPES: frozenset[str] = frozenset(
         "workspace:member:read",
         "workspace:member:invite",
         "workspace:member:remove",
-        "workspace:member:update",
         # Workspace RBAC (delegated admin)
         "workspace:rbac:read",
         "workspace:rbac:manage",
