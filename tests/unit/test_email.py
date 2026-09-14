@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import socket
 from email.message import EmailMessage
 from unittest.mock import AsyncMock
 
+import aiosmtplib
 import pytest
 from aiosmtplib.response import SMTPResponse
 
@@ -220,3 +222,65 @@ async def test_send_succeeds_when_no_recipient_is_refused(
     )
 
     await transport.send(_outbound())
+
+
+@pytest.mark.parametrize(
+    ("error", "retryable"),
+    [
+        (aiosmtplib.SMTPConnectError("refused"), True),
+        (aiosmtplib.SMTPConnectTimeoutError("connect timed out"), True),
+        (ConnectionRefusedError("refused"), False),
+        (socket.gaierror("name resolution failed"), False),
+        (aiosmtplib.SMTPServerDisconnected("connection lost"), False),
+        (aiosmtplib.SMTPReadTimeoutError("response timed out"), False),
+        (OSError("transport failed"), False),
+        (aiosmtplib.SMTPAuthenticationError(535, "bad credentials"), False),
+        (aiosmtplib.SMTPRecipientsRefused([]), False),
+        (RuntimeError("boom"), False),
+    ],
+)
+@pytest.mark.anyio
+async def test_smtp_transport_marks_pre_send_failures_retryable(
+    monkeypatch: pytest.MonkeyPatch, error: Exception, retryable: bool
+) -> None:
+    monkeypatch.setattr(
+        transport_module.aiosmtplib, "send", AsyncMock(side_effect=error)
+    )
+    transport = SMTPTransport(
+        host="smtp.example.com",
+        port=587,
+        username="relay",
+        password="secret",
+        from_addr="Tracecat <no-reply@example.com>",
+    )
+
+    with pytest.raises(EmailDeliveryError) as exc_info:
+        await transport.send(_outbound())
+
+    assert exc_info.value.retryable is retryable
+
+
+@pytest.mark.anyio
+async def test_invalid_sender_header_is_retryable_and_never_connects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    send = AsyncMock()
+    monkeypatch.setattr(transport_module.aiosmtplib, "send", send)
+    transport = SMTPTransport(
+        host="smtp.example.com",
+        port=587,
+        username="relay",
+        password="secret",
+        from_addr="Tracecat <no-reply@example.com>\r\nBcc: attacker@example.com",
+    )
+
+    with pytest.raises(EmailDeliveryError) as exc_info:
+        await transport.send(_outbound())
+
+    # Retryable releases the claim; a raw ValueError would strand the row.
+    assert exc_info.value.retryable is True
+    send.assert_not_awaited()
+
+
+def test_email_delivery_error_defaults_to_non_retryable() -> None:
+    assert EmailDeliveryError("failed").retryable is False

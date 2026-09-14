@@ -24,6 +24,12 @@ class OutboundEmail:
 class EmailDeliveryError(TracecatException):
     """A send failed. Carries port and error type only, never host or recipients."""
 
+    def __init__(self, *args: object, retryable: bool = False) -> None:
+        super().__init__(*args)
+        # True only when no message bytes could have left the pod, so a retry
+        # cannot duplicate a delivery.
+        self.retryable = retryable
+
 
 @dataclass(frozen=True, slots=True)
 class SMTPTransport:
@@ -54,12 +60,19 @@ class SMTPTransport:
 
     async def send(self, message: OutboundEmail) -> None:
         """Deliver one message, raising `EmailDeliveryError` on any failure."""
-        mime = EmailMessage()
-        mime["From"] = self.from_addr
-        mime["To"] = ", ".join(message.to)
-        mime["Subject"] = message.subject
-        mime.set_content(message.text)
-        mime.add_alternative(message.html, subtype="html")
+        try:
+            mime = EmailMessage()
+            mime["From"] = self.from_addr
+            mime["To"] = ", ".join(message.to)
+            mime["Subject"] = message.subject
+            mime.set_content(message.text)
+            mime.add_alternative(message.html, subtype="html")
+        except ValueError as error:
+            # A CR/LF in a header aborts before any connection is opened, so
+            # the claim must be released rather than stranded.
+            raise EmailDeliveryError(
+                f"Invalid email header: {type(error).__name__}", retryable=True
+            ) from None
 
         try:
             # Port 465 is implicit TLS; everything else upgrades via STARTTLS.
@@ -78,7 +91,9 @@ class SMTPTransport:
             # No host, recipients, or cause: relay responses may echo
             # customer infrastructure or addresses.
             raise EmailDeliveryError(
-                f"SMTP delivery failed on port {self.port}: {type(error).__name__}"
+                f"SMTP delivery failed on port {self.port}: {type(error).__name__}",
+                # Disconnects and read timeouts can follow acceptance of DATA.
+                retryable=isinstance(error, aiosmtplib.SMTPConnectError),
             ) from None
 
         if refused:
