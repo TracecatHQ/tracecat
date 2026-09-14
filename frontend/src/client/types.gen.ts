@@ -265,6 +265,7 @@ export type AdminOrgInvitationCreateResponse = {
   created_at: string
   accepted_at: string | null
   created_by_platform_admin: boolean
+  last_emailed_at?: string | null
   token: string
 }
 
@@ -284,6 +285,7 @@ export type AdminOrgInvitationRead = {
   created_at: string
   accepted_at: string | null
   created_by_platform_admin: boolean
+  last_emailed_at?: string | null
 }
 
 /**
@@ -5728,6 +5730,7 @@ export type OrgInvitationRead = {
   expires_at: string
   created_at: string
   accepted_at: string | null
+  last_emailed_at?: string | null
 }
 
 /**
@@ -11384,6 +11387,12 @@ export type OrganizationRevokeInvitationData = {
 
 export type OrganizationRevokeInvitationResponse = void
 
+export type OrganizationResendInvitationData = {
+  invitationId: string
+}
+
+export type OrganizationResendInvitationResponse = OrgInvitationRead
+
 export type OrganizationGetInvitationTokenData = {
   invitationId: string
 }
@@ -12319,6 +12328,13 @@ export type AdminRevokeOrganizationInvitationData = {
 }
 
 export type AdminRevokeOrganizationInvitationResponse = void
+
+export type AdminResendOrganizationInvitationData = {
+  invitationId: string
+  orgId: string
+}
+
+export type AdminResendOrganizationInvitationResponse = AdminOrgInvitationRead
 
 export type AdminListOrganizationDomainsData = {
   orgId: string
@@ -16114,6 +16130,21 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/organization/invitations/{invitation_id}/resend": {
+    post: {
+      req: OrganizationResendInvitationData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: OrgInvitationRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/organization/invitations/{invitation_id}/token": {
     get: {
       req: OrganizationGetInvitationTokenData
@@ -17803,6 +17834,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/organizations/{org_id}/invitations/{invitation_id}/resend": {
+    post: {
+      req: AdminResendOrganizationInvitationData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AdminOrgInvitationRead
         /**
          * Validation Error
          */

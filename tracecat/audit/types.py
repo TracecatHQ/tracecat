@@ -38,6 +38,7 @@ AuditAction = Literal[
     "rotate",
     "accept",
     "revoke",
+    "resend",
     "sign_in",
     "connect",
     "sync",

@@ -166,6 +166,7 @@ import {
   organizationDeleteSession,
   organizationListOrgMembers,
   organizationListSessions,
+  organizationResendInvitation,
   organizationRevokeInvitation,
   organizationSecretsCreateOrgSecret,
   organizationSecretsDeleteOrgSecretById,
@@ -2326,6 +2327,19 @@ export function useOrgMembers() {
     },
   })
 
+  const {
+    mutateAsync: resendInvitation,
+    isPending: resendInvitationIsPending,
+  } = useMutation({
+    mutationFn: async (invitationId: string) =>
+      await organizationResendInvitation({ invitationId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["org-members"] })
+    },
+    // Callers toast on the awaited result, including the 409 cooldown.
+    meta: { suppressErrorToast: true },
+  })
+
   return {
     orgMembers,
     updateOrgMember,
@@ -2337,6 +2351,8 @@ export function useOrgMembers() {
     createInvitation,
     createInvitationIsPending,
     revokeInvitation,
+    resendInvitation,
+    resendInvitationIsPending,
   }
 }
 

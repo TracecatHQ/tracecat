@@ -70,6 +70,7 @@ class AdminOrgInvitationRead(Schema):
     created_at: datetime
     accepted_at: datetime | None
     created_by_platform_admin: bool
+    last_emailed_at: datetime | None = None
 
 
 class AdminOrgInvitationCreateResponse(AdminOrgInvitationRead):

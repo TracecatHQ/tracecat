@@ -13,19 +13,23 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
+from tracecat_ee.admin.organizations.service import AdminOrgService
 
 from tests.database import TEST_DB_CONFIG
-from tracecat import config
 from tracecat.auth.schemas import UserRole
+from tracecat.auth.types import PlatformRole, Role
 from tracecat.db.models import Organization, OrganizationInvitation, User
 from tracecat.db.models import Role as DBRole
 from tracecat.email.transport import EmailDeliveryError, OutboundEmail, SMTPTransport
+from tracecat.exceptions import TracecatConflictError
 from tracecat.invitations.consumer import (
     MAX_EMAIL_ATTEMPTS,
     deliver_next_invitation,
     run_invitation_email_tick,
 )
 from tracecat.invitations.enums import InvitationStatus
+from tracecat.invitations.service import RESEND_COOLDOWN
+from tracecat.organization.service import OrgService
 
 
 class FakeTransport:
@@ -53,25 +57,6 @@ def tick_session(session: AsyncSession, monkeypatch: pytest.MonkeyPatch) -> None
         "tracecat.invitations.consumer.get_async_session_bypass_rls_context_manager",
         fake_session_context,
     )
-
-
-@pytest.fixture
-def smtp_configured(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(config, "TRACECAT__SMTP_HOST", "smtp.example.com")
-    monkeypatch.setattr(config, "TRACECAT__SMTP_PORT", 587)
-    monkeypatch.setattr(config, "TRACECAT__SMTP_USER", "relay")
-    monkeypatch.setattr(config, "TRACECAT__SMTP_PASSWORD", "secret")
-    monkeypatch.setattr(
-        config, "TRACECAT__EMAIL_FROM", "Tracecat <no-reply@example.com>"
-    )
-
-
-@pytest.fixture
-def smtp_unconfigured(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(config, "TRACECAT__SMTP_HOST", None)
-    monkeypatch.setattr(config, "TRACECAT__SMTP_USER", None)
-    monkeypatch.setattr(config, "TRACECAT__SMTP_PASSWORD", None)
-    monkeypatch.setattr(config, "TRACECAT__EMAIL_FROM", None)
 
 
 def _patch_transport(monkeypatch: pytest.MonkeyPatch, transport: FakeTransport) -> None:
@@ -298,7 +283,9 @@ async def test_retryable_failures_stop_at_the_attempt_cap(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("previously_sent", [False, True])
 async def test_non_retryable_failure_leaves_the_row_claimed_forever(
+    previously_sent: bool,
     session: AsyncSession,
     org: Organization,
     org_role: DBRole,
@@ -307,6 +294,9 @@ async def test_non_retryable_failure_leaves_the_row_claimed_forever(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     invitation = await _add_invitation(session, org, org_role, inviter)
+    emailed_at = datetime.now(UTC) - timedelta(minutes=5) if previously_sent else None
+    invitation.email_sent_at = emailed_at
+    await session.commit()
     _patch_transport(
         monkeypatch,
         FakeTransport(error=EmailDeliveryError("rejected", retryable=False)),
@@ -317,7 +307,7 @@ async def test_non_retryable_failure_leaves_the_row_claimed_forever(
 
     row = await _reload(session, invitation_id)
     assert row.email_claimed_at is not None
-    assert row.email_sent_at is None
+    assert row.email_sent_at == emailed_at
     assert row.email_attempts == 1
     assert await run_invitation_email_tick() == 0
 
@@ -510,3 +500,128 @@ async def test_concurrent_ticks_deliver_each_invitation_once(
     for invitation in invitations:
         await org_factory_session.delete(invitation)
     await org_factory_session.commit()
+
+
+@pytest.fixture
+async def resendable_invitation(
+    org_factory_session: AsyncSession,
+    committed_org: tuple[Organization, DBRole, User],
+) -> AsyncGenerator[OrganizationInvitation, None]:
+    org, role, user = committed_org
+    claimed_at = datetime.now(UTC) - RESEND_COOLDOWN * 2
+    invitation = await _add_invitation(
+        org_factory_session,
+        org,
+        role,
+        user,
+        email_claimed_at=claimed_at,
+        email_attempts=1,
+    )
+    invitation.created_by_platform_admin = True
+    await org_factory_session.commit()
+    try:
+        yield invitation
+    finally:
+        await org_factory_session.delete(invitation)
+        await org_factory_session.commit()
+
+
+async def _resend(
+    session: AsyncSession,
+    invitation: OrganizationInvitation,
+    *,
+    platform_admin: bool,
+) -> None:
+    """Exercise both scoped service entrypoints with the same interleaving."""
+    assert invitation.invited_by is not None
+    if platform_admin:
+        service = AdminOrgService(
+            session,
+            PlatformRole(
+                type="user", user_id=invitation.invited_by, service_id="tracecat-api"
+            ),
+        )
+        await service.resend_organization_invitation(
+            invitation.organization_id, invitation.id
+        )
+    else:
+        org_service = OrgService(
+            session,
+            role=Role(
+                type="user",
+                user_id=invitation.invited_by,
+                organization_id=invitation.organization_id,
+                service_id="tracecat-api",
+                scopes=frozenset({"org:member:invite"}),
+            ),
+        )
+        await org_service.resend_invitation(invitation.id)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("platform_admin", [False, True])
+async def test_stale_resend_cannot_clear_a_new_claim(
+    org_factory_session: AsyncSession,
+    resendable_invitation: OrganizationInvitation,
+    smtp_configured: None,
+    platform_admin: bool,
+) -> None:
+    invitation = resendable_invitation
+    async with AsyncSession(
+        org_factory_session.bind, expire_on_commit=False
+    ) as stale_session:
+        stale = await stale_session.get(OrganizationInvitation, invitation.id)
+        assert stale is not None
+        old_claim = stale.email_claimed_at
+
+        await _resend(org_factory_session, invitation, platform_admin=platform_admin)
+        transport = AsyncMock(spec=SMTPTransport)
+        assert await deliver_next_invitation(org_factory_session, transport)
+        assert stale.email_claimed_at == old_claim
+
+        with pytest.raises(TracecatConflictError):
+            await _resend(stale_session, invitation, platform_admin=platform_admin)
+
+    await org_factory_session.refresh(invitation)
+    assert invitation.email_claimed_at is not None
+    assert invitation.email_attempts == 1
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("platform_admin", [False, True])
+async def test_resend_is_rejected_while_delivery_is_in_flight(
+    org_factory_session: AsyncSession,
+    resendable_invitation: OrganizationInvitation,
+    smtp_configured: None,
+    monkeypatch: pytest.MonkeyPatch,
+    platform_admin: bool,
+) -> None:
+    invitation = resendable_invitation
+    sending, finish_send = asyncio.Event(), asyncio.Event()
+
+    async def send(message: OutboundEmail) -> None:
+        sending.set()
+        await finish_send.wait()
+
+    monkeypatch.setattr(SMTPTransport, "send", AsyncMock(side_effect=send))
+    transport = SMTPTransport.from_config()
+    assert transport is not None
+    await _resend(org_factory_session, invitation, platform_admin=platform_admin)
+
+    async with (
+        AsyncSession(org_factory_session.bind, expire_on_commit=False) as sender,
+        AsyncSession(org_factory_session.bind, expire_on_commit=False) as resender,
+    ):
+        delivery_task = asyncio.create_task(deliver_next_invitation(sender, transport))
+        try:
+            await asyncio.wait_for(sending.wait(), timeout=5)
+            # The committed claim is the gate: no row lock is held during SMTP.
+            with pytest.raises(TracecatConflictError):
+                await _resend(resender, invitation, platform_admin=platform_admin)
+        finally:
+            finish_send.set()
+            assert await delivery_task
+
+    await org_factory_session.refresh(invitation)
+    assert invitation.email_claimed_at is not None
+    assert invitation.email_sent_at is not None

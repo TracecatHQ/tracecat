@@ -62,6 +62,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { getApiErrorDetail, type TracecatApiError } from "@/lib/errors"
 import { getRelativeTime } from "@/lib/event-history"
 import {
   useOrgMembers,
@@ -212,7 +213,13 @@ export function OrgMembersTable() {
   const canInviteMembers = useScopeCheck("org:member:invite") === true
   const canRemoveMembers = useScopeCheck("org:member:remove") === true
   const canReadRbac = useScopeCheck("org:rbac:read") === true
-  const { orgMembers, deleteOrgMember, revokeInvitation } = useOrgMembers()
+  const {
+    orgMembers,
+    deleteOrgMember,
+    revokeInvitation,
+    resendInvitation,
+    resendInvitationIsPending,
+  } = useOrgMembers()
 
   const handleRemoveMember = async () => {
     if (
@@ -419,6 +426,41 @@ export function OrgMembersTable() {
                                   }}
                                 >
                                   Copy invitation link
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  disabled={resendInvitationIsPending}
+                                  onSelect={async () => {
+                                    if (!member.invitation_id) return
+                                    try {
+                                      await resendInvitation(
+                                        member.invitation_id
+                                      )
+                                      toast({
+                                        title: "Invitation email queued",
+                                        description: member.email,
+                                      })
+                                    } catch (error) {
+                                      const apiError = error as TracecatApiError
+                                      if (apiError.status === 409) {
+                                        toast({
+                                          title:
+                                            "You just sent an invitation email",
+                                          description:
+                                            "Please try again shortly.",
+                                        })
+                                        return
+                                      }
+                                      toast({
+                                        title: "Failed to resend invitation",
+                                        description:
+                                          getApiErrorDetail(apiError) ??
+                                          undefined,
+                                        variant: "destructive",
+                                      })
+                                    }
+                                  }}
+                                >
+                                  Resend invitation email
                                 </DropdownMenuItem>
                                 <DropdownMenuSeparator />
                                 <AlertDialogTrigger asChild>

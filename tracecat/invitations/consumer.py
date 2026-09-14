@@ -99,7 +99,8 @@ async def deliver_next_invitation(
     await session.execute(
         update(OrganizationInvitation)
         .where(OrganizationInvitation.id == invitation_id)
-        .values(email_sent_at=func.now())
+        # Cooldown starts when sending finishes, not when the transaction began.
+        .values(email_sent_at=func.clock_timestamp())
     )
     await session.commit()
     return True
