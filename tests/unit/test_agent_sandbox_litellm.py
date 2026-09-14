@@ -613,6 +613,11 @@ class _FakeLoopbackHandler:
     def build_result(self) -> LoopbackResult:
         return LoopbackResult(success=True)
 
+    def mark_failed(
+        self, error: str, classification: RuntimeErrorClassification | None = None
+    ) -> None:
+        del error, classification
+
     async def emit_terminal_error(self, error_msg: str) -> None:
         raise AssertionError(f"unexpected terminal error: {error_msg}")
 

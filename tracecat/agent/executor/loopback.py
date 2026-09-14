@@ -432,6 +432,21 @@ class LoopbackHandler:
                 session_id=self.input.session_id,
             )
 
+    def mark_failed(
+        self, error: str, classification: RuntimeErrorClassification | None = None
+    ) -> None:
+        """Record an executor-level failure that ended the turn out of band.
+
+        Executor crash and deadline paths fail the activity directly, so the
+        runtime can be torn down before it sends its final result. Recording the
+        failure here lets `_handle_done` keep this attribution instead of
+        blaming the truncated envelope on a protocol violation.
+        """
+        if self._result.error is not None:
+            return
+        self._result.error = error
+        self._result.classification = classification
+
     def mark_cancelled(self, reason: str) -> None:
         """Record that the active runtime turn is expected to stop early.
 

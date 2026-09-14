@@ -930,6 +930,9 @@ class SandboxedAgentExecutor:
                             proxy_error.classification,
                             diagnostic=proxy_error.diagnostic,
                         )
+                        handler.mark_failed(
+                            proxy_error.message, proxy_error.classification
+                        )
                         result.terminal_stream_error_emitted = (
                             await handler.emit_terminal_error(proxy_error.message)
                         )
@@ -977,6 +980,7 @@ class SandboxedAgentExecutor:
                         result.sentry_capture = capture_activity_failure(
                             error, timeout_classification
                         )
+                    handler.mark_failed(timeout_message, timeout_classification)
                     result.terminal_stream_error_emitted = (
                         await handler.emit_terminal_error(timeout_message)
                     )

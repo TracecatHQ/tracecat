@@ -1241,6 +1241,36 @@ async def test_send_done_preserves_existing_error_state() -> None:
 
 
 @pytest.mark.anyio
+async def test_send_done_keeps_marked_failure_on_truncated_envelope() -> None:
+    """An executor failure ends the turn before the runtime sends its result."""
+    handler = _make_handler()
+    stream = _FakeStream()
+    handler._stream_sink = stream
+    classification = agent_executor_unavailable()
+
+    handler.mark_failed("LiteLLM unavailable", classification)
+    await handler.send_done()
+
+    result = handler.build_result()
+    assert result.success is False
+    assert result.error == "LiteLLM unavailable"
+    assert result.classification is classification
+    assert result.sentry_capture is None
+    stream.error.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_mark_failed_keeps_first_attribution() -> None:
+    handler = _make_handler()
+    handler.mark_failed("first", agent_executor_unavailable())
+
+    handler.mark_failed("second", None)
+
+    assert handler._result.error == "first"
+    assert handler._result.classification is not None
+
+
+@pytest.mark.anyio
 async def test_parallel_approval_requests_accumulate_across_events() -> None:
     """N parallel gated tool calls arrive as N approval events; keep them all."""
     handler = _make_handler()
