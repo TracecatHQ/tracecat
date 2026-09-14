@@ -6422,6 +6422,71 @@ class TestMCPProviderOAuth:
         assert parsed.hostname == "www-api.runreveal.com"
         assert authorize_captured["resource"] == "https://api.runreveal.com/mcp"
 
+    @pytest.mark.parametrize(
+        ("row_uri", "user_uri", "expect_pinned"),
+        [
+            pytest.param(
+                "https://mcp.example.test/mcp",
+                "https://mcp.example.test/mcp",
+                True,
+                id="default-uri-keeps-pins",
+            ),
+            pytest.param(
+                "https://mcp.example.test/mcp",
+                "https://mcp.selfhosted.example/mcp",
+                False,
+                id="self-hosted-uri-drops-pins",
+            ),
+            pytest.param(
+                "https://mcp.{REGION}.example.test/mcp",
+                "https://mcp.eu.example.test/mcp",
+                True,
+                id="templated-uri-keeps-pins",
+            ),
+        ],
+    )
+    def test_catalog_pinned_endpoints_only_apply_to_row_default_uri(
+        self, row_uri: str, user_uri: str, expect_pinned: bool
+    ) -> None:
+        """Bringing an OAuth client to a self-hosted URI must not reuse vendor pins."""
+        spec = _MCP_CONNECTION_SPEC_ADAPTER.validate_python(
+            {
+                "kind": "http_oauth2",
+                "server_type": "http",
+                "auth_type": "OAUTH2",
+                "requires_config": True,
+                "config_fields": [],
+                "credentials": [
+                    {
+                        "key": "server_url",
+                        "label": "Server URL",
+                        "description": "MCP endpoint",
+                        "required": True,
+                        "secret": False,
+                        "type": "url",
+                        "target": "server_uri",
+                    }
+                ],
+                "server_uri": row_uri,
+                "scopes": [],
+                "oauth_authorization_endpoint": "https://auth.example.test/oauth/authorize",
+                "oauth_token_endpoint": "https://auth.example.test/oauth/token",
+            }
+        )
+        pinned = IntegrationService._catalog_pinned_oauth_endpoints(
+            spec,
+            server_uri=user_uri,
+            oauth_resource=None,
+            allowed_endpoint_hosts=frozenset({"auth.example.test"}),
+        )
+        if expect_pinned:
+            assert pinned is not None
+            assert pinned.authorization_endpoint.startswith(
+                "https://auth.example.test/"
+            )
+        else:
+            assert pinned is None
+
     def test_feedly_catalog_pins_origin_level_oauth_resource(
         self,
     ) -> None:

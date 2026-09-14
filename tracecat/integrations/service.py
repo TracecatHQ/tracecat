@@ -784,12 +784,25 @@ class IntegrationService(BaseWorkspaceService):
         Rows pin endpoints precisely when the MCP server does not advertise
         usable RFC 8414 metadata, so discovery would fail. DCR is unavailable
         on this path; such rows supply OAuth client credentials.
+
+        Pinned endpoints belong to the vendor deployment at the row's own
+        ``server_uri``. A row that also lets the user supply the URI (a
+        self-hosted or regional deployment) falls back to discovery from the
+        user's host as soon as that URI differs from the row's default.
+        Templated row URIs carry no default and keep their pins.
         """
         if not isinstance(catalog_spec, MCPHTTPOAuth2ConnectionSpec):
             return None
         authorization_endpoint = catalog_spec.oauth_authorization_endpoint
         token_endpoint = catalog_spec.oauth_token_endpoint
         if not authorization_endpoint or not token_endpoint:
+            return None
+        default_uri = catalog_spec.server_uri
+        if (
+            default_uri
+            and not _CATALOG_PLACEHOLDER_RE.search(default_uri)
+            and server_uri != default_uri
+        ):
             return None
         return MCPOAuthDiscoveryEndpoints(
             authorization_endpoint=cls._validate_mcp_oauth_endpoint(
