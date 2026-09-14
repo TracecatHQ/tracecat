@@ -47,7 +47,7 @@ from tracecat.agent.common.types import (
     SandboxAgentConfig,
     SandboxSubagentConfig,
 )
-from tracecat.agent.diagnostics import LLMErrorDiagnostics
+from tracecat.agent.diagnostics import LLMErrorDiagnostics, ProviderConfiguration
 from tracecat.agent.executor.activity import (
     AgentExecutorInput,
     AgentExecutorResult,
@@ -59,6 +59,7 @@ from tracecat.agent.executor.loopback import (
     LoopbackInput,
     LoopbackResult,
 )
+from tracecat.agent.llm_routing import get_litellm_route_model
 from tracecat.agent.otel_config import ResolvedAgentOtelConfig
 from tracecat.agent.runtime.claude_code.broker import (
     ClaudeRuntimeBroker,
@@ -73,6 +74,7 @@ from tracecat.agent.sandbox.llm_proxy import (
 )
 from tracecat.agent.skill.service import SkillService
 from tracecat.agent.skill.types import ResolvedSkillRef
+from tracecat.agent.tokens import LLMRouteClaim, mint_llm_token
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.exceptions import TracecatAuthorizationError
@@ -2483,7 +2485,6 @@ async def test_run_agent_activity_with_fake_litellm_provider_spawns_runtime_in_e
             base_url="https://customer-litellm.example",
             model_provider="custom-model-provider",
             authorization="Bearer sk-test",
-            provider_configuration="custom",
         )
     }
     assert proxy.routing_plan is not None
@@ -3211,7 +3212,6 @@ async def test_executor_keeps_direct_passthrough_available_for_root_with_subagen
             base_url="https://customer-litellm.example",
             model_provider="custom-model-provider",
             authorization="Bearer sk-test",
-            provider_configuration="custom",
         )
     }
 
@@ -3250,14 +3250,12 @@ async def test_executor_routes_passthrough_subagent_by_its_own_model_config(
             base_url="https://customer-litellm.example",
             model_provider="custom-model-provider",
             authorization="Bearer sk-test",
-            provider_configuration="custom",
         ),
         "child-alias::tracecat-subagent::analyst": LLMRoute(
             base_url="https://child-litellm.example",
             model_provider="custom-model-provider",
             upstream_model_name="child-alias",
             authorization="Bearer sk-test",
-            provider_configuration="custom",
         ),
     }
 
@@ -3537,12 +3535,23 @@ async def test_broker_deadline_captures_source_before_stream_and_cancellation(
 
 
 @pytest.mark.anyio
-async def test_executor_indexes_provider_configuration_by_exact_root_and_subagent_model() -> (
-    None
-):
+@pytest.mark.parametrize(
+    "root_provider, child_provider, root_configuration, child_configuration",
+    [
+        ("openai", "custom-model-provider", "builtin", "custom"),
+        ("custom-model-provider", "anthropic", "custom", "builtin"),
+    ],
+)
+async def test_executor_derives_diagnostics_from_root_and_subagent_providers(
+    root_provider: str,
+    child_provider: str,
+    root_configuration: ProviderConfiguration,
+    child_configuration: ProviderConfiguration,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     executor_input = _make_executor_input(enable_internet_access=False)
     executor_input.config.model_name = "synthetic-root"
-    executor_input.config.model_provider = "openai"
+    executor_input.config.model_provider = root_provider
     executor_input.subagents = [
         SandboxSubagentConfig(
             alias="synthetic-child",
@@ -3550,25 +3559,71 @@ async def test_executor_indexes_provider_configuration_by_exact_root_and_subagen
             prompt="Synthetic prompt",
             model_route="synthetic-child-route",
             config=SandboxAgentConfig(
-                model_name="synthetic-model", model_provider="custom-model-provider"
+                # The signed token, not a reconstructed config index, is authoritative.
+                model_name="synthetic-model",
+                model_provider=root_provider,
             ),
             mcp_auth_token="synthetic-token",
         )
     ]
+    monkeypatch.setattr(
+        app_config, "TRACECAT__SERVICE_KEY", "synthetic-signing-key-for-tests-only"
+    )
+    executor_input.llm_gateway_auth_token = mint_llm_token(
+        workspace_id=executor_input.workspace_id,
+        organization_id=uuid.uuid4(),
+        session_id=executor_input.session_id,
+        model="synthetic-root",
+        provider=root_provider,
+        routes={
+            "synthetic-child-route": LLMRouteClaim(
+                model="synthetic-model", provider=child_provider
+            )
+        },
+    )
     plan = SandboxedAgentExecutor(input=executor_input)._llm_routing_plan()
-    # Materialization must preserve the managed index too.
+    # Materialization must preserve the verified token claims too.
     plan = await plan.materialize(None)
-    assert plan.resolve(
-        "openai/synthetic-root"
-    ).error_diagnostics == LLMErrorDiagnostics(
-        route="managed", provider_configuration="builtin"
+    assert plan.error_diagnostics(
+        get_litellm_route_model(
+            model_provider=root_provider, model_name="synthetic-root"
+        )
+    ) == LLMErrorDiagnostics(route="managed", provider_configuration=root_configuration)
+    assert plan.error_diagnostics("synthetic-child-route") == LLMErrorDiagnostics(
+        route="managed", provider_configuration=child_configuration
     )
-    assert plan.resolve(
-        "synthetic-child-route"
-    ).error_diagnostics == LLMErrorDiagnostics(
-        route="managed", provider_configuration="custom"
+    assert plan.error_diagnostics("unrecognized-route") == LLMErrorDiagnostics(
+        route="managed", provider_configuration=root_configuration
     )
-    assert plan.resolve("unrecognized-route").error_diagnostics == LLMErrorDiagnostics(
-        route="managed", provider_configuration=None
+    assert plan.error_diagnostics(None).provider_configuration == root_configuration
+
+    selected = plan.resolve("synthetic-child-route")
+    assert selected is plan.managed_route
+    assert not selected.local_provider_cleanup
+    for model in (None, "unrecognized-route", 123):
+        assert plan.resolve(model) is plan.managed_route
+        assert (
+            plan.error_diagnostics(model).provider_configuration == root_configuration
+        )
+    body = b'{"model":"synthetic-child-route","thinking":{"type":"enabled"}}'
+    request = selected.prepare_forward_request(
+        path="/v1/messages",
+        headers={"Authorization": "Bearer synthetic-token"},
+        body=body,
+        data=orjson.loads(body),
     )
-    assert plan.resolve(None).error_diagnostics.provider_configuration is None
+    assert request.url == plan.managed_route.forward_url("/v1/messages")
+    assert request.headers["Authorization"] == "Bearer synthetic-token"
+    assert request.body == body
+
+
+@pytest.mark.anyio
+async def test_invalid_diagnostic_token_does_not_block_forwarding() -> None:
+    executor_input = _make_executor_input(enable_internet_access=False)
+    executor_input.llm_gateway_auth_token = "synthetic-invalid-token"
+    plan = SandboxedAgentExecutor(input=executor_input)._llm_routing_plan()
+    assert plan.token_claims is None
+    assert plan.error_diagnostics("synthetic-model") == LLMErrorDiagnostics(
+        route="managed"
+    )
+    assert plan.resolve("synthetic-model") is plan.managed_route

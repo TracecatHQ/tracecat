@@ -46,11 +46,7 @@ from tracecat.agent.common.types import (
     is_stdio_mcp_server,
     requires_sandbox_internet_access,
 )
-from tracecat.agent.diagnostics import (
-    LLMErrorDiagnostics,
-    ProviderConfiguration,
-    provider_configuration_for,
-)
+from tracecat.agent.diagnostics import LLMErrorDiagnostics
 from tracecat.agent.error_policy import (
     agent_executor_protocol_failed,
     agent_executor_timed_out,
@@ -106,6 +102,7 @@ from tracecat.agent.skill.builtin import (
 )
 from tracecat.agent.skill.builtin.staging import stage_platform_skill_plugin
 from tracecat.agent.skill.service import SkillService
+from tracecat.agent.tokens import verify_llm_token
 from tracecat.agent.types import AgentConfig, clamp_agent_timeout_seconds
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import ChatMessage
@@ -461,84 +458,51 @@ class SandboxedAgentExecutor:
         # Keep all root/subagent semantics on the executor side. The proxy only
         # receives model-key routes and does not know which agent emitted them.
         config = cast(Any, self.input.config)
-        direct_routes, managed_provider_configurations = self._model_route_tables()
+        managed_route = LLMRoute(
+            base_url=app_config.TRACECAT__LITELLM_BASE_URL.rstrip("/"),
+            model_provider=config.model_provider,
+            mode="managed",
+            # Scoped subagent requests defer provider-specific cleanup to LiteLLM.
+            local_provider_cleanup=not self.input.subagents,
+        )
+        # Diagnostics are optional; authentication remains the gateway's job.
+        try:
+            token_claims = verify_llm_token(self.input.llm_gateway_auth_token)
+        except ValueError:
+            token_claims = None
         return LLMRoutingPlan(
-            managed_route=LLMRoute(
-                base_url=app_config.TRACECAT__LITELLM_BASE_URL.rstrip("/"),
-                model_provider=config.model_provider,
-                mode="managed",
-                # Managed subagent requests use synthetic LiteLLM route keys, so
-                # the proxy should let LiteLLM do provider-specific body cleanup.
-                local_provider_cleanup=not self.input.subagents,
-            ),
-            direct_routes=direct_routes,
-            managed_provider_configurations=managed_provider_configurations,
+            managed_route=managed_route,
+            direct_routes=self._direct_routes(),
+            token_claims=token_claims,
         )
 
-    def _model_route_tables(
-        self,
-    ) -> tuple[dict[str, LLMRoute], dict[str, ProviderConfiguration]]:
-        """Index direct routes and managed provider configurations by model key.
-
-        Each entry is keyed by the exact model string the runtime will send in
-        the request body. The proxy can then make a local routing decision
-        without needing to know which agent produced the request.
-
-        A single execution can include a passthrough root agent and multiple
-        passthrough subagents. Since passthrough skips the managed LiteLLM
-        fallback, the shared proxy needs one direct route per exact runtime
-        model key rather than one global passthrough destination. Every
-        non-passthrough agent instead contributes its safe provider
-        configuration for the managed fallback route.
-
-        Returns:
-            Direct passthrough routes and managed provider configurations,
-            both keyed by request model.
-        """
+    def _direct_routes(self) -> dict[str, LLMRoute]:
+        """Index passthrough endpoints by the runtime's exact model key."""
         direct_routes: dict[str, LLMRoute] = {}
-        managed_configurations: dict[str, ProviderConfiguration] = {}
 
         root_config = cast(Any, self.input.config)
         if root_config.passthrough:
-            # Root routing is keyed by the model string the root agent sends.
             direct_routes[root_config.model_name] = self._direct_passthrough_route(
                 root_config.base_url,
                 model_provider=root_config.model_provider,
                 catalog_id=root_config.catalog_id,
             )
-        else:
-            managed_configurations[
-                get_litellm_route_model(
-                    model_provider=root_config.model_provider,
-                    model_name=root_config.model_name,
-                )
-            ] = provider_configuration_for(root_config.model_provider)
 
         for subagent in self.input.subagents:
             config = subagent.config
-            # Subagents usually send a synthetic scoped model key. If that subagent
-            # is passthrough, the scoped key should direct-route to its own gateway.
+            request_model = subagent.model_route or get_litellm_route_model(
+                model_provider=config.model_provider,
+                model_name=config.model_name,
+                passthrough=config.passthrough,
+            )
             if config.passthrough:
-                request_model = subagent.model_route or get_litellm_route_model(
-                    model_provider=config.model_provider,
-                    model_name=config.model_name,
-                    passthrough=True,
-                )
                 direct_routes[request_model] = self._direct_passthrough_route(
                     config.base_url,
                     model_provider=config.model_provider,
                     catalog_id=config.catalog_id,
                     upstream_model_name=config.model_name,
                 )
-            else:
-                request_model = subagent.model_route or get_litellm_route_model(
-                    model_provider=config.model_provider,
-                    model_name=config.model_name,
-                )
-                managed_configurations[request_model] = provider_configuration_for(
-                    config.model_provider
-                )
-        return direct_routes, managed_configurations
+        return direct_routes
 
     @staticmethod
     def _direct_passthrough_route(
@@ -572,7 +536,6 @@ class SandboxedAgentExecutor:
             model_provider=model_provider,
             catalog_id=catalog_id,
             upstream_model_name=upstream_model_name,
-            provider_configuration=provider_configuration_for(model_provider),
         )
 
     async def _resolve_agent_otel_config(self) -> ResolvedAgentOtelConfig:

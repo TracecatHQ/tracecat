@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import uuid
 from collections.abc import AsyncIterator, Iterator
 from dataclasses import replace
 from pathlib import Path
@@ -21,6 +22,7 @@ from tracecat.agent.sandbox.llm_proxy import (
     LLMSocketProxy,
     _http_error_classification,
 )
+from tracecat.agent.tokens import LLMRouteClaim, LLMTokenClaims
 from tracecat.runtime.errors import (
     RetryDisposition,
     RuntimeErrorKind,
@@ -1904,14 +1906,14 @@ def test_error_classification_bounds_json_parsing(
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("configuration", ["builtin", "custom", None])
+@pytest.mark.parametrize("configuration", ["builtin", "custom"])
 @pytest.mark.parametrize("direct", [False, True])
 @pytest.mark.parametrize(
     "failure", ["auth", "budget", "rate", "connect", "headers_timeout", "body_timeout"]
 )
 async def test_llm_metadata_follows_selected_route_on_all_failure_phases(
     tmp_path: Path,
-    configuration: Literal["builtin", "custom"] | None,
+    configuration: Literal["builtin", "custom"],
     direct: bool,
     failure: str,
 ) -> None:
@@ -1946,17 +1948,35 @@ async def test_llm_metadata_follows_selected_route_on_all_failure_phases(
 
     selected_route = LLMRoute(
         base_url="https://provider.example",
-        model_provider="synthetic-provider",
-        provider_configuration=configuration,
+        model_provider="custom-model-provider"
+        if configuration == "custom"
+        else "openai",
+        mode="direct" if direct else "managed",
     )
     plan = LLMRoutingPlan(
         managed_route=LLMRoute(
             base_url="http://gateway", model_provider="root-provider", mode="managed"
         ),
         direct_routes={"synthetic-model": selected_route} if direct else {},
-        managed_provider_configurations={"synthetic-model": configuration}
-        if configuration is not None
-        else {},
+        token_claims=LLMTokenClaims(
+            workspace_id=uuid.uuid4(),
+            organization_id=uuid.uuid4(),
+            session_id=uuid.uuid4(),
+            model="synthetic-root",
+            provider="openai",
+            routes={
+                "synthetic-model": LLMRouteClaim(
+                    model="synthetic-model",
+                    provider=(
+                        "openai"
+                        if configuration == "custom"
+                        else "custom-model-provider"
+                    )
+                    if direct
+                    else selected_route.model_provider,
+                )
+            },
+        ),
     )
     proxy = LLMSocketProxy(
         socket_path=tmp_path / "llm.sock", routing_plan=plan, on_error=errors.append

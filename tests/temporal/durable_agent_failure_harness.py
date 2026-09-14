@@ -54,6 +54,7 @@ from tracecat.agent.session.activities import (
     LoadSessionResult,
 )
 from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.tokens import LLMTokenClaims
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.dsl._converter import get_data_converter
@@ -233,7 +234,9 @@ def _gateway_routing_plan(
 ) -> tuple[LLMRoutingPlan, str]:
     managed_route = LLMRoute(
         base_url="http://managed-litellm.invalid",
-        model_provider="openai",
+        model_provider="custom-model-provider"
+        if provider_configuration == "custom"
+        else "openai",
         mode="managed",
     )
     if route is GatewayRoute.MANAGED_LITELLM:
@@ -242,7 +245,13 @@ def _gateway_routing_plan(
             LLMRoutingPlan(
                 managed_route=managed_route,
                 direct_routes={},
-                managed_provider_configurations={model: provider_configuration},
+                token_claims=LLMTokenClaims(
+                    workspace_id=uuid.uuid4(),
+                    organization_id=uuid.uuid4(),
+                    session_id=uuid.uuid4(),
+                    model=model,
+                    provider=managed_route.model_provider,
+                ),
             ),
             model,
         )
@@ -256,11 +265,14 @@ def _gateway_routing_plan(
     direct_route = LLMRoute(
         base_url=base_url,
         model_provider=(
-            "anthropic" if route is GatewayRoute.DIRECT_PROVIDER else "openai"
+            "custom-model-provider"
+            if provider_configuration == "custom"
+            else "anthropic"
+            if route is GatewayRoute.DIRECT_PROVIDER
+            else "openai"
         ),
         mode="direct",
         authorization="Bearer synthetic-test-key",
-        provider_configuration=provider_configuration,
     )
     return (
         LLMRoutingPlan(

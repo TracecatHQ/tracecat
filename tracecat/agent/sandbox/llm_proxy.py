@@ -27,8 +27,8 @@ from tracecat import config as app_config
 from tracecat.agent.common.exceptions import AgentSandboxValidationError
 from tracecat.agent.diagnostics import (
     LLMErrorDiagnostics,
-    ProviderConfiguration,
     parse_bounded_error_body,
+    provider_configuration_for,
 )
 from tracecat.agent.error_policy import (
     agent_executor_protocol_failed,
@@ -47,6 +47,7 @@ from tracecat.agent.gateway_providers import (
 )
 from tracecat.agent.observability import get_load_tracker
 from tracecat.agent.service import AgentManagementService
+from tracecat.agent.tokens import LLMTokenClaims
 from tracecat.auth.types import Role
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.logger import logger
@@ -357,13 +358,13 @@ class LLMRoute:
     catalog_id: uuid.UUID | None = None
     authorization: str | None = field(default=None, repr=False)
     local_provider_cleanup: bool = True
-    provider_configuration: ProviderConfiguration | None = None
 
     @property
     def error_diagnostics(self) -> LLMErrorDiagnostics:
         """Return safe configuration context for this selected request route."""
         return LLMErrorDiagnostics(
-            route=self.mode, provider_configuration=self.provider_configuration
+            route=self.mode,
+            provider_configuration=provider_configuration_for(self.model_provider),
         )
 
     @property
@@ -555,13 +556,12 @@ class LLMRoutingPlan:
         managed_route: Shared LiteLLM destination for non-passthrough requests.
             Model selection happens in the gateway.
         direct_routes: Direct passthrough routes keyed by exact request model.
+        token_claims: Verified gateway claims used only for error diagnostics.
     """
 
     managed_route: LLMRoute
     direct_routes: dict[str, LLMRoute]
-    managed_provider_configurations: dict[str, ProviderConfiguration] = field(
-        default_factory=dict
-    )
+    token_claims: LLMTokenClaims | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         # Direct routes are stored in catalog-friendly OpenAI-compatible form
@@ -625,7 +625,7 @@ class LLMRoutingPlan:
 
         return LLMRoutingPlan(
             managed_route=replace(self.managed_route, authorization=None),
-            managed_provider_configurations=self.managed_provider_configurations,
+            token_claims=self.token_claims,
             direct_routes={
                 route_key: replace(
                     route, authorization=direct_authorizations.get(route_key)
@@ -647,16 +647,24 @@ class LLMRoutingPlan:
             route := self.direct_routes.get(request_model)
         ):
             return route
-        if isinstance(request_model, str) and (
-            provider_configuration := self.managed_provider_configurations.get(
-                request_model
-            )
-        ):
-            return replace(
-                self.managed_route, provider_configuration=provider_configuration
-            )
-        # An unknown/synthetic model must not inherit the root provider's config.
         return self.managed_route
+
+    def error_diagnostics(self, request_model: object) -> LLMErrorDiagnostics:
+        """Derive provider context using the gateway's token selection rules."""
+        route = self.resolve(request_model)
+        if route.is_direct:
+            return route.error_diagnostics
+        if self.token_claims is None:
+            return LLMErrorDiagnostics(route="managed")
+        selected = (
+            self.token_claims.routes.get(request_model)
+            if isinstance(request_model, str)
+            else None
+        )
+        provider = selected.provider if selected else self.token_claims.provider
+        return LLMErrorDiagnostics(
+            route="managed", provider_configuration=provider_configuration_for(provider)
+        )
 
 
 def _normalize_passthrough_base_url(base_url: str) -> str:
@@ -685,7 +693,6 @@ def _normalize_direct_route(route: LLMRoute) -> LLMRoute:
         catalog_id=route.catalog_id,
         authorization=route.authorization,
         local_provider_cleanup=route.local_provider_cleanup,
-        provider_configuration=route.provider_configuration,
     )
 
 
@@ -1115,9 +1122,9 @@ class LLMSocketProxy:
             if isinstance(parsed, dict):
                 data = parsed
 
-        route = self.routing_plan.resolve(
-            data.get("model") if data is not None else None
-        )
+        request_model = data.get("model") if data is not None else None
+        route = self.routing_plan.resolve(request_model)
+        diagnostic = self.routing_plan.error_diagnostics(request_model)
         upstream_request = route.prepare_forward_request(
             path=path,
             headers=headers,
@@ -1149,7 +1156,7 @@ class LLMSocketProxy:
                     self._emit_error(
                         classification.message,
                         classification,
-                        diagnostic=route.error_diagnostics,
+                        diagnostic=diagnostic,
                     )
                     body_chunks = [error_body]
                 else:
@@ -1167,7 +1174,7 @@ class LLMSocketProxy:
                     method=method,
                     path=path,
                     route_is_direct=route.is_direct,
-                    diagnostic=route.error_diagnostics,
+                    diagnostic=diagnostic,
                 )
         except httpx.TransportError as exc:
             if self._stopping:
@@ -1196,7 +1203,7 @@ class LLMSocketProxy:
                             if timed_out
                             else f"LLM upstream unavailable: {exc}"
                         ),
-                        diagnostic=route.error_diagnostics,
+                        diagnostic=diagnostic,
                     )
                 )
 
