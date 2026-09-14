@@ -10,9 +10,30 @@ Open `Agents` from the workspace navigation to create one, then run it from a wo
 
 ![Agents page](/img/agents/agents-list.png)
 
+## Create a preset
+
+Click `Create new` and select `Agent`. Enter a name and optional description, then click `Create agent`.
+The preset starts with your organization default model. You can change its model after creation.
+
+![Create agent dialog with a name and optional description](/img/agents/create-agent.jpg)
+
+### Set up the default model
+
+Your organization default model must be enabled for your workspace before you can create a preset.
+
+If you see `Set up model provider`, click `Configure models` to open `Organization > Settings > Agent`. Connect a [provider](/agents/llm-providers) and choose a default model. If you cannot configure organization settings, ask an organization administrator to do this.
+
+![Set up model provider prompt with Configure models button](/img/agents/create-agent-set-up-model.jpg)
+
+If you see `Enable the default model`, click `Configure workspace models` and enable the organization default model in workspace AI model settings. If you cannot configure workspace settings, ask a workspace administrator to enable it.
+
+![Enable the default model prompt with Configure workspace models button](/img/agents/create-agent-enable-model.jpg)
+
+After updating the model settings, return to `Agents` and select `Create new > Agent`.
+
 ## Configure a preset
 
-Click `Create new`, name the preset, and write instructions in the editor.
+Write instructions in the editor.
 Use the `Tools` tab to select the model, allowed Tracecat actions, and MCP integrations, and the `Skills` tab to attach published [skills](/agents/skills).
 
 ![Agent preset tools](/img/agents/agent-preset-tools.png)
