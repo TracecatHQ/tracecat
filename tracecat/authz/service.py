@@ -19,6 +19,7 @@ from tracecat.db.models import (
     GroupRoleAssignment,
     LegacyMembership,
     Membership,
+    OrganizationMembership,
     RoleScope,
     Scope,
     User,
@@ -291,6 +292,17 @@ class MembershipService(BaseService):
         except TracecatNotFoundError as e:
             raise TracecatValidationError("Workspace or default role not found") from e
         role_id = granted_role.id
+
+        # Any role path is org presence, so a workspace grant to an outsider
+        # would admit them to the org. Admission stays behind org:member:invite.
+        org_member_stmt = select(OrganizationMembership.user_id).where(
+            OrganizationMembership.user_id == params.user_id,
+            OrganizationMembership.organization_id == organization_id,
+        )
+        if (await self.session.execute(org_member_stmt)).scalar_one_or_none() is None:
+            raise TracecatAuthorizationError(
+                "User is not a member of this organization"
+            )
 
         existing_member_stmt = select(Membership.user_id).where(
             Membership.workspace_id == workspace_id,
