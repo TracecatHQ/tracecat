@@ -57,6 +57,7 @@ dependencies = [
     "opentelemetry-sdk==1.43.0",
     "orjson==3.11.7",
     "paramiko==5.0.0",
+    "pgvector==0.4.2",
     "polyfile==0.5.6",
     "protobuf==6.33.5",
     "psycopg[binary]==3.1.19",
