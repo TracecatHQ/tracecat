@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 import pytest
 from temporalio.client import WorkflowExecutionStatus
@@ -10,6 +11,7 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 
 from tests.temporal import durable_agent_failure_harness as harness
+from tracecat.agent.diagnostics import LLMErrorDiagnostics
 from tracecat.agent.error_policy import (
     agent_executor_protocol_failed,
     tenant_entitlement_denied,
@@ -20,7 +22,10 @@ from tracecat.runtime.errors import (
     RuntimeErrorKind,
     RuntimeErrorOwner,
 )
-from tracecat.temporal.errors import extract_error_classifications
+from tracecat.temporal.errors import (
+    extract_error_classifications,
+    extract_error_diagnostics,
+)
 from tracecat.workflow.executions.enums import TemporalSearchAttr
 
 pytestmark = [pytest.mark.temporal]
@@ -260,11 +265,15 @@ class _GatewayExpectation:
     owner: RuntimeErrorOwner
     kind: RuntimeErrorKind
     retry_disposition: RetryDisposition
+    provider_configuration: Literal["builtin", "custom"] | None = None
 
 
 def _gateway_scenario(expectation: _GatewayExpectation) -> _FailureScenario:
+    scenario_id = f"gateway.{expectation.route.value}.{expectation.mode.value}"
+    if expectation.provider_configuration is not None:
+        scenario_id += f".{expectation.provider_configuration}"
     return _FailureScenario(
-        id=f"gateway.{expectation.route.value}.{expectation.mode.value}",
+        id=scenario_id,
         fault=(
             f"{expectation.route.value} produces "
             f"{expectation.mode.value.replace('_', ' ')}"
@@ -274,6 +283,12 @@ def _gateway_scenario(expectation: _GatewayExpectation) -> _FailureScenario:
             gateway_failure=harness.GatewayFailureInjection(
                 route=expectation.route,
                 mode=expectation.mode,
+                provider_configuration=expectation.provider_configuration
+                or (
+                    "custom"
+                    if expectation.route is harness.GatewayRoute.CUSTOM_GATEWAY
+                    else "builtin"
+                ),
             ),
             # Proxy failures are terminal-streamed by AgentExecutor before its
             # typed result crosses the Temporal activity boundary.
@@ -292,6 +307,9 @@ _PLATFORM = RuntimeErrorOwner.PLATFORM
 _EXECUTION_FAILED = RuntimeErrorKind.AGENT_EXECUTION_FAILED
 _UNAVAILABLE = RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
 _TIMED_OUT = RuntimeErrorKind.AGENT_EXECUTOR_TIMED_OUT
+_LLM_READ_TIMEOUT = RuntimeErrorKind.AGENT_LLM_READ_TIMEOUT
+_LLM_PROVIDER_AUTH_FAILED = RuntimeErrorKind.AGENT_LLM_PROVIDER_AUTH_FAILED
+_LLM_RATE_LIMITED = RuntimeErrorKind.AGENT_LLM_RATE_LIMITED
 _RETRYABLE = RetryDisposition.RETRYABLE
 _NON_RETRYABLE = RetryDisposition.NON_RETRYABLE
 
@@ -310,14 +328,14 @@ _GATEWAY_EXPECTATIONS: tuple[_GatewayExpectation, ...] = (
         harness.GatewayRoute.DIRECT_PROVIDER,
         harness.GatewayFailureMode.HTTP_401,
         _USER,
-        _EXECUTION_FAILED,
+        _LLM_PROVIDER_AUTH_FAILED,
         _NON_RETRYABLE,
     ),
     _GatewayExpectation(
         harness.GatewayRoute.DIRECT_PROVIDER,
         harness.GatewayFailureMode.HTTP_429,
         _USER,
-        _EXECUTION_FAILED,
+        _LLM_RATE_LIMITED,
         _RETRYABLE,
     ),
     _GatewayExpectation(
@@ -344,8 +362,8 @@ _GATEWAY_EXPECTATIONS: tuple[_GatewayExpectation, ...] = (
     _GatewayExpectation(
         harness.GatewayRoute.DIRECT_PROVIDER,
         harness.GatewayFailureMode.READ_TIMEOUT,
-        _USER,
-        _EXECUTION_FAILED,
+        _PLATFORM,
+        _LLM_READ_TIMEOUT,
         _RETRYABLE,
     ),
     _GatewayExpectation(
@@ -367,14 +385,14 @@ _GATEWAY_EXPECTATIONS: tuple[_GatewayExpectation, ...] = (
         harness.GatewayRoute.CUSTOM_GATEWAY,
         harness.GatewayFailureMode.HTTP_401,
         _USER,
-        _EXECUTION_FAILED,
+        _LLM_PROVIDER_AUTH_FAILED,
         _NON_RETRYABLE,
     ),
     _GatewayExpectation(
         harness.GatewayRoute.CUSTOM_GATEWAY,
         harness.GatewayFailureMode.HTTP_429,
         _USER,
-        _EXECUTION_FAILED,
+        _LLM_RATE_LIMITED,
         _RETRYABLE,
     ),
     _GatewayExpectation(
@@ -401,8 +419,8 @@ _GATEWAY_EXPECTATIONS: tuple[_GatewayExpectation, ...] = (
     _GatewayExpectation(
         harness.GatewayRoute.CUSTOM_GATEWAY,
         harness.GatewayFailureMode.READ_TIMEOUT,
-        _USER,
-        _EXECUTION_FAILED,
+        _PLATFORM,
+        _LLM_READ_TIMEOUT,
         _RETRYABLE,
     ),
     _GatewayExpectation(
@@ -431,7 +449,7 @@ _GATEWAY_EXPECTATIONS: tuple[_GatewayExpectation, ...] = (
         harness.GatewayRoute.MANAGED_LITELLM,
         harness.GatewayFailureMode.HTTP_429,
         _PLATFORM,
-        _UNAVAILABLE,
+        _LLM_RATE_LIMITED,
         _RETRYABLE,
     ),
     _GatewayExpectation(
@@ -459,8 +477,16 @@ _GATEWAY_EXPECTATIONS: tuple[_GatewayExpectation, ...] = (
         harness.GatewayRoute.MANAGED_LITELLM,
         harness.GatewayFailureMode.READ_TIMEOUT,
         _PLATFORM,
-        _TIMED_OUT,
+        _LLM_READ_TIMEOUT,
         _RETRYABLE,
+    ),
+    _GatewayExpectation(
+        harness.GatewayRoute.MANAGED_LITELLM,
+        harness.GatewayFailureMode.READ_TIMEOUT,
+        _PLATFORM,
+        _LLM_READ_TIMEOUT,
+        _RETRYABLE,
+        provider_configuration="custom",
     ),
     _GatewayExpectation(
         harness.GatewayRoute.MANAGED_LITELLM,
@@ -512,6 +538,16 @@ async def test_durable_agent_failure_attribution(
     assert classification.owner is scenario.owner
     assert classification.kind is scenario.kind
     assert classification.retry_disposition is scenario.retry_disposition
+    assert "llm" not in classification.model_dump(mode="json")
+    if gateway := scenario.injection.gateway_failure:
+        assert extract_error_diagnostics(observation.failure, classification) == (
+            LLMErrorDiagnostics(
+                route="managed"
+                if gateway.route is harness.GatewayRoute.MANAGED_LITELLM
+                else "direct",
+                provider_configuration=gateway.provider_configuration,
+            ).model_dump(mode="json"),
+        )
     assert _DIAGNOSTIC not in classification.message
 
     assert isinstance(observation.failure.cause, ApplicationError)
