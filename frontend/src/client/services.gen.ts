@@ -709,12 +709,15 @@ import type {
   ServiceAccountsUpdateOrganizationServiceAccountResponse,
   ServiceAccountsUpdateWorkspaceServiceAccountData,
   ServiceAccountsUpdateWorkspaceServiceAccountResponse,
+  SettingsCheckIpAllowlistData,
+  SettingsCheckIpAllowlistResponse,
   SettingsGetAgentOtelSettingsResponse,
   SettingsGetAgentSettingsResponse,
   SettingsGetAppSettingsResponse,
   SettingsGetAuditSettingsResponse,
   SettingsGetGitSettingsResponse,
   SettingsGetSamlSettingsResponse,
+  SettingsGetSecuritySettingsResponse,
   SettingsTestAuditWebhookData,
   SettingsTestAuditWebhookResponse,
   SettingsUpdateAgentOtelSettingsData,
@@ -729,6 +732,8 @@ import type {
   SettingsUpdateGitSettingsResponse,
   SettingsUpdateSamlSettingsData,
   SettingsUpdateSamlSettingsResponse,
+  SettingsUpdateSecuritySettingsData,
+  SettingsUpdateSecuritySettingsResponse,
   TablesBatchDeleteRowsData,
   TablesBatchDeleteRowsResponse,
   TablesBatchInsertRowsData,
@@ -9005,6 +9010,66 @@ export const settingsUpdateAuditSettings = (
   return __request(OpenAPI, {
     method: "PATCH",
     url: "/settings/audit",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Security Settings
+ * @returns SecuritySettingsRead Successful Response
+ * @throws ApiError
+ */
+export const settingsGetSecuritySettings =
+  (): CancelablePromise<SettingsGetSecuritySettingsResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/settings/security",
+    })
+  }
+
+/**
+ * Update Security Settings
+ * Update the organization IP allowlist.
+ *
+ * Enabling a non-empty allowlist that excludes the caller's own IP is
+ * rejected so an admin cannot lock themselves out of the organization.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const settingsUpdateSecuritySettings = (
+  data: SettingsUpdateSecuritySettingsData
+): CancelablePromise<SettingsUpdateSecuritySettingsResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/settings/security",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Check Ip Allowlist
+ * Report whether an IP address is admitted by the saved allowlist.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns IPAllowlistCheckResult Successful Response
+ * @throws ApiError
+ */
+export const settingsCheckIpAllowlist = (
+  data: SettingsCheckIpAllowlistData
+): CancelablePromise<SettingsCheckIpAllowlistResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/settings/security/ip-allowlist/check",
     body: data.requestBody,
     mediaType: "application/json",
     errors: {

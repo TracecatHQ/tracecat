@@ -15381,6 +15381,49 @@ export const $HealthResponse = {
   title: "HealthResponse",
 } as const
 
+export const $IPAllowlistCheckRequest = {
+  properties: {
+    ip_address: {
+      type: "string",
+      maxLength: 45,
+      minLength: 1,
+      title: "Ip Address",
+    },
+  },
+  type: "object",
+  required: ["ip_address"],
+  title: "IPAllowlistCheckRequest",
+  description:
+    "Check whether an IP address would be admitted by the saved allowlist.",
+} as const
+
+export const $IPAllowlistCheckResult = {
+  properties: {
+    allowed: {
+      type: "boolean",
+      title: "Allowed",
+    },
+    matched_cidr: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Matched Cidr",
+    },
+    enforced: {
+      type: "boolean",
+      title: "Enforced",
+    },
+  },
+  type: "object",
+  required: ["allowed", "enforced"],
+  title: "IPAllowlistCheckResult",
+} as const
+
 export const $InboxGroup = {
   type: "string",
   enum: ["review_required", "running", "error", "completed"],
@@ -24081,6 +24124,50 @@ export const $SecretValidationResult = {
   required: ["status"],
   title: "SecretValidationResult",
   description: "Result of validating credentials.",
+} as const
+
+export const $SecuritySettingsRead = {
+  properties: {
+    ip_allowlist_enabled: {
+      type: "boolean",
+      title: "Ip Allowlist Enabled",
+    },
+    ip_allowlist_cidrs: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Ip Allowlist Cidrs",
+    },
+  },
+  type: "object",
+  required: ["ip_allowlist_enabled", "ip_allowlist_cidrs"],
+  title: "SecuritySettingsRead",
+  description: "Organization security settings.",
+} as const
+
+export const $SecuritySettingsUpdate = {
+  properties: {
+    ip_allowlist_enabled: {
+      type: "boolean",
+      title: "Ip Allowlist Enabled",
+      description:
+        "Restrict organization API access to the configured IP allowlist. Has no effect while the allowlist is empty.",
+      default: false,
+    },
+    ip_allowlist_cidrs: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      maxItems: 200,
+      title: "Ip Allowlist Cidrs",
+      description: "Allowed client IP addresses or CIDR ranges (IPv4 or IPv6).",
+    },
+  },
+  type: "object",
+  title: "SecuritySettingsUpdate",
+  description: "Organization security settings.",
 } as const
 
 export const $Select = {

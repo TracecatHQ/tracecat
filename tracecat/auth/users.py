@@ -41,6 +41,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat import config
 from tracecat.audit.service import AuditService
 from tracecat.auth.enums import AuthType
+from tracecat.auth.ip_allowlist import IP_ALLOWLIST_DENIED_DETAIL
+from tracecat.auth.ip_allowlist_enforcement import (
+    current_client_ip,
+    is_ip_allowed_for_org,
+)
 from tracecat.auth.schemas import UserCreate, UserUpdate
 from tracecat.auth.secrets import get_user_auth_secret
 from tracecat.auth.types import PlatformRole, Role
@@ -161,14 +166,51 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         user = await super().authenticate(credentials)
         if user is None:
             return None
-        if await self._is_local_password_login_allowed(user):
-            return user
-        self.logger.info(
-            "Blocked local email/password login by auth policy",
-            user_id=str(user.id),
-            email=user.email,
+        if not await self._is_local_password_login_allowed(user):
+            self.logger.info(
+                "Blocked local email/password login by auth policy",
+                user_id=str(user.id),
+                email=user.email,
+            )
+            return None
+        await self._enforce_login_ip_allowlist(user)
+        return user
+
+    async def _enforce_login_ip_allowlist(
+        self, user: User, *, organization_id: OrganizationID | None = None
+    ) -> None:
+        """Reject a login whose client IP no member organization admits.
+
+        With explicit org context (SAML) only that org's allowlist applies.
+        Otherwise the login succeeds if at least one of the user's organizations
+        admits the IP; requests scoped to a denying org are still rejected by
+        the per-request check. Platform superusers bypass (break-glass).
+
+        Raises:
+            HTTPException(403): If every candidate organization denies the IP.
+        """
+        if user.is_superuser:
+            return
+        org_ids = (
+            {organization_id}
+            if organization_id is not None
+            else await self._list_user_org_ids(user.id)
         )
-        return None
+        if not org_ids:
+            return
+        client_ip = current_client_ip()
+        for org_id in org_ids:
+            if await is_ip_allowed_for_org(org_id, client_ip):
+                return
+        self.logger.warning(
+            "Blocked login by organization IP allowlist",
+            user_id=str(user.id),
+            client_ip=str(client_ip) if client_ip else None,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=IP_ALLOWLIST_DENIED_DETAIL,
+        )
 
     async def _is_local_password_login_allowed(self, user: User) -> bool:
         if AuthType.BASIC not in config.TRACECAT__AUTH_TYPES:
@@ -305,7 +347,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="SAML authentication is enforced for this organization",
             )
-        return await super().oauth_callback(  # pyright: ignore[reportAttributeAccessIssue]
+        user = await super().oauth_callback(  # pyright: ignore[reportAttributeAccessIssue]
             oauth_name,
             access_token,
             account_id,
@@ -316,6 +358,8 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             associate_by_email=associate_by_email,
             is_verified_by_default=is_verified_by_default,
         )
+        await self._enforce_login_ip_allowlist(user)
+        return user
 
     async def create(
         self,
@@ -608,6 +652,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             user = await self.user_db.create(user_dict)
             await self.on_after_register(user)
 
+        await self._enforce_login_ip_allowlist(user, organization_id=organization_id)
         self.logger.info(f"User {user.id} authenticated via SAML.")
         return user
 

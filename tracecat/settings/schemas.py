@@ -4,6 +4,7 @@ from typing import Any, Literal, cast
 from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
 from tracecat.agent.otel_config import AgentOtelConfig, validate_otel_header_items
+from tracecat.auth.ip_allowlist import IP_ALLOWLIST_MAX_ENTRIES, normalize_cidrs
 from tracecat.git.constants import GIT_SSH_URL_REGEX
 
 
@@ -184,6 +185,51 @@ class AuditWebhookTestResult(BaseModel):
     ok: bool
     receiver_status_code: int | None = None
     error_category: AuditWebhookTestErrorCategory | None = None
+
+
+class SecuritySettingsRead(BaseSettingsGroup):
+    """Organization security settings."""
+
+    ip_allowlist_enabled: bool
+    ip_allowlist_cidrs: list[str]
+
+
+class SecuritySettingsUpdate(BaseSettingsGroup):
+    """Organization security settings."""
+
+    ip_allowlist_enabled: bool = Field(
+        default=False,
+        description=(
+            "Restrict organization API access to the configured IP allowlist. "
+            "Has no effect while the allowlist is empty."
+        ),
+    )
+    ip_allowlist_cidrs: list[str] = Field(
+        default_factory=list,
+        max_length=IP_ALLOWLIST_MAX_ENTRIES,
+        description="Allowed client IP addresses or CIDR ranges (IPv4 or IPv6).",
+    )
+
+    @field_validator("ip_allowlist_cidrs")
+    @classmethod
+    def validate_ip_allowlist_cidrs(cls, value: list[str]) -> list[str]:
+        try:
+            return normalize_cidrs(value)
+        except ValueError as e:
+            raise ValueError(f"Invalid IP address or CIDR range: {e}") from e
+
+
+class IPAllowlistCheckRequest(BaseModel):
+    """Check whether an IP address would be admitted by the saved allowlist."""
+
+    ip_address: str = Field(min_length=1, max_length=45)
+
+
+class IPAllowlistCheckResult(BaseModel):
+    allowed: bool
+    matched_cidr: str | None = None
+    enforced: bool
+    """Whether the allowlist is currently enabled and non-empty."""
 
 
 class AgentSettingsRead(BaseSettingsGroup):
