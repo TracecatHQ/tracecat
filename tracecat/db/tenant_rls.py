@@ -97,6 +97,7 @@ POST_RLS_ORG_SCOPED_TABLES = (
     "watchtower_agent",
     "mcp_refresh_token",
     "agent_custom_provider",
+    "organization_secret_store",
 )
 
 POST_RLS_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES = (
@@ -105,6 +106,7 @@ POST_RLS_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES = (
     "service_account",
     "mcp_personal_access_token",
     "agent_model_access",
+    "workspace_secret_store_authorization",
 )
 
 SPECIAL_TENANT_POLICY_TABLES = frozenset(

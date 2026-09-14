@@ -192,7 +192,7 @@ async def load_secret_inventory(role: Role) -> dict[str, set[str]]:
         for secret in workspace_secrets:
             if secret.environment != DEFAULT_SECRETS_ENVIRONMENT:
                 continue
-            keys = {kv.key for kv in svc.decrypt_keys(secret.encrypted_keys)}
+            keys = set(svc.secret_key_names(secret))
             workspace_inventory[secret.name] = keys
         return workspace_inventory
 

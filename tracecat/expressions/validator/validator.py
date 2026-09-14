@@ -89,8 +89,7 @@ class ExprValidator(BaseExprValidator[ValidationDetail]):
                     loc=("expression", f"{ExprContext.SECRETS.value}.{name}.{key}"),
                 )
             # There should only be 1 secret
-            decrypted_keys = service.decrypt_keys(defined_secret[0].encrypted_keys)
-            defined_keys = {kv.key for kv in decrypted_keys}
+            defined_keys = set(service.secret_key_names(defined_secret[0]))
 
         # (2) Check if the secret has the correct keys
         if key not in defined_keys:

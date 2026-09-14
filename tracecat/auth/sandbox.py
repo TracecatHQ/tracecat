@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Iterable, Iterator, Sequence
+import concurrent.futures
+from collections.abc import Coroutine, Iterable, Iterator, Sequence
 from types import TracebackType
 from typing import Any, Self
+
+from pydantic import SecretStr
 
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.auth.types import Role
@@ -13,10 +16,30 @@ from tracecat.contexts import ctx_role
 from tracecat.db.models import BaseSecret
 from tracecat.exceptions import TracecatCredentialsError
 from tracecat.logger import logger
+from tracecat.secrets.aws_secrets_manager import resolve_aws_secret_references
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.encryption import decrypt_keyvalues
 from tracecat.secrets.schemas import SecretKeyValue, SecretSearch
-from tracecat.secrets.service import SecretsService
+from tracecat.secrets.service import (
+    SecretsService,
+    build_aws_secret_reference,
+    is_aws_backed,
+)
+from tracecat.secrets.types import AwsSecretReference
+
+
+def _run_coroutine_sync[T](coro: Coroutine[Any, Any, T]) -> T:
+    """Run a coroutine to completion from synchronous code.
+
+    Falls back to a worker thread when an event loop is already running in
+    this thread so ``asyncio.run()`` is never nested.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(asyncio.run, coro).result()
 
 
 class AuthSandbox:
@@ -41,6 +64,8 @@ class AuthSandbox:
         self._role = role or ctx_role.get()
         self._secret_paths = set(secrets or [])
         self._secret_objs: Sequence[BaseSecret] = []
+        self._aws_references: list[AwsSecretReference] = []
+        self._aws_values: dict[str, dict[str, str]] = {}
         self._context: dict[str, Any] = {}
         self._environment = environment
         self._optional_secrets = set(optional_secrets or [])
@@ -48,7 +73,7 @@ class AuthSandbox:
 
     def __enter__(self) -> Self:
         if self._secret_paths:
-            self._secret_objs = asyncio.run(self._get_secrets())
+            self._secret_objs = _run_coroutine_sync(self._load_secrets())
             self._set_secrets()
         return self
 
@@ -67,9 +92,24 @@ class AuthSandbox:
 
     async def __aenter__(self) -> Self:
         if self._secret_paths:
-            self._secret_objs = await self._get_secrets()
+            self._secret_objs = await self._load_secrets()
             self._set_secrets()
         return self
+
+    async def _load_secrets(self) -> Sequence[BaseSecret]:
+        """Load DB rows, then resolve any AWS-backed aliases remotely.
+
+        The DB session is closed inside ``_get_secrets`` before any AWS call.
+        Configured AWS aliases fail explicitly even when optional.
+        """
+        secrets = await self._get_secrets()
+        self._aws_references = [
+            build_aws_secret_reference(secret)
+            for secret in secrets
+            if is_aws_backed(secret)
+        ]
+        self._aws_values = await resolve_aws_secret_references(self._aws_references)
+        return secrets
 
     async def __aexit__(
         self,
@@ -88,6 +128,13 @@ class AuthSandbox:
         """Iterate over the secrets."""
         try:
             for secret in self._secret_objs:
+                if is_aws_backed(secret):
+                    for key, value in self._aws_values.get(secret.name, {}).items():
+                        yield (
+                            secret.name,
+                            SecretKeyValue(key=key, value=SecretStr(value)),
+                        )
+                    continue
                 keyvalues = decrypt_keyvalues(
                     secret.encrypted_keys, key=self._encryption_key
                 )
@@ -113,6 +160,7 @@ class AuthSandbox:
         for secret in self._secret_objs:
             if secret.name in self._context:
                 del self._context[secret.name]
+        self._aws_values.clear()
 
     async def _get_secrets(self) -> Sequence[BaseSecret]:
         """Retrieve secrets from a secrets manager."""
