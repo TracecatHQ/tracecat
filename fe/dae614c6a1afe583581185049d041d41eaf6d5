@@ -1,0 +1,21 @@
+packages/tracecat-ee/tracecat_ee/admin/settings/service.py
+  s_388fff4aaf5212::t_449a237cfbb266 8,46,159-166
+tests/unit/test_admin_settings_service.py
+  s_388fff4aaf5212::t_449a237cfbb266 197,201,249-261
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "fedae614c6a1afe583581185049d041d41eaf6d5",
+  "prompts": {},
+  "sessions": {
+    "s_388fff4aaf5212": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09b54-52c8-7d92-934c-882473f1ae27",
+        "model": "gpt-daybreak-blue-latest"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
