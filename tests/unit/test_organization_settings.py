@@ -1,11 +1,13 @@
+import uuid
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import orjson
 import pytest
 from fastapi import HTTPException
 from pydantic import HttpUrl
 from pydantic_core import to_jsonable_python
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
@@ -35,6 +37,7 @@ from tracecat.settings.service import (
     SettingsService,
     get_setting,
     get_setting_override,
+    workspace_allows_error_details,
 )
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -817,3 +820,50 @@ async def test_setting_with_override(
         default=default_value,
     )
     assert no_override_value == default_value
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("stored", "expected"),
+    [
+        pytest.param(None, False, id="missing"),
+        pytest.param([], False, id="empty"),
+        pytest.param("not-a-list", False, id="malformed"),
+        pytest.param([str(uuid.UUID(int=9))], False, id="other-workspace"),
+        pytest.param([str(uuid.UUID(int=7))], True, id="allowed"),
+        pytest.param([uuid.UUID(int=7)], True, id="allowed-uuid-objects"),
+    ],
+)
+async def test_workspace_allows_error_details(
+    stored: object, expected: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The allow-list check only passes for a listed workspace and fails closed."""
+    monkeypatch.setattr(
+        settings_service_module,
+        "get_setting_from_bypass_session",
+        AsyncMock(return_value=[] if stored is None else stored),
+    )
+    result = await workspace_allows_error_details(
+        organization_id=uuid.uuid4(),
+        workspace_id=uuid.UUID(int=7),
+        session=MagicMock(),
+    )
+    assert result is expected
+
+
+@pytest.mark.anyio
+async def test_workspace_allows_error_details_fails_closed_on_db_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed allow-list lookup denies the workspace instead of raising."""
+    monkeypatch.setattr(
+        settings_service_module,
+        "get_setting_from_bypass_session",
+        AsyncMock(side_effect=SQLAlchemyError("boom")),
+    )
+    result = await workspace_allows_error_details(
+        organization_id=uuid.uuid4(),
+        workspace_id=uuid.UUID(int=7),
+        session=MagicMock(),
+    )
+    assert result is False
