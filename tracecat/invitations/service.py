@@ -395,11 +395,22 @@ async def revoke_invitation_row(session: AsyncSession, invitation: Invitation) -
     Raises:
         TracecatAuthorizationError: If the invitation is not pending.
     """
-    if invitation.status != InvitationStatus.PENDING:
+    result = await session.execute(
+        update(Invitation)
+        .where(
+            Invitation.id == invitation.id,
+            Invitation.status == InvitationStatus.PENDING,
+        )
+        .values(status=InvitationStatus.REVOKED)
+        .returning(Invitation.id)
+        .execution_options(synchronize_session=False)
+    )
+    # The row may have changed while this update waited for acceptance's lock.
+    await session.refresh(invitation)
+    if result.scalar_one_or_none() is None:
         raise TracecatAuthorizationError(
             f"Cannot revoke invitation with status '{invitation.status}'"
         )
-    invitation.status = InvitationStatus.REVOKED
 
 
 # --- Lookups

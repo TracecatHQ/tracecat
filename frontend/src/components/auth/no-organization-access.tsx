@@ -14,7 +14,6 @@ import {
 } from "@/components/ui/card"
 import { useAuthActions } from "@/hooks/use-auth"
 import { usePendingOrgInvitations } from "@/hooks/use-pending-org-invitations"
-import { invitationGrantsCount } from "@/lib/invitations"
 
 export function NoOrganizationAccess() {
   const { logout } = useAuthActions()
@@ -61,9 +60,6 @@ export function NoOrganizationAccess() {
                     <div className="space-y-1">
                       <p className="text-sm font-medium">
                         {invitation.organization_name}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {invitationGrantsCount(invitation)}
                       </p>
                       <p className="text-xs text-muted-foreground">
                         Expires:{" "}

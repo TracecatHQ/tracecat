@@ -28,11 +28,3 @@ export function invitationGrantsSummary(
     .map((grant) => invitationGrantLabel(grant, roles, workspaces))
     .join(" · ")
 }
-
-/** Count grants for views with no organization context to resolve names. */
-export function invitationGrantsCount(invitation: {
-  grants: InvitationGrant[]
-}): string {
-  const count = invitation.grants.length
-  return `${count} ${count === 1 ? "role" : "roles"}`
-}
