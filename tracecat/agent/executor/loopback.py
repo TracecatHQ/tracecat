@@ -298,6 +298,10 @@ class LoopbackHandler:
         self._stream_sink: LoopbackEventSink | None = None
         self._result = LoopbackResult(success=False)
         self._executor_error_recorded = False
+        # Serializes terminal error handling between executor crash/timeout
+        # paths and runtime cleanup callbacks so the recorded state and the
+        # single terminal stream error stay consistent.
+        self._terminal_error_lock = asyncio.Lock()
         self._sdk_session_id: str | None = None  # Track SDK session ID for this run
         self._external_stream_done_emitted: bool = False
         self._interrupt_notice_emitted: bool = False  # Dedupe for cancelled event
@@ -494,16 +498,23 @@ class LoopbackHandler:
         including sink initialization, so a stalled stream cannot replace the
         executor's authoritative failure with an activity timeout.
         """
+        # Record authoritative state before any await so it survives even when
+        # lock acquisition or stream delivery below times out.
         self._executor_error_recorded = True
         self._result.success = False
         self._result.error = error
         self._result.classification = classification
         try:
             async with asyncio.timeout(TERMINAL_STREAM_ERROR_TIMEOUT_SECONDS):
-                if self._stream_sink is None:
-                    self._stream_sink = await self._initialize_stream_sink()
-                await self._emit_terminal_stream_error(self._stream_sink, error)
-                return self._result.terminal_stream_error_emitted
+                async with self._terminal_error_lock:
+                    if self._result.terminal_stream_error_emitted:
+                        # A runtime callback already delivered a terminal
+                        # stream error while we waited; don't emit a second.
+                        return True
+                    if self._stream_sink is None:
+                        self._stream_sink = await self._initialize_stream_sink()
+                    await self._emit_terminal_stream_error(self._stream_sink, error)
+                    return self._result.terminal_stream_error_emitted
         except TimeoutError:
             logger.warning(
                 "Timeout emitting terminal stream error",
@@ -947,23 +958,30 @@ class LoopbackHandler:
         if self._executor_error_recorded:
             return True
         stream_sink = await self.prepare()
-        # Executor failure can arrive while stream initialization is suspended.
-        # Its state and stream delivery take precedence over SDK cleanup errors.
-        if self._executor_error_recorded:
-            return True
-        logger.error("Runtime error", error=error)
-        self._result.error = error
-        # A classification is trusted only when the host-side runtime hands it
-        # over in-process. Error envelopes arriving over the sandbox socket
-        # carry no ownership metadata by design, so those stay platform-owned.
-        self._result.classification = classification or agent_executor_unavailable()
-        if cause is not None:
-            self._result.sentry_capture = capture_activity_failure(
-                cause,
-                self._result.classification,
-                existing_capture=self._result.sentry_capture,
-            )
-        await self._emit_terminal_stream_error(stream_sink, error)
+        async with self._terminal_error_lock:
+            # Executor failure can arrive while stream initialization or lock
+            # acquisition is suspended. Its state and stream delivery take
+            # precedence over SDK cleanup errors.
+            if self._executor_error_recorded:
+                return True
+            logger.error("Runtime error", error=error)
+            self._result.error = error
+            # A classification is trusted only when the host-side runtime hands
+            # it over in-process. Error envelopes arriving over the sandbox
+            # socket carry no ownership metadata by design, so those stay
+            # platform-owned.
+            self._result.classification = classification or agent_executor_unavailable()
+            try:
+                await self._emit_terminal_stream_error(stream_sink, error)
+            finally:
+                # Capture after delivery so an executor failure that overtook
+                # this callback mid-flight suppresses the secondary capture.
+                if cause is not None and not self._executor_error_recorded:
+                    self._result.sentry_capture = capture_activity_failure(
+                        cause,
+                        self._result.classification,
+                        existing_capture=self._result.sentry_capture,
+                    )
         return True
 
     async def send_error(

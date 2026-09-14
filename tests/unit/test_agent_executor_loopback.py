@@ -1365,14 +1365,20 @@ async def test_executor_error_survives_concurrent_runtime_error(
             )
             await stream_entered.wait()
             release_prepare.set()
-            if runtime_task is not None:
-                await runtime_task
-            else:
-                await handler.send_error(
-                    "secondary runtime failure",
-                    cause=RuntimeError("secondary runtime failure"),
+            if runtime_task is None:
+                runtime_task = tasks.create_task(
+                    handler.send_error(
+                        "secondary runtime failure",
+                        cause=RuntimeError("secondary runtime failure"),
+                    )
                 )
+            if runtime_already_preparing:
+                # The runtime callback must block behind the in-flight
+                # executor emission rather than racing past it.
+                await asyncio.sleep(0)
+                assert not runtime_task.done()
             release_stream.set()
+            await runtime_task
 
     await handler.send_done()
     result = handler.build_result()
@@ -1381,6 +1387,55 @@ async def test_executor_error_survives_concurrent_runtime_error(
     assert result.error == error
     assert result.classification == classification
     stream.error.assert_awaited_once_with(error)
+    capture.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_executor_error_overrides_in_flight_runtime_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Executor failure arriving mid runtime stream delivery wins without duplicates."""
+    handler = _make_handler()
+    stream = _FakeStream()
+    handler._stream_sink = stream
+    capture = MagicMock()
+    monkeypatch.setattr(loopback_module, "capture_activity_failure", capture)
+    stream_entered = asyncio.Event()
+    release_stream = asyncio.Event()
+    runtime_error = "secondary runtime failure"
+    error = "provider request failed"
+    classification = user_agent_execution_failed()
+
+    async def stalled_error(message: str) -> None:
+        if message == runtime_error:
+            stream_entered.set()
+            await release_stream.wait()
+
+    stream.error.side_effect = stalled_error
+    async with asyncio.timeout(5):
+        async with asyncio.TaskGroup() as tasks:
+            tasks.create_task(
+                handler.send_error(
+                    runtime_error,
+                    cause=RuntimeError(runtime_error),
+                )
+            )
+            await stream_entered.wait()
+            terminal_task = tasks.create_task(
+                handler.emit_terminal_error(error, classification=classification)
+            )
+            await asyncio.sleep(0)
+            assert not terminal_task.done()
+            release_stream.set()
+
+    await handler.send_done()
+    result = handler.build_result()
+    assert terminal_task.result() is True
+    assert result.success is False
+    assert result.error == error
+    assert result.classification == classification
+    assert result.terminal_stream_error_emitted is True
+    stream.error.assert_awaited_once_with(runtime_error)
     capture.assert_not_called()
 
 
