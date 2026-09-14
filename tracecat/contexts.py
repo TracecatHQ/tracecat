@@ -34,6 +34,9 @@ class RequestAuditContext:
 
     client_ip: str | None
     user_agent: str | None
+    """Normalized client family/version, safe to forward to audit sinks."""
+    raw_user_agent: str | None = None
+    """Verbatim User-Agent header, bounded in length."""
 
 
 ctx_run: ContextVar[RunContext | None] = ContextVar("run", default=None)

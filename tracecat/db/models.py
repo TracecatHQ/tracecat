@@ -641,6 +641,11 @@ class AccessToken(SQLAlchemyBaseAccessTokenTableUUID, Base):
     __tablename__ = "access_token"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID, unique=True, default=uuid.uuid4)
+    ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    last_seen_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
     user: Mapped[User] = relationship(back_populates="access_tokens")
 
 

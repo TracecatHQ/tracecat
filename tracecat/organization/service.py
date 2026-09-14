@@ -475,6 +475,9 @@ class OrgService(BaseOrgService):
                 created_at=s.created_at,
                 user_id=s.user.id,
                 user_email=s.user.email,
+                ip_address=s.ip_address,
+                user_agent=s.user_agent,
+                last_seen_at=s.last_seen_at,
             )
             for s in result.scalars().all()
         ]
