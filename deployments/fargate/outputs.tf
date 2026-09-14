@@ -21,13 +21,28 @@ output "tracecat_image_tag" {
 }
 
 output "tracecat_migrations_image" {
-  description = "The Tracecat migrations init container image repository"
+  description = "The Tracecat migrations task image repository"
   value       = module.ecs.tracecat_migrations_image
 }
 
 output "tracecat_migrations_image_tag" {
-  description = "The Tracecat migrations init container image tag"
+  description = "The Tracecat migrations task image tag"
   value       = module.ecs.tracecat_migrations_image_tag
+}
+
+output "tracecat_migrations_task_definition_arn" {
+  description = "The ECS task definition ARN for the one-shot Tracecat migrations task"
+  value       = module.ecs.tracecat_migrations_task_definition_arn
+}
+
+output "tracecat_migrations_container_name" {
+  description = "The container name used by the one-shot Tracecat migrations task"
+  value       = module.ecs.tracecat_migrations_container_name
+}
+
+output "tracecat_migrations_security_group_ids" {
+  description = "Security group IDs to use when running the one-shot Tracecat migrations task"
+  value       = module.ecs.tracecat_migrations_security_group_ids
 }
 
 output "ecs_cluster_name" {
