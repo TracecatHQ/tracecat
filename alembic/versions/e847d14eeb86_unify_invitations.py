@@ -13,8 +13,10 @@ or role is deleted.
 ``organization_invitation`` is deliberately left untouched so the previous app
 version keeps working during a rolling deploy. Its live pending rows are copied
 verbatim into ``invitation``, keeping their ids and tokens so existing accept
-links keep working; expired pending rows are dropped. The contract drop belongs
-to a later release.
+links keep working; expired pending rows are dropped. Accepted and revoked rows
+are copied as well, because the admin console reads only ``invitation`` and
+would otherwise show no invitation history for an organization that predates
+this migration. The contract drop belongs to a later release.
 
 Duplicate pending rows for one ``(organization, email)`` are merged into the
 newest row before a partial unique index makes that invariant a database rule.
@@ -189,6 +191,8 @@ def upgrade() -> None:
 
     # Live pending org rows are copied verbatim, ids and tokens included, so
     # their existing accept links keep working. Expired rows are dead data.
+    # Accepted and revoked rows come across too: the admin console reads only
+    # this table, so leaving them behind would erase invitation history.
     op.execute(
         "DELETE FROM invitation WHERE status = 'PENDING' AND expires_at <= now()"
     )
@@ -203,8 +207,10 @@ def upgrade() -> None:
                oi.invited_by, oi.token, oi.expires_at, oi.accepted_at,
                oi.created_by_platform_admin, oi.created_at, oi.updated_at
         FROM organization_invitation AS oi
-        WHERE oi.status = 'PENDING'
-          AND oi.expires_at > now()
+        WHERE (
+                (oi.status = 'PENDING' AND oi.expires_at > now())
+                OR oi.status <> 'PENDING'
+              )
           AND NOT EXISTS (SELECT 1 FROM invitation AS i WHERE i.id = oi.id)
         """
     )
@@ -216,8 +222,7 @@ def upgrade() -> None:
         SELECT gen_random_uuid(), oi.organization_id, oi.id, NULL, oi.role_id
         FROM organization_invitation AS oi
         JOIN invitation AS i ON i.id = oi.id
-        WHERE oi.status = 'PENDING'
-          AND NOT EXISTS (
+        WHERE NOT EXISTS (
               SELECT 1 FROM invitation_grant AS g
               WHERE g.invitation_id = oi.id AND g.workspace_id IS NULL
           )

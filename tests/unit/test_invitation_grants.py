@@ -6,6 +6,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from fastapi import HTTPException
 from pydantic import ValidationError
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -36,10 +37,12 @@ from tracecat.exceptions import (
     TracecatValidationError,
 )
 from tracecat.invitations.enums import InvitationStatus
+from tracecat.invitations.router import get_invitation_by_token
 from tracecat.invitations.schemas import InvitationCreate, InvitationGrant
 from tracecat.invitations.service import (
     InvitationService,
     accept_invitation_for_user,
+    find_invitation_by_token,
     get_pending_invitation_for_email,
 )
 from tracecat.organization.router import list_org_members
@@ -696,6 +699,16 @@ class TestGrantlessInvitation:
             )
             is None
         )
+
+        # The lookup still resolves it so acceptance can name the real reason.
+        found = await find_invitation_by_token(session, token)
+        assert found is not None
+        assert found.grants == []
+
+        # The accept page must not offer a row that acceptance would reject.
+        with pytest.raises(HTTPException) as accept_page:
+            await get_invitation_by_token(session=session, token=token)
+        assert accept_page.value.status_code == 404
 
         # It no longer blocks a replacement invitation for the same email.
         admin_role_id = await _role_id(session, org.id, "organization-admin")

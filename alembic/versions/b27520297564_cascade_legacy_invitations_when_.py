@@ -1,7 +1,7 @@
 """Cascade legacy invitations when deleting roles.
 
 Revision ID: b27520297564
-Revises: e847d14eeb86
+Revises: 31ee4b7f175a
 Create Date: 2026-09-14 11:13:40.211636
 
 The retained legacy table must not prevent deletion of an unused custom role.
@@ -15,7 +15,7 @@ from collections.abc import Sequence
 from alembic import op
 
 revision: str = "b27520297564"
-down_revision: str | None = "e847d14eeb86"
+down_revision: str | None = "31ee4b7f175a"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

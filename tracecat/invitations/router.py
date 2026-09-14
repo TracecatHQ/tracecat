@@ -194,6 +194,12 @@ async def get_invitation_by_token(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Invitation not found"
         )
+    # A pending row whose grants all cascaded away confers nothing, so the accept
+    # page must not offer it. Accepted and revoked rows still render their status.
+    if invitation.status == InvitationStatus.PENDING and not invitation.grants:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Invitation not found"
+        )
 
     org = invitation.organization
 
