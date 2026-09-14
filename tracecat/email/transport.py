@@ -64,7 +64,7 @@ class SMTPTransport:
         try:
             # Port 465 is implicit TLS; everything else upgrades via STARTTLS.
             # A hung relay must fail inside the 30s orchestrator stop grace.
-            await aiosmtplib.send(
+            refused, _ = await aiosmtplib.send(
                 mime,
                 hostname=self.host,
                 port=self.port,
@@ -80,3 +80,12 @@ class SMTPTransport:
             raise EmailDeliveryError(
                 f"SMTP delivery failed on port {self.port}: {type(error).__name__}"
             ) from None
+
+        if refused:
+            # A partial refusal returns rather than raises. Report codes only:
+            # the keys are recipients and relay text echoes them.
+            codes = sorted({response.code for response in refused.values()})
+            raise EmailDeliveryError(
+                f"SMTP delivery refused for {len(refused)} recipient(s) "
+                f"on port {self.port}: {codes}"
+            )
