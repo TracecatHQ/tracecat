@@ -45,7 +45,7 @@ from tracecat.secrets.schemas import (
     SecretUpdate,
     WorkspaceSecretStoreRead,
 )
-from tracecat.secrets.service import SecretsService, is_aws_backed
+from tracecat.secrets.service import SecretsService, is_aws_backed, secret_key_names
 from tracecat.secrets.store_service import SecretStoresService
 
 router = APIRouter(prefix="/secrets", tags=["secrets"])
@@ -70,7 +70,7 @@ def _serialize_secret_read_minimal(
         store_name = secret.store.name if secret.store is not None else None
         remote_reference = secret.remote_reference
     try:
-        keys = service.secret_key_names(secret)
+        keys = secret_key_names(service, secret)
         is_corrupted = False
     except (InvalidToken, ValidationError, ValueError) as e:
         keys = []

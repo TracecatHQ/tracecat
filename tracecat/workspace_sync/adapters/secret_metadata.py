@@ -9,7 +9,7 @@ from sqlalchemy import select
 from tracecat.db.models import Secret
 from tracecat.secrets.enums import SecretType
 from tracecat.secrets.schemas import SecretKeyValue
-from tracecat.secrets.service import SecretsService, is_aws_backed
+from tracecat.secrets.service import SecretsService, is_aws_backed, secret_key_names
 from tracecat.workspace_sync.adapters.base import (
     EnvironmentScopedManifestAdapter,
     ImportedResource,
@@ -116,7 +116,7 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
             # Only key NAMES are read; secret values are never read back out
             # or serialized into the projected spec. AWS-backed rows return
             # their declared keys without any remote call.
-            keys = sorted(secret_service.secret_key_names(secret))
+            keys = sorted(secret_key_names(secret_service, secret))
             specs[source_id] = SecretMetadataResourceSpec(
                 id=source_id,
                 name=secret.name,

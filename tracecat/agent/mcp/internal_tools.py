@@ -171,7 +171,7 @@ async def _load_secret_inventory(
     role: Role,
 ) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
     """Load workspace/org secret key inventories from default environment."""
-    from tracecat.secrets.service import SecretsService
+    from tracecat.secrets.service import SecretsService, secret_key_names
 
     async with SecretsService.with_session(role=role) as svc:
         workspace_inventory: dict[str, set[str]] = {}
@@ -181,13 +181,13 @@ async def _load_secret_inventory(
         for secret in workspace_secrets:
             if secret.environment != DEFAULT_SECRETS_ENVIRONMENT:
                 continue
-            workspace_inventory[secret.name] = set(svc.secret_key_names(secret))
+            workspace_inventory[secret.name] = set(secret_key_names(svc, secret))
 
         org_secrets = await svc.list_org_secrets()
         for secret in org_secrets:
             if secret.environment != DEFAULT_SECRETS_ENVIRONMENT:
                 continue
-            org_inventory[secret.name] = set(svc.secret_key_names(secret))
+            org_inventory[secret.name] = set(secret_key_names(svc, secret))
 
     return workspace_inventory, org_inventory
 

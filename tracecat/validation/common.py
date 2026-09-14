@@ -8,7 +8,7 @@ from tracecat.expressions.common import ExprType
 from tracecat.expressions.validation import TemplateValidator
 from tracecat.logger import logger
 from tracecat.secrets.schemas import SecretSearch
-from tracecat.secrets.service import SecretsService
+from tracecat.secrets.service import SecretsService, secret_key_names
 from tracecat.validation.schemas import ExprValidationResult
 
 
@@ -126,7 +126,7 @@ async def secret_validator(
             )
 
         # There should only be 1 secret
-        defined_keys = set(service.secret_key_names(defined_secret[0]))
+        defined_keys = set(secret_key_names(service, defined_secret[0]))
 
     # (2) Check if the secret has the correct keys
     if key not in defined_keys:
