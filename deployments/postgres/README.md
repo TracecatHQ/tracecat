@@ -6,19 +6,25 @@ The Temporal database does not need this extension.
 
 ## Supported setup
 
-The three base Compose configurations keep their existing `postgres:16` image.
-To use pgvector, explicitly layer `docker-compose.pgvector.yml` after the base
-Compose file. CI uses this override as well. It pins
-`pgvector/pgvector:0.8.6-pg16-trixie` by its multi-platform image digest, supports
-amd64 and arm64, and preserves the existing data volume mapping.
+The base Compose files retain `postgres:16`. Build a derived image from the
+**immutable image actually used by the deployed container**, then layer
+`docker-compose.pgvector.yml` onto the same Compose project to select it.
+No particular Debian release is selected: Bookworm remains Bookworm and Trixie
+remains Trixie. The build helper never pulls a floating tag or changes a running
+container.
 
-The Trixie variant matches the distribution used by the previous floating
-`postgres:16` default. The shorter `pgvector/pgvector:pg16` tag currently points
-to Bookworm, whose different libc/ICU libraries can invalidate existing text
-ordering and prevent database creation. PostgreSQL major-version compatibility
-alone is insufficient. Older volumes initialized on Bookworm also need a
-matching image or a deliberate collation migration; do not blindly apply this
-override to them.
+`deployments/postgres/Dockerfile` builds pgvector 0.8.6 from a pinned source
+commit in a separate build stage. The final stage starts from the exact base
+digest and copies only extension artifacts. Package installations occur only
+in the discarded builder; PostgreSQL, libc, ICU, installed packages, entrypoint,
+and configuration remain inherited from the base image. Build dependencies are
+resolved from that Debian release's repositories, so builds are not guaranteed
+bit-for-bit reproducible. Validate the resulting image before deployment.
+
+This build currently supports official Debian-based PostgreSQL 16 images. It
+is not a universal installer for Alpine, custom PostgreSQL builds, other major
+versions, or managed databases. Build on the deployment's architecture and test
+the image there; local validation does not establish production readiness.
 
 For managed PostgreSQL, the baseline is **pgvector 0.8.0 or newer**, installed in
 the `public` schema of the **application database**. The server package/image
@@ -78,23 +84,39 @@ transaction. It fails clearly when the extension is missing, too old or in an
 unexpected schema. Installation mode is idempotent but never upgrades or
 relocates an existing extension; those changes require administrator review.
 
-For a fresh local worktree database (or after reviewing the upgrade below),
-include the override in every cluster command and use the printed cluster number:
+For an existing Docker deployment, identify its application database container
+and build without stopping it:
 
 ```bash
-just cluster --compose-override docker-compose.pgvector.yml up -d --no-seed --skip-dependency-sync postgres_db
+bash scripts/postgres/build-pgvector-image.sh \
+  --container YOUR_POSTGRES_CONTAINER tracecat-postgres-pgvector:local
+export TRACECAT__PGVECTOR_IMAGE=tracecat-postgres-pgvector:local
+```
+
+The helper reads the container's image ID, resolves its registry digest, and
+checks that the digest identifies the same local image. It fails if no digest
+is available; publish that exact base image to a registry first. Keep the build
+output tag distinct from the base image. To use a locally available base for a
+fresh database, pass `--image LOCAL_IMAGE` instead of `--container`.
+
+After testing against a restored backup, use the same Compose files/project and
+add `-f docker-compose.pgvector.yml` to recreate only `postgres_db`. For a
+worktree managed by `just cluster`, the equivalent override is:
+
+```bash
+just cluster 2 --compose-override docker-compose.pgvector.yml up -d --no-seed --skip-dependency-sync postgres_db
 just cluster 2 --compose-override docker-compose.pgvector.yml exec -T postgres_db \
   psql -X -U postgres -d postgres -v install=true < scripts/postgres/pgvector.sql
 ```
 
-Replace `2` with your cluster number and use the configured database username
-if it is not `postgres`. The same command without `-v install=true` checks
-readiness. For a direct Compose deployment, use `docker compose exec -T` with
-the corresponding Compose file/project and `-f docker-compose.pgvector.yml`
-override instead. Keep this override on subsequent starts once vector columns
-exist; reverting to the base image would remove the required server library.
+Replace `2` with the existing cluster number and use its configured username.
+Persist the image selection in deployment configuration and keep the override
+on subsequent starts once vector columns exist. For remote deployment, publish
+the tested derived image to your registry and select its digest. A database
+container restart is still required, even though existing libraries are preserved.
 
-CI performs explicit provisioning before tests or application migration
+CI derives its image from the freshly pulled PostgreSQL base, then performs
+explicit provisioning before tests or application migration
 containers start. Ordinary API startup never attempts privileged installation.
 Fresh databases created separately by a test or operator need their own
 extension provisioning; it is not inherited from another application database.
@@ -104,14 +126,13 @@ extension provisioning; it is not inherited from another application database.
 1. Take and verify a backup/snapshot. Record the current PostgreSQL and
    extension versions, OS release, libc/ICU versions, image digest, volume and
    connection settings. Rehearse against a restored backup before changing the
-   live database. Choose an image matching its existing library family.
+   live database. Build from the container image as described above; do not substitute a
+   current floating tag for its deployed digest.
 2. For Compose, stop the application writers and database cleanly during a
    maintenance window. Explicitly include the compatible image override and
    recreate only `postgres_db`
    against its existing volume. Do not remove volumes or initialize a new
-   empty data directory. This is a PostgreSQL 16 minor update, not a major
-   version migration. If the current server is newer than 16.15, select a
-   compatible newer image instead of downgrading it to this pin. If the check
+   empty data directory. This does not upgrade PostgreSQL or its runtime libraries. If the check
    reports a collation mismatch, keep writers stopped and restore compatible
    libraries or have a DBA rebuild all affected objects (including indexes),
    then refresh the recorded collation versions. Refreshing versions alone
@@ -136,17 +157,16 @@ does not reverse database changes.
 
 ```bash
 bash scripts/tests/test_pgvector.sh
-bash scripts/tests/test_pgvector.sh postgres:16.14-bookworm --expect-collation-mismatch
+bash scripts/tests/test_pgvector.sh postgres:16.14-bookworm
 ```
 
-The default test writes synthetic data and a text index using PostgreSQL 16.14
-on Trixie (the previous default image distribution), stops it,
-and reopens the same volume using the pinned image. It verifies data retention,
-missing-extension errors, idempotent provisioning, unprivileged read-only
-checks, table/vector writes and cosine ranking. It also checks that enabling
-the extension in one database does not enable it in a second database.
-The second invocation exercises an incompatible Bookworm volume and verifies
-that both installation and read-only validation reject the mismatch before
-any extension is created.
-Containers are removed after the test; its uniquely named synthetic volume is
+Each invocation builds from its source image's immutable digest, compares the
+PostgreSQL binary, libc/ICU checksums and installed package versions, and tests
+an existing synthetic volume. It verifies text data retention, extension
+provisioning, unprivileged read-only checks, vector writes/ranking, and creation
+of a separate database. Run both Trixie and Bookworm cases: each must retain its
+own libraries. `PGVECTOR_TEST_IMAGE` can select a previously built image for
+validation against a matching source. With an intentionally incompatible image,
+pass `--expect-collation-mismatch` as the second argument to exercise the guard.
+Containers are removed after the test; uniquely named synthetic volumes are
 retained for inspection. Existing clusters and volumes are not modified.
