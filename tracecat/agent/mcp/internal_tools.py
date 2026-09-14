@@ -181,17 +181,13 @@ async def _load_secret_inventory(
         for secret in workspace_secrets:
             if secret.environment != DEFAULT_SECRETS_ENVIRONMENT:
                 continue
-            workspace_inventory[secret.name] = {
-                kv.key for kv in svc.decrypt_keys(secret.encrypted_keys)
-            }
+            workspace_inventory[secret.name] = set(svc.secret_key_names(secret))
 
         org_secrets = await svc.list_org_secrets()
         for secret in org_secrets:
             if secret.environment != DEFAULT_SECRETS_ENVIRONMENT:
                 continue
-            org_inventory[secret.name] = {
-                kv.key for kv in svc.decrypt_keys(secret.encrypted_keys)
-            }
+            org_inventory[secret.name] = set(svc.secret_key_names(secret))
 
     return workspace_inventory, org_inventory
 

@@ -1,32 +1,55 @@
 from __future__ import annotations
 
+import uuid
 from collections.abc import Sequence
+from typing import TypeGuard
 
 from cryptography.fernet import InvalidToken
 from pydantic import SecretStr, ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import MultipleResultsFound, NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from tracecat.audit.logger import audit_log
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
-from tracecat.db.models import BaseSecret, OrganizationSecret, Secret
+from tracecat.db.models import (
+    BaseSecret,
+    OrganizationSecret,
+    OrganizationSecretStore,
+    Secret,
+    WorkspaceSecretStoreAuthorization,
+)
 from tracecat.exceptions import (
     TracecatAuthorizationError,
+    TracecatCredentialsError,
     TracecatCredentialsNotFoundError,
     TracecatNotFoundError,
 )
 from tracecat.identifiers import SecretID, WorkspaceID
 from tracecat.logger import logger
 from tracecat.registry.constants import REGISTRY_GIT_SSH_KEY_SECRET_NAME
+from tracecat.secrets.aws_secrets_manager import (
+    arn_region,
+    check_aws_secret_reference,
+)
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.encryption import decrypt_keyvalues, encrypt_keyvalues
-from tracecat.secrets.enums import SecretType
+from tracecat.secrets.enums import (
+    AwsSecretMappingMode,
+    AwsSecretResolutionErrorCode,
+    SecretSource,
+    SecretType,
+)
 from tracecat.secrets.schemas import (
+    AwsSecretKeyMapping,
+    AwsSecretReferenceCreate,
+    AwsSecretReferenceUpdate,
     SecretCreate,
     SecretKeyValue,
+    SecretReferenceCheckResult,
     SecretSearch,
     SecretUpdate,
     SSHKeyTarget,
@@ -34,7 +57,51 @@ from tracecat.secrets.schemas import (
     validate_mtls_key_values,
     validate_ssh_key_values,
 )
+from tracecat.secrets.types import AwsSecretJsonFieldSelector, AwsSecretReference
 from tracecat.service import BaseOrgService
+
+
+def is_aws_backed(secret: BaseSecret) -> TypeGuard[Secret]:
+    """Return True when a secret row resolves its values from AWS at runtime."""
+    return (
+        isinstance(secret, Secret) and secret.source == SecretSource.AWS_SECRETS_MANAGER
+    )
+
+
+def build_aws_secret_reference(secret: Secret) -> AwsSecretReference:
+    """Materialize an immutable AWS descriptor from a loaded ORM row.
+
+    ``secret.store`` must already be loaded; callers release the session
+    before handing descriptors to the resolver.
+    """
+    if secret.store is None or secret.remote_reference is None:
+        raise TracecatCredentialsError(
+            f"AWS-backed secret {secret.name!r} is missing its store or reference"
+        )
+    mapping = AwsSecretKeyMapping.model_validate(secret.remote_key_mapping or {})
+    whole_string_key: str | None = None
+    json_fields: tuple[AwsSecretJsonFieldSelector, ...] = ()
+    if mapping.mode == AwsSecretMappingMode.WHOLE_STRING:
+        whole_string_key = mapping.keys[0]
+    else:
+        json_fields = tuple(
+            AwsSecretJsonFieldSelector(key=entry.key, field=entry.field)
+            for entry in mapping.fields
+        )
+    return AwsSecretReference(
+        secret_id=secret.id,
+        alias=secret.name,
+        environment=secret.environment,
+        store_id=secret.store.id,
+        store_enabled=secret.store.enabled,
+        role_arn=secret.store.role_arn,
+        external_id=secret.store.external_id,
+        region=secret.store.region,
+        secret_arn=secret.remote_reference,
+        mapping_mode=mapping.mode,
+        whole_string_key=whole_string_key,
+        json_fields=json_fields,
+    )
 
 
 class SecretsService(BaseOrgService):
@@ -63,10 +130,38 @@ class SecretsService(BaseOrgService):
         """Encrypt and return the keys for a secret."""
         return encrypt_keyvalues(keys, key=self._encryption_key)
 
+    def secret_key_names(self, secret: BaseSecret) -> list[str]:
+        """Return declared key names without contacting any remote store.
+
+        Local secrets are decrypted synchronously; AWS-backed secrets return the
+        declared output keys from their stored mapping.
+        """
+        if is_aws_backed(secret):
+            mapping = AwsSecretKeyMapping.model_validate(
+                secret.remote_key_mapping or {}
+            )
+            return mapping.output_keys()
+        return [kv.key for kv in self.decrypt_keys(secret.encrypted_keys)]
+
     # === Base secrets ===
 
     async def _update_secret(self, secret: BaseSecret, params: SecretUpdate) -> None:
         """Update a base secret."""
+        if is_aws_backed(secret):
+            if params.keys is not None:
+                raise ValueError(
+                    "AWS-backed secrets do not store values in Tracecat. Update the"
+                    " reference or key mapping instead."
+                )
+            if params.type is not None and SecretType(params.type) != SecretType(
+                secret.type
+            ):
+                raise ValueError("AWS-backed secrets cannot change type.")
+            for field, value in params.model_dump(exclude_unset=True).items():
+                setattr(secret, field, value)
+            self.session.add(secret)
+            await self.session.commit()
+            return
         existing_type = SecretType(secret.type)
         if existing_type == SecretType.SSH_KEY:
             if params.type is not None and SecretType(params.type) != existing_type:
@@ -176,7 +271,11 @@ class SecretsService(BaseOrgService):
     ) -> Sequence[Secret]:
         """List all workspace secrets."""
         workspace_id = self._require_workspace_id()
-        statement = select(Secret).where(Secret.workspace_id == workspace_id)
+        statement = (
+            select(Secret)
+            .where(Secret.workspace_id == workspace_id)
+            .options(selectinload(Secret.store))
+        )
         if types:
             statement = statement.where(Secret.type.in_(types))
         result = await self.session.execute(statement)
@@ -186,9 +285,13 @@ class SecretsService(BaseOrgService):
     async def get_secret(self, secret_id: SecretID) -> Secret:
         """Get a workspace secret by ID."""
         workspace_id = self._require_workspace_id()
-        statement = select(Secret).where(
-            Secret.workspace_id == workspace_id,
-            Secret.id == secret_id,
+        statement = (
+            select(Secret)
+            .where(
+                Secret.workspace_id == workspace_id,
+                Secret.id == secret_id,
+            )
+            .options(selectinload(Secret.store))
         )
         result = await self.session.execute(statement)
         try:
@@ -291,12 +394,16 @@ class SecretsService(BaseOrgService):
         await self._delete_secret(secret)
 
     async def search_secrets(self, params: SecretSearch) -> Sequence[Secret]:
-        """Search workspace secrets."""
+        """Search workspace secrets. Eagerly loads external store metadata."""
         if not any((params.ids, params.names, params.environment)):
             return []
 
         workspace_id = self._require_workspace_id()
-        stmt = select(Secret).where(Secret.workspace_id == workspace_id)
+        stmt = (
+            select(Secret)
+            .where(Secret.workspace_id == workspace_id)
+            .options(selectinload(Secret.store))
+        )
         fields = params.model_dump(exclude_unset=True)
         self.logger.info("Searching secrets", set_fields=fields)
 
@@ -309,6 +416,140 @@ class SecretsService(BaseOrgService):
 
         result = await self.session.execute(stmt)
         return result.scalars().all()
+
+    # === AWS-backed workspace secrets ===
+
+    async def list_authorized_stores(self) -> Sequence[OrganizationSecretStore]:
+        """List external stores the current workspace may reference."""
+        workspace_id = self._require_workspace_id()
+        stmt = (
+            select(OrganizationSecretStore)
+            .join(
+                WorkspaceSecretStoreAuthorization,
+                WorkspaceSecretStoreAuthorization.store_id
+                == OrganizationSecretStore.id,
+            )
+            .where(WorkspaceSecretStoreAuthorization.workspace_id == workspace_id)
+            .order_by(OrganizationSecretStore.name)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalars().all()
+
+    async def _get_authorized_store(
+        self, store_id: uuid.UUID
+    ) -> OrganizationSecretStore:
+        workspace_id = self._require_workspace_id()
+        stmt = (
+            select(OrganizationSecretStore)
+            .join(
+                WorkspaceSecretStoreAuthorization,
+                WorkspaceSecretStoreAuthorization.store_id
+                == OrganizationSecretStore.id,
+            )
+            .where(
+                WorkspaceSecretStoreAuthorization.workspace_id == workspace_id,
+                OrganizationSecretStore.id == store_id,
+            )
+        )
+        result = await self.session.execute(stmt)
+        store = result.scalar_one_or_none()
+        if store is None:
+            raise TracecatAuthorizationError(
+                "This workspace is not authorized to use the selected secret store."
+            )
+        return store
+
+    @staticmethod
+    def _validate_reference_region(
+        store: OrganizationSecretStore, remote_reference: str
+    ) -> None:
+        if arn_region(remote_reference) != store.region:
+            raise ValueError(
+                f"Secret ARN region must match the store region {store.region!r}."
+            )
+
+    @require_scope("secret:create")
+    @audit_log(resource_type="secret", action="create")
+    async def create_aws_secret_reference(
+        self, params: AwsSecretReferenceCreate
+    ) -> Secret:
+        """Create a custom workspace secret backed by AWS Secrets Manager.
+
+        No remote value is fetched or stored; ``encrypted_keys`` holds an
+        encrypted empty key list so the column contract is unchanged.
+        """
+        workspace_id = self._require_workspace_id()
+        store = await self._get_authorized_store(params.store_id)
+        self._validate_reference_region(store, params.remote_reference)
+        secret = Secret(
+            workspace_id=workspace_id,
+            name=params.name,
+            type=SecretType.CUSTOM,
+            description=params.description,
+            tags=params.tags,
+            encrypted_keys=self.encrypt_keys([]),
+            environment=params.environment,
+            source=SecretSource.AWS_SECRETS_MANAGER,
+            store_id=store.id,
+            remote_reference=params.remote_reference,
+            remote_key_mapping=params.key_mapping.model_dump(mode="json"),
+        )
+        self.session.add(secret)
+        await self.session.commit()
+        return secret
+
+    @require_scope("secret:update")
+    @audit_log(resource_type="secret", action="update")
+    async def update_aws_secret_reference(
+        self, secret: Secret, params: AwsSecretReferenceUpdate
+    ) -> None:
+        """Update the reference or mapping of an AWS-backed workspace secret."""
+        if not is_aws_backed(secret):
+            raise ValueError("Secret is not backed by AWS Secrets Manager.")
+        set_fields = params.model_dump(exclude_unset=True)
+        set_fields.pop("store_id", None)
+        set_fields.pop("remote_reference", None)
+        set_fields.pop("key_mapping", None)
+
+        effective_store_id = params.store_id or secret.store_id
+        if effective_store_id is None:
+            raise ValueError("A secret store is required.")
+        store = await self._get_authorized_store(effective_store_id)
+        effective_reference = params.remote_reference or secret.remote_reference
+        if effective_reference is None:
+            raise ValueError("A secret ARN is required.")
+        self._validate_reference_region(store, effective_reference)
+
+        secret.store_id = store.id
+        secret.remote_reference = effective_reference
+        if params.key_mapping is not None:
+            secret.remote_key_mapping = params.key_mapping.model_dump(mode="json")
+        for field, value in set_fields.items():
+            setattr(secret, field, value)
+        self.session.add(secret)
+        await self.session.commit()
+
+    @require_scope("secret:read")
+    async def check_aws_secret_reference(
+        self, secret: Secret
+    ) -> SecretReferenceCheckResult:
+        """Verify an AWS-backed secret resolves. Never returns the value."""
+        if not is_aws_backed(secret):
+            raise ValueError("Secret is not backed by AWS Secrets Manager.")
+        await self.session.refresh(secret, attribute_names=["store"])
+        reference = build_aws_secret_reference(secret)
+        # Release the DB session before the remote call.
+        await self.session.commit()
+        ok, error_code, aws_code, keys = await check_aws_secret_reference(reference)
+        message: str | None = None
+        if not ok:
+            code = error_code or AwsSecretResolutionErrorCode.UNKNOWN
+            message = f"Reference check failed: {code.value}"
+            if aws_code:
+                message += f" (AWS error code {aws_code})"
+        return SecretReferenceCheckResult(
+            ok=ok, error_code=error_code, message=message, resolved_keys=keys
+        )
 
     # === Organization secrets ===
 

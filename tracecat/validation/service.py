@@ -116,8 +116,7 @@ async def validate_single_secret(
     # At this point we either have an optional secret, or the secret is defined
     # Validate secret keys
     if defined_secret:
-        decrypted_keys = secrets_service.decrypt_keys(defined_secret.encrypted_keys)
-        defined_keys = {kv.key for kv in decrypted_keys}
+        defined_keys = set(secrets_service.secret_key_names(defined_secret))
         required_keys = frozenset(registry_secret.keys or ())
         optional_keys = frozenset(registry_secret.optional_keys or ())
 

@@ -8284,7 +8284,7 @@ async def list_secrets_metadata(
             for secret in workspace_secrets:
                 if secret.environment != environment:
                     continue
-                keys = [kv.key for kv in svc.decrypt_keys(secret.encrypted_keys)]
+                keys = svc.secret_key_names(secret)
                 result.append(
                     SecretMetadataResponse(
                         id=secret.id,
@@ -8341,7 +8341,7 @@ async def get_secret_metadata(
                 name=secret.name,
                 type=secret.type,
                 environment=secret.environment,
-                keys=[kv.key for kv in svc.decrypt_keys(secret.encrypted_keys)],
+                keys=svc.secret_key_names(secret),
                 tags=secret.tags,
             )
     except ToolError:

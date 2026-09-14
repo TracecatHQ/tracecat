@@ -9,7 +9,7 @@ from sqlalchemy import select
 from tracecat.db.models import Secret
 from tracecat.secrets.enums import SecretType
 from tracecat.secrets.schemas import SecretKeyValue
-from tracecat.secrets.service import SecretsService
+from tracecat.secrets.service import SecretsService, is_aws_backed
 from tracecat.workspace_sync.adapters.base import (
     EnvironmentScopedManifestAdapter,
     ImportedResource,
@@ -113,12 +113,10 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
             source_id = assigner.assign_environment(
                 secret.id, secret.environment, secret.name
             )
-            # Decrypt only to read the key NAMES; secret values are never read
-            # back out or serialized into the projected spec.
-            keys = sorted(
-                key_value.key
-                for key_value in secret_service.decrypt_keys(secret.encrypted_keys)
-            )
+            # Only key NAMES are read; secret values are never read back out
+            # or serialized into the projected spec. AWS-backed rows return
+            # their declared keys without any remote call.
+            keys = sorted(secret_service.secret_key_names(secret))
             specs[source_id] = SecretMetadataResourceSpec(
                 id=source_id,
                 name=secret.name,
@@ -180,6 +178,17 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
             # Pull the current decrypted values so existing keys keep their
             # secret values across the sync; the spec only carries key names.
             existing_values: dict[str, SecretStr] = {}
+            if secret is not None and is_aws_backed(secret):
+                # Never convert an AWS-backed binding into local values: the
+                # spec carries key names only, and AWS owns the values.
+                secret.name = spec.name
+                secret.environment = spec.environment
+                secret.tags = dict.fromkeys(spec.tags, "") if spec.tags else None
+                secret.description = spec.description
+                workspace_service.session.add(secret)
+                await workspace_service.session.flush()
+                imported.append(self.imported_resource(source_id, secret.id))
+                continue
             if secret is not None:
                 existing_values = {
                     key_value.key: key_value.value
