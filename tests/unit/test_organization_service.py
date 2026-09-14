@@ -1277,6 +1277,38 @@ class TestOrganizationServiceInvitations:
         assert new_invitation.expires_at > datetime.now(UTC)
 
     @pytest.mark.anyio
+    async def test_create_invitation_keeps_revoked_history(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+        org1_member_role: DBRole,
+    ):
+        """Re-inviting a revoked recipient preserves the revoked row."""
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = InvitationService(session, role=role)
+
+        first = await service.create_invitation(
+            InvitationCreate(
+                email="revoked-history@example.com",
+                grants=[InvitationGrant(role_id=org1_member_role.id)],
+            )
+        )
+        await service.revoke_invitation(first.id)
+
+        second = await service.create_invitation(
+            InvitationCreate(
+                email="revoked-history@example.com",
+                grants=[InvitationGrant(role_id=org1_member_role.id)],
+            )
+        )
+        assert second.id != first.id
+
+        # The admin listing still exposes the revoked row as history.
+        revoked = await service.list_invitations(status=InvitationStatus.REVOKED)
+        assert first.id in [invitation.id for invitation in revoked]
+
+    @pytest.mark.anyio
     async def test_create_invitation_existing_member_raises(
         self,
         session: AsyncSession,
