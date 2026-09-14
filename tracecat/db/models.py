@@ -5282,9 +5282,10 @@ class LegacyOrganizationInvitation(InvitationMixin, TimestampMixin, Base):
     organization_id: Mapped[uuid.UUID] = mapped_column(
         UUID, ForeignKey("organization.id", ondelete="CASCADE"), index=True
     )
+    # Matches b27520297564: a deleted role takes its retained legacy rows with it.
     role_id: Mapped[uuid.UUID] = mapped_column(
         UUID,
-        ForeignKey("role.id", ondelete="RESTRICT"),
+        ForeignKey("role.id", ondelete="CASCADE"),
         doc="RBAC role to assign upon acceptance",
     )
     created_by_platform_admin: Mapped[bool] = mapped_column(
