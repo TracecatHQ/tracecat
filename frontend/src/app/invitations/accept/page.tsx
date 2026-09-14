@@ -22,7 +22,6 @@ import {
 } from "@/components/ui/card"
 import { toast } from "@/components/ui/use-toast"
 import { useAuth, useAuthActions } from "@/hooks/use-auth"
-import { invitationGrantsCount } from "@/lib/invitations"
 import { useMutation, useQuery, useQueryClient } from "@/lib/query"
 
 function AcceptInvitationContent() {
@@ -221,12 +220,6 @@ function AcceptInvitationContent() {
                   {invitation.organization_name}
                 </span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Access</span>
-                <span className="text-right font-medium">
-                  {invitationGrantsCount(invitation)}
-                </span>
-              </div>
               {invitation.inviter_email && (
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Invited by</span>
@@ -325,12 +318,6 @@ function AcceptInvitationContent() {
               <span className="text-muted-foreground">Organization</span>
               <span className="font-medium">
                 {invitation.organization_name}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Access</span>
-              <span className="text-right font-medium">
-                {invitationGrantsCount(invitation)}
               </span>
             </div>
             {invitation.inviter_email && (
