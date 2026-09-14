@@ -25,6 +25,7 @@ from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import AgentCatalog, AgentCustomProvider, AgentModelAccess
 from tracecat.exceptions import TracecatNotFoundError
+from tracecat.outbound import create_outbound_http_client
 from tracecat.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,
@@ -479,7 +480,9 @@ async def fetch_openai_compatible_models(
             headers["Authorization"] = f"Bearer {api_key}"
         else:
             headers[api_key_header] = api_key
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    async with create_outbound_http_client(
+        origin_url=base_url, timeout=timeout
+    ) as client:
         return await client.get(
             f"{base_url.rstrip('/')}/models",
             headers=headers,

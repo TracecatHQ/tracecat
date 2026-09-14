@@ -25,6 +25,8 @@ from tracecat.exceptions import (
     TracecatNotFoundError,
     TracecatValidationError,
 )
+from tracecat.network import DisallowedUrlError
+from tracecat.outbound import create_outbound_http_client
 
 
 class LLMCompletionError(RuntimeError):
@@ -117,7 +119,7 @@ async def complete(
         raise LLMCompletionError(message) from e
     except httpx.RequestError as e:
         raise LLMCompletionError(f"LLM request failed: {e}") from e
-    except TracecatValidationError as e:
+    except (TracecatValidationError, DisallowedUrlError) as e:
         detail = str(e) or "model configuration failed validation"
         raise LLMCompletionError(f"LLM model configuration is invalid: {detail}") from e
 
@@ -164,7 +166,9 @@ async def _call_passthrough(
     }
     if max_tokens is not None:
         body["max_tokens"] = max_tokens
-    async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+    async with create_outbound_http_client(
+        origin_url=base_url, timeout=timeout_seconds
+    ) as client:
         resp = await client.post(
             f"{base_url.rstrip('/')}/chat/completions",
             headers=headers,

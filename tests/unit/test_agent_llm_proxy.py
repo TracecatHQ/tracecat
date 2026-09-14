@@ -117,6 +117,7 @@ async def test_forward_request_streams_litellm_response(
         routing_plan=_routing_plan(),
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    socket_proxy._direct_client = socket_proxy._client
     writer = _FakeWriter()
 
     monotonic_values = iter([10.0, 10.025, 10.05, 10.075, 10.1, 10.125])
@@ -189,6 +190,7 @@ async def test_forward_request_rejects_non_inference_methods(
         routing_plan=_routing_plan(),
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    socket_proxy._direct_client = socket_proxy._client
     writer = _FakeWriter()
 
     try:
@@ -231,6 +233,7 @@ async def test_forward_request_returns_upstream_error_response(
         on_error=errors.append,
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    socket_proxy._direct_client = socket_proxy._client
     writer = _FakeWriter()
 
     try:
@@ -277,6 +280,7 @@ async def test_forward_request_emits_error_for_critical_upstream_http_error(
         on_error=errors.append,
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    socket_proxy._direct_client = socket_proxy._client
     writer = _FakeWriter()
 
     try:
@@ -335,6 +339,7 @@ async def test_forward_request_classifies_platform_http_failures_at_source(
         on_error=errors.append,
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    socket_proxy._direct_client = socket_proxy._client
     writer = _FakeWriter()
 
     try:
@@ -395,6 +400,7 @@ async def test_forward_request_classifies_direct_provider_http_failure_as_user_o
         on_error=errors.append,
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    socket_proxy._direct_client = socket_proxy._client
     writer = _FakeWriter()
 
     try:
@@ -439,6 +445,7 @@ async def test_forward_request_classifies_connect_failure_as_platform(
         on_error=errors.append,
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    socket_proxy._direct_client = socket_proxy._client
     writer = _FakeWriter()
 
     try:
@@ -503,6 +510,7 @@ async def test_forward_request_classifies_error_body_read_failure_by_route(
         on_error=errors.append,
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    socket_proxy._direct_client = socket_proxy._client
     writer = _FakeWriter()
     body = b'{"model":"customer-alias","messages":[]}' if direct else b'{"messages":[]}'
 
@@ -571,6 +579,7 @@ async def test_forward_request_does_not_write_second_response_after_body_failure
         on_error=errors.append,
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    socket_proxy._direct_client = socket_proxy._client
     writer = _FakeWriter()
     body = b'{"model":"customer-alias","messages":[]}' if direct else b'{"messages":[]}'
 
@@ -624,6 +633,7 @@ async def test_forward_request_classifies_direct_transport_failure(
         on_error=errors.append,
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    socket_proxy._direct_client = socket_proxy._client
     writer = _FakeWriter()
 
     try:
@@ -836,6 +846,7 @@ async def test_forward_request_strips_authorization_for_passthrough_upstream(
         ),
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    socket_proxy._direct_client = socket_proxy._client
     writer = _FakeWriter()
 
     try:
@@ -934,6 +945,7 @@ async def test_passthrough_does_not_double_prefix_version_in_request_url(
         ),
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    socket_proxy._direct_client = socket_proxy._client
     writer = _FakeWriter()
 
     try:
@@ -996,6 +1008,7 @@ async def test_passthrough_routes_root_direct_and_subagents_to_gateway(
         ),
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    socket_proxy._direct_client = socket_proxy._client
 
     try:
         # Only the exact passthrough model key should bypass managed LiteLLM.
@@ -1076,6 +1089,7 @@ async def test_passthrough_routes_subagent_direct_when_subagent_config_passthrou
         ),
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    socket_proxy._direct_client = socket_proxy._client
 
     try:
         # A passthrough subagent gets its own direct route, independent of the
@@ -1149,6 +1163,7 @@ async def test_forward_request_preserves_anthropic_fields_for_anthropic_upstream
         ),
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    socket_proxy._direct_client = socket_proxy._client
     writer = _FakeWriter()
 
     try:
@@ -1204,6 +1219,7 @@ async def test_forward_request_strips_anthropic_only_fields_for_non_anthropic_up
         routing_plan=_routing_plan(),
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    socket_proxy._direct_client = socket_proxy._client
     writer = _FakeWriter()
 
     try:
@@ -1257,6 +1273,7 @@ async def test_managed_route_can_defer_provider_cleanup_to_gateway(
         routing_plan=_routing_plan(managed_local_provider_cleanup=False),
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    socket_proxy._direct_client = socket_proxy._client
     writer = _FakeWriter()
 
     try:
@@ -1314,6 +1331,7 @@ async def test_forward_request_injects_passthrough_api_key_as_bearer_authorizati
         ),
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    socket_proxy._direct_client = socket_proxy._client
     writer = _FakeWriter()
 
     try:
@@ -1622,6 +1640,7 @@ async def test_read_timeout_before_headers_records_route(
     )
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         proxy._client = client
+        proxy._direct_client = client
         writer = _FakeWriter()
         await proxy._forward_request(
             {
@@ -1778,6 +1797,7 @@ async def test_structured_gateway_http_attribution(
         )
     ) as client:
         proxy._client = client
+        proxy._direct_client = client
         writer = _FakeWriter()
         await proxy._forward_request(
             {
@@ -1837,6 +1857,7 @@ async def test_failed_discovery_does_not_consume_generation_failure_callback(
     )
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         proxy._client = client
+        proxy._direct_client = client
         await proxy._forward_request(
             {"method": "GET", "path": path, "headers": {}, "body": b""},
             cast(asyncio.StreamWriter, _FakeWriter()),
@@ -1985,6 +2006,7 @@ async def test_llm_metadata_follows_selected_route_on_all_failure_phases(
     )
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         proxy._client = client
+        proxy._direct_client = client
         await proxy._forward_request(
             {
                 "method": "POST",
@@ -2143,6 +2165,7 @@ async def test_successful_managed_request_skips_diagnostic_token_verification(
         )
     ) as client:
         proxy._client = client
+        proxy._direct_client = client
         await proxy._forward_request(
             {
                 "method": "POST",
