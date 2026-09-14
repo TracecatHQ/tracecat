@@ -40,6 +40,10 @@ serving a cached cursor; `eligible_chunks()` only joins table metadata.
 Use short READ COMMITTED transactions; callers own commit/rollback. Roll back
 on any storage exception. Serializable callers must retry serialization errors.
 Never keep a transaction or connection open during provider calls.
+`SearchStorage.with_session(scope=...)` creates and closes a session without
+committing it. Pass `session=...` to reuse a caller-owned session without closing
+it. An explicit trusted scope is required in both cases; it does not grant RLS
+permissions or replace the caller's authentication context.
 
 Every participating writer, backfill transaction and worker follows this order:
 
@@ -96,7 +100,10 @@ Resuming active preserves pending edits. Rolling back to application code withou
 bookkeeping is different: mark `reindex_required` before rollback. This advances
 the current version so old chunks cannot become eligible even if state is later
 changed. Recovery saves a new validated configuration, rebuilds collection
-selections against that version, and backfills before relying on readiness.
+selections against that version, then sets the workspace active so workers can
+backfill. Activation from `reindex_required` fails until a new configuration
+exists. Collections still bound to the old version remain ineligible. Wait for
+backfill before relying on readiness.
 
 `cleanup_chunks()` deletes at most 1,000 stale/tombstoned chunks per transaction.
 `cleanup_orphans()` is for a trusted maintenance session with RLS bypass and

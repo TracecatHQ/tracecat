@@ -9,12 +9,16 @@ import hashlib
 import math
 import struct
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import timedelta
+from typing import Self
 
 import numpy as np
 from sqlalchemy import and_, delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import (
     SearchChunk,
     SearchCollection,
@@ -47,6 +51,32 @@ class SearchStorage(BaseService):
     def __init__(self, session: AsyncSession, scope: SearchScope):
         super().__init__(session)
         self.scope = scope
+
+    @classmethod
+    @asynccontextmanager
+    async def with_session(
+        cls,
+        *,
+        scope: SearchScope | None = None,
+        session: AsyncSession | None = None,
+    ) -> AsyncIterator[Self]:
+        """Create scoped storage, closing only sessions owned by this helper.
+
+        Args:
+            scope: Required trusted tenant scope; never inferred from context.
+            session: Optional caller-owned session. Callers own commits in both
+                cases; closing an owned session rolls back uncommitted work.
+
+        Raises:
+            ValueError: If no explicit scope is provided.
+        """
+        if scope is None:
+            raise ValueError("SearchStorage requires an explicit tenant scope")
+        if session is not None:
+            yield cls(session, scope)
+        else:
+            async with get_async_session_context_manager() as owned_session:
+                yield cls(owned_session, scope)
 
     async def lock_scope(self) -> None:
         """Lock even an absent collection; prevent source deletion during work."""
@@ -158,6 +188,7 @@ class SearchStorage(BaseService):
         if (
             current.state == SearchState.REINDEX_REQUIRED
             and state == SearchState.ACTIVE
+            and await self._configuration(current.current_version) is None
         ):
             raise SearchError(SearchErrorCode.INDEX_NOT_READY)
         current.state = state
@@ -167,6 +198,14 @@ class SearchStorage(BaseService):
             # a new configuration and rebuilding each collection against it.
             current.current_version += 1
         await self.session.flush()
+
+    async def _configuration(self, version: int) -> SearchEmbeddingConfig | None:
+        return await self.session.scalar(
+            select(SearchEmbeddingConfig).where(
+                self._scope(SearchEmbeddingConfig),
+                SearchEmbeddingConfig.version == version,
+            )
+        )
 
     async def configure_collection(
         self,
@@ -179,7 +218,8 @@ class SearchStorage(BaseService):
         """Create/update selection after the lifecycle owner validates source columns."""
         await self.lock_scope()
         state = await self._state()
-        if state.current_version == 0 or len(set(column_ids)) != len(column_ids):
+        configuration = await self._configuration(state.current_version)
+        if configuration is None or len(set(column_ids)) != len(column_ids):
             raise SearchError(SearchErrorCode.CONFIGURATION_CHANGED)
         if chunker.overlap_tokens >= chunker.input_tokens:
             raise SearchError(SearchErrorCode.MANIFEST_CONFLICT)
