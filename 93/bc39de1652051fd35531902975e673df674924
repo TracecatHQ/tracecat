@@ -1,0 +1,19 @@
+docs/self-hosting/air-gapped.mdx
+  s_4fa6b793d38d8d::t_358767afd9a601 69-70,78
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "93bc39de1652051fd35531902975e673df674924",
+  "prompts": {},
+  "sessions": {
+    "s_4fa6b793d38d8d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a003-4f64-71a2-88f6-19e0e774d2b8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
