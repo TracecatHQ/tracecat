@@ -80,6 +80,12 @@ jobs:
           load: true
           tags: tracecat-ci:frontend-smoke-${{ github.run_id }}-${{ github.run_attempt }}
 
+      - name: Build pgvector on the CI PostgreSQL image
+        run: |
+          docker pull postgres:16
+          bash scripts/postgres/build-pgvector-image.sh --image postgres:16 tracecat-postgres-pgvector:ci
+          echo 'TRACECAT__PGVECTOR_IMAGE=tracecat-postgres-pgvector:ci' >> "$GITHUB_ENV"
+
       - name: Build UI image
         env:
           TRACECAT__CI_IMAGE_TAG: frontend-smoke-${{ github.run_id }}-${{ github.run_attempt }}

@@ -13,6 +13,7 @@ on:
       - uv.lock
       - docker-compose.dev.yml
       - docker-compose.pgvector.yml
+      - deployments/postgres/Dockerfile
       - scripts/postgres/**
       - scripts/tests/test_pgvector.sh
       - .env.example
@@ -30,6 +31,7 @@ on:
       - uv.lock
       - docker-compose.dev.yml
       - docker-compose.pgvector.yml
+      - deployments/postgres/Dockerfile
       - scripts/postgres/**
       - scripts/tests/test_pgvector.sh
       - .env.example
@@ -112,6 +114,12 @@ jobs:
           n
           test@tracecat.com" | bash env.sh
 
+      - name: Build pgvector on the CI PostgreSQL image
+        run: |
+          docker pull postgres:16
+          bash scripts/postgres/build-pgvector-image.sh --image postgres:16 tracecat-postgres-pgvector:ci
+          echo 'TRACECAT__PGVECTOR_IMAGE=tracecat-postgres-pgvector:ci' >> "$GITHUB_ENV"
+
       - name: Start core Docker services and install dependencies
         run: |
           set -euo pipefail
@@ -180,7 +188,7 @@ jobs:
         if: matrix.test_group == 'unit'
         run: |
           bash scripts/tests/test_pgvector.sh
-          bash scripts/tests/test_pgvector.sh postgres:16.14-bookworm --expect-collation-mismatch
+          bash scripts/tests/test_pgvector.sh postgres:16.14-bookworm
 
       - name: Register Temporal search attributes
         if: matrix.test_group == 'temporal'

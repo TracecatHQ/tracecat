@@ -5,7 +5,6 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 sql_file="$repo_root/scripts/postgres/pgvector.sql"
-vector_image=$(awk '/image: pgvector\/pgvector:/ {print $2}' "$repo_root/docker-compose.pgvector.yml")
 # postgres:16 resolved to Trixie before this change. Pin that source version so
 # the regression remains reproducible after the floating tag advances.
 source_image=${1:-postgres:16.14-trixie}
@@ -14,6 +13,13 @@ test_id="tracecat-pgvector-test-$(date +%s)-$$"
 volume="$test_id-data"
 container="$test_id"
 failure_log=$(mktemp)
+vector_image=${PGVECTOR_TEST_IMAGE:-$test_id-image}
+if [[ -z "${PGVECTOR_TEST_IMAGE:-}" ]]; then
+    # Pull only for this synthetic test; production builds inspect the running
+    # container and never resolve a floating tag.
+    docker image inspect "$source_image" >/dev/null 2>&1 || docker pull "$source_image"
+    bash "$repo_root/scripts/postgres/build-pgvector-image.sh" --image "$source_image" "$vector_image"
+fi
 
 cleanup() {
     docker rm -f "$container" >/dev/null 2>&1 || true
@@ -50,6 +56,21 @@ expect_failure() {
         exit 1
     fi
 }
+
+# Verify the server package inventory and core runtime binaries are unchanged.
+# Skip this comparison only for the deliberate cross-distribution negative test.
+runtime_manifest() {
+    docker run --rm --entrypoint sh "$1" -c '
+        postgres --version
+        dpkg-query -W
+        sha256sum "$(command -v postgres)"
+        find /usr/lib /lib -type f \( -name "libicu*.so.*" -o -name "libc.so.6" \) -exec sha256sum {} + | sort
+    '
+}
+if [[ "$expect_mismatch" != '--expect-collation-mismatch' ]]; then
+    [[ "$(runtime_manifest "$source_image")" == "$(runtime_manifest "$vector_image")" ]]
+    echo 'PASS: PostgreSQL, libc, ICU and installed package versions unchanged'
+fi
 
 # Start with the previous plain PostgreSQL image and write durable source data.
 start_database "$source_image"
