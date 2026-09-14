@@ -33713,6 +33713,17 @@ export const $WorkspaceSettingsRead = {
       ],
       title: "Validate Attachment Magic Number",
     },
+    unsafe_disable_secret_error_withholding: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Unsafe Disable Secret Error Withholding",
+    },
     effective_allowed_attachment_extensions: {
       items: {
         type: "string",
@@ -33836,6 +33847,19 @@ export const $WorkspaceSettingsUpdate = {
       title: "Validate Attachment Magic Number",
       description:
         "Whether to validate file content matches declared MIME type using magic number detection. Defaults to true for security.",
+    },
+    unsafe_disable_secret_error_withholding: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Unsafe Disable Secret Error Withholding",
+      description:
+        "UNSAFE: allow actions in this workspace to opt into showing their original error message when secrets are in scope. Each action must still enable 'Show error details' individually. Known secret values are still masked. Defaults to false.",
     },
   },
   type: "object",

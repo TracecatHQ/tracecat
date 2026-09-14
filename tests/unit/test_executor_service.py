@@ -32,6 +32,7 @@ from tracecat.identifiers.workflow import WorkflowUUID, generate_exec_id
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.secrets import secrets_manager
+from tracecat.secrets.common import ctx_unsafe_disable_secret_error_withholding
 from tracecat.secrets.constants import MASK_VALUE
 
 
@@ -1324,8 +1325,19 @@ async def test_invoke_once_keeps_action_error_when_withholding_disabled(
 
 
 @pytest.mark.anyio
-async def test_invoke_once_keeps_action_error_when_task_opts_out(mocker, monkeypatch):
-    """A per-action opt-out surfaces the original message without the global knob."""
+@pytest.mark.parametrize(
+    ("workspace_allows", "action_opts_in", "expect_original"),
+    [
+        pytest.param(True, True, True, id="workspace-and-action"),
+        pytest.param(True, False, False, id="workspace-only"),
+        pytest.param(False, True, False, id="action-only"),
+        pytest.param(None, True, False, id="workspace-setting-missing"),
+    ],
+)
+async def test_invoke_once_action_opt_out_requires_workspace_allow(
+    mocker, monkeypatch, workspace_allows, action_opts_in, expect_original
+):
+    """The per-action opt-out only surfaces the message when the workspace allows it."""
     from tracecat.exceptions import ExecutionError
 
     monkeypatch.setattr(
@@ -1335,7 +1347,22 @@ async def test_invoke_once_keeps_action_error_when_task_opts_out(mocker, monkeyp
     action_input = _expression_policy_input(
         "core.probe", {"value": "${{ ACTIONS.fetch.result }}"}
     )
-    action_input.task.unsafe_disable_secret_error_withholding = True
+    action_input.task.unsafe_disable_secret_error_withholding = action_opts_in
+    workspace_settings = (
+        {}
+        if workspace_allows is None
+        else {"unsafe_disable_secret_error_withholding": workspace_allows}
+    )
+    session = mocker.AsyncMock()
+    session.scalar.return_value = workspace_settings
+    session_cm = mocker.MagicMock()
+    session_cm.__aenter__ = mocker.AsyncMock(return_value=session)
+    session_cm.__aexit__ = mocker.AsyncMock(return_value=False)
+    mocker.patch.object(
+        executor_service,
+        "get_async_session_bypass_rls_context_manager",
+        return_value=session_cm,
+    )
     resolved_context = mocker.Mock(logical_time=mocker.sentinel.logical_time)
     prepared_context = executor_service.PreparedContext(
         resolved_context=resolved_context,
@@ -1373,8 +1400,77 @@ async def test_invoke_once_keeps_action_error_when_task_opts_out(mocker, monkeyp
             ctx=executor_service.DispatchActionContext(role=role),
         )
 
-    assert "Details withheld:" not in str(exc_info.value)
-    assert "upstream rejected the request" in str(exc_info.value)
+    if expect_original:
+        assert "Details withheld:" not in str(exc_info.value)
+        assert "upstream rejected the request" in str(exc_info.value)
+    else:
+        assert "Details withheld:" in str(exc_info.value)
+        assert "upstream rejected the request" not in str(exc_info.value)
+    # The per-invocation policy never leaks past invoke_once.
+    assert ctx_unsafe_disable_secret_error_withholding.get() is False
+
+
+@pytest.mark.anyio
+async def test_invoke_once_opt_out_covers_expression_errors(mocker, monkeypatch):
+    """Expression errors inside the action follow the same effective policy."""
+    from tracecat.exceptions import ExecutionError, TracecatExpressionError
+    from tracecat.expressions.core import Expression
+
+    monkeypatch.setattr(
+        config, "TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING", False
+    )
+    role = _expression_policy_role("tracecat-executor")
+    action_input = _expression_policy_input(
+        "core.probe", {"value": "${{ ACTIONS.fetch.result }}"}
+    )
+    action_input.task.unsafe_disable_secret_error_withholding = True
+    session = mocker.AsyncMock()
+    session.scalar.return_value = {"unsafe_disable_secret_error_withholding": True}
+    session_cm = mocker.MagicMock()
+    session_cm.__aenter__ = mocker.AsyncMock(return_value=session)
+    session_cm.__aexit__ = mocker.AsyncMock(return_value=False)
+    mocker.patch.object(
+        executor_service,
+        "get_async_session_bypass_rls_context_manager",
+        return_value=session_cm,
+    )
+    resolved_context = mocker.Mock(logical_time=mocker.sentinel.logical_time)
+    prepared_context = executor_service.PreparedContext(
+        resolved_context=resolved_context,
+        mask_values={"sk-live-secret"},
+    )
+    mocker.patch.object(
+        executor_service.registry_resolver,
+        "prefetch_lock",
+        new=mocker.AsyncMock(),
+    )
+    mocker.patch.object(
+        executor_service,
+        "prepare_resolved_context",
+        new=mocker.AsyncMock(return_value=prepared_context),
+    )
+    seen: list[str] = []
+
+    async def fake_step(*args, **kwargs):
+        # Mimic a template step evaluating a secret-referencing expression.
+        operand = {"SECRETS": {"api": {"KEY": "sk-live-secret"}}}
+        try:
+            Expression("FN.add(SECRETS.api.KEY, 1)", operand=operand).result()
+        except TracecatExpressionError as e:
+            seen.append(str(e))
+            raise
+
+    mocker.patch.object(executor_service, "_invoke_step", new=fake_step)
+
+    with pytest.raises(ExecutionError):
+        await executor_service.invoke_once(
+            backend=mocker.Mock(),
+            input=action_input,
+            ctx=executor_service.DispatchActionContext(role=role),
+        )
+
+    assert seen, "expression should have raised"
+    assert "Details withheld" not in seen[0]
 
 
 @pytest.mark.anyio

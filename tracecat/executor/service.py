@@ -26,6 +26,7 @@ from tracecat.db.models import (
     PlatformRegistryVersion,
     RegistryRepository,
     RegistryVersion,
+    Workspace,
 )
 from tracecat.dsl.common import context_locator, create_default_execution_context
 from tracecat.dsl.schemas import (
@@ -50,7 +51,6 @@ from tracecat.executor.schemas import (
     ExecutorActionErrorInfo,
     ExecutorResultSuccess,
     ResolvedContext,
-    secret_error_withholding_disabled,
 )
 from tracecat.executor.secret_preprocessors import (
     collect_mask_values,
@@ -82,6 +82,8 @@ from tracecat.secrets.common import (
     apply_masks_object,
     await_with_masked_errors,
     call_with_masked_errors,
+    ctx_unsafe_disable_secret_error_withholding,
+    secret_error_withholding_disabled,
 )
 from tracecat.variables.schemas import VariableSearch
 from tracecat.variables.service import VariablesService
@@ -96,11 +98,9 @@ type ExecutionResult = Any | ExecutorActionErrorInfo
 def _withhold_error_info(
     info: ExecutorActionErrorInfo,
     classification: RuntimeErrorClassification | None,
-    *,
-    task: ActionStatement,
 ) -> ExecutorActionErrorInfo:
     """Replace unsafe diagnostics, retaining policy-authored platform messages."""
-    if secret_error_withholding_disabled(task):
+    if secret_error_withholding_disabled():
         return info
     return info.model_copy(
         update={
@@ -434,7 +434,7 @@ async def _invoke_template_step(
             raise
         classification = chained_error_classification(e)
         error = ExecutionError(
-            info=_withhold_error_info(e.info, classification, task=input.task),
+            info=_withhold_error_info(e.info, classification),
             classification=classification,
             sentry_capture=e.sentry_capture,
         )
@@ -448,7 +448,7 @@ async def _invoke_template_step(
         info = ExecutorActionErrorInfo.from_exc(e, action_name=step_action)
         classification = chained_error_classification(e)
         if step_ref in taint.tainted_steps:
-            info = _withhold_error_info(info, classification, task=input.task)
+            info = _withhold_error_info(info, classification)
         error = ExecutionError(
             info=info,
             classification=classification,
@@ -832,6 +832,19 @@ async def prepare_resolved_context(
     )
 
 
+async def _workspace_allows_error_details(role: Role) -> bool:
+    """Whether the workspace lets actions opt out of secret error withholding."""
+    if role.workspace_id is None:
+        return False
+    async with get_async_session_bypass_rls_context_manager() as session:
+        settings = await session.scalar(
+            select(Workspace.settings).where(Workspace.id == role.workspace_id)
+        )
+    if not isinstance(settings, dict):
+        return False
+    return bool(settings.get("unsafe_disable_secret_error_withholding"))
+
+
 async def invoke_once(
     backend: ExecutorBackend,
     input: RunActionInput,
@@ -857,7 +870,15 @@ async def invoke_once(
     # Bound before the try so context-preparation failures stay safe.
     mask_values: set[str] | None = None
 
+    # The per-action opt-in only takes effect when the workspace allows it. The
+    # lookup is inside the error wrapper so a failure here still withholds.
+    withholding_token = ctx_unsafe_disable_secret_error_withholding.set(False)
     try:
+        if input.task.unsafe_disable_secret_error_withholding:
+            ctx_unsafe_disable_secret_error_withholding.set(
+                await _workspace_allows_error_details(role)
+            )
+
         # Prefetch registry lock manifests into cache for O(1) resolution.
         # Keep this inside the error wrapper so entitlement failures are
         # normalized into ExecutionError and then ApplicationError at activity
@@ -895,7 +916,7 @@ async def invoke_once(
             raise
         classification = chained_error_classification(e)
         safe_error = ExecutionError(
-            info=_withhold_error_info(e.info, classification, task=input.task),
+            info=_withhold_error_info(e.info, classification),
             classification=classification,
             sentry_capture=e.sentry_capture,
         )
@@ -905,9 +926,7 @@ async def invoke_once(
         classification = chained_error_classification(e)
         _attach_loop_context(exec_result, iteration)
         if _error_may_contain_secrets(input.task.args, mask_values):
-            exec_result = _withhold_error_info(
-                exec_result, classification, task=input.task
-            )
+            exec_result = _withhold_error_info(exec_result, classification)
         # Log only the safe diagnostic when secrets may be in scope.
         logger.error(
             "Backend execution failed",
@@ -938,6 +957,8 @@ async def invoke_once(
                 apply_masks_object, action_result, masks=mask_values
             )
         return action_result
+    finally:
+        ctx_unsafe_disable_secret_error_withholding.reset(withholding_token)
     # Raise outside the handlers so the plaintext original is not attached.
     raise safe_error
 

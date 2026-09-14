@@ -10069,6 +10069,7 @@ export type WorkspaceSettingsRead = {
   allowed_attachment_extensions?: Array<string> | null
   allowed_attachment_mime_types?: Array<string> | null
   validate_attachment_magic_number?: boolean | null
+  unsafe_disable_secret_error_withholding?: boolean | null
   /**
    * Returns workspace-specific extensions if set, otherwise system defaults.
    */
@@ -10102,6 +10103,10 @@ export type WorkspaceSettingsUpdate = {
    * Whether to validate file content matches declared MIME type using magic number detection. Defaults to true for security.
    */
   validate_attachment_magic_number?: boolean | null
+  /**
+   * UNSAFE: allow actions in this workspace to opt into showing their original error message when secrets are in scope. Each action must still enable 'Show error details' individually. Known secret values are still masked. Defaults to false.
+   */
+  unsafe_disable_secret_error_withholding?: boolean | null
 }
 
 /**

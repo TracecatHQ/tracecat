@@ -24,6 +24,7 @@ class WorkspaceSettings(TypedDict):
     allowed_attachment_extensions: NotRequired[list[str] | None]
     allowed_attachment_mime_types: NotRequired[list[str] | None]
     validate_attachment_magic_number: NotRequired[bool | None]
+    unsafe_disable_secret_error_withholding: NotRequired[bool | None]
 
 
 # Schema
@@ -35,6 +36,7 @@ class WorkspaceSettingsRead(Schema):
     allowed_attachment_extensions: list[str] | None = None
     allowed_attachment_mime_types: list[str] | None = None
     validate_attachment_magic_number: bool | None = None
+    unsafe_disable_secret_error_withholding: bool | None = None
 
     @computed_field
     @property
@@ -76,6 +78,15 @@ class WorkspaceSettingsUpdate(Schema):
     validate_attachment_magic_number: bool | None = Field(
         default=None,
         description="Whether to validate file content matches declared MIME type using magic number detection. Defaults to true for security.",
+    )
+    unsafe_disable_secret_error_withholding: bool | None = Field(
+        default=None,
+        description=(
+            "UNSAFE: allow actions in this workspace to opt into showing their "
+            "original error message when secrets are in scope. Each action must "
+            "still enable 'Show error details' individually. Known secret values "
+            "are still masked. Defaults to false."
+        ),
     )
 
     @field_validator("git_provider")
