@@ -8,16 +8,21 @@ import socket
 import ssl
 import uuid
 from collections.abc import Iterable
-from typing import Literal
-from unittest.mock import AsyncMock
+from pathlib import Path
+from typing import Any, Literal
+from unittest.mock import AsyncMock, Mock
 
+import certifi
 import httpcore
 import litellm
 import orjson
 import pytest
 from cryptography.fernet import Fernet
+from litellm.anthropic_interface import acreate as create_anthropic_message
 from litellm.caching.dual_cache import DualCache
-from litellm.exceptions import APIError
+from litellm.caching.llm_caching_handler import LLMClientCache
+from litellm.exceptions import APIConnectionError, APIError, InternalServerError
+from litellm.llms.base_llm.chat.transformation import BaseLLMException
 from litellm.proxy._types import UserAPIKeyAuth
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -94,6 +99,8 @@ class RecordingBackend(httpcore.AsyncNetworkBackend):
 
 @pytest.fixture
 def network(monkeypatch: pytest.MonkeyPatch) -> RecordingBackend:
+    monkeypatch.setattr(litellm, "in_memory_llm_clients_cache", LLMClientCache())
+    monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:9999")
     backend = RecordingBackend()
     monkeypatch.setattr("tracecat.outbound.AnyIOBackend", lambda: backend)
     monkeypatch.setattr(config, "TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS", ())
@@ -437,3 +444,297 @@ async def test_gateway_hook_installs_guard_for_custom_provider(
     finally:
         assert handler._outbound_http_handler is not None
         await handler._outbound_http_handler.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("variable", ["SSL_CERT_FILE", "SSL_CERT_DIR"])
+async def test_outbound_preserves_operator_ca_settings(
+    variable: str,
+    tmp_path: Path,
+    network: RecordingBackend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("SSL_CERT_FILE", raising=False)
+    monkeypatch.delenv("SSL_CERT_DIR", raising=False)
+    value = certifi.where() if variable == "SSL_CERT_FILE" else str(tmp_path)
+    monkeypatch.setenv(variable, value)
+    monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:9999")
+    create_context = Mock(wraps=ssl.create_default_context)
+    monkeypatch.setattr(ssl, "create_default_context", create_context)
+    async with create_outbound_http_client() as client:
+        await client.get("https://8.8.8.8")
+    create_context.assert_called_once_with(
+        **{"cafile" if variable == "SSL_CERT_FILE" else "capath": value}
+    )
+    assert network.connections == [("8.8.8.8", 443)]
+    assert network.streams[0].ssl_context is not None
+    assert network.streams[0].ssl_context.verify_mode == ssl.CERT_REQUIRED
+
+
+@pytest.mark.anyio
+async def test_explicit_tls_context_overrides_environment(
+    network: RecordingBackend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = ssl.create_default_context()
+    monkeypatch.setenv("SSL_CERT_FILE", "/nonexistent/synthetic-ca.pem")
+    async with create_outbound_http_client(verify=context) as client:
+        await client.get("https://8.8.8.8")
+    assert network.streams[0].ssl_context is context
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("status", [307, 308])
+@pytest.mark.parametrize("location", ["/canonical", "http://127.0.0.1/private"])
+async def test_gateway_redirects_preserve_only_same_origin(
+    status: int,
+    location: str,
+    network: RecordingBackend,
+) -> None:
+    network.responses.insert(
+        0,
+        (
+            f"HTTP/1.1 {status} Redirect\r\nLocation: {location}\r\n"
+            "Content-Length: 0\r\nConnection: close\r\n\r\n"
+        ).encode(),
+    )
+    handler = OutboundLLMHTTPHandler()
+    try:
+        if location.startswith("http:"):
+            with pytest.raises(DisallowedUrlError):
+                await handler.post("https://8.8.8.8/start", data={"model": "synthetic"})
+            assert network.connections == [("8.8.8.8", 443)]
+        else:
+            response = await handler.post(
+                "https://8.8.8.8/start", data={"model": "synthetic"}
+            )
+            assert response is not None
+            assert response.status_code == 200
+            assert len(network.connections) == 2
+            wire = b"".join(network.streams[1].writes)
+            assert b"POST /canonical " in wire
+            assert b"synthetic" in wire
+    finally:
+        await handler.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "provider",
+    [
+        "openai",
+        "anthropic",
+        "mistral",
+        "ollama",
+        "vllm",
+        "openrouter",
+        "litellm",
+        "azure_openai",
+        "azure_ai",
+        "azure_openai_cloudflare",
+    ],
+)
+@pytest.mark.parametrize("private", [True, False])
+async def test_gateway_credential_urls_use_guarded_transport(
+    provider: str,
+    private: bool,
+    network: RecordingBackend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    base = "http://127.0.0.1/v1" if private else "https://8.8.8.8/v1"
+    if provider == "azure_openai_cloudflare":
+        provider = "azure_openai"
+        base += "/gateway.ai.cloudflare.com"
+    prefix = "AZURE" if provider.startswith("azure") else provider.upper()
+    creds = {
+        f"{prefix}_API_KEY": "synthetic",
+        f"{prefix}_BASE_URL": base,
+        "AZURE_API_BASE": base,
+        "AZURE_API_VERSION": "2024-02-01",
+        "AZURE_DEPLOYMENT_NAME": "synthetic-model",
+        "AZURE_AI_MODEL_NAME": "synthetic-model",
+    }
+    monkeypatch.setattr(
+        "tracecat.agent.gateway.get_provider_credentials", AsyncMock(return_value=creds)
+    )
+    handler = TracecatCallbackHandler()
+    data = await handler.async_pre_call_hook(
+        user_api_key_dict=UserAPIKeyAuth(
+            api_key="synthetic",
+            metadata={
+                "workspace_id": str(uuid.uuid4()),
+                "organization_id": str(uuid.uuid4()),
+                "model": "synthetic-model",
+                "provider": provider,
+                "model_settings": {},
+                "use_workspace_credentials": True,
+            },
+        ),
+        cache=DualCache(),
+        data={},
+        call_type="completion",
+    )
+    body = {
+        "id": "synthetic",
+        "object": "chat.completion",
+        "created": 1,
+        "model": "synthetic-model",
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": "hello"},
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+    }
+    if provider == "anthropic":
+        body = {
+            "id": "synthetic",
+            "type": "message",
+            "role": "assistant",
+            "model": "synthetic-model",
+            "content": [{"type": "text", "text": "hello"}],
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 1, "output_tokens": 1},
+        }
+    elif provider == "ollama":
+        body = {
+            "model": "synthetic-model",
+            "message": {"role": "assistant", "content": "hello"},
+            "done": True,
+            "prompt_eval_count": 1,
+            "eval_count": 1,
+        }
+    encoded = orjson.dumps(body)
+    network.responses = [
+        f"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {len(encoded)}\r\nConnection: close\r\n\r\n".encode()
+        + encoded
+    ]
+    try:
+        if private:
+            with pytest.raises((APIError, APIConnectionError, InternalServerError)):
+                await litellm.acompletion(
+                    **data,
+                    messages=[{"role": "user", "content": "hello"}],
+                    num_retries=0,
+                    max_retries=0,
+                )
+            assert network.connections == []
+        else:
+            result = await litellm.acompletion(
+                **data,
+                messages=[{"role": "user", "content": "hello"}],
+                num_retries=0,
+                max_retries=0,
+            )
+            assert isinstance(result, litellm.ModelResponse)
+            assert result.choices[0].message.content == "hello"
+            assert network.connections == [("8.8.8.8", 443)]
+    finally:
+        if handler._outbound_http_handler is not None:
+            await handler._outbound_http_handler.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "provider,protocol",
+    [
+        (provider, protocol)
+        for provider in ("openai", "azure", "anthropic")
+        for protocol in ("completion", "responses", "anthropic_messages", "bridge")
+        if (provider, protocol) != ("anthropic", "bridge")
+    ],
+)
+@pytest.mark.parametrize("stream", [False, True])
+async def test_litellm_protocol_switches_cannot_bypass_guard(
+    provider: str,
+    protocol: str,
+    stream: bool,
+    network: RecordingBackend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Assert the policy ran, not merely that an SDK rejected our test input.
+    resolver = AsyncMock(wraps=resolve_outbound_addresses)
+    monkeypatch.setattr("tracecat.outbound.resolve_outbound_addresses", resolver)
+    model = f"{provider}/synthetic-model"
+    kwargs: dict[str, Any] = {
+        "model": model,
+        "api_key": "synthetic",
+        "api_base": "http://127.0.0.1/v1",
+        "num_retries": 0,
+        "max_retries": 0,
+        "stream": stream,
+    }
+    if provider == "azure":
+        kwargs["api_version"] = "2024-02-01"
+    with pytest.raises(
+        (
+            APIError,
+            APIConnectionError,
+            InternalServerError,
+            DisallowedUrlError,
+            BaseLLMException,
+        )
+    ):
+        if protocol == "responses":
+            await litellm.aresponses(**kwargs, input="hello")
+        elif protocol == "anthropic_messages":
+            await create_anthropic_message(
+                **kwargs, messages=[{"role": "user", "content": "hello"}], max_tokens=10
+            )
+        else:
+            if protocol == "bridge":
+                kwargs["model"] = f"{provider}/responses/synthetic-model"
+            result = await litellm.acompletion(
+                **kwargs, messages=[{"role": "user", "content": "hello"}]
+            )
+            if stream:
+                assert isinstance(result, litellm.CustomStreamWrapper)
+                async for _ in result:
+                    pass
+    resolver.assert_awaited()
+    assert network.connections == []
+
+
+@pytest.mark.anyio
+async def test_openai_responses_bridge_preserves_public_requests(
+    network: RecordingBackend,
+) -> None:
+    body = orjson.dumps(
+        {
+            "id": "resp_synthetic",
+            "object": "response",
+            "created_at": 1,
+            "status": "completed",
+            "model": "synthetic-model",
+            "output": [
+                {
+                    "id": "msg_synthetic",
+                    "type": "message",
+                    "role": "assistant",
+                    "status": "completed",
+                    "content": [
+                        {"type": "output_text", "text": "hello", "annotations": []}
+                    ],
+                }
+            ],
+            "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
+        }
+    )
+    network.responses = [
+        f"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {len(body)}\r\nConnection: close\r\n\r\n".encode()
+        + body
+    ]
+    response = await litellm.acompletion(
+        model="openai/responses/synthetic-model",
+        api_base="https://8.8.8.8/v1",
+        api_key="synthetic",
+        messages=[{"role": "user", "content": "hello"}],
+        num_retries=0,
+        max_retries=0,
+    )
+    assert isinstance(response, litellm.ModelResponse)
+    assert response.choices[0].message.content == "hello"
+    assert network.connections == [("8.8.8.8", 443)]
+    assert b"POST /v1/responses " in b"".join(network.streams[0].writes)

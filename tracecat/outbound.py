@@ -129,6 +129,10 @@ class OutboundHTTPTransport(httpx.AsyncHTTPTransport):
     def __init__(self, *, origin_url: str | None = None, **kwargs: Any) -> None:
         # HTTPX exposes no public constructor-options type. The factory below
         # forwards only TLS, protocol and pool options, never proxy or UDS.
+        if kwargs.get("verify", True) is True:
+            # Trust operator-provided CA bundles without enabling env proxies.
+            # Explicit verify contexts/paths retain their normal precedence.
+            kwargs["verify"] = httpx.create_ssl_context(verify=True, trust_env=True)
         super().__init__(trust_env=False, **kwargs)
         self._origin = None
         if origin_url is not None:

@@ -25,7 +25,10 @@ from openai import RateLimitError as OpenAIRateLimitError
 
 from tracecat import config as app_config
 from tracecat.agent.diagnostics import parse_bounded_error_body
-from tracecat.agent.gateway_outbound import OutboundLLMHTTPHandler
+from tracecat.agent.gateway_outbound import (
+    OutboundLLMHTTPHandler,
+    install_outbound_http_policy,
+)
 from tracecat.agent.gateway_providers import (
     CUSTOM_MODEL_PROVIDER_SLUG,
     GATEWAY_PROVIDER_SPECS,
@@ -44,6 +47,7 @@ from tracecat.logger import logger
 from tracecat.temporal.error_chain import iter_error_chain
 
 apply_patch()
+install_outbound_http_policy()
 
 _UNAUTHENTICATED_HEALTH_ROUTES = frozenset(
     {
@@ -557,9 +561,19 @@ class TracecatCallbackHandler(CustomLogger):
             # adapter explicit even for model IDs containing a vendor prefix,
             # so LiteLLM cannot select another SDK and bypass this transport.
             data["custom_llm_provider"] = "hosted_vllm"
+
             if self._outbound_http_handler is None:
                 self._outbound_http_handler = OutboundLLMHTTPHandler()
             data["client"] = self._outbound_http_handler
+
+        if provider == "azure_openai" and "gateway.ai.cloudflare.com" in data.get(
+            "api_base", ""
+        ):
+            # Match LiteLLM's special-case dispatch, including URLs containing
+            # this string outside the hostname; it skips the shared factory.
+            if self._outbound_http_handler is None:
+                self._outbound_http_handler = OutboundLLMHTTPHandler()
+            data["client"] = self._outbound_http_handler.azure_cloudflare_client(data)
 
         # Strip after model_settings merge so they can't be re-added
         if provider == "bedrock":
