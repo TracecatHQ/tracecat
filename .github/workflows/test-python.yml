@@ -21,7 +21,6 @@ on:
       - env.sh
       - .github/workflows/test-python.yml
   pull_request:
-    branches: ["main", "staging"]
     paths:
       - tracecat/**
       - registry/**
