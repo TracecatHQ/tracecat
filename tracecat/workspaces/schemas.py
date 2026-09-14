@@ -129,6 +129,8 @@ class WorkspaceMember(Schema):
     last_name: str | None
     email: EmailStr
     role_name: str
+    # Group-derived roles are managed in org settings, not here.
+    via_group: bool
 
 
 class WorkspaceRead(Schema):
