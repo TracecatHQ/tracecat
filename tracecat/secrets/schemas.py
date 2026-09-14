@@ -354,7 +354,7 @@ class SecretRead(SecretReadBase):
             updated_at=obj.updated_at,
             encrypted_keys=obj.encrypted_keys,
             tags=obj.tags,
-            source=SecretSource(obj.source),
+            source=SecretSource(obj.source or SecretSource.LOCAL),
             store_id=obj.store_id,
             remote_reference=obj.remote_reference,
             remote_key_mapping=mapping,

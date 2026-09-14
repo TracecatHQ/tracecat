@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from typing import TypeGuard
+from typing import Protocol, TypeGuard
 
 from cryptography.fernet import InvalidToken
 from pydantic import SecretStr, ValidationError
@@ -68,6 +68,24 @@ def is_aws_backed(secret: BaseSecret) -> TypeGuard[Secret]:
     )
 
 
+class KeyDecryptor(Protocol):
+    """Anything that can decrypt a local ``encrypted_keys`` payload."""
+
+    def decrypt_keys(self, encrypted_keys: bytes) -> list[SecretKeyValue]: ...
+
+
+def secret_key_names(decryptor: KeyDecryptor, secret: BaseSecret) -> list[str]:
+    """Return declared key names without contacting any remote store.
+
+    Local secrets are decrypted synchronously; AWS-backed secrets return the
+    declared output keys from their stored mapping.
+    """
+    if is_aws_backed(secret):
+        mapping = AwsSecretKeyMapping.model_validate(secret.remote_key_mapping or {})
+        return mapping.output_keys()
+    return [kv.key for kv in decryptor.decrypt_keys(secret.encrypted_keys)]
+
+
 def build_aws_secret_reference(secret: Secret) -> AwsSecretReference:
     """Materialize an immutable AWS descriptor from a loaded ORM row.
 
@@ -131,17 +149,8 @@ class SecretsService(BaseOrgService):
         return encrypt_keyvalues(keys, key=self._encryption_key)
 
     def secret_key_names(self, secret: BaseSecret) -> list[str]:
-        """Return declared key names without contacting any remote store.
-
-        Local secrets are decrypted synchronously; AWS-backed secrets return the
-        declared output keys from their stored mapping.
-        """
-        if is_aws_backed(secret):
-            mapping = AwsSecretKeyMapping.model_validate(
-                secret.remote_key_mapping or {}
-            )
-            return mapping.output_keys()
-        return [kv.key for kv in self.decrypt_keys(secret.encrypted_keys)]
+        """Return declared key names without contacting any remote store."""
+        return secret_key_names(self, secret)
 
     # === Base secrets ===
 

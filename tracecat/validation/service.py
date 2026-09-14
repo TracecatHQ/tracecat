@@ -37,7 +37,7 @@ from tracecat.interactions.schemas import ResponseInteraction
 from tracecat.logger import logger
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.versions.schemas import RegistryVersionManifest
-from tracecat.secrets.service import SecretsService
+from tracecat.secrets.service import SecretsService, secret_key_names
 from tracecat.tiers.entitlements import Entitlement, EntitlementService
 from tracecat.tiers.service import TierService
 from tracecat.validation.common import json_schema_to_pydantic
@@ -116,7 +116,7 @@ async def validate_single_secret(
     # At this point we either have an optional secret, or the secret is defined
     # Validate secret keys
     if defined_secret:
-        defined_keys = set(secrets_service.secret_key_names(defined_secret))
+        defined_keys = set(secret_key_names(secrets_service, defined_secret))
         required_keys = frozenset(registry_secret.keys or ())
         optional_keys = frozenset(registry_secret.optional_keys or ())
 
