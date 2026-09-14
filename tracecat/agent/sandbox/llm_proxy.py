@@ -340,14 +340,14 @@ class LLMRoute:
             upstream when the local route key is synthetic.
         mode: `managed` preserves managed gateway auth; `direct` applies
             passthrough auth behavior.
-        catalog_id: Optional custom-provider catalog row used to resolve direct
+        catalog_id: Optional provider catalog row used to resolve direct
             route credentials.
         authorization: Optional materialized Authorization header value. Hidden
             from repr so credentials are not logged through dataclass rendering.
         local_provider_cleanup: Whether this route can safely apply
-            provider-specific body cleanup before forwarding. Managed fallback
-            routes that may represent synthetic subagent models should defer
-            that cleanup to LiteLLM.
+            provider-specific body cleanup before forwarding. Shared managed
+            routes defer that cleanup to the gateway, which selects the
+            request's provider from the signed token.
     """
 
     base_url: str
@@ -371,7 +371,7 @@ class LLMRoute:
         """Return whether this route bypasses the managed gateway.
 
         Returns:
-            True when the route forwards directly to a custom provider.
+            True when the route forwards directly to a provider endpoint.
         """
         return self.mode == "direct"
 
@@ -380,7 +380,7 @@ class LLMRoute:
 
         Managed routes use the sandbox's existing managed gateway token and do
         not resolve a route-level credential. Direct routes resolve the
-        custom-provider API key from their catalog entry or the legacy workspace
+        provider API key from their catalog entry or the legacy workspace
         secret.
 
         Args:
@@ -427,7 +427,7 @@ class LLMRoute:
 
         Managed routes preserve the sandbox's managed gateway Authorization
         header. Direct routes remove that managed token; materialized direct
-        routes add their resolved custom-provider Authorization header.
+        routes add their resolved provider Authorization header.
 
         Args:
             headers: Parsed inbound request headers from the sandbox.
@@ -540,15 +540,20 @@ class LLMRoute:
 
 @dataclass(frozen=True, slots=True)
 class LLMRoutingPlan:
-    """Route requests by exact model key, falling back to managed LiteLLM.
+    """Choose managed-gateway or direct-passthrough transport for each request.
 
     The proxy does not know whether a model belongs to a root agent or a
     subagent. The executor converts agent configs into this table before the
     sandbox starts.
 
+    Managed requests go through LiteLLM, where the signed token supplies the
+    provider, model, and credential configuration. Passthrough requests go
+    directly to their configured endpoint. The destination is chosen before
+    sending the request; a failed direct request is not retried through LiteLLM.
+
     Attributes:
-        managed_route: Fallback route for every request model that does not
-            have an exact direct route match.
+        managed_route: Shared LiteLLM destination for non-passthrough requests.
+            Model selection happens in the gateway.
         direct_routes: Direct passthrough routes keyed by exact request model.
     """
 
@@ -576,7 +581,7 @@ class LLMRoutingPlan:
         """Return a copy of this plan with direct-route credentials bound.
 
         Args:
-            role: Role used to fetch custom provider API keys for direct routes.
+            role: Role used to fetch provider API keys for direct routes.
 
         Returns:
             Routing plan containing routes ready for request forwarding.
@@ -662,7 +667,7 @@ def _normalize_passthrough_base_url(base_url: str) -> str:
 def _normalize_direct_route(route: LLMRoute) -> LLMRoute:
     """Normalize direct passthrough routes to host roots.
 
-    Stored custom-provider URLs use OpenAI-compatible `/v1` form for catalog
+    Stored provider URLs use OpenAI-compatible `/v1` form for catalog
     discovery. Runtime SDK requests already include `/v1/...` paths, so direct
     passthrough routes must strip the trailing version segment.
 

@@ -449,12 +449,11 @@ class SandboxedAgentExecutor:
     def _llm_routing_plan(self) -> LLMRoutingPlan:
         """Build the socket proxy routing table from each agent's model config.
 
-        Agent config decides routing, not root/subagent position. The managed
-        route is the fallback for every request model that does not have a
-        direct passthrough entry. Direct passthrough traffic bypasses managed
-        LiteLLM, so each passthrough root/subagent needs its own exact-model
-        route to preserve its custom provider base URL, credentials, and
-        upstream model name.
+        Each agent's passthrough setting determines its transport. Managed
+        requests use the shared LiteLLM gateway, which selects the model and
+        provider from the signed token. Passthrough requests use an exact-model
+        route with their own endpoint, credentials, and upstream model name.
+        Root and subagent requests follow the same rules.
 
         Returns:
             Routing plan for the host-side LLM socket proxy.
@@ -552,9 +551,9 @@ class SandboxedAgentExecutor:
         """Create one direct passthrough route.
 
         Args:
-            base_url: Resolved custom provider base URL.
-            model_provider: Provider behind the custom route.
-            catalog_id: Optional custom-provider catalog row for credentials.
+            base_url: Resolved provider base URL.
+            model_provider: Provider behind the direct route.
+            catalog_id: Optional provider catalog row for credentials.
             upstream_model_name: Optional model name to send to the upstream.
 
         Returns:
