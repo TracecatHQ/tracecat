@@ -7,11 +7,12 @@ from collections.abc import Iterator
 
 import pytest
 import sqlalchemy as sa
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.pool import NullPool
 
 from tests.database import TEST_DB_CONFIG
 
-PREVIOUS_REVISION = "526f867f6a75"
+PREVIOUS_REVISION = "31ee4b7f175a"
 INVITATION_REVISION = "e847d14eeb86"
 
 
@@ -61,6 +62,64 @@ def migration_db_url() -> Iterator[str]:
         with admin_engine.connect() as conn:
             conn.execute(sa.text(f'DROP DATABASE "{db_name}"'))
         admin_engine.dispose()
+
+
+def test_role_deletion_cascades_legacy_invitations_and_restores_restrict(
+    migration_db_url: str,
+) -> None:
+    engine = sa.create_engine(migration_db_url, poolclass=NullPool)
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                sa.text("""
+                INSERT INTO organization (id, name, slug, is_active)
+                VALUES (md5('cascade-org')::uuid, 'Cascade test', 'cascade-test', true);
+                INSERT INTO role (id, organization_id, name, slug)
+                SELECT md5(label)::uuid, md5('cascade-org')::uuid, label, label
+                FROM unnest(ARRAY['cascade-first', 'cascade-second']) AS label;
+                INSERT INTO organization_invitation
+                    (id, organization_id, email, role_id, token, status, expires_at,
+                     created_by_platform_admin)
+                SELECT md5(label)::uuid, md5('cascade-org')::uuid,
+                       label || '@example.com', md5(label)::uuid, label,
+                       'PENDING', now() + interval '1 day', true
+                FROM unnest(ARRAY['cascade-first', 'cascade-second']) AS label;
+                """)
+            )
+
+        _migrate(migration_db_url, "upgrade", INVITATION_REVISION)
+        with engine.begin() as conn:
+            assert (
+                conn.scalar(sa.text("SELECT count(*) FROM organization_invitation"))
+                == 2
+            )
+            assert conn.scalar(sa.text("SELECT count(*) FROM invitation_grant")) == 2
+            conn.execute(sa.text("DELETE FROM role WHERE slug = 'cascade-first'"))
+            assert (
+                conn.scalar(sa.text("SELECT count(*) FROM organization_invitation"))
+                == 1
+            )
+            assert conn.scalar(sa.text("SELECT count(*) FROM invitation_grant")) == 1
+
+        _migrate(migration_db_url, "downgrade", PREVIOUS_REVISION)
+        with engine.begin() as conn:
+            with pytest.raises(IntegrityError), conn.begin_nested():
+                conn.execute(sa.text("DELETE FROM role WHERE slug = 'cascade-second'"))
+            assert (
+                conn.scalar(sa.text("SELECT count(*) FROM organization_invitation"))
+                == 1
+            )
+
+        _migrate(migration_db_url, "upgrade", INVITATION_REVISION)
+        with engine.begin() as conn:
+            conn.execute(sa.text("DELETE FROM role WHERE slug = 'cascade-second'"))
+            assert (
+                conn.scalar(sa.text("SELECT count(*) FROM organization_invitation"))
+                == 0
+            )
+            assert conn.scalar(sa.text("SELECT count(*) FROM invitation_grant")) == 0
+    finally:
+        engine.dispose()
 
 
 def test_downgrade_restores_current_direct_memberships(
