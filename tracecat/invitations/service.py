@@ -22,8 +22,8 @@ from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.logger import audit_log
 from tracecat.audit.service import AuditService
 from tracecat.auth.types import Role
-from tracecat.authz.controls import require_scope
-from tracecat.authz.service import resolve_grantable_role
+from tracecat.authz.controls import ensure_can_grant_scopes, require_scope
+from tracecat.authz.service import resolve_granter_scopes
 from tracecat.db.models import (
     GroupMember,
     GroupRoleAssignment,
@@ -166,13 +166,34 @@ async def validate_grants(
                 f"Workspace not found in this organization: {sorted(map(str, missing))}"
             )
 
-    for grant in grants:
-        try:
-            await resolve_grantable_role(session, role, organization_id, grant.role_id)
-        except TracecatNotFoundError as e:
-            raise TracecatValidationError(
-                "Invalid role ID for this organization"
-            ) from e
+    role_ids = {grant.role_id for grant in grants}
+    granted_roles = (
+        (
+            await session.execute(
+                select(DBRole)
+                .where(
+                    DBRole.organization_id == organization_id, DBRole.id.in_(role_ids)
+                )
+                .options(selectinload(DBRole.scopes))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if {granted_role.id for granted_role in granted_roles} != role_ids:
+        raise TracecatValidationError("Invalid role ID for this organization")
+
+    if not role.is_platform_superuser:
+        # Read live permissions once for this batch, never the cached Role.scopes.
+        granter_scopes = await resolve_granter_scopes(session, role)
+        ensure_can_grant_scopes(
+            granter_scopes,
+            (
+                scope.name
+                for granted_role in granted_roles
+                for scope in granted_role.scopes
+            ),
+        )
 
 
 # --- Accept
