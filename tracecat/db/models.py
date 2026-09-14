@@ -7,15 +7,19 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
+import numpy as np
 from fastapi_users.db import (
     SQLAlchemyBaseOAuthAccountTableUUID,
     SQLAlchemyBaseUserTableUUID,
 )
 from fastapi_users_db_sqlalchemy.access_token import SQLAlchemyBaseAccessTokenTableUUID
+from numpy.typing import NDArray
+from pgvector.sqlalchemy import Vector
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema, core_schema, to_json
 from sqlalchemy import (
     TIMESTAMP,
+    BigInteger,
     Boolean,
     CheckConstraint,
     Enum,
@@ -36,7 +40,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.ext.mutable import MutableList
 from sqlalchemy.orm import (
@@ -5677,3 +5681,201 @@ class UserRoleAssignment(Base):
     )
     workspace: Mapped[Workspace | None] = relationship("Workspace")
     role: Mapped[Role] = relationship("Role", back_populates="user_assignments")
+
+
+# Search data deliberately has no FK to source workspaces/tables/rows. Source
+# deletion must not synchronously cascade through arbitrarily many chunks.
+# Services and RLS verify the live workspace; derived data is cleaned in batches.
+class SearchWorkspaceState(TimestampMixin, Base):
+    __tablename__ = "search_workspace_state"
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('disabled','active','paused','reindex_required')", name="state"
+        ),
+        CheckConstraint("current_version >= 0", name="version"),
+    )
+    organization_id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True)
+    current_version: Mapped[int] = mapped_column(BigInteger, server_default="0")
+    state: Mapped[str] = mapped_column(Text, server_default="disabled")
+    reconciliation_required: Mapped[bool] = mapped_column(
+        Boolean, server_default="false"
+    )
+
+
+class SearchEmbeddingConfig(TimestampMixin, Base):
+    __tablename__ = "search_embedding_config"
+    __table_args__ = (
+        CheckConstraint(
+            "version > 0 AND dimensions BETWEEN 1 AND 3072", name="version_dimensions"
+        ),
+        CheckConstraint("input_token_limit > 0", name="input_limit"),
+        UniqueConstraint("organization_id", "workspace_id", "version", "dimensions"),
+    )
+    organization_id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True)
+    version: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    provider: Mapped[str] = mapped_column(Text)
+    model: Mapped[str] = mapped_column(Text)
+    endpoint: Mapped[str | None] = mapped_column(Text)
+    credential_id: Mapped[uuid.UUID] = mapped_column(UUID)
+    credential_environment: Mapped[str] = mapped_column(Text)
+    dimensions: Mapped[int] = mapped_column(Integer)
+    input_token_limit: Mapped[int] = mapped_column(Integer)
+
+
+class SearchCollection(TimestampMixin, Base):
+    __tablename__ = "search_collection"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "workspace_id", "id"),
+        UniqueConstraint("organization_id", "workspace_id", "source_type", "source_id"),
+        ForeignKeyConstraint(
+            ["organization_id", "workspace_id", "config_version"],
+            [
+                "search_embedding_config.organization_id",
+                "search_embedding_config.workspace_id",
+                "search_embedding_config.version",
+            ],
+        ),
+        CheckConstraint(
+            "generation > 0 AND source_type = 'table'", name="generation_source"
+        ),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False)
+    source_type: Mapped[str] = mapped_column(Text, server_default="table")
+    source_id: Mapped[uuid.UUID] = mapped_column(UUID)
+    selected_column_ids: Mapped[list[uuid.UUID]] = mapped_column(ARRAY(UUID))
+    generation: Mapped[int] = mapped_column(BigInteger, server_default="1")
+    config_version: Mapped[int] = mapped_column(BigInteger)
+    chunker_settings: Mapped[dict[str, str | int]] = mapped_column(JSONB)
+    enabled: Mapped[bool] = mapped_column(Boolean, server_default="false")
+    backfill_cursor: Mapped[uuid.UUID | None] = mapped_column(UUID)
+    backfill_complete: Mapped[bool] = mapped_column(Boolean, server_default="false")
+    deleted_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+
+
+class SearchDocument(TimestampMixin, Base):
+    __tablename__ = "search_document"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "workspace_id", "collection_id", "id"),
+        UniqueConstraint(
+            "organization_id", "workspace_id", "collection_id", "source_row_id"
+        ),
+        ForeignKeyConstraint(
+            ["organization_id", "workspace_id", "collection_id"],
+            [
+                "search_collection.organization_id",
+                "search_collection.workspace_id",
+                "search_collection.id",
+            ],
+        ),
+        CheckConstraint(
+            "desired_revision > 0 AND generation > 0 AND fence >= 0", name="revision"
+        ),
+        CheckConstraint(
+            "build_revision IS NULL OR (build_revision > 0 AND build_revision <= desired_revision)",
+            name="build_revision",
+        ),
+        CheckConstraint(
+            "indexed_revision IS NULL OR (indexed_revision = desired_revision AND build_revision IS NOT NULL AND build_revision = indexed_revision AND enumeration_complete)",
+            name="indexed_revision",
+        ),
+        CheckConstraint("expected_chunks >= 0", name="expected_chunks"),
+        CheckConstraint(
+            "state IN ('pending','building','ready','empty','failed','deleted')",
+            name="state",
+        ),
+        CheckConstraint(
+            "(state IN ('ready','empty')) = (indexed_revision IS NOT NULL)",
+            name="publication",
+        ),
+        Index(
+            "ix_search_document_dispatch", "workspace_id", "state", "next_attempt_at"
+        ),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(UUID)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(UUID)
+    collection_id: Mapped[uuid.UUID] = mapped_column(UUID)
+    source_row_id: Mapped[uuid.UUID] = mapped_column(UUID)
+    generation: Mapped[int] = mapped_column(BigInteger)
+    desired_revision: Mapped[int] = mapped_column(BigInteger, server_default="1")
+    build_revision: Mapped[int | None] = mapped_column(BigInteger)
+    indexed_revision: Mapped[int | None] = mapped_column(BigInteger)
+    state: Mapped[str] = mapped_column(Text, server_default="pending")
+    enumeration_cursor: Mapped[dict[str, int] | None] = mapped_column(JSONB)
+    enumeration_complete: Mapped[bool] = mapped_column(Boolean, server_default="false")
+    expected_chunks: Mapped[int] = mapped_column(BigInteger, server_default="0")
+    fence: Mapped[int] = mapped_column(BigInteger, server_default="0")
+    lease_until: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    attempts: Mapped[int] = mapped_column(Integer, server_default="0")
+    next_attempt_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    error_code: Mapped[str | None] = mapped_column(Text)
+    deleted_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+
+
+class SearchChunk(TimestampMixin, Base):
+    __tablename__ = "search_chunk"
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id",
+            "workspace_id",
+            "document_id",
+            "generation",
+            "revision",
+            "ordinal",
+        ),
+        ForeignKeyConstraint(
+            ["organization_id", "workspace_id", "collection_id", "document_id"],
+            [
+                "search_document.organization_id",
+                "search_document.workspace_id",
+                "search_document.collection_id",
+                "search_document.id",
+            ],
+        ),
+        ForeignKeyConstraint(
+            ["organization_id", "workspace_id", "config_version", "dimensions"],
+            [
+                "search_embedding_config.organization_id",
+                "search_embedding_config.workspace_id",
+                "search_embedding_config.version",
+                "search_embedding_config.dimensions",
+            ],
+        ),
+        CheckConstraint(
+            "generation > 0 AND revision > 0 AND ordinal >= 0", name="revision_ordinal"
+        ),
+        CheckConstraint(
+            "start_offset >= 0 AND end_offset > start_offset", name="offsets"
+        ),
+        CheckConstraint("input_hash ~ '^[a-f0-9]{64}$'", name="input_hash"),
+        CheckConstraint("state IN ('prepared','embedded','failed')", name="state"),
+        CheckConstraint(
+            "(state = 'embedded') = (embedding IS NOT NULL)", name="embedding_state"
+        ),
+        CheckConstraint(
+            "embedding IS NULL OR (vector_dims(embedding) = dimensions AND vector_norm(embedding) > 0)",
+            name="vector_valid",
+        ),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(UUID)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(UUID)
+    collection_id: Mapped[uuid.UUID] = mapped_column(UUID)
+    document_id: Mapped[uuid.UUID] = mapped_column(UUID)
+    generation: Mapped[int] = mapped_column(BigInteger)
+    revision: Mapped[int] = mapped_column(BigInteger)
+    config_version: Mapped[int] = mapped_column(BigInteger)
+    dimensions: Mapped[int] = mapped_column(Integer)
+    ordinal: Mapped[int] = mapped_column(BigInteger)
+    column_id: Mapped[uuid.UUID] = mapped_column(UUID)
+    column_name: Mapped[str] = mapped_column(Text)
+    start_offset: Mapped[int] = mapped_column(BigInteger)
+    end_offset: Mapped[int] = mapped_column(BigInteger)
+    input_hash: Mapped[str] = mapped_column(String(64))
+    embedding: Mapped[NDArray[np.float32] | None] = mapped_column(Vector())
+    state: Mapped[str] = mapped_column(Text, server_default="prepared")
+    error_code: Mapped[str | None] = mapped_column(Text)
