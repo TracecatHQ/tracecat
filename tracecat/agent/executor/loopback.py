@@ -297,6 +297,7 @@ class LoopbackHandler:
         self.input = input
         self._stream_sink: LoopbackEventSink | None = None
         self._result = LoopbackResult(success=False)
+        self._executor_error_recorded = False
         self._sdk_session_id: str | None = None  # Track SDK session ID for this run
         self._external_stream_done_emitted: bool = False
         self._interrupt_notice_emitted: bool = False  # Dedupe for cancelled event
@@ -493,6 +494,7 @@ class LoopbackHandler:
         including sink initialization, so a stalled stream cannot replace the
         executor's authoritative failure with an activity timeout.
         """
+        self._executor_error_recorded = True
         self._result.success = False
         self._result.error = error
         self._result.classification = classification
@@ -942,7 +944,13 @@ class LoopbackHandler:
         cause: BaseException | None = None,
     ) -> bool:
         """Handle a terminal runtime error."""
+        if self._executor_error_recorded:
+            return True
         stream_sink = await self.prepare()
+        # Executor failure can arrive while stream initialization is suspended.
+        # Its state and stream delivery take precedence over SDK cleanup errors.
+        if self._executor_error_recorded:
+            return True
         logger.error("Runtime error", error=error)
         self._result.error = error
         # A classification is trusted only when the host-side runtime hands it

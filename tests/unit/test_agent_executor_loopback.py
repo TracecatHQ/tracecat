@@ -21,7 +21,10 @@ from tracecat.agent.common.stream_types import (
     ToolCallContent,
     UnifiedStreamEvent,
 )
-from tracecat.agent.error_policy import agent_executor_unavailable
+from tracecat.agent.error_policy import (
+    agent_executor_unavailable,
+    user_agent_execution_failed,
+)
 from tracecat.agent.executor.loopback import (
     AgentStreamSink,
     FanoutStreamSink,
@@ -1313,6 +1316,71 @@ async def test_emit_terminal_error_preserves_state_when_runtime_sends_done(
     assert result.terminal_stream_error_emitted is True
     stream.error.assert_awaited_once_with(error)
     stream.done.assert_not_awaited()
+    capture.assert_not_called()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("runtime_already_preparing", [False, True])
+async def test_executor_error_survives_concurrent_runtime_error(
+    monkeypatch: pytest.MonkeyPatch,
+    runtime_already_preparing: bool,
+) -> None:
+    handler = _make_handler()
+    stream = _FakeStream()
+    handler._stream_sink = stream
+    capture = MagicMock()
+    monkeypatch.setattr(loopback_module, "capture_activity_failure", capture)
+    stream_entered = asyncio.Event()
+    release_stream = asyncio.Event()
+    prepare_entered = asyncio.Event()
+    release_prepare = asyncio.Event()
+    error = "provider request failed"
+    classification = user_agent_execution_failed()
+
+    async def stalled_error(message: str) -> None:
+        if message == error:
+            stream_entered.set()
+            await release_stream.wait()
+
+    async def stalled_prepare() -> _FakeStream:
+        prepare_entered.set()
+        await release_prepare.wait()
+        return stream
+
+    stream.error.side_effect = stalled_error
+    runtime_task: asyncio.Task[None] | None = None
+    async with asyncio.timeout(5):
+        async with asyncio.TaskGroup() as tasks:
+            if runtime_already_preparing:
+                monkeypatch.setattr(handler, "prepare", stalled_prepare)
+                runtime_task = tasks.create_task(
+                    handler.send_error(
+                        "secondary runtime failure",
+                        cause=RuntimeError("secondary runtime failure"),
+                    )
+                )
+                await prepare_entered.wait()
+            terminal_task = tasks.create_task(
+                handler.emit_terminal_error(error, classification=classification)
+            )
+            await stream_entered.wait()
+            release_prepare.set()
+            if runtime_task is not None:
+                await runtime_task
+            else:
+                await handler.send_error(
+                    "secondary runtime failure",
+                    cause=RuntimeError("secondary runtime failure"),
+                )
+            release_stream.set()
+
+    await handler.send_done()
+    result = handler.build_result()
+    assert terminal_task.result() is True
+    assert result.success is False
+    assert result.error == error
+    assert result.classification == classification
+    stream.error.assert_awaited_once_with(error)
     capture.assert_not_called()
 
 
