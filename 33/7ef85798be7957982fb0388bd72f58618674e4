@@ -1,0 +1,25 @@
+docs/self-hosting/air-gapped.mdx
+  s_4fa6b793d38d8d::t_e1395b36b7091d 57,61,63,68-69,72,74
+  s_4fa6b793d38d8d::t_4a6e69655a6f5f 67,70-71,73,78
+  s_4fa6b793d38d8d::t_3c5348e33eee6a 65-66
+  s_4fa6b793d38d8d::t_aa86e6ac3a3d51 79
+docs/agents/custom-llm-providers.mdx
+  s_4fa6b793d38d8d::t_e1395b36b7091d 87
+  s_4fa6b793d38d8d::t_4a6e69655a6f5f 86
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "337ef85798be7957982fb0388bd72f58618674e4",
+  "prompts": {},
+  "sessions": {
+    "s_4fa6b793d38d8d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a003-4f64-71a2-88f6-19e0e774d2b8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
