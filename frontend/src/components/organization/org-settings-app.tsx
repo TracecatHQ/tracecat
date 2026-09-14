@@ -25,6 +25,7 @@ const appFormSchema = z.object({
   app_workflow_export_enabled: z.boolean(),
   app_create_workspace_on_register: z.boolean(),
   app_action_form_mode_enabled: z.boolean(),
+  app_unsafe_disable_secret_error_withholding: z.boolean(),
 })
 
 type AppFormValues = z.infer<typeof appFormSchema>
@@ -52,6 +53,8 @@ export function OrgSettingsAppForm() {
         appSettings?.app_create_workspace_on_register ?? false,
       app_action_form_mode_enabled:
         appSettings?.app_action_form_mode_enabled ?? true,
+      app_unsafe_disable_secret_error_withholding:
+        appSettings?.app_unsafe_disable_secret_error_withholding ?? false,
     },
   })
 
@@ -66,6 +69,8 @@ export function OrgSettingsAppForm() {
           app_create_workspace_on_register:
             data.app_create_workspace_on_register,
           app_action_form_mode_enabled: data.app_action_form_mode_enabled,
+          app_unsafe_disable_secret_error_withholding:
+            data.app_unsafe_disable_secret_error_withholding,
         },
       })
     } catch {
@@ -207,6 +212,31 @@ export function OrgSettingsAppForm() {
                 <FormDescription>
                   Allow form mode for action inputs. When disabled, only YAML
                   mode is available.
+                </FormDescription>
+              </div>
+              <FormControl>
+                <Switch
+                  checked={field.value}
+                  onCheckedChange={field.onChange}
+                />
+              </FormControl>
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="app_unsafe_disable_secret_error_withholding"
+          render={({ field }) => (
+            <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+              <div className="space-y-0.5">
+                <FormLabel>Allow actions to show error details</FormLabel>
+                <FormDescription>
+                  Unsafe: let actions opt into showing their original error
+                  message when secrets are in scope, instead of the generic
+                  &quot;Details withheld&quot; message. Each action must still
+                  enable &quot;Show error details&quot;. Known secret values are
+                  masked, but transformed secrets may leak.
                 </FormDescription>
               </div>
               <FormControl>

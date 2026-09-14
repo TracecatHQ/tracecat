@@ -26,7 +26,6 @@ from tracecat.db.models import (
     PlatformRegistryVersion,
     RegistryRepository,
     RegistryVersion,
-    Workspace,
 )
 from tracecat.dsl.common import context_locator, create_default_execution_context
 from tracecat.dsl.schemas import (
@@ -85,6 +84,7 @@ from tracecat.secrets.common import (
     ctx_unsafe_disable_secret_error_withholding,
     secret_error_withholding_disabled,
 )
+from tracecat.settings.service import get_setting_from_bypass_session
 from tracecat.variables.schemas import VariableSearch
 from tracecat.variables.service import VariablesService
 
@@ -832,17 +832,18 @@ async def prepare_resolved_context(
     )
 
 
-async def _workspace_allows_error_details(role: Role) -> bool:
-    """Whether the workspace lets actions opt out of secret error withholding."""
-    if role.workspace_id is None:
+async def _org_allows_error_details(role: Role) -> bool:
+    """Whether the organization lets actions opt out of secret error withholding."""
+    if role.organization_id is None:
         return False
     async with get_async_session_bypass_rls_context_manager() as session:
-        settings = await session.scalar(
-            select(Workspace.settings).where(Workspace.id == role.workspace_id)
+        value = await get_setting_from_bypass_session(
+            "app_unsafe_disable_secret_error_withholding",
+            organization_id=role.organization_id,
+            session=session,
+            default=False,
         )
-    if not isinstance(settings, dict):
-        return False
-    return bool(settings.get("unsafe_disable_secret_error_withholding"))
+    return value is True
 
 
 async def invoke_once(
@@ -870,13 +871,13 @@ async def invoke_once(
     # Bound before the try so context-preparation failures stay safe.
     mask_values: set[str] | None = None
 
-    # The per-action opt-in only takes effect when the workspace allows it. The
+    # The per-action opt-in only takes effect when the org allows it. The
     # lookup is inside the error wrapper so a failure here still withholds.
     withholding_token = ctx_unsafe_disable_secret_error_withholding.set(False)
     try:
         if input.task.unsafe_disable_secret_error_withholding:
             ctx_unsafe_disable_secret_error_withholding.set(
-                await _workspace_allows_error_details(role)
+                await _org_allows_error_details(role)
             )
 
         # Prefetch registry lock manifests into cache for O(1) resolution.

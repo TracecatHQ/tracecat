@@ -21,7 +21,6 @@ export const runtimeSettingsSchema = z
   .object({
     workflow_unlimited_timeout_enabled: z.boolean().optional(),
     workflow_default_timeout_seconds: z.number().optional(),
-    unsafe_disable_secret_error_withholding: z.boolean().optional(),
   })
   .superRefine((values, ctx) => {
     if (
@@ -51,10 +50,6 @@ export function buildRuntimeSettingsUpdate(values: RuntimeSettingsForm) {
       values.workflow_unlimited_timeout_enabled,
     workflow_default_timeout_seconds:
       values.workflow_default_timeout_seconds ?? null,
-    ...(values.unsafe_disable_secret_error_withholding !== undefined && {
-      unsafe_disable_secret_error_withholding:
-        values.unsafe_disable_secret_error_withholding,
-    }),
   }
 }
 
@@ -71,8 +66,6 @@ export function WorkspaceRuntimeSettings({
         workspace.settings?.workflow_unlimited_timeout_enabled ?? false,
       workflow_default_timeout_seconds:
         workspace.settings?.workflow_default_timeout_seconds || undefined,
-      unsafe_disable_secret_error_withholding:
-        workspace.settings?.unsafe_disable_secret_error_withholding ?? false,
     },
   })
 
@@ -133,31 +126,6 @@ export function WorkspaceRuntimeSettings({
                   }
                   disabled={form.watch("workflow_unlimited_timeout_enabled")}
                   className="w-24"
-                />
-              </FormControl>
-            </FormItem>
-          )}
-        />
-
-        <FormField
-          control={form.control}
-          name="unsafe_disable_secret_error_withholding"
-          render={({ field }) => (
-            <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-              <div className="space-y-0.5">
-                <FormLabel>Allow actions to show error details</FormLabel>
-                <FormDescription>
-                  Unsafe: let actions opt into showing their original error
-                  message when secrets are in scope, instead of the generic
-                  &quot;Details withheld&quot; message. Each action must still
-                  enable &quot;Show error details&quot;. Known secret values are
-                  masked, but transformed secrets may leak.
-                </FormDescription>
-              </div>
-              <FormControl>
-                <Switch
-                  checked={field.value ?? false}
-                  onCheckedChange={field.onChange}
                 />
               </FormControl>
             </FormItem>

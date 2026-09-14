@@ -1324,20 +1324,37 @@ async def test_invoke_once_keeps_action_error_when_withholding_disabled(
     assert "upstream rejected the request" in str(exc_info.value)
 
 
+def _patch_org_error_details_setting(mocker, value: bool | None):
+    """Stub the org setting lookup; `None` mimics a missing setting row."""
+    session_cm = mocker.MagicMock()
+    session_cm.__aenter__ = mocker.AsyncMock(return_value=mocker.AsyncMock())
+    session_cm.__aexit__ = mocker.AsyncMock(return_value=False)
+    mocker.patch.object(
+        executor_service,
+        "get_async_session_bypass_rls_context_manager",
+        return_value=session_cm,
+    )
+    return mocker.patch.object(
+        executor_service,
+        "get_setting_from_bypass_session",
+        new=mocker.AsyncMock(return_value=False if value is None else value),
+    )
+
+
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("workspace_allows", "action_opts_in", "expect_original"),
+    ("org_allows", "action_opts_in", "expect_original"),
     [
-        pytest.param(True, True, True, id="workspace-and-action"),
-        pytest.param(True, False, False, id="workspace-only"),
+        pytest.param(True, True, True, id="org-and-action"),
+        pytest.param(True, False, False, id="org-only"),
         pytest.param(False, True, False, id="action-only"),
-        pytest.param(None, True, False, id="workspace-setting-missing"),
+        pytest.param(None, True, False, id="org-setting-missing"),
     ],
 )
-async def test_invoke_once_action_opt_out_requires_workspace_allow(
-    mocker, monkeypatch, workspace_allows, action_opts_in, expect_original
+async def test_invoke_once_action_opt_out_requires_org_allow(
+    mocker, monkeypatch, org_allows, action_opts_in, expect_original
 ):
-    """The per-action opt-out only surfaces the message when the workspace allows it."""
+    """The per-action opt-out only surfaces the message when the org allows it."""
     from tracecat.exceptions import ExecutionError
 
     monkeypatch.setattr(
@@ -1348,21 +1365,7 @@ async def test_invoke_once_action_opt_out_requires_workspace_allow(
         "core.probe", {"value": "${{ ACTIONS.fetch.result }}"}
     )
     action_input.task.unsafe_disable_secret_error_withholding = action_opts_in
-    workspace_settings = (
-        {}
-        if workspace_allows is None
-        else {"unsafe_disable_secret_error_withholding": workspace_allows}
-    )
-    session = mocker.AsyncMock()
-    session.scalar.return_value = workspace_settings
-    session_cm = mocker.MagicMock()
-    session_cm.__aenter__ = mocker.AsyncMock(return_value=session)
-    session_cm.__aexit__ = mocker.AsyncMock(return_value=False)
-    mocker.patch.object(
-        executor_service,
-        "get_async_session_bypass_rls_context_manager",
-        return_value=session_cm,
-    )
+    get_setting = _patch_org_error_details_setting(mocker, org_allows)
     resolved_context = mocker.Mock(logical_time=mocker.sentinel.logical_time)
     prepared_context = executor_service.PreparedContext(
         resolved_context=resolved_context,
@@ -1408,6 +1411,13 @@ async def test_invoke_once_action_opt_out_requires_workspace_allow(
         assert "upstream rejected the request" not in str(exc_info.value)
     # The per-invocation policy never leaks past invoke_once.
     assert ctx_unsafe_disable_secret_error_withholding.get() is False
+    if action_opts_in:
+        assert get_setting.await_args.args == (
+            "app_unsafe_disable_secret_error_withholding",
+        )
+        assert get_setting.await_args.kwargs["organization_id"] == role.organization_id
+    else:
+        get_setting.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -1424,16 +1434,7 @@ async def test_invoke_once_opt_out_covers_expression_errors(mocker, monkeypatch)
         "core.probe", {"value": "${{ ACTIONS.fetch.result }}"}
     )
     action_input.task.unsafe_disable_secret_error_withholding = True
-    session = mocker.AsyncMock()
-    session.scalar.return_value = {"unsafe_disable_secret_error_withholding": True}
-    session_cm = mocker.MagicMock()
-    session_cm.__aenter__ = mocker.AsyncMock(return_value=session)
-    session_cm.__aexit__ = mocker.AsyncMock(return_value=False)
-    mocker.patch.object(
-        executor_service,
-        "get_async_session_bypass_rls_context_manager",
-        return_value=session_cm,
-    )
+    _patch_org_error_details_setting(mocker, True)
     resolved_context = mocker.Mock(logical_time=mocker.sentinel.logical_time)
     prepared_context = executor_service.PreparedContext(
         resolved_context=resolved_context,

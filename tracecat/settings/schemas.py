@@ -89,6 +89,7 @@ class AppSettingsRead(BaseSettingsGroup):
     app_workflow_export_enabled: bool
     app_create_workspace_on_register: bool
     app_action_form_mode_enabled: bool
+    app_unsafe_disable_secret_error_withholding: bool = False
 
 
 class AppSettingsUpdate(BaseSettingsGroup):
@@ -116,6 +117,15 @@ class AppSettingsUpdate(BaseSettingsGroup):
     app_action_form_mode_enabled: bool = Field(
         default=True,
         description="Whether to enable form mode for action inputs. When disabled, only YAML mode is available, preserving raw YAML formatting.",
+    )
+    app_unsafe_disable_secret_error_withholding: bool = Field(
+        default=False,
+        description=(
+            "UNSAFE: allow actions in this organization to opt into showing their "
+            "original error message when secrets are in scope. Each action must "
+            "still enable 'Show error details' individually. Known secret values "
+            "are still masked."
+        ),
     )
 
 
