@@ -806,6 +806,15 @@ TRACECAT__SANDBOX_BLOCKED_EGRESS_CIDRS = env_networks(
 )
 """Deployment-specific CIDRs blocked in addition to the filtered baseline."""
 
+TRACECAT__SANDBOX_DNS_ALLOWED_EGRESS_CIDRS = env_networks(
+    "TRACECAT__SANDBOX_DNS_ALLOWED_EGRESS_CIDRS"
+)
+"""Additional CIDRs reachable from sandboxes on TCP/UDP port 53 only.
+
+CNIs with socket-level load balancing (for example Cilium with socket LB)
+rewrite the resolver ClusterIP to a backend pod IP before the packet reaches
+NSTUN. List the backend CIDR here so DNS to those addresses is allowed."""
+
 TRACECAT__SANDBOX_ALLOW_PUBLIC_IPV6_EGRESS = env_bool(
     "TRACECAT__SANDBOX_ALLOW_PUBLIC_IPV6_EGRESS", default=False
 )
