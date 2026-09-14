@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tests.support.membership import grant_workspace_membership
+from tests.support.membership import grant_org_membership, grant_workspace_membership
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
 from tracecat.authz.membership import ensure_member
@@ -405,6 +405,10 @@ async def test_create_membership_allows_admin_inviter(
     actor_user: User,
 ) -> None:
     """An admin inviter still grants membership once the ceiling applies."""
+    # The grant admits an existing org member to a workspace, not an outsider.
+    await grant_org_membership(
+        session, user_id=member_user.id, organization_id=organization.id
+    )
     admin_role = DBRole(
         id=uuid.uuid4(),
         name="Workspace Admin",
