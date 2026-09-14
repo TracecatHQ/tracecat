@@ -9,7 +9,7 @@ import { useEffect, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import type { AuthDiscoverResponse } from "@/client"
-import { authDiscoverAuthMethod } from "@/client"
+import { ApiError, authDiscoverAuthMethod } from "@/client"
 import { OidcOAuthButton } from "@/components/auth/oauth-buttons"
 import { SamlSSOButton } from "@/components/auth/saml"
 import { Icons } from "@/components/icons"
@@ -35,6 +35,7 @@ import { toast } from "@/components/ui/use-toast"
 import { useAuthActions } from "@/hooks/use-auth"
 import { setPostAuthReturnUrlCookie, startOidcLogin } from "@/lib/auth-login"
 import { sanitizeReturnUrl } from "@/lib/auth-return-url"
+import { getApiErrorDetail } from "@/lib/errors"
 import { useAppInfo } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 
@@ -307,9 +308,15 @@ export function BasicLoginForm({ initialEmail }: { initialEmail?: string }) {
       })
     } catch (error) {
       console.error("Error signing in", error)
+      const forbiddenDetail =
+        error instanceof ApiError && error.status === 403
+          ? getApiErrorDetail(error)
+          : null
       toast({
         title: "Error signing in",
-        description: "Please check your email and password and try again",
+        description:
+          forbiddenDetail ??
+          "Please check your email and password and try again",
       })
     } finally {
       setIsLoading(false)

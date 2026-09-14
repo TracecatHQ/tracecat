@@ -12,6 +12,7 @@ import {
   MousePointerClickIcon,
   RadioTowerIcon,
   Settings2,
+  ShieldCheckIcon,
   UsersIcon,
 } from "lucide-react"
 import Link from "next/link"
@@ -107,6 +108,14 @@ export function OrganizationSidebar({
       url: "/organization/settings/audit",
       icon: LogsIcon,
       isActive: pathname?.includes("/organization/settings/audit"),
+      visible: canViewSettings === true,
+      locked: false,
+    },
+    {
+      title: "IP allowlist",
+      url: "/organization/settings/security",
+      icon: ShieldCheckIcon,
+      isActive: pathname?.includes("/organization/settings/security"),
       visible: canViewSettings === true,
       locked: false,
     },

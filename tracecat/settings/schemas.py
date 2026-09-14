@@ -1,9 +1,23 @@
 from enum import StrEnum
 from typing import Any, Literal, cast
 
-from pydantic import BaseModel, Field, ValidationInfo, field_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    TypeAdapter,
+    ValidationError,
+    ValidationInfo,
+    field_validator,
+)
 
 from tracecat.agent.otel_config import AgentOtelConfig, validate_otel_header_items
+from tracecat.auth.ip_allowlist import (
+    IP_ALLOWLIST_DESCRIPTION_MAX_LENGTH,
+    IP_ALLOWLIST_MAX_CIDRS_PER_LIST,
+    IP_ALLOWLIST_MAX_ENTRIES,
+    IP_ALLOWLIST_NAME_MAX_LENGTH,
+    normalize_cidrs,
+)
 from tracecat.git.constants import GIT_SSH_URL_REGEX
 
 
@@ -184,6 +198,122 @@ class AuditWebhookTestResult(BaseModel):
     ok: bool
     receiver_status_code: int | None = None
     error_category: AuditWebhookTestErrorCategory | None = None
+
+
+class IPAllowlist(BaseModel):
+    """A named group of allowed IP addresses or CIDR ranges."""
+
+    name: str = Field(
+        min_length=1,
+        max_length=IP_ALLOWLIST_NAME_MAX_LENGTH,
+        description="Human-readable name, e.g. 'Corporate VPN'.",
+    )
+    description: str | None = Field(
+        default=None,
+        max_length=IP_ALLOWLIST_DESCRIPTION_MAX_LENGTH,
+        description="Optional note on what this allowlist covers and who owns it.",
+    )
+    cidrs: list[str] = Field(
+        min_length=1,
+        max_length=IP_ALLOWLIST_MAX_CIDRS_PER_LIST,
+        description="IPv4 or IPv6 addresses or CIDR ranges.",
+    )
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        if not (stripped := value.strip()):
+            raise ValueError("Name cannot be blank")
+        return stripped
+
+    @field_validator("description")
+    @classmethod
+    def validate_description(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.strip() or None
+
+    @field_validator("cidrs")
+    @classmethod
+    def validate_cidrs(cls, value: list[str]) -> list[str]:
+        try:
+            normalized = normalize_cidrs(value)
+        except ValueError as e:
+            raise ValueError(f"Invalid IP address or CIDR range: {e}") from e
+        if not normalized:
+            raise ValueError("At least one IP address or CIDR range is required")
+        return normalized
+
+
+_IP_ALLOWLISTS_ADAPTER = TypeAdapter(list[IPAllowlist])
+
+
+def parse_stored_ip_allowlists(value: object) -> list[IPAllowlist]:
+    """Decode the persisted ``ip_allowlists`` setting value.
+
+    Malformed stored data yields an empty list rather than an error so a bad
+    row can never break authentication.
+    """
+    try:
+        return _IP_ALLOWLISTS_ADAPTER.validate_python(value)
+    except ValidationError:
+        return []
+
+
+def ip_allowlist_cidrs(allowlists: list[IPAllowlist]) -> list[str]:
+    """Flatten allowlists into the CIDR strings used for matching."""
+    return [cidr for allowlist in allowlists for cidr in allowlist.cidrs]
+
+
+class SecuritySettingsRead(BaseSettingsGroup):
+    """Organization security settings."""
+
+    ip_allowlist_enabled: bool
+    ip_allowlists: list[IPAllowlist]
+
+
+class SecuritySettingsUpdate(BaseSettingsGroup):
+    """Organization security settings."""
+
+    ip_allowlist_enabled: bool = Field(
+        default=False,
+        description=(
+            "Restrict organization API access to the configured IP allowlists. "
+            "Has no effect while no allowlists exist."
+        ),
+    )
+    ip_allowlists: list[IPAllowlist] = Field(
+        default_factory=list,
+        max_length=IP_ALLOWLIST_MAX_ENTRIES,
+        description="Named groups of allowed IP addresses or CIDR ranges.",
+    )
+
+    @field_validator("ip_allowlists")
+    @classmethod
+    def validate_ip_allowlists(cls, value: list[IPAllowlist]) -> list[IPAllowlist]:
+        names = [allowlist.name.casefold() for allowlist in value]
+        if len(names) != len(set(names)):
+            raise ValueError("Allowlist names must be unique")
+        return value
+
+    @property
+    def cidrs(self) -> list[str]:
+        return ip_allowlist_cidrs(self.ip_allowlists)
+
+
+class IPAllowlistCheckRequest(BaseModel):
+    """Check whether an IP address would be admitted by the saved allowlist."""
+
+    ip_address: str = Field(min_length=1, max_length=45)
+
+
+class IPAllowlistCheckResult(BaseModel):
+    allowed: bool
+    matched_cidr: str | None = None
+    matched_allowlist: str | None = None
+    """Name of the allowlist containing ``matched_cidr``."""
+    enforced: bool
+    """Whether the allowlist is currently enabled and non-empty."""
 
 
 class AgentSettingsRead(BaseSettingsGroup):

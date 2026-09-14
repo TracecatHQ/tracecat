@@ -37,6 +37,7 @@ from tracecat.auth.api_keys import (
     verify_api_key,
 )
 from tracecat.auth.executor_tokens import verify_executor_token
+from tracecat.auth.ip_allowlist_enforcement import enforce_org_ip_allowlist
 from tracecat.auth.secrets import get_service_key
 from tracecat.auth.types import PlatformRole, Role
 from tracecat.auth.users import (
@@ -931,6 +932,14 @@ async def _role_dependency(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Unauthorized",
+        )
+    # Org IP allowlist applies to end-user and service-account traffic only.
+    # Internal services and executors are not org clients; platform superusers
+    # bypass so an org cannot lock out its operators.
+    if role.type in ("user", "service_account") and role.organization_id is not None:
+        await enforce_org_ip_allowlist(
+            role.organization_id,
+            bypass=user is not None and user.is_superuser,
         )
     # Validate structural requirements and compute scopes
     role = await _validate_role(

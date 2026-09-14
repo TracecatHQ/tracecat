@@ -4655,6 +4655,38 @@ export type HealthResponse = {
 }
 
 /**
+ * A named group of allowed IP addresses or CIDR ranges.
+ */
+export type IPAllowlist = {
+  /**
+   * Human-readable name, e.g. 'Corporate VPN'.
+   */
+  name: string
+  /**
+   * Optional note on what this allowlist covers and who owns it.
+   */
+  description?: string | null
+  /**
+   * IPv4 or IPv6 addresses or CIDR ranges.
+   */
+  cidrs: Array<string>
+}
+
+/**
+ * Check whether an IP address would be admitted by the saved allowlist.
+ */
+export type IPAllowlistCheckRequest = {
+  ip_address: string
+}
+
+export type IPAllowlistCheckResult = {
+  allowed: boolean
+  matched_cidr?: string | null
+  matched_allowlist?: string | null
+  enforced: boolean
+}
+
+/**
  * Display groups for inbox items.
  *
  * Groups are derived from approval state and live workflow execution status,
@@ -7308,6 +7340,28 @@ export type SecretValidationResult = {
   msg?: string
   detail?: SecretValidationDetail | null
   ref?: string | null
+}
+
+/**
+ * Organization security settings.
+ */
+export type SecuritySettingsRead = {
+  ip_allowlist_enabled: boolean
+  ip_allowlists: Array<IPAllowlist>
+}
+
+/**
+ * Organization security settings.
+ */
+export type SecuritySettingsUpdate = {
+  /**
+   * Restrict organization API access to the configured IP allowlists. Has no effect while no allowlists exist.
+   */
+  ip_allowlist_enabled?: boolean
+  /**
+   * Named groups of allowed IP addresses or CIDR ranges.
+   */
+  ip_allowlists?: Array<IPAllowlist>
 }
 
 export type Select = {
@@ -12782,6 +12836,20 @@ export type SettingsUpdateAuditSettingsData = {
 }
 
 export type SettingsUpdateAuditSettingsResponse = void
+
+export type SettingsGetSecuritySettingsResponse = SecuritySettingsRead
+
+export type SettingsUpdateSecuritySettingsData = {
+  requestBody: SecuritySettingsUpdate
+}
+
+export type SettingsUpdateSecuritySettingsResponse = void
+
+export type SettingsCheckIpAllowlistData = {
+  requestBody: IPAllowlistCheckRequest
+}
+
+export type SettingsCheckIpAllowlistResponse = IPAllowlistCheckResult
 
 export type SettingsTestAuditWebhookData = {
   requestBody: AuditSettingsUpdate
@@ -18730,6 +18798,44 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/settings/security": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SecuritySettingsRead
+      }
+    }
+    patch: {
+      req: SettingsUpdateSecuritySettingsData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/settings/security/ip-allowlist/check": {
+    post: {
+      req: SettingsCheckIpAllowlistData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: IPAllowlistCheckResult
         /**
          * Validation Error
          */
