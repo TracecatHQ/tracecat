@@ -64,6 +64,7 @@ from tracecat.integrations.providers.snowflake import (
     SnowflakeCCProvider,
 )
 from tracecat.integrations.providers.wiz.mcp import WizMCPProvider
+from tracecat.integrations.providers.zendesk import ZendeskOAuthProvider
 from tracecat.integrations.schemas import ProviderKey
 
 _PROVIDER_CLASSES: list[type[BaseOAuthProvider]] = [
@@ -122,6 +123,7 @@ _PROVIDER_CLASSES: list[type[BaseOAuthProvider]] = [
     SnowflakeACProvider,
     SnowflakeCCProvider,
     ServiceNowOAuthProvider,
+    ZendeskOAuthProvider,
 ]
 
 
