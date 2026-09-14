@@ -29,6 +29,7 @@ from fastmcp.tools.base import Tool, ToolResult
 from fastmcp.utilities.versions import VersionSpec
 from pydantic import Field
 from pydantic.json_schema import SkipJsonSchema
+from temporalio.exceptions import is_cancelled_exception
 
 from tracecat.agent.common.types import (
     MCPHttpServerConfig,
@@ -715,6 +716,10 @@ async def _execute_registry_action(
     except ToolError:
         raise
     except Exception as e:
+        if is_cancelled_exception(e):
+            # FastMCP treats ordinary exceptions as tool failures. Preserve a
+            # remote Temporal cancellation as request cancellation instead.
+            raise asyncio.CancelledError() from e
         logger.error(
             "Action execution failed",
             action_name=normalized_action_name,

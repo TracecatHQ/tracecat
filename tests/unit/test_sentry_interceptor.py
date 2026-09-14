@@ -29,6 +29,7 @@ from starlette.responses import JSONResponse, Response
 from temporalio import workflow
 from temporalio.converter import DataConverter
 from temporalio.exceptions import ActivityError, ApplicationError, TimeoutType
+from temporalio.exceptions import CancelledError as TemporalCancelledError
 from temporalio.exceptions import TimeoutError as TemporalTimeoutError
 from temporalio.testing import ActivityEnvironment
 from temporalio.worker import (
@@ -120,6 +121,21 @@ class _TestWorkflow:
 
 async def _run_workflow() -> None:
     return None
+
+
+def _activity_error_from_cancellation() -> ActivityError:
+    try:
+        raise ActivityError(
+            "Synthetic activity cancellation",
+            scheduled_event_id=1,
+            started_event_id=2,
+            identity="test-executor",
+            activity_type="execute_action_activity",
+            activity_id="synthetic-activity-id",
+            retry_state=None,
+        ) from TemporalCancelledError("activity cancelled")
+    except ActivityError as error:
+        return error
 
 
 @pytest.fixture
@@ -697,6 +713,40 @@ async def test_invalid_agent_configuration_does_not_emit_sentry(
         await attribution.execute_workflow(_workflow_input())
     sentry_sdk.flush()
 
+    assert sentry_events == []
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "error",
+    [
+        pytest.param(
+            TemporalCancelledError("activity cancelled"),
+            id="direct-temporal-cancellation",
+        ),
+        pytest.param(
+            _activity_error_from_cancellation(),
+            id="wrapped-temporal-cancellation",
+        ),
+    ],
+)
+async def test_temporal_cancellation_is_not_reported_by_attribution_interceptor(
+    sentry_events: list[Event],
+    workflow_runtime: _WorkflowInfo,
+    monkeypatch: pytest.MonkeyPatch,
+    error: BaseException,
+) -> None:
+    del workflow_runtime
+    capture = Mock()
+    monkeypatch.setattr(interceptor_module, "capture_platform_failure", capture)
+    attribution = _RuntimeErrorAttributionWorkflowInterceptor(_RaisingInbound(error))
+
+    with pytest.raises(type(error)) as raised:
+        await attribution.execute_workflow(_workflow_input())
+
+    assert raised.value is error
+    sentry_sdk.flush()
+    capture.assert_not_called()
     assert sentry_events == []
 
 

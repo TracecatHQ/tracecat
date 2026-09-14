@@ -10,7 +10,13 @@ import pytest
 from pydantic import BaseModel, TypeAdapter, ValidationError
 from temporalio.api.failure.v1 import Failure
 from temporalio.converter import DataConverter
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import (
+    ActivityError,
+    ApplicationError,
+)
+from temporalio.exceptions import (
+    CancelledError as TemporalCancelledError,
+)
 
 from tests.shared import capture_application_error as _capture_application_error
 from tracecat.dsl._converter import get_data_converter
@@ -80,6 +86,21 @@ class SyntheticAgentDiagnostic(BaseModel):
 
     phase: Literal["model_call"]
     message: str
+
+
+def _activity_error_from(cause: BaseException) -> ActivityError:
+    try:
+        raise ActivityError(
+            "Synthetic activity cancellation",
+            scheduled_event_id=1,
+            started_event_id=2,
+            identity="test-executor",
+            activity_type="execute_action_activity",
+            activity_id="synthetic-activity-id",
+            retry_state=None,
+        ) from cause
+    except ActivityError as error:
+        return error
 
 
 @pytest.mark.anyio
@@ -880,6 +901,32 @@ def test_activity_error_boundary_preserves_cancellation() -> None:
     classify = Mock()
 
     with pytest.raises(asyncio.CancelledError) as exc_info:
+        with activity_error_boundary(classify):
+            raise cancellation
+
+    assert exc_info.value is cancellation
+    classify.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "cancellation",
+    [
+        pytest.param(
+            TemporalCancelledError("activity cancelled"),
+            id="direct-temporal-cancellation",
+        ),
+        pytest.param(
+            _activity_error_from(TemporalCancelledError("activity cancelled")),
+            id="wrapped-temporal-cancellation",
+        ),
+    ],
+)
+def test_activity_error_boundary_preserves_temporal_cancellation(
+    cancellation: BaseException,
+) -> None:
+    classify = Mock()
+
+    with pytest.raises(type(cancellation)) as exc_info:
         with activity_error_boundary(classify):
             raise cancellation
 
