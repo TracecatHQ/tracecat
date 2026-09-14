@@ -14,7 +14,12 @@ from tracecat.auth.ip_allowlist import (
     parse_client_ip,
 )
 from tracecat.contexts import RequestAuditContext, ctx_request_audit
-from tracecat.settings.schemas import SecuritySettingsUpdate
+from tracecat.settings.schemas import (
+    IPAllowlist,
+    SecuritySettingsUpdate,
+    ip_allowlist_cidrs,
+    parse_stored_ip_allowlists,
+)
 
 
 @pytest.mark.parametrize(
@@ -46,14 +51,57 @@ def test_normalize_cidrs_dedupes_and_drops_blanks() -> None:
 
 def test_security_settings_update_rejects_invalid_cidr() -> None:
     with pytest.raises(ValidationError, match="Invalid IP address or CIDR"):
-        SecuritySettingsUpdate(ip_allowlist_cidrs=["nope"])
+        SecuritySettingsUpdate(
+            ip_allowlists=[IPAllowlist(name="Office", cidrs=["nope"])]
+        )
+
+
+def test_ip_allowlist_rejects_blank_name_and_empty_cidrs() -> None:
+    with pytest.raises(ValidationError, match="Name cannot be blank"):
+        IPAllowlist(name="   ", cidrs=["203.0.113.7"])
+    with pytest.raises(ValidationError, match="At least one IP address"):
+        IPAllowlist(name="Office", cidrs=["  "])
 
 
 def test_security_settings_update_normalizes() -> None:
     params = SecuritySettingsUpdate(
-        ip_allowlist_enabled=True, ip_allowlist_cidrs=["203.0.113.77/24"]
+        ip_allowlist_enabled=True,
+        ip_allowlists=[
+            IPAllowlist(
+                name="  VPN ",
+                description="  ",
+                cidrs=["203.0.113.77/24", "203.0.113.0/24"],
+            )
+        ],
     )
-    assert params.ip_allowlist_cidrs == ["203.0.113.0/24"]
+    allowlist = params.ip_allowlists[0]
+    assert allowlist.name == "VPN"
+    assert allowlist.description is None
+    assert allowlist.cidrs == ["203.0.113.0/24"]
+    assert params.cidrs == ["203.0.113.0/24"]
+
+
+def test_security_settings_update_rejects_duplicate_names() -> None:
+    with pytest.raises(ValidationError, match="names must be unique"):
+        SecuritySettingsUpdate(
+            ip_allowlists=[
+                IPAllowlist(name="VPN", cidrs=["203.0.113.7"]),
+                IPAllowlist(name="vpn", cidrs=["198.51.100.7"]),
+            ]
+        )
+
+
+def test_parse_stored_ip_allowlists() -> None:
+    stored = [
+        {"name": "VPN", "description": "Egress", "cidrs": ["203.0.113.0/24"]},
+        {"name": "Office", "description": None, "cidrs": ["2001:db8::/32"]},
+    ]
+    allowlists = parse_stored_ip_allowlists(stored)
+    assert [a.name for a in allowlists] == ["VPN", "Office"]
+    assert ip_allowlist_cidrs(allowlists) == ["203.0.113.0/24", "2001:db8::/32"]
+    assert parse_stored_ip_allowlists(None) == []
+    assert parse_stored_ip_allowlists(["203.0.113.0/24"]) == []
+    assert parse_stored_ip_allowlists([{"name": "x"}]) == []
 
 
 def test_allowlist_match() -> None:

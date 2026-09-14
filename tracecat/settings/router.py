@@ -32,12 +32,15 @@ from tracecat.settings.schemas import (
     AuditWebhookTestResult,
     GitSettingsRead,
     GitSettingsUpdate,
+    IPAllowlist,
     IPAllowlistCheckRequest,
     IPAllowlistCheckResult,
     SAMLSettingsRead,
     SAMLSettingsUpdate,
     SecuritySettingsRead,
     SecuritySettingsUpdate,
+    ip_allowlist_cidrs,
+    parse_stored_ip_allowlists,
 )
 from tracecat.settings.service import (
     AgentOtelEndpointNotAllowedError,
@@ -256,12 +259,23 @@ async def get_security_settings(
     session: AsyncDBSession,
 ) -> SecuritySettingsRead:
     service = SettingsService(session, role)
+    return await _load_security_settings(service)
+
+
+async def _load_security_settings(service: SettingsService) -> SecuritySettingsRead:
     settings = await service.list_org_settings(keys=SecuritySettingsRead.keys())
     settings_dict = {s.key: service.get_value(s) for s in settings}
     return SecuritySettingsRead(
         ip_allowlist_enabled=bool(settings_dict.get("ip_allowlist_enabled", False)),
-        ip_allowlist_cidrs=list(settings_dict.get("ip_allowlist_cidrs") or []),
+        ip_allowlists=parse_stored_ip_allowlists(settings_dict.get("ip_allowlists")),
     )
+
+
+def _find_allowlist_name(allowlists: list[IPAllowlist], cidr: str) -> str | None:
+    for allowlist in allowlists:
+        if cidr in allowlist.cidrs:
+            return allowlist.name
+    return None
 
 
 @router.patch("/security", status_code=status.HTTP_204_NO_CONTENT)
@@ -278,9 +292,9 @@ async def update_security_settings(
     rejected so an admin cannot lock themselves out of the organization.
     """
     service = SettingsService(session, role)
-    if params.ip_allowlist_enabled and params.ip_allowlist_cidrs:
+    if params.ip_allowlist_enabled and params.cidrs:
         caller_ip = current_client_ip()
-        allowlist = compile_allowlist(enabled=True, cidrs=params.ip_allowlist_cidrs)
+        allowlist = compile_allowlist(enabled=True, cidrs=params.cidrs)
         if caller_ip is None or allowlist.match(caller_ip) is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -310,16 +324,21 @@ async def check_ip_allowlist(
             detail="Invalid IP address",
         )
     service = SettingsService(session, role)
-    settings = await service.list_org_settings(keys=SecuritySettingsRead.keys())
-    settings_dict = {s.key: service.get_value(s) for s in settings}
+    saved = await _load_security_settings(service)
     allowlist = compile_allowlist(
-        enabled=bool(settings_dict.get("ip_allowlist_enabled", False)),
-        cidrs=list(settings_dict.get("ip_allowlist_cidrs") or []),
+        enabled=saved.ip_allowlist_enabled,
+        cidrs=ip_allowlist_cidrs(saved.ip_allowlists),
     )
     matched = allowlist.match(ip)
+    matched_cidr = matched.with_prefixlen if matched else None
     return IPAllowlistCheckResult(
         allowed=matched is not None or not allowlist.enforced,
-        matched_cidr=matched.with_prefixlen if matched else None,
+        matched_cidr=matched_cidr,
+        matched_allowlist=(
+            _find_allowlist_name(saved.ip_allowlists, matched_cidr)
+            if matched_cidr
+            else None
+        ),
         enforced=allowlist.enforced,
     )
 

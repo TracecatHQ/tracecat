@@ -12,9 +12,9 @@ from fastapi import HTTPException, status
 
 from tracecat.auth.ip_allowlist import (
     IP_ALLOWLIST_CACHE_TTL_SECONDS,
-    IP_ALLOWLIST_CIDRS_KEY,
     IP_ALLOWLIST_DENIED_DETAIL,
     IP_ALLOWLIST_ENABLED_KEY,
+    IP_ALLOWLISTS_KEY,
     IPAddress,
     OrgIPAllowlist,
     compile_allowlist,
@@ -24,6 +24,7 @@ from tracecat.contexts import ctx_request_audit
 from tracecat.db.engine import get_async_session_auth_context_manager
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
+from tracecat.settings.schemas import ip_allowlist_cidrs, parse_stored_ip_allowlists
 from tracecat.settings.service import get_setting_from_bypass_session
 
 
@@ -37,16 +38,15 @@ async def get_org_ip_allowlist(organization_id: OrganizationID) -> OrgIPAllowlis
             session=session,
             default=False,
         )
-        cidrs = await get_setting_from_bypass_session(
-            IP_ALLOWLIST_CIDRS_KEY,
+        stored = await get_setting_from_bypass_session(
+            IP_ALLOWLISTS_KEY,
             organization_id=organization_id,
             session=session,
             default=[],
         )
-    if not isinstance(cidrs, list):
-        cidrs = []
+    allowlists = parse_stored_ip_allowlists(stored)
     return compile_allowlist(
-        enabled=bool(enabled), cidrs=[str(c) for c in cidrs if isinstance(c, str)]
+        enabled=bool(enabled), cidrs=ip_allowlist_cidrs(allowlists)
     )
 
 

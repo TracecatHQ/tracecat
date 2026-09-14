@@ -4655,6 +4655,24 @@ export type HealthResponse = {
 }
 
 /**
+ * A named group of allowed IP addresses or CIDR ranges.
+ */
+export type IPAllowlist = {
+  /**
+   * Human-readable name, e.g. 'Corporate VPN'.
+   */
+  name: string
+  /**
+   * Optional note on what this allowlist covers and who owns it.
+   */
+  description?: string | null
+  /**
+   * IPv4 or IPv6 addresses or CIDR ranges.
+   */
+  cidrs: Array<string>
+}
+
+/**
  * Check whether an IP address would be admitted by the saved allowlist.
  */
 export type IPAllowlistCheckRequest = {
@@ -4664,6 +4682,7 @@ export type IPAllowlistCheckRequest = {
 export type IPAllowlistCheckResult = {
   allowed: boolean
   matched_cidr?: string | null
+  matched_allowlist?: string | null
   enforced: boolean
 }
 
@@ -7328,7 +7347,7 @@ export type SecretValidationResult = {
  */
 export type SecuritySettingsRead = {
   ip_allowlist_enabled: boolean
-  ip_allowlist_cidrs: Array<string>
+  ip_allowlists: Array<IPAllowlist>
 }
 
 /**
@@ -7336,13 +7355,13 @@ export type SecuritySettingsRead = {
  */
 export type SecuritySettingsUpdate = {
   /**
-   * Restrict organization API access to the configured IP allowlist. Has no effect while the allowlist is empty.
+   * Restrict organization API access to the configured IP allowlists. Has no effect while no allowlists exist.
    */
   ip_allowlist_enabled?: boolean
   /**
-   * Allowed client IP addresses or CIDR ranges (IPv4 or IPv6).
+   * Named groups of allowed IP addresses or CIDR ranges.
    */
-  ip_allowlist_cidrs?: Array<string>
+  ip_allowlists?: Array<IPAllowlist>
 }
 
 export type Select = {

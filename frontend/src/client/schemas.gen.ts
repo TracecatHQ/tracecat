@@ -15381,6 +15381,46 @@ export const $HealthResponse = {
   title: "HealthResponse",
 } as const
 
+export const $IPAllowlist = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Name",
+      description: "Human-readable name, e.g. 'Corporate VPN'.",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 500,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+      description:
+        "Optional note on what this allowlist covers and who owns it.",
+    },
+    cidrs: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      maxItems: 50,
+      minItems: 1,
+      title: "Cidrs",
+      description: "IPv4 or IPv6 addresses or CIDR ranges.",
+    },
+  },
+  type: "object",
+  required: ["name", "cidrs"],
+  title: "IPAllowlist",
+  description: "A named group of allowed IP addresses or CIDR ranges.",
+} as const
+
 export const $IPAllowlistCheckRequest = {
   properties: {
     ip_address: {
@@ -15413,6 +15453,17 @@ export const $IPAllowlistCheckResult = {
         },
       ],
       title: "Matched Cidr",
+    },
+    matched_allowlist: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Matched Allowlist",
     },
     enforced: {
       type: "boolean",
@@ -24132,16 +24183,16 @@ export const $SecuritySettingsRead = {
       type: "boolean",
       title: "Ip Allowlist Enabled",
     },
-    ip_allowlist_cidrs: {
+    ip_allowlists: {
       items: {
-        type: "string",
+        $ref: "#/components/schemas/IPAllowlist",
       },
       type: "array",
-      title: "Ip Allowlist Cidrs",
+      title: "Ip Allowlists",
     },
   },
   type: "object",
-  required: ["ip_allowlist_enabled", "ip_allowlist_cidrs"],
+  required: ["ip_allowlist_enabled", "ip_allowlists"],
   title: "SecuritySettingsRead",
   description: "Organization security settings.",
 } as const
@@ -24152,17 +24203,17 @@ export const $SecuritySettingsUpdate = {
       type: "boolean",
       title: "Ip Allowlist Enabled",
       description:
-        "Restrict organization API access to the configured IP allowlist. Has no effect while the allowlist is empty.",
+        "Restrict organization API access to the configured IP allowlists. Has no effect while no allowlists exist.",
       default: false,
     },
-    ip_allowlist_cidrs: {
+    ip_allowlists: {
       items: {
-        type: "string",
+        $ref: "#/components/schemas/IPAllowlist",
       },
       type: "array",
-      maxItems: 200,
-      title: "Ip Allowlist Cidrs",
-      description: "Allowed client IP addresses or CIDR ranges (IPv4 or IPv6).",
+      maxItems: 100,
+      title: "Ip Allowlists",
+      description: "Named groups of allowed IP addresses or CIDR ranges.",
     },
   },
   type: "object",
