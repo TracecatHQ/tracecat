@@ -1,7 +1,6 @@
 ---
 name: gh-prerelease
 description: Cut a GitHub prerelease off a specific commit — branch, bump version with `just update-version`, tag, push, and publish a prerelease
-disable-model-invocation: true
 argument-hint: "[<tag>] [<commit>]"
 ---
 
