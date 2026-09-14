@@ -26,7 +26,6 @@ from tracecat.db.models import (
     Group,
     GroupMember,
     GroupRoleAssignment,
-    Membership,
     OrganizationMembership,
     RoleScope,
     Scope,
@@ -328,18 +327,11 @@ class RBACService(BaseOrgService):
 
     async def _user_in_organization(self, user_id: UUID) -> bool:
         """Check whether the user holds any role path in the organization."""
-        # A workspace path is enough to keep the user grantable.
         stmt = (
             select(OrganizationMembership.user_id)
             .where(
                 OrganizationMembership.user_id == user_id,
                 OrganizationMembership.organization_id == self.organization_id,
-            )
-            .union(
-                select(Membership.user_id).where(
-                    Membership.user_id == user_id,
-                    Membership.organization_id == self.organization_id,
-                )
             )
             .limit(1)
         )
