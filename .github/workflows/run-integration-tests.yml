@@ -187,7 +187,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          compose_files=(-f docker-compose.local.yml -f .github/docker-compose.integration.yml)
+          compose_files=(-f docker-compose.local.yml -f .github/docker-compose.integration.yml -f docker-compose.pgvector.yml)
 
           # Overlap host dependency setup with service startup.
           uv sync --locked --group dev &
@@ -213,7 +213,7 @@ jobs:
               # Get health status of all services, filter to those with health checks
               # A service is ready when Health is exactly "healthy" (not empty, null, or starting)
               statuses=$(
-                docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml ps --format json |
+                docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml -f docker-compose.pgvector.yml ps --format json |
                   jq -r "if type == \"array\" then .[] else . end | select(.Health != null and .Health != \"\") | .Health"
               )
 
@@ -278,38 +278,38 @@ jobs:
           TRACECAT__CI_IMAGE_TAG: integration-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           echo "=== Docker Service Status ==="
-          docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml ps
+          docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml -f docker-compose.pgvector.yml ps
 
           echo "=== API Logs ==="
-          docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml logs api --tail=200
+          docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml -f docker-compose.pgvector.yml logs api --tail=200
 
           echo "=== Migrations Logs ==="
-          docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml logs migrations --tail=200
+          docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml -f docker-compose.pgvector.yml logs migrations --tail=200
 
           echo "=== Worker Logs ==="
-          docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml logs worker --tail=200
+          docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml -f docker-compose.pgvector.yml logs worker --tail=200
 
           echo "=== Executor Logs ==="
-          docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml logs executor --tail=200
+          docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml -f docker-compose.pgvector.yml logs executor --tail=200
 
           echo "=== Temporal Logs ==="
-          docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml logs temporal --tail=200
+          docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml -f docker-compose.pgvector.yml logs temporal --tail=200
 
           echo "=== Redis Logs ==="
-          docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml logs redis --tail=200
+          docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml -f docker-compose.pgvector.yml logs redis --tail=200
 
           echo "=== MinIO Logs ==="
-          docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml logs minio --tail=200
+          docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml -f docker-compose.pgvector.yml logs minio --tail=200
 
           echo "=== PostgreSQL Logs ==="
-          docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml logs postgres_db --tail=200
+          docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml -f docker-compose.pgvector.yml logs postgres_db --tail=200
 
       - name: Clean up
         if: always()
         env:
           TRACECAT__CI_IMAGE_TAG: integration-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
-          docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml down -v
+          docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml -f docker-compose.pgvector.yml down -v
 
       - name: Create integration success marker
         if: success() && needs.plan-run.outputs.cache_hit != 'true'
