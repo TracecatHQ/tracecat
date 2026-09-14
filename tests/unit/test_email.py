@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import socket
 from email.message import EmailMessage
 from unittest.mock import AsyncMock
@@ -13,10 +14,13 @@ from aiosmtplib.response import SMTPResponse
 from tracecat import config
 from tracecat.email import transport as transport_module
 from tracecat.email.transport import (
+    OPERATION_TIMEOUT_SECONDS,
+    SEND_DEADLINE_SECONDS,
     EmailDeliveryError,
     OutboundEmail,
     SMTPTransport,
 )
+from tracecat.invitations.service import RESEND_COOLDOWN
 
 
 @pytest.fixture
@@ -132,7 +136,7 @@ async def test_smtp_transport_send_builds_mime_and_selects_tls(
         "password": "secret",
         "use_tls": use_tls,
         "start_tls": start_tls,
-        "timeout": 20,
+        "timeout": OPERATION_TIMEOUT_SECONDS,
     }
     assert mime["From"] == "Tracecat <no-reply@example.com>"
     assert mime["To"] == "invitee@example.com"
@@ -284,3 +288,36 @@ async def test_invalid_sender_header_is_retryable_and_never_connects(
 
 def test_email_delivery_error_defaults_to_non_retryable() -> None:
     assert EmailDeliveryError("failed").retryable is False
+
+
+def test_send_deadline_stays_under_the_resend_cooldown() -> None:
+    """A send must not outlive the cooldown, or a resend double-sends."""
+    assert OPERATION_TIMEOUT_SECONDS < SEND_DEADLINE_SECONDS
+    assert SEND_DEADLINE_SECONDS < RESEND_COOLDOWN.total_seconds()
+
+
+@pytest.mark.anyio
+async def test_smtp_transport_send_is_bounded_by_the_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A relay that stalls past the deadline fails instead of running unbounded."""
+    monkeypatch.setattr(transport_module, "SEND_DEADLINE_SECONDS", 0.01)
+
+    async def stall(*args: object, **kwargs: object) -> None:
+        await asyncio.sleep(10)
+
+    monkeypatch.setattr(transport_module.aiosmtplib, "send", stall)
+    transport = SMTPTransport(
+        host="smtp.example.com",
+        port=587,
+        username="relay",
+        password="secret",
+        from_addr="Tracecat <no-reply@example.com>",
+    )
+
+    with pytest.raises(EmailDeliveryError) as exc_info:
+        await transport.send(_outbound())
+
+    # A deadline can fire after the relay accepted DATA, so a retry may duplicate.
+    assert exc_info.value.retryable is False
+    assert "TimeoutError" in str(exc_info.value)

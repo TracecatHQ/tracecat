@@ -2,13 +2,21 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from email.message import EmailMessage
+from typing import Final
 
 import aiosmtplib
 
 from tracecat import config
 from tracecat.exceptions import TracecatException
+
+# Applied per SMTP operation, so a send makes several of these back to back.
+OPERATION_TIMEOUT_SECONDS: Final = 20
+# Bounds the whole send. Must stay under the invitation resend cooldown: a
+# claim younger than that may still be in flight, and resending double-sends.
+SEND_DEADLINE_SECONDS: Final = 30
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,18 +83,21 @@ class SMTPTransport:
             ) from None
 
         try:
-            # Port 465 is implicit TLS; everything else upgrades via STARTTLS.
-            # A hung relay must fail inside the 30s orchestrator stop grace.
-            refused, _ = await aiosmtplib.send(
-                mime,
-                hostname=self.host,
-                port=self.port,
-                username=self.username,
-                password=self.password,
-                use_tls=self.port == 465,
-                start_tls=self.port != 465,
-                timeout=20,
-            )
+            # The per-operation timeout bounds each round trip, not the send,
+            # so a slow relay can outlive the resend cooldown across enough of
+            # them. The deadline bounds the whole exchange.
+            async with asyncio.timeout(SEND_DEADLINE_SECONDS):
+                # Port 465 is implicit TLS; everything else upgrades via STARTTLS.
+                refused, _ = await aiosmtplib.send(
+                    mime,
+                    hostname=self.host,
+                    port=self.port,
+                    username=self.username,
+                    password=self.password,
+                    use_tls=self.port == 465,
+                    start_tls=self.port != 465,
+                    timeout=OPERATION_TIMEOUT_SECONDS,
+                )
         except Exception as error:
             # No host, recipients, or cause: relay responses may echo
             # customer infrastructure or addresses.
