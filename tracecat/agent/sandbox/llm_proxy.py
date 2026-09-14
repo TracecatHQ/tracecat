@@ -15,6 +15,7 @@ import time
 import uuid
 from collections.abc import AsyncIterable, Callable
 from dataclasses import dataclass, field, replace
+from functools import partial
 from pathlib import Path
 from typing import Any, Literal, TypedDict
 from uuid import uuid4
@@ -47,7 +48,7 @@ from tracecat.agent.gateway_providers import (
 )
 from tracecat.agent.observability import get_load_tracker
 from tracecat.agent.service import AgentManagementService
-from tracecat.agent.tokens import LLMTokenClaims
+from tracecat.agent.tokens import verify_llm_token
 from tracecat.auth.types import Role
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.logger import logger
@@ -556,12 +557,10 @@ class LLMRoutingPlan:
         managed_route: Shared LiteLLM destination for non-passthrough requests.
             Model selection happens in the gateway.
         direct_routes: Direct passthrough routes keyed by exact request model.
-        token_claims: Verified gateway claims used only for error diagnostics.
     """
 
     managed_route: LLMRoute
     direct_routes: dict[str, LLMRoute]
-    token_claims: LLMTokenClaims | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         # Direct routes are stored in catalog-friendly OpenAI-compatible form
@@ -625,7 +624,6 @@ class LLMRoutingPlan:
 
         return LLMRoutingPlan(
             managed_route=replace(self.managed_route, authorization=None),
-            token_claims=self.token_claims,
             direct_routes={
                 route_key: replace(
                     route, authorization=direct_authorizations.get(route_key)
@@ -649,19 +647,29 @@ class LLMRoutingPlan:
             return route
         return self.managed_route
 
-    def error_diagnostics(self, request_model: object) -> LLMErrorDiagnostics:
+    def error_diagnostics(
+        self, request_model: object, headers: dict[str, str]
+    ) -> LLMErrorDiagnostics:
         """Derive provider context using the gateway's token selection rules."""
         route = self.resolve(request_model)
         if route.is_direct:
             return route.error_diagnostics
-        if self.token_claims is None:
+        authorization = next(
+            (value for key, value in headers.items() if key.lower() == "authorization"),
+            "",
+        )
+        scheme, _, token = authorization.partition(" ")
+        if scheme.lower() != "bearer":
+            return LLMErrorDiagnostics(route="managed")
+        try:
+            claims = verify_llm_token(token)
+        except ValueError:
+            # Optional diagnostics must not replace the gateway's auth error.
             return LLMErrorDiagnostics(route="managed")
         selected = (
-            self.token_claims.routes.get(request_model)
-            if isinstance(request_model, str)
-            else None
+            claims.routes.get(request_model) if isinstance(request_model, str) else None
         )
-        provider = selected.provider if selected else self.token_claims.provider
+        provider = selected.provider if selected else claims.provider
         return LLMErrorDiagnostics(
             route="managed", provider_configuration=provider_configuration_for(provider)
         )
@@ -1124,12 +1132,15 @@ class LLMSocketProxy:
 
         request_model = data.get("model") if data is not None else None
         route = self.routing_plan.resolve(request_model)
-        diagnostic = self.routing_plan.error_diagnostics(request_model)
         upstream_request = route.prepare_forward_request(
             path=path,
             headers=headers,
             body=body,
             data=data,
+        )
+
+        diagnostic = partial(
+            self.routing_plan.error_diagnostics, request_model, upstream_request.headers
         )
 
         response_phase: Literal["response_headers", "error_body"] = "response_headers"
@@ -1156,7 +1167,7 @@ class LLMSocketProxy:
                     self._emit_error(
                         classification.message,
                         classification,
-                        diagnostic=diagnostic,
+                        diagnostic=diagnostic(),
                     )
                     body_chunks = [error_body]
                 else:
@@ -1174,7 +1185,7 @@ class LLMSocketProxy:
                     method=method,
                     path=path,
                     route_is_direct=route.is_direct,
-                    diagnostic=diagnostic,
+                    diagnostic_factory=diagnostic,
                 )
         except httpx.TransportError as exc:
             if self._stopping:
@@ -1203,7 +1214,7 @@ class LLMSocketProxy:
                             if timed_out
                             else f"LLM upstream unavailable: {exc}"
                         ),
-                        diagnostic=diagnostic,
+                        diagnostic=diagnostic(),
                     )
                 )
 
@@ -1221,7 +1232,7 @@ class LLMSocketProxy:
         method: str | None = None,
         path: str | None = None,
         route_is_direct: bool = False,
-        diagnostic: LLMErrorDiagnostics | None = None,
+        diagnostic_factory: Callable[[], LLMErrorDiagnostics] | None = None,
     ) -> None:
         """Write an HTTP response head and stream the response body."""
         content_type = next(
@@ -1345,7 +1356,7 @@ class LLMSocketProxy:
                     self._emit_error(
                         surfaced_error,
                         classification,
-                        diagnostic=diagnostic,
+                        diagnostic=diagnostic_factory() if diagnostic_factory else None,
                     )
                 error_payload = orjson.dumps(
                     {
@@ -1377,7 +1388,9 @@ class LLMSocketProxy:
                             exc,
                             route_is_direct=route_is_direct,
                             fallback_message=f"LLM response failed: {str(exc)[:512]}",
-                            diagnostic=diagnostic,
+                            diagnostic=diagnostic_factory()
+                            if diagnostic_factory
+                            else None,
                         )
                     )
             else:

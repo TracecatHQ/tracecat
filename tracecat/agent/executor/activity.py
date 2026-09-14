@@ -102,7 +102,6 @@ from tracecat.agent.skill.builtin import (
 )
 from tracecat.agent.skill.builtin.staging import stage_platform_skill_plugin
 from tracecat.agent.skill.service import SkillService
-from tracecat.agent.tokens import verify_llm_token
 from tracecat.agent.types import AgentConfig, clamp_agent_timeout_seconds
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import ChatMessage
@@ -458,51 +457,63 @@ class SandboxedAgentExecutor:
         # Keep all root/subagent semantics on the executor side. The proxy only
         # receives model-key routes and does not know which agent emitted them.
         config = cast(Any, self.input.config)
-        managed_route = LLMRoute(
-            base_url=app_config.TRACECAT__LITELLM_BASE_URL.rstrip("/"),
-            model_provider=config.model_provider,
-            mode="managed",
-            # Scoped subagent requests defer provider-specific cleanup to LiteLLM.
-            local_provider_cleanup=not self.input.subagents,
-        )
-        # Diagnostics are optional; authentication remains the gateway's job.
-        try:
-            token_claims = verify_llm_token(self.input.llm_gateway_auth_token)
-        except ValueError:
-            token_claims = None
         return LLMRoutingPlan(
-            managed_route=managed_route,
-            direct_routes=self._direct_routes(),
-            token_claims=token_claims,
+            managed_route=LLMRoute(
+                base_url=app_config.TRACECAT__LITELLM_BASE_URL.rstrip("/"),
+                model_provider=config.model_provider,
+                mode="managed",
+                # Managed subagent requests use synthetic LiteLLM route keys, so
+                # the proxy should let LiteLLM do provider-specific body cleanup.
+                local_provider_cleanup=not self.input.subagents,
+            ),
+            direct_routes=self._direct_passthrough_routes(),
         )
 
-    def _direct_routes(self) -> dict[str, LLMRoute]:
-        """Index passthrough endpoints by the runtime's exact model key."""
-        direct_routes: dict[str, LLMRoute] = {}
+    def _direct_passthrough_routes(self) -> dict[str, LLMRoute]:
+        """Build direct passthrough routes from each agent's own model config.
 
-        root_config = cast(Any, self.input.config)
-        if root_config.passthrough:
-            direct_routes[root_config.model_name] = self._direct_passthrough_route(
-                root_config.base_url,
-                model_provider=root_config.model_provider,
-                catalog_id=root_config.catalog_id,
+        Each entry is keyed by the exact model string the runtime will send in
+        the request body. The proxy can then make a local routing decision
+        without needing to know which agent produced the request.
+
+        A single execution can include a passthrough root agent and multiple
+        passthrough subagents. Passthrough requests go straight to their
+        provider endpoint instead of through managed LiteLLM, so the shared
+        proxy needs one direct route per exact runtime model key rather than
+        one global passthrough destination. Agents without passthrough need no
+        entry here; their requests use the managed route.
+
+        Returns:
+            Direct passthrough routes keyed by request model.
+        """
+        routes: dict[str, LLMRoute] = {}
+        config = cast(Any, self.input.config)
+        if config.passthrough:
+            # Root routing is keyed by the model string the root agent sends.
+            routes[config.model_name] = self._direct_passthrough_route(
+                config.base_url,
+                model_provider=config.model_provider,
+                catalog_id=config.catalog_id,
             )
 
         for subagent in self.input.subagents:
             config = subagent.config
+            if not config.passthrough:
+                continue
+            # Subagents usually send a synthetic scoped model key. If that subagent
+            # is passthrough, the scoped key should direct-route to its own gateway.
             request_model = subagent.model_route or get_litellm_route_model(
                 model_provider=config.model_provider,
                 model_name=config.model_name,
-                passthrough=config.passthrough,
+                passthrough=True,
             )
-            if config.passthrough:
-                direct_routes[request_model] = self._direct_passthrough_route(
-                    config.base_url,
-                    model_provider=config.model_provider,
-                    catalog_id=config.catalog_id,
-                    upstream_model_name=config.model_name,
-                )
-        return direct_routes
+            routes[request_model] = self._direct_passthrough_route(
+                config.base_url,
+                model_provider=config.model_provider,
+                catalog_id=config.catalog_id,
+                upstream_model_name=config.model_name,
+            )
+        return routes
 
     @staticmethod
     def _direct_passthrough_route(

@@ -54,7 +54,7 @@ from tracecat.agent.session.activities import (
     LoadSessionResult,
 )
 from tracecat.agent.session.types import AgentSessionEntity
-from tracecat.agent.tokens import LLMTokenClaims
+from tracecat.agent.tokens import mint_llm_token
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.dsl._converter import get_data_converter
@@ -245,13 +245,6 @@ def _gateway_routing_plan(
             LLMRoutingPlan(
                 managed_route=managed_route,
                 direct_routes={},
-                token_claims=LLMTokenClaims(
-                    workspace_id=uuid.uuid4(),
-                    organization_id=uuid.uuid4(),
-                    session_id=uuid.uuid4(),
-                    model=model,
-                    provider=managed_route.model_provider,
-                ),
             ),
             model,
         )
@@ -325,12 +318,22 @@ async def _gateway_failure(
     if request_model is not None:
         request_body["model"] = request_model
 
+    token = mint_llm_token(
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        session_id=uuid.uuid4(),
+        model=request_model or "synthetic-model",
+        provider=routing_plan.managed_route.model_provider,
+    )
     try:
         await proxy._forward_request(
             {
                 "method": "POST",
                 "path": "/v1/messages",
-                "headers": {"content-type": "application/json"},
+                "headers": {
+                    "content-type": "application/json",
+                    "Authorization": f"Bearer {token}",
+                },
                 "body": orjson.dumps(request_body),
             },
             cast(asyncio.StreamWriter, writer),
@@ -366,8 +369,11 @@ async def env() -> AsyncGenerator[WorkflowEnvironment, None]:
 
 
 @pytest.fixture
-def worker_factory() -> Iterator[WorkerFactory]:
+def worker_factory(monkeypatch: pytest.MonkeyPatch) -> Iterator[WorkerFactory]:
     """Create Workers with the same runner and interceptor as production."""
+    monkeypatch.setattr(
+        config, "TRACECAT__SERVICE_KEY", "synthetic-signing-key-for-tests-only"
+    )
     with ThreadPoolExecutor(max_workers=4) as activity_executor:
 
         def create_worker(

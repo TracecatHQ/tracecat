@@ -3582,20 +3582,27 @@ async def test_executor_derives_diagnostics_from_root_and_subagent_providers(
         },
     )
     plan = SandboxedAgentExecutor(input=executor_input)._llm_routing_plan()
-    # Materialization must preserve the verified token claims too.
+    headers = {"authorization": f"Bearer {executor_input.llm_gateway_auth_token}"}
+    # Materialization preserves transport selection.
     plan = await plan.materialize(None)
     assert plan.error_diagnostics(
         get_litellm_route_model(
             model_provider=root_provider, model_name="synthetic-root"
-        )
+        ),
+        headers,
     ) == LLMErrorDiagnostics(route="managed", provider_configuration=root_configuration)
-    assert plan.error_diagnostics("synthetic-child-route") == LLMErrorDiagnostics(
+    assert plan.error_diagnostics(
+        "synthetic-child-route", headers
+    ) == LLMErrorDiagnostics(
         route="managed", provider_configuration=child_configuration
     )
-    assert plan.error_diagnostics("unrecognized-route") == LLMErrorDiagnostics(
+    assert plan.error_diagnostics("unrecognized-route", headers) == LLMErrorDiagnostics(
         route="managed", provider_configuration=root_configuration
     )
-    assert plan.error_diagnostics(None).provider_configuration == root_configuration
+    assert (
+        plan.error_diagnostics(None, headers).provider_configuration
+        == root_configuration
+    )
 
     selected = plan.resolve("synthetic-child-route")
     assert selected is plan.managed_route
@@ -3603,7 +3610,8 @@ async def test_executor_derives_diagnostics_from_root_and_subagent_providers(
     for model in (None, "unrecognized-route", 123):
         assert plan.resolve(model) is plan.managed_route
         assert (
-            plan.error_diagnostics(model).provider_configuration == root_configuration
+            plan.error_diagnostics(model, headers).provider_configuration
+            == root_configuration
         )
     body = b'{"model":"synthetic-child-route","thinking":{"type":"enabled"}}'
     request = selected.prepare_forward_request(
@@ -3622,8 +3630,7 @@ async def test_invalid_diagnostic_token_does_not_block_forwarding() -> None:
     executor_input = _make_executor_input(enable_internet_access=False)
     executor_input.llm_gateway_auth_token = "synthetic-invalid-token"
     plan = SandboxedAgentExecutor(input=executor_input)._llm_routing_plan()
-    assert plan.token_claims is None
-    assert plan.error_diagnostics("synthetic-model") == LLMErrorDiagnostics(
-        route="managed"
-    )
+    assert plan.error_diagnostics(
+        "synthetic-model", {"Authorization": "Bearer synthetic-invalid-token"}
+    ) == LLMErrorDiagnostics(route="managed")
     assert plan.resolve("synthetic-model") is plan.managed_route

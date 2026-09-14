@@ -22,7 +22,7 @@ from tracecat.agent.sandbox.llm_proxy import (
     LLMSocketProxy,
     _http_error_classification,
 )
-from tracecat.agent.tokens import LLMRouteClaim, LLMTokenClaims
+from tracecat.agent.tokens import LLMRouteClaim, mint_llm_token
 from tracecat.runtime.errors import (
     RetryDisposition,
     RuntimeErrorKind,
@@ -1916,7 +1916,11 @@ async def test_llm_metadata_follows_selected_route_on_all_failure_phases(
     configuration: Literal["builtin", "custom"],
     direct: bool,
     failure: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(
+        "tracecat.config.TRACECAT__SERVICE_KEY", "synthetic-signing-key-for-tests-only"
+    )
     errors: list[LLMProxyError] = []
 
     class StalledBody(httpx.AsyncByteStream):
@@ -1958,25 +1962,23 @@ async def test_llm_metadata_follows_selected_route_on_all_failure_phases(
             base_url="http://gateway", model_provider="root-provider", mode="managed"
         ),
         direct_routes={"synthetic-model": selected_route} if direct else {},
-        token_claims=LLMTokenClaims(
-            workspace_id=uuid.uuid4(),
-            organization_id=uuid.uuid4(),
-            session_id=uuid.uuid4(),
-            model="synthetic-root",
-            provider="openai",
-            routes={
-                "synthetic-model": LLMRouteClaim(
-                    model="synthetic-model",
-                    provider=(
-                        "openai"
-                        if configuration == "custom"
-                        else "custom-model-provider"
-                    )
-                    if direct
-                    else selected_route.model_provider,
+    )
+    token = mint_llm_token(
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        session_id=uuid.uuid4(),
+        model="synthetic-root",
+        provider="openai",
+        routes={
+            "synthetic-model": LLMRouteClaim(
+                model="synthetic-model",
+                provider=(
+                    "openai" if configuration == "custom" else "custom-model-provider"
                 )
-            },
-        ),
+                if direct
+                else selected_route.model_provider,
+            )
+        },
     )
     proxy = LLMSocketProxy(
         socket_path=tmp_path / "llm.sock", routing_plan=plan, on_error=errors.append
@@ -1987,7 +1989,7 @@ async def test_llm_metadata_follows_selected_route_on_all_failure_phases(
             {
                 "method": "POST",
                 "path": "/v1/messages",
-                "headers": {},
+                "headers": {"Authorization": f"Bearer {token}"},
                 "body": b'{"model":"synthetic-model"}',
             },
             cast(asyncio.StreamWriter, _FakeWriter()),
@@ -2116,3 +2118,38 @@ async def test_restart_reports_active_stream_failure(short_socket_path: Path) ->
     assert all(
         error.classification.owner == RuntimeErrorOwner.PLATFORM for error in errors
     )
+
+
+@pytest.mark.anyio
+async def test_successful_managed_request_skips_diagnostic_token_verification(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    verify = Mock(
+        side_effect=AssertionError("Success must not decode diagnostic tokens")
+    )
+    monkeypatch.setattr("tracecat.agent.sandbox.llm_proxy.verify_llm_token", verify)
+    proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=LLMRoutingPlan(
+            managed_route=LLMRoute(
+                base_url="http://gateway", model_provider="openai", mode="managed"
+            ),
+            direct_routes={},
+        ),
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, content=b"ok")
+        )
+    ) as client:
+        proxy._client = client
+        await proxy._forward_request(
+            {
+                "method": "POST",
+                "path": "/v1/messages",
+                "headers": {"Authorization": "Bearer synthetic-token"},
+                "body": b'{"model":"synthetic-model"}',
+            },
+            cast(asyncio.StreamWriter, _FakeWriter()),
+        )
+    verify.assert_not_called()
