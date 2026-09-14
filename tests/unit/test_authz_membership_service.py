@@ -509,10 +509,13 @@ async def test_list_workspace_members_reports_each_path_once(
 
     members = await membership_service.list_workspace_members(workspace.id)
 
-    by_user = {m.user_id: m.role_name for m in members}
+    by_user = {m.user_id: m for m in members}
     assert len(members) == len(by_user) == 2
-    assert by_user[actor_user.id] == "Reviewer"
-    assert by_user[member_user.id] == workspace_editor_role.name
+    assert by_user[actor_user.id].role_name == "Reviewer"
+    assert by_user[member_user.id].role_name == workspace_editor_role.name
+    # The winning path is what via_group reports.
+    assert by_user[actor_user.id].via_group is True
+    assert by_user[member_user.id].via_group is False
 
 
 async def test_delete_membership_rejects_when_group_grant_remains(
