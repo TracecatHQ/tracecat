@@ -175,7 +175,10 @@ async def test_emit_terminal_error_uses_redis_when_external_lookup_errors(
     stream_new = AsyncMock(return_value=fake_stream)
     monkeypatch.setattr("tracecat.agent.executor.loopback.AgentStream.new", stream_new)
 
-    emitted = await handler.emit_terminal_error("runtime exited before connect")
+    emitted = await handler.emit_terminal_error(
+        "runtime exited before connect",
+        classification=agent_executor_unavailable(),
+    )
 
     assert emitted is True
     assert handler.build_result().terminal_stream_error_emitted is True
@@ -206,7 +209,10 @@ async def test_emit_terminal_error_emits_failed_compaction_when_pending(
 
     handler._started_compaction_event = True
 
-    emitted = await handler.emit_terminal_error("runtime exited before connect")
+    emitted = await handler.emit_terminal_error(
+        "runtime exited before connect",
+        classification=agent_executor_unavailable(),
+    )
 
     assert emitted is True
     assert handler.build_result().terminal_stream_error_emitted is True
@@ -237,10 +243,42 @@ async def test_emit_terminal_error_bounds_stalled_stream_sink(
     fake_stream.error.side_effect = stalled_error
     handler._stream_sink = fake_stream
 
-    emitted = await handler.emit_terminal_error("provider request failed")
+    classification = agent_executor_unavailable()
+    emitted = await handler.emit_terminal_error(
+        "provider request failed",
+        classification=classification,
+    )
 
     assert emitted is False
-    assert handler.build_result().terminal_stream_error_emitted is False
+    result = handler.build_result()
+    assert result.success is False
+    assert result.error == "provider request failed"
+    assert result.classification == classification
+    assert result.terminal_stream_error_emitted is False
+    fake_stream.error.assert_awaited_once_with("provider request failed")
+
+
+@pytest.mark.anyio
+async def test_emit_terminal_error_retains_state_when_stream_sink_fails(
+    loopback_input: LoopbackInput,
+) -> None:
+    handler = LoopbackHandler(input=loopback_input)
+    fake_stream = _FakeStream()
+    fake_stream.error.side_effect = OSError("stream unavailable")
+    handler._stream_sink = fake_stream
+    classification = agent_executor_unavailable()
+
+    emitted = await handler.emit_terminal_error(
+        "provider request failed",
+        classification=classification,
+    )
+
+    assert emitted is False
+    result = handler.build_result()
+    assert result.success is False
+    assert result.error == "provider request failed"
+    assert result.classification == classification
+    assert result.terminal_stream_error_emitted is False
     fake_stream.error.assert_awaited_once_with("provider request failed")
 
 
@@ -260,10 +298,18 @@ async def test_emit_terminal_error_bounds_stalled_stream_sink_initialization(
     initialize_stream_sink = AsyncMock(side_effect=stalled_initialization)
     monkeypatch.setattr(handler, "_initialize_stream_sink", initialize_stream_sink)
 
-    emitted = await handler.emit_terminal_error("provider request failed")
+    classification = agent_executor_unavailable()
+    emitted = await handler.emit_terminal_error(
+        "provider request failed",
+        classification=classification,
+    )
 
     assert emitted is False
-    assert handler.build_result().terminal_stream_error_emitted is False
+    result = handler.build_result()
+    assert result.success is False
+    assert result.error == "provider request failed"
+    assert result.classification == classification
+    assert result.terminal_stream_error_emitted is False
     initialize_stream_sink.assert_awaited_once()
 
 
@@ -1238,6 +1284,36 @@ async def test_send_done_preserves_existing_error_state() -> None:
     assert handler._result.error == "runtime failed"
     stream.error.assert_not_awaited()
     stream.done.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_emit_terminal_error_preserves_state_when_runtime_sends_done(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A runtime cleanup ``send_done`` must preserve an earlier terminal error."""
+    handler = _make_handler()
+    stream = _FakeStream()
+    handler._stream_sink = stream
+    capture = MagicMock()
+    monkeypatch.setattr(loopback_module, "capture_activity_failure", capture)
+    error = "provider request failed"
+    classification = agent_executor_unavailable()
+
+    emitted = await handler.emit_terminal_error(
+        error,
+        classification=classification,
+    )
+    await handler.send_done()
+
+    result = handler.build_result()
+    assert emitted is True
+    assert result.success is False
+    assert result.error == error
+    assert result.classification == classification
+    assert result.terminal_stream_error_emitted is True
+    stream.error.assert_awaited_once_with(error)
+    stream.done.assert_not_awaited()
+    capture.assert_not_called()
 
 
 @pytest.mark.anyio

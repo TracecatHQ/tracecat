@@ -480,7 +480,12 @@ class LoopbackHandler:
                 error=str(e),
             )
 
-    async def emit_terminal_error(self, error: str) -> bool:
+    async def emit_terminal_error(
+        self,
+        error: str,
+        *,
+        classification: RuntimeErrorClassification,
+    ) -> bool:
         """Emit a terminal error through the resolved stream sink.
 
         This is used by executor-level crash/timeout paths that happen outside
@@ -488,6 +493,9 @@ class LoopbackHandler:
         including sink initialization, so a stalled stream cannot replace the
         executor's authoritative failure with an activity timeout.
         """
+        self._result.success = False
+        self._result.error = error
+        self._result.classification = classification
         try:
             async with asyncio.timeout(TERMINAL_STREAM_ERROR_TIMEOUT_SECONDS):
                 if self._stream_sink is None:

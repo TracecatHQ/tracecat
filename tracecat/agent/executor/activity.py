@@ -903,7 +903,10 @@ class SandboxedAgentExecutor:
                         result.error = proxy_error.message
                         result.classification = proxy_error.classification
                         result.terminal_stream_error_emitted = (
-                            await handler.emit_terminal_error(proxy_error.message)
+                            await handler.emit_terminal_error(
+                                proxy_error.message,
+                                classification=proxy_error.classification,
+                            )
                         )
                         await broker.cancel_turn(str(self.input.session_id))
                         await _cancel_task_with_timeout(
@@ -937,19 +940,24 @@ class SandboxedAgentExecutor:
                             )
                     break
                 else:
-                    result.error = (
+                    timeout_error = (
                         f"Agent execution timed out after {self.timeout_seconds}s"
                     )
-                    result.classification = agent_executor_timed_out()
+                    timeout_classification = agent_executor_timed_out()
+                    result.error = timeout_error
+                    result.classification = timeout_classification
                     # Raise locally so the deadline event retains this source frame.
                     try:
-                        raise TimeoutError(result.error)
+                        raise TimeoutError(timeout_error)
                     except TimeoutError as error:
                         result.sentry_capture = capture_activity_failure(
-                            error, result.classification
+                            error, timeout_classification
                         )
                     result.terminal_stream_error_emitted = (
-                        await handler.emit_terminal_error(result.error)
+                        await handler.emit_terminal_error(
+                            timeout_error,
+                            classification=timeout_classification,
+                        )
                     )
                     await broker.cancel_turn(str(self.input.session_id))
                     await _cancel_task_with_timeout(
@@ -969,7 +977,8 @@ class SandboxedAgentExecutor:
                 existing_capture=handler.build_result().sentry_capture,
             )
             result.terminal_stream_error_emitted = await handler.emit_terminal_error(
-                result.error
+                failure.message,
+                classification=failure.classification,
             )
             if not isinstance(e, ConcurrentSessionTurnError):
                 raise
