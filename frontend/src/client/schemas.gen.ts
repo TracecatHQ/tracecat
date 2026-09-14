@@ -34414,9 +34414,20 @@ export const $WorkspaceMember = {
       type: "string",
       title: "Role Name",
     },
+    via_group: {
+      type: "boolean",
+      title: "Via Group",
+    },
   },
   type: "object",
-  required: ["user_id", "first_name", "last_name", "email", "role_name"],
+  required: [
+    "user_id",
+    "first_name",
+    "last_name",
+    "email",
+    "role_name",
+    "via_group",
+  ],
   title: "WorkspaceMember",
 } as const
 

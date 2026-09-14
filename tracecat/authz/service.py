@@ -226,7 +226,7 @@ class MembershipService(BaseService):
         ).subquery("paths")
         # One row per member; a direct assignment wins over group grants.
         statement = (
-            select(User, DBRole.name)
+            select(User, DBRole.name, paths.c.via_group)
             .select_from(paths)
             .join(User, User.id == paths.c.user_id)  # pyright: ignore[reportArgumentType]
             .join(DBRole, DBRole.id == paths.c.role_id)
@@ -241,8 +241,9 @@ class MembershipService(BaseService):
                 last_name=user.last_name,
                 email=user.email,
                 role_name=role_name,
+                via_group=bool(via_group),
             )
-            for user, role_name in rows
+            for user, role_name, via_group in rows
         ]
 
     async def get_membership(
