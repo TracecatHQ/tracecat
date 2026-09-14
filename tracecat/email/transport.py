@@ -60,12 +60,19 @@ class SMTPTransport:
 
     async def send(self, message: OutboundEmail) -> None:
         """Deliver one message, raising `EmailDeliveryError` on any failure."""
-        mime = EmailMessage()
-        mime["From"] = self.from_addr
-        mime["To"] = ", ".join(message.to)
-        mime["Subject"] = message.subject
-        mime.set_content(message.text)
-        mime.add_alternative(message.html, subtype="html")
+        try:
+            mime = EmailMessage()
+            mime["From"] = self.from_addr
+            mime["To"] = ", ".join(message.to)
+            mime["Subject"] = message.subject
+            mime.set_content(message.text)
+            mime.add_alternative(message.html, subtype="html")
+        except ValueError as error:
+            # A CR/LF in a header aborts before any connection is opened, so
+            # the claim must be released rather than stranded.
+            raise EmailDeliveryError(
+                f"Invalid email header: {type(error).__name__}", retryable=True
+            ) from None
 
         try:
             # Port 465 is implicit TLS; everything else upgrades via STARTTLS.

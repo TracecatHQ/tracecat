@@ -260,5 +260,27 @@ async def test_smtp_transport_marks_pre_send_failures_retryable(
     assert exc_info.value.retryable is retryable
 
 
+@pytest.mark.anyio
+async def test_invalid_sender_header_is_retryable_and_never_connects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    send = AsyncMock()
+    monkeypatch.setattr(transport_module.aiosmtplib, "send", send)
+    transport = SMTPTransport(
+        host="smtp.example.com",
+        port=587,
+        username="relay",
+        password="secret",
+        from_addr="Tracecat <no-reply@example.com>\r\nBcc: attacker@example.com",
+    )
+
+    with pytest.raises(EmailDeliveryError) as exc_info:
+        await transport.send(_outbound())
+
+    # Retryable releases the claim; a raw ValueError would strand the row.
+    assert exc_info.value.retryable is True
+    send.assert_not_awaited()
+
+
 def test_email_delivery_error_defaults_to_non_retryable() -> None:
     assert EmailDeliveryError("failed").retryable is False
