@@ -236,6 +236,35 @@ def test_audit_trusted_proxy_env_is_wired_to_deployments() -> None:
         assert "audit_trusted_proxy_cidrs" in (fargate / tf).read_text(), tf
 
 
+def test_outbound_private_cidrs_are_wired_to_deployments() -> None:
+    """Validation, gateway, and agent processes share the operator's policy."""
+    name = "TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS"
+    for path in SANDBOX_POLICY_COMPOSE_ENV_FILES:
+        for service in ("api", "litellm", "agent-executor", "agent-worker"):
+            match = re.search(
+                rf"(?ms)^  {service}:\n(?P<body>.*?)(?=^  [a-z][a-z0-9_-]*:\n|\Z)",
+                path.read_text(),
+            )
+            assert match is not None, f"{path.name}: no {service} service block"
+            assert f"{name}: ${{{name}:-}}" in match.group("body"), (
+                f"{path.name}: {service} must forward the override and default to empty"
+            )
+    fargate = REPO_ROOT / "deployments/fargate"
+    assert (
+        f"{name} = var.outbound_allowed_private_cidrs"
+        in (fargate / "modules/ecs/locals.tf").read_text()
+    )
+    assert re.search(
+        r"outbound_allowed_private_cidrs\s*=\s*var.outbound_allowed_private_cidrs",
+        (fargate / "main.tf").read_text(),
+    )
+    for tf in ("variables.tf", "modules/ecs/variables.tf"):
+        assert re.search(
+            r'variable "outbound_allowed_private_cidrs" \{[^}]*default\s*=\s*""',
+            (fargate / tf).read_text(),
+        ), tf
+
+
 def test_sandbox_policy_env_vars_are_wired_to_compose_files() -> None:
     missing_by_file = {
         str(path.relative_to(REPO_ROOT)): sorted(

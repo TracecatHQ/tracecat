@@ -144,14 +144,12 @@ def test_default_cap_is_16_mib() -> None:
     assert MCP_MAX_RESPONSE_BYTES == 16 * 1024 * 1024
 
 
-def test_factory_wraps_env_proxy_mounts(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Env-derived proxy transports must also be bounded, not just _transport."""
+def test_factory_ignores_env_proxy_mounts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Proxies must not bypass destination validation or resolve DNS remotely."""
     monkeypatch.setenv("HTTPS_PROXY", "http://proxy.test:8080")
 
     client = create_bounded_mcp_http_client()
 
     assert isinstance(client._transport, BoundedResponseTransport)
-    assert client._mounts, "expected an env-derived proxy mount"
-    for mount in client._mounts.values():
-        if mount is not None:
-            assert isinstance(mount, BoundedResponseTransport)
+    assert client.trust_env is False
+    assert not client._mounts

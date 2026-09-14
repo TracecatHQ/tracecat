@@ -48,6 +48,8 @@ class UserMCPDiscoveryResult:
 
 def _drop_forwarded_authorization(
     configured: dict[str, str] | None,
+    *,
+    origin_url: str,
 ) -> McpHttpClientFactory:
     """Build a client factory that strips fastmcp's forwarded inbound auth."""
     keeps_authorization = configured is not None and "authorization" in configured
@@ -65,6 +67,7 @@ def _drop_forwarded_authorization(
             timeout = httpx.Timeout(30.0, read=300.0)
         kwargs.setdefault("follow_redirects", True)
         return create_bounded_mcp_http_client(
+            origin_url=origin_url,
             headers=merged,
             timeout=timeout,
             auth=auth,
@@ -88,7 +91,7 @@ def _create_transport(
         headers = {name.lower(): value for name, value in headers.items()}
     # Lowercasing alone only wins the merge when our credential is itself an
     # Authorization header; strip the forwarded token in every other case.
-    httpx_client_factory = _drop_forwarded_authorization(headers)
+    httpx_client_factory = _drop_forwarded_authorization(headers, origin_url=url)
     if transport_type == "sse":
         return SSETransport(
             url=url,
