@@ -46,6 +46,7 @@ from tracecat.agent.common.types import (
     is_stdio_mcp_server,
     requires_sandbox_internet_access,
 )
+from tracecat.agent.diagnostics import LLMErrorDiagnostics
 from tracecat.agent.error_policy import (
     agent_executor_protocol_failed,
     agent_executor_timed_out,
@@ -247,6 +248,9 @@ class AgentExecutorResult(BaseModel):
     # Typed terminal attribution produced by the trusted executor boundary.
     # None keeps activity results recorded before this field replayable.
     classification: RuntimeErrorClassification | None = None
+    diagnostic: LLMErrorDiagnostics | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     sentry_capture: PlatformErrorCapture | None = Field(default=None, exclude=True)
     # None means a legacy activity result did not carry this field. The
     # workflow treats unknown failed results as already terminal-emitted so old
@@ -269,6 +273,29 @@ class AgentExecutorResult(BaseModel):
     # Tool calls the interrupt aborted mid-flight (errored after cancellation
     # or never resolved). None on legacy results that predate this field.
     interrupted_tool_call_ids: list[str] | None = None
+
+
+def _record_failure(
+    result: AgentExecutorResult,
+    message: str | None,
+    classification: RuntimeErrorClassification | None,
+    *,
+    diagnostic: LLMErrorDiagnostics | None = None,
+) -> None:
+    """Record one terminal attribution trio on an executor result.
+
+    Message and classification are optional so a loopback turn that succeeded
+    clears the trio through the same path a failed one sets it.
+
+    Args:
+        result: Activity result to update in place.
+        message: Durable failure text, or None when there is no failure.
+        classification: Terminal attribution, or None when there is no failure.
+        diagnostic: Safe request context for an LLM failure.
+    """
+    result.error = message
+    result.classification = classification
+    result.diagnostic = diagnostic
 
 
 def _agent_correlation_attributes(input: AgentExecutorInput) -> dict[str, str]:
@@ -418,12 +445,11 @@ class SandboxedAgentExecutor:
     def _llm_routing_plan(self) -> LLMRoutingPlan:
         """Build the socket proxy routing table from each agent's model config.
 
-        Agent config decides routing, not root/subagent position. The managed
-        route is the fallback for every request model that does not have a
-        direct passthrough entry. Direct passthrough traffic bypasses managed
-        LiteLLM, so each passthrough root/subagent needs its own exact-model
-        route to preserve its custom provider base URL, credentials, and
-        upstream model name.
+        Each agent's passthrough setting determines its transport. Managed
+        requests use the shared LiteLLM gateway, which selects the model and
+        provider from the signed token. Passthrough requests use an exact-model
+        route with their own endpoint, credentials, and upstream model name.
+        Root and subagent requests follow the same rules.
 
         Returns:
             Routing plan for the host-side LLM socket proxy.
@@ -451,9 +477,11 @@ class SandboxedAgentExecutor:
         without needing to know which agent produced the request.
 
         A single execution can include a passthrough root agent and multiple
-        passthrough subagents. Since passthrough skips the managed LiteLLM
-        fallback, the shared proxy needs one direct route per exact runtime
-        model key rather than one global passthrough destination.
+        passthrough subagents. Passthrough requests go straight to their
+        provider endpoint instead of through managed LiteLLM, so the shared
+        proxy needs one direct route per exact runtime model key rather than
+        one global passthrough destination. Agents without passthrough need no
+        entry here; their requests use the managed route.
 
         Returns:
             Direct passthrough routes keyed by request model.
@@ -498,9 +526,9 @@ class SandboxedAgentExecutor:
         """Create one direct passthrough route.
 
         Args:
-            base_url: Resolved custom provider base URL.
-            model_provider: Provider behind the custom route.
-            catalog_id: Optional custom-provider catalog row for credentials.
+            base_url: Resolved provider base URL.
+            model_provider: Provider behind the direct route.
+            catalog_id: Optional provider catalog row for credentials.
             upstream_model_name: Optional model name to send to the upstream.
 
         Returns:
@@ -691,13 +719,11 @@ class SandboxedAgentExecutor:
 
         except AgentSandboxValidationError as e:
             logger.error("Agent configuration is invalid", error=str(e))
-            result.error = str(e)
-            result.classification = invalid_agent_configuration(e)
+            _record_failure(result, str(e), invalid_agent_configuration(e))
         except AgentSandboxExecutionError as e:
             logger.error("Agent sandbox execution failed", error=str(e))
             failure = agent_runtime_failure(e, fallback_message=str(e))
-            result.error = failure.message
-            result.classification = failure.classification
+            _record_failure(result, failure.message, failure.classification)
             result.sentry_capture = capture_activity_failure(
                 e, failure.classification, existing_capture=result.sentry_capture
             )
@@ -706,8 +732,7 @@ class SandboxedAgentExecutor:
             failure = agent_runtime_failure(
                 e, fallback_message=f"Unexpected error: {e}"
             )
-            result.error = failure.message
-            result.classification = failure.classification
+            _record_failure(result, failure.message, failure.classification)
             result.sentry_capture = capture_activity_failure(
                 e, failure.classification, existing_capture=result.sentry_capture
             )
@@ -777,8 +802,7 @@ class SandboxedAgentExecutor:
     ) -> None:
         """Copy loopback result fields into the activity result."""
         result.success = loopback_result.success
-        result.error = loopback_result.error
-        result.classification = loopback_result.classification
+        _record_failure(result, loopback_result.error, loopback_result.classification)
         result.sentry_capture = loopback_result.sentry_capture
         result.approval_requested = loopback_result.approval_requested
         result.approval_items = loopback_result.approval_items or None
@@ -900,8 +924,12 @@ class SandboxedAgentExecutor:
 
                     if fatal_error_task in done:
                         proxy_error = fatal_error_task.result()
-                        result.error = proxy_error.message
-                        result.classification = proxy_error.classification
+                        _record_failure(
+                            result,
+                            proxy_error.message,
+                            proxy_error.classification,
+                            diagnostic=proxy_error.diagnostic,
+                        )
                         result.terminal_stream_error_emitted = (
                             await handler.emit_terminal_error(
                                 proxy_error.message,
@@ -940,22 +968,21 @@ class SandboxedAgentExecutor:
                             )
                     break
                 else:
-                    timeout_error = (
+                    timeout_message = (
                         f"Agent execution timed out after {self.timeout_seconds}s"
                     )
                     timeout_classification = agent_executor_timed_out()
-                    result.error = timeout_error
-                    result.classification = timeout_classification
+                    _record_failure(result, timeout_message, timeout_classification)
                     # Raise locally so the deadline event retains this source frame.
                     try:
-                        raise TimeoutError(timeout_error)
+                        raise TimeoutError(timeout_message)
                     except TimeoutError as error:
                         result.sentry_capture = capture_activity_failure(
                             error, timeout_classification
                         )
                     result.terminal_stream_error_emitted = (
                         await handler.emit_terminal_error(
-                            timeout_error,
+                            timeout_message,
                             classification=timeout_classification,
                         )
                     )
@@ -969,8 +996,7 @@ class SandboxedAgentExecutor:
             # A jailed runtime that died from an rlimit is the caller's failure
             # and must win over the generic executor-unavailable attribution.
             failure = agent_runtime_failure(e, fallback_message=str(e))
-            result.error = failure.message
-            result.classification = failure.classification
+            _record_failure(result, failure.message, failure.classification)
             result.sentry_capture = capture_activity_failure(
                 e,
                 failure.classification,
