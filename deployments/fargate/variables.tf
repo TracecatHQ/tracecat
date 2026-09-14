@@ -218,6 +218,12 @@ variable "tracecat_app_env" {
   default     = "production"
 }
 
+variable "outbound_allowed_private_cidrs" {
+  type        = string
+  description = "Comma-separated private CIDRs permitted for outbound MCP and custom LLM requests. Empty denies private destinations. Applies to every workspace; grant only trusted endpoints."
+  default     = ""
+}
+
 variable "audit_trusted_proxy_cidrs" {
   type        = string
   description = "Comma-separated CIDRs the API treats as its own proxy hops when resolving audit client IPs. Empty uses the built-in private-range default."

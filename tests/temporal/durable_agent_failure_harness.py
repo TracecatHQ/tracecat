@@ -313,6 +313,7 @@ async def _gateway_failure(
         on_error=errors.append,
     )
     proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    proxy._direct_client = proxy._client
     writer = _FakeWriter()
     request_body: dict[str, object] = {"messages": []}
     if request_model is not None:
