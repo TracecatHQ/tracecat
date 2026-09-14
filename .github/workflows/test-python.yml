@@ -170,6 +170,19 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Container health can pass before the default namespace is available.
+          deadline=$((SECONDS + 60))
+          until docker compose -f docker-compose.dev.yml exec -T temporal \
+            tctl --address temporal:7233 --namespace default \
+            admin cluster get-search-attributes --print_json true > /dev/null; do
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "Timed out waiting for the default Temporal namespace"
+              exit 124
+            fi
+            echo "Waiting for the default Temporal namespace..."
+            sleep 2
+          done
+
           attrs=(
             TracecatTriggerType
             TracecatTriggeredByUserId
