@@ -53,7 +53,10 @@ from tracecat.sandbox.utils import (
     communicate_process_group,
     terminate_supervised_process,
 )
-from tracecat.secrets.common import apply_masks_object
+from tracecat.secrets.common import (
+    apply_masks_object,
+    secret_error_withholding_disabled,
+)
 
 if TYPE_CHECKING:
     from tracecat.auth.types import Role
@@ -278,7 +281,7 @@ class ActionRunner:
                 "role": role,
                 "resolved_context": resolved_context,
                 "secret_env": secret_projection.env,
-                "unsafe_disable_secret_error_withholding": config.TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING,
+                "unsafe_disable_secret_error_withholding": secret_error_withholding_disabled(),
             }
 
             # Write input JSON to job directory
@@ -416,7 +419,7 @@ class ActionRunner:
             payload["resolved_context"] = resolved_context
             payload["secret_env"] = secret_projection.env
             payload["unsafe_disable_secret_error_withholding"] = (
-                config.TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING
+                secret_error_withholding_disabled()
             )
         input_json = to_json(payload)
 

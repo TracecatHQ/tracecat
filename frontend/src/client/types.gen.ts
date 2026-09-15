@@ -33,6 +33,10 @@ export type ActionControlFlow = {
    * If true, redact this action's result in workflow execution API responses while preserving internal workflow data flow between actions.
    */
   mask_output?: boolean
+  /**
+   * UNSAFE: if true, surface this action's original error message even when secrets are in scope, instead of the generic 'Details withheld' message. Known secret values are still masked.
+   */
+  unsafe_disable_secret_error_withholding?: boolean
 }
 
 export type ActionCreate = {
@@ -185,6 +189,10 @@ export type ActionStatement = {
    * If true, redact this action's result in workflow execution API responses while preserving internal workflow data flow between actions.
    */
   mask_output?: boolean
+  /**
+   * UNSAFE: if true, surface this action's original error message even when secrets are in scope, instead of the generic 'Details withheld' message. Known secret values are still masked, but the original text may echo transformed secret values that exact-string masking cannot catch.
+   */
+  unsafe_disable_secret_error_withholding?: boolean
 }
 
 export type ActionStep = {
@@ -1204,6 +1212,7 @@ export type AppSettingsRead = {
   app_workflow_export_enabled: boolean
   app_create_workspace_on_register: boolean
   app_action_form_mode_enabled: boolean
+  app_unsafe_disable_secret_error_withholding_workspace_ids?: Array<string>
 }
 
 /**
@@ -1234,6 +1243,10 @@ export type AppSettingsUpdate = {
    * Whether to enable form mode for action inputs. When disabled, only YAML mode is available, preserving raw YAML formatting.
    */
   app_action_form_mode_enabled?: boolean
+  /**
+   * UNSAFE: workspaces whose actions may opt into showing their original error message when secrets are in scope. Each action must still enable 'Show error details' individually. Known secret values are still masked.
+   */
+  app_unsafe_disable_secret_error_withholding_workspace_ids?: Array<string>
 }
 
 /**
@@ -10047,6 +10060,10 @@ export type WorkspaceRead = {
   name: string
   settings?: WorkspaceSettingsRead | null
   organization_id: string
+  /**
+   * Whether the organization lets this workspace's actions opt into showing original error details when secrets are in scope.
+   */
+  unsafe_disable_secret_error_withholding_allowed?: boolean
 }
 
 export type WorkspaceReadMinimal = {
