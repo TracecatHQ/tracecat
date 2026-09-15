@@ -5,12 +5,14 @@ Supports role-based authentication and session management.
 """
 
 import base64
+import re
 from typing import TYPE_CHECKING, Annotated, Any
 from typing_extensions import Doc
 
 import boto3
 import aioboto3
 from aiobotocore.response import StreamingBody
+from botocore.exceptions import ClientError
 
 if TYPE_CHECKING:
     from types_aiobotocore_sts.type_defs import (
@@ -35,6 +37,43 @@ _AWS_SERVICE_REGION_DOC = (
     "AWS service region to use for this request. Overrides the AWS_REGION secret "
     "for the service client."
 )
+_AWS_ROLE_ARN_PATTERN = re.compile(
+    r"^arn:aws(?:-[a-z0-9-]+)?:iam::\d{12}:role/[\w+=,.@\-/]+$"
+)
+# AWS caps role-chained sessions (assumed from temporary credentials) at 1 hour.
+_CHAINED_ROLE_MIN_DURATION_SECONDS = 900
+_CHAINED_ROLE_MAX_DURATION_SECONDS = 3600
+
+RoleArn = Annotated[
+    str | None,
+    Doc(
+        "ARN of an IAM role to assume (role chaining) with the credentials from "
+        "the AWS secret before calling the service, e.g. a role in another AWS "
+        "account that trusts the configured role or user. Requires "
+        "sts:AssumeRole on that role."
+    ),
+]
+RoleSessionName = Annotated[
+    str | None,
+    Doc(
+        "Session name recorded in CloudTrail for the chained AssumeRole. "
+        "Defaults to a Tracecat workspace/run derived name."
+    ),
+]
+ExternalId = Annotated[
+    str | None,
+    Doc(
+        "External ID required by the chained role's trust policy, if any. "
+        "Only used together with role_arn."
+    ),
+]
+DurationSeconds = Annotated[
+    int | None,
+    Doc(
+        "Duration of the chained role session in seconds (900-3600). AWS limits "
+        "role chaining to a maximum of one hour. Only used together with role_arn."
+    ),
+]
 
 aws_secret = RegistrySecret(
     name="aws",
@@ -147,7 +186,134 @@ def get_sync_temporary_credentials(
     return creds
 
 
-async def get_session(region_name: str | None = None) -> aioboto3.Session:
+def _validate_chained_role_arn(role_arn: str) -> str:
+    if not isinstance(role_arn, str):
+        raise TypeError("role_arn must be a string.")
+    role_arn = role_arn.strip()
+    if not _AWS_ROLE_ARN_PATTERN.match(role_arn):
+        raise ValueError(
+            "Invalid role_arn: expected an IAM role ARN like "
+            "'arn:aws:iam::123456789012:role/RoleName'."
+        )
+    return role_arn
+
+
+def _build_chained_assume_role_params(
+    role_arn: str,
+    role_session_name: str | None,
+    external_id: str | None,
+    duration_seconds: int | None,
+) -> dict[str, Any]:
+    """Validate and build the ``AssumeRole`` kwargs for a chained role.
+
+    Only fixed, known STS parameters are forwarded so callers cannot smuggle
+    arbitrary credential fields into the request.
+    """
+    params: dict[str, Any] = {"RoleArn": _validate_chained_role_arn(role_arn)}
+
+    if role_session_name is not None:
+        if not isinstance(role_session_name, str):
+            raise TypeError("role_session_name must be a string.")
+        role_session_name = role_session_name.strip()
+    params["RoleSessionName"] = (role_session_name or _get_role_session_name())[:64]
+
+    if external_id is not None:
+        if not isinstance(external_id, str):
+            raise TypeError("external_id must be a string.")
+        if external_id := external_id.strip():
+            params["ExternalId"] = external_id
+
+    if duration_seconds is not None:
+        if isinstance(duration_seconds, bool) or not isinstance(duration_seconds, int):
+            raise TypeError("duration_seconds must be an integer.")
+        if not (
+            _CHAINED_ROLE_MIN_DURATION_SECONDS
+            <= duration_seconds
+            <= _CHAINED_ROLE_MAX_DURATION_SECONDS
+        ):
+            raise ValueError(
+                "duration_seconds must be between "
+                f"{_CHAINED_ROLE_MIN_DURATION_SECONDS} and "
+                f"{_CHAINED_ROLE_MAX_DURATION_SECONDS} seconds for role chaining."
+            )
+        params["DurationSeconds"] = duration_seconds
+
+    return params
+
+
+def _redact_assume_role_error(e: ClientError) -> RuntimeError:
+    # STS error messages echo the ARN and caller identity; surface only the code.
+    code = e.response.get("Error", {}).get("Code", "Unknown")
+    return RuntimeError(f"Failed to assume chained AWS role (error code {code})")
+
+
+async def assume_chained_role(
+    base_session: aioboto3.Session,
+    role_arn: str,
+    *,
+    role_session_name: str | None = None,
+    external_id: str | None = None,
+    duration_seconds: int | None = None,
+    region_name: str | None = None,
+) -> aioboto3.Session:
+    """Assume ``role_arn`` using ``base_session`` and return a new session.
+
+    This performs role chaining: the credentials already resolved from the AWS
+    secret (static keys or a host-assumed role) call STS ``AssumeRole`` on a
+    second role, typically in another account. Temporary credentials stay in
+    memory only.
+    """
+    params = _build_chained_assume_role_params(
+        role_arn, role_session_name, external_id, duration_seconds
+    )
+    try:
+        async with base_session.client("sts") as sts_client:
+            response = await sts_client.assume_role(**params)
+    except ClientError as e:
+        raise _redact_assume_role_error(e) from None
+    creds = response["Credentials"]
+    return aioboto3.Session(
+        aws_access_key_id=creds["AccessKeyId"],
+        aws_secret_access_key=creds["SecretAccessKey"],
+        aws_session_token=creds["SessionToken"],
+        region_name=region_name,
+    )
+
+
+def assume_chained_role_sync(
+    base_session: boto3.Session,
+    role_arn: str,
+    *,
+    role_session_name: str | None = None,
+    external_id: str | None = None,
+    duration_seconds: int | None = None,
+    region_name: str | None = None,
+) -> boto3.Session:
+    """Synchronous counterpart of :func:`assume_chained_role`."""
+    params = _build_chained_assume_role_params(
+        role_arn, role_session_name, external_id, duration_seconds
+    )
+    try:
+        response = base_session.client("sts").assume_role(**params)
+    except ClientError as e:
+        raise _redact_assume_role_error(e) from None
+    creds = response["Credentials"]
+    return boto3.Session(
+        aws_access_key_id=creds["AccessKeyId"],
+        aws_secret_access_key=creds["SecretAccessKey"],
+        aws_session_token=creds["SessionToken"],
+        region_name=region_name,
+    )
+
+
+async def get_session(
+    region_name: str | None = None,
+    *,
+    role_arn: str | None = None,
+    role_session_name: str | None = None,
+    external_id: str | None = None,
+    duration_seconds: int | None = None,
+) -> aioboto3.Session:
     """Build an aioboto3 session from secrets.
 
     Credential precedence:
@@ -155,6 +321,9 @@ async def get_session(region_name: str | None = None) -> aioboto3.Session:
     2. ``AWS_ACCESS_KEY_ID`` + ``AWS_SECRET_ACCESS_KEY`` + ``AWS_SESSION_TOKEN``
     3. ``AWS_ACCESS_KEY_ID`` + ``AWS_SECRET_ACCESS_KEY``
     4. ``AWS_BEARER_TOKEN_BEDROCK`` (Bedrock-only bearer token)
+
+    When ``role_arn`` is given, the resolved credentials then assume that role
+    (role chaining) and the returned session carries the chained credentials.
     """
     aws_role_arn = secrets.get_or_default("AWS_ROLE_ARN")
     aws_region = _get_region_name(region_name)
@@ -194,10 +363,27 @@ async def get_session(region_name: str | None = None) -> aioboto3.Session:
         # using the AWS credentials from the environment.
         raise SecretNotFoundError("No AWS credentials found.")
 
+    if role_arn:
+        session = await assume_chained_role(
+            session,
+            role_arn,
+            role_session_name=role_session_name,
+            external_id=external_id,
+            duration_seconds=duration_seconds,
+            region_name=aws_region,
+        )
+
     return session
 
 
-def get_sync_session(region_name: str | None = None) -> boto3.Session:
+def get_sync_session(
+    region_name: str | None = None,
+    *,
+    role_arn: str | None = None,
+    role_session_name: str | None = None,
+    external_id: str | None = None,
+    duration_seconds: int | None = None,
+) -> boto3.Session:
     """Build a boto3 session from secrets.
 
     Credential precedence:
@@ -205,6 +391,9 @@ def get_sync_session(region_name: str | None = None) -> boto3.Session:
     2. ``AWS_ACCESS_KEY_ID`` + ``AWS_SECRET_ACCESS_KEY`` + ``AWS_SESSION_TOKEN``
     3. ``AWS_ACCESS_KEY_ID`` + ``AWS_SECRET_ACCESS_KEY``
     4. ``AWS_BEARER_TOKEN_BEDROCK`` (Bedrock-only bearer token)
+
+    When ``role_arn`` is given, the resolved credentials then assume that role
+    (role chaining) and the returned session carries the chained credentials.
     """
     aws_role_arn = secrets.get_or_default("AWS_ROLE_ARN")
     aws_region = _get_region_name(region_name)
@@ -243,6 +432,16 @@ def get_sync_session(region_name: str | None = None) -> boto3.Session:
         # NOTE: This is critical. We must not allow Boto3's default behavior of
         # using the AWS credentials from the environment.
         raise SecretNotFoundError("No AWS credentials found.")
+
+    if role_arn:
+        session = assume_chained_role_sync(
+            session,
+            role_arn,
+            role_session_name=role_session_name,
+            external_id=external_id,
+            duration_seconds=duration_seconds,
+            region_name=aws_region,
+        )
 
     return session
 
@@ -302,9 +501,19 @@ async def call_api(
         dict[str, Any] | None,
         Doc("Parameters for the API method."),
     ] = None,
+    role_arn: RoleArn = None,
+    role_session_name: RoleSessionName = None,
+    external_id: ExternalId = None,
+    duration_seconds: DurationSeconds = None,
 ) -> dict[str, Any]:
     params = params or {}
-    session = await get_session(region_name=region_name)
+    session = await get_session(
+        region_name=region_name,
+        role_arn=role_arn,
+        role_session_name=role_session_name,
+        external_id=external_id,
+        duration_seconds=duration_seconds,
+    )
     async with session.client(service_name, endpoint_url=endpoint_url) as client:  # type: ignore
         response = await getattr(client, method_name)(**params)
         return await _read_streaming_values(response)
@@ -339,9 +548,19 @@ async def call_paginated_api(
         dict[str, Any] | None,
         Doc("Parameters for the API paginator."),
     ] = None,
+    role_arn: RoleArn = None,
+    role_session_name: RoleSessionName = None,
+    external_id: ExternalId = None,
+    duration_seconds: DurationSeconds = None,
 ) -> list[dict[str, Any]]:
     params = params or {}
-    session = await get_session(region_name=region_name)
+    session = await get_session(
+        region_name=region_name,
+        role_arn=role_arn,
+        role_session_name=role_session_name,
+        external_id=external_id,
+        duration_seconds=duration_seconds,
+    )
     async with session.client(service_name, endpoint_url=endpoint_url) as client:  # type: ignore
         paginator = client.get_paginator(paginator_name)
         pages = paginator.paginate(**params)
