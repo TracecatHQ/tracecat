@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# BASE_IMAGE must be the deployed image's immutable registry digest.
+# Use the pinned base from images.json, or the exact deployed image digest.
 ARG BASE_IMAGE
 FROM ${BASE_IMAGE} AS builder
 USER root
@@ -19,3 +19,12 @@ RUN git clone https://github.com/pgvector/pgvector.git /tmp/pgvector \
 # runs in the final image; PostgreSQL, libc, ICU and entrypoint remain inherited.
 FROM ${BASE_IMAGE}
 COPY --from=builder /out/ /
+
+# Package startup provisioning with the extension; no host files or downloads
+# are needed when a container is created or restarted.
+COPY scripts/postgres/compose-entrypoint.sh /usr/local/bin/tracecat-postgres-entrypoint.sh
+COPY scripts/postgres/pgvector.sql /usr/local/share/tracecat/pgvector.sql
+COPY scripts/postgres/initdb-pgvector.sql /docker-entrypoint-initdb.d/pgvector.sql
+LABEL org.opencontainers.image.source="https://github.com/TracecatHQ/tracecat"
+ENTRYPOINT ["bash", "/usr/local/bin/tracecat-postgres-entrypoint.sh"]
+CMD ["postgres"]

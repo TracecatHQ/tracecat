@@ -29,9 +29,11 @@ cleanup() {
 trap cleanup EXIT
 
 start_database() {
-    docker run -d --name "$container" \
+    # Bypass automatic bootstrap here to test SQL permissions independently.
+    # The startup test exercises the packaged entrypoint on fresh/existing volumes.
+    docker run -d --name "$container" --entrypoint docker-entrypoint.sh \
         -e POSTGRES_PASSWORD=synthetic-test-password \
-        -v "$volume:/var/lib/postgresql/data" "$1" >/dev/null
+        -v "$volume:/var/lib/postgresql/data" "$1" postgres >/dev/null
     for ((attempt = 0; attempt < 60; attempt++)); do
         # TCP waits for the final server, not the temporary initdb server.
         if docker exec "$container" pg_isready -h 127.0.0.1 -U postgres -d postgres >/dev/null; then

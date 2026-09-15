@@ -634,8 +634,7 @@ services:
       - api
 
   postgres_db:
-    image: ${TRACECAT__PGVECTOR_IMAGE:-postgres:16}
-    entrypoint: ["bash", "/usr/local/bin/tracecat-postgres-entrypoint.sh"]
+    image: ${TRACECAT__PGVECTOR_IMAGE:-ghcr.io/tracecathq/tracecat-postgres:16.14-trixie-vector0.8.6-r1}
     command: ["postgres"]
     restart: unless-stopped
     ports:
@@ -647,10 +646,6 @@ services:
       POSTGRES_PASSWORD: ${TRACECAT__POSTGRES_PASSWORD}
     volumes:
       - core-db:/var/lib/postgresql/data
-      - pgvector-cache:/var/cache/tracecat-pgvector
-      - ./scripts/postgres/compose-entrypoint.sh:/usr/local/bin/tracecat-postgres-entrypoint.sh:ro
-      - ./scripts/postgres/pgvector.sql:/usr/local/share/tracecat/pgvector.sql:ro
-      - ./scripts/postgres/initdb-pgvector.sql:/docker-entrypoint-initdb.d/pgvector.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d postgres"]
       interval: 5s
@@ -757,7 +752,6 @@ services:
     attach: false
 
 volumes:
-  pgvector-cache:
   core-db:
   temporal-db:
   containers:

@@ -6,78 +6,72 @@ disabled. The Temporal database does not need this extension.
 
 ## Docker Compose POCs: automatic setup
 
-Use the normal `docker compose up` command. No pgvector-specific YAML file,
-image build, environment setting or manual SQL command is required. All three
-Compose variants use this dependency chain:
+Run `docker compose up` as usual. All three Compose files default to the versioned
+`ghcr.io/tracecathq/tracecat-postgres` image. No extra Compose file, local build,
+startup download, or manual SQL command is needed.
 
 ```text
-postgres_db: download/cache extension files
-    -> socket-only server: enable and validate pgvector
+GitHub Actions: build pinned PostgreSQL + pgvector + startup files
+    -> test native amd64 and arm64 images
+    -> publish the tested images and their multi-platform tag to GHCR
+
+docker compose up: pull the prebuilt image
+    -> temporary socket-only server: enable and validate pgvector
     -> normal PostgreSQL server: TCP health check passes
-migrations: apply application schema
+    -> migrations: apply application schema
     -> application services
 ```
 
-`postgres_db` still defaults to the official `postgres:16` image. Its mounted
-`scripts/postgres/compose-entrypoint.sh` wrapper downloads the pgvector 0.8.6
-binary package for that image's Debian release and CPU architecture. APT verifies
-the configured repository's signed metadata and package hashes. The wrapper
-extracts only `vector.so`, `vector.control` and the extension SQL files. It does
-not install package dependencies, upgrade PostgreSQL, or replace libc/ICU.
-The official PostgreSQL entrypoint then initializes or opens the existing data
-volume normally and runs PostgreSQL as its usual unprivileged user.
+The image is the deployment unit: its extension binary, SQL, and entrypoint travel
+together. Startup needs only the image and the existing data volume. It does not
+contact a package repository, write a download cache, or mount repository files.
+The production database stays on its internal network.
 
-This path supports official Debian-based PostgreSQL 16 images on amd64 and
-arm64 where the image's configured package repository provides pgvector 0.8.6.
-It requires the image's default root entrypoint to copy extension files. It is
-intended for Compose POCs, not arbitrary Alpine/custom images or managed RDS.
-An already provisioned image skips the download; SQL setup still validates it.
-
-The first installation requires access to the image's package repositories.
-Downloads retry transient failures. Missing packages, failed verification or
-missing binary dependencies stop the bundled database and block its migrations;
-there is no fallback that silently skips vector provisioning.
-
-A separate `pgvector-cache` volume stores the verified extension bundle. Cache
-keys include the extension version, OS release, CPU architecture, PostgreSQL
-version/binary and libc version. Recreating the database container with the same
-base restores the files from cache without another download. Bundle hashes are
-checked before reuse. Keep the cache volume for offline restarts. A different
-base image or an empty/damaged cache requires a new download. The cache contains
-no database rows or credentials.
-
-Provisioning runs inside `postgres_db` using the existing administrator credentials
-and local socket. Compose sets `POSTGRES_DB` to `postgres`, matching its standard
-application database even when the administrator username is customized.
+`deployments/postgres/images.json` records the pinned PostgreSQL base digests and
+published tags. The default is PostgreSQL 16.14 on Debian Trixie with pgvector
+0.8.6. A matching Bookworm variant is also published. The Dockerfile builds pinned
+pgvector source in a separate stage and copies only extension artifacts into the
+original base, then adds the startup files. Build tools and upgraded packages in
+the builder never become part of the runtime image.
 
 | Data volume | Provisioning path |
 | --- | --- |
-| Fresh | The official entrypoint initializes the cluster and runs the mounted `initdb-pgvector.sql` hook on its temporary socket-only server. |
-| Existing | The wrapper starts a temporary socket-only server, runs the same `pgvector.sql` checks with installation enabled, and stops it before starting the normal server. |
+| Fresh | The official entrypoint runs the packaged `initdb-pgvector.sql` hook on its temporary socket-only server. |
+| Existing | The wrapper starts a temporary socket-only server, runs the same SQL, and stops it before starting the normal server. |
 
-Both paths validate the extension schema, catalog version, and collation versions.
-The existing-volume path shuts down its temporary server if provisioning fails.
-Each boot of an existing volume adds a short server start/stop cycle. Failed setup
-prevents TCP readiness and blocks migrations; it does not silently skip pgvector.
+Both paths use the local administrator connection and validate the extension
+schema, catalog version, and collation versions. Compose sets `POSTGRES_DB` to
+`postgres`, including when the administrator username is customized. Failed
+checks prevent TCP readiness and block migrations. The existing-volume wrapper
+also stops its temporary server on failure. Each existing-volume boot adds a
+short server start/stop cycle.
 
-The production database has a dedicated outbound network for package downloads;
-its shared application network remains internal. The TCP health check cannot pass
-during either socket-only bootstrap. Migrations depend directly on a healthy
-`postgres_db`, and application services retain their existing migration dependency.
-There is no additional setup service or retry loop.
+Automatic provisioning covers only the bundled Compose database. An external
+database or a different database named in `TRACECAT__DB_URI` must be provisioned
+separately with the administrator SQL command below. Compose retains its existing
+bundled-database dependency; this change does not add external-database routing.
 
-Automatic provisioning covers only the bundled Compose database. A deployment
-using an external database or a different database named in `TRACECAT__DB_URI`
-must provision that database separately using the administrator SQL command below.
-ECS/EKS managed-database provisioning remains an infrastructure responsibility.
+### Image publication
 
-The optional `TRACECAT__PGVECTOR_IMAGE` setting and legacy
-`docker-compose.pgvector.yml` remain compatible with already configured derived
-images. Neither is required for normal Compose startup.
+`.github/workflows/build-postgres-image.yml` tests both OS variants on native
+amd64 and arm64 runners. PR runs have read-only permissions and do not publish.
+After a change reaches `main`, a separate job with package-write permission
+publishes the exact tested image artifacts and combines their CPU architectures
+into versioned GHCR tags. Application CI builds its own candidate locally so it
+can test changes before their tag exists in GHCR.
+
+Bump the image revision (`r1`, `r2`, ...) in `images.json` when changing packaged
+files or base digests; update all three Compose defaults together. These images
+have their own version, independent of the API and UI release versions.
+
+**First release prerequisite:** publish both image tags and make the GHCR package
+public before distributing Compose files that reference them. Verify anonymous
+pulls for amd64 and arm64. Adding the workflow does not itself create a publicly
+pullable image before its first successful trusted `main` run.
 
 ## Managed PostgreSQL, RDS and Kubernetes
 
-Startup downloads apply only to Compose. RDS supplies its own extension binaries;
+The prebuilt image applies only to Compose. RDS supplies its own extension binaries;
 authorized database provisioning must enable pgvector >= 0.8.0 in `public` before
 application migrations. This PR does not add a Terraform PostgreSQL-provider
 resource or grant the application elevated privileges.
@@ -128,42 +122,48 @@ mismatches in the application database, template1 and explicit collations. This
 is a guard, not an index-integrity audit or repair tool. Refreshing recorded
 versions alone does not repair affected indexes.
 
-The startup wrapper preserves the libraries in the image being started. It does
-not prevent a separate pull of the floating `postgres:16` tag from changing the
-underlying OS or PostgreSQL version. Back up existing data and verify compatibility
-before replacing its base image; retain the existing volume. A collation mismatch
-requires restoring compatible libraries or a DBA-led rebuild before continuing.
+A prebuilt image cannot infer the OS libraries that created an existing data
+volume. The Trixie image preserves the pinned Trixie base's runtime; it does not
+preserve a Bookworm installation's runtime. Before upgrading an existing POC,
+identify its base image and use the matching OS variant. The optional
+`TRACECAT__PGVECTOR_IMAGE` setting selects the published Bookworm image when
+needed. The default needs no additional configuration for a fresh installation
+or a compatible Trixie volume.
 
-Once vector columns exist, application rollback must retain pgvector's server
-files and installed extension. Keep the startup wrapper/cache or use a compatible
-pre-provisioned image. Do not drop the extension with CASCADE or revert to a plain
-image without the startup wrapper. Database rollback is a separate operation.
+For an installation that needs its exact current PostgreSQL and library builds,
+the helper below derives an image from the immutable base used by its container.
+It does not mutate the running database:
 
-For controlled deployments that need an image prepared in advance, the optional
-`scripts/postgres/build-pgvector-image.sh` and `deployments/postgres/Dockerfile`
-remain available. The helper derives from the immutable image actually used by
-an existing container, compiles pinned pgvector source in a separate builder and
-copies only extension artifacts into the original base. It never changes the
-running database. This is not needed for the default Compose POC flow.
+```bash
+bash scripts/postgres/build-pgvector-image.sh --container postgres_db local-postgres-pgvector:validated
+```
+
+Validate that image before selecting it with `TRACECAT__PGVECTOR_IMAGE`. Back up
+existing data and retain the volume. A collation mismatch requires restoring
+compatible libraries or a DBA-led index rebuild before continuing. The startup
+checks refuse the mismatch; they never refresh versions to hide it.
+
+Once vector columns exist, application rollback must retain the extension's
+server files and database registration. Do not drop it with CASCADE or revert to
+a plain PostgreSQL image. Database rollback is a separate operation.
 
 ## Validation
 
 ```bash
 bash scripts/tests/test_pgvector_compose.sh
-bash scripts/tests/test_pgvector_startup.sh
-bash scripts/tests/test_pgvector_startup.sh postgres:16.14-bookworm fresh synthetic_admin
-```
-
-The configuration test checks all three Compose variants and dependency ordering.
-The live startup test uses the real Compose database entrypoint and dependency wiring with a small
-SQL migration probe. It checks automatic provisioning, preserved source data and
-runtime packages/binaries, a custom administrator, cached recreation, TCP readiness
-remaining unavailable during bootstrap, failure blocking migrations, and recovery.
-It retains uniquely named synthetic volumes and removes only its test containers.
-
-The optional derived-image path has separate tests:
-
-```bash
+bash scripts/tests/test_pgvector_startup.sh trixie existing
+bash scripts/tests/test_pgvector_startup.sh bookworm fresh synthetic_admin
 bash scripts/tests/test_pgvector.sh
 bash scripts/tests/test_pgvector.sh postgres:16.14-bookworm
 ```
+
+The configuration test checks all three Compose defaults and dependency ordering.
+The startup test builds the candidate and uses the production database wiring
+with a small SQL migration probe on internal-only networks. It checks fresh and
+existing volumes, source data and runtime preservation, custom administrators,
+offline recreation, the TCP readiness gate, failure shutdown, and recovery.
+Synthetic volumes are retained; only test containers are removed.
+
+The SQL test deliberately bypasses the automatic wrapper on an existing volume to
+verify administrator installation, read-only validation, permissions, and vector
+operations independently. CI supplies candidates built from the pinned digests.
