@@ -62,9 +62,6 @@ export function NoOrganizationAccess() {
                         {invitation.organization_name}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        Role: {invitation.role_name}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
                         Expires:{" "}
                         {new Date(invitation.expires_at).toLocaleDateString()}
                       </p>
