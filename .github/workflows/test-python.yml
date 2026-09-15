@@ -126,7 +126,7 @@ jobs:
           set -euo pipefail
 
           compose_files=(-f docker-compose.dev.yml)
-          services=(pgvector_setup minio redis)
+          services=(postgres_db minio redis)
 
           uv sync --frozen &
           uv_sync_pid=$!
@@ -138,7 +138,7 @@ jobs:
           trap cleanup_uv_sync EXIT
 
           if [ "${{ matrix.test_group }}" = "temporal" ]; then
-            services=(temporal pgvector_setup minio redis)
+            services=(temporal postgres_db minio redis)
             cat > /tmp/tracecat-ci-postgres.yml <<'YAML'
           services:
             postgres_db:
@@ -182,15 +182,14 @@ jobs:
 
       - name: Verify automatic vector provisioning completed
         run: |
-          container=$(docker compose -f docker-compose.dev.yml ps --all --quiet pgvector_setup)
-          test -n "$container"
-          test "$(docker wait "$container")" = 0
+          docker compose -f docker-compose.dev.yml exec -T postgres_db \
+            psql -X -U postgres -d postgres -f /usr/local/share/tracecat/pgvector.sql
 
       - name: Verify PostgreSQL image upgrade and vector permissions
         if: matrix.test_group == 'unit'
         run: |
           bash scripts/tests/test_pgvector_startup.sh
-          bash scripts/tests/test_pgvector_startup.sh postgres:16.14-bookworm fresh
+          bash scripts/tests/test_pgvector_startup.sh postgres:16.14-bookworm fresh synthetic_admin
           bash scripts/tests/test_pgvector.sh
           bash scripts/tests/test_pgvector.sh postgres:16.14-bookworm
 
