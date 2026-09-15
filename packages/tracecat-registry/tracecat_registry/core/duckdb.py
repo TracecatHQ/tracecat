@@ -6,7 +6,7 @@ from pydantic_core import to_jsonable_python
 from typing_extensions import Doc
 
 import tracecat_registry.integrations.aws_boto3 as aws_boto3
-from tracecat_registry import registry, secrets
+from tracecat_registry import SecretNotFoundError, registry, secrets
 from tracecat_registry.config import TRACECAT__DUCKDB_EXTENSION_DIRECTORY
 from tracecat_registry.integrations.amazon_s3 import s3_secret
 
@@ -53,13 +53,20 @@ def _connect() -> duckdb.DuckDBPyConnection:
     return duckdb.connect()
 
 
-def _build_s3_secret() -> tuple[list[str], list[Any]] | None:
+def _build_s3_secret(
+    *,
+    role_arn: str | None = None,
+    role_session_name: str | None = None,
+    external_id: str | None = None,
+    duration_seconds: int | None = None,
+) -> tuple[list[str], list[Any]] | None:
     """Build a parameterized S3 ``CREATE SECRET`` spec from the ``amazon_s3`` creds.
 
     Returns ``(options, params)`` for the secret, or ``None`` when no credentials
     are attached (the secret is optional). Credentials are resolved through the
     shared boto3 session so the full precedence applies, including cross-account
-    ``AWS_ROLE_ARN`` AssumeRole (the temporary credentials carry a session token).
+    ``AWS_ROLE_ARN`` AssumeRole (the temporary credentials carry a session token)
+    and, when ``role_arn`` is given, a further chained AssumeRole.
 
     Only fixed option names are placed in the statement text; every credential
     value is bound via a ``?`` parameter, so a secret value can never be parsed
@@ -69,9 +76,18 @@ def _build_s3_secret() -> tuple[list[str], list[Any]] | None:
         secrets.get_or_default("AWS_ROLE_ARN")
         or secrets.get_or_default("AWS_ACCESS_KEY_ID")
     ):
+        if role_arn:
+            raise SecretNotFoundError(
+                "role_arn requires AWS credentials in the amazon_s3 secret."
+            )
         return None
 
-    session = aws_boto3.get_sync_session()
+    session = aws_boto3.get_sync_session(
+        role_arn=role_arn,
+        role_session_name=role_session_name,
+        external_id=external_id,
+        duration_seconds=duration_seconds,
+    )
     credentials = session.get_credentials()
     if credentials is None:
         raise ValueError("Resolved AWS session has no credentials.")
@@ -90,14 +106,26 @@ def _build_s3_secret() -> tuple[list[str], list[Any]] | None:
     return options, params
 
 
-def _setup_s3_secret(con: duckdb.DuckDBPyConnection) -> None:
+def _setup_s3_secret(
+    con: duckdb.DuckDBPyConnection,
+    *,
+    role_arn: str | None = None,
+    role_session_name: str | None = None,
+    external_id: str | None = None,
+    duration_seconds: int | None = None,
+) -> None:
     """Create the S3 secret used for ``s3://`` reads, when credentials are attached.
 
     S3 access goes through httpfs, so it is loaded only when the ``amazon_s3``
     secret carries credentials. Plain queries (no credentials) load nothing and
     create nothing.
     """
-    s3 = _build_s3_secret()
+    s3 = _build_s3_secret(
+        role_arn=role_arn,
+        role_session_name=role_session_name,
+        external_id=external_id,
+        duration_seconds=duration_seconds,
+    )
     if s3 is None:
         return
 
@@ -118,10 +146,20 @@ def execute_sql(
         str,
         Doc("SQL to execute in an in-process DuckDB connection. "),
     ],
+    role_arn: aws_boto3.RoleArn = None,
+    role_session_name: aws_boto3.RoleSessionName = None,
+    external_id: aws_boto3.ExternalId = None,
+    duration_seconds: aws_boto3.DurationSeconds = None,
 ) -> int | list[dict[str, Any]] | None:
     con = _connect()
     try:
-        _setup_s3_secret(con)
+        _setup_s3_secret(
+            con,
+            role_arn=role_arn,
+            role_session_name=role_session_name,
+            external_id=external_id,
+            duration_seconds=duration_seconds,
+        )
         con.execute(sql)
         if con.description is None:
             return con.rowcount
