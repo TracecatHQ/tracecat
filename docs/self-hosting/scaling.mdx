@@ -30,7 +30,7 @@ The table uses a reference workload of 3 actions per run at 0.5 seconds each (a 
 | 2 × `c5.24xlarge` | 147 / 166 GiB used | 500 | 960 | 30 × 32 | 25 | 4,820, or 740 with reduced pools |
 | 3 × `c5.24xlarge` | 288 / 322 GiB used | 1,000 | 1,888 | 59 × 32 | 50 | 9,140, or 1,355 with reduced pools |
 
-Concurrent actions is the number of action subprocesses running at once across all executors: `starts/sec × 3 actions × 0.5 s × 1.25`. Runs with more or longer actions need proportionally more slots at the same start rate; the same `c5.4xlarge` sustains about 200 starts/sec of single-action, 100 ms workflows and about 5 starts/sec of 8-action, 3-second workflows.
+Concurrent actions is the number of action subprocesses running at once across all executors: `starts/sec × 3 actions × 0.5 s × 1.25`. Runs with more or longer actions need proportionally more slots at the same start rate; the same `c5.4xlarge` sustains about 200 starts/sec of single-action, 100 ms workflows and about 3.5 starts/sec of 8-action, 3-second workflows.
 
 For comparison, the [n8n scalability benchmark](https://blog.n8n.io/the-n8n-scalability-benchmark/) reports 162 webhook requests/sec on a `c5.4xlarge` in queue mode and 72 requests/sec on a `c5.large` (2 vCPU, 4 GiB) for a single trivial webhook workflow. Tracecat's 46 starts/sec on the same `c5.4xlarge` is for the 3-action reference workload; on a comparable single-action workload the model gives about 200 starts/sec, since each Tracecat action is an isolated subprocess rather than a step inside a shared Node.js process. The stateful services alone need about 2 vCPU and 6 GiB, so a `c5.large` cannot run the full stack; start at `c5.xlarge`.
 
