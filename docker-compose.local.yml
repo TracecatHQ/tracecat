@@ -646,7 +646,7 @@ services:
       - api
 
   postgres_db:
-    image: ${TRACECAT__PGVECTOR_IMAGE:-ghcr.io/tracecathq/tracecat-postgres:16.14-trixie-vector0.8.6-r1}
+    image: ${TRACECAT__PGVECTOR_IMAGE:-ghcr.io/tracecathq/tracecat-postgres:1}
     container_name: postgres_db
     command: ["postgres"]
     restart: unless-stopped
