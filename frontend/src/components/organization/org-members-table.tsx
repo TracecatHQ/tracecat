@@ -4,7 +4,7 @@ import { DialogTrigger } from "@radix-ui/react-dialog"
 import { DotsHorizontalIcon, PlusIcon } from "@radix-ui/react-icons"
 import { FolderIcon, GlobeIcon, Trash2Icon } from "lucide-react"
 import { useSearchParams } from "next/navigation"
-import { useState } from "react"
+import { useRef, useState } from "react"
 import {
   type GroupRoleAssignmentReadWithDetails,
   invitationsGetInvitationToken,
@@ -94,6 +94,7 @@ export function OrgMembersTable() {
   const { roles } = useRbacRoles()
   const { workspaces } = useWorkspaceManager()
   const searchParams = useSearchParams()
+  const roleMenuTrigger = useRef<HTMLButtonElement | null>(null)
   const inviteWorkspaceId = searchParams.get("inviteWorkspace")
 
   // Membership is implicit; the baseline role is an internal detail.
@@ -286,7 +287,16 @@ export function OrgMembersTable() {
                   return (
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" className="size-8 p-0">
+                        <Button
+                          variant="ghost"
+                          className="size-8 p-0"
+                          onFocus={(event) => {
+                            roleMenuTrigger.current = event.currentTarget
+                          }}
+                          onPointerDown={(event) => {
+                            roleMenuTrigger.current = event.currentTarget
+                          }}
+                        >
                           <span className="sr-only">Open menu</span>
                           <DotsHorizontalIcon className="size-4" />
                         </Button>
@@ -479,6 +489,10 @@ export function OrgMembersTable() {
             member={selectedMember}
             onOpenChange={setIsChangeRoleOpen}
             onSavingChange={setIsSavingRoles}
+            onCloseAutoFocus={(event) => {
+              event.preventDefault()
+              roleMenuTrigger.current?.focus()
+            }}
             onRemoveMember={() => {
               setIsChangeRoleOpen(false)
               setRemoveConfirmationEmail("")
@@ -525,11 +539,13 @@ export function ManageUserRolesDialog({
   onOpenChange,
   onSavingChange,
   onRemoveMember,
+  onCloseAutoFocus,
 }: {
   member: OrgMemberRead
   onOpenChange: (open: boolean) => void
   onSavingChange: (saving: boolean) => void
   onRemoveMember: () => void
+  onCloseAutoFocus?: (event: Event) => void
 }) {
   const [roleId, setRoleId] = useState("")
   const [workspaceId, setWorkspaceId] = useState("org-wide")
@@ -776,7 +792,7 @@ export function ManageUserRolesDialog({
   }
 
   return (
-    <DialogContent className="max-w-lg">
+    <DialogContent className="max-w-lg" onCloseAutoFocus={onCloseAutoFocus}>
       <DialogHeader>
         <DialogTitle>Manage roles - {member.email}</DialogTitle>
         <DialogDescription>
@@ -794,7 +810,7 @@ export function ManageUserRolesDialog({
                 onValueChange={setRoleId}
                 disabled={!ready || isSaving}
               >
-                <SelectTrigger className="flex-1" aria-label="Role">
+                <SelectTrigger className="min-w-0 flex-1" aria-label="Role">
                   <SelectValue placeholder="Select a role" />
                 </SelectTrigger>
                 <SelectContent>
@@ -812,13 +828,20 @@ export function ManageUserRolesDialog({
                 onValueChange={setWorkspaceId}
                 disabled={!ready || isSaving}
               >
-                <SelectTrigger className="w-[180px]" aria-label="Scope">
+                <SelectTrigger
+                  className="w-[180px] min-w-0 shrink"
+                  aria-label="Scope"
+                >
                   <SelectValue placeholder="Scope" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="max-w-[calc(100vw-2rem)]">
                   <SelectItem value="org-wide">Organization</SelectItem>
                   {workspaces?.map((workspace) => (
-                    <SelectItem key={workspace.id} value={workspace.id}>
+                    <SelectItem
+                      key={workspace.id}
+                      value={workspace.id}
+                      className="break-words whitespace-normal"
+                    >
                       {workspace.name}
                     </SelectItem>
                   ))}
