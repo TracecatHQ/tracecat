@@ -64,11 +64,14 @@ async def test_list_tables_success(
 async def test_create_table_success(
     client: TestClient,
     test_admin_role: Role,
+    mock_table: Table,
 ) -> None:
-    """Test POST /tables creates a new table."""
+    """Test POST /tables creates a new table and returns it."""
     with patch.object(tables_router, "TablesService") as MockService:
         mock_svc = AsyncMock()
-        mock_svc.create_table.return_value = None
+        mock_svc.create_table.return_value = mock_table
+        mock_svc.get_table.return_value = mock_table
+        mock_svc.get_index.return_value = []
         MockService.return_value = mock_svc
 
         # Make request
@@ -87,6 +90,9 @@ async def test_create_table_success(
 
         # Assertions
         assert response.status_code == status.HTTP_201_CREATED
+        data = response.json()
+        assert data["id"] == str(mock_table.id)
+        assert data["name"] == "test_table"
 
 
 @pytest.mark.anyio
@@ -174,11 +180,12 @@ async def test_update_table_success(
     test_admin_role: Role,
     mock_table: Table,
 ) -> None:
-    """Test PATCH /tables/{table_id} updates table."""
+    """Test PATCH /tables/{table_id} updates table and returns it."""
     with patch.object(tables_router, "TablesService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.get_table.return_value = mock_table
         mock_svc.update_table.return_value = None
+        mock_svc.get_index.return_value = []
         MockService.return_value = mock_svc
 
         # Make request
@@ -190,7 +197,8 @@ async def test_update_table_success(
         )
 
         # Assertions
-        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["id"] == str(mock_table.id)
 
 
 @pytest.mark.anyio
@@ -222,11 +230,18 @@ async def test_insert_table_row_success(
     test_admin_role: Role,
     mock_table: Table,
 ) -> None:
-    """Test POST /tables/{table_id}/rows inserts a row."""
+    """Test POST /tables/{table_id}/rows inserts a row and returns it."""
+    row_id = uuid.uuid4()
+    now = datetime(2024, 1, 1, tzinfo=UTC)
     with patch.object(tables_router, "TablesService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.get_table.return_value = mock_table
-        mock_svc.insert_row.return_value = None
+        mock_svc.insert_row.return_value = {
+            "id": row_id,
+            "created_at": now,
+            "updated_at": now,
+            "value": "test",
+        }
         MockService.return_value = mock_svc
 
         # Make request
@@ -239,6 +254,9 @@ async def test_insert_table_row_success(
 
         # Assertions
         assert response.status_code == status.HTTP_201_CREATED
+        data = response.json()
+        assert data["id"] == str(row_id)
+        assert data["value"] == "test"
 
 
 @pytest.mark.anyio

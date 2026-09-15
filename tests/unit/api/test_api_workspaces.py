@@ -376,10 +376,12 @@ async def test_update_workspace_success(
     test_admin_role: Role,
     mock_workspace_data: Workspace,
 ) -> None:
-    """Test PATCH /workspaces/{workspace_id} updates workspace."""
+    """Test PATCH /workspaces/{workspace_id} updates workspace and returns it."""
     with patch.object(workspaces_router, "WorkspaceService") as MockService:
         mock_svc = AsyncMock()
-        mock_svc.update_workspace.return_value = None
+        mock_svc.get_workspace.return_value = mock_workspace_data
+        mock_workspace_data.name = "Updated Workspace Name"
+        mock_svc.update_workspace.return_value = mock_workspace_data
         MockService.return_value = mock_svc
 
         # Make request
@@ -390,7 +392,10 @@ async def test_update_workspace_success(
         )
 
         # Assertions
-        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["id"] == str(mock_workspace_data.id)
+        assert data["name"] == "Updated Workspace Name"
 
 
 @pytest.mark.anyio
