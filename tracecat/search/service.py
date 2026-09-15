@@ -25,6 +25,7 @@ from tracecat.db.models import (
     SearchDocument,
     SearchEmbeddingConfig,
     SearchWorkspaceState,
+    Table,
     Workspace,
 )
 from tracecat.db.rls import set_rls_context
@@ -702,7 +703,7 @@ class SearchStorage(BaseService):
         current = current_generation & (
             SearchDocument.indexed_revision == SearchDocument.desired_revision
         )
-        total, ready, empty, failed = (
+        total, ready, empty, failed, source_exists = (
             await self.session.execute(
                 select(
                     func.count(),
@@ -711,6 +712,12 @@ class SearchStorage(BaseService):
                     func.count().filter(
                         current_generation & (SearchDocument.state == "failed")
                     ),
+                    select(Table.id)
+                    .where(
+                        Table.id == collection.source_id,
+                        Table.workspace_id == self.scope.workspace_id,
+                    )
+                    .exists(),
                 ).where(
                     self._scope(SearchDocument),
                     SearchDocument.collection_id == collection.id,
@@ -723,7 +730,8 @@ class SearchStorage(BaseService):
             ready = empty = failed = 0
         pending = total - ready - empty - failed
         unavailable = (
-            state.state != SearchState.ACTIVE
+            not source_exists
+            or state.state != SearchState.ACTIVE
             or configuration_changed
             or not collection.enabled
             or collection.deleted_at is not None
