@@ -910,12 +910,18 @@ async def invoke_once(
         # ExecutionError already has proper error info, just add loop context if needed
         if e.info is None:
             raise
-        _attach_loop_context(e.info, iteration)
         if not _error_may_contain_secrets(input.task.args, mask_values):
+            _attach_loop_context(e.info, iteration)
             raise
         classification = chained_error_classification(e)
+        exec_result = _withhold_error_info(e.info, classification).model_copy()
+        _attach_loop_context(exec_result, iteration)
+        if mask_values:
+            exec_result = ExecutorActionErrorInfo.model_validate(
+                apply_masks_object(exec_result.model_dump(), masks=mask_values)
+            )
         safe_error = ExecutionError(
-            info=_withhold_error_info(e.info, classification),
+            info=exec_result,
             classification=classification,
             sentry_capture=e.sentry_capture,
         )
@@ -926,6 +932,10 @@ async def invoke_once(
         _attach_loop_context(exec_result, iteration)
         if _error_may_contain_secrets(input.task.args, mask_values):
             exec_result = _withhold_error_info(exec_result, classification)
+        if mask_values:
+            exec_result = ExecutorActionErrorInfo.model_validate(
+                apply_masks_object(exec_result.model_dump(), masks=mask_values)
+            )
         # Log only the safe diagnostic when secrets may be in scope.
         logger.error(
             "Backend execution failed",

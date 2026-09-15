@@ -16,7 +16,7 @@ from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
-from tracecat.exceptions import TracecatCredentialsError
+from tracecat.exceptions import ExecutionError, TracecatCredentialsError
 from tracecat.executor import service as executor_service
 from tracecat.executor.schemas import (
     ActionImplementation,
@@ -1271,9 +1271,8 @@ async def test_invoke_once_withholds_carrier_derived_action_error(mocker):
 async def test_invoke_once_keeps_action_error_when_withholding_disabled(
     mocker, monkeypatch
 ):
-    """Operators can opt out of redaction and receive the original message."""
-    from tracecat.exceptions import ExecutionError
-
+    """Opting out preserves diagnostics while masking known values in all fields."""
+    canary = "secret-error-info-canary"
     monkeypatch.setattr(
         config, "TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING", True
     )
@@ -1284,7 +1283,7 @@ async def test_invoke_once_keeps_action_error_when_withholding_disabled(
     resolved_context = mocker.Mock(logical_time=mocker.sentinel.logical_time)
     prepared_context = executor_service.PreparedContext(
         resolved_context=resolved_context,
-        mask_values={"sk-live-secret"},
+        mask_values={canary},
     )
     mocker.patch.object(
         executor_service.registry_resolver,
@@ -1298,13 +1297,16 @@ async def test_invoke_once_keeps_action_error_when_withholding_disabled(
     )
     action_error = ExecutionError(
         info=ExecutorActionErrorInfo(
-            action_name="core.probe",
-            type="ValueError",
-            message="upstream rejected the request",
-            filename="probe.py",
-            function="run",
+            action_name=f"core.{canary}",
+            type=f"Error_{canary}",
+            message=f"upstream rejected the request: {canary}",
+            filename=f"{canary}.py",
+            function=f"run_{canary}",
+            lineno=42,
+            loop_vars={"value": [canary]},
         )
     )
+    original_info = action_error.info.model_dump()
     mocker.patch.object(
         executor_service,
         "_invoke_step",
@@ -1316,12 +1318,21 @@ async def test_invoke_once_keeps_action_error_when_withholding_disabled(
             backend=mocker.Mock(),
             input=action_input,
             ctx=executor_service.DispatchActionContext(role=role),
+            iteration=2,
         )
 
-    assert exc_info.value.__cause__ is None
-    assert exc_info.value.__context__ is None
-    assert "Details withheld:" not in str(exc_info.value)
-    assert "upstream rejected the request" in str(exc_info.value)
+    error = exc_info.value
+    assert error.__cause__ is None
+    assert error.__context__ is None
+    assert "Details withheld:" not in str(error)
+    assert "upstream rejected the request" in str(error)
+    assert canary not in str(error)
+    assert canary not in error.info.model_dump_json()
+    assert MASK_VALUE in error.info.message
+    assert error.info.lineno == 42
+    assert error.info.loop_iteration == 2
+    assert error.info.loop_vars == {"value": [MASK_VALUE]}
+    assert action_error.info.model_dump() == original_info
 
 
 def _patch_org_error_details_setting(mocker, value: object):
@@ -1497,24 +1508,64 @@ async def test_invoke_once_action_opt_out_fails_closed_without_workspace(
 
 
 @pytest.mark.anyio
-async def test_invoke_once_opt_out_covers_expression_errors(mocker, monkeypatch):
-    """Expression errors inside the action follow the same effective policy."""
-    from tracecat.exceptions import ExecutionError, TracecatExpressionError
-    from tracecat.expressions.core import Expression
-
+@pytest.mark.parametrize("failure_site", ["step", "returns", "nested-returns"])
+async def test_invoke_once_opt_out_masks_template_expression_errors(
+    mocker, monkeypatch, failure_site
+):
+    """Real template failures retain diagnostics, but never known secret values."""
     monkeypatch.setattr(
         config, "TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING", False
     )
+    canary = "secret-template-canary"
+    expression = "${{ int(SECRETS.api.KEY) }}"
     role = _expression_policy_role("tracecat-executor")
-    action_input = _expression_policy_input(
-        "core.probe", {"value": "${{ ACTIONS.fetch.result }}"}
-    )
+    action_input = _expression_policy_input("testing.error_details", {})
     action_input.task.unsafe_disable_secret_error_withholding = True
     _patch_org_error_details_setting(mocker, [_CURRENT_WS])
-    resolved_context = mocker.Mock(logical_time=mocker.sentinel.logical_time)
+    template_definition = {
+        "name": "error_details",
+        "namespace": "testing",
+        "title": "Error details",
+        "description": "Exercises secret-bearing expression failures",
+        "display_group": "Testing",
+        "expects": {},
+        "steps": [
+            {
+                "ref": "probe",
+                "action": "core.probe",
+                "args": {"value": expression} if failure_site == "step" else {},
+            }
+        ],
+        "returns": expression,
+    }
+    action_impl = ActionImplementation(
+        type="template",
+        action_name="testing.error_details",
+        template_definition=template_definition,
+    )
+    if failure_site == "nested-returns":
+        # The nested failure is wrapped in ExecutionError before reaching the
+        # root; the other cases reach invoke_once as ordinary exceptions.
+        action_impl = action_impl.model_copy(
+            update={
+                "template_definition": {
+                    **template_definition,
+                    "steps": [{"ref": "nested", "action": "testing.inner", "args": {}}],
+                }
+            }
+        )
+    resolved_context = ResolvedContext(
+        secrets={"api": {"KEY": canary}},
+        action_impl=action_impl,
+        evaluated_args={},
+        workspace_id=str(role.workspace_id),
+        workflow_id=str(action_input.run_context.wf_id),
+        run_id=str(action_input.run_context.wf_run_id),
+        executor_token="parent-token",
+    )
     prepared_context = executor_service.PreparedContext(
         resolved_context=resolved_context,
-        mask_values={"sk-live-secret"},
+        mask_values={canary},
     )
     mocker.patch.object(
         executor_service.registry_resolver,
@@ -1526,28 +1577,60 @@ async def test_invoke_once_opt_out_covers_expression_errors(mocker, monkeypatch)
         "prepare_resolved_context",
         new=mocker.AsyncMock(return_value=prepared_context),
     )
-    seen: list[str] = []
+    mocker.patch.object(
+        executor_service.registry_resolver,
+        "collect_action_secrets_from_manifest",
+        new=mocker.AsyncMock(return_value=[]),
+    )
+    mocker.patch.object(
+        executor_service.registry_resolver,
+        "resolve_action",
+        new=mocker.AsyncMock(
+            side_effect=(
+                [
+                    ActionImplementation(
+                        type="template",
+                        action_name="testing.inner",
+                        template_definition=template_definition,
+                    ),
+                    ActionImplementation(type="udf", action_name="core.probe"),
+                ]
+                if failure_site == "nested-returns"
+                else [ActionImplementation(type="udf", action_name="core.probe")]
+            )
+        ),
+    )
+    mocker.patch.object(
+        executor_service, "_mint_action_executor_token", return_value="step-token"
+    )
+    backend = mocker.Mock()
+    backend.execute = mocker.AsyncMock(return_value=ExecutorResultSuccess(result=None))
+    error_log = mocker.patch.object(executor_service.logger, "error")
 
-    async def fake_step(*args, **kwargs):
-        # Mimic a template step evaluating a secret-referencing expression.
-        operand = {"SECRETS": {"api": {"KEY": "sk-live-secret"}}}
-        try:
-            Expression("FN.add(SECRETS.api.KEY, 1)", operand=operand).result()
-        except TracecatExpressionError as e:
-            seen.append(str(e))
-            raise
-
-    mocker.patch.object(executor_service, "_invoke_step", new=fake_step)
-
-    with pytest.raises(ExecutionError):
+    with pytest.raises(ExecutionError) as exc_info:
         await executor_service.invoke_once(
-            backend=mocker.Mock(),
+            backend=backend,
             input=action_input,
             ctx=executor_service.DispatchActionContext(role=role),
+            iteration=2,
         )
 
-    assert seen, "expression should have raised"
-    assert "Details withheld" not in seen[0]
+    error = exc_info.value
+    assert canary not in error.info.model_dump_json()
+    assert canary not in str(error)
+    assert "invalid literal for int()" in error.info.message
+    assert MASK_VALUE in error.info.message
+    assert "Details withheld" not in error.info.message
+    assert error.info.type == "TracecatExpressionError"
+    assert error.info.loop_iteration == 2
+    assert error.__cause__ is None
+    assert error.__context__ is None
+    assert ctx_unsafe_disable_secret_error_withholding.get() is False
+    assert canary not in str(error_log.call_args_list)
+    error_log.assert_called()
+    if failure_site != "nested-returns":
+        assert error_log.call_args.kwargs["error"] == error.info.message
+    assert backend.execute.await_count == (0 if failure_site == "step" else 1)
 
 
 @pytest.mark.anyio
