@@ -9,7 +9,9 @@ uri=$TRACECAT__DB_URI
 uri=${uri/#postgresql+psycopg:\/\//postgresql:\/\/}
 uri=${uri/#postgresql+asyncpg:\/\//postgresql:\/\/}
 export PGCONNECT_TIMEOUT=5
-deadline=$((SECONDS + 180))
+# Allow more than Compose's 180-second start period plus 12 checks, each
+# allowing a 5-second interval and a 5-second timeout (300 seconds total).
+deadline=$((SECONDS + 360))
 server=''
 while ((SECONDS < deadline)); do
     if server=$(psql -X --dbname "$uri" -At -v ON_ERROR_STOP=1 \
@@ -19,7 +21,7 @@ while ((SECONDS < deadline)); do
     sleep 2
 done
 if [[ -z "$server" ]]; then
-    echo 'Cannot connect to the migration database within 180 seconds; check its availability and TRACECAT__DB_URI.' >&2
+    echo 'Cannot connect to the migration database within 360 seconds; check its availability and TRACECAT__DB_URI.' >&2
     exit 1
 fi
 
