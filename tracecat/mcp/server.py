@@ -524,14 +524,9 @@ def _build_output_type_context() -> dict[str, Any]:
             "message-shaped object for something else to send.",
             "Ask the user before adding an output_type schema.",
             "Omitting output_type on update_agent_preset leaves the existing "
-            "value unchanged, exactly like actions, skills, and "
-            "mcp_integration_ids: both the MCP tool and "
-            "core.presets.update_preset drop null arguments before building "
-            "the update payload.",
-            "There is no way to REMOVE an output_type over MCP once it is set. "
-            "Clearing it requires an explicit null on the REST endpoint "
-            "PATCH /agent/presets/{preset_id}. Decide deliberately before "
-            "setting one.",
+            "value unchanged. Pass clear_output_type=true on update_agent_preset "
+            "to remove it. core.presets.update_preset still cannot clear it; "
+            "the REST PATCH accepts an explicit null.",
         ],
     }
 
@@ -8212,6 +8207,7 @@ async def update_agent_preset(
     model_provider: str | None = None,
     base_url: str | None = None,
     output_type: OutputType | None = None,
+    clear_output_type: bool = False,
     actions: list[str] | None = None,
     namespaces: list[str] | None = None,
     tool_approvals: dict[str, bool] | None = None,
@@ -8226,6 +8222,9 @@ async def update_agent_preset(
     Use `skills` to replace attached published skills. Each binding contains
     `skill_id`. Omit `skills` to leave bindings unchanged, or pass an empty list
     to detach all skills.
+
+    Set `clear_output_type=true` to remove an existing `output_type` (agent
+    returns plain text). Omitting `output_type` leaves it unchanged.
     """
 
     try:
@@ -8254,6 +8253,10 @@ async def update_agent_preset(
                 if value is not None
             }
         )
+        if clear_output_type and output_type is not None:
+            raise ToolError("Pass either output_type or clear_output_type, not both")
+        if clear_output_type:
+            update_data["output_type"] = None
         if model_name is not None or model_provider is not None:
             (
                 resolved_model_name,

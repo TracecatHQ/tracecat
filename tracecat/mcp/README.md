@@ -161,7 +161,7 @@ Notes:
 - `complete_skill_upload(workspace_id, skill_id, base_revision, files)`
 - `publish_skill(workspace_id, skill_id)`
 - `create_agent_preset(workspace_id, name, slug=None, description=None, instructions=None, model_name=None, model_provider=None, base_url=None, output_type=None, actions=None, namespaces=None, tool_approvals=None, mcp_integration_ids=None, retries=None, enable_thinking=None, enable_internet_access=None, skills=None)`
-- `update_agent_preset(workspace_id, preset_slug, name=None, slug=None, description=None, instructions=None, model_name=None, model_provider=None, base_url=None, output_type=None, actions=None, namespaces=None, tool_approvals=None, mcp_integration_ids=None, retries=None, enable_thinking=None, enable_internet_access=None, skills=None)`
+- `update_agent_preset(workspace_id, preset_slug, name=None, slug=None, description=None, instructions=None, model_name=None, model_provider=None, base_url=None, output_type=None, clear_output_type=False, actions=None, namespaces=None, tool_approvals=None, mcp_integration_ids=None, retries=None, enable_thinking=None, enable_internet_access=None, skills=None)`
 - `list_agent_presets(workspace_id, limit=20, cursor=None)`
 - `get_agent_preset(workspace_id, preset_slug)`
 - `run_agent_preset(workspace_id, preset_slug, prompt, preset_version=None, timeout_seconds=120)`
