@@ -379,6 +379,16 @@ class ActionStatement(BaseModel):
             "while preserving internal workflow data flow between actions."
         ),
     )
+    unsafe_disable_secret_error_withholding: bool = Field(
+        default=False,
+        description=(
+            "UNSAFE: if true, surface this action's original error message even "
+            "when secrets are in scope, instead of the generic 'Details withheld' "
+            "message. Known secret values are still masked, but the original text "
+            "may echo transformed secret values that exact-string masking cannot "
+            "catch."
+        ),
+    )
 
     @property
     def title(self) -> str:

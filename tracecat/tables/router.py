@@ -21,7 +21,7 @@ from tracecat import config
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.models import Table
+from tracecat.db.models import TableColumn
 from tracecat.exceptions import TracecatImportError, TracecatNotFoundError
 from tracecat.identifiers import TableColumnID, TableID
 from tracecat.logger import logger
@@ -91,6 +91,34 @@ async def _read_csv_upload_with_limit(file: UploadFile, *, max_size: int) -> byt
     return bytes(buffer)
 
 
+async def _build_table_read(service: TablesService, table_id: TableID) -> TableRead:
+    """Load a table with its columns and unique-index metadata."""
+    table = await service.get_table(table_id, populate_existing=True)
+    index_columns = await service.get_index(table)
+    return TableRead(
+        id=table.id,
+        name=table.name,
+        columns=[
+            _build_column_read(column, index_columns=index_columns)
+            for column in table.columns
+        ],
+    )
+
+
+def _build_column_read(
+    column: TableColumn, *, index_columns: list[str]
+) -> TableColumnRead:
+    return TableColumnRead(
+        id=column.id,
+        name=column.name,
+        type=SqlType(column.type),
+        nullable=column.nullable,
+        default=column.default,
+        is_index=column.name in index_columns,
+        options=column.options,
+    )
+
+
 @router.get("")
 @require_scope("table:read")
 async def list_tables(
@@ -105,27 +133,7 @@ async def list_tables(
     ]
 
 
-async def _table_read(service: TablesService, table: Table) -> TableRead:
-    index_columns = await service.get_index(table)
-    return TableRead(
-        id=table.id,
-        name=table.name,
-        columns=[
-            TableColumnRead(
-                id=column.id,
-                name=column.name,
-                type=SqlType(column.type),
-                nullable=column.nullable,
-                default=column.default,
-                is_index=column.name in index_columns,
-                options=column.options,
-            )
-            for column in table.columns
-        ],
-    )
-
-
-@router.post("", status_code=status.HTTP_201_CREATED, response_model=TableRead)
+@router.post("", status_code=status.HTTP_201_CREATED)
 @require_scope("table:create")
 async def create_table(
     role: WorkspaceActorRouteRole,
@@ -135,7 +143,7 @@ async def create_table(
     """Create a new table."""
     service = TablesService(session, role=role)
     try:
-        created = await service.create_table(params)
+        table = await service.create_table(params)
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -162,8 +170,7 @@ async def create_table(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An error occurred while creating the table",
         ) from e
-    table = await service.get_table(created.id)
-    return await _table_read(service, table)
+    return await _build_table_read(service, table.id)
 
 
 @router.get("/{table_id}", response_model=TableRead)
@@ -183,17 +190,25 @@ async def get_table(
             detail=str(e),
         ) from e
 
-    return await _table_read(service, table)
+    index_columns = await service.get_index(table)
+    return TableRead(
+        id=table.id,
+        name=table.name,
+        columns=[
+            _build_column_read(column, index_columns=index_columns)
+            for column in table.columns
+        ],
+    )
 
 
-@router.patch("/{table_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.patch("/{table_id}", status_code=status.HTTP_200_OK)
 @require_scope("table:update")
 async def update_table(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     table_id: TableID,
     params: TableUpdate,
-) -> None:
+) -> TableRead:
     """Update table metadata."""
     service = TablesService(session, role=role)
     try:
@@ -218,6 +233,7 @@ async def update_table(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Unexpected DB error occurred: {e}",
         ) from e
+    return await _build_table_read(service, table.id)
 
 
 @router.delete("/{table_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -239,11 +255,7 @@ async def delete_table(
     await service.delete_table(table)
 
 
-@router.post(
-    "/{table_id}/columns",
-    status_code=status.HTTP_201_CREATED,
-    response_model=TableColumnRead,
-)
+@router.post("/{table_id}/columns", status_code=status.HTTP_201_CREATED)
 @require_scope("table:create")
 async def create_column(
     role: WorkspaceActorRouteRole,
@@ -262,20 +274,6 @@ async def create_column(
         ) from e
     try:
         column = await service.create_column(table, params)
-        return TableColumnRead(
-            id=column.id,
-            name=column.name,
-            type=SqlType(column.type),
-            nullable=column.nullable,
-            default=column.default,
-            is_index=params.is_index,
-            options=column.options,
-        )
-    except ColumnHasDuplicateValuesError as e:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=str(e),
-        ) from e
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -295,11 +293,13 @@ async def create_column(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Unexpected error occurred: {e}",
         ) from e
+    index_columns = await service.get_index(table)
+    return _build_column_read(column, index_columns=index_columns)
 
 
 @router.patch(
     "/{table_id}/columns/{column_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
+    status_code=status.HTTP_200_OK,
 )
 @require_scope("table:update")
 async def update_column(
@@ -308,7 +308,7 @@ async def update_column(
     table_id: TableID,
     column_id: TableColumnID,
     params: TableColumnUpdate,
-) -> None:
+) -> TableColumnRead:
     """Update a column."""
     service = TablesService(session, role=role)
     try:
@@ -319,7 +319,7 @@ async def update_column(
             detail=str(e),
         ) from e
     try:
-        await service.update_column(column, params)
+        updated_column = await service.update_column(column, params)
     except ColumnHasDuplicateValuesError as e:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -343,6 +343,9 @@ async def update_column(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Unexpected error occurred: {e}",
         ) from e
+    table = await service.get_table(table_id)
+    index_columns = await service.get_index(table)
+    return _build_column_read(updated_column, index_columns=index_columns)
 
 
 @router.delete(
@@ -436,19 +439,18 @@ async def get_row(
     session: AsyncDBSession,
     table_id: TableID,
     row_id: UUID,
-) -> None:
+) -> TableRowRead:
     """Get a row by ID."""
     service = TablesService(session, role=role)
     try:
         table = await service.get_table(table_id)
+        row = await service.get_row(table, row_id)
     except TracecatNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
         ) from e
-    row = await service.get_row(table, row_id)
-    logger.info(f"Row: {row}")
-    return row
+    return TableRowRead.model_validate(row)
 
 
 @router.post("/{table_id}/rows", status_code=status.HTTP_201_CREATED)
@@ -458,12 +460,12 @@ async def insert_row(
     session: AsyncDBSession,
     table_id: TableID,
     params: TableRowInsert,
-) -> None:
+) -> TableRowRead:
     """Create a new row in a table."""
     service = TablesService(session, role=role)
     try:
         table = await service.get_table(table_id)
-        await service.insert_row(table, params)
+        row = await service.insert_row(table, params)
     except TracecatNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -480,6 +482,7 @@ async def insert_row(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=str(e),
             ) from e
+    return TableRowRead.model_validate(row)
 
 
 @router.delete("/{table_id}/rows/{row_id}", status_code=status.HTTP_204_NO_CONTENT)

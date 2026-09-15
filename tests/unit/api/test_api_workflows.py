@@ -613,15 +613,21 @@ async def test_update_workflow_success(
     client: TestClient,
     test_admin_role: Role,
     mock_workflow: Workflow,
+    mock_webhook: Webhook,
 ) -> None:
-    """Test PATCH /workflows/{id} updates workflow."""
+    """Test PATCH /workflows/{id} updates workflow and returns it."""
     with (
         patch(
             "tracecat.workflow.management.router.WorkflowsManagementService"
         ) as MockService,
     ):
         mock_svc = AsyncMock()
+        mock_workflow.actions = []
+        mock_workflow.webhook = mock_webhook
+        mock_workflow.schedules = []
+        mock_workflow.title = "Updated Title"
         mock_svc.update_workflow.return_value = None
+        mock_svc.get_workflow.return_value = mock_workflow
         MockService.return_value = mock_svc
 
         # Make request
@@ -636,7 +642,10 @@ async def test_update_workflow_success(
         )
 
         # Assertions
-        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["id"] == WorkflowUUID.new(mock_workflow.id).short()
+        assert data["title"] == "Updated Title"
 
         # Verify service was called with correct params
         mock_svc.update_workflow.assert_called_once()

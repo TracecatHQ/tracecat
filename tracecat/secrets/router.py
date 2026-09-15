@@ -187,11 +187,11 @@ async def create_secret(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     params: SecretCreate,
-) -> None:
+) -> SecretReadMinimal:
     """Create a secret."""
     service = SecretsService(session, role=role)
     try:
-        await service.create_secret(params)
+        secret = await service.create_secret(params)
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
@@ -202,9 +202,10 @@ async def create_secret(
             status_code=status.HTTP_409_CONFLICT,
             detail="Secret creation integrity error: {e!r}",
         ) from e
+    return _serialize_secret_read_minimal(service=service, secret=secret)
 
 
-@router.post("/{secret_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/{secret_id}", status_code=status.HTTP_200_OK)
 @require_scope("secret:update")
 async def update_secret_by_id(
     *,
@@ -212,12 +213,12 @@ async def update_secret_by_id(
     session: AsyncDBSession,
     secret_id: AnySecretIDPath,
     params: SecretUpdate,
-) -> None:
+) -> SecretReadMinimal:
     """Update a secret by ID."""
     service = SecretsService(session, role)
     try:
         secret = await service.get_secret(secret_id)
-        await service.update_secret(secret, params)
+        updated_secret = await service.update_secret(secret, params)
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
@@ -232,6 +233,7 @@ async def update_secret_by_id(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Secret already exists"
         ) from e
+    return _serialize_secret_read_minimal(service=service, secret=updated_secret)
 
 
 @router.delete("/{secret_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -301,11 +303,11 @@ async def create_org_secret(
     role: OrgActorRole,
     session: AsyncDBSession,
     params: SecretCreate,
-) -> None:
+) -> SecretReadMinimal:
     """Create an organization secret."""
     service = SecretsService(session, role=role)
     try:
-        await service.create_org_secret(params)
+        secret = await service.create_org_secret(params)
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
@@ -316,11 +318,12 @@ async def create_org_secret(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Organization secret creation integrity error: {e!r}",
         ) from e
+    return _serialize_secret_read_minimal(service=service, secret=secret)
 
 
 @org_router.post(
     "/{secret_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
+    status_code=status.HTTP_200_OK,
 )
 @require_scope("org:secret:update")
 async def update_org_secret_by_id(
@@ -329,12 +332,12 @@ async def update_org_secret_by_id(
     session: AsyncDBSession,
     secret_id: AnySecretIDPath,
     params: SecretUpdate,
-) -> None:
+) -> SecretReadMinimal:
     """Update an organization secret by ID."""
     service = SecretsService(session, role)
     try:
         secret = await service.get_org_secret(secret_id)
-        await service.update_org_secret(secret, params)
+        updated_secret = await service.update_org_secret(secret, params)
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
@@ -351,6 +354,7 @@ async def update_org_secret_by_id(
             status_code=status.HTTP_409_CONFLICT,
             detail="Organization secret already exists",
         ) from e
+    return _serialize_secret_read_minimal(service=service, secret=updated_secret)
 
 
 @org_router.delete(

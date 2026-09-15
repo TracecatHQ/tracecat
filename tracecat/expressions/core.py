@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Any, Protocol, TypeVar
 
 from lark import Token, Tree, Visitor
 
-from tracecat import config
 from tracecat.exceptions import TracecatExpressionError
 from tracecat.expressions import patterns
 from tracecat.expressions.common import ExprContext, ExprOperand, ExprType
@@ -18,6 +17,7 @@ from tracecat.expressions.parser.evaluator import ExprEvaluator
 from tracecat.expressions.validator.validator import BaseExprValidator
 from tracecat.logger import logger
 from tracecat.parse import traverse_expressions
+from tracecat.secrets.common import secret_error_withholding_disabled
 
 if TYPE_CHECKING:
     from tracecat.expressions.policy import TaintState
@@ -133,7 +133,7 @@ class Expression:
             from tracecat.expressions.policy import references_secret_derived_value
 
             if (
-                not config.TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING
+                not secret_error_withholding_disabled()
                 and references_secret_derived_value(parse_tree, taint=self._taint)
             ):
                 secret_error = TracecatExpressionError(

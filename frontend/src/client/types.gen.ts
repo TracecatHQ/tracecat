@@ -33,6 +33,10 @@ export type ActionControlFlow = {
    * If true, redact this action's result in workflow execution API responses while preserving internal workflow data flow between actions.
    */
   mask_output?: boolean
+  /**
+   * UNSAFE: if true, surface this action's original error message even when secrets are in scope, instead of the generic 'Details withheld' message. Known secret values are still masked.
+   */
+  unsafe_disable_secret_error_withholding?: boolean
 }
 
 export type ActionCreate = {
@@ -185,6 +189,10 @@ export type ActionStatement = {
    * If true, redact this action's result in workflow execution API responses while preserving internal workflow data flow between actions.
    */
   mask_output?: boolean
+  /**
+   * UNSAFE: if true, surface this action's original error message even when secrets are in scope, instead of the generic 'Details withheld' message. Known secret values are still masked, but the original text may echo transformed secret values that exact-string masking cannot catch.
+   */
+  unsafe_disable_secret_error_withholding?: boolean
 }
 
 export type ActionStep = {
@@ -1204,6 +1212,7 @@ export type AppSettingsRead = {
   app_workflow_export_enabled: boolean
   app_create_workspace_on_register: boolean
   app_action_form_mode_enabled: boolean
+  app_unsafe_disable_secret_error_withholding_workspace_ids?: Array<string>
 }
 
 /**
@@ -1234,6 +1243,10 @@ export type AppSettingsUpdate = {
    * Whether to enable form mode for action inputs. When disabled, only YAML mode is available, preserving raw YAML formatting.
    */
   app_action_form_mode_enabled?: boolean
+  /**
+   * UNSAFE: workspaces whose actions may opt into showing their original error message when secrets are in scope. Each action must still enable 'Show error details' individually. Known secret values are still masked.
+   */
+  app_unsafe_disable_secret_error_withholding_workspace_ids?: Array<string>
 }
 
 /**
@@ -10059,6 +10072,10 @@ export type WorkspaceRead = {
   name: string
   settings?: WorkspaceSettingsRead | null
   organization_id: string
+  /**
+   * Whether the organization lets this workspace's actions opt into showing original error details when secrets are in scope.
+   */
+  unsafe_disable_secret_error_withholding_allowed?: boolean
 }
 
 export type WorkspaceReadMinimal = {
@@ -10468,7 +10485,7 @@ export type WorkspacesUpdateWorkspaceData = {
   workspaceId: string
 }
 
-export type WorkspacesUpdateWorkspaceResponse = void
+export type WorkspacesUpdateWorkspaceResponse = WorkspaceRead
 
 export type WorkspacesDeleteWorkspaceData = {
   workspaceId: string
@@ -10494,7 +10511,8 @@ export type WorkspacesCreateWorkspaceMembershipData = {
   workspaceId: string
 }
 
-export type WorkspacesCreateWorkspaceMembershipResponse = unknown
+export type WorkspacesCreateWorkspaceMembershipResponse =
+  WorkspaceMembershipRead
 
 export type WorkspacesGetWorkspaceMembershipData = {
   userId: string
@@ -10684,7 +10702,7 @@ export type WorkflowsUpdateWorkflowData = {
   workspaceId: string
 }
 
-export type WorkflowsUpdateWorkflowResponse = void
+export type WorkflowsUpdateWorkflowResponse = WorkflowRead
 
 export type WorkflowsDeleteWorkflowData = {
   workflowId: string
@@ -10756,7 +10774,7 @@ export type TriggersCreateWebhookData = {
   workspaceId: string
 }
 
-export type TriggersCreateWebhookResponse = unknown
+export type TriggersCreateWebhookResponse = WebhookRead
 
 export type TriggersGetWebhookData = {
   workflowId: string
@@ -10771,7 +10789,7 @@ export type TriggersUpdateWebhookData = {
   workspaceId: string
 }
 
-export type TriggersUpdateWebhookResponse = void
+export type TriggersUpdateWebhookResponse = WebhookRead
 
 export type TriggersCreateCaseTriggerData = {
   requestBody: CaseTriggerCreate
@@ -10794,7 +10812,7 @@ export type TriggersUpdateCaseTriggerData = {
   workspaceId: string
 }
 
-export type TriggersUpdateCaseTriggerResponse = void
+export type TriggersUpdateCaseTriggerResponse = CaseTriggerRead
 
 export type TriggersGenerateWebhookApiKeyData = {
   workflowId: string
@@ -11160,7 +11178,7 @@ export type SecretsCreateSecretData = {
   workspaceId: string
 }
 
-export type SecretsCreateSecretResponse = unknown
+export type SecretsCreateSecretResponse = SecretReadMinimal
 
 export type SecretsListSecretDefinitionsData = {
   workspaceId: string
@@ -11187,7 +11205,7 @@ export type SecretsUpdateSecretByIdData = {
   workspaceId: string
 }
 
-export type SecretsUpdateSecretByIdResponse = void
+export type SecretsUpdateSecretByIdResponse = SecretReadMinimal
 
 export type SecretsDeleteSecretByIdData = {
   secretId: string
@@ -12828,7 +12846,7 @@ export type OrganizationSecretsCreateOrgSecretData = {
   requestBody: SecretCreate
 }
 
-export type OrganizationSecretsCreateOrgSecretResponse = unknown
+export type OrganizationSecretsCreateOrgSecretResponse = SecretReadMinimal
 
 export type OrganizationSecretsGetOrgSecretByNameData = {
   environment?: string | null
@@ -12843,7 +12861,7 @@ export type OrganizationSecretsUpdateOrgSecretByIdData = {
   secretId: string
 }
 
-export type OrganizationSecretsUpdateOrgSecretByIdResponse = void
+export type OrganizationSecretsUpdateOrgSecretByIdResponse = SecretReadMinimal
 
 export type OrganizationSecretsDeleteOrgSecretByIdData = {
   secretId: string
@@ -12877,7 +12895,7 @@ export type TablesUpdateTableData = {
   workspaceId: string
 }
 
-export type TablesUpdateTableResponse = void
+export type TablesUpdateTableResponse = TableRead
 
 export type TablesDeleteTableData = {
   tableId: string
@@ -12901,7 +12919,7 @@ export type TablesUpdateColumnData = {
   workspaceId: string
 }
 
-export type TablesUpdateColumnResponse = void
+export type TablesUpdateColumnResponse = TableColumnRead
 
 export type TablesDeleteColumnData = {
   columnId: string
@@ -12935,7 +12953,7 @@ export type TablesInsertRowData = {
   workspaceId: string
 }
 
-export type TablesInsertRowResponse = unknown
+export type TablesInsertRowResponse = TableRowRead
 
 export type TablesGetRowData = {
   rowId: string
@@ -12943,7 +12961,7 @@ export type TablesGetRowData = {
   workspaceId: string
 }
 
-export type TablesGetRowResponse = unknown
+export type TablesGetRowResponse = TableRowRead
 
 export type TablesDeleteRowData = {
   rowId: string
@@ -13055,7 +13073,7 @@ export type CasesCreateCaseData = {
   workspaceId: string
 }
 
-export type CasesCreateCaseResponse = unknown
+export type CasesCreateCaseResponse = CaseRead
 
 export type CasesSearchCasesData = {
   /**
@@ -13231,11 +13249,15 @@ export type CasesGetCaseResponse = CaseRead
 
 export type CasesUpdateCaseData = {
   caseId: string
+  /**
+   * Include linked table rows
+   */
+  includeRows?: boolean
   requestBody: CaseUpdate
   workspaceId: string
 }
 
-export type CasesUpdateCaseResponse = void
+export type CasesUpdateCaseResponse = CaseRead
 
 export type CasesDeleteCaseData = {
   caseId: string
@@ -13257,7 +13279,7 @@ export type CasesCreateCommentData = {
   workspaceId: string
 }
 
-export type CasesCreateCommentResponse = unknown
+export type CasesCreateCommentResponse = CaseCommentRead
 
 export type CasesListCommentThreadsData = {
   caseId: string
@@ -13273,7 +13295,7 @@ export type CasesUpdateCommentData = {
   workspaceId: string
 }
 
-export type CasesUpdateCommentResponse = void
+export type CasesUpdateCommentResponse = CaseCommentRead
 
 export type CasesDeleteCommentData = {
   caseId: string
@@ -13432,7 +13454,7 @@ export type CasesCreateFieldData = {
   workspaceId: string
 }
 
-export type CasesCreateFieldResponse = unknown
+export type CasesCreateFieldResponse = CaseFieldReadMinimal
 
 export type CasesUpdateFieldData = {
   fieldId: string
@@ -13440,7 +13462,7 @@ export type CasesUpdateFieldData = {
   workspaceId: string
 }
 
-export type CasesUpdateFieldResponse = void
+export type CasesUpdateFieldResponse = CaseFieldReadMinimal
 
 export type CasesDeleteFieldData = {
   fieldId: string
@@ -14471,7 +14493,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        204: void
+        200: WorkspaceRead
         /**
          * Validation Error
          */
@@ -14527,7 +14549,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        201: unknown
+        201: WorkspaceMembershipRead
         /**
          * Validation Error
          */
@@ -14856,7 +14878,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        204: void
+        200: WorkflowRead
         /**
          * Validation Error
          */
@@ -14972,7 +14994,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        201: unknown
+        201: WebhookRead
         /**
          * Validation Error
          */
@@ -14998,7 +15020,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        204: void
+        200: WebhookRead
         /**
          * Validation Error
          */
@@ -15039,7 +15061,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        204: void
+        200: CaseTriggerRead
         /**
          * Validation Error
          */
@@ -15623,7 +15645,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        201: unknown
+        201: SecretReadMinimal
         /**
          * Validation Error
          */
@@ -15683,7 +15705,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        204: void
+        200: SecretReadMinimal
         /**
          * Validation Error
          */
@@ -18828,7 +18850,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        201: unknown
+        201: SecretReadMinimal
         /**
          * Validation Error
          */
@@ -18858,7 +18880,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        204: void
+        200: SecretReadMinimal
         /**
          * Validation Error
          */
@@ -18927,7 +18949,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        204: void
+        200: TableRead
         /**
          * Validation Error
          */
@@ -18970,7 +18992,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        204: void
+        200: TableColumnRead
         /**
          * Validation Error
          */
@@ -19011,7 +19033,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        201: unknown
+        201: TableRowRead
         /**
          * Validation Error
          */
@@ -19026,7 +19048,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: unknown
+        200: TableRowRead
         /**
          * Validation Error
          */
@@ -19155,7 +19177,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        201: unknown
+        201: CaseRead
         /**
          * Validation Error
          */
@@ -19243,7 +19265,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        204: void
+        200: CaseRead
         /**
          * Validation Error
          */
@@ -19284,7 +19306,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        201: unknown
+        201: CaseCommentRead
         /**
          * Validation Error
          */
@@ -19314,7 +19336,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        204: void
+        200: CaseCommentRead
         /**
          * Validation Error
          */
@@ -19574,7 +19596,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        201: unknown
+        201: CaseFieldReadMinimal
         /**
          * Validation Error
          */
@@ -19589,7 +19611,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        204: void
+        200: CaseFieldReadMinimal
         /**
          * Validation Error
          */

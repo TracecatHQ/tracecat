@@ -111,6 +111,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { ValidationErrorView } from "@/components/validation-errors"
+import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import {
   DEFAULT_ACTION_TIMEOUT_SECONDS,
   isAgentAction,
@@ -138,6 +139,16 @@ function normalizeOptionalExpression(
     return undefined
   }
   return trimmed
+}
+
+function errorDetailsStatusLabel(
+  workspaceAllows: boolean,
+  enabled: boolean
+): string {
+  if (!workspaceAllows) {
+    return "Not allowed for this workspace by organization settings"
+  }
+  return enabled ? "Enabled" : "Disabled"
 }
 
 // These are YAML strings
@@ -198,6 +209,7 @@ const actionFormSchema = z.object({
     .transform((val) => normalizeOptionalExpression(val))
     .optional(),
   mask_output: z.boolean().default(false),
+  unsafe_disable_secret_error_withholding: z.boolean().default(false),
   is_interactive: z.boolean().default(false),
   interaction: z
     .discriminatedUnion("type", [
@@ -311,6 +323,9 @@ function ActionPanelContent({
 }) {
   const { appSettings } = useOrgAppSettings()
   const workspaceId = useWorkspaceId()
+  const { workspace } = useWorkspaceDetails()
+  const workspaceAllowsErrorDetails =
+    workspace?.unsafe_disable_secret_error_withholding_allowed ?? false
   const { validationErrors } = useWorkflow()
   const { action, actionIsLoading, updateAction } = useAction(
     actionId,
@@ -351,6 +366,8 @@ function ActionPanelContent({
       wait_until: actionControlFlow?.wait_until || undefined,
       environment: actionControlFlow?.environment || undefined,
       mask_output: actionControlFlow?.mask_output ?? false,
+      unsafe_disable_secret_error_withholding:
+        actionControlFlow?.unsafe_disable_secret_error_withholding ?? false,
       is_interactive: action?.is_interactive ?? false,
       interaction: action?.interaction ?? undefined,
     }),
@@ -370,6 +387,7 @@ function ActionPanelContent({
       actionControlFlow?.wait_until,
       actionControlFlow?.environment,
       actionControlFlow?.mask_output,
+      actionControlFlow?.unsafe_disable_secret_error_withholding,
     ]
   )
 
@@ -620,6 +638,8 @@ function ActionPanelContent({
             wait_until: values.wait_until,
             environment: values.environment,
             mask_output: values.mask_output ?? false,
+            unsafe_disable_secret_error_withholding:
+              values.unsafe_disable_secret_error_withholding ?? false,
           },
           is_interactive: values.is_interactive,
           interaction: values.interaction,
@@ -1528,6 +1548,36 @@ function ActionPanelContent({
                                 </FormControl>
                                 <span className="text-xs text-muted-foreground">
                                   {field.value ? "Enabled" : "Disabled"}
+                                </span>
+                              </div>
+                            </FormItem>
+                          )}
+                        />
+                      </ControlFlowField>
+
+                      <ControlFlowField
+                        label="Show error details"
+                        description="Unsafe: show this action's original error message even when secrets are in scope. Known secret values are still masked."
+                      >
+                        <FormField
+                          name="unsafe_disable_secret_error_withholding"
+                          control={methods.control}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormMessage className="whitespace-pre-line" />
+                              <div className="flex items-center gap-2">
+                                <FormControl>
+                                  <Switch
+                                    checked={field.value ?? false}
+                                    onCheckedChange={field.onChange}
+                                    disabled={!workspaceAllowsErrorDetails}
+                                  />
+                                </FormControl>
+                                <span className="text-xs text-muted-foreground">
+                                  {errorDetailsStatusLabel(
+                                    workspaceAllowsErrorDetails,
+                                    field.value ?? false
+                                  )}
                                 </span>
                               </div>
                             </FormItem>

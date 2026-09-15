@@ -33,7 +33,7 @@ overrides:
   '@hookform/devtools>uuid': 11.1.1
   nanoid@>=3.0.0 <4.0.0: 3.3.18
   postcss: 8.5.23
-  postcss-selector-parser@6.1.2: 6.1.3
+  postcss-selector-parser@6.1.2: 6.1.4
   prosemirror-view: 1.42.3
   sharp: 0.35.4
   tar: 7.5.21
@@ -5044,8 +5044,8 @@ packages:
     resolution: {integrity: sha512-IQ7TZdoaqbT+LCpShg46jnZVlhWD2w6iQYAcYXfHARZ7X1t/UGhhceQDs5X0cGqKvYlHNOuv7Oa1xmb0oQuA3w==}
     engines: {node: '>=4'}
 
-  postcss-selector-parser@6.1.3:
-    resolution: {integrity: sha512-cDoO18VWCIWRsSaws3C23b0HXRxlUknttfdNcbXnf3IGHAPRNLlXPHc6dYiatOkxW0W4uZh524Plaaw5a7WEtQ==}
+  postcss-selector-parser@6.1.4:
+    resolution: {integrity: sha512-bIoJLOmjCO1S9XdY/DcnR5hJxvrDir1PbGChrzXG3vw0/FOliy/fA3dmdhQ441kah4gKv+TwckGzex6wNS5cnQ==}
     engines: {node: '>=4'}
 
   postcss-value-parser@4.2.0:
@@ -11153,14 +11153,14 @@ snapshots:
   postcss-nested@6.2.0(postcss@8.5.23):
     dependencies:
       postcss: 8.5.23
-      postcss-selector-parser: 6.1.3
+      postcss-selector-parser: 6.1.4
 
   postcss-selector-parser@6.0.10:
     dependencies:
       cssesc: 3.0.0
       util-deprecate: 1.0.2
 
-  postcss-selector-parser@6.1.3:
+  postcss-selector-parser@6.1.4:
     dependencies:
       cssesc: 3.0.0
       util-deprecate: 1.0.2
@@ -11818,7 +11818,7 @@ snapshots:
       postcss-js: 4.1.0(postcss@8.5.23)
       postcss-load-config: 4.0.2(postcss@8.5.23)
       postcss-nested: 6.2.0(postcss@8.5.23)
-      postcss-selector-parser: 6.1.3
+      postcss-selector-parser: 6.1.4
       resolve: 1.22.10
       sucrase: 3.35.0
     transitivePeerDependencies:

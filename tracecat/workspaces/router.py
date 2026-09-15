@@ -22,6 +22,7 @@ from tracecat.exceptions import (
 )
 from tracecat.identifiers import InvitationID, UserID, WorkspaceID
 from tracecat.logger import logger
+from tracecat.settings.service import workspace_allows_error_details
 from tracecat.workspaces.schemas import (
     WorkspaceCreate,
     WorkspaceInvitationCreate,
@@ -156,10 +157,17 @@ async def get_workspace(
         name=workspace.name,
         settings=WorkspaceSettingsRead.model_validate(workspace.settings or {}),
         organization_id=workspace.organization_id,
+        unsafe_disable_secret_error_withholding_allowed=(
+            await workspace_allows_error_details(
+                organization_id=workspace.organization_id,
+                workspace_id=workspace.id,
+                session=session,
+            )
+        ),
     )
 
 
-@router.patch("/{workspace_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.patch("/{workspace_id}", status_code=status.HTTP_200_OK)
 @require_scope("workspace:update")
 async def update_workspace(
     *,
@@ -167,7 +175,7 @@ async def update_workspace(
     workspace_id: WorkspaceID,
     params: WorkspaceUpdate,
     session: AsyncDBSession,
-) -> None:
+) -> WorkspaceRead:
     """Update a workspace."""
     service = WorkspaceService(session, role=role)
     workspace = await service.get_workspace(workspace_id)
@@ -176,7 +184,13 @@ async def update_workspace(
             status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found"
         )
     logger.info("Updating workspace", params=params)
-    await service.update_workspace(workspace, params=params)
+    updated = await service.update_workspace(workspace, params=params)
+    return WorkspaceRead(
+        id=updated.id,
+        name=updated.name,
+        settings=WorkspaceSettingsRead.model_validate(updated.settings or {}),
+        organization_id=updated.organization_id,
+    )
 
 
 @router.delete(
@@ -249,7 +263,7 @@ async def create_workspace_membership(
     workspace_id: WorkspaceID,
     params: WorkspaceMembershipCreate,
     session: AsyncDBSession,
-) -> None:
+) -> WorkspaceMembershipRead:
     """Create a workspace membership for a user."""
     logger.info(
         f"User {role.user_id} requesting to create membership for {params.user_id} in workspace {workspace_id}"
@@ -269,6 +283,7 @@ async def create_workspace_membership(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
         ) from e
+    return WorkspaceMembershipRead(user_id=params.user_id, workspace_id=workspace_id)
 
 
 @router.get("/{workspace_id}/memberships/{user_id}")

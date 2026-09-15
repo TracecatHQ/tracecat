@@ -3063,6 +3063,7 @@ export function useOrgAppSettings() {
       await settingsUpdateAppSettings(params),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["org-app-settings"] })
+      queryClient.invalidateQueries({ queryKey: ["workspace"] })
       toast({
         title: "Updated application settings",
         description: "Application settings updated successfully.",

@@ -324,11 +324,15 @@ async def test_get_secret_by_name_not_found(
 async def test_create_secret_success(
     client: TestClient,
     test_admin_role: Role,
+    mock_secret: Secret,
 ) -> None:
-    """Test POST /secrets creates a new secret."""
+    """Test POST /secrets creates a new secret and returns it."""
     with patch.object(secrets_router, "SecretsService") as MockService:
         mock_svc = AsyncMock()
-        mock_svc.create_secret.return_value = None
+        mock_svc.create_secret.return_value = mock_secret
+        mock_svc.decrypt_keys = MagicMock(
+            return_value=[SecretKeyValue(key="api_key", value=SecretStr("***"))]
+        )
         MockService.return_value = mock_svc
 
         # Make request
@@ -346,6 +350,10 @@ async def test_create_secret_success(
 
         # Assertions
         assert response.status_code == status.HTTP_201_CREATED
+        data = response.json()
+        assert data["id"] == str(mock_secret.id)
+        assert data["name"] == "test_secret"
+        assert data["keys"] == ["api_key"]
 
 
 @pytest.mark.anyio
@@ -387,7 +395,10 @@ async def test_update_secret_by_id_success(
     with patch.object(secrets_router, "SecretsService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.get_secret.return_value = mock_secret
-        mock_svc.update_secret.return_value = None
+        mock_svc.update_secret.return_value = mock_secret
+        mock_svc.decrypt_keys = MagicMock(
+            return_value=[SecretKeyValue(key="api_key", value=SecretStr("***"))]
+        )
         MockService.return_value = mock_svc
 
         # Make request
@@ -402,7 +413,8 @@ async def test_update_secret_by_id_success(
         )
 
         # Assertions
-        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["id"] == str(mock_secret.id)
 
 
 @pytest.mark.anyio
@@ -547,11 +559,15 @@ async def test_list_org_secrets_with_corrupted_values(
 async def test_create_org_secret_success(
     client: TestClient,
     test_admin_role: Role,
+    mock_org_secret: OrganizationSecret,
 ) -> None:
-    """Test POST /organization/secrets creates org secret."""
+    """Test POST /organization/secrets creates org secret and returns it."""
     with patch.object(secrets_router, "SecretsService") as MockService:
         mock_svc = AsyncMock()
-        mock_svc.create_org_secret.return_value = None
+        mock_svc.create_org_secret.return_value = mock_org_secret
+        mock_svc.decrypt_keys = MagicMock(
+            return_value=[SecretKeyValue(key="api_key", value=SecretStr("***"))]
+        )
         MockService.return_value = mock_svc
 
         # Make request
@@ -568,6 +584,9 @@ async def test_create_org_secret_success(
 
         # Assertions
         assert response.status_code == status.HTTP_201_CREATED
+        data = response.json()
+        assert data["id"] == str(mock_org_secret.id)
+        assert data["name"] == "org_secret"
 
 
 @pytest.mark.anyio
@@ -601,7 +620,10 @@ async def test_update_org_secret_by_id_success(
     with patch.object(secrets_router, "SecretsService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.get_org_secret.return_value = mock_org_secret
-        mock_svc.update_org_secret.return_value = None
+        mock_svc.update_org_secret.return_value = mock_org_secret
+        mock_svc.decrypt_keys = MagicMock(
+            return_value=[SecretKeyValue(key="api_key", value=SecretStr("***"))]
+        )
         MockService.return_value = mock_svc
 
         # Make request
@@ -612,7 +634,8 @@ async def test_update_org_secret_by_id_success(
         )
 
         # Assertions
-        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["id"] == str(mock_org_secret.id)
 
 
 @pytest.mark.anyio
