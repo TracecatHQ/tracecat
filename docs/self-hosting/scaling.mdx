@@ -19,17 +19,17 @@ Executors are almost always the bottleneck. A workflow run with 8 actions that e
 
 The table uses a reference workload of 5 actions per run at 2 seconds each with 1.5× headroom, and the calibration described below (4 slots per vCPU, 512 MiB per slot, base stack of 4 vCPU and 10 GiB). Run the [sizing calculator](#sizing-calculator) with your own action count and duration to get exact values.
 
-| Tier | Concurrent actions | Sustained starts/sec | Executors × slots | Workers | Host vCPU | Host memory | PostgreSQL `max_connections` |
-| :--- | :----------------- | :------------------- | :---------------- | :------ | :-------- | :---------- | :--------------------------- |
-| Compose defaults | 16 | ~1 | 1 × 16 | 1 | 10 | 21 GiB | 580 |
-| Low | 32 | ~2 | 2 × 16 | 1 | 14 | 30 GiB | 660 |
-| Medium | 64 | ~4 | 4 × 16 | 1 | 22 | 48 GiB | 820 |
-| High | 128 | ~8.5 | 8 × 16 | 2 | 40 | 86 GiB | 1220 |
-| Very high | 256 | ~17 | 16 × 16 | 3 | 74 | 160 GiB | 1940 |
+| Tier | Workflow starts/sec | Concurrent actions | Executors × slots | Workers | Total vCPU | Total memory | PostgreSQL `max_connections` |
+| :--- | :------------------ | :----------------- | :---------------- | :------ | :--------- | :----------- | :--------------------------- |
+| Compose defaults | 1 | 16 | 1 × 16 | 1 | 10 | 21 GiB | 580 |
+| 10/sec | 10 | 150 | 10 × 15 | 2 | 46 | 99 GiB | 1,380 |
+| 100/sec | 100 | 1,504 | 94 × 16 | 15 | 410 | 886 GiB | 1,730 with `TRACECAT__DB_POOL_SIZE=2`, `TRACECAT__DB_MAX_OVERFLOW=3` |
+| 500/sec | 500 | 7,504 | 469 × 16 | 75 | 2,030 | 4.3 TiB | 8,255 with reduced pools; put PgBouncer in front |
+| 1,000/sec | 1,000 | 15,008 | 938 × 16 | 150 | 4,056 | 8.6 TiB | 16,415 with reduced pools; put PgBouncer in front |
 
-Concurrent actions is the number of action subprocesses running at once across all executors. Sustained starts/sec is the workflow start rate that keeps those slots busy without queueing; runs with more or longer actions lower it proportionally. Host vCPU and memory include the base stack. The `max_connections` column is the worst case with the default pool settings (every Tracecat process opening its full 80 connections); lower `TRACECAT__DB_POOL_SIZE` and `TRACECAT__DB_MAX_OVERFLOW` per process to bring it down, as described under [PostgreSQL connections](#postgresql-connections).
+Concurrent actions is the number of action subprocesses running at once across all executors: `starts/sec × 5 actions × 2 s × 1.5`. Runs with more or longer actions need proportionally more slots at the same start rate. Total vCPU and memory include the base stack and workers.
 
-Above the Medium tier, run the stateful services (PostgreSQL, Temporal, MinIO, Redis) on their own hosts or managed services and spread executors across nodes with [Docker Swarm](/self-hosting/docker-compose#convert-to-docker-swarm) or [Kubernetes](/self-hosting/kubernetes).
+The Compose defaults row is the only single-host configuration. From 10/sec you need dedicated hosts for the stateful services (PostgreSQL, Temporal, MinIO, Redis) and executors spread across nodes with [Docker Swarm](/self-hosting/docker-compose#convert-to-docker-swarm) or [Kubernetes](/self-hosting/kubernetes). From 100/sec the default pool settings would demand tens of thousands of PostgreSQL connections, so the `max_connections` column assumes 2 pooled connections plus 3 overflow per process; above that, route the pools through PgBouncer in transaction mode and size Temporal's own PostgreSQL, history shards, and matching service separately, since Temporal becomes a bottleneck before Tracecat does. The 500/sec and 1,000/sec rows are extrapolations of the calibration, not measured deployments: load-test at 100/sec first and recalibrate the constants before committing hardware at that scale.
 
 ## Variables that control throughput
 
