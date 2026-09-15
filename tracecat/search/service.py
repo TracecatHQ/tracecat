@@ -186,8 +186,7 @@ class SearchStorage(BaseService):
         await self.lock_scope()
         current = await self._state()
         if (
-            current.state == SearchState.REINDEX_REQUIRED
-            and state == SearchState.ACTIVE
+            state == SearchState.ACTIVE
             and await self._configuration(current.current_version) is None
         ):
             raise SearchError(SearchErrorCode.INDEX_NOT_READY)
@@ -689,7 +688,8 @@ class SearchStorage(BaseService):
         """Summarize stored work; unenumerated source rows are covered by backfill."""
         collection = await self.collection(collection_id)
         state = await self._state()
-        current = (SearchDocument.generation == collection.generation) & (
+        current_generation = SearchDocument.generation == collection.generation
+        current = current_generation & (
             SearchDocument.indexed_revision == SearchDocument.desired_revision
         )
         total, ready, empty, failed = (
@@ -698,7 +698,9 @@ class SearchStorage(BaseService):
                     func.count(),
                     func.count().filter(current & (SearchDocument.state == "ready")),
                     func.count().filter(current & (SearchDocument.state == "empty")),
-                    func.count().filter(SearchDocument.state == "failed"),
+                    func.count().filter(
+                        current_generation & (SearchDocument.state == "failed")
+                    ),
                 ).where(
                     self._scope(SearchDocument),
                     SearchDocument.collection_id == collection.id,
@@ -706,11 +708,13 @@ class SearchStorage(BaseService):
                 )
             )
         ).one()
-        if collection.config_version != state.current_version:
-            ready = empty = 0
+        configuration_changed = collection.config_version != state.current_version
+        if configuration_changed:
+            ready = empty = failed = 0
         pending = total - ready - empty - failed
         unavailable = (
             state.state != SearchState.ACTIVE
+            or configuration_changed
             or not collection.enabled
             or collection.deleted_at is not None
         )

@@ -8,6 +8,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class SearchState(StrEnum):
+    """Workspace availability states controlling search and indexing."""
+
     DISABLED = "disabled"
     ACTIVE = "active"
     PAUSED = "paused"
@@ -15,6 +17,8 @@ class SearchState(StrEnum):
 
 
 class DocumentState(StrEnum):
+    """Lifecycle states of a row document within an index generation."""
+
     PENDING = "pending"
     BUILDING = "building"
     READY = "ready"
@@ -24,6 +28,8 @@ class DocumentState(StrEnum):
 
 
 class SearchErrorCode(StrEnum):
+    """Stable error codes safe to expose without source text or credentials."""
+
     NOT_FOUND = "NOT_FOUND"
     INDEX_NOT_READY = "INDEX_NOT_READY"
     STALE_CLAIM = "STALE_CLAIM"
@@ -44,12 +50,24 @@ class SearchError(Exception):
 
 @dataclass(frozen=True, slots=True)
 class SearchScope:
+    """Trusted organization and workspace identifiers for storage operations."""
+
     organization_id: uuid.UUID
     workspace_id: uuid.UUID
 
 
 @dataclass(frozen=True, slots=True)
 class BuildClaim:
+    """Identity and fencing token required for worker writes.
+
+    Attributes:
+        collection_id: Collection whose document is being built.
+        document_id: Row document assigned to the worker.
+        generation: Collection generation at claim time.
+        config_version: Immutable embedding configuration used by this build.
+        revision: Desired source revision being processed.
+        fence: Monotonically increasing token rejecting superseded workers."""
+
     collection_id: uuid.UUID
     document_id: uuid.UUID
     generation: int
@@ -59,6 +77,16 @@ class BuildClaim:
 
 
 class ChunkerSettings(BaseModel):
+    """Immutable chunking settings defining a collection generation.
+
+    Attributes:
+        version: Chunker implementation version.
+        tokenizer: Tokenizer used to measure embedding inputs.
+        input_tokens: Target token budget per chunk.
+        overlap_tokens: Tokens repeated between adjacent chunks.
+        normalization: Text normalization policy.
+        label_format: Format used to include a column label in embedding input."""
+
     model_config = ConfigDict(frozen=True, extra="forbid")
     version: str = Field(default="v1")
     tokenizer: str
@@ -78,6 +106,16 @@ class EnumerationCursor(BaseModel):
 
 
 class ChunkManifest(BaseModel):
+    """Chunk identity and source span persisted before embedding.
+
+    Attributes:
+        ordinal: Zero-based chunk position within the document.
+        column_id: Stable source column identifier.
+        column_name: Source column label at enumeration time.
+        start: Inclusive Unicode character offset in unmodified source text.
+        end: Exclusive Unicode character offset in unmodified source text.
+        input_hash: SHA-256 hex digest of the exact embedding input."""
+
     model_config = ConfigDict(frozen=True, extra="forbid")
     ordinal: int = Field(ge=0)
     column_id: uuid.UUID
@@ -99,6 +137,8 @@ class EmbeddingResult:
 
 @dataclass(frozen=True, slots=True)
 class EmbeddingInput:
+    """One provider input bound to its chunk ordinal and input hash."""
+
     ordinal: int
     input_hash: str
     text: str
@@ -106,6 +146,14 @@ class EmbeddingInput:
 
 @dataclass(frozen=True, slots=True)
 class EmbeddingRequest:
+    """Provider batch scoped to one workspace and immutable configuration.
+
+    Attributes:
+        scope: Trusted tenant identity for credential and configuration lookup.
+        config_version: Embedding configuration version to use.
+        dimensions: Expected number of components in every returned vector.
+        items: Exact chunk inputs to embed."""
+
     scope: SearchScope
     config_version: int
     dimensions: int
