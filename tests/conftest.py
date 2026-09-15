@@ -416,6 +416,10 @@ def db() -> Iterator[None]:
         test_engine = create_engine(TEST_DB_CONFIG.test_url_sync)
         with test_engine.begin() as conn:
             logger.info("Creating all tables")
+            # Each isolated test database needs its own extension registration.
+            conn.execute(
+                text("CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public")
+            )
             Base.metadata.create_all(conn)
             _install_case_number_allocator(conn)
         yield
