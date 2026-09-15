@@ -5682,6 +5682,12 @@ class UserRoleAssignment(Base):
 # deletion must not synchronously cascade through arbitrarily many chunks.
 # Services and RLS verify the live workspace; derived data is cleaned in batches.
 class SearchWorkspaceState(TimestampMixin, Base):
+    """Search availability and current configuration version for one workspace.
+
+    The composite key isolates tenant state. Version zero is unconfigured;
+    reindexing can advance the version before a replacement configuration exists.
+    """
+
     __tablename__ = "search_workspace_state"
     __table_args__ = (
         CheckConstraint(
@@ -5699,6 +5705,12 @@ class SearchWorkspaceState(TimestampMixin, Base):
 
 
 class SearchEmbeddingConfig(TimestampMixin, Base):
+    """Versioned provider settings and credential references for one workspace.
+
+    Records contain no credential secrets. Collections and chunks reference the
+    configuration version, and chunks must match its embedding dimensions.
+    """
+
     __tablename__ = "search_embedding_config"
     __table_args__ = (
         CheckConstraint(
@@ -5720,6 +5732,12 @@ class SearchEmbeddingConfig(TimestampMixin, Base):
 
 
 class SearchCollection(TimestampMixin, Base):
+    """Index settings and backfill progress for one source table in a workspace.
+
+    Selected columns, chunker settings, and an embedding configuration define the
+    index. The storage service advances its generation to invalidate old work.
+    """
+
     __tablename__ = "search_collection"
     __table_args__ = (
         UniqueConstraint("organization_id", "workspace_id", "id"),
@@ -5752,6 +5770,13 @@ class SearchCollection(TimestampMixin, Base):
 
 
 class SearchDocument(TimestampMixin, Base):
+    """Indexing progress for one source row within a tenant-scoped collection.
+
+    Revisions identify desired, in-progress, and published content. A fencing
+    token rejects superseded workers; publication requires a complete build of
+    the desired revision, verified by the storage service before marking ready.
+    """
+
     __tablename__ = "search_document"
     __table_args__ = (
         UniqueConstraint("organization_id", "workspace_id", "collection_id", "id"),
@@ -5812,6 +5837,13 @@ class SearchDocument(TimestampMixin, Base):
 
 
 class SearchChunk(TimestampMixin, Base):
+    """A source-text span and its embedding for one document build.
+
+    Generation, revision, and ordinal identify a chunk. Tenant-consistent foreign
+    keys bind it to its document and configuration; stored vectors must match
+    the configured dimensions and have nonzero norm.
+    """
+
     __tablename__ = "search_chunk"
     __table_args__ = (
         UniqueConstraint(
