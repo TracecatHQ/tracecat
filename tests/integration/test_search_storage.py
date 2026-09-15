@@ -871,6 +871,7 @@ async def test_owned_session_applies_trusted_scope_under_rls(
                 f'search_workspace_state, search_document TO "{role}"'
             )
         )
+        await session.execute(text(f'GRANT SELECT ON tables TO "{role}"'))
         policies = [enable_workspace_special_rls()]
         policies.extend(enable_search_table_rls(table) for table in search_tables)
         for policy in policies:
@@ -922,3 +923,28 @@ async def test_owned_session_applies_trusted_scope_under_rls(
                 )
             await session.execute(text(f'DROP OWNED BY "{role}"'))
             await session.execute(text(f'DROP ROLE "{role}"'))
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("has_document", [False, True])
+async def test_deleted_source_table_makes_index_unavailable(
+    storage_case: StorageCase, has_document: bool
+) -> None:
+    case = storage_case
+    if has_document:
+        claim = await prepared(case, 1)
+        async with case.sessions.begin() as session:
+            store = case.store(session)
+            await store.write_embeddings(claim, (embedding(claim),))
+            await store.publish(claim)
+    async with case.sessions.begin() as session:
+        store = case.store(session)
+        await store.checkpoint_backfill(
+            case.collection_id, generation=1, before=None, after=None, complete=True
+        )
+        assert not (await store.status(case.collection_id)).partial
+        # Table deletion leaves derived records for asynchronous orphan cleanup.
+        await session.execute(delete(Table).where(Table.id == case.source_id))
+        assert await session.get(SearchCollection, case.collection_id) is not None
+        assert not (await session.scalars(eligible_chunks(case.scope))).all()
+        assert (await store.status(case.collection_id)).partial
