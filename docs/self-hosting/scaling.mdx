@@ -26,8 +26,8 @@ in-flight actions needed    = λ × 2.6  / 0.8  ≈ 3.25 × λ
 ```
 
 `TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES` controls in-flight actions per executor replica, not actions per second.
-With the reference workload a replica with the default 32 admitted activities completes about 12 actions per second at most, and only if it has roughly 40 free cores.
-On a 4 vCPU replica, the formula gives `0.8 × 4 × 2.6 / 1.21 ≈ 7` admitted activities; 8 is the validated burst-friendly setting.
+A 4 vCPU replica completes about `0.8 × 4 / 1.21 ≈ 2.7` actions per second for the reference workload whether it admits 8 or 32 activities, so keep the default of 32 and add replicas to add throughput.
+The extra admission absorbs bursts; it does not add CPU.
 
 Your actions differ from the reference workload.
 HTTP actions that wait on remote APIs use less CPU and longer wall time, so they need more admission and fewer cores.
@@ -36,27 +36,28 @@ Measure both coefficients on your own workload before committing hardware, and r
 
 ## Sizing table
 
-Every tier uses the same executor replica shape: 4 vCPU, 4 GiB memory, and a Postgres client pool of 8 + 8 connections.
+Every tier uses the same executor replica shape: 4 vCPU, 4 GiB memory, the default 32 admitted activities, and a Postgres client pool of 8 + 8 connections.
 Host totals add roughly 8 vCPU and 16 GiB for the API, worker, UI, Temporal, both PostgreSQL instances, Redis, and MinIO.
 
 | Target | Executor replicas | `MAX_CONCURRENT_ACTIVITIES` | In-flight actions | Executor vCPU / RAM | Host total (approx.) | Postgres `max_connections` | Evidence |
 | :----- | ----------------: | --------------------------: | ----------------: | :------------------ | :------------------- | -------------------------: | :------- |
 | Default settings | 1 | 32 | 32 | Unlimited (shares host) | 8 vCPU / 16 GiB | 100 | ~3–5 actions/s on an 8-core host |
-| 8 actions/s | 3 | 8 | 24 | 12 vCPU / 12 GiB | 20 vCPU / 32 GiB | 200 | Measured: 8.4–8.5 actions/s |
-| 16 actions/s | 6 | 8 | 48 | 24 vCPU / 24 GiB | 32 vCPU / 48 GiB | 300 | Projected |
-| 32 actions/s | 12 | 8 | 96 | 48 vCPU / 48 GiB | 56 vCPU / 80 GiB | 400 | Projected |
-| 64 actions/s | 24 | 8 | 192 | 96 vCPU / 96 GiB | 104+ vCPU / 144 GiB | 600 or a pooler | Projected, multi-node |
-| 128 actions/s | 48 | 8 | 384 | 192 vCPU / 192 GiB | 200+ vCPU / 256 GiB | Pooler required | Projected, multi-node |
-| 256 actions/s | 96 | 8 | 768 | 384 vCPU / 384 GiB | 392+ vCPU / 512 GiB | Pooler required | Projected, multi-node |
+| 8 actions/s | 3 | 32 | 96 | 12 vCPU / 12 GiB | 20 vCPU / 32 GiB | 200 | Measured: 8.4–8.5 actions/s (with 8 admitted per replica) |
+| 16 actions/s | 6 | 32 | 192 | 24 vCPU / 24 GiB | 32 vCPU / 48 GiB | 300 | Projected |
+| 32 actions/s | 12 | 32 | 384 | 48 vCPU / 48 GiB | 56 vCPU / 80 GiB | 400 | Projected |
+| 64 actions/s | 24 | 32 | 768 | 96 vCPU / 96 GiB | 104+ vCPU / 144 GiB | 600 or a pooler | Projected, multi-node |
+| 128 actions/s | 48 | 32 | 1536 | 192 vCPU / 192 GiB | 200+ vCPU / 256 GiB | Pooler required | Projected, multi-node |
+| 256 actions/s | 96 | 32 | 3072 | 384 vCPU / 384 GiB | 392+ vCPU / 512 GiB | Pooler required | Projected, multi-node |
 
-Only the 8 actions/s row is measured.
-The higher rows keep the validated replica shape fixed (4 vCPU, 8 admitted activities, roughly 2.7 actions per second per replica) and double the replica count for each doubling of throughput, so the scaling rule is three executors per 8 actions per second.
-They assume the reference action mix and that every replica gets its own physical cores.
+Only the 8 actions/s row is measured, on three 4 vCPU executors that admitted 8 activities each.
+The benchmark also showed that admitting more per replica did not raise throughput, so the rows keep the default 32 and change only the replica count: three executors per 8 actions per second, doubling with each tier.
+The in-flight column is the burst the tier can hold, not its sustained rate.
+The rows assume the reference action mix and that every replica gets its own physical cores.
 Validate any tier above 16 actions/s with the [benchmark suite](https://github.com/TracecatHQ/tracecat/tree/main/packages/tracecat-benchmark) on the target hardware before you commit to it.
 
 The default settings row is deliberately conservative.
 A single executor with 32 admitted activities could reach 32 / 2.6 ≈ 12 actions per second, but on an 8-core host shared with every other service it has roughly 4 cores available, which caps it at 0.8 × 4 / 1.21 ≈ 2.6 actions per second for the reference workload.
-The default admits bursts generously; adding cores or replicas, not a higher `TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES`, raises sustained throughput on that host.
+Adding cores or replicas, not a higher `TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES`, raises sustained throughput on that host.
 
 ## Physical capacity is a hard limit
 
@@ -70,16 +71,12 @@ Above that, [convert to Docker Swarm](/self-hosting/docker-compose#convert-to-do
 ## Configure a tier
 
 <Steps>
-  <Step title="Set executor concurrency in .env">
-    Set both executor variables to the `MAX_CONCURRENT_ACTIVITIES` value from the table.
+  <Step title="Keep the default executor concurrency">
+    Leave `TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES` and `TRACECAT__EXECUTOR_THREADPOOL_MAX_WORKERS` at their default of 32.
+    Every tier scales by replica count, not by this value.
 
-    ```bash
-    TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES=8
-    TRACECAT__EXECUTOR_THREADPOOL_MAX_WORKERS=8
-    ```
-
-    Actions that use `for_each` multiply database concurrency by `TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY` (default 4).
-    Keep `MAX_CONCURRENT_ACTIVITIES × FOR_EACH_MAX_CONCURRENCY` below the executor's Postgres pool ceiling, or lower `TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY` to 1 for scatter-heavy workloads.
+    Actions that use `for_each` multiply database concurrency by `TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY` (default 4), so one replica can queue 128 database-bound tasks against its 8 + 8 pool.
+    If executor logs show pool timeouts, lower `TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY` to 1 or lower `TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES` to 8 rather than raising the pool, because the validated 8 + 8 pool is what the `max_connections` column budgets for.
   </Step>
   <Step title="Pin executor resources and Postgres pools">
     Create `docker-compose.override.yml` next to `docker-compose.yml`.
@@ -123,7 +120,7 @@ Above that, [convert to Docker Swarm](/self-hosting/docker-compose#convert-to-do
   <Step title="Verify against the target">
     Watch these signals while running a representative burst:
 
-    - `docker stats`: executor containers should sit below 80% of their CPU limit. Sustained 100% means you need more replicas or fewer admitted activities per replica.
+    - `docker stats`: executor containers should sit below 80% of their CPU limit. Sustained 100% means you need more replicas.
     - `SELECT count(*) FROM pg_stat_activity;` on `postgres_db`: peak connections should stay below `max_connections` with headroom for migrations and administration.
     - Temporal UI (uncomment the `temporal_ui` port mapping in `docker-compose.yml`, then open `http://localhost:8081`): a growing `shared-action-queue` backlog with idle executor CPU means admission is too low; a growing backlog with saturated CPU means you are out of cores.
   </Step>
@@ -135,7 +132,7 @@ Client pools fan out with executor replicas while the useful number of PostgreSQ
 In the reference benchmark, 16 physical executor backends behind PgDog preserved 99% of direct throughput while cutting peak PostgreSQL connections by 32%; 12 backends kept 90%.
 Twice as many executor backends did not raise throughput.
 
-From 12 executor replicas upward, place a transaction-mode pooler such as PgDog or PgBouncer between the executors and PostgreSQL, and size its executor backend pool at roughly two-thirds of the total in-flight actions.
+From 12 executor replicas upward, place a transaction-mode pooler such as PgDog or PgBouncer between the executors and PostgreSQL, and size its executor backend pool at roughly 1.3 backends per executor vCPU (the benchmark's 16 backends for 12 vCPU).
 A pooler multiplexes connections; it does not add database CPU.
 If PostgreSQL CPU or I/O saturates while connections stay within budget, give PostgreSQL more vCPU or move it to a managed instance.
 
