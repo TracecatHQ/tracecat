@@ -14,7 +14,11 @@ from tracecat.audit.service import AuditService
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import EDITOR_SCOPES
 from tracecat.db.models import Schedule, Workflow
-from tracecat.exceptions import ScopeDeniedError, TracecatNotFoundError
+from tracecat.exceptions import (
+    ScopeDeniedError,
+    TracecatConflictError,
+    TracecatNotFoundError,
+)
 from tracecat.identifiers import ScheduleUUID, WorkspaceID
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.runtime.errors import (
@@ -160,7 +164,7 @@ async def test_create_schedule_unpublished_workflow_emits_failure(
     service = WorkflowSchedulesService(session, role=svc_role)
 
     with pytest.raises(
-        TracecatNotFoundError,
+        TracecatConflictError,
         match="Workflow must be saved before creating a schedule",
     ):
         await service.create_schedule(

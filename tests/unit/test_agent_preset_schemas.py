@@ -435,3 +435,19 @@ def test_agent_preset_version_read_schema_accepts_legacy_whitespace_model_fields
 
     assert payload.version == 1
     assert str(payload.workspace_id) == "6b2bb4d8-8461-486d-b4ca-e10a5a19d2f2"
+
+
+@pytest.mark.parametrize(
+    "field_name", ["retries", "enable_thinking", "enable_internet_access"]
+)
+def test_agent_preset_update_rejects_null_for_non_nullable_fields(
+    field_name: str,
+) -> None:
+    with pytest.raises(ValidationError, match="cannot be null"):
+        AgentPresetUpdate.model_validate({field_name: None})
+
+
+def test_agent_preset_update_allows_omitting_non_nullable_fields() -> None:
+    update = AgentPresetUpdate.model_validate({"name": "Renamed"})
+    assert update.retries is None
+    assert "retries" not in update.model_fields_set

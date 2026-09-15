@@ -162,6 +162,11 @@ async def update_schedule(schedule_id: AnyScheduleID, params: ScheduleUpdate) ->
             action.typed_search_attributes = build_schedule_search_attributes(role)
             if "inputs" in set_fields:
                 action.args[0].dsl.trigger_inputs = set_fields["inputs"]  # type: ignore
+            if "timeout" in set_fields:
+                timeout = set_fields["timeout"]
+                action.execution_timeout = (
+                    timedelta(seconds=timeout) if timeout else None
+                )
         else:
             raise NotImplementedError(
                 "Only ScheduleActionStartWorkflow is supported for now."

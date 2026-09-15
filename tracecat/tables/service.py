@@ -617,6 +617,9 @@ class BaseTablesService(BaseWorkspaceService):
         )
 
         await self.session.flush()
+        if params.is_index:
+            await self.session.refresh(table, ["columns"])
+            await self.create_unique_index(table, column_name)
         return column
 
     @audit_log(resource_type="table_column", action="update")

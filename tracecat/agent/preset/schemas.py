@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from tracecat.agent.subagents import AgentSubagentsConfig, has_manual_tool_approvals
 from tracecat.agent.types import AgentConfig, OutputType
@@ -156,6 +156,20 @@ class AgentPresetUpdate(BaseModel):
     enable_thinking: bool | None = Field(default=None)
     enable_internet_access: bool | None = Field(default=None)
     skills: list[AgentPresetSkillBindingBase] | None = Field(default=None)
+
+    @model_validator(mode="after")
+    def reject_null_required_fields(self) -> AgentPresetUpdate:
+        non_nullable = {
+            "retries": self.retries,
+            "enable_thinking": self.enable_thinking,
+            "enable_internet_access": self.enable_internet_access,
+        }
+        for field_name, value in non_nullable.items():
+            if field_name in self.model_fields_set and value is None:
+                raise ValueError(
+                    f"{field_name} cannot be null; omit the field to leave it unchanged"
+                )
+        return self
 
 
 class AgentPresetReadMinimal(Schema):

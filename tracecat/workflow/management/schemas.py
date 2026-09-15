@@ -8,7 +8,7 @@ from typing import Any, Literal
 from urllib.parse import urlparse
 
 from fastapi.responses import ORJSONResponse
-from pydantic import BaseModel, Field, computed_field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
 from tracecat.auth.types import Role
 from tracecat.cases.enums import CaseEventType
@@ -480,6 +480,8 @@ class WorkflowEntrypointValidationResponse(BaseModel):
 
 
 class WorkflowMoveToFolder(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     folder_path: str | None = None
 
 
