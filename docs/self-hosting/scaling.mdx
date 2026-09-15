@@ -15,6 +15,22 @@ A workflow run moves through three services, each with its own concurrency limit
 
 Executors are almost always the bottleneck. A workflow run with 8 actions that each take 3 seconds holds an executor slot for 24 slot-seconds. The Docker Compose defaults give you one executor with 16 slots, which caps you at about 16 / 24 = 0.67 such workflow runs per second before actions start queueing in Temporal. Queued actions are not lost, they just wait, so the symptom of an undersized deployment is slow runs rather than failed runs.
 
+## Sizing at a glance
+
+The table uses a reference workload of 5 actions per run at 2 seconds each with 1.5× headroom, and the calibration described below (4 slots per vCPU, 512 MiB per slot, base stack of 4 vCPU and 10 GiB). Run the [sizing calculator](#sizing-calculator) with your own action count and duration to get exact values.
+
+| Tier | Concurrent actions | Sustained starts/sec | Executors × slots | Workers | Host vCPU | Host memory | PostgreSQL `max_connections` |
+| :--- | :----------------- | :------------------- | :---------------- | :------ | :-------- | :---------- | :--------------------------- |
+| Compose defaults | 16 | ~1 | 1 × 16 | 1 | 10 | 21 GiB | 580 |
+| Low | 32 | ~2 | 2 × 16 | 1 | 14 | 30 GiB | 660 |
+| Medium | 64 | ~4 | 4 × 16 | 1 | 22 | 48 GiB | 820 |
+| High | 128 | ~8.5 | 8 × 16 | 2 | 40 | 86 GiB | 1220 |
+| Very high | 256 | ~17 | 16 × 16 | 3 | 74 | 160 GiB | 1940 |
+
+Concurrent actions is the number of action subprocesses running at once across all executors. Sustained starts/sec is the workflow start rate that keeps those slots busy without queueing; runs with more or longer actions lower it proportionally. Host vCPU and memory include the base stack. The `max_connections` column is the worst case with the default pool settings (every Tracecat process opening its full 80 connections); lower `TRACECAT__DB_POOL_SIZE` and `TRACECAT__DB_MAX_OVERFLOW` per process to bring it down, as described under [PostgreSQL](#postgresql).
+
+Above the Medium tier, run the stateful services (PostgreSQL, Temporal, MinIO, Redis) on their own hosts or managed services and spread executors across nodes with [Docker Swarm](/self-hosting/docker-compose#convert-to-docker-swarm) or [Kubernetes](/self-hosting/kubernetes).
+
 ## Variables that control throughput
 
 All variables below are read from `.env` by `docker-compose.yml`. The Kubernetes Helm chart and the Fargate Terraform module expose the same settings under their own names; see [Kubernetes](/self-hosting/kubernetes) and [AWS ECS Fargate](/self-hosting/aws-fargate).
