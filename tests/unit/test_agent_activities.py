@@ -2073,6 +2073,91 @@ class TestSandboxedAgentExecutorHelpers:
         assert result.terminal_stream_error_emitted is True
 
     @pytest.mark.anyio
+    async def test_fatal_proxy_error_survives_runtime_cleanup_send_done(
+        self,
+        executor_input: AgentExecutorInput,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Runtime cleanup must preserve the proxy's authoritative failure."""
+        executor = SandboxedAgentExecutor(input=executor_input)
+        error = "provider request failed"
+        classification = user_agent_execution_failed()
+        executor._fatal_error = LLMProxyError(
+            message=error,
+            classification=classification,
+        )
+        executor._fatal_error_event.set()
+        executor._job_dir = tmp_path
+        executor._llm_proxy = cast(
+            LLMSocketProxy,
+            SimpleNamespace(start=AsyncMock()),
+        )
+
+        handler = LoopbackHandler(
+            input=LoopbackInput(
+                session_id=executor.input.session_id,
+                workspace_id=executor.input.workspace_id,
+            )
+        )
+        stream = SimpleNamespace(
+            append=AsyncMock(),
+            error=AsyncMock(),
+            done=AsyncMock(),
+        )
+        handler._stream_sink = cast(Any, stream)
+        capture = MagicMock()
+        monkeypatch.setattr(
+            "tracecat.agent.executor.loopback.capture_activity_failure",
+            capture,
+        )
+
+        class FakeBroker:
+            @asynccontextmanager
+            async def session_turn_lease(self, _session_id: str):
+                yield
+
+            async def run_turn_in_session_lease(
+                self,
+                _request: ClaudeTurnRequest,
+                turn_handler: LoopbackHandler,
+            ) -> None:
+                try:
+                    await asyncio.Event().wait()
+                finally:
+                    await turn_handler.send_done()
+
+            async def cancel_turn(self, _session_id: str) -> None:
+                return None
+
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.get_claude_runtime_broker",
+            lambda: FakeBroker(),
+        )
+
+        result = AgentExecutorResult(
+            success=False,
+            terminal_stream_error_emitted=False,
+        )
+        await executor._run_with_broker(
+            result=result,
+            handler=handler,
+            init_payload=executor._build_runtime_init_payload(),
+            socket_dir=tmp_path / "sockets",
+            llm_socket_path=tmp_path / "sockets" / "llm.sock",
+            artifact_working_set=None,
+            otel_socket_path=None,
+        )
+
+        assert result.success is False
+        assert result.error == error
+        assert result.classification == classification
+        assert result.terminal_stream_error_emitted is True
+        stream.error.assert_awaited_once_with(error)
+        stream.done.assert_not_awaited()
+        capture.assert_not_called()
+
+    @pytest.mark.anyio
     async def test_cleanup_failure_drops_original_proxy_diagnostics(
         self,
         executor_input: AgentExecutorInput,

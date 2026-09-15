@@ -613,7 +613,13 @@ class _FakeLoopbackHandler:
     def build_result(self) -> LoopbackResult:
         return LoopbackResult(success=True)
 
-    async def emit_terminal_error(self, error_msg: str) -> None:
+    async def emit_terminal_error(
+        self,
+        error_msg: str,
+        *,
+        classification: RuntimeErrorClassification,
+    ) -> None:
+        del classification
         raise AssertionError(f"unexpected terminal error: {error_msg}")
 
 
@@ -3503,9 +3509,15 @@ async def test_broker_deadline_captures_source_before_stream_and_cancellation(
         captures.append(receipt)
         return receipt
 
-    async def emit_terminal_error(self: _FakeLoopbackHandler, message: str) -> bool:
+    async def emit_terminal_error(
+        self: _FakeLoopbackHandler,
+        message: str,
+        *,
+        classification: RuntimeErrorClassification,
+    ) -> bool:
         del self
         assert message == "Agent execution timed out after 0s"
+        assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_TIMED_OUT
         operations.append("stream")
         return True
 

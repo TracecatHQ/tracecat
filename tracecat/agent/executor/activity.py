@@ -931,7 +931,10 @@ class SandboxedAgentExecutor:
                             diagnostic=proxy_error.diagnostic,
                         )
                         result.terminal_stream_error_emitted = (
-                            await handler.emit_terminal_error(proxy_error.message)
+                            await handler.emit_terminal_error(
+                                proxy_error.message,
+                                classification=proxy_error.classification,
+                            )
                         )
                         await broker.cancel_turn(str(self.input.session_id))
                         await _cancel_task_with_timeout(
@@ -978,7 +981,10 @@ class SandboxedAgentExecutor:
                             error, timeout_classification
                         )
                     result.terminal_stream_error_emitted = (
-                        await handler.emit_terminal_error(timeout_message)
+                        await handler.emit_terminal_error(
+                            timeout_message,
+                            classification=timeout_classification,
+                        )
                     )
                     await broker.cancel_turn(str(self.input.session_id))
                     await _cancel_task_with_timeout(
@@ -997,7 +1003,8 @@ class SandboxedAgentExecutor:
                 existing_capture=handler.build_result().sentry_capture,
             )
             result.terminal_stream_error_emitted = await handler.emit_terminal_error(
-                failure.message
+                failure.message,
+                classification=failure.classification,
             )
             if not isinstance(e, ConcurrentSessionTurnError):
                 raise
