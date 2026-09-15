@@ -6984,6 +6984,7 @@ export type RuntimeErrorKind =
   | "tenant.entitlement.denied"
   | "integration.rate_limited"
   | "registry.sync.validation_failed"
+  | "registry.lock.invalid_data"
   | "runtime.unclassified"
   | "storage.materialization.transport_unavailable"
   | "storage.materialization.invalid_data"

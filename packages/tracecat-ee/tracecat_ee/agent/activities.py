@@ -22,6 +22,7 @@ from tracecat.agent.common.types import (
 from tracecat.agent.error_policy import (
     agent_preparation_failed,
     invalid_agent_configuration,
+    registry_lock_invalid_data,
     tenant_entitlement_denied,
 )
 from tracecat.agent.mcp.internal_tools import (
@@ -540,7 +541,7 @@ class AgentActivities:
             )
         except RegistryLockInvalidDataError as e:
             raise_application_error_from_classification(
-                invalid_agent_configuration(e),
+                registry_lock_invalid_data(e),
                 e.detail,
             )
 

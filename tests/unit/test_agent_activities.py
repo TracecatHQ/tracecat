@@ -452,7 +452,7 @@ class TestBuildToolDefinitionsActivity:
         assert exc_info.value.non_retryable is True
 
     @pytest.mark.anyio
-    async def test_classifies_registry_lock_invalid_data_as_user_configuration(
+    async def test_classifies_registry_lock_invalid_data_as_platform_registry(
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
@@ -493,8 +493,8 @@ class TestBuildToolDefinitionsActivity:
 
         classification = extract_error_classification(exc_info.value)
         assert classification is not None
-        assert classification.owner is RuntimeErrorOwner.USER
-        assert classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
+        assert classification.owner is RuntimeErrorOwner.PLATFORM
+        assert classification.kind is RuntimeErrorKind.REGISTRY_LOCK_INVALID_DATA
         assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
         assert exc_info.value.non_retryable is True
 
