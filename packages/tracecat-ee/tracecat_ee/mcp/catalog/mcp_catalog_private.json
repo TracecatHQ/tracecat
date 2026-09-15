@@ -303,7 +303,19 @@
         "scopes": [],
         "oauth_authorization_endpoint": "https://www-api.runreveal.com/oauth/authorize",
         "oauth_token_endpoint": "https://www-api.runreveal.com/oauth/token",
-        "credentials": []
+        "credentials": [
+          {
+            "key": "RUNREVEAL_MCP_ENDPOINT",
+            "label": "RunReveal MCP server URL",
+            "description": "MCP endpoint of your RunReveal deployment. Keep the default for RunReveal cloud, or enter the /mcp URL of your self-hosted RunReveal instance. OAuth endpoints are discovered from this host.",
+            "required": true,
+            "secret": false,
+            "type": "url",
+            "default_value": "https://api.runreveal.com/mcp",
+            "placeholder": "https://api.runreveal.com/mcp",
+            "target": "server_uri"
+          }
+        ]
       }
     },
     {
