@@ -3,7 +3,9 @@
 No source text is retained between calls. A step handles one character window;
 both output chunks and source windows are bounded per batch, including when
 columns are blank. Counted binary search chooses a fitting prefix/suffix, not a
-guaranteed maximal one: tokenizer counts are not assumed to be monotone.
+guaranteed maximal one: tokenizer counts are not assumed to be monotone. When
+even the minimum prefix is too large, a bounded, resumable scan finds a fitting
+starting point or establishes that no prefix of the current window can fit.
 """
 
 import hashlib
@@ -23,6 +25,7 @@ from tracecat.search.chunking_types import (
     InvalidCheckpoint,
     InvalidChunkingConfig,
     InvalidSourceSlice,
+    PrefixSearchPending,
     PreparedChunk,
     SourceReader,
     SourceSlice,
@@ -34,6 +37,7 @@ _PARAGRAPH_END = re.compile(r"\r?\n[ \t]*\r?\n")
 _SENTENCE_END = re.compile(r"[.!?](?=\s)")
 MAX_BATCH_CHUNKS = 32
 MAX_BATCH_WINDOWS = 32
+MAX_PREFIX_PROBES = 16
 
 
 def _hash_text(text: str) -> str:
@@ -100,7 +104,8 @@ class TextChunker:
     ) -> ChunkBatch:
         """Prepare at most 32 chunks/windows, then return resumable progress.
 
-        A batch can be incomplete with no chunks after scanning blank text.
+        A batch can be incomplete with no chunks after scanning blank text or
+        searching later prefixes under a non-monotone token counter.
         Limits change yield points, never chunk boundaries. Persist returned
         manifests and checkpoint atomically. Only complete batches report the
         final expected chunk count; the worker decides when to publish a row.
@@ -164,11 +169,16 @@ class TextChunker:
             cursor.identity != self.identity
             or cursor.config_hash != self._config_hash
             or cursor.column_index > len(self._columns)
+            or cursor.next_prefix_length >= self.config.read_size
             or cursor.character_offset - cursor.overlap_start
             > self.config.read_size // 2
             or (
                 cursor.column_index == len(self._columns)
-                and (cursor.character_offset != 0 or cursor.overlap_start != 0)
+                and (
+                    cursor.character_offset != 0
+                    or cursor.overlap_start != 0
+                    or cursor.next_prefix_length != 0
+                )
             )
         ):
             raise InvalidCheckpoint("Checkpoint does not match this document build")
@@ -218,16 +228,27 @@ class TextChunker:
         label = self._label(column)
         label_tokens = self._count(label)
         passage = source.text
-        # If overlap leaves no room for new text, discard it, never source text.
         minimum = covered + 1
-        if (
-            covered
-            and self._count(label + passage[:minimum]) > self.config.token_budget
-        ):
-            start += covered
-            passage = passage[covered:]
-            minimum = 1
-        length = self._fitting_prefix(label, passage, minimum)
+        fit = self._fitting_prefix(label, passage, minimum, cursor.next_prefix_length)
+        if isinstance(fit, PrefixSearchPending):
+            return None, cursor.model_copy(
+                update={"next_prefix_length": fit.next_length}
+            )
+        if fit is None:
+            if covered:
+                # Only drop overlap after proving no advancing prefix fits it.
+                # The next step reads from the covered end and starts a fresh
+                # search; both transitions remain safe to checkpoint and replay.
+                return None, cursor.model_copy(
+                    update={
+                        "overlap_start": cursor.character_offset,
+                        "next_prefix_length": 0,
+                    }
+                )
+            raise InvalidChunkingConfig(
+                "Input budget cannot fit any prefix of the source window"
+            )
+        length = fit
         if not (source.end_of_column and length == len(passage)):
             length = self._preferred_boundary(label, passage, length, minimum)
         passage = passage[:length]
@@ -257,19 +278,39 @@ class TextChunker:
         overlap = 0 if finished else self._overlap_length(passage, label_tokens)
         return chunk, self._advance(cursor, end, end - overlap, finished, emitted=True)
 
-    def _fitting_prefix(self, label: str, passage: str, minimum: int) -> int:
+    def _fitting_prefix(
+        self, label: str, passage: str, minimum: int, next_length: int
+    ) -> int | PrefixSearchPending | None:
+        """Find a fit, yield its search position, or exhaust the current window."""
         budget = self.config.token_budget
-        if self._count(label + passage) <= budget:
-            return len(passage)
-        if self._count(label + passage[:minimum]) > budget:
-            raise InvalidChunkingConfig(
-                "Input budget cannot fit the next source character"
+        if next_length == 0:
+            if self._count(label + passage) <= budget:
+                return len(passage)
+            if self._count(label + passage[:minimum]) <= budget:
+                return self._extend_fitting_prefix(label, passage, minimum)
+            next_length = minimum + 1
+        elif not minimum < next_length < len(passage):
+            raise InvalidCheckpoint(
+                "Pending prefix search is outside its source window"
             )
+
+        # Full input and shorter prefixes have already failed. A non-monotone
+        # counter can fit at any remaining length, so test each before rejecting.
+        # Yield between small groups of probes instead of scanning a whole window.
+        stop = min(next_length + MAX_PREFIX_PROBES, len(passage))
+        for length in range(next_length, stop):
+            if self._count(label + passage[:length]) <= budget:
+                return self._extend_fitting_prefix(label, passage, length)
+        if stop < len(passage):
+            return PrefixSearchPending(next_length=stop)
+        return None
+
+    def _extend_fitting_prefix(self, label: str, passage: str, minimum: int) -> int:
         # Keep an actually counted fitting prefix, regardless of non-monotone counts.
         low, high = minimum, len(passage)
         while low + 1 < high:
             middle = (low + high) // 2
-            if self._count(label + passage[:middle]) <= budget:
+            if self._count(label + passage[:middle]) <= self.config.token_budget:
                 low = middle
             else:
                 high = middle

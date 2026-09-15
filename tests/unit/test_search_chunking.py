@@ -8,7 +8,7 @@ from uuid import UUID
 import pytest
 from pydantic import ValidationError
 
-from tracecat.search.chunking import TextChunker
+from tracecat.search.chunking import MAX_PREFIX_PROBES, TextChunker
 from tracecat.search.chunking_types import (
     ChunkBatch,
     ChunkCheckpoint,
@@ -388,6 +388,152 @@ class MergingCounter(ByteCounter):
         return len(text) if len(text) % 7 else 1
 
 
+class PairMergingCounter(ByteCounter):
+    """A Unicode pair costs one token; its first character alone costs ten."""
+
+    def count_tokens(self, text: str) -> int:
+        super().count_tokens(text)
+        return len(text.replace("你好", "x").replace("你", "x" * 10).encode())
+
+
+async def test_later_prefix_fits_when_first_character_and_full_window_do_not() -> None:
+    counter = PairMergingCounter()
+    reader = PatternReader({COLUMN.id: PatternSource("你好", 5)})
+    splitter = chunker(config(budget=14), counter=counter)
+    chunks, _ = await collect(splitter, reader)
+    assert [chunk.text for chunk in chunks] == ["description:\n你好"] * 5
+    assert [chunk.metadata.end for chunk in chunks] == [2, 4, 6, 8, 10]
+    for chunk in chunks:
+        assert chunk.metadata.token_count == 14
+        assert await splitter.reconstruct_input(reader, chunk.metadata) == chunk.text
+
+
+async def test_later_prefix_fits_after_overlap_is_discarded() -> None:
+    class WidePairMergingCounter(ByteCounter):
+        def count_tokens(self, text: str) -> int:
+            super().count_tokens(text)
+            return len(text.replace("你好", "xxxx").replace("你", "x" * 10).encode())
+
+    counter = WidePairMergingCounter()
+    reader = PatternReader({COLUMN.id: PatternSource("abcde你好", 4)})
+    splitter = chunker(config(budget=18), counter=counter)
+    first = await splitter.prepare_batch(reader, max_chunks=1)
+    assert first.checkpoint.character_offset == 5
+    assert first.checkpoint.overlap_start < first.checkpoint.character_offset
+    resumed, batches = await collect(splitter, reader, first.checkpoint, max_windows=1)
+    assert resumed[0].metadata.start == 5
+    assert resumed[0].text.startswith("description:\n你好")
+    expected, _ = await collect(splitter, reader)
+    assert list(first.chunks) + resumed == expected
+    assert any(
+        not batch.chunks
+        and batch.checkpoint.overlap_start == batch.checkpoint.character_offset
+        and batch.checkpoint.next_prefix_length == 0
+        for batch in batches
+    )
+    for batch in batches:
+        restored = ChunkCheckpoint.model_validate_json(
+            batch.checkpoint.model_dump_json()
+        )
+        recreated = chunker(config(budget=18), counter=WidePairMergingCounter())
+        replay, _ = await collect(recreated, reader, restored)
+        assert replay == expected[restored.next_ordinal :]
+    covered = 0
+    for chunk in expected:
+        assert chunk.metadata.start <= covered < chunk.metadata.end
+        assert chunk.metadata.token_count <= 18
+        covered = chunk.metadata.end
+    assert covered == 28
+
+
+async def test_searches_retained_overlap_before_discarding_it() -> None:
+    class ContextMergingCounter(ByteCounter):
+        def count_tokens(self, text: str) -> int:
+            counted = super().count_tokens(text)
+            return 1 if text == "description:\na你好" else counted
+
+    reader = PatternReader({COLUMN.id: PatternSource("aa你好")})
+    splitter = chunker(config(budget=15), counter=ContextMergingCounter())
+    first = await splitter.prepare_batch(reader, max_chunks=1)
+    assert first.chunks[0].text == "description:\naa"
+    assert first.checkpoint.character_offset == 2
+    assert first.checkpoint.overlap_start == 1
+    resumed = await splitter.prepare_batch(reader, first.checkpoint)
+    assert resumed.complete
+    assert resumed.chunks[0].text == "description:\na你好"
+    assert resumed.chunks[0].metadata.token_count == 1
+    assert resumed.chunks[0].metadata.start == 1
+    assert resumed.chunks[0].metadata.end == 4
+
+
+async def test_prefix_search_yields_and_resumes_without_restarting_probes() -> None:
+    class SparseFitCounter(ByteCounter):
+        def count_tokens(self, text: str) -> int:
+            counted = super().count_tokens(text)
+            return 1 if text == "description:\n" + "a" * 63 else counted
+
+    settings = config(budget=1, read_size=256)
+    reader = PatternReader({COLUMN.id: PatternSource("a", 126)})
+    counter = SparseFitCounter()
+    splitter = chunker(settings, counter=counter)
+    first = await splitter.prepare_batch(reader, max_windows=1)
+    assert first.chunks == () and not first.complete
+    assert first.checkpoint.character_offset == 0
+    assert first.checkpoint.next_ordinal == 0
+    assert first.checkpoint.next_prefix_length == 2 + MAX_PREFIX_PROBES
+    assert counter.calls <= MAX_PREFIX_PROBES + 3
+
+    expected, batches = await collect(splitter, reader, max_windows=1)
+    assert [chunk.metadata.end for chunk in expected] == [63, 126]
+    assert (
+        batches[1].checkpoint.next_prefix_length > first.checkpoint.next_prefix_length
+    )
+    for batch in batches:
+        restored = ChunkCheckpoint.model_validate_json(
+            batch.checkpoint.model_dump_json()
+        )
+        recreated = chunker(settings, counter=SparseFitCounter())
+        replay, _ = await collect(recreated, reader, restored)
+        assert replay == expected[restored.next_ordinal :]
+        if batch.chunks:
+            assert restored.next_prefix_length == 0
+    uninterrupted, _ = await collect(
+        chunker(settings, counter=SparseFitCounter()), reader
+    )
+    assert uninterrupted == expected
+
+
+async def test_invalid_window_checks_every_prefix_in_bounded_batches() -> None:
+    class RecordingCounter(ByteCounter):
+        def __init__(self) -> None:
+            super().__init__()
+            self.prefix_lengths: list[int] = []
+
+        def count_tokens(self, text: str) -> int:
+            label = "description:\n"
+            if text.startswith(label) and len(text) > len(label):
+                self.prefix_lengths.append(len(text) - len(label))
+            return super().count_tokens(text)
+
+    settings = config(budget=1, read_size=1024)
+    counter = RecordingCounter()
+    reader = PatternReader({COLUMN.id: PatternSource("x", 1024)})
+    splitter = chunker(settings, counter=counter)
+    first = await splitter.prepare_batch(reader)
+    assert not first.complete and not first.chunks
+    assert first.checkpoint.character_offset == first.checkpoint.next_ordinal == 0
+    assert counter.calls <= 32 * (MAX_PREFIX_PROBES + 3)
+    assert reader.calls == 32
+    before_calls = counter.calls
+    before_reads = reader.calls
+    with pytest.raises(InvalidChunkingConfig, match="any prefix"):
+        await splitter.prepare_batch(reader, first.checkpoint)
+    assert counter.calls - before_calls <= 32 * (MAX_PREFIX_PROBES + 3)
+    assert reader.calls - before_reads <= 32
+    assert counter.max_characters <= settings.read_size + len(COLUMN.name) + 2
+    assert sorted(counter.prefix_lengths) == list(range(1, 1025))
+
+
 async def test_nonmonotone_counts_still_emit_only_verified_inputs() -> None:
     counter = MergingCounter()
     settings = config(budget=20)
@@ -450,6 +596,8 @@ async def test_invalid_checkpoint_serialization_and_ranges() -> None:
         {"column_index": 2},
         {"character_offset": 65},
         {"column_index": 1, "character_offset": 1},
+        {"next_prefix_length": 128},
+        {"column_index": 1, "next_prefix_length": 2},
     ]:
         invalid = ChunkCheckpoint.model_validate(cursor.model_dump() | changes)
         with pytest.raises(InvalidCheckpoint):

@@ -138,6 +138,8 @@ class ChunkCheckpoint(BaseModel):
 
     character_offset is the end already covered, overlap_start is where the
     next bounded read begins. Their difference is at most half a read window.
+    next_prefix_length resumes a bounded fallback search in that same window;
+    zero means no search is pending. No candidate source text is persisted.
     End-of-document is column_index == number of selected columns.
     """
 
@@ -150,12 +152,20 @@ class ChunkCheckpoint(BaseModel):
     character_offset: int = Field(default=0, ge=0)
     overlap_start: int = Field(default=0, ge=0)
     next_ordinal: int = Field(default=0, ge=0)
+    next_prefix_length: int = Field(default=0, ge=0)
 
     @model_validator(mode="after")
     def validate_offsets(self) -> "ChunkCheckpoint":
         if self.overlap_start > self.character_offset:
             raise InvalidCheckpoint("Overlap starts after the covered source range")
         return self
+
+
+@dataclass(frozen=True, slots=True)
+class PrefixSearchPending:
+    """The next untested prefix after exhausting one step's counting budget."""
+
+    next_length: int
 
 
 @dataclass(frozen=True, slots=True)
