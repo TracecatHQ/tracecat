@@ -456,6 +456,60 @@ async def test_run_workflow_return_error_classification(
         patched.assert_called_once_with(WorkflowPatch.PRESERVE_RETURN_CANCELLATION)
 
 
+def _task_result(value: str) -> TaskResult:
+    return TaskResult(result=InlineObject(data=value), result_typename="str")
+
+
+def test_build_return_context_only_includes_referenced_actions() -> None:
+    workflow = _build_workflow()
+    workflow.context["ACTIONS"] = {
+        "first": _task_result("a"),
+        "second": _task_result("b"),
+        "unused": _task_result("c"),
+    }
+    workflow.context["TRIGGER"] = InlineObject(data={"k": "v"})
+    workflow.dsl = DSLInput(
+        title="Return subset",
+        description="only referenced actions in return operand",
+        entrypoint=DSLEntrypoint(ref="first"),
+        actions=[
+            ActionStatement(ref="first", action="core.noop"),
+            ActionStatement(ref="second", action="core.noop"),
+            ActionStatement(ref="unused", action="core.noop"),
+        ],
+        returns={
+            "a": "${{ ACTIONS.first.result }}",
+            "nested": [
+                "${{ ACTIONS.second.result.x }}",
+                "${{ ACTIONS.missing.result }}",
+            ],
+            "trigger": "${{ TRIGGER.k }}",
+        },
+    )
+
+    return_context = workflow._build_return_context()
+
+    assert set(return_context["ACTIONS"]) == {"first", "second"}
+    assert return_context["ACTIONS"]["first"] is workflow.context["ACTIONS"]["first"]
+    assert return_context["TRIGGER"] == workflow.context["TRIGGER"]
+    # The workflow's own context must not be mutated.
+    assert set(workflow.context["ACTIONS"]) == {"first", "second", "unused"}
+
+
+def test_build_return_context_without_action_references_is_empty() -> None:
+    workflow = _build_workflow()
+    workflow.context["ACTIONS"] = {"first": _task_result("a")}
+    workflow.dsl = DSLInput(
+        title="Return literal",
+        description="no action references",
+        entrypoint=DSLEntrypoint(ref="first"),
+        actions=[ActionStatement(ref="first", action="core.noop")],
+        returns="${{ TRIGGER }}",
+    )
+
+    assert workflow._build_return_context()["ACTIONS"] == {}
+
+
 @pytest.mark.anyio
 async def test_execute_task_releases_action_permit_when_cancelled_during_heartbeat_stop() -> (
     None
