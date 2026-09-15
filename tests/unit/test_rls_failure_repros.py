@@ -22,6 +22,7 @@ from tracecat.auth.saml import login as saml_login
 from tracecat.auth.saml import sso_acs
 from tracecat.auth.types import Role
 from tracecat.auth.users import UserManager
+from tracecat.authz.service import MembershipService
 from tracecat.cases.triggers.consumer import CaseTriggerConsumer
 from tracecat.contexts import ctx_role
 from tracecat.db import rls as rls_module
@@ -632,3 +633,17 @@ def test_registry_artifact_lookup_uses_bypass_session_manager() -> None:
 def test_registry_manifest_lookup_uses_bypass_session_manager() -> None:
     source = inspect.getsource(_load_manifest_entry)
     assert "get_async_session_bypass_rls_context_manager" in source
+
+
+def test_create_membership_checks_org_presence_outside_workspace_scope() -> None:
+    """Org presence spans workspaces, so the lookup drops the workspace filter.
+
+    The workspace-scoped session hides the target's assignments in their other
+    workspaces, and the legacy membership insert below needs the original
+    context back, so the narrowed window covers only the presence query.
+    """
+    source = inspect.getsource(MembershipService.create_membership)
+    assert "workspace_id=None" in source
+    assert "bypass=False" in source
+    assert "await set_rls_context_from_role(self.session, self.role)" in source
+    assert "finally:" in source

@@ -2,11 +2,8 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
-from typing import Any
-from typing import cast as type_cast
 
-from sqlalchemy import and_, cast, delete, select, update
+from sqlalchemy import and_, cast, select
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import contains_eager
 
@@ -18,19 +15,12 @@ from tracecat.auth.users import (
     get_user_manager_context,
 )
 from tracecat.authz.controls import require_scope
+from tracecat.authz.membership import lock_role_changes, remove_member_access
 from tracecat.db.models import (
     AccessToken,
-    Group,
-    GroupMember,
-    LegacyMembership,
-    LegacyOrganizationMembership,
-    MCPPersonalAccessToken,
-    MCPRefreshToken,
     Organization,
     OrganizationMembership,
     User,
-    UserRoleAssignment,
-    Workspace,
 )
 from tracecat.exceptions import (
     TracecatAuthorizationError,
@@ -122,62 +112,13 @@ class OrgService(BaseOrgService):
         Raises:
             TracecatAuthorizationError: If the user is a superuser and cannot be deleted.
         """
+        await lock_role_changes(self.session, self.organization_id)
         user = await self.get_member(user_id)
-        if user.is_superuser:
-            raise TracecatAuthorizationError("Cannot delete superuser")
-
-        await self.session.execute(
-            delete(AccessToken).where(type_cast(Any, AccessToken.user_id) == user.id)
-        )
-        await self.session.execute(
-            update(MCPRefreshToken)
-            .where(
-                MCPRefreshToken.user_id == user.id,
-                MCPRefreshToken.organization_id == self.organization_id,
-                MCPRefreshToken.status != "revoked",
-            )
-            .values(status="revoked")
-        )
-        await self.session.execute(
-            update(MCPPersonalAccessToken)
-            .where(
-                MCPPersonalAccessToken.user_id == user.id,
-                MCPPersonalAccessToken.organization_id == self.organization_id,
-                MCPPersonalAccessToken.revoked_at.is_(None),
-            )
-            .values(revoked_at=datetime.now(UTC), revoked_by=self.role.user_id)
-        )
-
-        workspace_ids = select(Workspace.id).where(
-            Workspace.organization_id == self.organization_id
-        )
-        group_ids = select(Group.id).where(
-            Group.organization_id == self.organization_id
-        )
-
-        await self.session.execute(
-            delete(LegacyMembership).where(
-                LegacyMembership.user_id == user.id,
-                LegacyMembership.workspace_id.in_(workspace_ids),
-            )
-        )
-        await self.session.execute(
-            delete(UserRoleAssignment).where(
-                UserRoleAssignment.user_id == user.id,
-                UserRoleAssignment.organization_id == self.organization_id,
-            )
-        )
-        await self.session.execute(
-            delete(GroupMember).where(
-                GroupMember.user_id == user.id,
-                GroupMember.group_id.in_(group_ids),
-            )
-        )
-        await self.session.execute(
-            delete(LegacyOrganizationMembership).where(
-                LegacyOrganizationMembership.user_id == user.id,
-                LegacyOrganizationMembership.organization_id == self.organization_id,
-            )
+        await remove_member_access(
+            self.session,
+            user=user,
+            organization_id=self.organization_id,
+            actor=self.role,
         )
         await self.session.commit()
 

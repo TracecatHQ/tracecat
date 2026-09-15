@@ -22589,6 +22589,37 @@ Service roles
 - A service's \`user_id\` is the user it's acting on behalf of. This can be None for internal services.`,
 } as const
 
+export const $RoleAssignmentSnapshot = {
+  properties: {
+    role_id: {
+      type: "string",
+      format: "uuid",
+      title: "Role Id",
+    },
+    workspace_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workspace Id",
+    },
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+  },
+  type: "object",
+  required: ["role_id", "id"],
+  title: "RoleAssignmentSnapshot",
+  description: "Assignment identity and value observed when editing began.",
+} as const
+
 export const $RoleCreate = {
   properties: {
     name: {
@@ -28977,6 +29008,33 @@ export const $UserRoleAssignmentReadWithDetails = {
     "Read schema for a user role assignment with user and role details.",
 } as const
 
+export const $UserRoleAssignmentSpec = {
+  properties: {
+    role_id: {
+      type: "string",
+      format: "uuid",
+      title: "Role Id",
+    },
+    workspace_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workspace Id",
+    },
+  },
+  type: "object",
+  required: ["role_id"],
+  title: "UserRoleAssignmentSpec",
+  description:
+    "One desired direct assignment, with at most one role per scope.",
+} as const
+
 export const $UserRoleAssignmentUpdate = {
   properties: {
     role_id: {
@@ -28990,6 +29048,49 @@ export const $UserRoleAssignmentUpdate = {
   required: ["role_id"],
   title: "UserRoleAssignmentUpdate",
   description: "Update schema for a user role assignment (change role only).",
+} as const
+
+export const $UserRoleAssignmentsReplace = {
+  properties: {
+    user_id: {
+      type: "string",
+      format: "uuid",
+      title: "User Id",
+    },
+    assignments: {
+      items: {
+        $ref: "#/components/schemas/UserRoleAssignmentSpec",
+      },
+      type: "array",
+      title: "Assignments",
+    },
+    expected_assignments: {
+      items: {
+        $ref: "#/components/schemas/RoleAssignmentSnapshot",
+      },
+      type: "array",
+      title: "Expected Assignments",
+    },
+    expected_group_assignments: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/RoleAssignmentSnapshot",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Expected Group Assignments",
+    },
+  },
+  type: "object",
+  required: ["user_id", "assignments", "expected_assignments"],
+  title: "UserRoleAssignmentsReplace",
+  description:
+    "Replace a member's direct roles only if their access has not changed.",
 } as const
 
 export const $UserScopesRead = {
@@ -33443,9 +33544,20 @@ export const $WorkspaceMember = {
       type: "string",
       title: "Role Name",
     },
+    via_group: {
+      type: "boolean",
+      title: "Via Group",
+    },
   },
   type: "object",
-  required: ["user_id", "first_name", "last_name", "email", "role_name"],
+  required: [
+    "user_id",
+    "first_name",
+    "last_name",
+    "email",
+    "role_name",
+    "via_group",
+  ],
   title: "WorkspaceMember",
 } as const
 

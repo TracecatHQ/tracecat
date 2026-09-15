@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tests.support.membership import grant_workspace_membership
+from tests.support.membership import grant_org_membership, grant_workspace_membership
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import ADMIN_SCOPES, EDITOR_SCOPES
@@ -249,6 +249,31 @@ async def test_create_membership_duplicate_raises_conflict(
         )
 
 
+async def test_create_membership_rejects_user_outside_organization(
+    session: AsyncSession,
+    membership_service: MembershipService,
+    workspace: Workspace,
+    member_user: User,
+    workspace_editor_role: DBRole,
+) -> None:
+    """A workspace grant must not admit a user who holds no org role path."""
+    assert workspace_editor_role.slug == "workspace-editor"
+
+    with pytest.raises(TracecatAuthorizationError):
+        await membership_service.create_membership(
+            workspace_id=workspace.id,
+            params=WorkspaceMembershipCreate(user_id=member_user.id),
+        )
+
+    assignment = await session.scalar(
+        select(UserRoleAssignment).where(
+            UserRoleAssignment.workspace_id == workspace.id,
+            UserRoleAssignment.user_id == member_user.id,
+        )
+    )
+    assert assignment is None
+
+
 @pytest.fixture
 async def scoped_workspace_editor_role(
     session: AsyncSession,
@@ -343,6 +368,10 @@ async def test_create_membership_allows_admin_inviter(
     actor_user: User,
 ) -> None:
     """An admin inviter still grants membership once the ceiling applies."""
+    # The grant admits an existing org member to a workspace, not an outsider.
+    await grant_org_membership(
+        session, user_id=member_user.id, organization_id=organization.id
+    )
     admin_role = DBRole(
         id=uuid.uuid4(),
         name="Workspace Admin",
@@ -435,10 +464,13 @@ async def test_list_workspace_members_reports_each_path_once(
 
     members = await membership_service.list_workspace_members(workspace.id)
 
-    by_user = {m.user_id: m.role_name for m in members}
+    by_user = {m.user_id: m for m in members}
     assert len(members) == len(by_user) == 2
-    assert by_user[actor_user.id] == "Reviewer"
-    assert by_user[member_user.id] == workspace_editor_role.name
+    assert by_user[actor_user.id].role_name == "Reviewer"
+    assert by_user[member_user.id].role_name == workspace_editor_role.name
+    # The winning path is what via_group reports.
+    assert by_user[actor_user.id].via_group is True
+    assert by_user[member_user.id].via_group is False
 
 
 async def test_delete_membership_rejects_when_group_grant_remains(

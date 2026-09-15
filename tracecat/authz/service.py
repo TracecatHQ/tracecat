@@ -11,6 +11,7 @@ from sqlalchemy.sql.elements import ColumnElement
 
 from tracecat.auth.types import Role
 from tracecat.authz.controls import ensure_can_grant_scopes, require_scope
+from tracecat.authz.membership import lock_role_changes, reconcile_member_access
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import SupportsExecute
 from tracecat.db.models import (
@@ -19,6 +20,7 @@ from tracecat.db.models import (
     GroupRoleAssignment,
     LegacyMembership,
     Membership,
+    OrganizationMembership,
     RoleScope,
     Scope,
     User,
@@ -26,6 +28,7 @@ from tracecat.db.models import (
     Workspace,
 )
 from tracecat.db.models import Role as DBRole
+from tracecat.db.rls import set_rls_context, set_rls_context_from_role
 from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatConflictError,
@@ -223,7 +226,7 @@ class MembershipService(BaseService):
         ).subquery("paths")
         # One row per member; a direct assignment wins over group grants.
         statement = (
-            select(User, DBRole.name)
+            select(User, DBRole.name, paths.c.via_group)
             .select_from(paths)
             .join(User, User.id == paths.c.user_id)  # pyright: ignore[reportArgumentType]
             .join(DBRole, DBRole.id == paths.c.role_id)
@@ -238,8 +241,9 @@ class MembershipService(BaseService):
                 last_name=user.last_name,
                 email=user.email,
                 role_name=role_name,
+                via_group=bool(via_group),
             )
-            for user, role_name in rows
+            for user, role_name, via_group in rows
         ]
 
     async def get_membership(
@@ -283,6 +287,7 @@ class MembershipService(BaseService):
             raise TracecatAuthorizationError(
                 "Operator context is required to grant workspace membership"
             )
+        await lock_role_changes(self.session, organization_id)
         try:
             granted_role = await resolve_grantable_role_by_slug(
                 self.session, self.role, organization_id, "workspace-editor"
@@ -290,6 +295,35 @@ class MembershipService(BaseService):
         except TracecatNotFoundError as e:
             raise TracecatValidationError("Workspace or default role not found") from e
         role_id = granted_role.id
+
+        # Any role path is org presence, so a workspace grant to an outsider
+        # would admit them to the org. Admission stays behind org:member:invite.
+        #
+        # Presence spans workspaces, but this session is scoped to the
+        # destination workspace, which hides the target's assignments in their
+        # other ones. Drop the workspace filter for the lookup only: the org
+        # filter still applies, and the writes below need the original context.
+        org_member_stmt = select(OrganizationMembership.user_id).where(
+            OrganizationMembership.user_id == params.user_id,
+            OrganizationMembership.organization_id == organization_id,
+        )
+        await set_rls_context(
+            self.session,
+            org_id=organization_id,
+            workspace_id=None,
+            user_id=self.role.user_id,
+            bypass=False,
+        )
+        try:
+            is_org_member = (
+                await self.session.execute(org_member_stmt)
+            ).scalar_one_or_none() is not None
+        finally:
+            await set_rls_context_from_role(self.session, self.role)
+        if not is_org_member:
+            raise TracecatAuthorizationError(
+                "User is not a member of this organization"
+            )
 
         existing_member_stmt = select(Membership.user_id).where(
             Membership.workspace_id == workspace_id,
@@ -317,7 +351,17 @@ class MembershipService(BaseService):
                 assigned_by=self.role.user_id if self.role else None,
             )
         )
-        await self.session.commit()
+        try:
+            await reconcile_member_access(
+                self.session,
+                organization_id=organization_id,
+                user_ids=[params.user_id],
+                actor=self.role,
+            )
+            await self.session.commit()
+        except Exception:
+            await self.session.rollback()
+            raise
 
     @require_scope("workspace:member:remove")
     async def delete_membership(
@@ -332,6 +376,14 @@ class MembershipService(BaseService):
             TracecatConflictError: If a workspace-scoped group grant would keep
                 the user in the workspace after the direct assignment is gone.
         """
+        if self.role is None:
+            raise TracecatAuthorizationError("Operator context is required")
+        organization_id = (
+            await self.session.execute(
+                select(Workspace.organization_id).where(Workspace.id == workspace_id)
+            )
+        ).scalar_one()
+        await lock_role_changes(self.session, organization_id)
         # Only workspace-scoped group grants keep workspace presence; org-wide
         # group roles do not.
         group_name = (
@@ -361,10 +413,25 @@ class MembershipService(BaseService):
                 LegacyMembership.user_id == user_id,
             )
         )
-        await self.session.execute(
-            delete(UserRoleAssignment).where(
-                UserRoleAssignment.workspace_id == workspace_id,
-                UserRoleAssignment.user_id == user_id,
+        removed_user_id = (
+            await self.session.execute(
+                delete(UserRoleAssignment)
+                .where(
+                    UserRoleAssignment.workspace_id == workspace_id,
+                    UserRoleAssignment.user_id == user_id,
+                )
+                .returning(UserRoleAssignment.user_id)
             )
-        )
-        await self.session.commit()
+        ).scalar_one_or_none()
+        try:
+            await reconcile_member_access(
+                self.session,
+                organization_id=organization_id,
+                user_ids=[user_id] if removed_user_id is not None else [],
+                actor=self.role,
+                remove_if_empty=True,
+            )
+            await self.session.commit()
+        except Exception:
+            await self.session.rollback()
+            raise
