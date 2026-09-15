@@ -154,17 +154,57 @@ def agent_llm_budget_exceeded() -> RuntimeErrorClassification:
     )
 
 
-def agent_llm_rate_limited(*, route_is_direct: bool) -> RuntimeErrorClassification:
-    """Classify temporary throttling without assuming that a budget ran out."""
+def agent_llm_rate_limited(*, gateway_origin: bool) -> RuntimeErrorClassification:
+    """Classify temporary throttling without assuming that a budget ran out.
+
+    Throttling relayed from the upstream provider applies to the caller's
+    credentials and is theirs to resolve. Throttling the managed gateway
+    applied itself, before any provider was consulted, is Tracecat's.
+    """
     constructor = (
-        RuntimeErrorClassification.user
-        if route_is_direct
-        else RuntimeErrorClassification.platform
+        RuntimeErrorClassification.platform
+        if gateway_origin
+        else RuntimeErrorClassification.user
     )
     return constructor(
         kind=RuntimeErrorKind.AGENT_LLM_RATE_LIMITED,
         message="LLM requests are temporarily rate limited; retry later",
         retry_disposition=RetryDisposition.RETRYABLE,
+    )
+
+
+def agent_llm_provider_unavailable(
+    error: BaseException | None = None,
+) -> RuntimeErrorClassification:
+    """Classify an upstream provider that answered with a server-side failure.
+
+    The provider endpoint and credentials belong to the caller, so capacity
+    exhaustion, overload, and provider outages are attributed to them even
+    when the request travelled through the managed gateway.
+    """
+    return RuntimeErrorClassification.user(
+        kind=RuntimeErrorKind.AGENT_LLM_PROVIDER_UNAVAILABLE,
+        message="LLM provider is temporarily unavailable; retry later",
+        retry_disposition=RetryDisposition.RETRYABLE,
+        cause=error,
+    )
+
+
+def agent_llm_gateway_unavailable(
+    error: BaseException | None = None,
+) -> RuntimeErrorClassification:
+    """Classify a managed gateway that refused to dispatch to any provider.
+
+    Covers router-side conditions such as every deployment sitting in
+    cooldown. No provider was consulted for this request, so the failure is
+    Tracecat's to investigate even when the cooldown was triggered by earlier
+    provider rejections.
+    """
+    return RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.AGENT_LLM_GATEWAY_UNAVAILABLE,
+        message="Tracecat LLM gateway could not dispatch the request; retry later",
+        retry_disposition=RetryDisposition.RETRYABLE,
+        cause=error,
     )
 
 

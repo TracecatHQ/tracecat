@@ -37,7 +37,9 @@ from tracecat.agent.error_policy import (
     agent_executor_unavailable,
     agent_llm_budget_exceeded,
     agent_llm_gateway_auth_failed,
+    agent_llm_gateway_unavailable,
     agent_llm_provider_auth_failed,
+    agent_llm_provider_unavailable,
     agent_llm_rate_limited,
     agent_llm_read_timeout,
     invalid_agent_configuration,
@@ -236,13 +238,20 @@ def _http_error_classification(
 ) -> RuntimeErrorClassification:
     # Only machine-readable fields participate in classification. Never infer
     # budget or auth origin from provider messages (which can contain secrets).
+    # On the managed route the gateway stamps ``tracecat_llm_*`` types to say
+    # where the failure originated: an untyped status came from the gateway
+    # itself, a typed one relays an upstream provider or router condition.
     error_type, error_code = _error_object_strings(body)
     is_auth_status = status_code in {401, 403}
-    if not route_is_direct and is_auth_status:
-        if error_type == "tracecat_llm_token_invalid":
+    if not route_is_direct:
+        if is_auth_status and error_type == "tracecat_llm_token_invalid":
             return agent_llm_gateway_auth_failed()
-        if error_type == "tracecat_llm_provider_auth_failed":
+        if is_auth_status and error_type == "tracecat_llm_provider_auth_failed":
             return agent_llm_provider_auth_failed()
+        if error_type == "tracecat_llm_provider_unavailable":
+            return agent_llm_provider_unavailable()
+        if error_type == "tracecat_llm_gateway_unavailable":
+            return agent_llm_gateway_unavailable()
     if status_code in {400, 429} and error_type in {
         "budget_exceeded",
         "insufficient_quota",
@@ -255,9 +264,12 @@ def _http_error_classification(
             return agent_llm_provider_auth_failed()
         return agent_executor_unavailable()
     if status_code == 429:
-        return agent_llm_rate_limited(route_is_direct=route_is_direct)
+        provider_throttled = route_is_direct or error_type == "throttling_error"
+        return agent_llm_rate_limited(gateway_origin=not provider_throttled)
     if route_is_direct:
-        return user_agent_execution_failed(retryable=status_code in {408, 504})
+        if status_code >= 500:
+            return agent_llm_provider_unavailable()
+        return user_agent_execution_failed(retryable=status_code == 408)
     if status_code in {408, 504}:
         return agent_executor_timed_out()
     if status_code >= 500:

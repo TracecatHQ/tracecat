@@ -15,11 +15,16 @@ from fastapi import HTTPException, Request
 from litellm.caching.dual_cache import DualCache
 from litellm.exceptions import (
     AuthenticationError,
+    BadGatewayError,
+    InternalServerError,
     PermissionDeniedError,
     RateLimitError,
+    ServiceUnavailableError,
+    Timeout,
 )
 from litellm.integrations.custom_logger import CustomLogger
 from litellm.proxy._types import LitellmUserRoles, ProxyException, UserAPIKeyAuth
+from litellm.types.router import RouterRateLimitError, RouterRateLimitErrorBasic
 from litellm.types.utils import CallTypesLiteral
 from openai import RateLimitError as OpenAIRateLimitError
 
@@ -396,6 +401,18 @@ class _ProviderRateLimitHTTPException(HTTPException):
     type = "throttling_error"
 
 
+class _ProviderUnavailableHTTPException(HTTPException):
+    """Retain upstream provider server-side failure origin through serialization."""
+
+    type = "tracecat_llm_provider_unavailable"
+
+
+class _GatewayUnavailableHTTPException(HTTPException):
+    """Retain router-side dispatch failures that never reached a provider."""
+
+    type = "tracecat_llm_gateway_unavailable"
+
+
 def _response_has_provider_quota_code(response: httpx.Response) -> bool:
     if response.status_code != 429:
         return False
@@ -460,6 +477,29 @@ class TracecatCallbackHandler(CustomLogger):
                 status_code=429,
                 detail="LLM provider rate limit exceeded; retry later",
             )
+        elif isinstance(
+            original_exception,
+            ServiceUnavailableError | InternalServerError | BadGatewayError | Timeout,
+        ):
+            replacement = _ProviderUnavailableHTTPException(
+                status_code=original_exception.status_code,
+                detail="LLM provider is temporarily unavailable; retry later",
+            )
+        elif isinstance(
+            original_exception, RouterRateLimitError | RouterRateLimitErrorBasic
+        ):
+            # The router had no dispatchable deployment (e.g. all in cooldown).
+            # LiteLLM serializes this as 429 even though no provider throttled.
+            replacement = _GatewayUnavailableHTTPException(
+                status_code=429,
+                detail="LLM gateway has no available deployment; retry later",
+            )
+            # Router errors are plain ValueErrors without the wire fields the
+            # /v1/messages handler reads via getattr, so attach them here.
+            setattr(original_exception, "type", replacement.type)  # noqa: B010
+            setattr(original_exception, "message", str(replacement.detail))  # noqa: B010
+            setattr(original_exception, "status_code", replacement.status_code)  # noqa: B010
+            return replacement
         else:
             return None
 

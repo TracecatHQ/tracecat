@@ -9,14 +9,17 @@ import pytest
 from fastapi import Response
 from litellm.exceptions import (
     AuthenticationError,
+    InternalServerError,
     PermissionDeniedError,
     RateLimitError,
+    ServiceUnavailableError,
 )
 from litellm.proxy._types import ProxyException, UserAPIKeyAuth
 from litellm.proxy.anthropic_endpoints.endpoints import anthropic_response
 from litellm.proxy.common_request_processing import ProxyBaseLLMRequestProcessing
 from litellm.proxy.common_utils.user_api_key_cache import UserApiKeyCache
 from litellm.proxy.utils import ProxyLogging
+from litellm.types.router import RouterRateLimitError
 from openai import AsyncOpenAI
 from starlette.requests import Request
 
@@ -126,10 +129,57 @@ async def test_anthropic_endpoint_distinguishes_provider_quota_from_throttling(
         assert b"synthetic-sensitive-detail" not in body
     else:
         assert classification.kind is RuntimeErrorKind.AGENT_LLM_RATE_LIMITED
-        assert classification.owner is RuntimeErrorOwner.PLATFORM
+        assert classification.owner is RuntimeErrorOwner.USER
         assert classification.retry_disposition is RetryDisposition.RETRYABLE
         assert b"synthetic-sensitive-detail" not in body
         assert b"LLM provider rate limit exceeded; retry later" in body
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("status_code", [500, 503])
+async def test_anthropic_endpoint_attributes_provider_server_failure_to_caller(
+    status_code: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    error_class = ServiceUnavailableError if status_code == 503 else InternalServerError
+    error = error_class(
+        message="synthetic-sensitive-detail",
+        llm_provider="synthetic-provider",
+        model="synthetic-model",
+    )
+
+    failure = await _anthropic_failure(error, monkeypatch)
+
+    assert failure.code == str(status_code)
+    body = orjson.dumps({"error": failure.to_dict()})
+    classification = _http_error_classification(
+        status_code, route_is_direct=False, body=body
+    )
+    assert classification.kind is RuntimeErrorKind.AGENT_LLM_PROVIDER_UNAVAILABLE
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert classification.retry_disposition is RetryDisposition.RETRYABLE
+    assert b"synthetic-sensitive-detail" not in body
+
+
+@pytest.mark.anyio
+async def test_anthropic_endpoint_attributes_router_cooldown_to_gateway(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    error = RouterRateLimitError(
+        model="synthetic-model",
+        cooldown_time=60.0,
+        enable_pre_call_checks=False,
+        cooldown_list=["synthetic-deployment-id"],
+    )
+
+    failure = await _anthropic_failure(error, monkeypatch)
+
+    assert failure.code == "429"
+    body = orjson.dumps({"error": failure.to_dict()})
+    classification = _http_error_classification(429, route_is_direct=False, body=body)
+    assert classification.kind is RuntimeErrorKind.AGENT_LLM_GATEWAY_UNAVAILABLE
+    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert classification.retry_disposition is RetryDisposition.RETRYABLE
+    assert b"synthetic-deployment-id" not in body
 
 
 @pytest.mark.anyio
@@ -188,5 +238,5 @@ async def test_retry_does_not_inherit_an_earlier_provider_quota_failure(
         body=orjson.dumps({"error": failure.to_dict()}),
     )
     assert classification.kind is RuntimeErrorKind.AGENT_LLM_RATE_LIMITED
-    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert classification.owner is RuntimeErrorOwner.USER
     assert classification.retry_disposition is RetryDisposition.RETRYABLE

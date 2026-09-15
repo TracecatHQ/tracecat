@@ -7015,6 +7015,8 @@ export type RuntimeErrorKind =
   | "agent.llm.provider_auth_failed"
   | "agent.llm.budget_exceeded"
   | "agent.llm.rate_limited"
+  | "agent.llm.provider_unavailable"
+  | "agent.llm.gateway_unavailable"
   | "agent.llm.read_timeout"
   | "agent.execution.failed"
   | "agent.executor.unavailable"

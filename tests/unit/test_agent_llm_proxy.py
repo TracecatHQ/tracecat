@@ -366,7 +366,8 @@ async def test_forward_request_classifies_platform_http_failures_at_source(
     ("status_code", "expected_retry_disposition"),
     [
         (403, RetryDisposition.NON_RETRYABLE),
-        (503, RetryDisposition.NON_RETRYABLE),
+        (404, RetryDisposition.NON_RETRYABLE),
+        (503, RetryDisposition.RETRYABLE),
         (429, RetryDisposition.RETRYABLE),
         (408, RetryDisposition.RETRYABLE),
         (504, RetryDisposition.RETRYABLE),
@@ -424,6 +425,8 @@ async def test_forward_request_classifies_direct_provider_http_failure_as_user_o
         if status_code == 403
         else RuntimeErrorKind.AGENT_LLM_RATE_LIMITED
         if status_code == 429
+        else RuntimeErrorKind.AGENT_LLM_PROVIDER_UNAVAILABLE
+        if status_code >= 500
         else RuntimeErrorKind.AGENT_EXECUTION_FAILED
     )
     assert errors[0].classification.kind is expected_kind
@@ -1750,6 +1753,46 @@ async def test_read_timeout_before_headers_records_route(
         (
             500,
             "tracecat_llm_token_invalid",
+            False,
+            RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE,
+            RuntimeErrorOwner.PLATFORM,
+            True,
+        ),
+        (
+            429,
+            "throttling_error",
+            False,
+            RuntimeErrorKind.AGENT_LLM_RATE_LIMITED,
+            RuntimeErrorOwner.USER,
+            True,
+        ),
+        (
+            429,
+            "tracecat_llm_gateway_unavailable",
+            False,
+            RuntimeErrorKind.AGENT_LLM_GATEWAY_UNAVAILABLE,
+            RuntimeErrorOwner.PLATFORM,
+            True,
+        ),
+        (
+            503,
+            "tracecat_llm_provider_unavailable",
+            False,
+            RuntimeErrorKind.AGENT_LLM_PROVIDER_UNAVAILABLE,
+            RuntimeErrorOwner.USER,
+            True,
+        ),
+        (
+            503,
+            "tracecat_llm_provider_unavailable",
+            True,
+            RuntimeErrorKind.AGENT_LLM_PROVIDER_UNAVAILABLE,
+            RuntimeErrorOwner.USER,
+            True,
+        ),
+        (
+            503,
+            "internal_server_error",
             False,
             RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE,
             RuntimeErrorOwner.PLATFORM,

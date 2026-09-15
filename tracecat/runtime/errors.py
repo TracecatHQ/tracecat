@@ -86,6 +86,8 @@ class RuntimeErrorKind(StrEnum):
     AGENT_LLM_PROVIDER_AUTH_FAILED = "agent.llm.provider_auth_failed"
     AGENT_LLM_BUDGET_EXCEEDED = "agent.llm.budget_exceeded"
     AGENT_LLM_RATE_LIMITED = "agent.llm.rate_limited"
+    AGENT_LLM_PROVIDER_UNAVAILABLE = "agent.llm.provider_unavailable"
+    AGENT_LLM_GATEWAY_UNAVAILABLE = "agent.llm.gateway_unavailable"
     AGENT_LLM_READ_TIMEOUT = "agent.llm.read_timeout"
     AGENT_EXECUTION_FAILED = "agent.execution.failed"
     AGENT_EXECUTOR_UNAVAILABLE = "agent.executor.unavailable"

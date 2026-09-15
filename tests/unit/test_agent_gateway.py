@@ -873,7 +873,7 @@ async def test_provider_quota_survives_litellm_request_and_serialization(
         assert b"synthetic-sensitive-detail" not in wire_body
     else:
         assert classification.kind is RuntimeErrorKind.AGENT_LLM_RATE_LIMITED
-        assert classification.owner is RuntimeErrorOwner.PLATFORM
+        assert classification.owner is RuntimeErrorOwner.USER
         assert classification.retry_disposition is RetryDisposition.RETRYABLE
         assert b"synthetic-sensitive-detail" not in wire_body
         assert b"LLM provider rate limit exceeded; retry later" in wire_body
@@ -929,6 +929,6 @@ async def test_throttling_callback_uses_safe_message_without_provider_response(
         result.status_code, route_is_direct=False, body=wire_body
     )
     assert classification.kind is RuntimeErrorKind.AGENT_LLM_RATE_LIMITED
-    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert classification.owner is RuntimeErrorOwner.USER
     assert classification.retry_disposition is RetryDisposition.RETRYABLE
     assert b"synthetic-sensitive-detail" not in wire_body
