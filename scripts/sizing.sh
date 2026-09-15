@@ -18,9 +18,9 @@ Usage: sizing.sh [options]
 
 Workload:
   -r, --workflows-per-sec N     Target workflow starts per second (default: 1)
-  -a, --actions-per-workflow N  Average actions per workflow run (default: 5)
-  -t, --action-seconds N        Average wall-clock seconds per action (default: 2)
-      --headroom N              Capacity multiplier over steady state (default: 1.5)
+  -a, --actions-per-workflow N  Average actions per workflow run (default: 3)
+  -t, --action-seconds N        Average wall-clock seconds per action (default: 0.5)
+      --headroom N              Capacity multiplier over steady state (default: 1.25)
 
 Hardware (auto-detected from this machine when omitted):
   -c, --cpus N                  CPU cores available to Docker
@@ -28,7 +28,7 @@ Hardware (auto-detected from this machine when omitted):
 
 Shape (optional):
       --executor-vcpu N         CPUs per executor replica (default: 4)
-      --worker-vcpu N           CPUs per worker replica (default: 2)
+      --worker-vcpu N           CPUs per worker replica (default: 1)
 
   -h, --help                    Show this help
 
@@ -40,16 +40,16 @@ EOF
 
 # --- Calibration constants (override via environment) ------------------------
 # Executor: one subprocess per running action (direct backend).
-EXECUTOR_SLOTS_PER_VCPU=${EXECUTOR_SLOTS_PER_VCPU:-4}
-EXECUTOR_MEM_MB_PER_SLOT=${EXECUTOR_MEM_MB_PER_SLOT:-256}
-EXECUTOR_BASE_MEM_MB=${EXECUTOR_BASE_MEM_MB:-1024}
+EXECUTOR_SLOTS_PER_VCPU=${EXECUTOR_SLOTS_PER_VCPU:-8}
+EXECUTOR_MEM_MB_PER_SLOT=${EXECUTOR_MEM_MB_PER_SLOT:-128}
+EXECUTOR_BASE_MEM_MB=${EXECUTOR_BASE_MEM_MB:-512}
 # Worker: workflow starts per second one replica sustains at WORKER_VCPU cores.
-WORKER_STARTS_PER_SEC_PER_REPLICA=${WORKER_STARTS_PER_SEC_PER_REPLICA:-10}
-WORKER_MEM_MB=${WORKER_MEM_MB:-2048}
+WORKER_STARTS_PER_SEC_PER_REPLICA=${WORKER_STARTS_PER_SEC_PER_REPLICA:-50}
+WORKER_MEM_MB=${WORKER_MEM_MB:-1024}
 # Everything else in the stack: caddy, ui, api, postgres, temporal + its db,
 # redis, minio, agent-worker, agent-executor, mcp, litellm.
-BASE_STACK_CPU=${BASE_STACK_CPU:-4}
-BASE_STACK_MEM_GB=${BASE_STACK_MEM_GB:-10}
+BASE_STACK_CPU=${BASE_STACK_CPU:-2}
+BASE_STACK_MEM_GB=${BASE_STACK_MEM_GB:-6}
 # PostgreSQL connections per Tracecat process (see docs for the derivation).
 DB_POOL_SIZE=${TRACECAT__DB_POOL_SIZE:-10}
 DB_MAX_OVERFLOW=${TRACECAT__DB_MAX_OVERFLOW:-60}
@@ -62,11 +62,11 @@ PG_MEM_MB_PER_CONNECTION=${PG_MEM_MB_PER_CONNECTION:-10}
 
 # --- Defaults ----------------------------------------------------------------
 WORKFLOWS_PER_SEC=1
-ACTIONS_PER_WORKFLOW=5
-ACTION_SECONDS=2
-HEADROOM=1.5
+ACTIONS_PER_WORKFLOW=3
+ACTION_SECONDS=0.5
+HEADROOM=1.25
 EXECUTOR_VCPU=4
-WORKER_VCPU=2
+WORKER_VCPU=1
 CPUS=""
 MEMORY_GB=""
 
