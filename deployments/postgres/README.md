@@ -49,7 +49,7 @@ no database rows or credentials.
 
 `pgvector_setup` connects to the same `TRACECAT__DB_URI` as migrations, preserving
 the database name and URI options such as SSL. It retries connections for up to
-180 seconds. For the bundled server, it uses the existing Compose administrator
+360 seconds, covering the bundled server's full Compose startup window. For the bundled server, it uses the existing Compose administrator
 credentials to enable vector in that database, then validates access with the
 migration role. This works for both existing volumes and newly initialized ones.
 The application role does not need extension-installation privileges.
