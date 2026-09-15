@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from pydantic import UUID4
-from sqlalchemy import bindparam, cast, func, select, update
+from sqlalchemy import bindparam, cast, func, select, union, update
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import load_only, noload
 
@@ -11,12 +11,16 @@ from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
 from tracecat.authz.controls import has_scope, require_scope
 from tracecat.authz.enums import OwnerType
+from tracecat.authz.membership import lock_role_changes, reconcile_member_access
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.cases.service import CaseFieldsService
 from tracecat.db.models import (
+    GroupMember,
+    GroupRoleAssignment,
     Membership,
     Organization,
     Ownership,
+    UserRoleAssignment,
     Workspace,
 )
 from tracecat.exceptions import (
@@ -245,6 +249,7 @@ class WorkspaceService(BaseOrgService):
     )
     async def delete_workspace(self, workspace_id: WorkspaceID) -> None:
         """Delete a workspace."""
+        await lock_role_changes(self.session, self.organization_id)
         all_workspaces = await self.admin_list_workspaces()
         if len(all_workspaces) == 1:
             raise TracecatManagementError(
@@ -256,6 +261,25 @@ class WorkspaceService(BaseOrgService):
         )
         result = await self.session.execute(statement)
         workspace = result.scalar_one()
+        affected_users = (
+            await self.session.scalars(
+                union(
+                    select(UserRoleAssignment.user_id).where(
+                        UserRoleAssignment.organization_id == self.organization_id,
+                        UserRoleAssignment.workspace_id == workspace_id,
+                    ),
+                    select(GroupMember.user_id)
+                    .join(
+                        GroupRoleAssignment,
+                        GroupRoleAssignment.group_id == GroupMember.group_id,
+                    )
+                    .where(
+                        GroupRoleAssignment.organization_id == self.organization_id,
+                        GroupRoleAssignment.workspace_id == workspace_id,
+                    ),
+                )
+            )
+        ).all()
         bootstrap_role = Role(
             type="service",
             service_id="tracecat-service",
@@ -276,7 +300,18 @@ class WorkspaceService(BaseOrgService):
         )
         await case_fields_service.drop_workspace_schema()
         await self.session.delete(workspace)
-        await self.session.commit()
+        try:
+            await reconcile_member_access(
+                self.session,
+                organization_id=self.organization_id,
+                user_ids=affected_users,
+                actor=self.role,
+                remove_if_empty=True,
+            )
+            await self.session.commit()
+        except Exception:
+            await self.session.rollback()
+            raise
 
     async def search_workspaces(self, params: WorkspaceSearch) -> Sequence[Workspace]:
         """Search workspaces visible to the current actor."""

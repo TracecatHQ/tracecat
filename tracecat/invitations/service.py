@@ -25,7 +25,7 @@ from tracecat.audit.logger import audit_log
 from tracecat.audit.service import AuditService
 from tracecat.auth.types import Role
 from tracecat.authz.controls import ensure_can_grant_scopes, require_scope
-from tracecat.authz.membership import ensure_member
+from tracecat.authz.membership import ensure_member, lock_role_changes
 from tracecat.authz.service import resolve_granter_scopes
 from tracecat.db.models import (
     GroupMember,
@@ -213,6 +213,8 @@ async def _apply_grants(
     Existing assignments are never overwritten: a grant the user already holds
     at that scope is skipped.
     """
+    await lock_role_changes(session, organization_id)
+
     # The membership row is the aggregate root; assignments hang off it.
     await ensure_member(session, organization_id, user_id)
 

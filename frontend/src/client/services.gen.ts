@@ -617,6 +617,8 @@ import type {
   RbacListUserAssignmentsResponse,
   RbacRemoveGroupMemberData,
   RbacRemoveGroupMemberResponse,
+  RbacReplaceUserAssignmentsData,
+  RbacReplaceUserAssignmentsResponse,
   RbacUpdateAssignmentData,
   RbacUpdateAssignmentResponse,
   RbacUpdateGroupData,
@@ -13404,6 +13406,28 @@ export const rbacListUserAssignments = (
 }
 
 /**
+ * Replace User Assignments
+ * Save a member's staged direct role changes in one transaction.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const rbacReplaceUserAssignments = (
+  data: RbacReplaceUserAssignmentsData
+): CancelablePromise<RbacReplaceUserAssignmentsResponse> => {
+  return __request(OpenAPI, {
+    method: "PUT",
+    url: "/rbac/user-assignments",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Create User Assignment
  * Create a user role assignment.
  *
@@ -13872,6 +13896,7 @@ export const rbacRemoveGroupMember = (
  * Requires: org:rbac:read scope
  * @param data The data for the request.
  * @param data.groupId Filter by group ID
+ * @param data.userId Filter by group member user ID
  * @param data.workspaceId Filter by workspace ID
  * @returns GroupRoleAssignmentList Successful Response
  * @throws ApiError
@@ -13884,6 +13909,7 @@ export const rbacListAssignments = (
     url: "/rbac/assignments",
     query: {
       group_id: data.groupId,
+      user_id: data.userId,
       workspace_id: data.workspaceId,
     },
     errors: {

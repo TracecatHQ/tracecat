@@ -7178,6 +7178,15 @@ export type service_id =
   | "tracecat-ui"
 
 /**
+ * Assignment identity and value observed when editing began.
+ */
+export type RoleAssignmentSnapshot = {
+  role_id: string
+  workspace_id?: string | null
+  id: string
+}
+
+/**
  * Create schema for a custom role.
  */
 export type RoleCreate = {
@@ -9343,6 +9352,14 @@ export type UserRoleAssignmentReadWithDetails = {
 }
 
 /**
+ * One desired direct assignment, with at most one role per scope.
+ */
+export type UserRoleAssignmentSpec = {
+  role_id: string
+  workspace_id?: string | null
+}
+
+/**
  * Update schema for a user role assignment (change role only).
  */
 export type UserRoleAssignmentUpdate = {
@@ -9350,6 +9367,16 @@ export type UserRoleAssignmentUpdate = {
    * New role ID to assign
    */
   role_id: string
+}
+
+/**
+ * Replace a member's direct roles only if their access has not changed.
+ */
+export type UserRoleAssignmentsReplace = {
+  user_id: string
+  assignments: Array<UserRoleAssignmentSpec>
+  expected_assignments: Array<RoleAssignmentSnapshot>
+  expected_group_assignments?: Array<RoleAssignmentSnapshot> | null
 }
 
 /**
@@ -14856,6 +14883,12 @@ export type RbacListUserAssignmentsData = {
 
 export type RbacListUserAssignmentsResponse = UserRoleAssignmentList
 
+export type RbacReplaceUserAssignmentsData = {
+  requestBody: UserRoleAssignmentsReplace
+}
+
+export type RbacReplaceUserAssignmentsResponse = void
+
 export type RbacCreateUserAssignmentData = {
   requestBody: UserRoleAssignmentCreate
 }
@@ -14979,6 +15012,10 @@ export type RbacListAssignmentsData = {
    * Filter by group ID
    */
   groupId?: string | null
+  /**
+   * Filter by group member user ID
+   */
+  userId?: string | null
   /**
    * Filter by workspace ID
    */
@@ -21892,6 +21929,19 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: UserRoleAssignmentList
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    put: {
+      req: RbacReplaceUserAssignmentsData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
         /**
          * Validation Error
          */
