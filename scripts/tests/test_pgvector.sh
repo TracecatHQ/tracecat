@@ -114,6 +114,26 @@ docker exec -i "$container" psql -X -U postgres -d postgres -v install=true < "$
 docker exec -i -e PGOPTIONS='-c default_transaction_read_only=on' "$container" \
     psql -X -U vector_test_reader -d postgres < "$sql_file"
 
+# Simulate a volume from a newer extension without needing a future release.
+# Only this disposable test database's catalog metadata is changed.
+original_version=$(docker exec "$container" psql -X -U postgres -d postgres -At \
+    -c "SELECT extversion FROM pg_extension WHERE extname = 'vector'")
+for newer_version in 0.8.7 0.8.10 1.0.0; do
+    docker exec "$container" psql -X -U postgres -d postgres -v ON_ERROR_STOP=1 \
+        -c "UPDATE pg_extension SET extversion = '$newer_version' WHERE extname = 'vector'"
+    expect_failure "Installed pgvector version $newer_version is newer than packaged version" \
+        docker exec -i "$container" psql -X -U postgres -d postgres -v install=true
+    expect_failure "Installed pgvector version $newer_version is newer than packaged version" \
+        docker exec -i -e PGOPTIONS='-c default_transaction_read_only=on' "$container" \
+        psql -X -U vector_test_reader -d postgres
+    [[ $(docker exec "$container" psql -X -U postgres -d postgres -At \
+        -c "SELECT extversion FROM pg_extension WHERE extname = 'vector'") == "$newer_version" ]]
+done
+docker exec -i "$container" psql -X -U postgres -d postgres -v ON_ERROR_STOP=1 \
+    -v original_version="$original_version" <<'SQL'
+UPDATE pg_extension SET extversion = :'original_version' WHERE extname = 'vector';
+SQL
+
 docker exec -i "$container" psql -X -U vector_test_reader -d postgres -v ON_ERROR_STOP=1 <<'SQL'
 DO $$
 BEGIN

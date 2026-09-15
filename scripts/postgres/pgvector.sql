@@ -49,6 +49,7 @@ DO $$
 DECLARE
     installed_version text;
     installed_schema text;
+    packaged_version text;
 BEGIN
     SELECT e.extversion, n.nspname INTO installed_version, installed_schema
     FROM pg_extension AS e
@@ -69,6 +70,19 @@ BEGIN
     IF string_to_array(installed_version, '.')::integer[] < ARRAY[0, 8, 0] THEN
         RAISE EXCEPTION 'pgvector 0.8.0 or newer is required; found %', installed_version
             USING HINT = 'Ask the database administrator to upgrade the vector extension before vector-dependent migrations. Installation mode does not upgrade an existing extension.';
+    END IF;
+    -- A newer catalog may refer to functions absent from an older vector.so.
+    -- The control file's default version identifies the packaged extension.
+    SELECT default_version INTO packaged_version
+    FROM pg_available_extensions WHERE name = 'vector';
+    IF packaged_version IS NULL OR packaged_version !~ '^[0-9]+\.[0-9]+\.[0-9]+$' THEN
+        RAISE EXCEPTION 'Cannot determine the packaged pgvector version: %', packaged_version
+            USING HINT = 'Install a supported pgvector server package before starting the application database.';
+    END IF;
+    IF string_to_array(installed_version, '.')::integer[]
+        > string_to_array(packaged_version, '.')::integer[] THEN
+        RAISE EXCEPTION 'Installed pgvector version % is newer than packaged version %', installed_version, packaged_version
+            USING HINT = 'Use an image or server package supporting the installed extension version. This script does not downgrade the extension catalog.';
     END IF;
 END
 $$;
