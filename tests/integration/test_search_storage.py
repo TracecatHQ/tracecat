@@ -790,3 +790,61 @@ async def test_fresh_workspace_cannot_activate_without_configuration(
         assert state is not None
         assert state.state == SearchState.DISABLED and state.current_version == 0
         await session.rollback()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("invalid_field", ["ordinal", "span", "column"])
+async def test_rejected_checkpoint_does_not_persist_partial_manifest(
+    storage_case: StorageCase, invalid_field: str
+) -> None:
+    case = storage_case
+    claim = await claimed(case)
+    chunks = (manifest(case, 0), manifest(case, 1))
+    invalid = chunks[1]
+    if invalid_field == "ordinal":
+        invalid = invalid.model_copy(update={"ordinal": 2})
+    elif invalid_field == "span":
+        invalid = invalid.model_copy(update={"end": invalid.start})
+    else:
+        invalid = invalid.model_copy(update={"column_id": uuid.uuid4()})
+    before = EnumerationCursor()
+    after = EnumerationCursor(character_offset=20, next_ordinal=2)
+    async with case.sessions.begin() as session:
+        store = case.store(session)
+        with pytest.raises(SearchError) as error:
+            await store.checkpoint(
+                claim,
+                before=before,
+                after=after,
+                chunks=(chunks[0], invalid),
+                complete=True,
+            )
+        assert error.value.code == SearchErrorCode.MANIFEST_CONFLICT
+        # A caller may record the failure and commit instead of rolling back.
+        await store.fail(claim, error.value.code)
+    async with case.sessions.begin() as session:
+        store = case.store(session)
+        assert (
+            await session.scalar(
+                select(func.count())
+                .select_from(SearchChunk)
+                .where(SearchChunk.document_id == claim.document_id)
+            )
+            == 0
+        )
+        document = await session.get(SearchDocument, claim.document_id)
+        assert document is not None
+        assert (
+            EnumerationCursor.model_validate(document.enumeration_cursor or {})
+            == before
+        )
+        assert not document.enumeration_complete and document.expected_chunks == 0
+        await store.retry_document(case.collection_id, claim.document_id)
+        retry = await store.claim(case.collection_id, claim.document_id)
+        assert retry is not None
+        await store.checkpoint(
+            retry, before=before, after=after, chunks=chunks, complete=True
+        )
+        await store.write_embeddings(retry, (embedding(retry, 0), embedding(retry, 1)))
+        await store.publish(retry)
+        assert len((await session.scalars(eligible_chunks(case.scope))).all()) == 2
