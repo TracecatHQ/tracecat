@@ -884,8 +884,6 @@ import type {
   WorkflowsCommitWorkflowData,
   WorkflowsCommitWorkflowResponse,
   WorkflowsCreateWorkflowData,
-  WorkflowsCreateWorkflowDefinitionData,
-  WorkflowsCreateWorkflowDefinitionResponse,
   WorkflowsCreateWorkflowResponse,
   WorkflowsDeleteWorkflowData,
   WorkflowsDeleteWorkflowResponse,
@@ -896,6 +894,8 @@ import type {
   WorkflowsGetWorkflowData,
   WorkflowsGetWorkflowDefinitionData,
   WorkflowsGetWorkflowDefinitionResponse,
+  WorkflowsGetWorkflowDraftData,
+  WorkflowsGetWorkflowDraftResponse,
   WorkflowsGetWorkflowResponse,
   WorkflowsListTagsData,
   WorkflowsListTagsResponse,
@@ -919,6 +919,8 @@ import type {
   WorkflowsPullWorkflowsResponse,
   WorkflowsRemoveTagData,
   WorkflowsRemoveTagResponse,
+  WorkflowsReplaceWorkflowDraftData,
+  WorkflowsReplaceWorkflowDraftResponse,
   WorkflowsRestoreWorkflowDefinitionData,
   WorkflowsRestoreWorkflowDefinitionResponse,
   WorkflowsUpdateWorkflowData,
@@ -2210,24 +2212,62 @@ export const workflowsGetWorkflowDefinition = (
 }
 
 /**
- * Create Workflow Definition
- * Get the latest version of a workflow definition.
+ * Get Workflow Draft
+ * Return the workflow's current draft as a canonical editable document.
+ *
+ * The document has the same shape accepted by ``PUT /workflows/{id}/draft``
+ * (metadata, definition, layout, schedules, case trigger), and
+ * ``draft_revision`` is a content hash suitable for optimistic concurrency.
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.workflowId
- * @returns WorkflowDefinitionRead Successful Response
+ * @returns WorkflowDraftRead Successful Response
  * @throws ApiError
  */
-export const workflowsCreateWorkflowDefinition = (
-  data: WorkflowsCreateWorkflowDefinitionData
-): CancelablePromise<WorkflowsCreateWorkflowDefinitionResponse> => {
+export const workflowsGetWorkflowDraft = (
+  data: WorkflowsGetWorkflowDraftData
+): CancelablePromise<WorkflowsGetWorkflowDraftResponse> => {
   return __request(OpenAPI, {
-    method: "POST",
-    url: "/workspaces/{workspace_id}/workflows/{workflow_id}/definition",
+    method: "GET",
+    url: "/workspaces/{workspace_id}/workflows/{workflow_id}/draft",
     path: {
       workspace_id: data.workspaceId,
       workflow_id: data.workflowId,
     },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Replace Workflow Draft
+ * Replace the workflow's draft with the supplied document.
+ *
+ * Validates the definition, then rewrites the action graph, layout,
+ * schedules, and case trigger in one transaction. Omit ``schedules`` from
+ * the document to leave the workflow's schedules untouched (they can be
+ * managed independently via ``/schedules``). Publishing is separate: call
+ * ``POST /workflows/{id}/commit`` afterwards to create a new version.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.workflowId
+ * @param data.requestBody
+ * @returns WorkflowDraftRead Successful Response
+ * @throws ApiError
+ */
+export const workflowsReplaceWorkflowDraft = (
+  data: WorkflowsReplaceWorkflowDraftData
+): CancelablePromise<WorkflowsReplaceWorkflowDraftResponse> => {
+  return __request(OpenAPI, {
+    method: "PUT",
+    url: "/workspaces/{workspace_id}/workflows/{workflow_id}/draft",
+    path: {
+      workspace_id: data.workspaceId,
+      workflow_id: data.workflowId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },
