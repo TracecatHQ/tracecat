@@ -24549,6 +24549,40 @@ export const $SessionRead = {
       format: "email",
       title: "User Email",
     },
+    ip_address: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Ip Address",
+    },
+    user_agent: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Agent",
+    },
+    last_seen_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Seen At",
+    },
   },
   type: "object",
   required: ["id", "created_at", "user_id", "user_email"],

@@ -24,7 +24,7 @@ from tracecat.auth.users import (
     get_user_db_context,
     get_user_manager_context,
 )
-from tracecat.authz.controls import require_scope
+from tracecat.authz.controls import has_scope, require_scope
 from tracecat.authz.service import resolve_grantable_role
 from tracecat.db.models import (
     AccessToken,
@@ -455,7 +455,15 @@ class OrgService(BaseOrgService):
 
     # === Manage sessions ===
     async def list_sessions(self) -> list[SessionRead]:
-        """List all sessions for users in this organization."""
+        """List all sessions for users in this organization.
+
+        Client metadata (IP address, user agent, last seen) is only returned
+        for callers who can manage sessions (``org:member:remove``); other
+        members see it for their own sessions only.
+        """
+        can_view_metadata = has_scope(
+            self.role.scopes or frozenset(), "org:member:remove"
+        )
         statement = (
             select(AccessToken)
             .join(User, cast(AccessToken.user_id, UUID) == User.id)
@@ -469,15 +477,21 @@ class OrgService(BaseOrgService):
             .options(contains_eager(AccessToken.user))
         )
         result = await self.session.execute(statement)
-        return [
-            SessionRead(
-                id=s.id,
-                created_at=s.created_at,
-                user_id=s.user.id,
-                user_email=s.user.email,
+        sessions: list[SessionRead] = []
+        for s in result.scalars().all():
+            reveal = can_view_metadata or s.user.id == self.role.user_id
+            sessions.append(
+                SessionRead(
+                    id=s.id,
+                    created_at=s.created_at,
+                    user_id=s.user.id,
+                    user_email=s.user.email,
+                    ip_address=s.ip_address if reveal else None,
+                    user_agent=s.user_agent if reveal else None,
+                    last_seen_at=s.last_seen_at if reveal else None,
+                )
             )
-            for s in result.scalars().all()
-        ]
+        return sessions
 
     @require_scope("org:member:remove")
     @audit_log(resource_type="organization_session", action="delete")

@@ -929,6 +929,69 @@ class TestOrganizationServiceSessions:
         assert len(sessions) == 2
 
     @pytest.mark.anyio
+    async def test_list_sessions_redacts_client_metadata_for_members(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        user_in_org1: User,
+        admin_in_org1: User,
+    ):
+        """Members see IP/UA/last-seen for their own sessions only; admins see all."""
+        seen = datetime.now(UTC)
+        session.add_all(
+            [
+                AccessToken(
+                    token=f"token-{uuid.uuid4().hex}",
+                    user_id=user_in_org1.id,
+                    ip_address="203.0.113.10",
+                    user_agent="member-agent",
+                    last_seen_at=seen,
+                ),
+                AccessToken(
+                    token=f"token-{uuid.uuid4().hex}",
+                    user_id=admin_in_org1.id,
+                    ip_address="203.0.113.20",
+                    user_agent="admin-agent",
+                    last_seen_at=seen,
+                ),
+            ]
+        )
+
+        member_role = Role(
+            type="user",
+            user_id=user_in_org1.id,
+            organization_id=org1.id,
+            service_id="tracecat-api",
+            scopes=ORG_MEMBER_SCOPES,
+        )
+        by_user = {
+            s.user_id: s
+            for s in await OrgService(session, role=member_role).list_sessions()
+        }
+        own = by_user[user_in_org1.id]
+        assert (own.ip_address, own.user_agent, own.last_seen_at) == (
+            "203.0.113.10",
+            "member-agent",
+            seen,
+        )
+        other = by_user[admin_in_org1.id]
+        assert other.user_email == admin_in_org1.email
+        assert (other.ip_address, other.user_agent, other.last_seen_at) == (
+            None,
+            None,
+            None,
+        )
+
+        admin_role = create_admin_role(org1.id, admin_in_org1.id)
+        by_user = {
+            s.user_id: s
+            for s in await OrgService(session, role=admin_role).list_sessions()
+        }
+        assert by_user[user_in_org1.id].ip_address == "203.0.113.10"
+        assert by_user[user_in_org1.id].user_agent == "member-agent"
+        assert by_user[user_in_org1.id].last_seen_at == seen
+
+    @pytest.mark.anyio
     async def test_delete_session_in_same_org(
         self,
         session: AsyncSession,

@@ -3,8 +3,8 @@ import hashlib
 import os
 import uuid
 from collections.abc import AsyncGenerator, Iterable, Sequence
-from datetime import UTC, datetime
-from typing import Annotated
+from datetime import UTC, datetime, timedelta
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
@@ -28,13 +28,14 @@ from fastapi_users.authentication.strategy.db import (
 from fastapi_users.db import SQLAlchemyUserDatabase
 from fastapi_users.exceptions import (
     FastAPIUsersException,
+    InvalidID,
     UserAlreadyExists,
     UserNotExists,
 )
 from fastapi_users.openapi import OpenAPIResponseType
 from fastapi_users_db_sqlalchemy.access_token import SQLAlchemyAccessTokenDatabase
 from pydantic import EmailStr
-from sqlalchemy import select
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
@@ -43,7 +44,7 @@ from tracecat.auth.enums import AuthType
 from tracecat.auth.schemas import UserCreate, UserUpdate
 from tracecat.auth.secrets import get_user_auth_secret
 from tracecat.auth.types import PlatformRole, Role
-from tracecat.contexts import ctx_role
+from tracecat.contexts import ctx_request_audit, ctx_role
 from tracecat.db.engine import (
     SupportsExecute,
     get_async_session,
@@ -696,10 +697,85 @@ cookie_transport = CookieTransport(
 )
 
 
+class SessionMetadataDatabaseStrategy(DatabaseStrategy[User, uuid.UUID, AccessToken]):
+    """Database session strategy that records client metadata on the token.
+
+    Captures the client IP and User-Agent when a session is created and
+    refreshes ``last_seen_at`` on reads, throttled so an active session incurs
+    at most one write per ``SESSION_LAST_SEEN_UPDATE_INTERVAL_SECONDS``.
+    """
+
+    def _create_access_token_dict(self, user: User) -> dict[str, Any]:
+        token_dict = super()._create_access_token_dict(user)
+        now = datetime.now(UTC)
+        token_dict["last_seen_at"] = now
+        if audit := ctx_request_audit.get():
+            token_dict["ip_address"] = audit.client_ip
+            token_dict["user_agent"] = audit.raw_user_agent
+        return token_dict
+
+    async def read_token(
+        self, token: str | None, user_manager: BaseUserManager[User, uuid.UUID]
+    ) -> User | None:
+        if token is None:
+            return None
+
+        max_age = None
+        if self.lifetime_seconds:
+            max_age = datetime.now(UTC) - timedelta(seconds=self.lifetime_seconds)
+
+        access_token = await self.database.get_by_token(token, max_age)
+        if access_token is None:
+            return None
+
+        try:
+            user = await user_manager.get(user_manager.parse_id(access_token.user_id))
+        except (UserNotExists, InvalidID):
+            return None
+
+        await self._touch_last_seen(access_token)
+        return user
+
+    async def _touch_last_seen(self, access_token: AccessToken) -> None:
+        now = datetime.now(UTC)
+        stale_before = now - timedelta(
+            seconds=config.SESSION_LAST_SEEN_UPDATE_INTERVAL_SECONDS
+        )
+        if (
+            access_token.last_seen_at is not None
+            and access_token.last_seen_at > stale_before
+        ):
+            return
+        if not isinstance(self.database, SQLAlchemyAccessTokenDatabase):
+            return
+        # Conditional UPDATE so concurrent requests on the same session issue at
+        # most one write per interval and never move the timestamp backwards.
+        statement = (
+            update(AccessToken)
+            .where(
+                AccessToken.id == access_token.id,
+                or_(
+                    AccessToken.last_seen_at.is_(None),
+                    AccessToken.last_seen_at < stale_before,
+                ),
+            )
+            .values(last_seen_at=now)
+        )
+        try:
+            await self.database.session.execute(statement)
+            await self.database.session.commit()
+        except Exception as e:
+            logger.warning(
+                "Failed to update session last seen",
+                session_id=access_token.id,
+                error=e,
+            )
+
+
 def get_database_strategy(
     access_token_db: AccessTokenDatabase[AccessToken] = Depends(get_access_token_db),
 ) -> DatabaseStrategy[User, uuid.UUID, AccessToken]:
-    strategy = DatabaseStrategy(
+    strategy = SessionMetadataDatabaseStrategy(
         access_token_db,
         lifetime_seconds=config.SESSION_EXPIRE_TIME_SECONDS,
     )

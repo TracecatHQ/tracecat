@@ -334,6 +334,10 @@ TRACECAT__AUTH_REQUIRE_EMAIL_VERIFICATION = env_bool(
 SESSION_EXPIRE_TIME_SECONDS = int(
     os.environ.get("SESSION_EXPIRE_TIME_SECONDS") or 86400 * 7
 )  # 7 days
+SESSION_LAST_SEEN_UPDATE_INTERVAL_SECONDS = int(
+    os.environ.get("SESSION_LAST_SEEN_UPDATE_INTERVAL_SECONDS") or 300
+)
+"""Minimum interval between ``last_seen_at`` writes for an active session."""
 TRACECAT__AUTH_ALLOWED_DOMAINS = set(
     ((domains := os.getenv("TRACECAT__AUTH_ALLOWED_DOMAINS")) and domains.split(","))
     or []
