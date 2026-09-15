@@ -1,7 +1,9 @@
 """Deterministic checks for provider validation, bounded work and safe failures."""
 
 import asyncio
+import gzip
 import hashlib
+import socket
 import time
 import uuid
 from dataclasses import replace
@@ -13,6 +15,7 @@ import pytest
 from fastapi import FastAPI
 from pydantic import SecretStr
 
+from tracecat.search.embeddings import catalog as catalog_module
 from tracecat.search.embeddings import client as client_module
 from tracecat.search.embeddings.catalog import EmbeddingTokenCounter, get_model
 from tracecat.search.embeddings.client import EmbeddingClient, _retry_after
@@ -356,3 +359,70 @@ async def test_token_counting_does_not_block_deadline(
             )
         assert time.monotonic() - started < 0.15
     assert caught.value.code == EmbeddingErrorCode.TIMEOUT
+
+
+@pytest.mark.anyio
+async def test_invalid_unicode_is_sanitized(configuration, credential):
+    request = request_for(configuration)
+    item = replace(request.items[0], text="synthetic-private-text\ud800")
+    request = replace(request, items=(item,))
+
+    async def handler(request):
+        pytest.fail("Invalid Unicode reached the provider")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        with pytest.raises(EmbeddingError) as caught:
+            await EmbeddingClient(http).embed(configuration, credential, request)
+    assert caught.value.code == EmbeddingErrorCode.INPUT_INVALID
+    assert caught.value.__context__ is None
+    assert caught.value.__cause__ is None
+
+
+def test_cold_tokenizer_works_offline(monkeypatch):
+    def no_network(*args, **kwargs):
+        pytest.fail("Tokenizer initialization attempted network access")
+
+    monkeypatch.setattr(socket.socket, "connect", no_network)
+    monkeypatch.setenv("TIKTOKEN_CACHE_DIR", "")
+    catalog_module._load_encoding.cache_clear()
+    try:
+        counter = EmbeddingTokenCounter()
+        # Golden counts from the pinned upstream cl100k_base ordinary encoding.
+        for text, expected in (
+            ("hello", 1),
+            ("<|endoftext|>", 7),
+            ("日本語 🙂", 5),
+            ("We're testing 1234567.\n\n", 8),
+            ("     \r\n  punctuation!?", 4),
+        ):
+            assert counter.count_tokens(text) == expected
+    finally:
+        catalog_module._load_encoding.cache_clear()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("corrupt", [False, True])
+async def test_missing_or_corrupt_vocabulary_fails_safely(
+    configuration, credential, monkeypatch, tmp_path, corrupt
+):
+    monkeypatch.setattr(catalog_module, "__file__", str(tmp_path / "catalog.py"))
+    if corrupt:
+        data = tmp_path / "data"
+        data.mkdir()
+        (data / "cl100k_base.tiktoken.gz").write_bytes(gzip.compress(b"corrupt"))
+    catalog_module._load_encoding.cache_clear()
+
+    async def handler(request):
+        pytest.fail("Missing tokenizer data reached the provider")
+
+    try:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            with pytest.raises(EmbeddingError) as caught:
+                await EmbeddingClient(http).embed(
+                    configuration, credential, request_for(configuration)
+                )
+        assert caught.value.code == EmbeddingErrorCode.UNAVAILABLE
+        assert caught.value.__context__ is None
+        assert caught.value.__cause__ is None
+    finally:
+        catalog_module._load_encoding.cache_clear()
