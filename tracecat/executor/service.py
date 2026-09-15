@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Any, cast
 
 from aiocache import Cache
+from async_lru import alru_cache
 from pydantic import ValidationError
 from sqlalchemy import and_, or_, select, union_all
 
@@ -69,7 +70,7 @@ from tracecat.expressions.policy import (
     build_provenance,
     resolve_action_args,
 )
-from tracecat.identifiers import OrganizationID
+from tracecat.identifiers import OrganizationID, WorkspaceID
 from tracecat.logger import logger
 from tracecat.observability.sentry import capture_activity_failure
 from tracecat.registry.actions.schemas import TemplateActionDefinition
@@ -836,10 +837,20 @@ async def _workspace_allows_error_details(role: Role) -> bool:
     """Whether the org allow-lists this workspace for per-action error details."""
     if role.organization_id is None or role.workspace_id is None:
         return False
+    return await _workspace_allows_error_details_cached(
+        role.organization_id, role.workspace_id
+    )
+
+
+@alru_cache(maxsize=4096, ttl=15)
+async def _workspace_allows_error_details_cached(
+    organization_id: OrganizationID, workspace_id: WorkspaceID
+) -> bool:
+    """TTL-cached allow-list lookup so hot loops don't hit the DB per action."""
     async with get_async_session_bypass_rls_context_manager() as session:
         return await workspace_allows_error_details(
-            organization_id=role.organization_id,
-            workspace_id=role.workspace_id,
+            organization_id=organization_id,
+            workspace_id=workspace_id,
             session=session,
         )
 

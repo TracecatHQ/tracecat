@@ -1341,6 +1341,7 @@ def _patch_org_error_details_setting(mocker, value: object):
     `value` is what the stored allow-list deserializes to (a list of workspace
     ID strings); `None` mimics a missing row.
     """
+    executor_service._workspace_allows_error_details_cached.cache_clear()
     session_cm = mocker.MagicMock()
     session_cm.__aenter__ = mocker.AsyncMock(return_value=mocker.AsyncMock())
     session_cm.__aexit__ = mocker.AsyncMock(return_value=False)
@@ -1357,6 +1358,26 @@ def _patch_org_error_details_setting(mocker, value: object):
 
 _CURRENT_WS = str(UUID(int=2))
 _OTHER_WS = str(UUID(int=3))
+
+
+@pytest.mark.anyio
+async def test_workspace_allows_error_details_lookup_is_cached(mocker) -> None:
+    """Repeated checks for the same org/workspace hit the DB once within the TTL."""
+    stub = _patch_org_error_details_setting(mocker, [_CURRENT_WS])
+    role = Role(
+        type="service",
+        service_id="tracecat-executor",
+        organization_id=UUID(int=1),
+        workspace_id=UUID(int=2),
+    )
+    other = role.model_copy(update={"workspace_id": UUID(int=3)})
+
+    assert await executor_service._workspace_allows_error_details(role) is True
+    assert await executor_service._workspace_allows_error_details(role) is True
+    assert stub.await_count == 1
+
+    assert await executor_service._workspace_allows_error_details(other) is False
+    assert stub.await_count == 2
 
 
 @pytest.mark.anyio
