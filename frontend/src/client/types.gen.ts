@@ -129,7 +129,69 @@ export type ActionRetryPolicy = {
   retry_until?: string | null
 }
 
-export type ActionStatement = {
+export type ActionStatement_Input = {
+  /**
+   * The action ID. If this is populated means there is a corresponding actionin the database `Action` table.
+   */
+  id?: string | null
+  /**
+   * Unique reference for the task
+   */
+  ref: string
+  description?: string
+  /**
+   * Action type. Equivalent to the UDF key.
+   */
+  action: string
+  /**
+   * Arguments for the action
+   */
+  args?: {
+    [key: string]: unknown
+  }
+  /**
+   * Task dependencies
+   */
+  depends_on?: Array<string>
+  /**
+   * Whether the action is interactive.
+   */
+  interaction?: ResponseInteraction | ApprovalInteraction | null
+  /**
+   * Condition to run the task
+   */
+  run_if?: string | null
+  /**
+   * Iterate over a list of items and run the task for each item.
+   */
+  for_each?: string | Array<string> | null
+  /**
+   * Retry policy for the action.
+   */
+  retry_policy?: ActionRetryPolicy
+  /**
+   * Delay before starting the action in seconds. If `wait_until` is also provided, the `wait_until` timer will take precedence.
+   */
+  start_delay?: number
+  /**
+   * Wait until a specific date and time before starting. Overrides `start_delay` if both are provided.
+   */
+  wait_until?: string | null
+  /**
+   * The strategy to use when joining on this task. By default, all branches must complete successfully before the join task can complete.
+   */
+  join_strategy?: JoinStrategy
+  /**
+   * Override environment for this action's execution. Can be a template expression.
+   */
+  environment?: string | null
+  /**
+   * If true, redact this action's result in workflow execution API responses while preserving internal workflow data flow between actions.
+   */
+  mask_output?: boolean
+}
+
+export type ActionStatement_Output = {
   /**
    * Unique reference for the task
    */
@@ -2598,13 +2660,19 @@ export type CaseTaskUpdate = {
   } | null
 }
 
-export type CaseTriggerCreate = {
+export type CaseTriggerConfig = {
   status?: "online" | "offline"
   event_types?: Array<CaseEventType>
   tag_filters?: Array<string>
 }
 
 export type status2 = "online" | "offline"
+
+export type CaseTriggerCreate = {
+  status?: "online" | "offline"
+  event_types?: Array<CaseEventType>
+  tag_filters?: Array<string>
+}
 
 export type CaseTriggerRead = {
   id: string
@@ -3692,7 +3760,20 @@ export type DSLConfig_Output = {
   timeout?: number
 }
 
-export type DSLEntrypoint = {
+export type DSLEntrypoint_Input = {
+  /**
+   * The entrypoint action ref
+   */
+  ref?: string | null
+  /**
+   * Expected trigger input schema. Use this to specify the expected shape of the trigger input.
+   */
+  expects?: {
+    [key: string]: ExpectedField_Input
+  } | null
+}
+
+export type DSLEntrypoint_Output = {
   /**
    * The entrypoint action ref
    */
@@ -3732,8 +3813,8 @@ export type DSLEnvironment = {
 export type DSLInput = {
   title: string
   description: string
-  entrypoint: DSLEntrypoint
-  actions: Array<ActionStatement>
+  entrypoint: DSLEntrypoint_Output
+  actions: Array<ActionStatement_Output>
   config?: DSLConfig_Output
   triggers?: Array<Trigger>
   /**
@@ -4250,7 +4331,7 @@ export type GetWorkflowDefinitionActivityInputs = {
   role: Role
   workflow_id: string
   version?: number | null
-  task?: ActionStatement | null
+  task?: ActionStatement_Output | null
 }
 
 /**
@@ -5005,6 +5086,29 @@ export type IssuedServiceAccountApiKey = {
 export type JoinStrategy = "any" | "all"
 
 export type JsonValue = unknown
+
+export type LayoutActionPosition = {
+  ref: string
+  x?: number | null
+  y?: number | null
+  position?: {
+    [key: string]: number
+  } | null
+}
+
+export type LayoutPosition = {
+  x?: number | null
+  y?: number | null
+  position?: {
+    [key: string]: number
+  } | null
+}
+
+export type LayoutViewport = {
+  x?: number | null
+  y?: number | null
+  zoom?: number | null
+}
 
 /**
  * Authentication type for MCP integrations.
@@ -6930,7 +7034,7 @@ export type RoleUpdate = {
  * This object contains all the information needed to execute an action.
  */
 export type RunActionInput = {
-  task: ActionStatement
+  task: ActionStatement_Output
   exec_context: ExecutionContext
   run_context: RunContext
   interaction_context?: InteractionContext | null
@@ -9292,6 +9396,28 @@ export type WorkflowDirectoryItem = {
   type: "workflow"
 }
 
+/**
+ * Canonical editable draft document plus its content-hash revision.
+ */
+export type WorkflowDraftRead = {
+  workflow_id: string
+  draft_revision: string
+  document: WorkflowEditDocument_Output
+}
+
+/**
+ * Wholesale replacement of a workflow draft.
+ *
+ * ``document`` is the full desired draft state (metadata, definition, layout,
+ * schedules, case trigger). Sections omitted from ``document`` fall back to
+ * their defaults and are treated as changed. When ``base_revision`` is set,
+ * the update is rejected with 409 if the current draft revision differs.
+ */
+export type WorkflowDraftUpdate = {
+  document: WorkflowEditDocument_Input
+  base_revision?: string | null
+}
+
 export type WorkflowDslPublish = {
   message?: string | null
   branch?: string | null
@@ -9311,6 +9437,44 @@ export type WorkflowDslPublishResult = {
 }
 
 export type status10 = "committed" | "no_op"
+
+export type WorkflowEditDefinition_Input = {
+  entrypoint?: DSLEntrypoint_Input
+  actions?: Array<ActionStatement_Input>
+  config?: DSLConfig_Input
+  returns?: unknown | null
+}
+
+export type WorkflowEditDefinition_Output = {
+  entrypoint?: DSLEntrypoint_Output
+  actions?: Array<ActionStatement_Output>
+  config?: DSLConfig_Output
+  returns?: unknown | null
+}
+
+export type WorkflowEditDocument_Input = {
+  metadata: WorkflowEditMetadata
+  definition: WorkflowEditDefinition_Input
+  layout?: WorkflowLayout
+  schedules?: Array<WorkflowSchedule>
+  case_trigger?: CaseTriggerConfig | null
+}
+
+export type WorkflowEditDocument_Output = {
+  metadata: WorkflowEditMetadata
+  definition: WorkflowEditDefinition_Output
+  layout?: WorkflowLayout
+  schedules?: Array<WorkflowSchedule>
+  case_trigger?: CaseTriggerConfig | null
+}
+
+export type WorkflowEditMetadata = {
+  title: string
+  description: string
+  status: "online" | "offline"
+  alias?: string | null
+  error_handler?: string | null
+}
 
 export type WorkflowEntrypointValidationRequest = {
   expects?: {
@@ -9807,6 +9971,12 @@ export type WorkflowFolderUpdate = {
   name?: string | null
 }
 
+export type WorkflowLayout = {
+  trigger?: LayoutPosition | null
+  viewport?: LayoutViewport | null
+  actions?: Array<LayoutActionPosition>
+}
+
 export type WorkflowMoveToFolder = {
   folder_path?: string | null
 }
@@ -9914,6 +10084,19 @@ export type WorkflowRunReadMinimal = {
    * Workflow alias from workspace metadata or execution search attributes.
    */
   workflow_alias?: string | null
+}
+
+export type WorkflowSchedule = {
+  status?: "online" | "offline"
+  inputs?: {
+    [key: string]: unknown
+  } | null
+  cron?: string | null
+  every?: string | null
+  offset?: string | null
+  start_at?: string | null
+  end_at?: string | null
+  timeout?: number
 }
 
 /**
@@ -10731,12 +10914,20 @@ export type WorkflowsGetWorkflowDefinitionData = {
 
 export type WorkflowsGetWorkflowDefinitionResponse = WorkflowDefinitionRead
 
-export type WorkflowsCreateWorkflowDefinitionData = {
+export type WorkflowsGetWorkflowDraftData = {
   workflowId: string
   workspaceId: string
 }
 
-export type WorkflowsCreateWorkflowDefinitionResponse = WorkflowDefinitionRead
+export type WorkflowsGetWorkflowDraftResponse = WorkflowDraftRead
+
+export type WorkflowsReplaceWorkflowDraftData = {
+  requestBody: WorkflowDraftUpdate
+  workflowId: string
+  workspaceId: string
+}
+
+export type WorkflowsReplaceWorkflowDraftResponse = WorkflowDraftRead
 
 export type TriggersCreateWebhookData = {
   requestBody: WebhookCreate
@@ -14939,13 +15130,28 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    post: {
-      req: WorkflowsCreateWorkflowDefinitionData
+  }
+  "/workspaces/{workspace_id}/workflows/{workflow_id}/draft": {
+    get: {
+      req: WorkflowsGetWorkflowDraftData
       res: {
         /**
          * Successful Response
          */
-        200: WorkflowDefinitionRead
+        200: WorkflowDraftRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    put: {
+      req: WorkflowsReplaceWorkflowDraftData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkflowDraftRead
         /**
          * Validation Error
          */

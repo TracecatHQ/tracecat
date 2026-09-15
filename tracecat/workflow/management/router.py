@@ -73,6 +73,14 @@ from tracecat.workflow.case_triggers.schemas import (
 )
 from tracecat.workflow.case_triggers.service import CaseTriggersService
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
+from tracecat.workflow.management.draft import (
+    WorkflowEditError,
+    build_workflow_edit_document,
+    compute_workflow_edit_revision,
+    persist_workflow_edit_document,
+    validate_workflow_edit_document,
+    workflow_edit_document_changed_sections,
+)
 from tracecat.workflow.management.folders.service import WorkflowFolderService
 from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.management.schemas import (
@@ -81,6 +89,8 @@ from tracecat.workflow.management.schemas import (
     WorkflowCreate,
     WorkflowDefinitionRead,
     WorkflowDefinitionReadMinimal,
+    WorkflowDraftRead,
+    WorkflowDraftUpdate,
     WorkflowEntrypointValidationRequest,
     WorkflowEntrypointValidationResponse,
     WorkflowLayout,
@@ -698,15 +708,120 @@ async def get_workflow_definition(
     return WorkflowDefinitionRead.model_validate(definition)
 
 
-@router.post("/{workflow_id}/definition", tags=["workflows"])
-@require_scope("workflow:create")
-async def create_workflow_definition(
+# ----- Workflow Draft ----- #
+
+
+def _workflow_draft_read(workflow: Workflow) -> WorkflowDraftRead:
+    document = build_workflow_edit_document(workflow)
+    return WorkflowDraftRead(
+        workflow_id=WorkflowUUID.new(workflow.id).short(),
+        draft_revision=compute_workflow_edit_revision(document),
+        document=document,
+    )
+
+
+def _workflow_edit_error_to_http(error: WorkflowEditError) -> HTTPException:
+    if error.conflict:
+        return HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "type": "conflict",
+                "message": error.message,
+                "current_revision": error.current_revision,
+            },
+        )
+    if error.code == "validation_error" and error.details is not None:
+        return HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=error.details
+        )
+    return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=error.message)
+
+
+@router.get("/{workflow_id}/draft", tags=["workflows"])
+@require_scope("workflow:read")
+async def get_workflow_draft(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
-) -> WorkflowDefinitionRead:
-    """Get the latest version of a workflow definition."""
-    raise NotImplementedError
+) -> WorkflowDraftRead:
+    """Return the workflow's current draft as a canonical editable document.
+
+    The document has the same shape accepted by ``PUT /workflows/{id}/draft``
+    (metadata, definition, layout, schedules, case trigger), and
+    ``draft_revision`` is a content hash suitable for optimistic concurrency.
+    """
+    service = WorkflowsManagementService(session, role=role)
+    workflow = await service.get_workflow(workflow_id)
+    if workflow is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found"
+        )
+    try:
+        return _workflow_draft_read(workflow)
+    except WorkflowEditError as e:
+        raise _workflow_edit_error_to_http(e) from e
+
+
+@router.put("/{workflow_id}/draft", tags=["workflows"])
+@require_scope("workflow:update")
+async def replace_workflow_draft(
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    workflow_id: AnyWorkflowIDPath,
+    params: WorkflowDraftUpdate,
+) -> WorkflowDraftRead:
+    """Replace the workflow's draft with the supplied document.
+
+    Validates the definition, then rewrites the action graph, layout,
+    schedules, and case trigger in one transaction. Publishing is separate:
+    call ``POST /workflows/{id}/commit`` afterwards to create a new version.
+    """
+    service = WorkflowsManagementService(session, role=role)
+    workflow = await service.get_workflow(workflow_id, for_update=True)
+    if workflow is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found"
+        )
+    wf_id = WorkflowUUID.new(workflow.id)
+    updated_document = params.document
+    try:
+        current_document = build_workflow_edit_document(workflow)
+        current_revision = compute_workflow_edit_revision(current_document)
+        if (
+            params.base_revision is not None
+            and params.base_revision != current_revision
+        ):
+            raise WorkflowEditError(
+                "Draft revision mismatch",
+                conflict=True,
+                current_revision=current_revision,
+            )
+        changed_sections = workflow_edit_document_changed_sections(
+            current_document, updated_document
+        )
+        await validate_workflow_edit_document(
+            updated_document,
+            workflow_id=wf_id,
+            existing_layout_action_refs={
+                action_layout.ref for action_layout in current_document.layout.actions
+            },
+            validate_definition="definition" in changed_sections,
+            changed_sections=changed_sections,
+            session=session,
+            role=role,
+        )
+        await persist_workflow_edit_document(
+            role=role,
+            service=service,
+            workflow=workflow,
+            original_document=current_document,
+            updated_document=updated_document,
+            changed_sections=changed_sections,
+        )
+        await session.refresh(workflow, ["actions", "schedules", "case_trigger"])
+        return _workflow_draft_read(workflow)
+    except WorkflowEditError as e:
+        raise _workflow_edit_error_to_http(e) from e
 
 
 # ----- Workflow Webhooks ----- #
