@@ -114,26 +114,26 @@ class EmbeddingClient:
         Errors are rebuilt from typed metadata after leaving exception handlers;
         provider bodies and exception chains are never returned or logged.
         """
-        spec = configuration.spec
-        if (
-            request.config_version != configuration.version
-            or request.dimensions != spec.dimensions
-        ):
-            raise EmbeddingError(EmbeddingErrorCode.CONFIGURATION_CHANGED)
-        if not 1 <= len(request.items) <= spec.batch_size_limit:
-            raise EmbeddingError(EmbeddingErrorCode.INPUT_INVALID)
-        ordinals: set[int] = set()
-        for item in request.items:
-            if (
-                item.ordinal < 0
-                or item.ordinal in ordinals
-                or not item.text.strip()
-                or len(item.text) > spec.input_character_limit
-                or hashlib.sha256(item.text.encode()).hexdigest() != item.input_hash
-            ):
-                raise EmbeddingError(EmbeddingErrorCode.INPUT_INVALID)
-            ordinals.add(item.ordinal)
         try:
+            spec = configuration.spec
+            if (
+                request.config_version != configuration.version
+                or request.dimensions != spec.dimensions
+            ):
+                raise EmbeddingError(EmbeddingErrorCode.CONFIGURATION_CHANGED)
+            if not 1 <= len(request.items) <= spec.batch_size_limit:
+                raise EmbeddingError(EmbeddingErrorCode.INPUT_INVALID)
+            ordinals: set[int] = set()
+            for item in request.items:
+                if (
+                    item.ordinal < 0
+                    or item.ordinal in ordinals
+                    or not item.text.strip()
+                    or len(item.text) > spec.input_character_limit
+                    or hashlib.sha256(item.text.encode()).hexdigest() != item.input_hash
+                ):
+                    raise EmbeddingError(EmbeddingErrorCode.INPUT_INVALID)
+                ordinals.add(item.ordinal)
             async with asyncio.timeout(self.timeout):
                 await asyncio.to_thread(_check_token_budget, request, spec)
                 async with self.http.stream(
@@ -161,6 +161,8 @@ class EmbeddingClient:
                 return _validate_response(parsed, request, configuration)
         except EmbeddingError as exc:
             error = EmbeddingError(exc.code, exc.retry_after)
+        except UnicodeError:
+            error = EmbeddingError(EmbeddingErrorCode.INPUT_INVALID)
         except (TimeoutError, httpx.TimeoutException):
             error = EmbeddingError(EmbeddingErrorCode.TIMEOUT)
         except (ValidationError, OverflowError, struct.error):
