@@ -27,6 +27,7 @@ from tracecat.db.models import (
     SearchWorkspaceState,
     Workspace,
 )
+from tracecat.db.rls import set_rls_context
 from tracecat.search.schemas import SearchIndexStatus
 from tracecat.search.types import (
     BuildClaim,
@@ -76,6 +77,12 @@ class SearchStorage(BaseService):
             yield cls(session, scope)
         else:
             async with get_async_session_context_manager() as owned_session:
+                await set_rls_context(
+                    owned_session,
+                    org_id=scope.organization_id,
+                    workspace_id=scope.workspace_id,
+                    bypass=False,
+                )
                 yield cls(owned_session, scope)
 
     async def lock_scope(self) -> None:
