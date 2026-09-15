@@ -635,6 +635,8 @@ services:
 
   postgres_db:
     image: ${TRACECAT__PGVECTOR_IMAGE:-postgres:16}
+    entrypoint: ["bash", "/usr/local/bin/tracecat-postgres-entrypoint.sh"]
+    command: ["postgres"]
     restart: unless-stopped
     ports:
       - ${PG_PORT:-5432}:5432
@@ -644,12 +646,29 @@ services:
       POSTGRES_PASSWORD: ${TRACECAT__POSTGRES_PASSWORD}
     volumes:
       - core-db:/var/lib/postgresql/data
+      - pgvector-cache:/var/cache/tracecat-pgvector
+      - ./scripts/postgres/compose-entrypoint.sh:/usr/local/bin/tracecat-postgres-entrypoint.sh:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d postgres"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d postgres"]
       interval: 5s
       timeout: 5s
       retries: 12
-      start_period: 5s
+      start_period: 180s
+
+  pgvector_setup:
+    image: ${TRACECAT__PGVECTOR_IMAGE:-postgres:16}
+    restart: "no"
+    environment:
+      PGHOST: postgres_db
+      PGUSER: ${TRACECAT__POSTGRES_USER}
+      PGPASSWORD: ${TRACECAT__POSTGRES_PASSWORD}
+      PGDATABASE: postgres
+    volumes:
+      - ./scripts/postgres/pgvector.sql:/pgvector.sql:ro
+    entrypoint: ["psql", "-X", "-v", "install=true", "-f", "/pgvector.sql"]
+    depends_on:
+      postgres_db:
+        condition: service_healthy
 
   migrations:
     build:
@@ -669,8 +688,8 @@ services:
       - ./alembic:/app/alembic
     command: ["python3", "-m", "alembic", "upgrade", "head"]
     depends_on:
-      postgres_db:
-        condition: service_healthy
+      pgvector_setup:
+        condition: service_completed_successfully
 
   temporal_postgres_db:
     image: postgres:13
@@ -750,6 +769,7 @@ services:
     attach: false
 
 volumes:
+  pgvector-cache:
   core-db:
   temporal-db:
   containers:

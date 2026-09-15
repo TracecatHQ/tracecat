@@ -29,6 +29,11 @@ configured = json.loads((root / 'configured.json').read_text())
 assert default['services']['postgres_db']['image'] == 'postgres:16'
 assert configured['services']['postgres_db']['image'] == 'synthetic-postgres-pgvector:validated'
 configured['services']['postgres_db']['image'] = 'postgres:16'
+assert configured['services']['pgvector_setup']['image'] == 'synthetic-postgres-pgvector:validated'
+configured['services']['pgvector_setup']['image'] = 'postgres:16'
+assert default['services']['migrations']['depends_on']['pgvector_setup']['condition'] == 'service_completed_successfully'
+assert default['services']['pgvector_setup']['depends_on']['postgres_db']['condition'] == 'service_healthy'
+assert default['services']['postgres_db']['entrypoint'][0] == 'bash'
 assert configured == default, 'Image selection changed unrelated Compose settings'
 PY
     echo "PASS: $compose_file reads persistent .env image; all other settings unchanged"
