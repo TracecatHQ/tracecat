@@ -351,6 +351,59 @@ def test_workflow_references_detects_preset_agent_preset_arg() -> None:
     assert references.versioned_preset_slugs == {VersionedSlug("qa-triage-parent", 2)}
 
 
+def test_workflow_references_ignores_templated_and_empty_references() -> None:
+    workflow = _workflow_spec(
+        source_id="qa-dynamic-workflow",
+        title="qa-dynamic-workflow",
+        alias="qa-dynamic-workflow",
+        folder_path="QA/Root",
+        actions=[
+            {
+                "ref": "triage",
+                "action": "ai.preset_agent",
+                "args": {
+                    "preset": "${{ TRIGGER.triage_preset }}",
+                    "user_prompt": "Review the alert.",
+                },
+            },
+            {
+                "ref": "triage_versioned",
+                "action": "ai.preset_agent",
+                "args": {
+                    "preset": "${{ ACTIONS.triage.result.preset }}",
+                    "preset_version": 2,
+                    "user_prompt": "Review the alert.",
+                },
+            },
+            {
+                "ref": "unconfigured",
+                "action": "ai.preset_agent",
+                "args": {"preset": "", "user_prompt": "Review the alert."},
+            },
+            {
+                "ref": "route",
+                "action": "core.workflow.execute",
+                "args": {
+                    "workflow_alias": "${{ ACTIONS.triage.result.alias }}",
+                    "workflow_id": "wf_00000000000000000000000000000001",
+                },
+            },
+            {
+                "ref": "static",
+                "action": "core.workflow.execute",
+                "args": {"workflow_alias": "qa-child"},
+            },
+        ],
+    )
+
+    references = workflow_references(DSLInput.model_validate(workflow["definition"]))
+
+    assert references.execute_aliases == {"qa-child"}
+    assert references.execute_ids == set()
+    assert references.preset_slugs == set()
+    assert references.versioned_preset_slugs == set()
+
+
 def test_skill_fixture_records_file_sha256s() -> None:
     files = _expanded_full_git_tree(include_schedules=False)
     version_spec = yaml.safe_load(files[f"{SKILL_ROOT}/qa-enrichment-skill/skill.yml"])
