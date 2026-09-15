@@ -26,7 +26,7 @@ in-flight actions needed    = λ × 2.6  / 0.8  ≈ 3.25 × λ
 ```
 
 `TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES` controls in-flight actions per executor replica, not actions per second.
-With the reference workload a replica with 16 admitted activities completes about 6 actions per second at most, and only if it has roughly 20 free cores.
+With the reference workload a replica with the default 32 admitted activities completes about 12 actions per second at most, and only if it has roughly 40 free cores.
 On a 4 vCPU replica, the formula gives `0.8 × 4 × 2.6 / 1.21 ≈ 7` admitted activities; 8 is the validated burst-friendly setting.
 
 Your actions differ from the reference workload.
@@ -41,7 +41,7 @@ Host totals add roughly 8 vCPU and 16 GiB for the API, worker, UI, Temporal, bot
 
 | Target | Executor replicas | `MAX_CONCURRENT_ACTIVITIES` | In-flight actions | Executor vCPU / RAM | Host total (approx.) | Postgres `max_connections` | Evidence |
 | :----- | ----------------: | --------------------------: | ----------------: | :------------------ | :------------------- | -------------------------: | :------- |
-| Default settings | 1 | 16 | 16 | Unlimited (shares host) | 8 vCPU / 16 GiB | 100 | ~3–5 actions/s on an 8-core host |
+| Default settings | 1 | 32 | 32 | Unlimited (shares host) | 8 vCPU / 16 GiB | 100 | ~3–5 actions/s on an 8-core host |
 | 8 actions/s | 3 | 8 | 24 | 12 vCPU / 12 GiB | 20 vCPU / 32 GiB | 200 | Measured: 8.4–8.5 actions/s |
 | 16 actions/s | 6 | 8 | 48 | 24 vCPU / 24 GiB | 32 vCPU / 48 GiB | 300 | Projected |
 | 32 actions/s | 12 | 8 | 96 | 48 vCPU / 48 GiB | 56 vCPU / 80 GiB | 400 | Projected |
@@ -55,8 +55,8 @@ They assume the reference action mix and that every replica gets its own physica
 Validate any tier above 16 actions/s with the [benchmark suite](https://github.com/TracecatHQ/tracecat/tree/main/packages/tracecat-benchmark) on the target hardware before you commit to it.
 
 The default settings row is deliberately conservative.
-A single executor with 16 admitted activities can only reach 16 / 2.6 ≈ 6 actions per second, and on an 8-core host shared with every other service it has roughly 4 cores available, which caps it at 0.8 × 4 / 1.21 ≈ 2.6 actions per second for the reference workload.
-Raising `TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES` on that host adds queueing and CPU contention, not throughput.
+A single executor with 32 admitted activities could reach 32 / 2.6 ≈ 12 actions per second, but on an 8-core host shared with every other service it has roughly 4 cores available, which caps it at 0.8 × 4 / 1.21 ≈ 2.6 actions per second for the reference workload.
+The default admits bursts generously; adding cores or replicas, not a higher `TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES`, raises sustained throughput on that host.
 
 ## Physical capacity is a hard limit
 
