@@ -22,6 +22,7 @@ from tracecat.agent.common.types import (
 from tracecat.agent.error_policy import (
     agent_preparation_failed,
     invalid_agent_configuration,
+    registry_lock_invalid_data,
     tenant_entitlement_denied,
 )
 from tracecat.agent.mcp.internal_tools import (
@@ -41,7 +42,11 @@ from tracecat.agent.tools import build_agent_tools
 from tracecat.auth.types import Role
 from tracecat.common import all_activities
 from tracecat.contexts import ctx_role
-from tracecat.exceptions import BuiltinRegistryHasNoSelectionError, EntitlementRequired
+from tracecat.exceptions import (
+    BuiltinRegistryHasNoSelectionError,
+    EntitlementRequired,
+    RegistryLockInvalidDataError,
+)
 from tracecat.logger import logger
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
@@ -532,6 +537,11 @@ class AgentActivities:
         except EntitlementRequired as e:
             raise_application_error_from_classification(
                 tenant_entitlement_denied(e),
+                e.detail,
+            )
+        except RegistryLockInvalidDataError as e:
+            raise_application_error_from_classification(
+                registry_lock_invalid_data(e),
                 e.detail,
             )
 

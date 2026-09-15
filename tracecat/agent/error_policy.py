@@ -51,6 +51,22 @@ def invalid_agent_configuration(
     )
 
 
+def registry_lock_invalid_data(
+    error: BaseException | None = None,
+) -> RuntimeErrorClassification:
+    """Classify deterministic registry lock resolution failures.
+
+    Missing, ambiguous, or unsupported actions are resolution gaps in the
+    registry itself rather than a fault in the agent's configuration.
+    """
+    return RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.REGISTRY_LOCK_INVALID_DATA,
+        message="Tracecat could not resolve the agent's registry actions",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        cause=error,
+    )
+
+
 def tenant_entitlement_denied(
     error: BaseException | None = None,
 ) -> RuntimeErrorClassification:

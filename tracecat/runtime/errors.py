@@ -51,6 +51,7 @@ class RuntimeErrorKind(StrEnum):
     TENANT_ENTITLEMENT_DENIED = "tenant.entitlement.denied"
     INTEGRATION_RATE_LIMITED = "integration.rate_limited"
     REGISTRY_SYNC_VALIDATION_FAILED = "registry.sync.validation_failed"
+    REGISTRY_LOCK_INVALID_DATA = "registry.lock.invalid_data"
     RUNTIME_UNCLASSIFIED = "runtime.unclassified"
     STORAGE_MATERIALIZATION_TRANSPORT_UNAVAILABLE = (
         "storage.materialization.transport_unavailable"
