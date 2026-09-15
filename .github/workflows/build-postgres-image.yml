@@ -113,7 +113,9 @@ jobs:
         run: |
           set -euo pipefail
           image=$(cat "/tmp/postgres-images/postgres-$VARIANT-amd64/name")
-          [[ "$image" =~ ^ghcr.io/tracecathq/tracecat-postgres:16\.[0-9]+-$VARIANT-vector[0-9.]+-r[0-9]+$ ]]
+          suffix=""
+          if [[ "$VARIANT" == bookworm ]]; then suffix="-bookworm"; fi
+          [[ "$image" =~ ^ghcr.io/tracecathq/tracecat-postgres:[1-9][0-9]*$suffix$ ]]
           refs=()
           for arch in amd64 arm64; do
             artifact="/tmp/postgres-images/postgres-$VARIANT-$arch"

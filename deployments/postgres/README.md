@@ -60,7 +60,9 @@ publishes the exact tested image artifacts and combines their CPU architectures
 into versioned GHCR tags. Application CI builds its own candidate locally so it
 can test changes before their tag exists in GHCR.
 
-Bump the image revision (`r1`, `r2`, ...) in `images.json` when changing packaged
+Tags use a simple image revision: `:1` for the default and `:1-bookworm` for
+Bookworm. PostgreSQL, OS, and pgvector versions are recorded in the build files.
+Bump the revision (`1`, `2`, ...) in `images.json` when changing packaged
 files or base digests; update all three Compose defaults together. These images
 have their own version, independent of the API and UI release versions.
 
