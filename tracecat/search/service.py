@@ -461,6 +461,9 @@ class SearchStorage(BaseService):
                 or chunk.column_id not in collection.selected_column_ids
             ):
                 raise SearchError(SearchErrorCode.MANIFEST_CONFLICT)
+        # Callers may catch a validation error and commit their transaction.
+        # Stage nothing until the entire batch has passed validation.
+        for chunk in chunks:
             self.session.add(
                 SearchChunk(
                     organization_id=self.scope.organization_id,
