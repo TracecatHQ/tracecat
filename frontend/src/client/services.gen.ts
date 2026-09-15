@@ -1298,7 +1298,7 @@ export const workspacesGetWorkspace = (
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.requestBody
- * @returns void Successful Response
+ * @returns WorkspaceRead Successful Response
  * @throws ApiError
  */
 export const workspacesUpdateWorkspace = (
@@ -1393,7 +1393,7 @@ export const workspacesListWorkspaceMemberships = (
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.requestBody
- * @returns unknown Successful Response
+ * @returns WorkspaceMembershipRead Successful Response
  * @throws ApiError
  */
 export const workspacesCreateWorkspaceMembership = (
@@ -2013,7 +2013,7 @@ export const workflowsGetWorkflow = (
  * @param data.workspaceId
  * @param data.workflowId
  * @param data.requestBody
- * @returns void Successful Response
+ * @returns WorkflowRead Successful Response
  * @throws ApiError
  */
 export const workflowsUpdateWorkflow = (
@@ -2241,7 +2241,7 @@ export const workflowsCreateWorkflowDefinition = (
  * @param data.workspaceId
  * @param data.workflowId
  * @param data.requestBody
- * @returns unknown Successful Response
+ * @returns WebhookRead Successful Response
  * @throws ApiError
  */
 export const triggersCreateWebhook = (
@@ -2294,7 +2294,7 @@ export const triggersGetWebhook = (
  * @param data.workspaceId
  * @param data.workflowId
  * @param data.requestBody
- * @returns void Successful Response
+ * @returns WebhookRead Successful Response
  * @throws ApiError
  */
 export const triggersUpdateWebhook = (
@@ -2375,7 +2375,7 @@ export const triggersGetCaseTrigger = (
  * @param data.workspaceId
  * @param data.workflowId
  * @param data.requestBody
- * @returns void Successful Response
+ * @returns CaseTriggerRead Successful Response
  * @throws ApiError
  */
 export const triggersUpdateCaseTrigger = (
@@ -3510,7 +3510,7 @@ export const secretsListSecrets = (
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.requestBody
- * @returns unknown Successful Response
+ * @returns SecretReadMinimal Successful Response
  * @throws ApiError
  */
 export const secretsCreateSecret = (
@@ -3608,7 +3608,7 @@ export const secretsGetSecretByName = (
  * @param data.workspaceId
  * @param data.secretId
  * @param data.requestBody
- * @returns void Successful Response
+ * @returns SecretReadMinimal Successful Response
  * @throws ApiError
  */
 export const secretsUpdateSecretById = (
@@ -9131,7 +9131,7 @@ export const organizationSecretsListOrgSecrets = (
  * Create an organization secret.
  * @param data The data for the request.
  * @param data.requestBody
- * @returns unknown Successful Response
+ * @returns SecretReadMinimal Successful Response
  * @throws ApiError
  */
 export const organizationSecretsCreateOrgSecret = (
@@ -9181,7 +9181,7 @@ export const organizationSecretsGetOrgSecretByName = (
  * @param data The data for the request.
  * @param data.secretId
  * @param data.requestBody
- * @returns void Successful Response
+ * @returns SecretReadMinimal Successful Response
  * @throws ApiError
  */
 export const organizationSecretsUpdateOrgSecretById = (
@@ -9253,7 +9253,7 @@ export const tablesListTables = (
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.requestBody
- * @returns unknown Successful Response
+ * @returns TableRead Successful Response
  * @throws ApiError
  */
 export const tablesCreateTable = (
@@ -9305,7 +9305,7 @@ export const tablesGetTable = (
  * @param data.tableId
  * @param data.workspaceId
  * @param data.requestBody
- * @returns void Successful Response
+ * @returns TableRead Successful Response
  * @throws ApiError
  */
 export const tablesUpdateTable = (
@@ -9358,7 +9358,7 @@ export const tablesDeleteTable = (
  * @param data.tableId
  * @param data.workspaceId
  * @param data.requestBody
- * @returns unknown Successful Response
+ * @returns TableColumnRead Successful Response
  * @throws ApiError
  */
 export const tablesCreateColumn = (
@@ -9387,7 +9387,7 @@ export const tablesCreateColumn = (
  * @param data.columnId
  * @param data.workspaceId
  * @param data.requestBody
- * @returns void Successful Response
+ * @returns TableColumnRead Successful Response
  * @throws ApiError
  */
 export const tablesUpdateColumn = (
@@ -9480,7 +9480,7 @@ export const tablesListRows = (
  * @param data.tableId
  * @param data.workspaceId
  * @param data.requestBody
- * @returns unknown Successful Response
+ * @returns TableRowRead Successful Response
  * @throws ApiError
  */
 export const tablesInsertRow = (
@@ -9508,7 +9508,7 @@ export const tablesInsertRow = (
  * @param data.tableId
  * @param data.rowId
  * @param data.workspaceId
- * @returns unknown Successful Response
+ * @returns TableRowRead Successful Response
  * @throws ApiError
  */
 export const tablesGetRow = (
@@ -9775,7 +9775,7 @@ export const casesListCases = (
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.requestBody
- * @returns unknown Successful Response
+ * @returns CaseRead Successful Response
  * @throws ApiError
  */
 export const casesCreateCase = (
@@ -9997,7 +9997,8 @@ export const casesGetCase = (
  * @param data.caseId
  * @param data.workspaceId
  * @param data.requestBody
- * @returns void Successful Response
+ * @param data.includeRows Include linked table rows
+ * @returns CaseRead Successful Response
  * @throws ApiError
  */
 export const casesUpdateCase = (
@@ -10009,6 +10010,9 @@ export const casesUpdateCase = (
     path: {
       case_id: data.caseId,
       workspace_id: data.workspaceId,
+    },
+    query: {
+      include_rows: data.includeRows,
     },
     body: data.requestBody,
     mediaType: "application/json",
@@ -10075,7 +10079,7 @@ export const casesListComments = (
  * @param data.caseId
  * @param data.workspaceId
  * @param data.requestBody
- * @returns unknown Successful Response
+ * @returns CaseCommentRead Successful Response
  * @throws ApiError
  */
 export const casesCreateComment = (
@@ -10129,7 +10133,7 @@ export const casesListCommentThreads = (
  * @param data.commentId
  * @param data.workspaceId
  * @param data.requestBody
- * @returns void Successful Response
+ * @returns CaseCommentRead Successful Response
  * @throws ApiError
  */
 export const casesUpdateComment = (
@@ -10632,7 +10636,7 @@ export const casesListFields = (
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.requestBody
- * @returns unknown Successful Response
+ * @returns CaseFieldReadMinimal Successful Response
  * @throws ApiError
  */
 export const casesCreateField = (
@@ -10659,7 +10663,7 @@ export const casesCreateField = (
  * @param data.fieldId
  * @param data.workspaceId
  * @param data.requestBody
- * @returns void Successful Response
+ * @returns CaseFieldReadMinimal Successful Response
  * @throws ApiError
  */
 export const casesUpdateField = (

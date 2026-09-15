@@ -277,10 +277,11 @@ class SecretsService(BaseOrgService):
 
     @require_scope("secret:update")
     @audit_log(resource_type="secret", action="update")
-    async def update_secret(self, secret: Secret, params: SecretUpdate) -> None:
+    async def update_secret(self, secret: Secret, params: SecretUpdate) -> Secret:
         """Update a workspace secret."""
 
         await self._update_secret(secret=secret, params=params)
+        return secret
 
     @require_scope("secret:delete")
     @audit_log(resource_type="secret", action="delete")
@@ -380,9 +381,9 @@ class SecretsService(BaseOrgService):
         return await self._get_github_app_org_secret()
 
     @require_scope("org:secret:create")
-    async def create_org_secret(self, params: SecretCreate) -> None:
+    async def create_org_secret(self, params: SecretCreate) -> OrganizationSecret:
         """Create a new organization secret."""
-        await self._create_org_secret(params)
+        return await self._create_org_secret(params)
 
     @audit_log(resource_type="organization_secret", action="create")
     async def _create_org_secret(self, params: SecretCreate) -> OrganizationSecret:
@@ -409,8 +410,9 @@ class SecretsService(BaseOrgService):
     @require_scope("org:secret:update")
     async def update_org_secret(
         self, secret: OrganizationSecret, params: SecretUpdate
-    ) -> None:
+    ) -> OrganizationSecret:
         await self._update_org_secret(secret=secret, params=params)
+        return secret
 
     @audit_log(resource_type="organization_secret", action="update")
     async def _update_org_secret(
