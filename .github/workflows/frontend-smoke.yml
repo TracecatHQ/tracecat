@@ -80,12 +80,6 @@ jobs:
           load: true
           tags: tracecat-ci:frontend-smoke-${{ github.run_id }}-${{ github.run_attempt }}
 
-      - name: Build pgvector on the CI PostgreSQL image
-        run: |
-          docker pull postgres:16
-          bash scripts/postgres/build-pgvector-image.sh --image postgres:16 tracecat-postgres-pgvector:ci
-          echo 'TRACECAT__PGVECTOR_IMAGE=tracecat-postgres-pgvector:ci' >> "$GITHUB_ENV"
-
       - name: Build UI image
         env:
           TRACECAT__CI_IMAGE_TAG: frontend-smoke-${{ github.run_id }}-${{ github.run_attempt }}
@@ -103,11 +97,6 @@ jobs:
           set -euo pipefail
 
           compose_files=(-f docker-compose.local.yml -f .github/docker-compose.integration.yml)
-          # Provision the application DB before starting migration containers.
-          docker compose "${compose_files[@]}" up --no-build --wait --wait-timeout 120 postgres_db
-          docker compose "${compose_files[@]}" exec -T postgres_db \
-            psql -X -U postgres -d postgres -v install=true < scripts/postgres/pgvector.sql
-
           docker compose "${compose_files[@]}" up --no-build -d temporal api worker executor postgres_db caddy minio redis ui
 
           timeout 300 bash -c 'until curl -fsS http://localhost/api/health; do sleep 5; done'

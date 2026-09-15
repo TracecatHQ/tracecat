@@ -15,7 +15,7 @@ on:
       - docker-compose.pgvector.yml
       - deployments/postgres/Dockerfile
       - scripts/postgres/**
-      - scripts/tests/test_pgvector.sh
+      - scripts/tests/test_pgvector*.sh
       - .env.example
       - env.sh
       - .github/workflows/test-python.yml
@@ -33,7 +33,7 @@ on:
       - docker-compose.pgvector.yml
       - deployments/postgres/Dockerfile
       - scripts/postgres/**
-      - scripts/tests/test_pgvector.sh
+      - scripts/tests/test_pgvector*.sh
       - .env.example
       - env.sh
       - .github/workflows/test-python.yml
@@ -114,21 +114,15 @@ jobs:
           n
           test@tracecat.com" | bash env.sh
 
-      - name: Check persistent Compose image selection
+      - name: Check automatic Compose pgvector wiring
         run: bash scripts/tests/test_pgvector_compose.sh
-
-      - name: Build pgvector on the CI PostgreSQL image
-        run: |
-          docker pull postgres:16
-          bash scripts/postgres/build-pgvector-image.sh --image postgres:16 tracecat-postgres-pgvector:ci
-          echo 'TRACECAT__PGVECTOR_IMAGE=tracecat-postgres-pgvector:ci' >> "$GITHUB_ENV"
 
       - name: Start core Docker services and install dependencies
         run: |
           set -euo pipefail
 
           compose_files=(-f docker-compose.dev.yml)
-          services=(postgres_db minio redis)
+          services=(pgvector_setup minio redis)
 
           uv sync --frozen &
           uv_sync_pid=$!
@@ -140,7 +134,7 @@ jobs:
           trap cleanup_uv_sync EXIT
 
           if [ "${{ matrix.test_group }}" = "temporal" ]; then
-            services=(temporal postgres_db minio redis)
+            services=(temporal pgvector_setup minio redis)
             cat > /tmp/tracecat-ci-postgres.yml <<'YAML'
           services:
             postgres_db:
@@ -182,14 +176,15 @@ jobs:
           wait "$uv_sync_pid"
           trap - EXIT
 
-      - name: Provision application database vector extension
+      - name: Verify automatic vector provisioning completed
         run: |
-          docker compose -f docker-compose.dev.yml exec -T postgres_db \
-            psql -X -U postgres -d postgres -v install=true < scripts/postgres/pgvector.sql
+          docker compose -f docker-compose.dev.yml wait pgvector_setup
 
       - name: Verify PostgreSQL image upgrade and vector permissions
         if: matrix.test_group == 'unit'
         run: |
+          bash scripts/tests/test_pgvector_startup.sh
+          bash scripts/tests/test_pgvector_startup.sh postgres:16.14-bookworm fresh
           bash scripts/tests/test_pgvector.sh
           bash scripts/tests/test_pgvector.sh postgres:16.14-bookworm
 

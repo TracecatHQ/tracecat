@@ -1,185 +1,159 @@
 # Application database vector support
 
-Semantic search will use the PostgreSQL `vector` extension (pgvector). This
-deployment prerequisite does not enable semantic search or add its schema.
-The Temporal database does not need this extension.
+Semantic search uses PostgreSQL's `vector` extension (pgvector). The application
+schema migration requires pgvector >= 0.8.0 in `public`, even while search is
+disabled. The Temporal database does not need this extension.
 
-## Supported setup
+## Docker Compose POCs: automatic setup
 
-The base Compose files default to `postgres:16` and read
-`TRACECAT__PGVECTOR_IMAGE` directly. Build a derived image from the
-**immutable image actually used by the deployed container**, then save its image
-reference in the existing Compose project’s `.env`. Ordinary `docker compose up`
-uses that image automatically; no additional Compose file or startup argument is
-needed. The old `docker-compose.pgvector.yml` remains compatible but is redundant.
-No particular Debian release is selected: Bookworm remains Bookworm and Trixie
-remains Trixie. The build helper never pulls a floating tag or changes a running
-container.
+Use the normal `docker compose up` command. No pgvector-specific YAML file,
+image build, environment setting or manual SQL command is required. All three
+Compose variants use this dependency chain:
 
-`deployments/postgres/Dockerfile` builds pgvector 0.8.6 from a pinned source
-commit in a separate build stage. The final stage starts from the exact base
-digest and copies only extension artifacts. Package installations occur only
-in the discarded builder; PostgreSQL, libc, ICU, installed packages, entrypoint,
-and configuration remain inherited from the base image. Build dependencies are
-resolved from that Debian release's repositories, so builds are not guaranteed
-bit-for-bit reproducible. Validate the resulting image before deployment.
+```text
+postgres_db: download/cache extension files, then start PostgreSQL
+    -> healthy PostgreSQL
+pgvector_setup: enable and validate vector in the application database
+    -> successful exit
+migrations: apply application schema
+    -> application services
+```
 
-This build currently supports official Debian-based PostgreSQL 16 images. It
-is not a universal installer for Alpine, custom PostgreSQL builds, other major
-versions, or managed databases. Build on the deployment's architecture and test
-the image there; local validation does not establish production readiness.
+`postgres_db` still defaults to the official `postgres:16` image. Its mounted
+`scripts/postgres/compose-entrypoint.sh` wrapper downloads the pgvector 0.8.6
+binary package for that image's Debian release and CPU architecture. APT verifies
+the configured repository's signed metadata and package hashes. The wrapper
+extracts only `vector.so`, `vector.control` and the extension SQL files. It does
+not install package dependencies, upgrade PostgreSQL, or replace libc/ICU.
+The official PostgreSQL entrypoint then initializes or opens the existing data
+volume normally and runs PostgreSQL as its usual unprivileged user.
 
-For managed PostgreSQL, the baseline is **pgvector 0.8.0 or newer**, installed in
-the `public` schema of the **application database**. The server package/image
-and the database extension are separate: changing an image makes the extension
-available, but does not install it in an existing database.
+This path supports official Debian-based PostgreSQL 16 images on amd64 and
+arm64 where the image's configured package repository provides pgvector 0.8.6.
+It requires the image's default root entrypoint to copy extension files. It is
+intended for Compose POCs, not arbitrary Alpine/custom images or managed RDS.
+An already provisioned image skips the download; SQL setup still validates it.
 
-Fargate's checked-in RDS default is PostgreSQL 16.10. The separate Kubernetes
-repository uses external PostgreSQL; its EKS application RDS default is 16.13.
-Both versions have pgvector support in the
-[AWS extension matrix](https://docs.aws.amazon.com/AmazonRDS/latest/PostgreSQLReleaseNotes/postgresql-extensions.html).
-No Terraform engine change is needed for these defaults. Check the actual
-server when an installation overrides them:
+The first installation requires access to the image's package repositories.
+Downloads retry transient failures. Missing packages, failed verification or
+missing binary dependencies stop database startup and therefore block migrations;
+there is no fallback that silently skips vector provisioning.
+
+A separate `pgvector-cache` volume stores the verified extension bundle. Cache
+keys include the extension version, OS release, CPU architecture, PostgreSQL
+version/binary and libc version. Recreating the database container with the same
+base restores the files from cache without another download. Bundle hashes are
+checked before reuse. Keep the cache volume for offline restarts. A different
+base image or an empty/damaged cache requires a new download. The cache contains
+no database rows or credentials.
+
+`pgvector_setup` is a one-shot PostgreSQL client using the existing Compose
+administrator credentials. It connects to `postgres_db`, database `postgres`,
+and runs `scripts/postgres/pgvector.sql` with `install=true`. This matches the
+application database configured by the standard Compose setup. It runs for
+existing volumes as well as new ones; it does not rely on initdb-only scripts.
+If an installation uses a different database or administrator credentials, adapt
+its deployment configuration accordingly. The normal application role does not
+need extension-installation privileges.
+
+The database health check uses TCP so it does not report healthy during the
+image's temporary initialization server. Migrations depend on successful
+completion of `pgvector_setup`; API/worker startup retains its existing migration
+dependency. CI uses the same automatic setup rather than prebuilding an image
+or manually installing the extension.
+
+The optional `TRACECAT__PGVECTOR_IMAGE` setting and legacy
+`docker-compose.pgvector.yml` remain compatible with already configured derived
+images. Neither is required for normal Compose startup.
+
+## Managed PostgreSQL, RDS and Kubernetes
+
+Startup downloads apply only to Compose. RDS supplies its own extension binaries;
+authorized database provisioning must enable pgvector >= 0.8.0 in `public` before
+application migrations. This PR does not add a Terraform PostgreSQL-provider
+resource or grant the application elevated privileges.
+
+The checked-in Fargate RDS default is PostgreSQL 16.10. The separate Kubernetes
+repository's reviewed EKS RDS default is 16.13, and its Helm chart uses external
+PostgreSQL. No engine change was needed for those defaults. Check the actual
+installation when versions or extension allowlists differ:
 
 ```sql
 SELECT name, default_version, installed_version
 FROM pg_available_extensions WHERE name = 'vector';
+SHOW rds.allowed_extensions;
 ```
 
 The Kubernetes review covered `helm/tracecat/values.yaml`, `eks/main.tf`,
 `eks/variables.tf`, and `eks/modules/eks/{rds,variables}.tf` at
 [`45c2c1825b7efe5ccbb4c56d8798720e3847c5b7`](https://github.com/TracecatHQ/k8s/tree/45c2c1825b7efe5ccbb4c56d8798720e3847c5b7).
-The Helm chart has no bundled application PostgreSQL image to replace. External
-database provisioning is still required before its migration job runs; this
-review does not assert that a live database already has the extension enabled.
+No Kubernetes code or live infrastructure is changed by this PR.
 
-## Provision once, then check without elevated permissions
-
-Run commands from the repository root. Use your normal libpq connection
-configuration (`PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, TLS settings and a
-password file), targeting the same database as the application. Do not put
-credentials in command history.
-
-An authorized database administrator installs the extension explicitly:
+Run the following from the repository root with normal libpq connection settings
+pointing at the application database. An authorized administrator provisions it:
 
 ```bash
 psql -X -v install=true -f scripts/postgres/pgvector.sql
 ```
 
-On self-managed PostgreSQL this normally needs a database superuser. On RDS,
-use an appropriately authorized administrator, commonly `rds_superuser`, and
-check any `rds.allowed_extensions` restriction. Do not grant these privileges
-to the normal application role. See
-[AWS extension permissions](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Appendix.PostgreSQL.CommonDBATasks.Extensions.html).
-
-Then connect with the normal application/migration role and check readiness:
+Then the normal application/migration role checks readiness:
 
 ```bash
 psql -X -f scripts/postgres/pgvector.sql
 ```
 
-Before installation or validation, the script rejects recorded collation
-version mismatches in the application database, template1, and explicit
-collations. This is a guard, not an index-integrity audit or a repair tool.
-Without `install=true`, it checks the installed extension version/schema and
-exercises the vector type and cosine operator. It works in a read-only
-transaction. It fails clearly when the extension is missing, too old or in an
-unexpected schema. Installation mode is idempotent but never upgrades or
-relocates an existing extension; those changes require administrator review.
+On RDS, use an appropriately authorized administrator, commonly `rds_superuser`,
+and check `rds.allowed_extensions`. See the
+[AWS extension permissions](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Appendix.PostgreSQL.CommonDBATasks.Extensions.html)
+and [extension version matrix](https://docs.aws.amazon.com/AmazonRDS/latest/PostgreSQLReleaseNotes/postgresql-extensions.html).
+Every separate application database needs its own extension registration.
 
-For an existing Docker deployment, identify its application database container
-and build without stopping it:
+## Compatibility and rollback
 
-```bash
-bash scripts/postgres/build-pgvector-image.sh \
-  --container YOUR_POSTGRES_CONTAINER tracecat-postgres-pgvector:local
-```
+Provisioning is idempotent. It does not upgrade or relocate an already installed
+extension; those changes need administrator review. Read-only mode checks the
+extension version/schema and exercises its vector type and cosine operator.
 
-The helper reads the container's image ID, resolves its registry digest, and
-checks that the digest identifies the same local image. It fails if no digest
-is available; publish that exact base image to a registry first. Keep the build
-output tag distinct from the base image. To use a locally available base for a
-fresh database, pass `--image LOCAL_IMAGE` instead of `--container`.
+Before installation or validation, the SQL script rejects recorded collation
+mismatches in the application database, template1 and explicit collations. This
+is a guard, not an index-integrity audit or repair tool. Refreshing recorded
+versions alone does not repair affected indexes.
 
-After testing against a restored backup, add or update this line in the existing
-Compose project’s `.env` (do not replace the rest of that file):
+The startup wrapper preserves the libraries in the image being started. It does
+not prevent a separate pull of the floating `postgres:16` tag from changing the
+underlying OS or PostgreSQL version. Back up existing data and verify compatibility
+before replacing its base image; retain the existing volume. A collation mismatch
+requires restoring compatible libraries or a DBA-led rebuild before continuing.
 
-```dotenv
-TRACECAT__PGVECTOR_IMAGE=tracecat-postgres-pgvector:local
-```
+Once vector columns exist, application rollback must retain pgvector's server
+files and installed extension. Keep the startup wrapper/cache or use a compatible
+pre-provisioned image. Do not drop the extension with CASCADE or revert to a plain
+image without the startup wrapper. Database rollback is a separate operation.
 
-Use the tested registry digest instead for remote deployment. Keep this setting
-in the same environment file used by the deployment, and remove any stale shell
-export that would override it. Then use the same Compose project and normal
-command, such as `docker compose up -d postgres_db`, to recreate the database.
-Subsequent `docker compose up` commands need no extra flags. For a worktree
-managed by `just cluster`, which also loads the repository `.env`:
+For controlled deployments that need an image prepared in advance, the optional
+`scripts/postgres/build-pgvector-image.sh` and `deployments/postgres/Dockerfile`
+remain available. The helper derives from the immutable image actually used by
+an existing container, compiles pinned pgvector source in a separate builder and
+copies only extension artifacts into the original base. It never changes the
+running database. This is not needed for the default Compose POC flow.
 
-```bash
-just cluster 2 up -d --no-seed --skip-dependency-sync postgres_db
-just cluster 2 exec -T postgres_db \
-  psql -X -U postgres -d postgres -v install=true < scripts/postgres/pgvector.sql
-```
-
-Replace `2` with the existing cluster number and use its configured username.
-Keep the image setting in `.env` on subsequent starts once vector columns exist;
-unsetting it selects the plain PostgreSQL default. For remote deployment, publish
-the tested derived image to your registry and select its digest. A database
-container restart is still required, even though existing libraries are preserved.
-
-CI derives its image from the freshly pulled PostgreSQL base, then performs
-explicit provisioning before tests or application migration
-containers start. Ordinary API startup never attempts privileged installation.
-Fresh databases created separately by a test or operator need their own
-extension provisioning; it is not inherited from another application database.
-
-## Existing installations and rollback
-
-1. Take and verify a backup/snapshot. Record the current PostgreSQL and
-   extension versions, OS release, libc/ICU versions, image digest, volume and
-   connection settings. Rehearse against a restored backup before changing the
-   live database. Build from the container image as described above; do not substitute a
-   current floating tag for its deployed digest.
-2. For Compose, stop the application writers and database cleanly during a
-   maintenance window. Save the compatible image selection in `.env` and
-   recreate only `postgres_db`
-   against its existing volume. Do not remove volumes or initialize a new
-   empty data directory. This does not upgrade PostgreSQL or its runtime libraries. If the check
-   reports a collation mismatch, keep writers stopped and restore compatible
-   libraries or have a DBA rebuild all affected objects (including indexes),
-   then refresh the recorded collation versions. Refreshing versions alone
-   does not repair indexes. See the
-   [PostgreSQL collation guidance](https://www.postgresql.org/docs/16/sql-altercollation.html).
-3. Provision `vector` in the application database, then run the check with the
-   migration role before running any vector-dependent migrations. The storage
-   PR must use this same prerequisite and provide an actionable migration
-   error rather than assume permission to install extensions.
-4. Deploy compatible row writers and indexing workers before enabling the
-   future semantic-search feature and its backfill. This PR has no search
-   feature switch to enable.
-
-An application rollback can retain the pgvector-enabled database image and
-extension. Once vector columns exist, a plain PostgreSQL image lacks the
-extension library needed to read them. Do not drop the extension with CASCADE
-or switch back to a plain image as an application rollback procedure. Database
-rollback is separate and may require restoring a backup; an image change alone
-does not reverse database changes.
-
-## Reproduce the image upgrade check
+## Validation
 
 ```bash
 bash scripts/tests/test_pgvector_compose.sh
+bash scripts/tests/test_pgvector_startup.sh
+bash scripts/tests/test_pgvector_startup.sh postgres:16.14-bookworm fresh
+```
+
+The configuration test checks all three Compose variants and dependency ordering.
+The live startup test uses the real Compose database/setup wiring with a small
+SQL migration probe. It checks automatic provisioning, preserved source data and
+runtime packages/binaries, cached recreation, and failure blocking migrations.
+It retains uniquely named synthetic volumes and removes only its test containers.
+
+The optional derived-image path has separate tests:
+
+```bash
 bash scripts/tests/test_pgvector.sh
 bash scripts/tests/test_pgvector.sh postgres:16.14-bookworm
 ```
-
-Each invocation builds from its source image's immutable digest, compares the
-PostgreSQL binary, libc/ICU checksums and installed package versions, and tests
-an existing synthetic volume. It verifies text data retention, extension
-provisioning, unprivileged read-only checks, vector writes/ranking, and creation
-of a separate database. Run both Trixie and Bookworm cases: each must retain its
-own libraries. `PGVECTOR_TEST_IMAGE` can select a previously built image for
-validation against a matching source. With an intentionally incompatible image,
-pass `--expect-collation-mismatch` as the second argument to exercise the guard.
-Containers are removed after the test; uniquely named synthetic volumes are
-retained for inspection. Existing clusters and volumes are not modified.
