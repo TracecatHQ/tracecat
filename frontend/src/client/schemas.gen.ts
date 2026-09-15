@@ -15848,6 +15848,9 @@ export const $IntegrationReadMinimal = {
       type: "string",
       title: "Provider Id",
     },
+    grant_type: {
+      $ref: "#/components/schemas/OAuthGrantType",
+    },
     status: {
       $ref: "#/components/schemas/IntegrationStatus",
     },
@@ -15857,7 +15860,7 @@ export const $IntegrationReadMinimal = {
     },
   },
   type: "object",
-  required: ["id", "provider_id", "status", "is_expired"],
+  required: ["id", "provider_id", "grant_type", "status", "is_expired"],
   title: "IntegrationReadMinimal",
   description: "Response model for user integration.",
 } as const
