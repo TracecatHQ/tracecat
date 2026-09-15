@@ -111,7 +111,7 @@ async def test_resolve_registry_lock_activity_maps_entitlement_error(
     )
     mock_service = AsyncMock()
     mock_service.resolve_lock_with_bindings.side_effect = EntitlementRequired(
-        "custom_registry"
+        "case_addons"
     )
     mock_ctx = AsyncMock()
     mock_ctx.__aenter__.return_value = mock_service
@@ -133,7 +133,7 @@ async def test_resolve_registry_lock_activity_maps_entitlement_error(
     assert len(app_error.details) > 0
     detail = app_error.details[0]
     assert isinstance(detail, dict)
-    assert detail["entitlement"] == "custom_registry"
+    assert detail["entitlement"] == "case_addons"
 
 
 @pytest.mark.anyio

@@ -42,9 +42,9 @@ def resolve_oss_default_entitlements(
 ) -> EffectiveEntitlements:
     """Resolve OSS default entitlements from legacy feature flags.
 
-    Fresh OSS installs start with custom registry and workspace chat enabled.
-    Existing OSS deployments can preserve prior behavior by mapping enabled
-    feature flags to their corresponding entitlement groups.
+    Fresh OSS installs start with workspace chat enabled. Existing OSS
+    deployments can preserve prior behavior by mapping enabled feature flags to
+    their corresponding entitlement groups.
 
     Agent presets, skills, and MCP catalog connectors are open source;
     ``agent_addons`` only gates tool approvals, the agent inbox, and case agent
@@ -56,7 +56,6 @@ def resolve_oss_default_entitlements(
     # Fresh install path.
     if not feature_flags_env:
         return EffectiveEntitlements(
-            custom_registry=True,
             git_sync=False,
             agent_addons=False,
             case_addons=False,
@@ -90,7 +89,6 @@ def resolve_oss_default_entitlements(
             break
 
     return EffectiveEntitlements(
-        custom_registry=True,
         git_sync=git_sync_enabled,
         agent_addons=agent_addons_enabled,
         case_addons=case_addons_enabled,

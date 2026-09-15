@@ -15,7 +15,6 @@ from tracecat.db.models import (
 from tracecat.dsl.enums import PlatformAction
 from tracecat.exceptions import (
     BuiltinRegistryHasNoSelectionError,
-    EntitlementRequired,
     RegistryLockInvalidDataError,
 )
 from tracecat.registry.actions.schemas import RegistryActionImplValidator
@@ -26,7 +25,6 @@ from tracecat.registry.versions.schemas import (
     registry_manifest_fingerprint,
 )
 from tracecat.service import BaseOrgService
-from tracecat.tiers.enums import Entitlement
 
 
 class RegistryLockService(BaseOrgService):
@@ -122,29 +120,14 @@ class RegistryLockService(BaseOrgService):
         org_result = await self.session.execute(org_statement)
         org_rows = org_result.tuples().all()
 
-        custom_registry_enabled = await self.has_entitlement(
-            Entitlement.CUSTOM_REGISTRY
-        )
-        if not custom_registry_enabled and org_rows:
-            self.logger.info(
-                "Custom registry entitlement disabled; excluding org registry manifests from lock resolution",
-                organization_id=str(self.organization_id),
-                org_registry_count=len(org_rows),
-            )
-
         # Combine: platform first, then org (org overrides for same origin).
-        # When custom registry entitlement is disabled, only platform registries
-        # are considered for lock resolution.
-        rows = list(platform_rows)
-        if custom_registry_enabled:
-            rows.extend(org_rows)
+        rows = [*platform_rows, *org_rows]
 
         # Build origins dict and parse manifests.
         origins: dict[str, str] = {}
         origin_fingerprints: dict[str, str] = {}
         builtin_fingerprint: str | None = None
         origin_manifests: dict[str, RegistryVersionManifest] = {}
-        excluded_custom_origin_manifests: dict[str, RegistryVersionManifest] = {}
 
         for origin, version, manifest_dict in rows:
             origin_str = str(origin)
@@ -155,13 +138,6 @@ class RegistryLockService(BaseOrgService):
             origin_fingerprints[origin_str] = fingerprint
             if origin_str == DEFAULT_REGISTRY_ORIGIN and builtin_fingerprint is None:
                 builtin_fingerprint = fingerprint
-        if not custom_registry_enabled:
-            for origin, _version, manifest_dict in org_rows:
-                origin_str = str(origin)
-                excluded_custom_origin_manifests[origin_str] = (
-                    RegistryVersionManifest.model_validate(manifest_dict)
-                )
-
         # Build action -> origin mapping using BFS to include template step actions.
         actions: dict[str, str] = {}
         queue: deque[str] = deque(sorted(action_names))
@@ -179,15 +155,6 @@ class RegistryLockService(BaseOrgService):
                     matching_origins.append(origin_str)
 
             if len(matching_origins) == 0:
-                if not custom_registry_enabled:
-                    if any(
-                        action_name in manifest.actions
-                        for manifest in excluded_custom_origin_manifests.values()
-                    ):
-                        raise EntitlementRequired(
-                            Entitlement.CUSTOM_REGISTRY.value,
-                            unavailable_actions=[action_name],
-                        )
                 raise RegistryLockInvalidDataError(
                     f"Action '{action_name}' not found in any registry. "
                     f"Available registries: {list(origins.keys())}"

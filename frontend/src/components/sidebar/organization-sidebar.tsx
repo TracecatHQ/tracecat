@@ -38,7 +38,6 @@ export function OrganizationSidebar({
 }: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
   const { hasEntitlement } = useEntitlements()
-  const customRegistryEnabled = hasEntitlement("custom_registry")
   const gitSyncEnabled = hasEntitlement("git_sync")
   const serviceAccountsEnabled = hasEntitlement("service_accounts")
 
@@ -54,7 +53,6 @@ export function OrganizationSidebar({
       icon: GitBranchIcon,
       isActive: pathname === "/organization/settings/custom-registry",
       visible: canViewSettings === true,
-      locked: !customRegistryEnabled,
     },
     {
       title: "Versions",
@@ -64,7 +62,6 @@ export function OrganizationSidebar({
         "/organization/settings/custom-registry/versions"
       ),
       visible: canViewSettings === true,
-      locked: !customRegistryEnabled,
     },
   ]
 
@@ -250,12 +247,6 @@ export function OrganizationSidebar({
                           <span>{item.title}</span>
                         </Link>
                       </SidebarMenuButton>
-                      {item.locked ? (
-                        <SidebarMenuBadge>
-                          <LockIcon aria-hidden="true" className="size-3.5" />
-                          <span className="sr-only">Requires upgrade</span>
-                        </SidebarMenuBadge>
-                      ) : null}
                     </SidebarMenuItem>
                   ))}
               </SidebarMenu>

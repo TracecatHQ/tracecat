@@ -10,7 +10,7 @@ from tracecat.registry.repositories.schemas import RegistryRepositoryCreate
 
 
 @pytest.mark.anyio
-async def test_ensure_org_repositories_skips_when_custom_registry_not_entitled(
+async def test_ensure_org_repositories_creates_repositories_without_entitlement(
     test_role,
 ) -> None:
     session = AsyncMock()
@@ -25,21 +25,20 @@ async def test_ensure_org_repositories_skips_when_custom_registry_not_entitled(
             "get_setting",
             new=AsyncMock(return_value="git+ssh://git@github.com/acme/repo.git"),
         ),
-        patch.object(
-            registry_common,
-            "is_org_entitled",
-            new=AsyncMock(return_value=False),
-        ) as mock_is_org_entitled,
         patch.object(registry_common, "RegistryReposService") as MockReposService,
     ):
+        mock_repos_service = AsyncMock()
+        mock_repos_service.get_repository.return_value = None
+        MockReposService.return_value = mock_repos_service
+
         await registry_common.ensure_org_repositories(session, test_role)
 
-    mock_is_org_entitled.assert_awaited_once()
-    MockReposService.assert_not_called()
+    MockReposService.assert_called_once()
+    assert mock_repos_service.create_repository.await_count == 2
 
 
 @pytest.mark.anyio
-async def test_ensure_org_repositories_creates_local_and_remote_when_entitled(
+async def test_ensure_org_repositories_creates_local_and_remote(
     test_role,
 ) -> None:
     session = AsyncMock()
@@ -54,11 +53,6 @@ async def test_ensure_org_repositories_creates_local_and_remote_when_entitled(
             registry_common,
             "get_setting",
             new=AsyncMock(return_value=remote_url),
-        ),
-        patch.object(
-            registry_common,
-            "is_org_entitled",
-            new=AsyncMock(return_value=True),
         ),
         patch.object(registry_common, "RegistryReposService") as MockReposService,
     ):

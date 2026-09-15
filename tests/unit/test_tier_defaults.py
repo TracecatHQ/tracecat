@@ -9,7 +9,7 @@ from tracecat.tiers.defaults import (
 def test_resolve_oss_default_entitlements_fresh_install() -> None:
     entitlements = resolve_oss_default_entitlements(None)
 
-    assert entitlements.custom_registry is True
+    assert "custom_registry" not in entitlements.model_dump()
     assert entitlements.git_sync is False
     assert entitlements.agent_addons is False
     assert entitlements.case_addons is False
@@ -24,7 +24,7 @@ def test_resolve_oss_default_entitlements_maps_legacy_feature_flags() -> None:
         "git-sync,agent-approvals,case-durations"
     )
 
-    assert entitlements.custom_registry is True
+    assert "custom_registry" not in entitlements.model_dump()
     assert entitlements.git_sync is True
     assert entitlements.agent_addons is True
     assert entitlements.case_addons is True
@@ -39,7 +39,7 @@ def test_resolve_oss_default_entitlements_normalizes_and_ignores_unknown() -> No
         " GIT_SYNC , unknown-flag , CASE_TRIGGERS "
     )
 
-    assert entitlements.custom_registry is True
+    assert "custom_registry" not in entitlements.model_dump()
     assert entitlements.git_sync is True
     assert entitlements.agent_addons is False
     assert entitlements.case_addons is True

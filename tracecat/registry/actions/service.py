@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Iterable, Sequence
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, NamedTuple, TypedDict
 from typing import cast as typing_cast
 
@@ -69,7 +69,6 @@ from tracecat.registry.actions.types import (
     IndexEntry,
     RepositorySyncOutcome,
 )
-from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.loaders import (
     LoaderMode,
     get_bound_action_from_manifest,
@@ -81,7 +80,6 @@ from tracecat.registry.versions.schemas import RegistryVersionManifest
 from tracecat.secrets.enums import SecretType
 from tracecat.secrets.schemas import SecretDefinition
 from tracecat.service import BaseOrgService
-from tracecat.tiers.enums import Entitlement
 from tracecat.tiers.service import TierService
 
 if TYPE_CHECKING:
@@ -223,7 +221,6 @@ class RegistryActionsService(BaseOrgService):
     def __init__(self, session: AsyncSession, role: Role | None = None):
         super().__init__(session, role=role)
         self._enabled_entitlements_cache: set[str] | None = None
-        self._custom_registry_enabled_cache: bool | None = None
 
     @staticmethod
     def _normalize_required_entitlements(options: dict) -> set[str]:
@@ -231,10 +228,20 @@ class RegistryActionsService(BaseOrgService):
         if not required:
             return set()
         if isinstance(required, str):
-            return {required}
-        if isinstance(required, list):
-            return {str(item) for item in required if item}
-        return set()
+            required_values = {required}
+        elif isinstance(required, list):
+            required_values = {str(item) for item in required if item}
+        else:
+            required_values = set()
+
+        # Custom registries are core functionality. Ignore the legacy action
+        # metadata key so old manifests remain executable when tier data still
+        # contains the removed entitlement.
+        return {
+            entitlement
+            for entitlement in required_values
+            if entitlement != "custom_registry"
+        }
 
     async def _get_enabled_entitlements(self) -> set[str]:
         if self._enabled_entitlements_cache is None:
@@ -246,22 +253,6 @@ class RegistryActionsService(BaseOrgService):
                 key for key, value in effective.model_dump().items() if value
             }
         return self._enabled_entitlements_cache
-
-    @staticmethod
-    def _is_custom_origin(origin: str) -> bool:
-        return origin != DEFAULT_REGISTRY_ORIGIN
-
-    async def _is_custom_registry_enabled(self) -> bool:
-        if self._custom_registry_enabled_cache is None:
-            self._custom_registry_enabled_cache = await self.has_entitlement(
-                Entitlement.CUSTOM_REGISTRY
-            )
-        return self._custom_registry_enabled_cache
-
-    async def _allow_custom_origins_for_rows(self, origins: Iterable[str]) -> bool:
-        if not any(self._is_custom_origin(origin) for origin in origins):
-            return True
-        return await self._is_custom_registry_enabled()
 
     async def _filter_index_entries_by_entitlements(
         self,
@@ -391,16 +382,11 @@ class RegistryActionsService(BaseOrgService):
         )
         result = await self.session.execute(combined)
         rows = typing_cast(list[_IndexSelectRow], result.all())
-        allow_custom_origins = await self._allow_custom_origins_for_rows(
-            row.origin for row in rows
-        )
 
         # Convert to index entries, deduplicating (org-scoped takes precedence)
         entries: list[tuple[IndexEntry, str]] = []
         seen_actions: set[str] = set()
         for row in rows:
-            if not allow_custom_origins and self._is_custom_origin(row.origin):
-                continue
             action_name = f"{row.namespace}.{row.name}"
             # Skip duplicates (org-scoped takes precedence due to ORDER BY)
             if action_name in seen_actions:
@@ -507,14 +493,9 @@ class RegistryActionsService(BaseOrgService):
         combined = union_all(org_statement, platform_statement)
         result = await self.session.execute(combined)
         rows = typing_cast(list[_RepoIndexRow], result.all())
-        allow_custom_origins = await self._allow_custom_origins_for_rows(
-            row.origin for row in rows
-        )
 
         required_any: set[str] = set()
         for row in rows:
-            if not allow_custom_origins and self._is_custom_origin(row.origin):
-                continue
             required_any |= self._normalize_required_entitlements(row.options or {})
         enabled_entitlements: set[str] | None = None
         if required_any:
@@ -522,8 +503,6 @@ class RegistryActionsService(BaseOrgService):
 
         actions: list[RegistryActionRead] = []
         for row in rows:
-            if not allow_custom_origins and self._is_custom_origin(row.origin):
-                continue
             required = self._normalize_required_entitlements(row.options or {})
             if required and enabled_entitlements is not None:
                 if not required.issubset(enabled_entitlements):
@@ -654,13 +633,8 @@ class RegistryActionsService(BaseOrgService):
         if not rows:
             return None
 
-        allow_custom_origins = await self._allow_custom_origins_for_rows(
-            row.origin for row in rows
-        )
         enabled_entitlements: set[str] | None = None
         for row in rows:
-            if not allow_custom_origins and self._is_custom_origin(row.origin):
-                continue
             required = self._normalize_required_entitlements(row.options or {})
             if required:
                 if enabled_entitlements is None:
@@ -823,14 +797,9 @@ class RegistryActionsService(BaseOrgService):
         )
         result = await self.session.execute(combined)
         rows = typing_cast(list[_ActionMetadataRow], result.all())
-        allow_custom_origins = await self._allow_custom_origins_for_rows(
-            row.origin for row in rows
-        )
 
         selected_rows: dict[str, _ActionMetadataRow] = {}
         for row in rows:
-            if not allow_custom_origins and self._is_custom_origin(row.origin):
-                continue
             action_name = f"{row.namespace}.{row.name}"
             # Skip if already found (org-scoped takes precedence)
             if action_name in selected_rows:
@@ -1020,16 +989,11 @@ class RegistryActionsService(BaseOrgService):
             combined = combined.limit(limit)
         result = await self.session.execute(combined)
         rows = typing_cast(list[_SearchIndexRow], result.all())
-        allow_custom_origins = await self._allow_custom_origins_for_rows(
-            row.origin for row in rows
-        )
 
         entries: list[tuple[IndexEntry, str]] = []
         seen_actions: set[str] = set()
 
         for row in rows:
-            if not allow_custom_origins and self._is_custom_origin(row.origin):
-                continue
             action_name = f"{row.namespace}.{row.name}"
             # Skip duplicates (org-scoped takes precedence in union order)
             if action_name in seen_actions:

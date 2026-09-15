@@ -36,7 +36,7 @@ def _parse_entitlements(values: list[str] | None) -> dict[str, bool] | None:
     """Parse entitlement key=value pairs into a dict.
 
     Args:
-        values: List of "key=value" strings (e.g., ["custom_registry=true", "sso=false"])
+        values: List of "key=value" strings (e.g., ["git_sync=true", "sso=false"])
 
     Returns:
         Dict of entitlements or None if no values provided
@@ -47,11 +47,15 @@ def _parse_entitlements(values: list[str] | None) -> dict[str, bool] | None:
     for item in values:
         if "=" not in item:
             raise typer.BadParameter(
-                f"Invalid entitlement format: '{item}'. Expected KEY=VALUE (e.g., custom_registry=true)"
+                f"Invalid entitlement format: '{item}'. Expected KEY=VALUE (e.g., git_sync=true)"
             )
         key, value = item.split("=", 1)
         key = key.strip()
         value = value.strip().lower()
+        if key == "custom_registry":
+            raise typer.BadParameter(
+                "custom_registry is core functionality and is not an entitlement"
+            )
         if value in ("true", "1", "yes"):
             result[key] = True
         elif value in ("false", "0", "no"):
@@ -148,7 +152,7 @@ async def create_tier(
         typer.Option(
             "--entitlement",
             "-e",
-            help="Entitlement KEY=VALUE (repeatable, e.g., --entitlement custom_registry=true)",
+            help="Entitlement KEY=VALUE (repeatable, e.g., --entitlement git_sync=true)",
         ),
     ] = None,
     is_default: Annotated[

@@ -13,10 +13,6 @@ class EntitlementsDict(TypedDict, total=False):
     All keys are optional (total=False) to support partial overrides.
     """
 
-    custom_registry: Annotated[
-        bool,
-        Field(description="Whether custom registry repositories are enabled"),
-    ]
     git_sync: Annotated[bool, Field(description="Whether git sync is enabled")]
     agent_addons: Annotated[
         bool,

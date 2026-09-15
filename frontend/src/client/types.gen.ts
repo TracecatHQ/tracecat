@@ -3939,10 +3939,6 @@ export type EditorParamRead = {
  */
 export type EffectiveEntitlements = {
   /**
-   * Whether custom registry repositories are enabled
-   */
-  custom_registry?: boolean
-  /**
    * Whether git sync is enabled
    */
   git_sync?: boolean
@@ -3982,10 +3978,6 @@ export type EffectiveEntitlements = {
  * All keys are optional (total=False) to support partial overrides.
  */
 export type EntitlementsDict = {
-  /**
-   * Whether custom registry repositories are enabled
-   */
-  custom_registry?: boolean
   /**
    * Whether git sync is enabled
    */

@@ -126,10 +126,6 @@ async def test_prepare_resolved_context_uses_manifest_for_locked_workflows(
         _session_cm,
     )
     mocker.patch(
-        "tracecat.executor.registry_resolver.get_async_session_context_manager",
-        _session_cm,
-    )
-    mocker.patch(
         "tracecat.executor.registry_resolver.get_async_session_bypass_rls_context_manager",
         _session_cm,
     )
@@ -205,10 +201,6 @@ async def test_prepare_step_context_uses_manifest_for_template_steps(
 
     mocker.patch(
         "tracecat.executor.service.get_async_session_bypass_rls_context_manager",
-        _session_cm,
-    )
-    mocker.patch(
-        "tracecat.executor.registry_resolver.get_async_session_context_manager",
         _session_cm,
     )
     mocker.patch(

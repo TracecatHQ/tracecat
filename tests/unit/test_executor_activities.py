@@ -739,7 +739,7 @@ class TestExecuteActionActivity:
         ):
             mock_activity.info.return_value = MagicMock(attempt=1)
             mock_backend.return_value = MagicMock()
-            mock_dispatch.side_effect = EntitlementRequired("custom_registry")
+            mock_dispatch.side_effect = EntitlementRequired("case_addons")
 
             with pytest.raises(ApplicationError) as exc_info:
                 await ExecutorActivities.execute_action_activity(
@@ -754,7 +754,7 @@ class TestExecuteActionActivity:
             assert isinstance(transport, ActionErrorTransportDetail)
             detail = transport.diagnostic
             assert detail is not None
-            assert "custom_registry" in detail.message
+            assert "case_addons" in detail.message
             classification = extract_error_classification(app_error)
             assert classification is not None
             assert classification.owner is RuntimeErrorOwner.USER

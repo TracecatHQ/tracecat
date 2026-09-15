@@ -592,7 +592,7 @@ Examples:
   ./cluster up -d --new          Force a new cluster on next available number
   ./cluster up -d --no-seed      Start cluster without creating dev tenant user
   ./cluster up -d --default-tier-entitlements none
-  ./cluster up -d --default-tier-entitlements custom_registry,case_addons
+  ./cluster up -d --default-tier-entitlements case_addons
   ./cluster seed                 Seed dev users for a running cluster
   ./cluster seed --default-tier-entitlements none
   ./cluster down                 Stop cluster (keeps volumes)
