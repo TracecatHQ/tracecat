@@ -3,37 +3,54 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime, timedelta
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from tracecat_ee.rbac.schemas import (
+    RoleAssignmentSnapshot,
+    UserRoleAssignmentSpec,
+    UserRoleAssignmentsReplace,
+)
 from tracecat_ee.rbac.service import RBACService
 
 from tests.support.membership import (
+    grant_org_membership,
     grant_org_membership_via_group,
     grant_workspace_membership,
 )
 from tracecat.auth.types import Role
 from tracecat.authz.enums import ScopeSource
-from tracecat.authz.scopes import ORG_ADMIN_SCOPES
+from tracecat.authz.scopes import ORG_ADMIN_SCOPES, ORG_MEMBER_SCOPES
 from tracecat.authz.seeding import seed_system_scopes
+from tracecat.authz.service import MembershipService, query_effective_scopes
 from tracecat.db.models import (
+    AccessToken,
     Group,
     GroupMember,
     GroupRoleAssignment,
+    MCPRefreshToken,
     Organization,
+    OrganizationMembership,
     RoleScope,
     Scope,
+    ServiceAccount,
+    ServiceAccountApiKey,
     User,
     UserRoleAssignment,
     Workspace,
 )
 from tracecat.db.models import Role as DBRole
 from tracecat.exceptions import (
+    ScopeDeniedError,
     TracecatAuthorizationError,
+    TracecatConflictError,
     TracecatNotFoundError,
     TracecatValidationError,
 )
+from tracecat.organization.router import get_organization
+from tracecat.workspaces.service import WorkspaceService
 
 
 @pytest.fixture
@@ -1108,3 +1125,633 @@ class TestRBACServiceScopeComputation:
         # With workspace context, org-wide scopes still apply
         scopes = await service.get_group_scopes(user.id, workspace_id=workspace.id)
         assert admin_assignable_scopes[0].name in scopes
+
+
+async def _org_assignment(
+    session: AsyncSession, user_id: uuid.UUID
+) -> UserRoleAssignment:
+    return (
+        await session.execute(
+            select(UserRoleAssignment).where(
+                UserRoleAssignment.user_id == user_id,
+                UserRoleAssignment.workspace_id.is_(None),
+            )
+        )
+    ).scalar_one()
+
+
+async def _workspace_group(
+    session: AsyncSession,
+    org: Organization,
+    workspace: Workspace,
+    user: User,
+) -> tuple[Group, GroupRoleAssignment]:
+    editor_id = (
+        await session.execute(
+            select(DBRole.id).where(
+                DBRole.organization_id == org.id,
+                DBRole.slug == "workspace-editor",
+            )
+        )
+    ).scalar_one()
+    group = Group(
+        name=f"Workspace access {uuid.uuid4().hex[:8]}", organization_id=org.id
+    )
+    session.add(group)
+    await session.flush()
+    grant = GroupRoleAssignment(
+        group_id=group.id,
+        organization_id=org.id,
+        workspace_id=workspace.id,
+        role_id=editor_id,
+    )
+    session.add_all([grant, GroupMember(group_id=group.id, user_id=user.id)])
+    await session.commit()
+    return group, grant
+
+
+@pytest.mark.anyio
+class TestBaselineTransitions:
+    @pytest.mark.parametrize("via_group", [False, True])
+    async def test_promotion_and_removal_preserve_workspace_use(
+        self,
+        session: AsyncSession,
+        role: Role,
+        org: Organization,
+        workspace: Workspace,
+        via_group: bool,
+    ):
+        member = await _workspace_only_user(session, org, workspace)
+        if via_group:
+            await _workspace_group(session, org, workspace, member)
+            await session.execute(
+                delete(UserRoleAssignment).where(
+                    UserRoleAssignment.user_id == member.id,
+                    UserRoleAssignment.workspace_id == workspace.id,
+                )
+            )
+        await grant_org_membership(session, user_id=member.id, organization_id=org.id)
+        await session.commit()
+        baseline = await _org_assignment(session, member.id)
+        admin_id = (
+            await session.execute(
+                select(DBRole.id).where(
+                    DBRole.organization_id == org.id,
+                    DBRole.slug == "organization-admin",
+                )
+            )
+        ).scalar_one()
+        service = RBACService(session, role=role)
+        promoted = await service.update_user_assignment(baseline.id, role_id=admin_id)
+        assert promoted.id == baseline.id
+        assert promoted.role_id == admin_id
+
+        await service.delete_user_assignment(promoted.id)
+        restored = await _org_assignment(session, member.id)
+        restored_role = await session.get(DBRole, restored.role_id)
+        assert restored_role is not None
+        assert restored_role.slug == "organization-member"
+        scopes = await query_effective_scopes(session, member.id, org.id, None)
+        assert scopes == ORG_MEMBER_SCOPES
+        reader = Role(
+            type="user",
+            user_id=member.id,
+            organization_id=org.id,
+            service_id="tracecat-api",
+            scopes=scopes,
+        )
+        assert (await get_organization(role=reader, session=session)).id == org.id
+        workspace_scopes = await query_effective_scopes(
+            session, member.id, org.id, workspace.id
+        )
+        assert {"workflow:create", "case:create"}.issubset(workspace_scopes)
+        assert "org:rbac:delete" not in workspace_scopes
+        # Direct API deletion cannot strip the fallback while workspace access remains.
+        await service.delete_user_assignment(restored.id)
+        assert (await _org_assignment(session, member.id)).id == restored.id
+        assert await query_effective_scopes(session, member.id, org.id, None) == scopes
+
+    async def test_admin_alone_leaves_org_and_sessions_are_revoked(
+        self,
+        session: AsyncSession,
+        role: Role,
+        org: Organization,
+        workspace: Workspace,
+    ):
+        member = await _workspace_only_user(session, org, workspace)
+        await grant_org_membership(
+            session,
+            user_id=member.id,
+            organization_id=org.id,
+            slug="organization-admin",
+        )
+        await session.execute(
+            delete(UserRoleAssignment).where(
+                UserRoleAssignment.user_id == member.id,
+                UserRoleAssignment.workspace_id == workspace.id,
+            )
+        )
+        token = AccessToken(token=uuid.uuid4().hex, user_id=member.id)
+        refresh = MCPRefreshToken(
+            organization_id=org.id,
+            user_id=member.id,
+            token_hash=uuid.uuid4().hex + uuid.uuid4().hex,
+            family_id=uuid.uuid4(),
+            client_id="test-client",
+            encrypted_metadata=b"{}",
+            expires_at=datetime.now(UTC) + timedelta(days=1),
+        )
+        session.add_all([token, refresh])
+        await session.commit()
+        grant = await _org_assignment(session, member.id)
+        await RBACService(session, role=role).delete_user_assignment(grant.id)
+        assert not (
+            await session.execute(
+                select(OrganizationMembership).where(
+                    OrganizationMembership.user_id == member.id,
+                    OrganizationMembership.organization_id == org.id,
+                )
+            )
+        ).all()
+        assert not (
+            await session.execute(select(AccessToken).where(AccessToken.id == token.id))
+        ).all()
+        await session.refresh(refresh)
+        assert refresh.status == "revoked"
+        assert await session.get(User, member.id) is not None
+
+    @pytest.mark.parametrize("through_workspace_api", [False, True])
+    async def test_last_workspace_removal_does_not_leave_baseline_membership(
+        self,
+        session: AsyncSession,
+        role: Role,
+        org: Organization,
+        workspace: Workspace,
+        through_workspace_api: bool,
+    ):
+        member = await _workspace_only_user(session, org, workspace)
+        await grant_org_membership(session, user_id=member.id, organization_id=org.id)
+        await session.commit()
+        if through_workspace_api:
+            await MembershipService(session, role=role).delete_membership(
+                workspace.id, member.id
+            )
+        else:
+            grant_id = (
+                await session.execute(
+                    select(UserRoleAssignment.id).where(
+                        UserRoleAssignment.user_id == member.id,
+                        UserRoleAssignment.workspace_id == workspace.id,
+                    )
+                )
+            ).scalar_one()
+            await RBACService(session, role=role).delete_user_assignment(grant_id)
+        assert not (
+            await session.execute(
+                select(UserRoleAssignment).where(
+                    UserRoleAssignment.user_id == member.id,
+                )
+            )
+        ).all()
+
+    @pytest.mark.parametrize("operation", ["membership", "assignment", "group"])
+    async def test_final_group_path_removal_cleans_up_baseline(
+        self,
+        session: AsyncSession,
+        role: Role,
+        org: Organization,
+        workspace: Workspace,
+        operation: str,
+    ):
+        member = await _workspace_only_user(session, org, workspace)
+        group, grant = await _workspace_group(session, org, workspace, member)
+        await session.execute(
+            delete(UserRoleAssignment).where(UserRoleAssignment.user_id == member.id)
+        )
+        await grant_org_membership(session, user_id=member.id, organization_id=org.id)
+        await session.commit()
+        service = RBACService(session, role=role)
+        if operation == "membership":
+            await service.remove_group_member(group.id, member.id)
+        elif operation == "assignment":
+            await service.delete_group_role_assignment(grant.id)
+        else:
+            await service.delete_group(group.id)
+        assert not (
+            await session.execute(
+                select(OrganizationMembership).where(
+                    OrganizationMembership.user_id == member.id,
+                )
+            )
+        ).all()
+
+    async def test_losing_group_org_role_restores_baseline_for_direct_workspace(
+        self,
+        session: AsyncSession,
+        role: Role,
+        org: Organization,
+        workspace: Workspace,
+    ):
+        member = await _workspace_only_user(session, org, workspace)
+        group = await grant_org_membership_via_group(
+            session, user_id=member.id, organization_id=org.id
+        )
+        await session.commit()
+        await RBACService(session, role=role).remove_group_member(group.id, member.id)
+        assert (
+            await query_effective_scopes(session, member.id, org.id, None)
+            == ORG_MEMBER_SCOPES
+        )
+
+    async def test_last_role_removal_preserves_superuser_guard_and_rolls_back(
+        self,
+        session: AsyncSession,
+        role: Role,
+        org: Organization,
+        workspace: Workspace,
+    ):
+        member = await _workspace_only_user(session, org, workspace)
+        await grant_org_membership(session, user_id=member.id, organization_id=org.id)
+        member.is_superuser = True
+        await session.commit()
+        grant_id = (
+            await session.execute(
+                select(UserRoleAssignment.id).where(
+                    UserRoleAssignment.user_id == member.id,
+                    UserRoleAssignment.workspace_id == workspace.id,
+                )
+            )
+        ).scalar_one()
+        with pytest.raises(TracecatAuthorizationError, match="Cannot delete superuser"):
+            await RBACService(session, role=role).delete_user_assignment(grant_id)
+        assert await session.get(UserRoleAssignment, grant_id) is not None
+
+    async def test_baseline_cannot_be_assigned_as_an_ordinary_role(
+        self,
+        session: AsyncSession,
+        role: Role,
+        org: Organization,
+        workspace: Workspace,
+    ):
+        member = await _workspace_only_user(session, org, workspace)
+        baseline_id = (
+            await session.execute(
+                select(DBRole.id).where(
+                    DBRole.organization_id == org.id,
+                    DBRole.slug == "organization-member",
+                )
+            )
+        ).scalar_one()
+        with pytest.raises(TracecatAuthorizationError, match="managed automatically"):
+            await RBACService(session, role=role).create_user_assignment(
+                user_id=member.id,
+                role_id=baseline_id,
+            )
+
+
+async def _replacement(
+    service: RBACService, user_id: uuid.UUID
+) -> UserRoleAssignmentsReplace:
+    direct = await service.list_user_assignments(user_id=user_id)
+    groups = await service.list_group_role_assignments(user_id=user_id)
+    return UserRoleAssignmentsReplace(
+        user_id=user_id,
+        assignments=[
+            UserRoleAssignmentSpec.model_validate(a, from_attributes=True)
+            for a in direct
+        ],
+        expected_assignments=[
+            RoleAssignmentSnapshot.model_validate(a, from_attributes=True)
+            for a in direct
+        ],
+        expected_group_assignments=[
+            RoleAssignmentSnapshot.model_validate(a, from_attributes=True)
+            for a in groups
+        ],
+    )
+
+
+@pytest.mark.anyio
+class TestAtomicRoleEdits:
+    async def test_move_final_workspace_and_promote_in_one_save(
+        self, session: AsyncSession, role: Role, org: Organization, workspace: Workspace
+    ):
+        member = await _workspace_only_user(session, org, workspace)
+        await grant_org_membership(session, user_id=member.id, organization_id=org.id)
+        other = Workspace(name="Destination", organization_id=org.id)
+        token = AccessToken(token=uuid.uuid4().hex, user_id=member.id)
+        session.add_all([other, token])
+        await session.commit()
+        service = RBACService(session, role=role)
+        params = await _replacement(service, member.id)
+        original_org = next(
+            a for a in params.expected_assignments if a.workspace_id is None
+        )
+        editor = next(a.role_id for a in params.assignments if a.workspace_id)
+        admin = await session.scalar(
+            select(DBRole.id).where(
+                DBRole.organization_id == org.id, DBRole.slug == "organization-admin"
+            )
+        )
+        assert admin
+        params.assignments = [
+            UserRoleAssignmentSpec(role_id=admin),
+            UserRoleAssignmentSpec(role_id=editor, workspace_id=other.id),
+        ]
+        await service.replace_user_assignments(params)
+        assert (await _org_assignment(session, member.id)).id == original_org.id
+        assert (
+            await session.scalar(
+                select(AccessToken.id).where(AccessToken.id == token.id)
+            )
+            is not None
+        )
+        assert "workflow:create" in await query_effective_scopes(
+            session, member.id, org.id, other.id
+        )
+        # Removing the promoted organization role restores its hidden fallback.
+        params = await _replacement(service, member.id)
+        params.assignments = [a for a in params.assignments if a.workspace_id]
+        await service.replace_user_assignments(params)
+        assert (
+            await query_effective_scopes(session, member.id, org.id, None)
+            == ORG_MEMBER_SCOPES
+        )
+
+        assert "workflow:create" not in await query_effective_scopes(
+            session, member.id, org.id, workspace.id
+        )
+
+    @pytest.mark.parametrize(
+        "failure",
+        [
+            "invalid_role",
+            "cross_org_workspace",
+            "duplicate_scope",
+            "grant_ceiling",
+            "missing_permission",
+        ],
+    )
+    async def test_invalid_edit_saves_nothing(
+        self,
+        session: AsyncSession,
+        role: Role,
+        org: Organization,
+        workspace: Workspace,
+        privileged_role: DBRole,
+        failure: str,
+    ):
+        member = await _workspace_only_user(session, org, workspace)
+        await grant_org_membership(session, user_id=member.id, organization_id=org.id)
+        await session.commit()
+        service = RBACService(session, role=role)
+        params = await _replacement(service, member.id)
+        before = params.expected_assignments
+        admin = await session.scalar(
+            select(DBRole.id).where(
+                DBRole.organization_id == org.id, DBRole.slug == "organization-admin"
+            )
+        )
+        assert admin
+        params.assignments = [UserRoleAssignmentSpec(role_id=admin)]
+        error: type[Exception] = TracecatNotFoundError
+        if failure == "invalid_role":
+            params.assignments.append(
+                UserRoleAssignmentSpec(role_id=uuid.uuid4(), workspace_id=workspace.id)
+            )
+        elif failure == "cross_org_workspace":
+            other_org = Organization(name="Other", slug=uuid.uuid4().hex)
+            session.add(other_org)
+            await session.flush()
+            foreign = Workspace(name="Foreign", organization_id=other_org.id)
+            session.add(foreign)
+            await session.commit()
+            params.assignments.append(
+                UserRoleAssignmentSpec(role_id=admin, workspace_id=foreign.id)
+            )
+        elif failure == "duplicate_scope":
+            params.assignments.append(UserRoleAssignmentSpec(role_id=admin))
+            error = TracecatValidationError
+        elif failure == "grant_ceiling":
+            params.assignments.append(
+                UserRoleAssignmentSpec(
+                    role_id=privileged_role.id, workspace_id=workspace.id
+                )
+            )
+            error = TracecatAuthorizationError
+        else:
+            service = RBACService(
+                session,
+                role=role.model_copy(
+                    update={"scopes": frozenset({"org:rbac:read", "org:rbac:update"})}
+                ),
+            )
+            error = ScopeDeniedError
+        with pytest.raises(error):
+            await service.replace_user_assignments(params)
+        assert (
+            await _replacement(service, params.user_id)
+        ).expected_assignments == before
+
+    @pytest.mark.parametrize("group_change", [False, True])
+    async def test_stale_access_rejected_before_writes(
+        self,
+        session: AsyncSession,
+        role: Role,
+        org: Organization,
+        workspace: Workspace,
+        group_change: bool,
+    ):
+        member = await _workspace_only_user(session, org, workspace)
+        await grant_org_membership(session, user_id=member.id, organization_id=org.id)
+        await session.commit()
+        service = RBACService(session, role=role)
+        params = await _replacement(service, member.id)
+        params.assignments = []
+        if group_change:
+            await _workspace_group(session, org, workspace, member)
+        else:
+            assignment = await _org_assignment(session, member.id)
+            assignment.role_id = next(
+                a.role_id for a in params.expected_assignments if a.workspace_id
+            )
+            await session.commit()
+        before = (await _replacement(service, member.id)).expected_assignments
+        with pytest.raises(TracecatConflictError):
+            await service.replace_user_assignments(params)
+        assert (
+            await _replacement(service, params.user_id)
+        ).expected_assignments == before
+
+    async def test_cleanup_failure_rolls_back_whole_edit(
+        self, session: AsyncSession, role: Role, org: Organization, workspace: Workspace
+    ):
+        member = await _workspace_only_user(session, org, workspace)
+        member.is_superuser = True
+        await session.commit()
+        service = RBACService(session, role=role)
+        params = await _replacement(service, member.id)
+        params.assignments = []
+        with pytest.raises(TracecatAuthorizationError, match="Cannot delete superuser"):
+            await service.replace_user_assignments(params)
+        assert (
+            await _replacement(service, params.user_id)
+        ).expected_assignments == params.expected_assignments
+
+    async def test_group_filter_excludes_unrelated_members_and_organizations(
+        self,
+        session: AsyncSession,
+        role: Role,
+        org: Organization,
+        workspace: Workspace,
+        user: User,
+    ):
+        member = await _workspace_only_user(session, org, workspace)
+        _, own_grant = await _workspace_group(session, org, workspace, member)
+        await _workspace_group(session, org, workspace, user)
+        other_org = Organization(name="Other", slug=uuid.uuid4().hex)
+        session.add(other_org)
+        await session.flush()
+        await grant_org_membership_via_group(
+            session, user_id=member.id, organization_id=other_org.id
+        )
+        await session.commit()
+        grants = await RBACService(session, role=role).list_group_role_assignments(
+            user_id=member.id
+        )
+        assert [a.id for a in grants] == [own_grant.id]
+
+
+@pytest.mark.anyio
+class TestWorkspaceDeletionReconciliation:
+    @pytest.mark.parametrize("via_group", [False, True])
+    @pytest.mark.parametrize(
+        "remaining", ["none", "direct_workspace", "group_workspace", "org_admin"]
+    )
+    async def test_delete_reconciles_all_affected_users(
+        self,
+        session: AsyncSession,
+        role: Role,
+        org: Organization,
+        workspace: Workspace,
+        via_group: bool,
+        remaining: str,
+    ):
+        member = await _workspace_only_user(session, org, workspace)
+        if via_group:
+            await _workspace_group(session, org, workspace, member)
+            await session.execute(
+                delete(UserRoleAssignment).where(
+                    UserRoleAssignment.user_id == member.id
+                )
+            )
+        await grant_org_membership(
+            session,
+            user_id=member.id,
+            organization_id=org.id,
+            slug="organization-admin"
+            if remaining == "org_admin"
+            else "organization-member",
+        )
+        other = Workspace(name="Surviving workspace", organization_id=org.id)
+        session.add(other)
+        await session.flush()
+        if remaining == "direct_workspace":
+            await grant_workspace_membership(
+                session,
+                user_id=member.id,
+                organization_id=org.id,
+                workspace_id=other.id,
+            )
+        elif remaining == "group_workspace":
+            await _workspace_group(session, org, other, member)
+        token = AccessToken(token=uuid.uuid4().hex, user_id=member.id)
+        session.add(token)
+        await session.commit()
+        member_id, token_id = member.id, token.id
+        await WorkspaceService(session, role=role).delete_workspace(workspace.id)
+        present = await session.scalar(
+            select(OrganizationMembership.user_id).where(
+                OrganizationMembership.user_id == member_id,
+                OrganizationMembership.organization_id == org.id,
+            )
+        )
+        assert bool(present) == (remaining != "none")
+        assert bool(
+            await session.scalar(
+                select(AccessToken.id).where(AccessToken.id == token_id)
+            )
+        ) == (remaining != "none")
+        scopes = await query_effective_scopes(session, member_id, org.id, None)
+        assert ("org:read" in scopes) == (remaining != "none")
+        if "workspace" in remaining:
+            assert "workflow:create" in await query_effective_scopes(
+                session, member_id, org.id, other.id
+            )
+
+    async def test_cleanup_failure_preserves_workspace_and_grants(
+        self, session: AsyncSession, role: Role, org: Organization, workspace: Workspace
+    ):
+        member = await _workspace_only_user(session, org, workspace)
+        member.is_superuser = True
+        session.add(Workspace(name="Other", organization_id=org.id))
+        await session.commit()
+        workspace_id, member_id, org_id = workspace.id, member.id, org.id
+        with pytest.raises(TracecatAuthorizationError, match="Cannot delete superuser"):
+            await WorkspaceService(session, role=role).delete_workspace(workspace_id)
+        assert (
+            await session.scalar(
+                select(Workspace.id).where(Workspace.id == workspace_id)
+            )
+            is not None
+        )
+        assert "workflow:create" in await query_effective_scopes(
+            session, member_id, org_id, workspace_id
+        )
+
+    async def test_final_access_revokes_owned_keys_without_deleting_records(
+        self, session: AsyncSession, role: Role, org: Organization, workspace: Workspace
+    ):
+        member = await _workspace_only_user(session, org, workspace)
+        await grant_org_membership(session, user_id=member.id, organization_id=org.id)
+        other_org = Organization(name="Other", slug=uuid.uuid4().hex)
+        session.add(other_org)
+        await session.flush()
+        accounts = [
+            ServiceAccount(
+                name="Owned", organization_id=org.id, owner_user_id=member.id
+            ),
+            ServiceAccount(
+                name="Another owner", organization_id=org.id, owner_user_id=role.user_id
+            ),
+            ServiceAccount(
+                name="Other organization",
+                organization_id=other_org.id,
+                owner_user_id=member.id,
+            ),
+        ]
+        session.add_all(accounts)
+        session.add(Workspace(name="Other", organization_id=org.id))
+        await session.flush()
+        keys = [
+            ServiceAccountApiKey(
+                service_account_id=a.id,
+                name="Test key",
+                key_id=uuid.uuid4().hex,
+                hashed="synthetic",
+                salt="synthetic",
+                preview="synthetic",
+                created_by=member.id,
+            )
+            for a in accounts
+        ]
+        session.add_all(keys)
+        await session.commit()
+        await WorkspaceService(session, role=role).delete_workspace(workspace.id)
+        for index, (account, key) in enumerate(zip(accounts, keys, strict=True)):
+            await session.refresh(account)
+            await session.refresh(key)
+            assert (account.disabled_at is not None) == (index == 0)
+            assert (key.revoked_at is not None) == (index == 0)
+            if index == 0:
+                assert key.revoked_by == role.user_id
