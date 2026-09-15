@@ -9,6 +9,7 @@ from typing import Any, Literal
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from aiohttp import ClientPayloadError
 from botocore.exceptions import HTTPClientError
 from pydantic import ValidationError
 from temporalio.api.failure.v1 import Failure
@@ -205,6 +206,13 @@ def test_remaining_runtime_boundary_policy_inventory(
             RetryDisposition.NON_RETRYABLE,
         ),
         (
+            "materialization",
+            ClientPayloadError("Response payload is not completed"),
+            RuntimeErrorOwner.PLATFORM,
+            RuntimeErrorKind.STORAGE_MATERIALIZATION_TRANSPORT_UNAVAILABLE,
+            RetryDisposition.RETRYABLE,
+        ),
+        (
             "persistence",
             HTTPClientError(error=RuntimeError("persistence diagnostic")),
             RuntimeErrorOwner.PLATFORM,
@@ -222,6 +230,7 @@ def test_remaining_runtime_boundary_policy_inventory(
     ids=[
         "materialization-transport",
         "expression-user",
+        "materialization-payload",
         "persistence-transport",
         "persistence-invalid-data",
     ],
