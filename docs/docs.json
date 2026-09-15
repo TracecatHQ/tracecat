@@ -111,6 +111,7 @@
               "self-hosting/kubernetes",
               "self-hosting/air-gapped",
               "self-hosting/temporal-retention",
+              "self-hosting/scaling",
               "self-hosting/architecture",
               "self-hosting/tls",
               "self-hosting/environment-variables",

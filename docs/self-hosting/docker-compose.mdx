@@ -136,6 +136,8 @@ These are recommended minimums for different workload sizes.
 Memory is typically the constraining factor.
 Workflow throughput is lower than dedicated Kubernetes deployments where services have guaranteed resources and can scale independently.
 
+The default concurrency settings are conservative: one executor with 16 action slots and one worker. See [Scaling and performance tuning](/self-hosting/scaling) for the variables that raise them, the sizing formula, and a calculator script that prints the values for your target throughput.
+
 For production workloads that exceed single-host capacity, consider [converting to Docker Swarm](#convert-to-docker-swarm) or deploying on Kubernetes.
 
 ## Convert to Docker Swarm

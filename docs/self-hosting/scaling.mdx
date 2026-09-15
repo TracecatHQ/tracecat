@@ -1,0 +1,164 @@
+---
+title: Scaling and performance tuning
+description: "Size a self-hosted Tracecat deployment: the concurrency variables for workers and executors, how they interact with CPU, memory, and PostgreSQL connections, and a calculator that turns a target throughput into env vars and replica counts."
+sidebarTitle: Scaling
+keywords: ["scaling", "performance", "concurrency", "throughput", "sizing", "executor", "worker", "connection pool"]
+---
+
+## How a workflow run uses capacity
+
+A workflow run moves through three services, each with its own concurrency limit:
+
+1. The `api` receives the trigger and starts a Temporal workflow.
+2. A `worker` runs the workflow logic: it evaluates expressions, resolves inputs, and schedules one Temporal activity per action on the executor queue. Worker activities are short database and Temporal round trips.
+3. An `executor` picks the activity up and runs the action in a fresh subprocess. The executor slot stays busy for the whole duration of the action, including time spent waiting on external APIs.
+
+Executors are almost always the bottleneck. A workflow run with 8 actions that each take 3 seconds holds an executor slot for 24 slot-seconds. The Docker Compose defaults give you one executor with 16 slots, which caps you at about 16 / 24 = 0.67 such workflow runs per second before actions start queueing in Temporal. Queued actions are not lost, they just wait, so the symptom of an undersized deployment is slow runs rather than failed runs.
+
+## Variables that control throughput
+
+All variables below are read from `.env` by `docker-compose.yml`. The Kubernetes Helm chart and the Fargate Terraform module expose the same settings under their own names; see [Kubernetes](/self-hosting/kubernetes) and [AWS ECS Fargate](/self-hosting/aws-fargate).
+
+### Executor
+
+| Variable | Default | What it bounds |
+| :------- | :------ | :------------- |
+| `TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES` | `16` | Actions one executor replica runs at the same time. Each running action is one subprocess. |
+| `TRACECAT__EXECUTOR_THREADPOOL_MAX_WORKERS` | `16` | Threads that supervise those subprocesses. Keep it equal to the value above. |
+| `TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY` | `4` | Parallel iterations inside a single action's `for_each` loop. Each iteration is another subprocess, so a replica can briefly run up to `MAX_CONCURRENT_ACTIVITIES × FOR_EACH_MAX_CONCURRENCY` processes. |
+| Executor replicas | `1` | Total executor slots = replicas × `MAX_CONCURRENT_ACTIVITIES`. Scale with `docker compose up -d --scale executor=N`. |
+
+Executor slots are cheap while an action waits on the network and expensive while it starts up or runs CPU-bound Python. The calibration used on this page is 4 slots per vCPU and 512 MiB per slot plus 1 GiB per replica, which matches the 4 vCPU / 8 GiB / 16 slot shape in the [Swarm resource table](/self-hosting/docker-compose#service-resource-recommendations). If your actions are mostly HTTP calls you can run 6-8 slots per vCPU; if they run `core.script.run_python` on large payloads, stay at 2-4.
+
+The `pids_limit` on the executor service (4096) is sized for the default 16 slots. Raise it proportionally if you set `MAX_CONCURRENT_ACTIVITIES` above 64 on a single replica.
+
+### Worker
+
+| Variable | Default | What it bounds |
+| :------- | :------ | :------------- |
+| `TEMPORAL__MAX_CONCURRENT_WORKFLOW_TASKS` | `100` | Workflow tasks one worker replica processes at once. A workflow task is one step of workflow logic between activities. |
+| `TEMPORAL__MAX_CONCURRENT_ACTIVITIES` | `100` | Worker-side activities (input resolution, secret lookups, result handling) in flight at once. |
+| `TEMPORAL__THREADPOOL_MAX_WORKERS` | `100` | Threads backing those activities. Keep it equal to the value above. |
+| Worker replicas | `1` | Scale with `docker compose up -d --scale worker=N`. |
+
+The worker is a single Python process, so one replica saturates roughly one CPU core of workflow logic no matter how high you set the limits above. Add replicas rather than raising the defaults until you have more than 100 workflow runs in flight per replica. Give each replica 2 vCPU and 2 GiB.
+
+### PostgreSQL connections
+
+Every Tracecat process opens two connection pools against `postgres_db`:
+
+| Variable | Default | Pool |
+| :------- | :------ | :--- |
+| `TRACECAT__DB_POOL_SIZE` | `10` | Persistent connections in the main pool. |
+| `TRACECAT__DB_MAX_OVERFLOW` | `60` | Extra connections the main pool opens under load and closes afterwards. |
+| `TRACECAT__DB_AUTH_POOL_SIZE` | `5` | Persistent connections in the authentication pool. |
+| `TRACECAT__DB_AUTH_MAX_OVERFLOW` | `5` | Overflow for the authentication pool. |
+| `TRACECAT__DB_POOL_TIMEOUT` | `30` | Seconds a request waits for a free connection before failing with a pool timeout. |
+
+Each process can therefore hold up to `10 + 60 + 5 + 5 = 80` connections. The processes that open pools are `api`, `worker`, `executor`, `agent-worker`, `agent-executor`, `mcp`, and `litellm`, so the default stack can ask for `7 × 80 = 560` connections while the bundled `postgres:16` image accepts 100. In practice pools stay far below their ceiling, but under load you will see `QueuePool limit ... connection timed out` in the logs or `FATAL: sorry, too many clients already` from PostgreSQL. Fix it from either side:
+
+- Raise `max_connections` so it covers the ceiling. Add a `docker-compose.override.yml`:
+
+  ```yaml
+  services:
+    postgres_db:
+      command: ["postgres", "-c", "max_connections=600"]
+  ```
+
+  Budget about 10 MiB of RAM per open connection.
+
+- Or lower `TRACECAT__DB_MAX_OVERFLOW` so `processes × (POOL_SIZE + MAX_OVERFLOW + 10) + 20 ≤ max_connections`. The worker and executor need at most as many connections as they have concurrent activities, so `MAX_OVERFLOW=30` is enough for the default worker and executor limits.
+
+If you use an external PostgreSQL such as RDS, apply the same arithmetic to its `max_connections` and put PgBouncer in front of it once you run more than a handful of replicas.
+
+### Agents
+
+Agent runs follow the same worker/executor split with their own limits:
+
+| Variable | Default | What it bounds |
+| :------- | :------ | :------------- |
+| `TRACECAT__AGENT_MAX_CONCURRENT_ACTIVITIES` | `100` | Agent-worker activities in flight. |
+| `TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES` | `1` | Agent runs one `agent-executor` replica executes at once. Each run is a long-lived sandbox that can use several GiB, so scale agents by adding `agent-executor` replicas rather than raising this value. |
+
+## Sizing formula
+
+Start from three numbers about your workload:
+
+- `R`: workflow starts per second you need to sustain.
+- `A`: average actions per workflow run.
+- `T`: average seconds an action takes, including time waiting on external APIs.
+
+Then apply Little's law with a 1.5× headroom factor `H`:
+
+```text
+actions_per_second   = R × A
+executor_slots       = R × A × T × H
+executor_replicas    = ceil(executor_slots / 16)          # or your chosen slots per replica
+executor_vcpu        = executor_slots / 4
+executor_memory_gib  = executor_replicas × 1 + executor_slots × 0.5
+worker_replicas      = ceil(R × H / 10)                   # ~10 starts/sec per 2 vCPU replica
+db_processes         = 5 + worker_replicas + executor_replicas
+pg_max_connections   = db_processes × 80 + 20             # with default pool settings
+```
+
+Example: `R = 2`, `A = 6`, `T = 2` gives 36 slots, so 3 executor replicas of 12 slots each (9 vCPU, 21 GiB), 1 worker, and `max_connections` of at least 740. Add the base stack (about 4 vCPU and 10 GiB for the API, Temporal, both PostgreSQL instances, Redis, MinIO, Caddy, the UI, and the agent services) to get the host size: 16 vCPU and 40 GiB.
+
+Work the formula backwards to find the ceiling of a given host: the executor slots you can afford are `(host_vcpu − 4 − 2 × worker_replicas) × 4`, and the sustainable rate is `slots / (A × T × H)`.
+
+## Sizing calculator
+
+The repository ships a shell script that runs the formula above, detects the CPU and memory Docker can see, and prints the `.env` values, the PostgreSQL override, and the `docker compose --scale` command to apply. When the host is too small it also reports the highest workflow start rate the host can sustain.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/TracecatHQ/tracecat/main/scripts/sizing.sh -o sizing.sh
+chmod +x sizing.sh
+
+# 5 workflow starts/sec, 8 actions per run, 3 seconds per action
+./sizing.sh --workflows-per-sec 5 --actions-per-workflow 8 --action-seconds 3
+
+# Size for a different machine than the one you are on
+./sizing.sh -r 20 -a 5 -t 2 --cpus 32 --memory-gb 64
+```
+
+The script prints an estimate like this:
+
+```text
+Executors
+  Replicas                   12
+  Slots per replica          15  (4 per vCPU, max 16 per 4-vCPU replica)
+  Total slots                180
+  CPU                        45
+  Memory                     102.0 GiB
+...
+Hardware check (provided: 32 CPUs, 64 GiB)
+  Required                   51 CPUs, 114.0 GiB
+  Result                     INSUFFICIENT (CPU short by 19) (memory short by 50.0 GiB)
+  Max sustainable rate       ~2.50 workflow starts/sec on this hardware
+
+Apply
+-----
+# .env
+TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES=15
+...
+docker compose up -d --scale executor=12 --scale worker=1
+```
+
+Every constant in the model (slots per vCPU, memory per slot, worker starts per second, base stack footprint, pool sizes) is an environment variable at the top of the script, so you can recalibrate it against what you measure. Run `./sizing.sh --help` for the full option list.
+
+## Measure before and after
+
+Use these signals to confirm a change helped and to recalibrate the constants:
+
+- Temporal UI (uncomment the `temporal_ui` port mapping in `docker-compose.yml` to expose it on `8081`): open the `shared-action-queue` task queue. A growing schedule-to-start latency on activities means executors are saturated; on the `tracecat-task-queue` workflow tasks it means workers are saturated.
+- `docker stats`: executor containers at 100% CPU with idle slots mean CPU-bound actions, so lower slots per vCPU; executors at low CPU while actions queue mean you can raise `TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES`.
+- PostgreSQL: `SELECT application_name, count(*) FROM pg_stat_activity GROUP BY 1;` shows connections per Tracecat service, since every pool sets `application_name` to its service name.
+- Logs: `docker compose logs executor worker | grep -i "QueuePool\|too many clients"` catches connection pool exhaustion.
+
+Raise one variable at a time and hold the new value for a full load cycle before changing the next one. Executors fail loudly when oversubscribed (OOM kills, `pids_limit` hits), so leave 20% of host memory free.
+
+## Related pages
+
+- See [Docker Compose](/self-hosting/docker-compose) for host tiers and the Docker Swarm conversion that gives each service its own resource limits.
+- See [Kubernetes](/self-hosting/kubernetes) to scale workers and executors independently with Helm values and autoscaling.
+- See [Architecture](/self-hosting/architecture) for how the API, workers, executors, and Temporal fit together.
+- See [Environment variables](/self-hosting/environment-variables) for the full configuration reference.
