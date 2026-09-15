@@ -8,14 +8,12 @@ services:
   executor:
     environment:
       TRACECAT__DISABLE_NSJAIL: ${TRACECAT__DISABLE_NSJAIL:-false}
-    # Hard cap on total processes (incl. all jails and their children):
-    # in-jail RLIMIT_NPROC is bypassable via nested user namespaces (fresh
-    # per-userns fork counter), so the container cgroup pids limit is the
-    # reliable fork-bomb bound. 4096 leaves headroom above the default
-    # executor concurrency ceiling (TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES=16
-    # x 64 in-jail processes = 1024) plus executor threads and nsjail
-    # launchers. Re-verify headroom when raising concurrency or the in-jail
-    # process cap.
+    # Container-level fork-bomb bound: in-jail RLIMIT_NPROC is bypassable
+    # via nested user namespaces (fresh per-userns fork counter).
+    # All activities, loop iterations, and executor overhead share this cap.
+    # Defaults allow 32 activities x 4 for_each iterations x 64 in-jail
+    # processes = 8192, exceeding this intentional aggregate safety limit.
+    # Process-heavy workloads can hit the cap and fail to fork.
     pids_limit: 4096
     # Required for nsjail sandbox execution.
     cap_add:
