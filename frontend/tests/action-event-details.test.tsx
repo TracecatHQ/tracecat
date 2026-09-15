@@ -86,6 +86,13 @@ jest.mock("@/providers/builder", () => ({
   }),
 }))
 
+jest.mock("@/providers/workflow", () => ({
+  useWorkflow: () => ({
+    workflow: null,
+    updateWorkflow: jest.fn(),
+  }),
+}))
+
 jest.mock("@/lib/stored-object", () => ({
   isCollectionStoredObject: (value: unknown) =>
     typeof value === "object" &&

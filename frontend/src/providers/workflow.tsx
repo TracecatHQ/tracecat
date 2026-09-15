@@ -6,6 +6,7 @@ import {
   type ReactNode,
   type SetStateAction,
   useContext,
+  useMemo,
   useState,
 } from "react"
 import {
@@ -30,6 +31,11 @@ import {
   useQuery,
   useQueryClient,
 } from "@/lib/query"
+import {
+  computePinDomains,
+  getWorkflowDraftPins,
+  type PinDomains,
+} from "@/lib/workflow-pins"
 
 type WorkflowContextType = {
   workflow: WorkflowRead | null
@@ -37,6 +43,7 @@ type WorkflowContextType = {
   workflowId: string | null
   isLoading: boolean
   error: Error | null
+  pinDomains: PinDomains
   commitWorkflow: MutateFunction<
     WorkflowCommitResponse,
     ApiError,
@@ -98,6 +105,10 @@ export function WorkflowProvider({
       return workflow
     },
   })
+  const pinDomains = useMemo(
+    () => computePinDomains(workflow?.actions, getWorkflowDraftPins(workflow)),
+    [workflow?.actions, workflow?.draft_pins]
+  )
 
   // Mutations
   const { mutateAsync: commitWorkflow } = useMutation({
@@ -280,6 +291,7 @@ export function WorkflowProvider({
         workflowId,
         isLoading,
         error,
+        pinDomains,
         commitWorkflow,
         publishWorkflow,
         updateWorkflow,

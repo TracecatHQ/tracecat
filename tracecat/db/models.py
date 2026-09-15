@@ -76,6 +76,7 @@ from tracecat.interactions.enums import InteractionStatus, InteractionType
 from tracecat.invitations.enums import InvitationStatus
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.tiers.types import EntitlementsDict
+from tracecat.workflow.management.types import WorkflowDraftPinsData
 from tracecat.workspaces.schemas import WorkspaceSettings
 
 _UNSET = object()
@@ -980,6 +981,14 @@ class Workflow(WorkspaceModel):
         doc=(
             "Maps repository origin to pinned version string. "
             "Example: {'tracecat_registry': '1.2.3', 'git+ssh://...': '0.5.0'}"
+        ),
+    )
+    draft_pins: Mapped[WorkflowDraftPinsData | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        doc=(
+            "Draft run pin configuration. "
+            "Contains source execution ID and pinned action refs."
         ),
     )
     folder_id: Mapped[uuid.UUID | None] = mapped_column(

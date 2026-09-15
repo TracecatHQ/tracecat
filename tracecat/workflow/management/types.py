@@ -2,7 +2,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Final
+from typing import Final, NotRequired, TypedDict
+
+
+class WorkflowDraftPinsData(TypedDict):
+    """Raw JSONB shape of `Workflow.draft_pins`. Validated form is `WorkflowDraftPins`.
+
+    The `action_refs` key may be absent because updates use `exclude_unset` when dumped.
+    """
+
+    source_execution_id: str
+    action_refs: NotRequired[list[str]]
 
 
 @dataclass
