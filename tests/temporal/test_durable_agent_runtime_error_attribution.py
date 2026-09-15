@@ -310,6 +310,7 @@ _TIMED_OUT = RuntimeErrorKind.AGENT_EXECUTOR_TIMED_OUT
 _LLM_READ_TIMEOUT = RuntimeErrorKind.AGENT_LLM_READ_TIMEOUT
 _LLM_PROVIDER_AUTH_FAILED = RuntimeErrorKind.AGENT_LLM_PROVIDER_AUTH_FAILED
 _LLM_RATE_LIMITED = RuntimeErrorKind.AGENT_LLM_RATE_LIMITED
+_LLM_PROVIDER_UNAVAILABLE = RuntimeErrorKind.AGENT_LLM_PROVIDER_UNAVAILABLE
 _RETRYABLE = RetryDisposition.RETRYABLE
 _NON_RETRYABLE = RetryDisposition.NON_RETRYABLE
 
@@ -342,14 +343,14 @@ _GATEWAY_EXPECTATIONS: tuple[_GatewayExpectation, ...] = (
         harness.GatewayRoute.DIRECT_PROVIDER,
         harness.GatewayFailureMode.HTTP_503,
         _USER,
-        _EXECUTION_FAILED,
-        _NON_RETRYABLE,
+        _LLM_PROVIDER_UNAVAILABLE,
+        _RETRYABLE,
     ),
     _GatewayExpectation(
         harness.GatewayRoute.DIRECT_PROVIDER,
         harness.GatewayFailureMode.HTTP_504,
         _USER,
-        _EXECUTION_FAILED,
+        _LLM_PROVIDER_UNAVAILABLE,
         _RETRYABLE,
     ),
     _GatewayExpectation(
@@ -399,14 +400,14 @@ _GATEWAY_EXPECTATIONS: tuple[_GatewayExpectation, ...] = (
         harness.GatewayRoute.CUSTOM_GATEWAY,
         harness.GatewayFailureMode.HTTP_503,
         _USER,
-        _EXECUTION_FAILED,
-        _NON_RETRYABLE,
+        _LLM_PROVIDER_UNAVAILABLE,
+        _RETRYABLE,
     ),
     _GatewayExpectation(
         harness.GatewayRoute.CUSTOM_GATEWAY,
         harness.GatewayFailureMode.HTTP_504,
         _USER,
-        _EXECUTION_FAILED,
+        _LLM_PROVIDER_UNAVAILABLE,
         _RETRYABLE,
     ),
     _GatewayExpectation(
