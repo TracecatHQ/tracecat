@@ -9,6 +9,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.rbac.service import RBACService
 
+from tests.support.membership import (
+    grant_org_membership_via_group,
+    grant_workspace_membership,
+)
 from tracecat.auth.types import Role
 from tracecat.authz.enums import ScopeSource
 from tracecat.authz.scopes import ORG_ADMIN_SCOPES
@@ -18,7 +22,6 @@ from tracecat.db.models import (
     GroupMember,
     GroupRoleAssignment,
     Organization,
-    OrganizationMembership,
     RoleScope,
     Scope,
     User,
@@ -55,12 +58,10 @@ async def user(session: AsyncSession, org: Organization) -> User:
     session.add(user)
     await session.flush()
 
-    # Add org membership
-    membership = OrganizationMembership(
-        user_id=user.id,
-        organization_id=org.id,
+    # Presence through a group keeps the direct org-wide slot free for tests.
+    await grant_org_membership_via_group(
+        session, user_id=user.id, organization_id=org.id
     )
-    session.add(membership)
     await session.commit()
     await session.refresh(user)
     return user
@@ -142,7 +143,6 @@ async def role(
     )
     session.add(admin_user)
     await session.flush()
-    session.add(OrganizationMembership(user_id=admin_user.id, organization_id=org.id))
 
     admin_role = DBRole(
         name="Test Org Admin",
@@ -743,11 +743,8 @@ class TestRBACServiceUserAssignments:
         )
         session.add(other_org)
         await session.flush()
-        session.add(
-            OrganizationMembership(
-                user_id=user.id,
-                organization_id=other_org.id,
-            )
+        await grant_org_membership_via_group(
+            session, user_id=user.id, organization_id=other_org.id
         )
         await session.commit()
 
@@ -871,6 +868,129 @@ class TestRBACServiceUserAssignments:
                 assignment.id,
                 role_id=privileged_role.id,
             )
+
+    async def test_create_user_assignment_for_workspace_only_user(
+        self,
+        session: AsyncSession,
+        role: Role,
+        org: Organization,
+        workspace: Workspace,
+    ):
+        """A workspace-only path is enough to grant an org-wide role."""
+        member = await _workspace_only_user(session, org, workspace)
+        service = RBACService(session, role=role)
+        custom_role = await service.create_role(name="Org Wide Role")
+
+        assignment = await service.create_user_assignment(
+            user_id=member.id,
+            role_id=custom_role.id,
+        )
+
+        assert assignment.workspace_id is None
+        assert assignment.user_id == member.id
+
+    async def test_add_group_member_for_workspace_only_user(
+        self,
+        session: AsyncSession,
+        role: Role,
+        org: Organization,
+        workspace: Workspace,
+    ):
+        """A workspace-only path is enough to add the user to a group."""
+        member = await _workspace_only_user(session, org, workspace)
+        service = RBACService(session, role=role)
+        group = await service.create_group(name="Workspace Only Group")
+
+        await service.add_group_member(group.id, member.id)
+
+        result = await session.execute(
+            select(GroupMember).where(
+                GroupMember.group_id == group.id,
+                GroupMember.user_id == member.id,
+            )
+        )
+        assert result.scalar_one_or_none() is not None
+
+    async def test_delete_org_wide_assignment_with_workspace_path(
+        self,
+        session: AsyncSession,
+        role: Role,
+        org: Organization,
+        workspace: Workspace,
+    ):
+        """A remaining workspace path keeps the org-wide role deletable."""
+        member = await _workspace_only_user(session, org, workspace)
+        service = RBACService(session, role=role)
+        custom_role = await service.create_role(name="Removable Org Role")
+        assignment = await service.create_user_assignment(
+            user_id=member.id,
+            role_id=custom_role.id,
+        )
+
+        await service.delete_user_assignment(assignment.id)
+
+        remaining = (
+            await session.execute(
+                select(UserRoleAssignment).where(UserRoleAssignment.id == assignment.id)
+            )
+        ).scalar_one_or_none()
+        assert remaining is None
+
+    async def test_delete_org_wide_assignment_with_group_path(
+        self,
+        session: AsyncSession,
+        role: Role,
+        org: Organization,
+    ):
+        """A remaining group path keeps the org-wide role deletable."""
+        member = User(
+            id=uuid.uuid4(),
+            email=f"grouppath-{uuid.uuid4().hex[:8]}@example.com",
+            hashed_password="test",
+        )
+        session.add(member)
+        await session.flush()
+        await grant_org_membership_via_group(
+            session, user_id=member.id, organization_id=org.id
+        )
+        await session.commit()
+
+        service = RBACService(session, role=role)
+        custom_role = await service.create_role(name="Group Path Org Role")
+        assignment = await service.create_user_assignment(
+            user_id=member.id,
+            role_id=custom_role.id,
+        )
+
+        await service.delete_user_assignment(assignment.id)
+
+        remaining = (
+            await session.execute(
+                select(UserRoleAssignment).where(UserRoleAssignment.id == assignment.id)
+            )
+        ).scalar_one_or_none()
+        assert remaining is None
+
+
+async def _workspace_only_user(
+    session: AsyncSession, org: Organization, workspace: Workspace
+) -> User:
+    """Create a user whose only role path is workspace-scoped."""
+    member = User(
+        id=uuid.uuid4(),
+        email=f"wsonly-{uuid.uuid4().hex[:8]}@example.com",
+        hashed_password="test",
+    )
+    session.add(member)
+    await session.flush()
+    await grant_workspace_membership(
+        session,
+        user_id=member.id,
+        organization_id=org.id,
+        workspace_id=workspace.id,
+    )
+    await session.commit()
+    return member
 
 
 @pytest.mark.anyio

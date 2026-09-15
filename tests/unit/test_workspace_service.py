@@ -8,17 +8,25 @@ from pydantic import TypeAdapter
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tests.support.membership import (
+    grant_org_membership,
+    grant_org_membership_via_group,
+    grant_workspace_membership,
+)
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import ADMIN_SCOPES
-from tracecat.authz.seeding import seed_system_scopes
+from tracecat.authz.seeding import seed_system_roles_for_org, seed_system_scopes
 from tracecat.db.models import (
+    LegacyMembership,
+    LegacyOrganizationMembership,
     Membership,
     Organization,
     OrganizationMembership,
     RoleScope,
     Scope,
     User,
+    UserRoleAssignment,
     Workspace,
 )
 from tracecat.db.models import (
@@ -130,11 +138,11 @@ class TestWorkspaceService:
         session.add_all([workspace, other_workspace, member])
         await session.flush()
 
-        session.add(
-            Membership(
-                user_id=member.id,
-                workspace_id=workspace.id,
-            )
+        await grant_workspace_membership(
+            session,
+            user_id=member.id,
+            organization_id=workspace.organization_id,
+            workspace_id=workspace.id,
         )
         await session.commit()
 
@@ -559,23 +567,23 @@ async def rbac_roles(session: AsyncSession, inv_org: Organization) -> dict[str, 
 
     Returns a dict mapping role slug to role id (as string).
     """
-    roles: dict[str, str] = {}
-    for slug, name in [
-        ("workspace-editor", "Workspace Editor"),
-        ("workspace-admin", "Workspace Admin"),
-        ("workspace-viewer", "Workspace Viewer"),
-    ]:
-        role = DBRole(
-            id=uuid.uuid4(),
-            name=name,
-            slug=slug,
-            description=f"Test {name} role",
-            organization_id=inv_org.id,
-        )
-        session.add(role)
-        roles[slug] = str(role.id)
+    # Membership helpers seed the system roles on demand, so reuse those
+    # rather than inserting duplicates under the same slugs.
+    await seed_system_roles_for_org(session, inv_org.id)
     await session.commit()
-    return roles
+    result = await session.execute(
+        select(DBRole.slug, DBRole.id).where(
+            DBRole.organization_id == inv_org.id,
+            DBRole.slug.in_(
+                ["workspace-editor", "workspace-admin", "workspace-viewer"]
+            ),
+        )
+    )
+    return {
+        slug: str(role_id)
+        for slug, role_id in result.tuples().all()
+        if slug is not None
+    }
 
 
 @pytest.fixture
@@ -606,11 +614,7 @@ async def admin_user(session: AsyncSession, inv_org: Organization) -> User:
     session.add(user)
     await session.flush()
 
-    membership = OrganizationMembership(
-        user_id=user.id,
-        organization_id=inv_org.id,
-    )
-    session.add(membership)
+    await grant_org_membership(session, user_id=user.id, organization_id=inv_org.id)
     await session.commit()
     return user
 
@@ -630,11 +634,7 @@ async def basic_user(session: AsyncSession, inv_org: Organization) -> User:
     session.add(user)
     await session.flush()
 
-    membership = OrganizationMembership(
-        user_id=user.id,
-        organization_id=inv_org.id,
-    )
-    session.add(membership)
+    await grant_org_membership(session, user_id=user.id, organization_id=inv_org.id)
     await session.commit()
     return user
 
@@ -1024,6 +1024,82 @@ class TestAcceptInvitation:
         assert org_membership.user_id == external_user.id
         assert org_membership.organization_id == inv_org.id
 
+        # Both legacy tables are kept in step for older app versions.
+        assert (
+            await session.execute(
+                select(LegacyMembership).where(
+                    LegacyMembership.user_id == external_user.id,
+                    LegacyMembership.workspace_id == inv_workspace.id,
+                )
+            )
+        ).scalar_one_or_none() is not None
+        assert (
+            await session.execute(
+                select(LegacyOrganizationMembership).where(
+                    LegacyOrganizationMembership.user_id == external_user.id,
+                    LegacyOrganizationMembership.organization_id == inv_org.id,
+                )
+            )
+        ).scalar_one_or_none() is not None
+
+    async def test_accept_invitation_keeps_group_only_org_member_indirect(
+        self,
+        session: AsyncSession,
+        inv_org: Organization,
+        inv_workspace: Workspace,
+        admin_user: User,
+        external_user: User,
+        rbac_roles: dict[str, str],
+    ):
+        """A group-only org member gains no direct org-wide assignment."""
+        await grant_org_membership_via_group(
+            session, user_id=external_user.id, organization_id=inv_org.id
+        )
+        await session.commit()
+
+        role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
+        service = WorkspaceService(session, role=role)
+        params = WorkspaceInvitationCreate(
+            email=external_user.email,
+            role_id=rbac_roles["workspace-editor"],
+        )
+        invitation = await service.create_invitation(inv_workspace.id, params)
+
+        membership = await service.accept_invitation(invitation.token, external_user.id)
+
+        assert membership.user_id == external_user.id
+        direct_org_assignments = (
+            (
+                await session.execute(
+                    select(UserRoleAssignment).where(
+                        UserRoleAssignment.user_id == external_user.id,
+                        UserRoleAssignment.organization_id == inv_org.id,
+                        UserRoleAssignment.workspace_id.is_(None),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(direct_org_assignments) == 0
+
+        assert (
+            await session.execute(
+                select(UserRoleAssignment).where(
+                    UserRoleAssignment.user_id == external_user.id,
+                    UserRoleAssignment.workspace_id == inv_workspace.id,
+                )
+            )
+        ).scalar_one_or_none() is not None
+        assert (
+            await session.execute(
+                select(LegacyMembership).where(
+                    LegacyMembership.user_id == external_user.id,
+                    LegacyMembership.workspace_id == inv_workspace.id,
+                )
+            )
+        ).scalar_one_or_none() is not None
+
     async def test_accept_invitation_not_found(
         self,
         session: AsyncSession,
@@ -1112,11 +1188,12 @@ class TestAcceptInvitation:
     ):
         """Test accepting invitation when user is already a workspace member fails."""
         # Add basic_user to workspace
-        ws_membership = Membership(
+        await grant_workspace_membership(
+            session,
             user_id=basic_user.id,
+            organization_id=inv_workspace.organization_id,
             workspace_id=inv_workspace.id,
         )
-        session.add(ws_membership)
         await session.commit()
 
         role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
