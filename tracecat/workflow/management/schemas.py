@@ -495,9 +495,12 @@ class WorkflowDraftUpdate(BaseModel):
     """Wholesale replacement of a workflow draft.
 
     ``document`` is the full desired draft state (metadata, definition, layout,
-    schedules, case trigger). Sections omitted from ``document`` fall back to
-    their defaults and are treated as changed. When ``base_revision`` is set,
-    the update is rejected with 409 if the current draft revision differs.
+    schedules, case trigger). ``schedules`` is optional: when omitted, the
+    workflow's existing schedules are left untouched so they can be owned by
+    the standalone ``/schedules`` resource; when present, they are replaced.
+    Other omitted sections fall back to their defaults and are treated as
+    changed. When ``base_revision`` is set, the update is rejected with 409 if
+    the current draft revision differs.
     """
 
     document: WorkflowEditDocument

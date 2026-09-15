@@ -2245,8 +2245,10 @@ export const workflowsGetWorkflowDraft = (
  * Replace the workflow's draft with the supplied document.
  *
  * Validates the definition, then rewrites the action graph, layout,
- * schedules, and case trigger in one transaction. Publishing is separate:
- * call ``POST /workflows/{id}/commit`` afterwards to create a new version.
+ * schedules, and case trigger in one transaction. Omit ``schedules`` from
+ * the document to leave the workflow's schedules untouched (they can be
+ * managed independently via ``/schedules``). Publishing is separate: call
+ * ``POST /workflows/{id}/commit`` afterwards to create a new version.
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.workflowId

@@ -773,8 +773,10 @@ async def replace_workflow_draft(
     """Replace the workflow's draft with the supplied document.
 
     Validates the definition, then rewrites the action graph, layout,
-    schedules, and case trigger in one transaction. Publishing is separate:
-    call ``POST /workflows/{id}/commit`` afterwards to create a new version.
+    schedules, and case trigger in one transaction. Omit ``schedules`` from
+    the document to leave the workflow's schedules untouched (they can be
+    managed independently via ``/schedules``). Publishing is separate: call
+    ``POST /workflows/{id}/commit`` afterwards to create a new version.
     """
     service = WorkflowsManagementService(session, role=role)
     workflow = await service.get_workflow(workflow_id, for_update=True)
@@ -787,6 +789,10 @@ async def replace_workflow_draft(
     try:
         current_document = build_workflow_edit_document(workflow)
         current_revision = compute_workflow_edit_revision(current_document)
+        if "schedules" not in updated_document.model_fields_set:
+            updated_document = updated_document.model_copy(
+                update={"schedules": current_document.schedules}
+            )
         if (
             params.base_revision is not None
             and params.base_revision != current_revision

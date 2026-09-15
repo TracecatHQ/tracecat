@@ -1026,6 +1026,67 @@ async def test_replace_workflow_draft_persists_changed_sections(
 
 
 @pytest.mark.anyio
+async def test_replace_workflow_draft_omitted_schedules_left_untouched(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_workflow: Workflow,
+) -> None:
+    """Test PUT /workflows/{id}/draft without ``schedules`` keeps existing ones."""
+    workflow = _draft_workflow(mock_workflow)
+    workflow.schedules = [
+        Schedule(
+            id=uuid.UUID("12345678-1234-4123-8123-123456789013"),
+            status="online",
+            workspace_id=workflow.workspace_id,
+            workflow_id=workflow.id,
+            cron="0 0 * * *",
+            inputs={},
+            offset=None,
+            start_at=None,
+            end_at=None,
+            timeout=None,
+            created_at=datetime(2024, 1, 1, tzinfo=UTC),
+            updated_at=datetime(2024, 1, 1, tzinfo=UTC),
+        )
+    ]
+    current = draft.build_workflow_edit_document(workflow)
+    assert len(current.schedules) == 1
+    updated_payload = current.model_dump(mode="json")
+    updated_payload["metadata"]["title"] = "Replaced title"
+    del updated_payload["schedules"]
+
+    with (
+        patch(
+            "tracecat.workflow.management.router.WorkflowsManagementService"
+        ) as MockService,
+        patch(
+            "tracecat.workflow.management.router.validate_workflow_edit_document",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "tracecat.workflow.management.router.persist_workflow_edit_document",
+            new_callable=AsyncMock,
+        ) as mock_persist,
+    ):
+        mock_svc = AsyncMock()
+        mock_svc.get_workflow.return_value = workflow
+        MockService.return_value = mock_svc
+
+        response = client.put(
+            f"/workflows/{workflow.id}/draft",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"document": updated_payload},
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    mock_persist.assert_awaited_once()
+    assert mock_persist.await_args is not None
+    persist_kwargs = mock_persist.await_args.kwargs
+    assert persist_kwargs["changed_sections"] == {"metadata"}
+    assert persist_kwargs["updated_document"].schedules == current.schedules
+
+
+@pytest.mark.anyio
 async def test_replace_workflow_draft_stale_base_revision_returns_conflict(
     client: TestClient,
     test_admin_role: Role,
