@@ -644,36 +644,21 @@ services:
       - postgres-egress
     shm_size: 128mb
     environment:
+      POSTGRES_DB: postgres
       POSTGRES_USER: ${TRACECAT__POSTGRES_USER}
       POSTGRES_PASSWORD: ${TRACECAT__POSTGRES_PASSWORD}
     volumes:
       - core-db:/var/lib/postgresql/data
       - pgvector-cache:/var/cache/tracecat-pgvector
       - ./scripts/postgres/compose-entrypoint.sh:/usr/local/bin/tracecat-postgres-entrypoint.sh:ro
+      - ./scripts/postgres/pgvector.sql:/usr/local/share/tracecat/pgvector.sql:ro
+      - ./scripts/postgres/initdb-pgvector.sql:/docker-entrypoint-initdb.d/pgvector.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d postgres"]
       interval: 5s
       timeout: 5s
       retries: 12
       start_period: 180s
-
-  pgvector_setup:
-    image: ${TRACECAT__PGVECTOR_IMAGE:-postgres:16}
-    restart: "no"
-    networks:
-      - core
-      - core-db
-    environment:
-      TRACECAT__POSTGRES_USER: ${TRACECAT__POSTGRES_USER}
-      TRACECAT__POSTGRES_PASSWORD: ${TRACECAT__POSTGRES_PASSWORD}
-      TRACECAT__DB_URI: ${TRACECAT__DB_URI}
-    volumes:
-      - ./scripts/postgres/compose-setup.sh:/compose-setup.sh:ro
-      - ./scripts/postgres/pgvector.sql:/pgvector.sql:ro
-    entrypoint: ["bash", "/compose-setup.sh"]
-    depends_on:
-      postgres_db:
-        condition: service_started
 
   migrations:
     image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0}
@@ -690,8 +675,8 @@ services:
       TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS}
     command: ["python3", "-m", "alembic", "upgrade", "head"]
     depends_on:
-      pgvector_setup:
-        condition: service_completed_successfully
+      postgres_db:
+        condition: service_healthy
 
   temporal_postgres_db:
     image: postgres:13

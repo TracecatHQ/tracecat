@@ -11,10 +11,9 @@ image build, environment setting or manual SQL command is required. All three
 Compose variants use this dependency chain:
 
 ```text
-postgres_db: download/cache extension files, then start PostgreSQL
-    -> container started (setup waits for the actual database connection)
-pgvector_setup: connect to the migration database; enable/check vector
-    -> successful exit
+postgres_db: download/cache extension files
+    -> socket-only server: enable and validate pgvector
+    -> normal PostgreSQL server: TCP health check passes
 migrations: apply application schema
     -> application services
 ```
@@ -47,27 +46,30 @@ checked before reuse. Keep the cache volume for offline restarts. A different
 base image or an empty/damaged cache requires a new download. The cache contains
 no database rows or credentials.
 
-`pgvector_setup` connects to the same `TRACECAT__DB_URI` as migrations, preserving
-the database name and URI options such as SSL. It retries connections for up to
-360 seconds, covering the bundled server's full Compose startup window. For the bundled server, it uses the existing Compose administrator
-credentials to enable vector in that database, then validates access with the
-migration role. This works for both existing volumes and newly initialized ones.
-The application role does not need extension-installation privileges.
+Provisioning runs inside `postgres_db` using the existing administrator credentials
+and local socket. Compose sets `POSTGRES_DB` to `postgres`, matching its standard
+application database even when the administrator username is customized.
 
-For an external database, setup only validates pgvector with the migration role;
-an administrator must already have enabled it. Setup does not wait for the unused
-bundled database to become healthy or finish downloading packages. It identifies
-the connected server by its address and port, including URI host overrides.
+| Data volume | Provisioning path |
+| --- | --- |
+| Fresh | The official entrypoint initializes the cluster and runs the mounted `initdb-pgvector.sql` hook on its temporary socket-only server. |
+| Existing | The wrapper starts a temporary socket-only server, runs the same `pgvector.sql` checks with installation enabled, and stops it before starting the normal server. |
+
+Both paths validate the extension schema, catalog version, and collation versions.
+The existing-volume path shuts down its temporary server if provisioning fails.
+Each boot of an existing volume adds a short server start/stop cycle. Failed setup
+prevents TCP readiness and blocks migrations; it does not silently skip pgvector.
 
 The production database has a dedicated outbound network for package downloads;
-its shared application network remains internal. The setup client also joins the
-application's outbound network so it can reach external PostgreSQL servers.
+its shared application network remains internal. The TCP health check cannot pass
+during either socket-only bootstrap. Migrations depend directly on a healthy
+`postgres_db`, and application services retain their existing migration dependency.
+There is no additional setup service or retry loop.
 
-The database health check uses TCP so it does not report healthy during the
-image's temporary initialization server. Migrations depend on successful
-completion of `pgvector_setup`; API/worker startup retains its existing migration
-dependency. CI uses the same automatic setup rather than prebuilding an image
-or manually installing the extension.
+Automatic provisioning covers only the bundled Compose database. A deployment
+using an external database or a different database named in `TRACECAT__DB_URI`
+must provision that database separately using the administrator SQL command below.
+ECS/EKS managed-database provisioning remains an infrastructure responsibility.
 
 The optional `TRACECAT__PGVECTOR_IMAGE` setting and legacy
 `docker-compose.pgvector.yml` remain compatible with already configured derived
@@ -149,13 +151,14 @@ running database. This is not needed for the default Compose POC flow.
 ```bash
 bash scripts/tests/test_pgvector_compose.sh
 bash scripts/tests/test_pgvector_startup.sh
-bash scripts/tests/test_pgvector_startup.sh postgres:16.14-bookworm fresh
+bash scripts/tests/test_pgvector_startup.sh postgres:16.14-bookworm fresh synthetic_admin
 ```
 
 The configuration test checks all three Compose variants and dependency ordering.
-The live startup test uses the real Compose database/setup wiring with a small
+The live startup test uses the real Compose database entrypoint and dependency wiring with a small
 SQL migration probe. It checks automatic provisioning, preserved source data and
-runtime packages/binaries, cached recreation, and failure blocking migrations.
+runtime packages/binaries, a custom administrator, cached recreation, TCP readiness
+remaining unavailable during bootstrap, failure blocking migrations, and recovery.
 It retains uniquely named synthetic volumes and removes only its test containers.
 
 The optional derived-image path has separate tests:

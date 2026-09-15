@@ -29,16 +29,14 @@ configured = json.loads((root / 'configured.json').read_text())
 assert default['services']['postgres_db']['image'] == 'postgres:16'
 assert configured['services']['postgres_db']['image'] == 'synthetic-postgres-pgvector:validated'
 configured['services']['postgres_db']['image'] = 'postgres:16'
-assert configured['services']['pgvector_setup']['image'] == 'synthetic-postgres-pgvector:validated'
-configured['services']['pgvector_setup']['image'] = 'postgres:16'
-assert default['services']['migrations']['depends_on']['pgvector_setup']['condition'] == 'service_completed_successfully'
-assert default['services']['pgvector_setup']['depends_on']['postgres_db']['condition'] == 'service_started'
-assert default['services']['postgres_db']['entrypoint'][0] == 'bash'
-assert default['services']['pgvector_setup']['environment']['TRACECAT__DB_URI'] == default['services']['migrations']['environment']['TRACECAT__DB_URI']
+assert 'pgvector_setup' not in default['services']
+assert default['services']['migrations']['depends_on']['postgres_db']['condition'] == 'service_healthy'
+postgres = default['services']['postgres_db']
+assert postgres['entrypoint'][0] == 'bash'
+assert postgres['environment']['POSTGRES_DB'] == 'postgres'
+assert any(volume['target'] == '/docker-entrypoint-initdb.d/pgvector.sql' for volume in postgres['volumes'])
 networks = default.get('networks', {})
-for service in ('postgres_db', 'pgvector_setup'):
-    attached = default['services'][service].get('networks', {})
-    assert any(not networks[name].get('internal', False) for name in attached), service + ' needs outbound access'
+assert any(not networks[name].get('internal', False) for name in postgres['networks']), 'postgres_db needs download access'
 assert configured == default, 'Image selection changed unrelated Compose settings'
 PY
     echo "PASS: $compose_file reads persistent .env image; all other settings unchanged"
