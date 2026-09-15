@@ -27,7 +27,7 @@ The table uses a reference workload of 5 actions per run at 2 seconds each with 
 | High | 128 | ~8.5 | 8 × 16 | 2 | 40 | 86 GiB | 1220 |
 | Very high | 256 | ~17 | 16 × 16 | 3 | 74 | 160 GiB | 1940 |
 
-Concurrent actions is the number of action subprocesses running at once across all executors. Sustained starts/sec is the workflow start rate that keeps those slots busy without queueing; runs with more or longer actions lower it proportionally. Host vCPU and memory include the base stack. The `max_connections` column is the worst case with the default pool settings (every Tracecat process opening its full 80 connections); lower `TRACECAT__DB_POOL_SIZE` and `TRACECAT__DB_MAX_OVERFLOW` per process to bring it down, as described under [PostgreSQL](#postgresql).
+Concurrent actions is the number of action subprocesses running at once across all executors. Sustained starts/sec is the workflow start rate that keeps those slots busy without queueing; runs with more or longer actions lower it proportionally. Host vCPU and memory include the base stack. The `max_connections` column is the worst case with the default pool settings (every Tracecat process opening its full 80 connections); lower `TRACECAT__DB_POOL_SIZE` and `TRACECAT__DB_MAX_OVERFLOW` per process to bring it down, as described under [PostgreSQL connections](#postgresql-connections).
 
 Above the Medium tier, run the stateful services (PostgreSQL, Temporal, MinIO, Redis) on their own hosts or managed services and spread executors across nodes with [Docker Swarm](/self-hosting/docker-compose#convert-to-docker-swarm) or [Kubernetes](/self-hosting/kubernetes).
 
