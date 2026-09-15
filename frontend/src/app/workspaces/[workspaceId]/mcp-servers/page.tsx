@@ -50,6 +50,21 @@ import { useWorkspaceId } from "@/providers/workspace-id"
 const CREATE_MCP_SERVER_PARAM = "createMcpServer"
 const MCP_VERIFY_ERROR_PARAM = "mcp_verify_error"
 const ALL_CATEGORY = "All"
+const ALL_STATUSES = "all"
+const CONNECTED_STATUS = "connected"
+const NOT_CONNECTED_STATUS = "not_connected"
+type McpStatusFilter =
+  | typeof ALL_STATUSES
+  | typeof CONNECTED_STATUS
+  | typeof NOT_CONNECTED_STATUS
+const MCP_STATUS_FILTER_OPTIONS: Array<{
+  value: McpStatusFilter
+  label: string
+}> = [
+  { value: ALL_STATUSES, label: "All statuses" },
+  { value: CONNECTED_STATUS, label: "Connected" },
+  { value: NOT_CONNECTED_STATUS, label: "Not connected" },
+]
 const CUSTOM_CATEGORY = "Custom"
 const MCP_CATEGORIES = [
   "SIEM / Datalake",
@@ -234,6 +249,14 @@ function catalogConnectOptionId(entry: PlatformMCPCatalogRead) {
   return connectable.length === 1 ? connectable[0].id : undefined
 }
 
+/**
+ * A row with no tool listing hasn't been verified yet, so it counts as
+ * configured, not connected. Keep in sync with McpCatalogCard.
+ */
+function isCatalogEntryConnected(entry: PlatformMCPCatalogRead) {
+  return entry.state === "connected" && entry.tools != null
+}
+
 function isCatalogEntryConnectable(entry: PlatformMCPCatalogRead) {
   return Boolean(
     entry.connection_spec ||
@@ -254,6 +277,8 @@ export default function McpServersPage() {
 
   const [searchQuery, setSearchQuery] = useState("")
   const [activeCategory, setActiveCategory] = useState<string>(ALL_CATEGORY)
+  const [statusFilter, setStatusFilter] =
+    useState<McpStatusFilter>(ALL_STATUSES)
   const [createOpen, setCreateOpen] = useState(false)
   const [configEntry, setConfigEntry] = useState<PlatformMCPCatalogRead | null>(
     null
@@ -472,15 +497,29 @@ export default function McpServersPage() {
               entry: workspaceIntegrationToCatalogEntry(integration),
             }))
         : []
-    return [...catalogItems, ...workspaceItems].sort((a, b) =>
-      a.entry.name.localeCompare(b.entry.name, undefined, {
-        sensitivity: "base",
+    return [...catalogItems, ...workspaceItems]
+      .filter((item) => {
+        if (statusFilter === ALL_STATUSES) {
+          return true
+        }
+        const connected = isCatalogEntryConnected(item.entry)
+        return statusFilter === CONNECTED_STATUS ? connected : !connected
       })
-    )
+      .sort((a, b) => {
+        const aConnected = isCatalogEntryConnected(a.entry)
+        const bConnected = isCatalogEntryConnected(b.entry)
+        if (aConnected !== bConnected) {
+          return aConnected ? -1 : 1
+        }
+        return a.entry.name.localeCompare(b.entry.name, undefined, {
+          sensitivity: "base",
+        })
+      })
   }, [
     activeCategory,
     catalogData?.items,
     searchQuery,
+    statusFilter,
     workspaceMcpIntegrations,
   ])
 
@@ -513,7 +552,7 @@ export default function McpServersPage() {
     // been verified yet, so it is "configured"/reconnect, not a connected
     // disconnect. Keeping this in sync avoids showing "Reconnect" while
     // routing through the disconnect/no-op path.
-    const connected = entry.state === "connected" && entry.tools != null
+    const connected = isCatalogEntryConnected(entry)
     const connectable = isCatalogEntryConnectable(entry)
 
     if (entry.mcp_integration_id && connected) {
@@ -608,6 +647,17 @@ export default function McpServersPage() {
         }))}
         activePillFilters={[activeCategory]}
         onPillFilterToggle={(category) => setActiveCategory(category)}
+        selectFilters={[
+          {
+            key: "status",
+            value: statusFilter,
+            onValueChange: (value) => setStatusFilter(value as McpStatusFilter),
+            options: MCP_STATUS_FILTER_OPTIONS,
+            placeholder: "Status",
+            allValue: ALL_STATUSES,
+            widthClassName: "w-[140px]",
+          },
+        ]}
         displayCount={totalCount}
         countLabel={`server${totalCount === 1 ? "" : "s"}`}
       />
@@ -642,7 +692,7 @@ export default function McpServersPage() {
             <div>
               <h2 className="text-sm font-semibold">No MCP servers found</h2>
               <p className="mt-1 text-xs text-muted-foreground">
-                Try a different search or category.
+                Try a different search, category, or status.
               </p>
             </div>
           </div>
@@ -762,9 +812,7 @@ function McpCatalogCard({
 }: McpCatalogCardProps) {
   const { entry } = item
   const hasMcpRow = Boolean(entry.mcp_integration_id)
-  // A row with no tool listing hasn't been verified yet, so it counts as
-  // configured, not connected.
-  const connected = entry.state === "connected" && entry.tools != null
+  const connected = isCatalogEntryConnected(entry)
   const configured = !connected && (entry.state === "configured" || hasMcpRow)
   const hasWorkspaceConfig = configured || connected
   const connectable = isCatalogEntryConnectable(entry)
