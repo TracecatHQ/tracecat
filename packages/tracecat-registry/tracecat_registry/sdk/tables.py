@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal, cast
+from urllib.parse import quote
 
 from tracecat_registry import types
 from tracecat_registry.sdk.types import UNSET, Unset, is_set
@@ -17,6 +18,37 @@ class TablesClient:
 
     def __init__(self, client: TracecatClient) -> None:
         self._client = client
+
+    async def aggregate_rows(
+        self, table_name: str, spec: dict[str, Any]
+    ) -> types.AggregateResponse:
+        """Aggregate table rows using the server's JSON query specification.
+
+        Args:
+            table_name: Name of the workspace table.
+            spec: Plain JSON filters, grouping, calculations, and result options.
+                The server owns validation; its recursive models cannot be
+                imported or mirrored by the standalone registry package.
+
+        Returns:
+            Flat groups and whether additional groups were omitted.
+
+        Raises:
+            ValueError: If the table name is not a single identifier.
+        """
+        # Legacy metadata names may contain punctuation or Unicode. Reject URL
+        # routing syntax, not names that fail today's table-creation rules.
+        if (
+            not table_name
+            or table_name in {".", ".."}
+            or any(
+                char in "/\\%?#" or ord(char) < 32 or ord(char) == 127
+                for char in table_name
+            )
+        ):
+            raise ValueError("Table name must be a single URL path segment")
+        encoded_name = quote(table_name, safe="")
+        return await self._client.post(f"/tables/{encoded_name}/aggregate", json=spec)
 
     async def list_tables(self) -> list[types.Table]:
         """List tables in the workspace."""

@@ -33,10 +33,12 @@ class ExprEvaluator(Transformer[Token, Any]):
         try:
             return self.transform(tree)
         except VisitError as e:
+            # The operand can be a secret value, so log the node type only.
+            # The raised error is masked by the caller; a log line is not.
             logger.error(
                 "Evaluation failed at node",
-                node=e.obj,
-                reason=e.orig_exc,
+                node_type=type(e.obj).__name__,
+                reason_type=type(e.orig_exc).__name__,
             )
             raise TracecatExpressionError(
                 f"[evaluator] Evaluation failed at node:\n```\n{tree.pretty()}\n```\nReason: {e}",
@@ -50,8 +52,7 @@ class ExprEvaluator(Transformer[Token, Any]):
             selected_node = true_node if condition else false_node
             selected_value = self._transform_child(selected_node)
             self.logger.trace(
-                "Visiting ternary:",
-                condition=condition,
+                "Visiting ternary",
                 selected_branch="true" if condition else "false",
             )
             return selected_value
@@ -64,43 +65,37 @@ class ExprEvaluator(Transformer[Token, Any]):
 
     @v_args(inline=True)
     def root(self, node: Tree[Token]) -> Tree[Token]:
-        logger.trace("Visiting root:", node=node)
+        logger.trace("Visiting root")
         return node
 
     @v_args(inline=True)
     def trailing_typecast_expression(self, value: Any, typename: str):
-        logger.trace(
-            "Visiting trailing_typecast_expression:", value=value, typename=typename
-        )
+        logger.trace("Visiting trailing_typecast_expression", typename=typename)
         return functions.cast(value, typename)
 
     @v_args(inline=True)
     def expression(self, value: Any):
-        logger.trace("Visiting expression:", args=value)
+        logger.trace("Visiting expression", value_type=type(value).__name__)
         return value
 
     @v_args(inline=True)
     def context(self, value: Any):
-        logger.trace("Visiting context:", args=value)
+        logger.trace("Visiting context", value_type=type(value).__name__)
         return value
 
     @v_args(inline=True)
     def base_expr(self, value: Any):
-        logger.trace("Visiting base_expr:", value=value)
+        logger.trace("Visiting base_expr", value_type=type(value).__name__)
         return value
 
     @v_args(inline=True)
     def indexer(self, index: Any):
-        logger.trace("Visiting indexer:", index=index)
+        logger.trace("Visiting indexer", index_type=type(index).__name__)
         return index
 
     @v_args(inline=True)
     def primary_expr(self, base: Any, *indexers: Any):
-        logger.trace(
-            "Visiting primary_expr:",
-            base=base,
-            indexers=indexers,
-        )
+        logger.trace("Visiting primary_expr", indexer_count=len(indexers))
         result = base
         for index in indexers:
             result = self._apply_index(result, index)
@@ -111,7 +106,7 @@ class ExprEvaluator(Transformer[Token, Any]):
         self.logger.trace(
             "Visit iterator expression",
             iter_var_expr=iter_var_expr,
-            collection=collection,
+            collection_type=type(collection).__name__,
         )
         # Ensure that our collection is an iterable
         # We have to evaluate the collection expression
@@ -125,27 +120,27 @@ class ExprEvaluator(Transformer[Token, Any]):
 
     @v_args(inline=True)
     def typecast(self, typename: str, value: Any):
-        logger.trace("Visiting typecast:", args=value)
+        logger.trace("Visiting typecast", value_type=type(value).__name__)
         return functions.cast(value, typename)
 
     @v_args(inline=True)
     def ternary(self, true_value: Any, condition: bool, false_value: Any):
-        logger.trace("Visiting ternary:", true_value=true_value, condition=condition)
+        logger.trace("Visiting ternary", condition=bool(condition))
         return true_value if condition else false_value
 
     @v_args(inline=True)
     def list(self, *args):
-        logger.trace("Visiting list:", args=args)
+        logger.trace("Visiting list", arity=len(args))
         return list(*args)
 
     @v_args(inline=True)
     def dict(self, *args):
-        logger.trace("Visiting dict:", args=args)
+        logger.trace("Visiting dict", arity=len(args))
         return dict(args)
 
     @v_args(inline=True)
     def kvpair(self, *args):
-        logger.trace("Visiting kvpair:", args=args)
+        logger.trace("Visiting kvpair", arity=len(args))
         return args
 
     @v_args(inline=True)
@@ -221,7 +216,7 @@ class ExprEvaluator(Transformer[Token, Any]):
         self.logger.trace(
             "Visit function expression",
             fn_name=fn_name,
-            fn_args=fn_args,
+            arity=len(fn_args),
             is_mapped=is_mapped,
         )
         fn = functions.FUNCTION_MAPPING.get(fn_name)
@@ -229,128 +224,132 @@ class ExprEvaluator(Transformer[Token, Any]):
             raise TracecatExpressionError(f"Unknown function {fn_name!r}")
         final_fn = fn.map if is_mapped else fn  # pyright: ignore[reportFunctionMemberAccess] # type: ignore[possibly-missing-attribute]
         result = final_fn(*fn_args)
-        self.logger.trace(f"Function {fn_name!r} returned {result!r}")
+        self.logger.trace(
+            "Function returned",
+            fn_name=fn_name,
+            result_type=type(result).__name__,
+        )
         return result
 
     @v_args(inline=True)
     def arg_list(self, *args):
-        logger.trace("Visiting arg_list:", args=args)
+        logger.trace("Visiting arg_list", arity=len(args))
         return args
 
     @v_args(inline=True)
     def literal(self, value: LiteralT) -> LiteralT:
-        logger.trace("Visiting literal:", value=value)
+        logger.trace("Visiting literal", value_type=type(value).__name__)
         return value
 
     @v_args(inline=True)
     def binary_op(self, lhs: Any, op: str, rhs: Any):
-        logger.trace("Visiting binary_op:", lhs=lhs, op=op, rhs=rhs)
+        logger.trace("Visiting binary_op", op=op)
         return functions.OPERATORS[op](lhs, rhs)
 
     # Logical operators
     @v_args(inline=True)
     def or_op(self, lhs: Any, rhs: Any):
-        logger.trace("Visiting or_op:", lhs=lhs, rhs=rhs)
+        logger.trace("Visiting or_op")
         return functions.OPERATORS["||"](lhs, rhs)
 
     @v_args(inline=True)
     def and_op(self, lhs: Any, rhs: Any):
-        logger.trace("Visiting and_op:", lhs=lhs, rhs=rhs)
+        logger.trace("Visiting and_op")
         return functions.OPERATORS["&&"](lhs, rhs)
 
     @v_args(inline=True)
     def not_op(self, value: Any):
-        logger.trace("Visiting not_op:", value=value)
+        logger.trace("Visiting not_op")
         return not value
 
     # Comparison operators
     @v_args(inline=True)
     def eq_op(self, lhs: Any, rhs: Any):
-        logger.trace("Visiting eq_op:", lhs=lhs, rhs=rhs)
+        logger.trace("Visiting eq_op")
         return functions.OPERATORS["=="](lhs, rhs)
 
     @v_args(inline=True)
     def ne_op(self, lhs: Any, rhs: Any):
-        logger.trace("Visiting ne_op:", lhs=lhs, rhs=rhs)
+        logger.trace("Visiting ne_op")
         return functions.OPERATORS["!="](lhs, rhs)
 
     @v_args(inline=True)
     def gt_op(self, lhs: Any, rhs: Any):
-        logger.trace("Visiting gt_op:", lhs=lhs, rhs=rhs)
+        logger.trace("Visiting gt_op")
         return functions.OPERATORS[">"](lhs, rhs)
 
     @v_args(inline=True)
     def ge_op(self, lhs: Any, rhs: Any):
-        logger.trace("Visiting ge_op:", lhs=lhs, rhs=rhs)
+        logger.trace("Visiting ge_op")
         return functions.OPERATORS[">="](lhs, rhs)
 
     @v_args(inline=True)
     def lt_op(self, lhs: Any, rhs: Any):
-        logger.trace("Visiting lt_op:", lhs=lhs, rhs=rhs)
+        logger.trace("Visiting lt_op")
         return functions.OPERATORS["<"](lhs, rhs)
 
     @v_args(inline=True)
     def le_op(self, lhs: Any, rhs: Any):
-        logger.trace("Visiting le_op:", lhs=lhs, rhs=rhs)
+        logger.trace("Visiting le_op")
         return functions.OPERATORS["<="](lhs, rhs)
 
     # Inclusion operators
     @v_args(inline=True)
     def in_op(self, lhs: Any, rhs: Any):
-        logger.trace("Visiting in_op:", lhs=lhs, rhs=rhs)
+        logger.trace("Visiting in_op")
         return functions.OPERATORS["in"](lhs, rhs)
 
     @v_args(inline=True)
     def not_in_op(self, lhs: Any, rhs: Any):
-        logger.trace("Visiting not_in_op:", lhs=lhs, rhs=rhs)
+        logger.trace("Visiting not_in_op")
         return functions.OPERATORS["not in"](lhs, rhs)
 
     # Identity operators
     @v_args(inline=True)
     def is_op(self, lhs: Any, rhs: Any):
-        logger.trace("Visiting is_op:", lhs=lhs, rhs=rhs)
+        logger.trace("Visiting is_op")
         return functions.OPERATORS["is"](lhs, rhs)
 
     @v_args(inline=True)
     def is_not_op(self, lhs: Any, rhs: Any):
-        logger.trace("Visiting is_not_op:", lhs=lhs, rhs=rhs)
+        logger.trace("Visiting is_not_op")
         return functions.OPERATORS["is not"](lhs, rhs)
 
     # Arithmetic operators
     @v_args(inline=True)
     def add_op(self, lhs: Any, rhs: Any):
-        logger.trace("Visiting add_op:", lhs=lhs, rhs=rhs)
+        logger.trace("Visiting add_op")
         return functions.OPERATORS["+"](lhs, rhs)
 
     @v_args(inline=True)
     def sub_op(self, lhs: Any, rhs: Any):
-        logger.trace("Visiting sub_op:", lhs=lhs, rhs=rhs)
+        logger.trace("Visiting sub_op")
         return functions.OPERATORS["-"](lhs, rhs)
 
     @v_args(inline=True)
     def mul_op(self, lhs: Any, rhs: Any):
-        logger.trace("Visiting mul_op:", lhs=lhs, rhs=rhs)
+        logger.trace("Visiting mul_op")
         return functions.OPERATORS["*"](lhs, rhs)
 
     @v_args(inline=True)
     def div_op(self, lhs: Any, rhs: Any):
-        logger.trace("Visiting div_op:", lhs=lhs, rhs=rhs)
+        logger.trace("Visiting div_op")
         return functions.OPERATORS["/"](lhs, rhs)
 
     @v_args(inline=True)
     def mod_op(self, lhs: Any, rhs: Any):
-        logger.trace("Visiting mod_op:", lhs=lhs, rhs=rhs)
+        logger.trace("Visiting mod_op")
         return functions.OPERATORS["%"](lhs, rhs)
 
     # Unary operators
     @v_args(inline=True)
     def neg_op(self, value: Any):
-        logger.trace("Visiting neg_op:", value=value)
+        logger.trace("Visiting neg_op")
         return -value
 
     @v_args(inline=True)
     def pos_op(self, value: Any):
-        logger.trace("Visiting pos_op:", value=value)
+        logger.trace("Visiting pos_op")
         return +value
 
     def PARTIAL_JSONPATH_EXPR(self, token: Token):
@@ -414,7 +413,7 @@ class ExprEvaluator(Transformer[Token, Any]):
         return token.value
 
     def _apply_index(self, value: Any, index: Any) -> Any:
-        self.logger.trace("Applying index", value=value, index=index)
+        self.logger.trace("Applying index", index_type=type(index).__name__)
         if isinstance(value, Mapping):
             try:
                 return value[index]

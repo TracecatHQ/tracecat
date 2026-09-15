@@ -9,7 +9,7 @@ import {
   RadarIcon,
 } from "lucide-react"
 import Link from "next/link"
-import { usePathname, useRouter, useSearchParams } from "next/navigation"
+import { useRouter } from "next/navigation"
 import { useState } from "react"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { Button } from "@/components/ui/button"
@@ -38,6 +38,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import {
   useOrganization,
   useOrganizationMemberships,
@@ -48,42 +49,31 @@ import { getWorkspaceLandingPath } from "@/lib/workspace-navigation"
 
 export function AppMenu({ workspaceId }: { workspaceId: string }) {
   const router = useRouter()
-  const pathname = usePathname()
-  const searchParams = useSearchParams()
   const { workspaces, createWorkspace } = useWorkspaceManager()
   const { organization: activeOrganization } = useOrganization()
   const { organizations } = useOrganizationMemberships()
   const canAdministerOrg = useScopeCheck("org:update")
   const canCreateWorkspace = useScopeCheck("workspace:create")
+  const {
+    hasEntitlement,
+    hasEntitlementData,
+    isLoading: entitlementsLoading,
+  } = useEntitlements()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [workspaceName, setWorkspaceName] = useState("")
   const [isCreating, setIsCreating] = useState(false)
 
   const activeWorkspace = workspaces?.find((ws) => ws.id === workspaceId)
   const showOrganizationSelector = (organizations?.length ?? 0) > 1
-
-  const buildWorkspaceHref = (
-    targetWorkspaceId: string,
-    options: { preserveRelativePath?: boolean } = {}
-  ) => {
-    const { preserveRelativePath = true } = options
-    const currentPath = pathname ?? ""
-    const search = searchParams?.toString()
-    if (!preserveRelativePath || !currentPath.startsWith("/workspaces/")) {
-      return getWorkspaceLandingPath(targetWorkspaceId)
-    }
-    const relativePath = currentPath.replace(/^\/workspaces\/[^/]+/, "")
-    const normalizedPath =
-      relativePath && relativePath !== "/" ? relativePath : "/chat"
-
-    return `/workspaces/${targetWorkspaceId}${normalizedPath}${
-      search ? `?${search}` : ""
-    }`
-  }
+  const canCreateAdditionalWorkspace =
+    canCreateWorkspace === true &&
+    hasEntitlementData &&
+    !entitlementsLoading &&
+    hasEntitlement("multi_workspace")
 
   const handleCreateWorkspace = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!workspaceName.trim()) return
+    if (!canCreateAdditionalWorkspace || !workspaceName.trim()) return
 
     setIsCreating(true)
     try {
@@ -91,9 +81,7 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
       setDialogOpen(false)
       setWorkspaceName("")
       // Navigate to the new workspace
-      router.push(
-        buildWorkspaceHref(newWorkspace.id, { preserveRelativePath: false })
-      )
+      router.push(getWorkspaceLandingPath(newWorkspace.id))
     } catch (error) {
       console.error("Failed to create workspace:", error)
     } finally {
@@ -157,7 +145,7 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
               <DropdownMenuItem key={workspace.id} asChild>
                 <Link
                   key={workspace.id}
-                  href={buildWorkspaceHref(workspace.id)}
+                  href={getWorkspaceLandingPath(workspace.id)}
                   className={cn(
                     "flex items-center gap-2 py-1 px-2",
                     workspace.id === workspaceId &&
@@ -174,7 +162,7 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
                 </Link>
               </DropdownMenuItem>
             ))}
-            {canCreateWorkspace === true && (
+            {canCreateAdditionalWorkspace && (
               <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
                 <DialogTrigger asChild>
                   <DropdownMenuItem

@@ -103,7 +103,7 @@ import {
   useUpdateMcpIntegration,
   useUpdateMcpIntegrationToolPolicies,
 } from "@/lib/hooks"
-import { isMcpProvider } from "@/lib/integrations"
+import { findProviderForIntegration, isMcpProvider } from "@/lib/integrations"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -1688,10 +1688,11 @@ export function MCPIntegrationDialog({
                                         0 ? (
                                         connectedOAuthIntegrations.map(
                                           (integration) => {
-                                            const provider = providers?.find(
-                                              (p) =>
-                                                p.id === integration.provider_id
-                                            )
+                                            const provider =
+                                              findProviderForIntegration(
+                                                providers,
+                                                integration
+                                              )
                                             return (
                                               <SelectItem
                                                 key={integration.id}

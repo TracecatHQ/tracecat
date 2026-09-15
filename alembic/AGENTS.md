@@ -93,6 +93,14 @@ tables in workspace schemas. For these migrations:
 - Before merging a destructive migration, make sure operators have a backup or
   snapshot plan for the target environment.
 
+## Authoring a revision
+
+- Bring the database up first (`just cluster up -d`) and check the port with
+  `just cluster ports`.
+- Prefer `uv run alembic revision --autogenerate` before manually editing a
+  new migration.
+- Do not assume PostgreSQL superuser access.
+
 ## Author checklist
 
 Before opening a PR with a migration, verify:

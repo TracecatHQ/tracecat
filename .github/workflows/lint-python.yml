@@ -61,7 +61,7 @@ jobs:
             uv.lock
 
       - name: Install dependencies
-        run: uv sync --no-install-project --group lint
+        run: uv sync --no-install-project --group lint --group admin
 
       - name: Run basedpyright
         run: uv run --no-sync basedpyright --warnings --threads 4

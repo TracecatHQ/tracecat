@@ -135,7 +135,7 @@ variable "tracecat_ui_image" {
 
 variable "tracecat_image_tag" {
   type    = string
-  default = "1.0.0-beta.50"
+  default = "1.0.0-beta.52"
 }
 
 variable "tracecat_migrations_image" {
@@ -218,22 +218,10 @@ variable "tracecat_app_env" {
   default     = "production"
 }
 
-variable "platform_otel_enabled" {
-  type        = bool
-  description = "Enable platform-owned OpenTelemetry tracing for the API, worker, and executor services"
-  default     = false
-}
-
-variable "otel_exporter_otlp_endpoint" {
+variable "outbound_allowed_private_cidrs" {
   type        = string
-  description = "Base OTLP/HTTP collector endpoint for platform traces"
-  default     = null
-}
-
-variable "otel_exporter_otlp_headers_arn" {
-  type        = string
-  description = "Optional Secrets Manager ARN containing OTLP exporter headers for API and worker tracing"
-  default     = null
+  description = "Comma-separated private CIDRs permitted for outbound MCP and custom LLM requests. Empty denies private destinations. Applies to every workspace; grant only trusted endpoints."
+  default     = ""
 }
 
 variable "audit_trusted_proxy_cidrs" {
@@ -281,6 +269,12 @@ variable "result_externalization_enabled" {
   type        = bool
   description = "Enable externalization of large workflow payloads to blob storage"
   default     = true
+}
+
+variable "unsafe_disable_secret_error_withholding" {
+  type        = bool
+  description = "UNSAFE: surface original action and expression error details even when secrets are in scope, instead of the generic 'Details withheld' message. Not recommended; may expose secret-derived values in error messages."
+  default     = false
 }
 
 variable "collection_manifests_enabled" {

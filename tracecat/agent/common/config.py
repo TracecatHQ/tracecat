@@ -40,6 +40,7 @@ _AGENT_RUNTIME_UV_PATH_ENV_VARS = (
 AGENT_RUNTIME_PROTECTED_ENV_VARS = frozenset(
     {
         "UV_LINK_MODE",
+        "TRACECAT__SANDBOX_RLIMIT_NPROC",
         *(key for key, _relative_path in _AGENT_RUNTIME_UV_PATH_ENV_VARS),
     }
 )
@@ -78,7 +79,18 @@ CONTROL_SOCKET_NAME = "control.sock"
 """Name of the per-job control socket."""
 
 JAILED_CONTROL_SOCKET_PATH = AGENT_RUNTIME_DIR / "control.sock"
-"""Path to the control socket inside the jail."""
+"""Path to the control socket inside the jail.
+
+Trust model: anything mounted into the jail can be reached by untrusted
+in-jail code, so a mounted control socket provides transport isolation only,
+not authentication. The production agent transport deliberately does NOT
+mount this socket into the jail (control_socket_required=False in
+claude_code/transport.py) — jail code only reaches the orchestrator through
+the LLM and MCP socket proxies. If a future path mounts it, the orchestrator
+must treat every inbound control message as originating from the untrusted
+sandbox and validate it strictly (schema and semantics). Adding per-job
+cryptographic authentication would be the next hardening step.
+"""
 
 LLM_SOCKET_NAME = "llm.sock"
 """Name of the LLM socket for proxied LLM gateway access."""

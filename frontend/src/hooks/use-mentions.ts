@@ -78,6 +78,29 @@ export interface MentionSection {
   items: MentionSuggestion[]
 }
 
+/** The mention query currently active at an editor caret. */
+export interface MentionQuery {
+  kind: MentionKind
+  query: string
+}
+
+interface UseMentionSuggestionsOptions {
+  workspaceId: string
+  activeMention?: MentionQuery
+  agents?: MentionSourceConfig
+  workflows?: MentionSourceConfig
+}
+
+/** Shared suggestion data used by textarea and TipTap mention adapters. */
+export interface MentionSuggestions {
+  agents: MentionSourceState
+  workflows: MentionSourceState
+  sections: MentionSection[]
+  locked: boolean
+  isLoading: boolean
+  hasError: boolean
+}
+
 /**
  * Wiring the hook needs from the composer that owns the textarea. The composer
  * keeps the text in its own form state, so the hook reads and writes it through
@@ -185,41 +208,23 @@ function resolveSourceState(
 }
 
 /**
- * Mentions in a plain `<textarea>` composer: `@`-autocomplete for agent
- * presets, `/`-autocomplete for workflows to run, plus the display-value
- * mapping that turns highlighted display text into the wire value on submit.
+ * Resolve access and suggestions for the mention query at an editor caret.
  *
- * Scopes are intrinsic to a source, so they are checked here: `agent:execute`
- * plus `agent:read` for agents, `workflow:execute` plus `workflow:read` for
- * workflows. Entitlements vary by surface and are passed in per source; a
- * source the caller omits leaves its trigger character as plain text.
- *
- * While the popover is open with no rows to pick — including the locked
- * state — Enter, Tab, and the arrow keys fall through to the textarea so the
- * user can still type a newline or submit.
+ * This deliberately contains no textarea or ProseMirror position handling so
+ * both editor implementations share identical permissions, entitlement, and
+ * filtering behavior.
  */
-export function useMentions({
+export function useMentionSuggestions({
   workspaceId,
-  textareaRef,
-  getText,
-  setText,
+  activeMention,
   agents: agentsConfig,
   workflows: workflowsConfig,
-}: UseMentionsOptions): Mentions {
-  // `agent:read` is required as well as `agent:execute`: the suggestion list
-  // comes from the preset-list endpoint, which is guarded by `agent:read`.
-  // Without it the request 403s and the popover would claim there are no
-  // agents. Mirrors the workspace chat gate.
+}: UseMentionSuggestionsOptions): MentionSuggestions {
   const canUseAgents = useScopeCheck(
     undefined,
     ["agent:execute", "agent:read"],
     { all: true }
   )
-  // `workflow:read` is required as well as `workflow:execute`: the suggestion
-  // list comes from the workflow and folder list endpoints, which are guarded
-  // by `workflow:read`. Without it the requests 403 and the popover would claim
-  // there are no workflows. `workflow:execute` mirrors the API's check on
-  // workflow-backed comments.
   const canExecuteWorkflows = useScopeCheck(
     undefined,
     ["workflow:execute", "workflow:read"],
@@ -245,21 +250,19 @@ export function useMentions({
   )
   const { items: workflowItems, isLoading: workflowsIsLoading } =
     useCommentWorkflows(workspaceId, workflows === "enabled")
-  const [ranges, setRanges] = useState<MentionRange[]>([])
-  const [session, setSession] = useState<ActiveSession | undefined>(undefined)
 
-  let sessionState: MentionSourceState | undefined
-  if (session) {
-    sessionState = session.kind === "agent" ? agents : workflows
+  let activeState: MentionSourceState | undefined
+  if (activeMention) {
+    activeState = activeMention.kind === "agent" ? agents : workflows
   }
-  const locked = sessionState === "locked"
+  const locked = activeState === "locked"
 
   const sections = useMemo<MentionSection[]>(() => {
-    if (!session || sessionState === "locked") {
+    if (!activeMention || activeState === "locked") {
       return []
     }
-    const query = session.query.toLowerCase()
-    if (session.kind === "workflow") {
+    const query = activeMention.query.toLowerCase()
+    if (activeMention.kind === "workflow") {
       const items = workflowItems
         .filter(
           (workflow) =>
@@ -281,10 +284,6 @@ export function useMentions({
       return [{ section: "workflows", label: "Workflows", items }]
     }
     const items = (presets ?? [])
-      // Matched on slug as well as name, the way the workflow rows above match
-      // an alias. The slug is what tells two presets of the same name apart, so
-      // showing it as the hint without letting the query reach it would leave
-      // the duplicate past the result cap with no way to narrow to it.
       .filter(
         (preset) =>
           preset.name.toLowerCase().includes(query) ||
@@ -295,9 +294,6 @@ export function useMentions({
         (preset: AgentPresetReadMinimal): MentionSuggestion => ({
           id: preset.id,
           kind: "agent",
-          // Names are not unique -- only the slug is -- so show it the way the
-          // workflow rows show an alias. Two presets sharing a name would
-          // otherwise render as identical rows bound to different agents.
           hint: preset.slug,
           label: preset.name,
         })
@@ -306,7 +302,59 @@ export function useMentions({
       return []
     }
     return [{ section: "agents", label: "Agents", items }]
-  }, [session, sessionState, presets, workflowItems])
+  }, [activeMention, activeState, presets, workflowItems])
+
+  let isLoading = false
+  if (!locked && activeMention?.kind === "agent") {
+    isLoading = presetsIsLoading
+  } else if (!locked && activeMention?.kind === "workflow") {
+    isLoading = workflowsIsLoading
+  }
+
+  const hasError =
+    !locked && activeMention?.kind === "agent" && Boolean(presetsError)
+
+  return {
+    agents,
+    workflows,
+    sections,
+    locked,
+    isLoading,
+    hasError,
+  }
+}
+
+/**
+ * Mentions in a plain `<textarea>` composer: `@`-autocomplete for agent
+ * presets, `/`-autocomplete for workflows to run, plus the display-value
+ * mapping that turns highlighted display text into the wire value on submit.
+ *
+ * Scopes are intrinsic to a source, so they are checked here: `agent:execute`
+ * plus `agent:read` for agents, `workflow:execute` plus `workflow:read` for
+ * workflows. Entitlements vary by surface and are passed in per source; a
+ * source the caller omits leaves its trigger character as plain text.
+ *
+ * While the popover is open with no rows to pick — including the locked
+ * state — Enter, Tab, and the arrow keys fall through to the textarea so the
+ * user can still type a newline or submit.
+ */
+export function useMentions({
+  workspaceId,
+  textareaRef,
+  getText,
+  setText,
+  agents: agentsConfig,
+  workflows: workflowsConfig,
+}: UseMentionsOptions): Mentions {
+  const [ranges, setRanges] = useState<MentionRange[]>([])
+  const [session, setSession] = useState<ActiveSession | undefined>(undefined)
+  const { agents, workflows, sections, locked, isLoading, hasError } =
+    useMentionSuggestions({
+      workspaceId,
+      activeMention: session,
+      agents: agentsConfig,
+      workflows: workflowsConfig,
+    })
 
   const items = useMemo(
     () => sections.flatMap((section) => section.items),
@@ -317,18 +365,6 @@ export function useMentions({
   const activeIndex = session
     ? Math.min(session.activeIndex, Math.max(items.length - 1, 0))
     : 0
-
-  // A locked source is never fetched, so it reports neither spinner nor error.
-  let isLoading = false
-  if (!locked && session?.kind === "agent") {
-    isLoading = presetsIsLoading
-  } else if (!locked && session?.kind === "workflow") {
-    isLoading = workflowsIsLoading
-  }
-
-  // A failed lookup returns no rows, which would otherwise read as "no agents
-  // found" and hide the fact that the request needs retrying.
-  const hasError = !locked && session?.kind === "agent" && Boolean(presetsError)
 
   // A query may span spaces so a multi-word name can be typed out, but once it
   // matches nothing the user is writing prose after a stray trigger. Release

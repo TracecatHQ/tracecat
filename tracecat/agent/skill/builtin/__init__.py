@@ -1,38 +1,39 @@
-"""Built-in workspace-chat copilot skills.
+"""Server-owned catalog for image-vendored platform skills.
 
-This module holds only the allowlist. The skill directories themselves are
-vendored from the public ``tracecat-plugins`` repository into
-``config.TRACECAT__COPILOT_SKILLS_DIR`` when the image is built - deliberately
-outside the package tree, so that neither the wheel build nor a development bind
-mount over ``packages/`` can serve a stale copy.
-
-The agent executor stages each named directory into the copilot's
-``~/.claude/skills`` for every entitled workspace-chat session, independent of
-any agent preset. The claude_code runtime then discovers and fetches them on
-demand, so the guidance reaches the model regardless of model strength.
-
-Every built-in skill name MUST use the reserved ``tracecat-`` prefix. User and
-preset skill names are forbidden from using that prefix (enforced in
-``tracecat.agent.skill.schemas``), so a built-in skill can never collide with a
-user-authored one in the staged skills directory.
+Catalog keys identify immutable image assets. Portable names and origin are
+modeled separately, so workspace skills may use the same names. The executor
+stages platform skills as a skill-only Claude plugin, outside workspace skills.
 """
 
-from __future__ import annotations
+from dataclasses import dataclass
+from typing import Literal
 
-# Reserved name prefix that only platform/built-in skills may use.
-BUILTIN_SKILL_NAME_PREFIX = "tracecat-"
+from tracecat.agent.skill.types import SkillOrigin
 
-# Canonical, always-on skills staged for every entitled workspace-chat session.
-# Each entry MUST start with ``BUILTIN_SKILL_NAME_PREFIX`` and name a directory
-# under ``config.TRACECAT__COPILOT_SKILLS_DIR``. Staging warns and skips an entry
-# that is absent.
-BUILTIN_WORKSPACE_CHAT_SKILLS: tuple[str, ...] = (
-    "tracecat-workspace-chat",
-    "tracecat-automation-best-practices",
-    "tracecat-slackbot-best-practices",
+PLATFORM_SKILL_PLUGIN_NAME = "tracecat"
+PLATFORM_SKILL_PLUGIN_DIR = "platform-skills"
+
+
+@dataclass(frozen=True, slots=True)
+class PlatformSkillRef:
+    """Trusted image asset and its origin-qualified runtime identity."""
+
+    asset_name: str
+    skill_name: str
+    origin: Literal[SkillOrigin.PLATFORM] = SkillOrigin.PLATFORM
+
+    @property
+    def qualified_name(self) -> str:
+        """Return the Claude plugin skill reference."""
+        return f"{PLATFORM_SKILL_PLUGIN_NAME}:{self.skill_name}"
+
+
+PLATFORM_SKILLS: tuple[PlatformSkillRef, ...] = (
+    PlatformSkillRef("tracecat-workspace-chat", "workspace-chat"),
+    PlatformSkillRef("tracecat-automation-best-practices", "automation-best-practices"),
+    PlatformSkillRef("tracecat-slackbot-best-practices", "slackbot-best-practices"),
 )
 
-__all__ = [
-    "BUILTIN_SKILL_NAME_PREFIX",
-    "BUILTIN_WORKSPACE_CHAT_SKILLS",
-]
+# Payloads retain stable image asset keys. Only this server-owned catalog can
+# interpret a key as platform origin; workspace frontmatter cannot claim it.
+BUILTIN_WORKSPACE_CHAT_SKILLS = tuple(skill.asset_name for skill in PLATFORM_SKILLS)

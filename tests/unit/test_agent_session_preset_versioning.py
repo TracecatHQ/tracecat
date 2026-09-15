@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import contextlib
 import uuid
-from collections.abc import Iterator
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import AsyncMock, Mock, patch
@@ -18,9 +17,9 @@ from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.subagents import ResolvedAgentsConfig
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
-from tracecat.chat.tools import WORKSPACE_CHAT_DEFAULT_TOOLS, get_default_tools
+from tracecat.chat.tools import WORKSPACE_CHAT_DEFAULT_TOOLS
 from tracecat.db.models import AgentSession
-from tracecat.exceptions import EntitlementRequired, TracecatValidationError
+from tracecat.exceptions import TracecatValidationError
 from tracecat.tiers.enums import Entitlement
 
 
@@ -58,24 +57,6 @@ def _build_service() -> tuple[_TestAgentSessionService, SimpleNamespace, Role]:
     )
     service = _TestAgentSessionService(cast(Any, session), role)
     return service, session, role
-
-
-@contextlib.contextmanager
-def _workspace_owned_mcp_servers(*mcp_ids: uuid.UUID) -> Iterator[AsyncMock]:
-    """Declare which MCP servers the workspace configured itself.
-
-    ``list_mcp_integrations(source="workspace")`` is the canonical answer to
-    "did this workspace set up the server, or did it come from the Tracecat
-    catalog?", so each test states that answer directly instead of standing up
-    integration rows. Yields the patched listing so a test can assert it was
-    (or was not) consulted.
-    """
-    listing = AsyncMock(return_value=[SimpleNamespace(id=mcp_id) for mcp_id in mcp_ids])
-    with patch(
-        "tracecat.integrations.service.IntegrationService.list_mcp_integrations",
-        listing,
-    ):
-        yield listing
 
 
 def _workspace_chat_session(
@@ -194,36 +175,44 @@ async def test_create_workspace_chat_session_applies_current_default_tools() -> 
 
 
 @pytest.mark.anyio
-async def test_create_workspace_chat_session_omits_agent_tools_without_entitlement() -> (
-    None
-):
-    service, session, _role = _build_service()
-    service.agent_addons_enabled = False
-    validate_mock = AsyncMock(return_value=None)
-    agents_binding_mock = AsyncMock(return_value=None)
-    service._validate_preset_version_for_assignment = validate_mock
-    service._resolve_agents_binding_for_preset_version_id = agents_binding_mock
+async def test_resolve_session_mcp_servers_resolves_all_attached_ids() -> None:
+    """Catalog and workspace MCP servers resolve alike; no entitlement is consulted."""
+    service, _session, role = _build_service()
+    assert role.workspace_id is not None
+    mcp_ids = [str(uuid.uuid4()), str(uuid.uuid4())]
+    agent_session = _workspace_chat_session(role.workspace_id, mcp_ids)
+    resolver, agent_svc = _mcp_resolver()
 
-    created = await service.create_session(
-        AgentSessionCreate(
-            title="Chat",
-            entity_type=AgentSessionEntity.WORKSPACE_CHAT,
-            entity_id=uuid.uuid4(),
-        )
+    result = await service._resolve_session_mcp_servers(
+        agent_session,
+        cast(Any, agent_svc),
     )
 
-    # Defaults are resolved at runtime; without the agent addon entitlement the
-    # agent preset tools are filtered out of the merged result.
-    assert created.tools is None
-    resolved = await service._resolve_workspace_chat_actions(created)
-    assert resolved == get_default_tools(
-        AgentSessionEntity.WORKSPACE_CHAT.value,
-        agent_addons_enabled=False,
+    assert result == resolver.return_value
+    resolver.assert_awaited_once_with(mcp_ids)
+    assert Entitlement.AGENT_ADDONS not in service.entitlement_checks
+
+
+@pytest.mark.anyio
+async def test_validate_session_mcp_integrations_loads_selected_servers() -> None:
+    """Validation only checks that the selected servers load for the workspace."""
+    service, _session, _role = _build_service()
+    mcp_id = uuid.uuid4()
+    preset_service = Mock()
+    preset_service.load_selected_mcp_integrations = AsyncMock(
+        return_value=[SimpleNamespace(id=mcp_id)]
     )
-    assert Entitlement.AGENT_ADDONS in service.entitlement_checks
-    session.add.assert_called_once_with(created)
-    session.commit.assert_awaited_once()
-    session.refresh.assert_awaited_once_with(created)
+
+    with patch(
+        "tracecat.agent.session.service.AgentPresetService",
+        Mock(return_value=preset_service),
+    ):
+        await service._validate_session_mcp_integrations([str(mcp_id)])
+
+    preset_service.load_selected_mcp_integrations.assert_awaited_once_with(
+        [str(mcp_id)]
+    )
+    assert Entitlement.AGENT_ADDONS not in service.entitlement_checks
 
 
 @pytest.mark.anyio
@@ -280,210 +269,14 @@ async def test_update_session_validates_mcp_integrations_before_persisting() -> 
 
 
 @pytest.mark.anyio
-async def test_resolve_session_mcp_servers_drops_platform_connectors_without_addons() -> (
-    None
-):
-    """Only the Tracecat-managed catalog is gated behind the add-on.
-
-    A connector the workspace did not configure itself is a platform catalog
-    connector, so an un-entitled org gets no server at all rather than a
-    catalog connector it has not paid for.
-    """
-    service, _session, role = _build_service()
-    service.agent_addons_enabled = False
-    assert role.workspace_id is not None
-    platform_mcp_id = uuid.uuid4()
-    agent_session = _workspace_chat_session(role.workspace_id, [str(platform_mcp_id)])
-    resolver, agent_svc = _mcp_resolver()
-
-    # The workspace owns a different server, so the attached id is platform-managed.
-    with _workspace_owned_mcp_servers(uuid.uuid4()):
-        result = await service._resolve_session_mcp_servers(
-            agent_session,
-            cast(Any, agent_svc),
-        )
-
-    assert result is None
-    resolver.assert_not_awaited()
-    assert Entitlement.AGENT_ADDONS in service.entitlement_checks
-
-
-@pytest.mark.anyio
-async def test_resolve_session_mcp_servers_keeps_workspace_servers_without_addons() -> (
-    None
-):
-    """A workspace always gets to use the MCP servers it configured itself.
-
-    The add-on sells the Tracecat catalog, not the ability to attach your own
-    server, so a self-configured connector resolves on any plan.
-    """
-    service, _session, role = _build_service()
-    service.agent_addons_enabled = False
-    assert role.workspace_id is not None
-    workspace_mcp_id = uuid.uuid4()
-    agent_session = _workspace_chat_session(role.workspace_id, [str(workspace_mcp_id)])
-    resolver, agent_svc = _mcp_resolver()
-
-    with _workspace_owned_mcp_servers(workspace_mcp_id) as listing:
-        result = await service._resolve_session_mcp_servers(
-            agent_session,
-            cast(Any, agent_svc),
-        )
-
-    assert result == resolver.return_value
-    resolver.assert_awaited_once_with([str(workspace_mcp_id)])
-    listing.assert_awaited_once_with(source="workspace")
-
-
-@pytest.mark.anyio
-async def test_resolve_session_mcp_servers_keeps_only_workspace_ids_from_mixed_list() -> (
-    None
-):
-    """A mixed selection degrades to the workspace's own servers.
-
-    One un-entitled catalog connector must not take the whole session's MCP
-    config down with it; the servers the workspace owns still reach the agent.
-    """
-    service, _session, role = _build_service()
-    service.agent_addons_enabled = False
-    assert role.workspace_id is not None
-    workspace_mcp_id = uuid.uuid4()
-    other_workspace_mcp_id = uuid.uuid4()
-    platform_mcp_id = uuid.uuid4()
-    agent_session = _workspace_chat_session(
-        role.workspace_id,
-        [str(workspace_mcp_id), str(platform_mcp_id), str(other_workspace_mcp_id)],
-    )
-    resolver, agent_svc = _mcp_resolver()
-
-    with _workspace_owned_mcp_servers(workspace_mcp_id, other_workspace_mcp_id):
-        result = await service._resolve_session_mcp_servers(
-            agent_session,
-            cast(Any, agent_svc),
-        )
-
-    assert result == resolver.return_value
-    resolver.assert_awaited_once_with(
-        [str(workspace_mcp_id), str(other_workspace_mcp_id)]
-    )
-
-
-@pytest.mark.anyio
-async def test_resolve_session_mcp_servers_drops_malformed_ids_without_addons() -> None:
-    """A malformed id is dropped, not raised on.
-
-    Resolution happens on the run path, so a junk id stored on a session must
-    degrade to "no such server" instead of failing the turn.
-    """
-    service, _session, role = _build_service()
-    service.agent_addons_enabled = False
-    assert role.workspace_id is not None
-    agent_session = _workspace_chat_session(role.workspace_id, ["not-a-uuid"])
-    resolver, agent_svc = _mcp_resolver()
-
-    with _workspace_owned_mcp_servers(uuid.uuid4()):
-        result = await service._resolve_session_mcp_servers(
-            agent_session,
-            cast(Any, agent_svc),
-        )
-
-    assert result is None
-    resolver.assert_not_awaited()
-
-
-@pytest.mark.anyio
-async def test_resolve_session_mcp_servers_passes_ids_through_with_addons() -> None:
-    """With add-ons there is nothing to split, so nothing is looked up.
-
-    Every attached id is allowed, and the workspace/platform listing is not
-    queried at all -- the entitled path costs no extra database round trip.
-    """
-    service, _session, role = _build_service()
-    assert service.agent_addons_enabled is True
-    assert role.workspace_id is not None
-    mcp_ids = [str(uuid.uuid4()), str(uuid.uuid4())]
-    agent_session = _workspace_chat_session(role.workspace_id, mcp_ids)
-    resolver, agent_svc = _mcp_resolver()
-
-    with _workspace_owned_mcp_servers() as listing:
-        result = await service._resolve_session_mcp_servers(
-            agent_session,
-            cast(Any, agent_svc),
-        )
-
-    assert result == resolver.return_value
-    resolver.assert_awaited_once_with(mcp_ids)
-    listing.assert_not_awaited()
-
-
-@pytest.mark.anyio
-async def test_validate_session_mcp_integrations_rejects_platform_without_addons() -> (
-    None
-):
-    """Selecting a catalog connector without the add-on fails at write time.
-
-    The user gets a 403 while saving instead of a session that silently loses
-    the server on its next turn.
-    """
-    service, _session, _role = _build_service()
-    service.agent_addons_enabled = False
-    platform_mcp_id = uuid.uuid4()
-    preset_service = Mock()
-    preset_service.load_selected_mcp_integrations = AsyncMock(
-        return_value=[SimpleNamespace(id=platform_mcp_id)]
-    )
-
-    with (
-        patch(
-            "tracecat.agent.session.service.AgentPresetService",
-            Mock(return_value=preset_service),
-        ),
-        _workspace_owned_mcp_servers(uuid.uuid4()),
-        pytest.raises(EntitlementRequired),
-    ):
-        await service._validate_session_mcp_integrations([str(platform_mcp_id)])
-
-    preset_service.load_selected_mcp_integrations.assert_awaited_once_with(
-        [str(platform_mcp_id)]
-    )
-
-
-@pytest.mark.anyio
-async def test_validate_session_mcp_integrations_allows_workspace_without_addons() -> (
-    None
-):
-    """Attaching a self-configured MCP server needs no entitlement."""
-    service, _session, _role = _build_service()
-    service.agent_addons_enabled = False
-    workspace_mcp_id = uuid.uuid4()
-    preset_service = Mock()
-    preset_service.load_selected_mcp_integrations = AsyncMock(
-        return_value=[SimpleNamespace(id=workspace_mcp_id)]
-    )
-
-    with (
-        patch(
-            "tracecat.agent.session.service.AgentPresetService",
-            Mock(return_value=preset_service),
-        ),
-        _workspace_owned_mcp_servers(workspace_mcp_id) as listing,
-    ):
-        await service._validate_session_mcp_integrations([str(workspace_mcp_id)])
-
-    preset_service.load_selected_mcp_integrations.assert_awaited_once_with(
-        [str(workspace_mcp_id)]
-    )
-    listing.assert_awaited_once_with(source="workspace")
-
-
-@pytest.mark.anyio
-async def test_create_session_derives_agents_binding_from_pinned_preset_version() -> (
-    None
-):
+@pytest.mark.parametrize("persist_agents_binding", [True, False])
+async def test_create_session_derives_agents_binding_from_pinned_preset_version(
+    persist_agents_binding: bool,
+) -> None:
     service, session, _role = _build_service()
     preset_id = uuid.uuid4()
     pinned_version_id = uuid.uuid4()
-    agents_binding = {"enabled": True, "subagents": []}
+    agents_binding = {"subagents": []}
     validate_mock = AsyncMock(return_value=pinned_version_id)
     agents_binding_mock = AsyncMock(return_value=agents_binding)
     service._validate_preset_version_for_assignment = validate_mock
@@ -496,7 +289,8 @@ async def test_create_session_derives_agents_binding_from_pinned_preset_version(
             entity_id=uuid.uuid4(),
             agent_preset_id=preset_id,
             agent_preset_version_id=pinned_version_id,
-        )
+        ),
+        persist_agents_binding=persist_agents_binding,
     )
 
     validate_mock.assert_awaited_once_with(
@@ -507,8 +301,13 @@ async def test_create_session_derives_agents_binding_from_pinned_preset_version(
     )
     assert created.agent_preset_id == preset_id
     assert created.agent_preset_version_id == pinned_version_id
-    assert created.agents_binding == agents_binding
-    agents_binding_mock.assert_awaited_once_with(pinned_version_id)
+    assert created.agents_binding == (
+        agents_binding if persist_agents_binding else None
+    )
+    if persist_agents_binding:
+        agents_binding_mock.assert_awaited_once_with(pinned_version_id)
+    else:
+        agents_binding_mock.assert_not_awaited()
     session.commit.assert_awaited_once()
     session.refresh.assert_awaited_once_with(created)
 
@@ -530,7 +329,6 @@ async def test_create_session_prefers_provided_agents_binding_for_pinned_preset(
     service._resolve_agents_binding_for_preset_version_id = agents_binding_mock
     agents_binding = ResolvedAgentsConfig.model_validate(
         {
-            "enabled": True,
             "subagents": [
                 {
                     "preset": "child",
@@ -574,9 +372,7 @@ async def test_create_session_persists_internal_agents_binding_without_preset() 
     agents_binding_mock = AsyncMock(return_value=None)
     service._validate_preset_version_for_assignment = validate_mock
     service._resolve_agents_binding_for_preset_version_id = agents_binding_mock
-    agents_binding = ResolvedAgentsConfig.model_validate(
-        {"enabled": True, "subagents": []}
-    )
+    agents_binding = ResolvedAgentsConfig.model_validate({"subagents": []})
 
     created = await service.create_session(
         AgentSessionCreate(
@@ -607,7 +403,7 @@ async def test_update_session_preserves_null_version_when_preset_changes() -> No
         entity_id=uuid.uuid4(),
         agent_preset_id=old_preset_id,
         agent_preset_version_id=old_version_id,
-        agents_binding={"enabled": True, "subagents": []},
+        agents_binding={"subagents": []},
     )
     validate_mock = AsyncMock(return_value=None)
     agents_binding_mock = AsyncMock(return_value=None)
@@ -646,7 +442,7 @@ async def test_update_session_clears_agents_binding_when_preset_removed() -> Non
         entity_id=uuid.uuid4(),
         agent_preset_id=old_preset_id,
         agent_preset_version_id=old_version_id,
-        agents_binding={"enabled": True, "subagents": []},
+        agents_binding={"subagents": []},
     )
 
     updated = await service.update_session(
@@ -705,7 +501,7 @@ async def test_update_session_allows_version_only_repin_for_preset_sessions() ->
         agent_preset_version_id=uuid.uuid4(),
     )
     validate_mock = AsyncMock(return_value=new_version_id)
-    agents_binding_mock = AsyncMock(return_value={"enabled": True, "subagents": []})
+    agents_binding_mock = AsyncMock(return_value={"subagents": []})
     service._validate_preset_version_for_assignment = validate_mock
     service._resolve_agents_binding_for_preset_version_id = agents_binding_mock
 
@@ -722,7 +518,7 @@ async def test_update_session_allows_version_only_repin_for_preset_sessions() ->
     )
     assert updated.agent_preset_id == preset_id
     assert updated.agent_preset_version_id == new_version_id
-    assert updated.agents_binding == {"enabled": True, "subagents": []}
+    assert updated.agents_binding == {"subagents": []}
     agents_binding_mock.assert_awaited_once_with(new_version_id)
     session.commit.assert_awaited_once()
     session.refresh.assert_awaited_once_with(agent_session)
@@ -740,7 +536,7 @@ async def test_update_session_clears_pinned_version_to_follow_current() -> None:
         entity_id=preset_id,
         agent_preset_id=preset_id,
         agent_preset_version_id=uuid.uuid4(),
-        agents_binding={"enabled": True, "subagents": []},
+        agents_binding={"subagents": []},
     )
     validate_mock = AsyncMock()
     agents_binding_mock = AsyncMock(return_value=None)
@@ -779,7 +575,7 @@ async def test_update_session_ignores_mismatched_preset_id_for_preset_sessions()
         agent_preset_version_id=uuid.uuid4(),
     )
     validate_mock = AsyncMock(return_value=new_version_id)
-    agents_binding_mock = AsyncMock(return_value={"enabled": True, "subagents": []})
+    agents_binding_mock = AsyncMock(return_value={"subagents": []})
     service._validate_preset_version_for_assignment = validate_mock
     service._resolve_agents_binding_for_preset_version_id = agents_binding_mock
 
@@ -799,7 +595,7 @@ async def test_update_session_ignores_mismatched_preset_id_for_preset_sessions()
     )
     assert updated.agent_preset_id == preset_id
     assert updated.agent_preset_version_id == new_version_id
-    assert updated.agents_binding == {"enabled": True, "subagents": []}
+    assert updated.agents_binding == {"subagents": []}
     agents_binding_mock.assert_awaited_once_with(new_version_id)
     session.commit.assert_awaited_once()
     session.refresh.assert_awaited_once_with(agent_session)

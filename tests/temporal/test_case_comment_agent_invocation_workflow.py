@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 from sqlalchemy import delete, select
 from temporalio import activity, workflow
+from temporalio.api.enums.v1 import EventType
 from temporalio.client import WorkflowFailureError
 from temporalio.exceptions import ApplicationError, CancelledError
 from temporalio.service import RPCError
@@ -374,17 +375,61 @@ async def test_parent_preserves_failure_across_cleanup(
             if origin == "cancelled":
                 await asyncio.wait_for(_CHILD_WAITING.wait(), timeout=5)
                 await handle.cancel()
-            with pytest.raises(WorkflowFailureError) as exc_info:
-                await handle.result()
+            with env.auto_time_skipping_disabled():
+                with pytest.raises(WorkflowFailureError) as exc_info:
+                    await asyncio.wait_for(handle.result(), timeout=5)
+            history = await handle.fetch_history()
+            event_names = [EventType.Name(event.event_type) for event in history.events]
 
-    assert len(_FAILURES) == 1
-    assert _FAILURES[0].kind == origin
+    assert len(_FAILURES) == 1, (exc_info.value.cause, event_names)
+    assert _FAILURES[0].kind == origin, event_names
     original_error = root_cause(exc_info.value)
     if origin == "cancelled":
         assert isinstance(original_error, CancelledError)
     else:
         assert isinstance(original_error, ApplicationError)
         assert "agent_turn exploded" in str(original_error)
+
+
+@pytest.mark.anyio
+async def test_failure_cleanup_survives_repeated_cancellation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cleanup_started = asyncio.Event()
+    release_cleanup = asyncio.Event()
+
+    async def slow_cleanup() -> None:
+        cleanup_started.set()
+        await release_cleanup.wait()
+
+    def start_activity(*args: object, **kwargs: object) -> asyncio.Task[None]:
+        return asyncio.ensure_future(slow_cleanup())
+
+    monkeypatch.setattr(
+        invocation_workflows.workflow,
+        "start_activity",
+        start_activity,
+    )
+    invocation_id = uuid.uuid4()
+    cleanup_task = asyncio.create_task(
+        invocation_workflows.CaseCommentAgentInvocationWorkflow()._record_failure(
+            schemas.CaseCommentAgentInvocationWorkflowInput(
+                role=Role(type="service", service_id="tracecat-api"),
+                invocation_id=invocation_id,
+            ),
+            "cancelled",
+            "cancelled",
+        )
+    )
+
+    await cleanup_started.wait()
+    for _ in range(3):
+        cleanup_task.cancel()
+        await asyncio.sleep(0)
+        assert not cleanup_task.done()
+
+    release_cleanup.set()
+    await cleanup_task
 
 
 @pytest.mark.anyio

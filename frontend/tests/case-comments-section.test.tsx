@@ -92,6 +92,177 @@ jest.mock("@/components/cases/case-description-editor", () => ({
   ),
 }))
 
+// Keep these orchestration tests independent of TipTap's ESM-only Markdown
+// parser. The adapter deliberately exposes the old textarea interaction model
+// while routing mentions through the shared suggestion/serialization logic.
+jest.mock("@/components/cases/case-comment-editor", () => {
+  const React = jest.requireActual<typeof import("react")>("react")
+  const { MentionOverlay } = jest.requireActual<
+    typeof import("@/components/mentions/mention-overlay")
+  >("@/components/mentions/mention-overlay")
+  type MentionRange = import("@/lib/mentions").MentionRange
+
+  interface TestEditor {
+    view: { dom: HTMLTextAreaElement }
+    textareaRef: React.RefObject<HTMLTextAreaElement | null>
+    getText: () => string
+    setText: (next: string) => void
+    ranges: MentionRange[]
+    handleTextChange?: (next: string, caret: number) => void
+    handleSelectionChange?: () => void
+  }
+
+  interface TestEditorProps {
+    value: string
+    onChange: (value: string) => void
+    placeholder: string
+    mode?: "default" | "inline"
+    autoFocus?: boolean
+    onBlur?: () => void
+    onFocus?: () => void
+    onUploadingChange?: (isUploading: boolean) => void
+    onEditorReady?: (editor: TestEditor | null) => void
+  }
+
+  function CaseCommentEditor({
+    value,
+    onChange,
+    placeholder,
+    mode,
+    autoFocus,
+    onBlur,
+    onFocus,
+    onUploadingChange,
+    onEditorReady,
+  }: TestEditorProps) {
+    const textareaRef = React.useRef<HTMLTextAreaElement>(null)
+    const valueRef = React.useRef(value)
+    const onChangeRef = React.useRef(onChange)
+    const editorRef = React.useRef<TestEditor | null>(null)
+    valueRef.current = value
+    onChangeRef.current = onChange
+
+    React.useEffect(() => {
+      const dom = textareaRef.current
+      if (!dom) {
+        return
+      }
+      const editor: TestEditor = {
+        view: { dom },
+        textareaRef,
+        getText: () => valueRef.current,
+        setText: (next) => onChangeRef.current(next),
+        ranges: [],
+      }
+      editorRef.current = editor
+      onEditorReady?.(editor)
+      onUploadingChange?.(false)
+      return () => {
+        editorRef.current = null
+        onEditorReady?.(null)
+      }
+    }, [onEditorReady, onUploadingChange])
+
+    return (
+      <div>
+        <MentionOverlay
+          text={value}
+          mentions={editorRef.current?.ranges ?? []}
+          className="text-sm"
+        />
+        <textarea
+          autoFocus={autoFocus}
+          ref={textareaRef}
+          className={mode === "inline" ? "resize-none min-h-9" : "resize-none"}
+          placeholder={placeholder}
+          value={value}
+          onBlur={onBlur}
+          onFocus={onFocus}
+          onChange={(event) => {
+            const caret =
+              event.currentTarget.selectionStart ??
+              event.currentTarget.value.length
+            editorRef.current?.handleTextChange?.(
+              event.currentTarget.value,
+              caret
+            )
+            onChange(event.currentTarget.value)
+          }}
+          onSelect={() => editorRef.current?.handleSelectionChange?.()}
+        />
+      </div>
+    )
+  }
+
+  return { CaseCommentEditor }
+})
+
+jest.mock("@/hooks/use-tiptap-mentions", () => {
+  const React = jest.requireActual<typeof import("react")>("react")
+  const { useMentions } = jest.requireActual<
+    typeof import("@/hooks/use-mentions")
+  >("@/hooks/use-mentions")
+  type MentionSourceConfig = import("@/hooks/use-mentions").MentionSourceConfig
+  type MentionRange = import("@/lib/mentions").MentionRange
+
+  interface TestEditor {
+    textareaRef: React.RefObject<HTMLTextAreaElement | null>
+    getText: () => string
+    setText: (next: string) => void
+    ranges: MentionRange[]
+    handleTextChange?: (next: string, caret: number) => void
+    handleSelectionChange?: () => void
+  }
+
+  interface TestHookOptions {
+    editor: TestEditor | null
+    workspaceId: string
+    agents?: MentionSourceConfig
+    workflows?: MentionSourceConfig
+  }
+
+  return {
+    useTiptapMentions: ({
+      editor,
+      workspaceId,
+      agents,
+      workflows,
+    }: TestHookOptions) => {
+      const fallbackRef = React.useRef<HTMLTextAreaElement>(null)
+      const mentions = useMentions({
+        workspaceId,
+        agents,
+        workflows,
+        textareaRef: editor?.textareaRef ?? fallbackRef,
+        getText: () => editor?.getText() ?? "",
+        setText: (next) => {
+          editor?.setText(next)
+        },
+      })
+      if (editor) {
+        editor.ranges = mentions.ranges
+        editor.handleTextChange = mentions.handleTextChange
+        editor.handleSelectionChange = mentions.handleSelectionChange
+      }
+      return {
+        ...mentions,
+        handleKeyDown: (event: KeyboardEvent) =>
+          mentions.handleKeyDown({
+            currentTarget: editor?.textareaRef.current ?? event.target,
+            key: event.key,
+            shiftKey: event.shiftKey,
+            nativeEvent: event,
+            preventDefault: () => event.preventDefault(),
+          } as React.KeyboardEvent<HTMLTextAreaElement>),
+        serialize: (text: string) => ({
+          content: mentions.serialize(text),
+          workflowId: mentions.workflowId,
+        }),
+      }
+    },
+  }
+})
+
 jest.mock("@/components/cases/case-panel-common", () => ({
   CaseEventTimestamp: ({
     createdAt,
@@ -1471,7 +1642,10 @@ describe("CommentSection", () => {
     })
 
     function getCaretMarker(textarea: HTMLElement) {
-      const marker = textarea.parentElement?.querySelector("span[aria-hidden]")
+      const marker =
+        textarea.parentElement?.parentElement?.querySelector(
+          "span[aria-hidden]"
+        )
       if (!(marker instanceof HTMLElement)) {
         throw new Error("Expected a caret marker next to the composer")
       }

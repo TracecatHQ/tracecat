@@ -25,6 +25,22 @@ COMPOSE_ENV_FILES = (
 ENV_EXAMPLE_FILES = (REPO_ROOT / ".env.example",)
 DEPLOYMENT_ENV_FILES = (*COMPOSE_ENV_FILES, *ENV_EXAMPLE_FILES)
 TRACED_COMPOSE_ENV_FILES = SANDBOX_POLICY_COMPOSE_ENV_FILES
+TRACED_COMPOSE_SERVICES = (
+    "api",
+    "worker",
+    "executor",
+    "agent-worker",
+    "agent-executor",
+)
+PLATFORM_OTEL_COMPOSE_ENV = (
+    "TRACECAT__PLATFORM_OTEL_ENABLED: ${TRACECAT__PLATFORM_OTEL_ENABLED:-false}",
+    "OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4318}",
+    "OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_traceidratio}",
+    "OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1.0}",
+)
+PLATFORM_OTEL_HEADERS_COMPOSE_ENV = (
+    "OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}"
+)
 SANDBOX_POLICY_ENV_VARS = {
     "TRACECAT__SANDBOX_INSTALL_ALLOWED_EGRESS_CIDRS",
     "TRACECAT__SANDBOX_INSTALL_ALLOWED_EGRESS_TCP_PORTS",
@@ -43,14 +59,12 @@ REGISTRY_POLICY_ENV_VARS = {
     "TRACECAT__SANDBOX_REGISTRY_ALLOWED_EGRESS_CIDRS",
     "TRACECAT__SANDBOX_REGISTRY_ALLOWED_EGRESS_TCP_PORTS",
 }
-TRACED_COMPOSE_SERVICES = ("api", "worker", "executor")
-SENTRY_WORKFLOW_COMPOSE_SERVICES = ("worker", "agent-worker", "executor")
-PLATFORM_OTEL_COMPOSE_ENV = (
-    "TRACECAT__PLATFORM_OTEL_ENABLED: ${TRACECAT__PLATFORM_OTEL_ENABLED:-false}",
-    "OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4318}",
-)
-PLATFORM_OTEL_HEADERS_COMPOSE_ENV = (
-    "OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}"
+SENTRY_PLATFORM_COMPOSE_SERVICES = (
+    "api",
+    "worker",
+    "agent-worker",
+    "executor",
+    "agent-executor",
 )
 
 
@@ -222,6 +236,35 @@ def test_audit_trusted_proxy_env_is_wired_to_deployments() -> None:
         assert "audit_trusted_proxy_cidrs" in (fargate / tf).read_text(), tf
 
 
+def test_outbound_private_cidrs_are_wired_to_deployments() -> None:
+    """Validation, gateway, and agent processes share the operator's policy."""
+    name = "TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS"
+    for path in SANDBOX_POLICY_COMPOSE_ENV_FILES:
+        for service in ("api", "litellm", "agent-executor", "agent-worker"):
+            match = re.search(
+                rf"(?ms)^  {service}:\n(?P<body>.*?)(?=^  [a-z][a-z0-9_-]*:\n|\Z)",
+                path.read_text(),
+            )
+            assert match is not None, f"{path.name}: no {service} service block"
+            assert f"{name}: ${{{name}:-}}" in match.group("body"), (
+                f"{path.name}: {service} must forward the override and default to empty"
+            )
+    fargate = REPO_ROOT / "deployments/fargate"
+    assert (
+        f"{name} = var.outbound_allowed_private_cidrs"
+        in (fargate / "modules/ecs/locals.tf").read_text()
+    )
+    assert re.search(
+        r"outbound_allowed_private_cidrs\s*=\s*var.outbound_allowed_private_cidrs",
+        (fargate / "main.tf").read_text(),
+    )
+    for tf in ("variables.tf", "modules/ecs/variables.tf"):
+        assert re.search(
+            r'variable "outbound_allowed_private_cidrs" \{[^}]*default\s*=\s*""',
+            (fargate / tf).read_text(),
+        ), tf
+
+
 def test_sandbox_policy_env_vars_are_wired_to_compose_files() -> None:
     missing_by_file = {
         str(path.relative_to(REPO_ROOT)): sorted(
@@ -345,15 +388,15 @@ def test_platform_otel_env_is_forwarded_to_traced_compose_services(
     service_body = service_match.group("body")
     for env_line in PLATFORM_OTEL_COMPOSE_ENV:
         assert env_line in service_body
-    if service == "executor":
+    if service in {"executor", "agent-executor"}:
         assert PLATFORM_OTEL_HEADERS_COMPOSE_ENV not in service_body
     else:
         assert PLATFORM_OTEL_HEADERS_COMPOSE_ENV in service_body
 
 
 @pytest.mark.parametrize("path", TRACED_COMPOSE_ENV_FILES, ids=lambda path: path.name)
-@pytest.mark.parametrize("service", SENTRY_WORKFLOW_COMPOSE_SERVICES)
-def test_sentry_dsn_is_forwarded_to_workflow_compose_services(
+@pytest.mark.parametrize("service", SENTRY_PLATFORM_COMPOSE_SERVICES)
+def test_sentry_dsn_is_forwarded_to_platform_compose_services(
     path: Path, service: str
 ) -> None:
     source = path.read_text()
@@ -468,6 +511,60 @@ def test_agent_executor_drain_default_covers_all_supported_timeouts(
         importlib.reload(tracecat_config)
 
 
+@pytest.mark.parametrize(
+    ("values", "expected"),
+    [
+        pytest.param(
+            {},
+            (100, 1000, 30_000),
+            id="defaults",
+        ),
+        pytest.param(
+            {
+                "TRACECAT__LIMIT_AGG_GROUPS_DEFAULT": "250",
+                "TRACECAT__LIMIT_AGG_GROUPS_MAX": "2000",
+                "TRACECAT__AGG_STATEMENT_TIMEOUT_MS": "15000",
+            },
+            (250, 2000, 15_000),
+            id="operator-overrides",
+        ),
+        pytest.param(
+            {
+                "TRACECAT__AGG_STATEMENT_TIMEOUT_MS": "2147483648",
+            },
+            (100, 1000, 2_147_483_647),
+            id="timeout-clamped-to-postgres-maximum",
+        ),
+    ],
+)
+def test_aggregation_query_config(
+    monkeypatch: pytest.MonkeyPatch,
+    values: dict[str, str],
+    expected: tuple[int, int, int],
+) -> None:
+    names = (
+        "TRACECAT__LIMIT_AGG_GROUPS_DEFAULT",
+        "TRACECAT__LIMIT_AGG_GROUPS_MAX",
+        "TRACECAT__AGG_STATEMENT_TIMEOUT_MS",
+    )
+    try:
+        with monkeypatch.context() as env:
+            for name in names:
+                env.delenv(name, raising=False)
+            for name, value in values.items():
+                env.setenv(name, value)
+
+            reloaded_config = importlib.reload(tracecat_config)
+
+            assert (
+                reloaded_config.TRACECAT__LIMIT_AGG_GROUPS_DEFAULT,
+                reloaded_config.TRACECAT__LIMIT_AGG_GROUPS_MAX,
+                reloaded_config.TRACECAT__AGG_STATEMENT_TIMEOUT_MS,
+            ) == expected
+    finally:
+        importlib.reload(tracecat_config)
+
+
 def test_executor_concurrency_uses_bounded_defaults(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -498,3 +595,10 @@ def test_bound_env_rejects_invalid_bounds() -> None:
         ValueError, match="lower \\(10\\) cannot be greater than upper \\(8\\)"
     ):
         bound_env("TEST_BOUND_ENV", 16, lower=10, upper=8)
+
+
+def test_platform_otel_operator_settings_are_not_advertised_in_env_example() -> None:
+    source = (REPO_ROOT / ".env.example").read_text()
+    assert "TRACECAT__PLATFORM_OTEL_ENABLED" not in source
+    assert "OTEL_EXPORTER_OTLP_ENDPOINT" not in source
+    assert "OTEL_EXPORTER_OTLP_HEADERS" not in source

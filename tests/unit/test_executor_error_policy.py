@@ -15,7 +15,10 @@ from tracecat.runtime.errors import (
     RuntimeErrorKind,
     RuntimeErrorOwner,
 )
-from tracecat.sandbox.exceptions import SandboxWorkloadError
+from tracecat.sandbox.exceptions import (
+    SandboxWorkloadError,
+    raise_for_sandbox_error_code,
+)
 from tracecat.sandbox.types import SandboxErrorCode
 
 
@@ -122,3 +125,74 @@ def test_loop_retry_requires_every_failed_iteration_to_be_retryable() -> None:
 
     assert result.owner is RuntimeErrorOwner.PLATFORM
     assert result.retry_disposition is RetryDisposition.RETRYABLE
+
+
+def test_sandbox_resource_limit_gets_dedicated_user_owned_kind() -> None:
+    """A workload that exceeded a published sandbox cap is the caller's to fix.
+
+    Invariant: ``SandboxErrorCode.RESOURCE_LIMIT_EXCEEDED`` maps to the
+    dedicated ``sandbox.resource_limit_exceeded`` kind, stays user-owned, is
+    never retried (the cap is deterministic), and names the memory env var.
+    """
+    workload_error = SandboxWorkloadError(
+        "sandbox-controlled text",
+        error_code=SandboxErrorCode.RESOURCE_LIMIT_EXCEEDED,
+    )
+
+    classification = classify_execute_action_error(
+        _iteration_error(workload_error, index=0),
+        action_name="test_action",
+    )
+
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert classification.kind is RuntimeErrorKind.SANDBOX_RESOURCE_LIMIT_EXCEEDED
+    assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+    assert classification.cause_type == "SandboxWorkloadError"
+    assert "TRACECAT__SANDBOX_DEFAULT_MEMORY_MB" in classification.message
+    assert "sandbox-controlled text" not in classification.message
+
+
+@pytest.mark.parametrize(
+    ("error_code", "retry_disposition"),
+    [
+        (SandboxErrorCode.WORKLOAD_FAILURE, RetryDisposition.NON_RETRYABLE),
+        (SandboxErrorCode.POLICY_VIOLATION, RetryDisposition.NON_RETRYABLE),
+        (SandboxErrorCode.TIMEOUT, RetryDisposition.RETRYABLE),
+    ],
+)
+def test_other_sandbox_workload_codes_keep_action_execution_failed(
+    error_code: SandboxErrorCode,
+    retry_disposition: RetryDisposition,
+) -> None:
+    """Invariant: only the resource-limit code leaves ``action.execution.failed``."""
+    workload_error = SandboxWorkloadError("stopped", error_code=error_code)
+
+    classification = classify_execute_action_error(
+        _iteration_error(workload_error, index=0),
+        action_name="test_action",
+    )
+
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert classification.kind is RuntimeErrorKind.ACTION_EXECUTION_FAILED
+    assert classification.retry_disposition is retry_disposition
+
+
+def test_resource_limit_envelope_code_reaches_classification_without_text() -> None:
+    """Invariant: the envelope's ``resource_limit_exceeded`` code alone drives it.
+
+    ``raise_for_sandbox_error_code`` is the only bridge from a decoded sandbox
+    result to the executor error chain, so the code it receives from an
+    in-jail ``MemoryError`` envelope must survive as a typed exception.
+    """
+    with pytest.raises(SandboxWorkloadError) as excinfo:
+        raise_for_sandbox_error_code(
+            SandboxErrorCode.RESOURCE_LIMIT_EXCEEDED,
+            "MemoryError: script exceeded the sandbox memory limit",
+        )
+
+    assert excinfo.value.error_code is SandboxErrorCode.RESOURCE_LIMIT_EXCEEDED
+    classification = classify_execute_action_error(
+        _iteration_error(excinfo.value, index=0),
+        action_name="core.script.run_python",
+    )
+    assert classification.kind is RuntimeErrorKind.SANDBOX_RESOURCE_LIMIT_EXCEEDED

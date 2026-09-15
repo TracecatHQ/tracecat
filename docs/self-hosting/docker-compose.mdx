@@ -29,10 +29,10 @@ The `env.sh` script (next step) generates these automatically. If you need to ge
 
 ```bash
 # 1. Download the env.sh installation script
-curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.50/env.sh
+curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.52/env.sh
 
 # 2. Download the .env.example template file (env.sh needs this to generate your .env file)
-curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.50/.env.example
+curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.52/.env.example
 
 # 3. Make the env.sh script executable and run it
 chmod +x env.sh && ./env.sh
@@ -50,13 +50,13 @@ Tracecat uses Caddy as a reverse proxy.
 You'll need to download the following `Caddyfile` to configure this service.
 
 ```bash
-curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.50/Caddyfile
+curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.52/Caddyfile
 ```
 
 ## Download Docker Compose file
 
 ```bash
-curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.50/docker-compose.yml
+curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.52/docker-compose.yml
 ```
 
 ## Start Tracecat
@@ -135,6 +135,8 @@ These are recommended minimums for different workload sizes.
 
 Memory is typically the constraining factor.
 Workflow throughput is lower than dedicated Kubernetes deployments where services have guaranteed resources and can scale independently.
+
+To size executor replicas, concurrency settings, and PostgreSQL connections for a target of up to 256 actions per second, see [Scaling action throughput](/self-hosting/scaling).
 
 For production workloads that exceed single-host capacity, consider [converting to Docker Swarm](#convert-to-docker-swarm) or deploying on Kubernetes.
 

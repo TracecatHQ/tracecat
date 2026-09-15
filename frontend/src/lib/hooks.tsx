@@ -5827,6 +5827,10 @@ export function useWorkspaceAgentModels(
   return {
     models,
     providers,
+    catalogLoading: modelsLoading,
+    catalogError: modelsError,
+    providersLoading,
+    providersError,
     modelsLoading: modelsLoading || providersLoading,
     modelsError: modelsError ?? providersError,
   }
@@ -5920,6 +5924,7 @@ export function useAgentDefaultModel() {
   const {
     data: defaultModelSelection,
     isLoading: defaultModelSelectionLoading,
+    error: defaultModelSelectionError,
   } = useQuery<DefaultModelSelection | null>({
     queryKey: ["agent-default-model-selection"],
     queryFn: async () => await agentGetDefaultModelSelection(),
@@ -5946,8 +5951,10 @@ export function useAgentDefaultModel() {
   return {
     defaultModel,
     defaultModelSelection,
+    defaultModelSelectionLoading,
+    defaultModelSelectionError,
     defaultModelLoading: defaultModelLoading || defaultModelSelectionLoading,
-    defaultModelError,
+    defaultModelError: defaultModelError ?? defaultModelSelectionError,
     updateDefaultModel,
     isUpdating,
     updateError,

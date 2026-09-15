@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import signal
 import socket
 import tempfile
 from collections.abc import Iterator
@@ -11,6 +12,7 @@ import orjson
 import pytest
 
 from tracecat.agent.sandbox.shim_entrypoint import (
+    BRIDGE_HOST,
     DEFAULT_LLM_SOCKET_PATH,
     DEFAULT_MCP_SOCKET_PATH,
     INIT_PAYLOAD_ENV_VAR,
@@ -18,12 +20,14 @@ from tracecat.agent.sandbox.shim_entrypoint import (
     LLM_SOCKET_ENV_VAR,
     MCP_SOCKET_ENV_VAR,
     SandboxSocketBridge,
+    _forward_exit_code,
     _pump_stdin_to_process,
     _read_stdin_chunk,
     _resolve_init_payload_path,
     _resolve_mcp_socket_path,
     _rewrite_mcp_bridge_command_port,
     _wait_for_process_with_stdin,
+    run_sandboxed_claude_shim,
 )
 from tracecat.agent.sandbox.shim_entrypoint import (
     _read_init_payload as _read_shim_init_payload,
@@ -448,3 +452,135 @@ async def test_sandbox_socket_bridge_drops_silently_on_uds_failure_in_drop_mode(
 
     # drop mode: no HTTP response written, connection just closes.
     assert response == b""
+
+
+@pytest.mark.parametrize(
+    "otel_port",
+    [
+        pytest.param(None, id="start-failure"),
+        pytest.param(4318, id="start-success"),
+    ],
+)
+@pytest.mark.anyio
+async def test_shim_sets_otel_env_only_after_drop_mode_bridge_starts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    otel_port: int | None,
+) -> None:
+    """The child gets local OTel routing only after the drop-mode bridge starts."""
+    init_path = tmp_path / "shim-init.json"
+    init_path.write_bytes(
+        orjson.dumps(
+            {
+                "command": ["claude", "--print"],
+                "env": {"CLAUDE_CODE_ENABLE_TELEMETRY": "1"},
+                "cwd": str(tmp_path),
+                "mcp_bridge_port": 4101,
+            }
+        )
+    )
+    monkeypatch.setenv(INIT_PAYLOAD_ENV_VAR, str(init_path))
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
+    captured_env: dict[str, str] = {}
+    bridges: list[SandboxSocketBridge] = []
+
+    class FakeProcess:
+        def __init__(self) -> None:
+            self.stdin = cast(asyncio.StreamWriter, object())
+            self.stdout = cast(asyncio.StreamReader, object())
+            self.stderr = cast(asyncio.StreamReader, object())
+            self.returncode: int | None = 0
+
+        def terminate(self) -> None:
+            raise AssertionError("completed process should not be terminated")
+
+        async def wait(self) -> int:
+            return 0
+
+    async def fake_bridge_start(bridge: SandboxSocketBridge) -> int:
+        bridges.append(bridge)
+        if bridge._log_label == "LLM bridge":
+            return 4100
+        if bridge._log_label == "MCP bridge":
+            return 4101
+        assert bridge._log_label == "OTel bridge"
+        if otel_port is None:
+            raise OSError("synthetic bind failure")
+        return otel_port
+
+    async def fake_bridge_stop(_bridge: SandboxSocketBridge) -> None:
+        return None
+
+    async def fake_create_subprocess_exec(
+        *_command: str,
+        stdin: int | None = None,
+        stdout: int | None = None,
+        stderr: int | None = None,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+    ) -> asyncio.subprocess.Process:
+        del stdin, stdout, stderr, cwd
+        assert env is not None
+        captured_env.update(env)
+        return cast(asyncio.subprocess.Process, FakeProcess())
+
+    async def fake_pump_stream(
+        _reader: asyncio.StreamReader,
+        _dst: Any,
+    ) -> None:
+        return None
+
+    async def fake_wait_for_process_with_stdin(
+        _process: asyncio.subprocess.Process,
+        _process_stdin: asyncio.StreamWriter,
+    ) -> int:
+        return 0
+
+    monkeypatch.setattr(SandboxSocketBridge, "start", fake_bridge_start)
+    monkeypatch.setattr(SandboxSocketBridge, "stop", fake_bridge_stop)
+    monkeypatch.setattr(
+        "tracecat.agent.sandbox.shim_entrypoint.asyncio.create_subprocess_exec",
+        fake_create_subprocess_exec,
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.sandbox.shim_entrypoint._pump_stream",
+        fake_pump_stream,
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.sandbox.shim_entrypoint._wait_for_process_with_stdin",
+        fake_wait_for_process_with_stdin,
+    )
+
+    await run_sandboxed_claude_shim()
+
+    otel_bridges = [bridge for bridge in bridges if bridge._log_label == "OTel bridge"]
+    assert len(otel_bridges) == 1
+    assert otel_bridges[0]._on_uds_failure == "drop"
+    if otel_port is None:
+        assert "CLAUDE_CODE_ENABLE_TELEMETRY" not in captured_env
+        assert "OTEL_EXPORTER_OTLP_ENDPOINT" not in captured_env
+    else:
+        assert captured_env["OTEL_EXPORTER_OTLP_ENDPOINT"] == (
+            f"http://{BRIDGE_HOST}:{otel_port}"
+        )
+
+
+@pytest.mark.parametrize(
+    ("return_code", "expected"),
+    [
+        pytest.param(0, 0, id="clean-exit"),
+        pytest.param(1, 1, id="nonzero-exit-passes-through"),
+        pytest.param(-signal.SIGABRT, 134, id="sigabrt-forwards-as-134"),
+        pytest.param(-signal.SIGKILL, 137, id="sigkill-forwards-as-137"),
+    ],
+)
+def test_forward_exit_code_maps_signal_death_to_nsjail_contract(
+    return_code: int,
+    expected: int,
+) -> None:
+    """Invariant: the shim forwards the Claude child's death as ``128 + signal``.
+
+    Without this the shim exits 1 for every failure and the host can never
+    observe which signal killed the jailed runtime.
+    """
+    assert _forward_exit_code(return_code) == expected

@@ -5,12 +5,10 @@ from typing import Annotated, Literal
 
 import orjson
 from pydantic import Discriminator, TypeAdapter
-from pydantic_ai.messages import AgentStreamEvent, ModelMessage, ModelResponse, TextPart
 
 from tracecat.agent.common.stream_types import UnifiedStreamEvent
 
 UnifiedStreamEventTA: TypeAdapter[UnifiedStreamEvent] = TypeAdapter(UnifiedStreamEvent)
-AgentStreamEventTA: TypeAdapter[AgentStreamEvent] = TypeAdapter(AgentStreamEvent)
 
 
 @dataclass(slots=True, kw_only=True)
@@ -19,28 +17,14 @@ class StreamDelta:
 
     kind: Literal["event"] = "event"
     id: str
-    event: UnifiedStreamEvent | AgentStreamEvent
+    event: UnifiedStreamEvent
 
     def sse(self) -> str:
         return f"id: {self.id}\nevent: delta\ndata: {orjson.dumps(self.event).decode()}\n\n"
 
 
 @dataclass(slots=True, kw_only=True)
-class StreamMessage:
-    """Container for Redis stream payloads and adapter errors."""
-
-    kind: Literal["message"] = "message"
-    id: str
-    message: ModelMessage
-
-    def sse(self) -> str:
-        return f"id: {self.id}\nevent: message\ndata: {orjson.dumps(self.message).decode()}\n\n"
-
-
-@dataclass(slots=True, kw_only=True)
 class StreamConnected:
-    """Container for Redis stream payloads and adapter errors."""
-
     kind: Literal["connected"] = "connected"
     id: str
 
@@ -75,12 +59,6 @@ class StreamError:
     def format(err_msg: str) -> str:
         return f"The agent could not complete the request: {err_msg.strip()}"
 
-    @staticmethod
-    def model_response(err_msg: str) -> ModelResponse:
-        return ModelResponse(
-            parts=[TextPart(content=StreamError.format(err_msg))], finish_reason="error"
-        )
-
 
 @dataclass(slots=True, kw_only=True)
 class StreamKeepAlive:
@@ -94,7 +72,7 @@ class StreamKeepAlive:
 
 
 type StreamEvent = Annotated[
-    StreamDelta | StreamMessage | StreamEnd | StreamError | StreamKeepAlive,
+    StreamDelta | StreamConnected | StreamEnd | StreamError | StreamKeepAlive,
     Discriminator("kind"),
 ]
 

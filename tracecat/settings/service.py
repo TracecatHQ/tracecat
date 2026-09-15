@@ -40,12 +40,8 @@ from tracecat.settings.schemas import (
     SAMLSettingsUpdate,
     SettingCreate,
     SettingUpdate,
-    VersionedResourceResolutionStrategy,
 )
 
-VERSIONED_RESOURCE_RESOLUTION_STRATEGY_SETTING = (
-    "app_versioned_resource_resolution_strategy"
-)
 AUDIT_SETTINGS_KEYS = frozenset(AuditSettingsUpdate.keys())
 
 
@@ -465,22 +461,6 @@ async def get_setting(
         logger.debug("Setting not found, using default value", key=key)
         return default
     return no_default_val
-
-
-async def get_versioned_resource_resolution_strategy(
-    *,
-    role: Role | None = None,
-    session: AsyncSession | None = None,
-) -> VersionedResourceResolutionStrategy:
-    """Return the org's versioned resource dependency resolution strategy."""
-
-    value = await get_setting(
-        VERSIONED_RESOURCE_RESOLUTION_STRATEGY_SETTING,
-        role=role,
-        session=session,
-        default=VersionedResourceResolutionStrategy.LATEST,
-    )
-    return VersionedResourceResolutionStrategy(value)
 
 
 async def get_setting_cached(

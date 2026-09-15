@@ -10,6 +10,7 @@ from tracecat.concurrency import (
     apartial,
     cooperative,
     cooperative_every,
+    drain_future_through_cancellation,
     rejoin_future_through_cancellation,
 )
 
@@ -586,6 +587,71 @@ async def test_cooperative_exception_during_sleep():
     assert len(result) >= 1
     assert result[0] == 1
     assert len(result) <= 2  # At most 2 items before exception
+
+
+@pytest.mark.anyio
+async def test_drain_future_returns_failure_after_repeated_cancellation() -> None:
+    started = asyncio.Event()
+    release = asyncio.Event()
+    cleanup_error = RuntimeError("cleanup failed")
+
+    async def operation() -> None:
+        started.set()
+        await release.wait()
+        raise cleanup_error
+
+    operation_task = asyncio.create_task(operation())
+    draining_task = asyncio.create_task(
+        drain_future_through_cancellation(operation_task)
+    )
+    await started.wait()
+
+    draining_task.cancel()
+    await asyncio.sleep(0)
+    draining_task.cancel()
+    await asyncio.sleep(0)
+    assert not draining_task.done()
+
+    release.set()
+    assert await draining_task is cleanup_error
+
+
+@pytest.mark.anyio
+async def test_drain_future_ignores_cancellation_racing_success() -> None:
+    """A completed future's success wins over racing caller cancellation."""
+    fut = asyncio.get_running_loop().create_future()
+    draining_task = asyncio.create_task(drain_future_through_cancellation(fut))
+    await asyncio.sleep(0)
+
+    fut.set_result(None)
+    draining_task.cancel()
+    assert await draining_task is None
+
+
+@pytest.mark.anyio
+async def test_drain_future_reports_failure_racing_cancellation() -> None:
+    """A completed future's failure wins over racing caller cancellation."""
+    fut = asyncio.get_running_loop().create_future()
+    draining_task = asyncio.create_task(drain_future_through_cancellation(fut))
+    await asyncio.sleep(0)
+
+    error = RuntimeError("cleanup failed")
+    fut.set_exception(error)
+    draining_task.cancel()
+    assert await draining_task is error
+
+
+@pytest.mark.anyio
+async def test_drain_future_reports_cancelled_future() -> None:
+    """A future's own cancellation is returned as its terminal outcome."""
+    fut = asyncio.get_running_loop().create_future()
+    draining_task = asyncio.create_task(drain_future_through_cancellation(fut))
+    await asyncio.sleep(0)
+
+    fut.cancel()
+    draining_task.cancel()
+    result = await draining_task
+    assert isinstance(result, asyncio.CancelledError)
 
 
 @pytest.mark.anyio

@@ -65,8 +65,8 @@ When renaming or moving a page, add a redirect in `docs/docs.json` `redirects` a
 - If a sentence only adds precision that most readers do not need, cut it or move it to a note.
 - Prefer inline prose over callout components (`<Note>`, `<Warning>`, `<Info>`). A paragraph is almost always enough. If you must use a callout, prefer `<Info>` unless the content describes a genuinely dangerous or destructive outcome — only then use `<Warning>`.
 - Be consistent: always use terminology and spelling consistent with the codebase and the rest of the docs.
-- Be skimmable: avoid more than 2 sentences per paragraph.
-- Do not split a short thought into two paragraphs or two one-line sentences when one sentence reads more naturally.
+- Be skimmable: avoid long paragraphs
+- Do not split a short thought into two paragraphs when one paragraph would read more normally
 - Capitalize the first word of every bullet point.
 - Write in second person: referring to the reader makes it easier to follow instructions and makes the docs feel more personal.
 - Use product terms that match the app and codebase. For example, use `workflow definition`, `schema`, `subflow`, `upstream`, and `downstream`. Do not introduce alternatives such as `workflow file`, `shape`, `child workflow`, or `child action` unless the code itself uses that term in a user-facing name.

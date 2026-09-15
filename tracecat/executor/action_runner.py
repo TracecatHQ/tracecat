@@ -43,14 +43,17 @@ from tracecat.executor.secret_preprocessors import (
     project_secret_env,
 )
 from tracecat.logger import logger
-from tracecat.sandbox.exceptions import raise_for_sandbox_error_code
+from tracecat.sandbox.exceptions import (
+    raise_for_sandbox_error_code,
+    sandbox_resource_limit_message,
+)
 from tracecat.sandbox.executor import ActionSandboxConfig, NsjailExecutor
 from tracecat.sandbox.types import ResourceLimits, SandboxErrorCode
 from tracecat.sandbox.utils import (
     communicate_process_group,
     terminate_supervised_process,
 )
-from tracecat.secrets.common import apply_masks, apply_masks_object
+from tracecat.secrets.common import apply_masks_object
 
 if TYPE_CHECKING:
     from tracecat.auth.types import Role
@@ -110,6 +113,20 @@ def _is_sandbox_available() -> bool:
         return False
 
     return True
+
+
+def _sandbox_failure_message(error_code: SandboxErrorCode | None) -> str:
+    """Return the message carried by the typed exception a sandbox code selects."""
+    match error_code:
+        case SandboxErrorCode.INFRASTRUCTURE_FAILURE:
+            return "Action sandbox infrastructure failed before producing a result"
+        case SandboxErrorCode.RESOURCE_LIMIT_EXCEEDED:
+            return sandbox_resource_limit_message(
+                memory_mb=config.TRACECAT__SANDBOX_DEFAULT_MEMORY_MB,
+                memory_env_var="TRACECAT__SANDBOX_DEFAULT_MEMORY_MB",
+            )
+        case _:
+            return "Action sandbox workload stopped before producing a result"
 
 
 def _direct_subprocess_command(minimal_runner_path: Path) -> list[str]:
@@ -261,6 +278,7 @@ class ActionRunner:
                 "role": role,
                 "resolved_context": resolved_context,
                 "secret_env": secret_projection.env,
+                "unsafe_disable_secret_error_withholding": config.TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING,
             }
 
             # Write input JSON to job directory
@@ -344,9 +362,7 @@ class ActionRunner:
 
             raise_for_sandbox_error_code(
                 result.error_code,
-                "Action sandbox infrastructure failed before producing a result"
-                if result.error_code is SandboxErrorCode.INFRASTRUCTURE_FAILURE
-                else "Action sandbox workload stopped before producing a result",
+                _sandbox_failure_message(result.error_code),
             )
 
             # Handle error from sandbox
@@ -399,6 +415,9 @@ class ActionRunner:
         if resolved_context is not None:
             payload["resolved_context"] = resolved_context
             payload["secret_env"] = secret_projection.env
+            payload["unsafe_disable_secret_error_withholding"] = (
+                config.TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING
+            )
         input_json = to_json(payload)
 
         # Build environment with registry paths in PYTHONPATH
@@ -488,37 +507,33 @@ class ActionRunner:
             )
         # Check for subprocess crash
         if proc.returncode != 0:
-            stderr_text = apply_masks(
-                stderr.decode(errors="replace"),
-                masks=secret_projection.mask_values,
-            )
             logger.error(
                 "Subprocess failed",
                 action=input.task.action,
                 returncode=proc.returncode,
-                stderr=stderr_text,
+                stderr_bytes=len(stderr),
             )
             return ExecutorActionErrorInfo(
                 type="SubprocessError",
-                message=f"Subprocess exited with code {proc.returncode}: {stderr_text[:500]}",
+                message=f"Subprocess exited with code {proc.returncode}",
                 action_name=input.task.action,
                 filename="<subprocess>",
                 function="execute_action",
             )
 
-        # Parse result from stdout
+        # Parse result from stdout. Child-controlled bytes are never logged.
         try:
             result_data = orjson.loads(stdout)
         except orjson.JSONDecodeError as e:
             logger.error(
                 "Failed to parse subprocess output",
                 action=input.task.action,
-                stdout=stdout.decode()[:500],
-                error=str(e),
+                stdout_bytes=len(stdout),
+                parser_position=e.pos,
             )
             return ExecutorActionErrorInfo(
                 type="ProtocolError",
-                message=f"Failed to parse subprocess output: {e}",
+                message=f"Failed to parse subprocess output at byte {e.pos}",
                 action_name=input.task.action,
                 filename="<subprocess>",
                 function="execute_action",

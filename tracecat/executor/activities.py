@@ -11,7 +11,7 @@ from collections.abc import Callable
 from typing import Any
 
 from temporalio import activity
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ApplicationError, is_cancelled_exception
 from tenacity import (
     AsyncRetrying,
     retry_if_exception_type,
@@ -26,7 +26,7 @@ from tracecat.contexts import ctx_logger, ctx_role, ctx_run
 from tracecat.dsl.action import materialize_context
 from tracecat.dsl.schemas import RunActionInput
 from tracecat.dsl.types import ActionErrorInfo
-from tracecat.exceptions import RateLimitExceeded
+from tracecat.exceptions import ExecutionError, LoopExecutionError, RateLimitExceeded
 from tracecat.executor.backends import get_executor_backend
 from tracecat.executor.error_policy import (
     classify_execute_action_error,
@@ -35,12 +35,19 @@ from tracecat.executor.error_policy import (
 )
 from tracecat.executor.service import dispatch_action
 from tracecat.logger import logger
-from tracecat.observability.otel import set_current_span_attributes
-from tracecat.runtime.errors import RetryDisposition, RuntimeErrorOwner
+from tracecat.observability.otel import platform_span, set_current_span_attributes
+from tracecat.observability.sentry import capture_activity_failure
+from tracecat.observability.types import PlatformErrorCapture
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorClassification,
+    RuntimeErrorOwner,
+)
 from tracecat.storage.object import StoredObject, action_key, get_object_storage
 from tracecat.temporal.errors import (
     activity_error_boundary,
     build_error_transport_detail,
+    extract_error_capture,
     extract_error_classification,
     raise_application_error_from_classification,
 )
@@ -60,6 +67,31 @@ async def _heartbeat_loop(interval: int, task_ref: str, action_name: str) -> Non
             activity.heartbeat(f"{action_name} ({task_ref}): {elapsed}s elapsed")
     except asyncio.CancelledError:
         pass
+
+
+def _source_capture(
+    error: Exception, classification: RuntimeErrorClassification, *, action_name: str
+) -> PlatformErrorCapture | None:
+    """Retain captures made before executor diagnostics severed raw causes."""
+    if isinstance(error, ExecutionError):
+        capture = error.sentry_capture
+        if capture is not None and capture.classification == classification:
+            return capture
+        return None
+    if isinstance(error, LoopExecutionError):
+        failures: list[
+            tuple[RuntimeErrorClassification, PlatformErrorCapture | None]
+        ] = []
+        for child in error.loop_errors:
+            child_classification = classify_execute_action_error(
+                child, action_name=action_name
+            )
+            capture = _source_capture(
+                child, child_classification, action_name=action_name
+            )
+            failures.append((child_classification, capture))
+        return PlatformErrorCapture.for_aggregate(classification, failures)
+    return extract_error_capture(error, classification)
 
 
 class ExecutorActivities:
@@ -118,11 +150,11 @@ class ExecutorActivities:
         act_attempt = act_info.attempt
         set_current_span_attributes(
             {
-                "tracecat.workspace.id": (
-                    str(role.workspace_id) if role.workspace_id else None
-                ),
-                "tracecat.workflow.id": str(input.run_context.wf_id),
-                "tracecat.workflow.execution.id": str(input.run_context.wf_exec_id),
+                "tracecat.organization.id": role.organization_id,
+                "tracecat.workspace.id": role.workspace_id,
+                "tracecat.workflow.id": input.run_context.wf_id,
+                "tracecat.workflow.execution.id": input.run_context.wf_exec_id,
+                "tracecat.action.ref": task.ref,
                 "tracecat.action.name": action_name,
                 "temporal.activity.attempt": act_attempt,
                 "temporal.task_queue": act_info.task_queue,
@@ -135,9 +167,10 @@ class ExecutorActivities:
             retry_policy=task.retry_policy,
             input=input,
         )
-        materialized_input = input.model_copy(
-            update={"exec_context": await materialize_context(input.exec_context)}
-        )
+        with platform_span("tracecat.action.materialize_inputs"):
+            materialized_input = input.model_copy(
+                update={"exec_context": await materialize_context(input.exec_context)}
+            )
 
         heartbeat_interval = config.TRACECAT__ACTIVITY_HEARTBEAT_INTERVAL
 
@@ -167,9 +200,19 @@ class ExecutorActivities:
                         "Begin action attempt",
                         attempt_number=attempt_manager.retry_state.attempt_number,
                     )
-                    result = await dispatch_action(
-                        backend=backend, input=materialized_input
-                    )
+                    with platform_span(
+                        "tracecat.action.execute",
+                        attributes={
+                            "tracecat.action.ref": task.ref,
+                            "tracecat.action.name": action_name,
+                            "tracecat.retry.attempt": (
+                                attempt_manager.retry_state.attempt_number
+                            ),
+                        },
+                    ):
+                        result = await dispatch_action(
+                            backend=backend, input=materialized_input
+                        )
 
                     if heartbeat_interval > 0:
                         activity.heartbeat(
@@ -185,12 +228,15 @@ class ExecutorActivities:
                         stream_id=input.stream_id,
                         ref=task.ref,
                     )
-                    with activity_error_boundary(
-                        result_persistence_error_classification
-                    ):
-                        stored = await get_object_storage().store(key, result)
+                    with platform_span("tracecat.action.store_result"):
+                        with activity_error_boundary(
+                            result_persistence_error_classification
+                        ):
+                            stored = await get_object_storage().store(key, result)
                     return stored
         except Exception as e:
+            if is_cancelled_exception(e):
+                raise
             classification = classify_execute_action_error(e, action_name=action_name)
             log.bind(
                 error_owner=classification.owner,
@@ -224,6 +270,10 @@ class ExecutorActivities:
                 classification,
                 build_error_transport_detail(classification, err_info),
                 *details,
+                capture=(
+                    _source_capture(e, classification, action_name=action_name)
+                    or capture_activity_failure(e, classification)
+                ),
                 next_retry_delay=(
                     next_retry_delay
                     if classification.retry_disposition is RetryDisposition.RETRYABLE

@@ -40,7 +40,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
-import { useEntitlements } from "@/hooks/use-entitlements"
 import { useDeleteSkill, useSkills } from "@/hooks/use-skills"
 import { cn } from "@/lib/utils"
 
@@ -362,23 +361,5 @@ function SkillsDashboardContent({ workspaceId }: { workspaceId: string }) {
  * @returns The skills list view.
  */
 export function SkillsDashboard({ workspaceId }: { workspaceId: string }) {
-  const router = useRouter()
-  const { hasEntitlement, isLoading } = useEntitlements()
-  const agentAddonsEnabled = hasEntitlement("agent_addons")
-
-  useEffect(() => {
-    if (!isLoading && !agentAddonsEnabled) {
-      router.replace(`/workspaces/${workspaceId}`)
-    }
-  }, [agentAddonsEnabled, isLoading, router, workspaceId])
-
-  if (isLoading) {
-    return <div className="size-full animate-pulse bg-muted/20" />
-  }
-
-  if (!agentAddonsEnabled) {
-    return null
-  }
-
   return <SkillsDashboardContent workspaceId={workspaceId} />
 }

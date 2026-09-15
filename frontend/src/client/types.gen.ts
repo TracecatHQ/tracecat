@@ -694,6 +694,7 @@ export type AgentPresetRead = {
   retries?: number
   enable_thinking?: boolean
   enable_internet_access?: boolean
+  tool_policy?: AgentPresetToolPolicyRead
   id: string
   workspace_id: string
   name: string
@@ -765,7 +766,7 @@ export type AgentPresetSubagentEligibility = {
 }
 
 export type AgentPresetSubagentEligibilityReason =
-  | "agents_enabled"
+  | "subagents_attached"
   | "tool_approvals"
 
 /**
@@ -773,6 +774,30 @@ export type AgentPresetSubagentEligibilityReason =
  */
 export type AgentPresetTagCreate = {
   tag_id: string
+}
+
+/**
+ * Unsaved tool selections to evaluate using the runtime policy pipeline.
+ */
+export type AgentPresetToolPolicyPreview = {
+  actions?: Array<string>
+  namespaces?: Array<string>
+  mcp_integrations?: Array<string>
+  skill_ids?: Array<string>
+  tool_approvals?: {
+    [key: string]: boolean
+  }
+}
+
+/**
+ * Non-secret effective policy for rendering preset configuration.
+ */
+export type AgentPresetToolPolicyRead = {
+  actions?: Array<string>
+  requires_internet_access?: boolean
+  has_approvals?: boolean
+  blocked_tools?: Array<PresetToolSourceRead>
+  internet_sources?: Array<PresetToolSourceRead>
 }
 
 /**
@@ -839,6 +864,7 @@ export type AgentPresetVersionRead = {
   retries?: number
   enable_thinking?: boolean
   enable_internet_access?: boolean
+  tool_policy?: AgentPresetToolPolicyRead
   id: string
   preset_id: string
   workspace_id: string
@@ -846,6 +872,7 @@ export type AgentPresetVersionRead = {
   capabilities?: Array<AgentPresetCapability>
   subagent_eligibility?: AgentPresetSubagentEligibility
   skills?: Array<AgentPresetSkillBindingRead>
+  restore_skills: Array<AgentPresetSkillBindingRead>
   created_at: string
   updated_at: string
 }
@@ -1122,17 +1149,23 @@ export type AgentSettingsUpdate = {
 }
 
 /**
- * User-facing agents toggle and optional preset-backed subagents.
+ * User-facing preset-backed subagents.
  */
 export type AgentSubagentsConfig_Input = {
+  /**
+   * @deprecated
+   */
   enabled?: boolean
   subagents?: Array<AnyAttachedSubagentRef>
 }
 
 /**
- * User-facing agents toggle and optional preset-backed subagents.
+ * User-facing preset-backed subagents.
  */
 export type AgentSubagentsConfig_Output = {
+  /**
+   * @deprecated
+   */
   enabled?: boolean
   subagents?: Array<AnyAttachedSubagentRef>
 }
@@ -1171,7 +1204,6 @@ export type AppSettingsRead = {
   app_workflow_export_enabled: boolean
   app_create_workspace_on_register: boolean
   app_action_form_mode_enabled: boolean
-  app_versioned_resource_resolution_strategy?: VersionedResourceResolutionStrategy
 }
 
 /**
@@ -1202,10 +1234,6 @@ export type AppSettingsUpdate = {
    * Whether to enable form mode for action inputs. When disabled, only YAML mode is available, preserving raw YAML formatting.
    */
   app_action_form_mode_enabled?: boolean
-  /**
-   * How versioned resource references are resolved when a feature supports both pinned and latest dependency resolution.
-   */
-  app_versioned_resource_resolution_strategy?: VersionedResourceResolutionStrategy
 }
 
 /**
@@ -1409,36 +1437,6 @@ export type AttachmentDeletedEventRead = {
 }
 
 /**
- * A URL to an audio file.
- */
-export type AudioUrl = {
-  url: string
-  force_download?: boolean | "allow-local"
-  vendor_metadata?: {
-    [key: string]: unknown
-  } | null
-  kind?: "audio-url"
-  /**
-   * Return the media type of the file, based on the URL or the provided `media_type`.
-   */
-  readonly media_type: string
-  /**
-   * The identifier of the file, such as a unique ID.
-   *
-   * This identifier can be provided to the model in a message to allow it to refer to this file in a tool call argument,
-   * and the tool can look up the file in question by iterating over the message history and finding the matching `FileUrl`.
-   *
-   * This identifier is only automatically passed to the model when the `FileUrl` is returned by a tool.
-   * If you're passing the `FileUrl` as a user message, it's up to you to include a separate text part with the identifier,
-   * e.g. "This is file <identifier>:" preceding the `FileUrl`.
-   *
-   * It's also included in inline-text delimiters for providers that require inlining text documents, so the model can
-   * distinguish multiple files.
-   */
-  readonly identifier: string
-}
-
-/**
  * Settings for audit logging.
  */
 export type AuditSettingsRead = {
@@ -1587,52 +1585,6 @@ export type BedrockCatalogUpdate = {
   use_converse?: boolean
 }
 
-/**
- * Binary content, e.g. an audio or image file.
- */
-export type BinaryContent = {
-  data: string
-  media_type:
-    | "audio/wav"
-    | "audio/mpeg"
-    | "audio/ogg"
-    | "audio/flac"
-    | "audio/aiff"
-    | "audio/aac"
-    | "image/jpeg"
-    | "image/png"
-    | "image/gif"
-    | "image/webp"
-    | "application/pdf"
-    | "text/plain"
-    | "text/csv"
-    | "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    | "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    | "text/html"
-    | "text/markdown"
-    | "application/msword"
-    | "application/vnd.ms-excel"
-    | string
-  vendor_metadata?: {
-    [key: string]: unknown
-  } | null
-  kind?: "binary"
-  /**
-   * Identifier for the binary content, such as a unique ID.
-   *
-   * This identifier can be provided to the model in a message to allow it to refer to this file in a tool call argument,
-   * and the tool can look up the file in question by iterating over the message history and finding the matching `BinaryContent`.
-   *
-   * This identifier is only automatically passed to the model when the `BinaryContent` is returned by a tool.
-   * If you're passing the `BinaryContent` as a user message, it's up to you to include a separate text part with the identifier,
-   * e.g. "This is file <identifier>:" preceding the `BinaryContent`.
-   *
-   * It's also included in inline-text delimiters for providers that require inlining text documents, so the model can
-   * distinguish multiple files.
-   */
-  readonly identifier: string
-}
-
 export type Body_auth_reset_forgot_password = {
   email: string
 }
@@ -1688,13 +1640,6 @@ export type BooleanApprovalDecision = {
     [key: string]: unknown
   }
 }
-
-export type CachePoint = {
-  kind?: "cache-point"
-  ttl?: "5m" | "1h"
-}
-
-export type ttl = "5m" | "1h"
 
 /**
  * Lifecycle state for the durable backfill operation.
@@ -2771,7 +2716,7 @@ export type CaseViewedEventRead = {
 export type CatalogMappingAffectedPreset = {
   preset_slug: string
   preset_name: string
-  version: number
+  version: number | null
   path: string
 }
 
@@ -2842,7 +2787,6 @@ export type ChatMessage = {
    * The deserialized message (for kind=CHAT_MESSAGE)
    */
   message?:
-    | unknown
     | UserMessage
     | AssistantMessage
     | SystemMessage
@@ -3872,36 +3816,6 @@ export type DefaultModelSelectionUpdate = {
 }
 
 /**
- * The URL of the document.
- */
-export type DocumentUrl = {
-  url: string
-  force_download?: boolean | "allow-local"
-  vendor_metadata?: {
-    [key: string]: unknown
-  } | null
-  kind?: "document-url"
-  /**
-   * Return the media type of the file, based on the URL or the provided `media_type`.
-   */
-  readonly media_type: string
-  /**
-   * The identifier of the file, such as a unique ID.
-   *
-   * This identifier can be provided to the model in a message to allow it to refer to this file in a tool call argument,
-   * and the tool can look up the file in question by iterating over the message history and finding the matching `FileUrl`.
-   *
-   * This identifier is only automatically passed to the model when the `FileUrl` is returned by a tool.
-   * If you're passing the `FileUrl` as a user message, it's up to you to include a separate text part with the identifier,
-   * e.g. "This is file <identifier>:" preceding the `FileUrl`.
-   *
-   * It's also included in inline-text delimiters for providers that require inlining text documents, so the model can
-   * distinguish multiple files.
-   */
-  readonly identifier: string
-}
-
-/**
  * Event for when a case dropdown value is changed.
  */
 export type DropdownValueChangedEventRead = {
@@ -4053,6 +3967,10 @@ export type EffectiveEntitlements = {
    */
   workspace_chat?: boolean
   /**
+   * Whether multiple workspaces per organization are enabled
+   */
+  multi_workspace?: boolean
+  /**
    * Whether Watchtower agent monitoring is enabled (agent sessions, tool-call telemetry, and controls)
    */
   watchtower?: boolean
@@ -4093,20 +4011,13 @@ export type EntitlementsDict = {
    */
   workspace_chat?: boolean
   /**
+   * Whether multiple workspaces per organization are enabled
+   */
+  multi_workspace?: boolean
+  /**
    * Whether Watchtower agent monitoring is enabled (agent sessions, tool-call telemetry, and controls)
    */
   watchtower?: boolean
-}
-
-export type ErrorDetails = {
-  type: string
-  loc: Array<number | string>
-  msg: string
-  input: unknown
-  ctx?: {
-    [key: string]: unknown
-  }
-  url?: string
 }
 
 export type ErrorModel = {
@@ -4737,40 +4648,10 @@ export type HTTPValidationError = {
 /**
  * Supported agent harnesses.
  */
-export type HarnessType = "pydantic-ai" | "claude_code"
+export type HarnessType = "claude_code"
 
 export type HealthResponse = {
   status: string
-}
-
-/**
- * A URL to an image.
- */
-export type ImageUrl = {
-  url: string
-  force_download?: boolean | "allow-local"
-  vendor_metadata?: {
-    [key: string]: unknown
-  } | null
-  kind?: "image-url"
-  /**
-   * Return the media type of the file, based on the URL or the provided `media_type`.
-   */
-  readonly media_type: string
-  /**
-   * The identifier of the file, such as a unique ID.
-   *
-   * This identifier can be provided to the model in a message to allow it to refer to this file in a tool call argument,
-   * and the tool can look up the file in question by iterating over the message history and finding the matching `FileUrl`.
-   *
-   * This identifier is only automatically passed to the model when the `FileUrl` is returned by a tool.
-   * If you're passing the `FileUrl` as a user message, it's up to you to include a separate text part with the identifier,
-   * e.g. "This is file <identifier>:" preceding the `FileUrl`.
-   *
-   * It's also included in inline-text delimiters for providers that require inlining text documents, so the model can
-   * distinguish multiple files.
-   */
-  readonly identifier: string
 }
 
 /**
@@ -4978,6 +4859,7 @@ export type IntegrationRead = {
 export type IntegrationReadMinimal = {
   id: string
   provider_id: string
+  grant_type: OAuthGrantType
   status: IntegrationStatus
   is_expired: boolean
 }
@@ -5121,6 +5003,8 @@ export type IssuedServiceAccountApiKey = {
 }
 
 export type JoinStrategy = "any" | "all"
+
+export type JsonValue = unknown
 
 /**
  * Authentication type for MCP integrations.
@@ -5348,6 +5232,7 @@ export type MCPHttpServerConfig = {
   transport?: "http" | "sse"
   timeout?: number
   id?: string
+  tools?: Array<MCPServerToolSummary>
 }
 
 export type transport = "http" | "sse"
@@ -5643,7 +5528,7 @@ export type status5 =
 export type McpIntegrationMappingAffectedPreset = {
   preset_slug: string
   preset_name: string
-  version: number
+  version: number | null
   path: string
 }
 
@@ -6146,10 +6031,6 @@ export type PlatformMCPCatalogRead = {
   provider_id: string | null
   connection_spec: MCPConnectionSpec | null
   connection_options?: Array<MCPConnectionOption>
-  /**
-   * Whether this platform MCP catalog row is locked by entitlement.
-   */
-  locked: boolean
   state:
     | "not_configured"
     | "configured"
@@ -6188,6 +6069,15 @@ export type PlatformRegistrySettingsUpdate = {
 export type Position = {
   x?: number
   y?: number
+}
+
+/**
+ * The authored or skill origin of a policy-affected tool.
+ */
+export type PresetToolSourceRead = {
+  tool_id: string
+  skill_id?: string | null
+  skill_name?: string | null
 }
 
 /**
@@ -6242,9 +6132,9 @@ export type ProviderCredentialField = {
    */
   label: string
   /**
-   * Input type: 'text' or 'password'
+   * Input type: 'text', 'password', or 'boolean'
    */
-  type: "text" | "password"
+  type: "text" | "password" | "boolean"
   /**
    * Help text describing this credential
    */
@@ -6253,12 +6143,16 @@ export type ProviderCredentialField = {
    * Whether this field is required
    */
   required?: boolean
+  /**
+   * Default value pre-filled when no credential is stored yet
+   */
+  default?: string | null
 }
 
 /**
- * Input type: 'text' or 'password'
+ * Input type: 'text', 'password', or 'boolean'
  */
-export type type2 = "text" | "password"
+export type type2 = "text" | "password" | "boolean"
 
 /**
  * Metadata for a provider.
@@ -6832,9 +6726,12 @@ export type RepositorySyncResult = {
 }
 
 /**
- * Persisted agents toggle with immutable resolved child refs.
+ * Persisted immutable resolved child refs.
  */
 export type ResolvedAgentsConfig = {
+  /**
+   * @deprecated
+   */
   enabled?: boolean
   subagents?: Array<ResolvedAttachedSubagentRef>
 }
@@ -6906,14 +6803,6 @@ export type ResultMessage = {
   permission_denials?: Array<unknown> | null
   errors?: Array<string> | null
   uuid?: string | null
-}
-
-export type RetryPromptPart = {
-  content: Array<ErrorDetails> | string
-  tool_name?: string | null
-  tool_call_id?: string
-  timestamp?: string
-  part_kind?: "retry-prompt"
 }
 
 /**
@@ -7086,6 +6975,53 @@ export type RunUsage = {
   input_tokens?: number
   output_tokens?: number
 }
+
+/**
+ * Stable machine-readable product failure identities.
+ */
+export type RuntimeErrorKind =
+  | "action.execution.failed"
+  | "tenant.quota.exhausted"
+  | "tenant.entitlement.denied"
+  | "integration.rate_limited"
+  | "registry.sync.validation_failed"
+  | "runtime.unclassified"
+  | "storage.materialization.transport_unavailable"
+  | "storage.materialization.invalid_data"
+  | "storage.persistence.transport_unavailable"
+  | "executor.activity.timed_out"
+  | "executor.backend.initialization_failed"
+  | "executor.registry.lease_contention"
+  | "executor.registry.capacity_exhausted"
+  | "executor.registry.extraction_failed"
+  | "executor.sandbox.infrastructure_failed"
+  | "sandbox.resource_limit_exceeded"
+  | "workflow.definition.not_found"
+  | "workflow.definition.lookup_unavailable"
+  | "workflow.definition.invalid_data"
+  | "workflow.trigger.input_invalid"
+  | "workflow.subflow.input_invalid"
+  | "workflow.subflow.preparation_failed"
+  | "workflow.bootstrap.invalid_data"
+  | "workflow.bootstrap.unavailable"
+  | "workflow.expression.invalid"
+  | "workflow.loop.limit_exceeded"
+  | "workflow.runtime.invariant_violation"
+  | "workflow.agent.input_invalid"
+  | "workflow.agent.preparation_failed"
+  | "agent.configuration.invalid"
+  | "agent.preparation.failed"
+  | "agent.session.initialization_failed"
+  | "agent.llm.gateway_auth_failed"
+  | "agent.llm.provider_auth_failed"
+  | "agent.llm.budget_exceeded"
+  | "agent.llm.rate_limited"
+  | "agent.llm.read_timeout"
+  | "agent.execution.failed"
+  | "agent.executor.unavailable"
+  | "agent.executor.timed_out"
+  | "agent.executor.protocol_failed"
+  | "agent.workflow.internal_error"
 
 export type SAMLDatabaseLoginResponse = {
   redirect_url: string
@@ -7593,6 +7529,7 @@ export type SkillFileEntry = {
 export type SkillRead = {
   id: string
   workspace_id: string
+  origin?: "workspace"
   name: string
   slug: string
   description?: string | null
@@ -7617,6 +7554,7 @@ export type SkillRead = {
 export type SkillReadMinimal = {
   id: string
   workspace_id: string
+  origin?: "workspace"
   name: string
   slug: string
   description?: string | null
@@ -8614,36 +8552,6 @@ export type ToolResultBlock = {
   is_error?: boolean | null
 }
 
-export type ToolReturn = {
-  return_value: ToolReturnContent
-  content?:
-    | string
-    | Array<
-        | string
-        | ImageUrl
-        | AudioUrl
-        | DocumentUrl
-        | VideoUrl
-        | BinaryContent
-        | CachePoint
-      >
-    | null
-  metadata?: unknown
-  kind?: "tool-return"
-}
-
-export type ToolReturnContent =
-  | ImageUrl
-  | AudioUrl
-  | DocumentUrl
-  | VideoUrl
-  | BinaryContent
-  | Array<ToolReturnContent>
-  | {
-      [key: string]: ToolReturnContent
-    }
-  | unknown
-
 export type ToolUIPartInputAvailable = {
   type: string
   toolCallId: string
@@ -9044,8 +8952,6 @@ export type VersionDiff = {
   total_changes?: number
 }
 
-export type VersionedResourceResolutionStrategy = "pinned" | "latest"
-
 /**
  * Vertex AI catalog entry.
  */
@@ -9060,36 +8966,6 @@ export type VertexAICatalogUpdate = {
   display_name?: string | null
   model_provider: "vertex_ai"
   vertex_model: string
-}
-
-/**
- * A URL to a video.
- */
-export type VideoUrl = {
-  url: string
-  force_download?: boolean | "allow-local"
-  vendor_metadata?: {
-    [key: string]: unknown
-  } | null
-  kind?: "video-url"
-  /**
-   * Return the media type of the file, based on the URL or the provided `media_type`.
-   */
-  readonly media_type: string
-  /**
-   * The identifier of the file, such as a unique ID.
-   *
-   * This identifier can be provided to the model in a message to allow it to refer to this file in a tool call argument,
-   * and the tool can look up the file in question by iterating over the message history and finding the matching `FileUrl`.
-   *
-   * This identifier is only automatically passed to the model when the `FileUrl` is returned by a tool.
-   * If you're passing the `FileUrl` as a user message, it's up to you to include a separate text part with the identifier,
-   * e.g. "This is file <identifier>:" preceding the `FileUrl`.
-   *
-   * It's also included in inline-text delimiters for providers that require inlining text documents, so the model can
-   * distinguish multiple files.
-   */
-  readonly identifier: string
 }
 
 export type WaitResultOutput =
@@ -9291,6 +9167,19 @@ export type WebhookRead = {
   api_key?: WebhookApiKeyRead | null
 }
 
+/**
+ * Standard FastAPI request validation fields for the shared 422 response.
+ */
+export type WebhookRequestValidationError = {
+  loc: Array<string | number>
+  msg: string
+  type: string
+  input?: unknown
+  ctx?: {
+    [key: string]: JsonValue
+  } | null
+}
+
 export type WebhookStatus = "online" | "offline"
 
 export type WebhookStoredObjectDownloadResponse = {
@@ -9314,6 +9203,22 @@ export type WebhookUpdate = {
   entrypoint_ref?: string | null
   allowlisted_cidrs?: Array<string> | null
   include_headers?: boolean | null
+}
+
+/**
+ * Invalid request parameters or a classified user workflow failure.
+ */
+export type WebhookWaitErrorResponse = {
+  detail: WebhookWaitFailureDetail | Array<WebhookRequestValidationError>
+}
+
+/**
+ * Public metadata for a user-owned workflow failure.
+ */
+export type WebhookWaitFailureDetail = {
+  code: RuntimeErrorKind
+  wf_exec_id: string
+  message?: string
 }
 
 export type WorkflowAlias = {
@@ -9551,6 +9456,7 @@ export type WorkflowExecutionCreateResponse = {
   message: string
   wf_id: string
   wf_exec_id: string
+  trace_id?: string
   payload?: unknown
 }
 
@@ -11619,6 +11525,14 @@ export type AgentDeleteProviderCredentialsResponse = {
   [key: string]: string
 }
 
+export type AgentRefreshProviderModelsData = {
+  provider: string
+}
+
+export type AgentRefreshProviderModelsResponse = {
+  [key: string]: number
+}
+
 export type AgentGetDefaultModelResponse = string | null
 
 export type AgentSetDefaultModelData = {
@@ -11820,6 +11734,13 @@ export type AgentPresetsCreateAgentPresetData = {
 }
 
 export type AgentPresetsCreateAgentPresetResponse = AgentPresetRead
+
+export type AgentPresetsPreviewToolPolicyData = {
+  requestBody: AgentPresetToolPolicyPreview
+  workspaceId: string
+}
+
+export type AgentPresetsPreviewToolPolicyResponse = AgentPresetToolPolicyRead
 
 export type AgentPresetsGetAgentPresetData = {
   presetId: string
@@ -14414,9 +14335,9 @@ export type $OpenApiTs = {
          */
         413: WaitResultUnwrapOverflowResponse
         /**
-         * Validation Error
+         * Invalid request parameters or a user-owned workflow failure.
          */
-        422: HTTPValidationError
+        422: WebhookWaitErrorResponse
       }
     }
   }
@@ -16500,6 +16421,23 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/agent/providers/{provider}/refresh": {
+    post: {
+      req: AgentRefreshProviderModelsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: number
+        }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/agent/default-model": {
     get: {
       res: {
@@ -16905,6 +16843,25 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workspaces/{workspace_id}/agent/presets/tool-policy": {
+    post: {
+      req: AgentPresetsPreviewToolPolicyData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentPresetToolPolicyRead
+        /**
+         * Invalid tool policy selections
+         */
+        400: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workspaces/{workspace_id}/agent/presets/{preset_id}": {
     get: {
       req: AgentPresetsGetAgentPresetData
@@ -16939,6 +16896,10 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Agent preset not found
+         */
+        404: unknown
         /**
          * Validation Error
          */

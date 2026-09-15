@@ -37,6 +37,7 @@ from tracecat.storage.object import (
 )
 from tracecat.storage.utils import deserialize_object
 from tracecat.webhooks.router import (
+    _annotate_webhook_trace,
     _incoming_webhook,
     _wrapped_payload,
     incoming_webhook_wait,
@@ -56,6 +57,21 @@ from tracecat.workflow.executions.service import WorkflowExecutionsService
 
 _WF_ID = WorkflowUUID.new_uuid4()
 _WORKSPACE_ID = uuid.uuid4()
+
+
+def test_public_webhook_trace_annotation_sets_trace_id() -> None:
+    response = cast(Any, {})
+    with patch(
+        "tracecat.webhooks.router.current_trace_id",
+        return_value="0123456789abcdef0123456789abcdef",
+    ):
+        _annotate_webhook_trace(
+            wf_id=_WF_ID,
+            wf_exec_id="wf_synthetic/exec_synthetic",
+            response=response,
+        )
+
+    assert response["trace_id"] == "0123456789abcdef0123456789abcdef"
 
 
 def _role() -> Role:
@@ -1029,6 +1045,7 @@ class TestWebhookRouterExecutionPath:
         call_kwargs = mock_service.create_workflow_execution.call_args.kwargs
         assert call_kwargs["trigger_type"] == TriggerType.WEBHOOK
         assert call_kwargs["payload"] == payload
+        assert call_kwargs["wf_exec_id"].startswith(f"{workflow_id.short()}/exec_")
 
     @pytest.mark.anyio
     async def test_wait_webhook_returns_download_url_for_external_object(self):

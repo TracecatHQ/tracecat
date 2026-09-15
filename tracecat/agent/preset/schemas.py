@@ -20,7 +20,9 @@ if TYPE_CHECKING:
 
 
 type AgentPresetCapability = Literal["approvals", "subagents", "internet_access"]
-type AgentPresetSubagentEligibilityReason = Literal["agents_enabled", "tool_approvals"]
+type AgentPresetSubagentEligibilityReason = Literal[
+    "subagents_attached", "tool_approvals"
+]
 
 
 class AgentPresetSubagentEligibility(BaseModel):
@@ -213,7 +215,7 @@ def _agent_preset_capabilities(
     agents = AgentSubagentsConfig.model_validate(agents_config or {})
     if has_manual_tool_approvals(tool_approvals):
         capabilities.append("approvals")
-    if agents.enabled:
+    if agents.subagents:
         capabilities.append("subagents")
     if enable_internet_access:
         capabilities.append("internet_access")
@@ -229,8 +231,8 @@ def build_subagent_eligibility(
 
     reasons: list[AgentPresetSubagentEligibilityReason] = []
     agents = AgentSubagentsConfig.model_validate(agents_config or {})
-    if agents.enabled:
-        reasons.append("agents_enabled")
+    if agents.subagents:
+        reasons.append("subagents_attached")
     if has_manual_tool_approvals(tool_approvals):
         reasons.append("tool_approvals")
     return AgentPresetSubagentEligibility(
@@ -246,10 +248,10 @@ def _subagent_eligibility_message(
     if not reasons:
         return None
     reason_set = set(reasons)
-    if reason_set == {"agents_enabled"}:
+    if reason_set == {"subagents_attached"}:
         return (
-            "This version defines its own subagents. Disable the Agent tool on "
-            "that version before attaching it as a subagent."
+            "This version defines its own subagents. Remove those subagents before "
+            "attaching this version as a subagent."
         )
     if reason_set == {"tool_approvals"}:
         return (
@@ -262,9 +264,40 @@ def _subagent_eligibility_message(
     )
 
 
+class PresetToolSourceRead(Schema):
+    """The authored or skill origin of a policy-affected tool."""
+
+    tool_id: str
+    skill_id: uuid.UUID | None = None
+    skill_name: str | None = None
+
+
+class AgentPresetToolPolicyRead(Schema):
+    """Non-secret effective policy for rendering preset configuration."""
+
+    actions: list[str] = Field(default_factory=list)
+    requires_internet_access: bool = False
+    has_approvals: bool = False
+    blocked_tools: list[PresetToolSourceRead] = Field(default_factory=list)
+    internet_sources: list[PresetToolSourceRead] = Field(default_factory=list)
+
+
+class AgentPresetToolPolicyPreview(Schema):
+    """Unsaved tool selections to evaluate using the runtime policy pipeline."""
+
+    actions: list[str] = Field(default_factory=list)
+    namespaces: list[str] = Field(default_factory=list)
+    mcp_integrations: list[str] = Field(default_factory=list)
+    skill_ids: list[uuid.UUID] = Field(default_factory=list)
+    tool_approvals: dict[str, bool] = Field(default_factory=dict)
+
+
 class AgentPresetRead(AgentPresetExecutionConfig):
     """API model for reading agent presets."""
 
+    tool_policy: AgentPresetToolPolicyRead = Field(
+        default_factory=AgentPresetToolPolicyRead
+    )
     id: uuid.UUID
     workspace_id: WorkspaceID
     name: str
@@ -328,6 +361,9 @@ class AgentPresetVersionReadMinimal(Schema):
 class AgentPresetVersionRead(AgentPresetExecutionConfig):
     """Full response model for an immutable preset version."""
 
+    tool_policy: AgentPresetToolPolicyRead = Field(
+        default_factory=AgentPresetToolPolicyRead
+    )
     id: uuid.UUID
     preset_id: uuid.UUID
     workspace_id: WorkspaceID
@@ -337,6 +373,7 @@ class AgentPresetVersionRead(AgentPresetExecutionConfig):
         default_factory=AgentPresetSubagentEligibility
     )
     skills: list[AgentPresetSkillBindingRead] = Field(default_factory=list)
+    restore_skills: list[AgentPresetSkillBindingRead]
     created_at: datetime
     updated_at: datetime
 

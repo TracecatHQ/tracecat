@@ -488,6 +488,15 @@ TRACECAT__UNSAFE_DISABLE_SM_MASKING = env_bool(
     development and should never be enabled in production.
 """
 
+TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING = env_bool(
+    "TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING", default=False
+)
+"""UNSAFE: surface original action and expression error details even when
+secrets are in scope, instead of the generic "Details withheld" message. The
+original text may echo transformed secret values that exact-string masking
+cannot catch. Not recommended outside debugging.
+"""
+
 # === M2M config === #
 TRACECAT__SERVICE_KEY = os.environ.get("TRACECAT__SERVICE_KEY")
 TRACECAT__EXECUTOR_TOKEN_TTL_SECONDS = int(
@@ -729,6 +738,16 @@ def env_ports(name: str, *, default: tuple[int, ...]) -> tuple[int, ...]:
             ports.append(port)
     return tuple(ports)
 
+
+TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS = env_networks(
+    "TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS"
+)
+"""Operator-only exceptions for caller-controlled MCP and LLM HTTP destinations.
+
+Empty by default. Configure exact IPs or narrow CIDRs only for intentional private
+integrations. Every workspace using these clients can reach an allowed address.
+Set this in the process/container environment, not workspace or action inputs.
+"""
 
 TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS = env_networks(
     "TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS",
@@ -1021,9 +1040,25 @@ TRACECAT__RATE_LIMIT_BY_ENDPOINT = env_bool(
 """Whether to rate limit by endpoint."""
 
 TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES = int(
-    os.environ.get("TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES") or 1024 * 1024
+    os.environ.get("TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES") or 5 * 1024**3
 )
-"""The maximum size of a payload in bytes the executor can return. Defaults to 1MB"""
+"""The maximum size of a payload in bytes the executor can return.
+
+Defaults to 5 GiB, the largest single-object upload S3 and MinIO accept.
+Results above ``TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES`` are
+externalized to blob storage with a single PUT, so the object store's
+single-upload cap is the effective ceiling on an action's result.
+"""
+
+TRACECAT__SANDBOX_PACKAGE_CACHE_MAX_BYTES = int(
+    os.environ.get("TRACECAT__SANDBOX_PACKAGE_CACHE_MAX_BYTES") or 5 * 1024**3
+)
+"""Maximum aggregate bytes promoted from a sandbox package cache."""
+
+TRACECAT__SANDBOX_PACKAGE_CACHE_MAX_ENTRIES = int(
+    os.environ.get("TRACECAT__SANDBOX_PACKAGE_CACHE_MAX_ENTRIES") or 200_000
+)
+"""Maximum entries promoted from a sandbox package cache."""
 
 TRACECAT__MAX_FILE_SIZE_BYTES = int(
     os.environ.get("TRACECAT__MAX_FILE_SIZE_BYTES") or 20 * 1024 * 1024  # Default 20MB
@@ -1085,6 +1120,32 @@ TRACECAT__S3_CONCURRENCY_LIMIT = int(
 # === API List/Search Limits === #
 TRACECAT__LIMIT_MIN = 1
 """Minimum list/search page size."""
+
+TRACECAT__LIMIT_AGG_GROUPS_MAX = bound_env(
+    "TRACECAT__LIMIT_AGG_GROUPS_MAX",
+    1000,
+    lower=1,
+)
+"""Maximum number of groups returned by an aggregation query."""
+
+TRACECAT__LIMIT_AGG_GROUPS_DEFAULT = bound_env(
+    "TRACECAT__LIMIT_AGG_GROUPS_DEFAULT",
+    100,
+    lower=1,
+    upper=TRACECAT__LIMIT_AGG_GROUPS_MAX,
+)
+"""Default number of groups returned by an aggregation query."""
+
+POSTGRES_STATEMENT_TIMEOUT_MAX_MS = 2_147_483_647
+"""Largest PostgreSQL statement timeout accepted in milliseconds."""
+
+TRACECAT__AGG_STATEMENT_TIMEOUT_MS = bound_env(
+    "TRACECAT__AGG_STATEMENT_TIMEOUT_MS",
+    30_000,
+    lower=1,
+    upper=POSTGRES_STATEMENT_TIMEOUT_MAX_MS,
+)
+"""PostgreSQL statement timeout for aggregation queries, in milliseconds."""
 
 TRACECAT__LIMIT_DEFAULT = 20
 """Default list/search page size."""

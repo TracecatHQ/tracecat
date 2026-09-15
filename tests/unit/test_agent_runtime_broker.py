@@ -11,6 +11,7 @@ from uuid import uuid4
 import orjson
 import pytest
 from claude_agent_sdk import ClaudeAgentOptions
+from claude_agent_sdk._errors import CLIConnectionError, ProcessError
 from claude_agent_sdk.types import (
     AgentDefinition,
     McpHttpServerConfig,
@@ -600,3 +601,91 @@ async def test_transport_close_preserves_caller_owned_job_directory(
     assert job_dir.is_dir()
     assert uv_file.is_file()
     assert transport._spawned_runtime is None
+
+
+@pytest.mark.parametrize("use_jailed_paths", [True, False])
+@pytest.mark.parametrize("resume", [None, "existing-session"])
+def test_transport_loads_platform_plugin_on_fresh_and_resumed_turns(
+    tmp_path: Path, use_jailed_paths: bool, resume: str | None
+) -> None:
+    plugin = tmp_path / "platform-skills"
+    manifest = plugin / ".claude-plugin" / "plugin.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text('{"name":"tracecat"}')
+    transport = _make_transport(tmp_path, use_jailed_paths=use_jailed_paths)
+    options = transport._options_with_platform_skills(ClaudeAgentOptions(resume=resume))
+    expected = Path("/run/tracecat/job/platform-skills") if use_jailed_paths else plugin
+    assert options.plugins == [{"type": "local", "path": str(expected)}]
+    assert options.resume == resume
+
+
+def test_transport_does_not_reuse_plugins_without_a_staged_catalog(
+    tmp_path: Path,
+) -> None:
+    transport = _make_transport(tmp_path, use_jailed_paths=True)
+    options = transport._options_with_platform_skills(
+        ClaudeAgentOptions(plugins=[{"type": "local", "path": "/previous-turn/plugin"}])
+    )
+    assert options.plugins == []
+
+
+@pytest.mark.anyio
+async def test_transport_records_shim_exit_code_when_stream_ends(
+    tmp_path: Path,
+) -> None:
+    """Invariant: the shim exit code survives the ProcessError the SDK erases.
+
+    ``read_messages`` still raises ``ProcessError`` for the SDK, and the same
+    exit code stays readable on the transport for the runtime to attribute.
+    """
+    transport = _make_transport(tmp_path, use_jailed_paths=False)
+
+    class _ExitedStdout:
+        @staticmethod
+        async def readline() -> bytes:
+            return b""
+
+    class _ExitedProcess:
+        returncode = 134
+        stdout = _ExitedStdout()
+        stderr = None
+
+        @staticmethod
+        async def wait() -> int:
+            return 134
+
+    transport._process = cast(Any, _ExitedProcess())
+
+    with pytest.raises(ProcessError) as excinfo:
+        async for _ in transport.read_messages():
+            pass
+
+    assert excinfo.value.exit_code == 134
+    assert transport.exit_code == 134
+
+
+@pytest.mark.anyio
+async def test_transport_records_shim_exit_code_observed_on_write(
+    tmp_path: Path,
+) -> None:
+    """Invariant: a shim death seen at write time is still attributable.
+
+    The SDK cancels its reader task when a write fails, so ``read_messages``
+    may never reach its own recording point. A resource-limit death observed
+    while writing a prompt must not degrade to retryable executor
+    unavailability for want of the exit code.
+    """
+    transport = _make_transport(tmp_path, use_jailed_paths=False)
+
+    class _ExitedProcess:
+        returncode = 137
+        stdin = SimpleNamespace()
+        stdout = SimpleNamespace()
+
+    transport._process = cast(Any, _ExitedProcess())
+    transport._ready = True
+
+    with pytest.raises(CLIConnectionError):
+        await transport.write('{"type":"user"}\n')
+
+    assert transport.exit_code == 137

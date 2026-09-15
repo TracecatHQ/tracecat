@@ -7,7 +7,8 @@ import base64
 import hashlib
 import mimetypes
 import uuid
-from collections.abc import Awaitable, Callable, Iterator, Sequence
+from collections import Counter
+from collections.abc import Awaitable, Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import PurePosixPath
@@ -19,15 +20,22 @@ import yaml
 from asyncpg import UniqueViolationError as AsyncpgUniqueViolationError
 from psycopg.errors import UniqueViolation as PsycopgUniqueViolation
 from pydantic import TypeAdapter, ValidationError
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from tracecat import config
-from tracecat.agent.preset.schemas import AgentPresetSkillBindingBase
+from tracecat.agent.skill.bindings import SkillBindingService
+from tracecat.agent.skill.dependencies import SkillToolDependencyService
+from tracecat.agent.skill.frontmatter import (
+    MAX_SKILL_TOOLS,
+    SkillFrontmatter,
+    normalize_skill_markdown,
+    parse_skill_markdown,
+    split_skill_markdown_frontmatter,
+)
 from tracecat.agent.skill.schemas import (
-    NewSkillName,
     SkillCreate,
     SkillDownloadPreparedFile,
     SkillDownloadPreparedResponse,
@@ -54,32 +62,43 @@ from tracecat.agent.skill.schemas import (
     SkillVersionReadMinimal,
     SkillVersionSnapshotRead,
 )
-from tracecat.agent.skill.types import ResolvedSkillRef
+from tracecat.agent.skill.types import (
+    ResolvedSkillMcpTool,
+    ResolvedSkillRef,
+    SkillToolProjection,
+)
+from tracecat.agent.skill.validation import (
+    STDIO_MCP_TOOL_SUBSET_UNSUPPORTED,
+    get_mcp_grant_support_error,
+)
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import (
-    AgentPreset,
     AgentPresetSkill,
     AgentPresetVersionSkill,
+    MCPIntegration,
     Skill,
     SkillBlob,
     SkillDraftFile,
     SkillVersion,
     SkillVersionFile,
+    SkillVersionMcpTool,
+    SkillVersionTool,
 )
 from tracecat.db.models import (
     SkillUpload as SkillUploadModel,
 )
 from tracecat.db.soft_delete import with_deleted
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.integrations.schemas import MCPToolSummary
+from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
 from tracecat.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,
     CursorPaginationParams,
 )
-from tracecat.service import BaseWorkspaceService, requires_entitlement
+from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.storage import blob
-from tracecat.tiers.enums import Entitlement
 
 INLINE_TEXT_LIMIT_BYTES = 256 * 1024
 DEFAULT_UPLOAD_TTL_SECONDS = 15 * 60
@@ -88,21 +107,39 @@ MAX_CONTENT_TYPE_LENGTH = 255
 SKILL_SLUG_MAX_LENGTH = 64
 SKILL_SLUG_INSERT_ATTEMPTS = 3
 SKILL_SLUG_UNIQUE_CONSTRAINT = "uq_skill_workspace_slug_active"
+SKILL_TOOL_ERROR_CODES = frozenset(
+    {
+        "invalid_skill_tool_declaration",
+        "unknown_skill_tools",
+        "unavailable_skill_tools",
+        STDIO_MCP_TOOL_SUBSET_UNSUPPORTED,
+    }
+)
 POSTGRES_UNIQUE_VIOLATION_SQLSTATE = "23505"
 EXPIRED_UPLOAD_REAP_BATCH_SIZE = 64
-# Lenient adapter for slug lookups: accepts legacy reserved-prefix identifiers.
+# Skill origin is independent of its portable name or lookup slug.
 SKILL_SLUG_ADAPTER = TypeAdapter(SkillName)
-# Strict adapter for draft/publish manifest validation: rejects reserved names.
-NEW_SKILL_NAME_ADAPTER = TypeAdapter(NewSkillName)
 
 
 @dataclass(slots=True)
 class ManifestValidationResult:
     """Result of validating a skill draft or published manifest."""
 
-    name: str | None = None
-    description: str | None = None
+    frontmatter: SkillFrontmatter | None = None
+    tool_projection: SkillToolProjection | None = None
     errors: list[SkillValidationErrorDetail] = field(default_factory=list)
+
+    @property
+    def name(self) -> str | None:
+        """Return the validated skill name, if frontmatter was present."""
+
+        return self.frontmatter.name if self.frontmatter is not None else None
+
+    @property
+    def description(self) -> str | None:
+        """Return the validated skill description, if present."""
+
+        return self.frontmatter.description if self.frontmatter is not None else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -339,7 +376,7 @@ def _is_skill_slug_unique_violation(error: IntegrityError) -> bool:
     return is_unique and constraint_name == SKILL_SLUG_UNIQUE_CONSTRAINT
 
 
-class SkillService(BaseWorkspaceService):
+class SkillService(SkillBindingService):
     """CRUD operations and execution helpers for workspace skills."""
 
     service_name = "skill"
@@ -591,33 +628,6 @@ class SkillService(BaseWorkspaceService):
         }
 
     @staticmethod
-    def _normalize_skill_markdown_for_parsing(skill_markdown: str) -> str:
-        """Normalize markdown before delimiter-based parsing."""
-
-        return (
-            skill_markdown.removeprefix("\ufeff")
-            .replace("\r\n", "\n")
-            .replace("\r", "\n")
-        )
-
-    @staticmethod
-    def _split_skill_markdown_frontmatter(
-        skill_markdown: str,
-    ) -> tuple[str, str] | None:
-        """Split normalized root SKILL.md frontmatter from its body."""
-
-        if not skill_markdown.startswith("---\n"):
-            return None
-        _, _, remainder = skill_markdown.partition("---\n")
-        frontmatter, separator, body = remainder.partition("\n---\n")
-        if separator:
-            return frontmatter, body
-        closing_delimiter = "\n---"
-        if remainder.endswith(closing_delimiter):
-            return remainder[: -len(closing_delimiter)], ""
-        return None
-
-    @staticmethod
     def _build_default_skill_markdown(*, name: str, description: str | None) -> str:
         """Create the seeded root SKILL.md for a new skill."""
 
@@ -673,15 +683,11 @@ class SkillService(BaseWorkspaceService):
     ) -> str:
         """Merge name/description frontmatter into an existing SKILL.md body."""
 
-        skill_markdown = SkillService._normalize_skill_markdown_for_parsing(
-            skill_markdown
-        )
+        skill_markdown = normalize_skill_markdown(skill_markdown)
         metadata: dict[str, object] = {}
         body = skill_markdown
 
-        if frontmatter_parts := SkillService._split_skill_markdown_frontmatter(
-            skill_markdown
-        ):
+        if frontmatter_parts := split_skill_markdown_frontmatter(skill_markdown):
             frontmatter, body = frontmatter_parts
             try:
                 loaded = yaml.safe_load(frontmatter) or {}
@@ -712,53 +718,6 @@ class SkillService(BaseWorkspaceService):
         raise TracecatValidationError(
             f"Skill draft is missing a required name during {operation}",
             detail={"code": "missing_skill_name", "operation": operation},
-        )
-
-    @staticmethod
-    def _raise_missing_version_name(*, skill_version_id: uuid.UUID) -> Never:
-        """Raise a validation error when a published skill version is malformed."""
-
-        raise TracecatValidationError(
-            f"Skill version '{skill_version_id}' is missing a required name",
-            detail={
-                "code": "missing_skill_version_name",
-                "skill_version_id": str(skill_version_id),
-            },
-        )
-
-    @staticmethod
-    def _extract_frontmatter(skill_markdown: str) -> tuple[str | None, str | None]:
-        """Extract name and description from root SKILL.md frontmatter.
-
-        Raises:
-            TracecatValidationError: If the frontmatter contains invalid YAML.
-        """
-
-        skill_markdown = SkillService._normalize_skill_markdown_for_parsing(
-            skill_markdown
-        )
-        frontmatter_parts = SkillService._split_skill_markdown_frontmatter(
-            skill_markdown
-        )
-        if frontmatter_parts is None:
-            return None, None
-        frontmatter, _ = frontmatter_parts
-        try:
-            loaded = yaml.safe_load(frontmatter) or {}
-        except yaml.YAMLError as exc:
-            raise TracecatValidationError(
-                "Root SKILL.md frontmatter must be valid YAML",
-                detail={"code": "invalid_skill_md_frontmatter", "path": "SKILL.md"},
-            ) from exc
-        if not isinstance(loaded, dict):
-            return None, None
-        name = loaded.get("name")
-        description = loaded.get("description")
-        return (
-            name if isinstance(name, str) and name.strip() else None,
-            description
-            if isinstance(description, str) and description.strip()
-            else None,
         )
 
     async def _get_blob_by_identity(self, *, sha256: str) -> SkillBlob | None:
@@ -1159,6 +1118,162 @@ class SkillService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return list(result.tuples().all())
 
+    @staticmethod
+    def _parse_manifest_frontmatter(
+        markdown: str,
+        result: ManifestValidationResult,
+    ) -> None:
+        """Populate a manifest validation result from typed SKILL.md frontmatter."""
+
+        try:
+            parsed = parse_skill_markdown(markdown)
+        except yaml.YAMLError:
+            result.errors.append(
+                SkillValidationErrorDetail(
+                    code="invalid_skill_md_frontmatter",
+                    message="Root SKILL.md frontmatter must be valid YAML",
+                    path="SKILL.md",
+                )
+            )
+            return
+        except ValidationError as exc:
+            tool_error = any(
+                tuple(error["loc"][:2]) == ("metadata", "tools")
+                for error in exc.errors()
+            )
+            result.errors.append(
+                SkillValidationErrorDetail(
+                    code=(
+                        "invalid_skill_tool_declaration"
+                        if tool_error
+                        else "invalid_skill_md_frontmatter"
+                    ),
+                    message=(
+                        "Root SKILL.md metadata.tools must contain at most "
+                        f"{MAX_SKILL_TOOLS} canonical registry or MCP tool IDs"
+                        if tool_error
+                        else "Root SKILL.md frontmatter does not match the skill schema"
+                    ),
+                    path="SKILL.md",
+                )
+            )
+            return
+
+        if parsed is None:
+            result.errors.append(
+                SkillValidationErrorDetail(
+                    code="missing_skill_name",
+                    message="Root SKILL.md frontmatter must define a skill name",
+                    path="SKILL.md",
+                )
+            )
+            return
+        result.frontmatter = parsed
+
+    async def _validate_declared_tools(self, result: ManifestValidationResult) -> None:
+        """Resolve declared tool IDs through actor-scoped availability indexes."""
+
+        if result.frontmatter is None or result.errors:
+            return
+        tool_ids = result.frontmatter.metadata.tools
+        registry_tool_ids = [
+            tool_id for tool_id in tool_ids if not tool_id.startswith("mcp.")
+        ]
+        mcp_tool_ids = [tool_id for tool_id in tool_ids if tool_id.startswith("mcp.")]
+
+        missing_registry_tools: set[str] = set()
+        if registry_tool_ids:
+            registry_service = RegistryActionsService(self.session, role=self.role)
+            index_entries = await registry_service.list_actions_from_index(
+                include_keys=set(registry_tool_ids)
+            )
+            available_registry_tools = {
+                f"{entry.namespace}.{entry.name}" for entry, _ in index_entries
+            }
+            missing_registry_tools = set(registry_tool_ids) - available_registry_tools
+
+        integrations = (
+            await IntegrationService(
+                self.session, role=self.role
+            ).list_mcp_integrations()
+            if mcp_tool_ids
+            else []
+        )
+        integrations_by_slug = {
+            integration.slug: integration for integration in integrations
+        }
+        resolved_mcp_tools: list[ResolvedSkillMcpTool] = []
+        missing_mcp_tools: set[str] = set()
+        unavailable_mcp_tools: set[str] = set()
+        for tool_id in mcp_tool_ids:
+            _, slug, *tool_name_parts = tool_id.split(".", 2)
+            integration = integrations_by_slug.get(slug)
+            if integration is None:
+                missing_mcp_tools.add(tool_id)
+                continue
+            tool_name = tool_name_parts[0] if tool_name_parts else None
+            if support_error := get_mcp_grant_support_error(
+                server_type=integration.server_type,
+                tool_name=tool_name,
+                tool_id=tool_id,
+            ):
+                result.errors.append(support_error)
+                continue
+            if tool_name is not None:
+                stored_tools = MCPToolSummary.validate_stored(
+                    integration.tools,
+                    mcp_integration_id=integration.id,
+                )
+                stored_tool = next(
+                    (tool for tool in stored_tools or () if tool.name == tool_name),
+                    None,
+                )
+                if stored_tool is None:
+                    missing_mcp_tools.add(tool_id)
+                    continue
+                if not stored_tool.enabled or stored_tool.status != "available":
+                    unavailable_mcp_tools.add(tool_id)
+                    continue
+            resolved_mcp_tools.append(
+                ResolvedSkillMcpTool(
+                    tool_id=tool_id,
+                    mcp_integration_id=integration.id,
+                    tool_name=tool_name,
+                )
+            )
+
+        if missing_registry_tools or missing_mcp_tools:
+            missing = sorted(missing_registry_tools | missing_mcp_tools)
+            result.errors.append(
+                SkillValidationErrorDetail(
+                    code="unknown_skill_tools",
+                    message=(
+                        f"Tools not found: {', '.join(missing)}. "
+                        "Check the tool names or remove them from this skill."
+                    ),
+                    path="SKILL.md",
+                )
+            )
+        if unavailable_mcp_tools:
+            result.errors.append(
+                SkillValidationErrorDetail(
+                    code="unavailable_skill_tools",
+                    message=(
+                        "Tools are disabled or unavailable: "
+                        f"{', '.join(sorted(unavailable_mcp_tools))}. "
+                        "Enable them in MCP server settings or remove them "
+                        "from this skill."
+                    ),
+                    path="SKILL.md",
+                )
+            )
+        if result.errors:
+            return
+        result.tool_projection = SkillToolProjection(
+            registry_tool_ids=tuple(registry_tool_ids),
+            mcp_tools=tuple(resolved_mcp_tools),
+        )
+
     async def _validate_manifest_rows(
         self, rows: Sequence[tuple[str, SkillBlob]]
     ) -> ManifestValidationResult:
@@ -1254,43 +1369,11 @@ class SkillService(BaseWorkspaceService):
             )
             return result
 
-        try:
-            result.name, result.description = self._extract_frontmatter(markdown)
-        except TracecatValidationError as exc:
-            result.errors.append(
-                SkillValidationErrorDetail(
-                    code="invalid_skill_md_frontmatter",
-                    message=str(exc),
-                    path="SKILL.md",
-                )
-            )
-            return result
-        if result.name is None:
-            result.errors.append(
-                SkillValidationErrorDetail(
-                    code="missing_skill_name",
-                    message="Root SKILL.md frontmatter must define a skill name",
-                    path="SKILL.md",
-                )
-            )
-            return result
-        try:
-            result.name = NEW_SKILL_NAME_ADAPTER.validate_python(result.name)
-        except ValidationError:
-            result.errors.append(
-                SkillValidationErrorDetail(
-                    code="invalid_skill_name",
-                    message=(
-                        "Root SKILL.md frontmatter name must be 1-64 characters "
-                        "of lowercase letters, numbers, and single hyphens, and "
-                        "must not use the reserved 'tracecat-' prefix"
-                    ),
-                    path="SKILL.md",
-                )
-            )
+        self._parse_manifest_frontmatter(markdown, result)
+        await self._validate_declared_tools(result)
         return result
 
-    def _validate_prepared_upload_files(
+    async def _validate_prepared_upload_files(
         self, files: Sequence[PreparedSkillUploadFile]
     ) -> ManifestValidationResult:
         """Validate normalized one-shot upload files before blob writes."""
@@ -1351,40 +1434,8 @@ class SkillService(BaseWorkspaceService):
             )
             return result
 
-        try:
-            result.name, result.description = self._extract_frontmatter(markdown)
-        except TracecatValidationError as exc:
-            result.errors.append(
-                SkillValidationErrorDetail(
-                    code="invalid_skill_md_frontmatter",
-                    message=str(exc),
-                    path="SKILL.md",
-                )
-            )
-            return result
-        if result.name is None:
-            result.errors.append(
-                SkillValidationErrorDetail(
-                    code="missing_skill_name",
-                    message="Root SKILL.md frontmatter must define a skill name",
-                    path="SKILL.md",
-                )
-            )
-            return result
-        try:
-            result.name = NEW_SKILL_NAME_ADAPTER.validate_python(result.name)
-        except ValidationError:
-            result.errors.append(
-                SkillValidationErrorDetail(
-                    code="invalid_skill_name",
-                    message=(
-                        "Root SKILL.md frontmatter name must be 1-64 characters "
-                        "of lowercase letters, numbers, and single hyphens, and "
-                        "must not use the reserved 'tracecat-' prefix"
-                    ),
-                    path="SKILL.md",
-                )
-            )
+        self._parse_manifest_frontmatter(markdown, result)
+        await self._validate_declared_tools(result)
         return result
 
     def _prepare_upload_files(
@@ -1425,19 +1476,19 @@ class SkillService(BaseWorkspaceService):
     ) -> PreparedSkillUploadDraft:
         """Validate and materialize a one-shot upload into draft blob refs."""
 
-        validation, prepared_files = self._validate_upload_draft(params)
+        validation, prepared_files = await self._validate_upload_draft(params)
         return await self._materialize_upload_draft(
             validation=validation,
             prepared_files=prepared_files,
         )
 
-    def _validate_upload_draft(
+    async def _validate_upload_draft(
         self, params: SkillUpload
     ) -> tuple[ManifestValidationResult, list[PreparedSkillUploadFile]]:
         """Validate a one-shot upload without writing blob rows."""
 
         prepared_files = self._prepare_upload_files(params.files)
-        validation = self._validate_prepared_upload_files(prepared_files)
+        validation = await self._validate_prepared_upload_files(prepared_files)
         if validation.errors:
             raise TracecatValidationError(
                 "Uploaded skill draft failed validation",
@@ -1497,18 +1548,138 @@ class SkillService(BaseWorkspaceService):
             )
         return path_to_blob
 
-    async def _create_version_from_blob_refs(
+    async def lock_publications(self) -> None:
+        """Serialize workspace publications before acquiring Skill or blob locks.
+
+        Bulk import must acquire this lock before modifying any Skill rows.
+        """
+        await self.session.execute(
+            select(
+                sa.func.pg_advisory_xact_lock(
+                    sa.func.hashtextextended(
+                        f"skill-published-names:{self.workspace_id}", 0
+                    )
+                )
+            )
+        )
+
+    async def validate_publication_names(
+        self, names_by_skill_id: Mapping[uuid.UUID, str]
+    ) -> None:
+        """Validate final runtime names under the workspace publication lock.
+
+        Draft names do not reserve names. Batch imports validate their complete
+        desired state before releasing old names to support atomic name swaps.
+        """
+        names = Counter(names_by_skill_id.values())
+        conflict = next((name for name, count in names.items() if count > 1), None)
+        if conflict is None:
+            conflict = await self.session.scalar(
+                select(SkillVersion.name)
+                .join(Skill, Skill.current_version_id == SkillVersion.id)
+                .where(
+                    Skill.workspace_id == self.workspace_id,
+                    Skill.id.not_in(names_by_skill_id),
+                    Skill.deleted_at.is_(None),
+                    Skill.archived_at.is_(None),
+                    SkillVersion.name.in_(names),
+                )
+                .limit(1)
+            )
+        if conflict is not None:
+            raise TracecatValidationError(
+                f"Published Skill name '{conflict}' is already in use for this workspace",
+                detail={"code": "skill_name_conflict", "name": conflict},
+            )
+
+    def _add_tool_projection_rows(
+        self, *, skill_version_id: uuid.UUID, projection: SkillToolProjection
+    ) -> None:
+        """Stage immutable tool projection rows for one skill version."""
+
+        for tool_id in projection.registry_tool_ids:
+            self.session.add(
+                SkillVersionTool(
+                    workspace_id=self.workspace_id,
+                    skill_version_id=skill_version_id,
+                    tool_id=tool_id,
+                )
+            )
+        for mcp_tool in projection.mcp_tools:
+            self.session.add(
+                SkillVersionMcpTool(
+                    workspace_id=self.workspace_id,
+                    skill_version_id=skill_version_id,
+                    tool_id=mcp_tool.tool_id,
+                    mcp_integration_id=mcp_tool.mcp_integration_id,
+                    tool_name=mcp_tool.tool_name,
+                )
+            )
+
+    async def _lock_projected_mcp_integrations(
+        self, projection: SkillToolProjection
+    ) -> None:
+        """Keep resolved MCP rows alive until publication commits."""
+        integration_ids = {tool.mcp_integration_id for tool in projection.mcp_tools}
+        if not integration_ids:
+            return
+        # Validation may precede this transaction. Recheck UUIDs under key-share
+        # locks so deletion either wins here or waits for the published references.
+        locked_ids = set(
+            await self.session.scalars(
+                select(MCPIntegration.id)
+                .where(
+                    MCPIntegration.workspace_id == self.workspace_id,
+                    MCPIntegration.id.in_(integration_ids),
+                )
+                .order_by(MCPIntegration.id)
+                .with_for_update(read=True, key_share=True)
+            )
+        )
+        if integration_ids - locked_ids:
+            error = SkillValidationErrorDetail(
+                code="unknown_skill_tools",
+                message=(
+                    "MCP integrations were deleted before publication. "
+                    "Validate the skill again."
+                ),
+                path="SKILL.md",
+            )
+            raise TracecatValidationError(
+                "Skill draft failed validation",
+                detail={
+                    "code": "skill_publish_validation_failed",
+                    "errors": [error.model_dump(mode="json")],
+                },
+            )
+
+    async def publish_version_from_blob_refs(
         self,
         *,
         skill: Skill,
         file_refs: Sequence[tuple[str, SkillFileBlobRef]],
         validation: ManifestValidationResult,
-    ) -> SkillVersionRead:
-        """Create a new immutable version from validated skill files."""
+        skill_locked: bool = False,
+        head_name: str | None = None,
+    ) -> SkillVersion:
+        """Publish validated blobs without committing the caller's transaction."""
 
+        await self.lock_publications()
+        if not skill_locked:
+            locked_skill = await self._get_skill_for_update(skill.id)
+            if locked_skill is None:
+                raise TracecatNotFoundError(f"Skill '{skill.id}' not found")
+            skill = locked_skill
         if validation.name is None:
             self._raise_missing_draft_name(operation="publish")
+        if validation.tool_projection is None:
+            raise TracecatValidationError(
+                "Skill tool declarations were not projected",
+                detail={"code": "skill_tools_not_projected"},
+            )
+        await self._lock_projected_mcp_integrations(validation.tool_projection)
         manifest_name = validation.name
+        await self.validate_publication_names({skill.id: manifest_name})
         sorted_file_refs = sorted(file_refs, key=lambda item: item[0])
         manifest_payload = [
             {
@@ -1556,10 +1727,32 @@ class SkillService(BaseWorkspaceService):
                     content_type=file_ref.content_type,
                 )
             )
+        self._add_tool_projection_rows(
+            skill_version_id=version.id,
+            projection=validation.tool_projection,
+        )
         skill.current_version_id = version.id
-        skill.name = manifest_name
+        skill.name = head_name or manifest_name
         skill.description = validation.description
         self.session.add(skill)
+        await self.session.flush()
+        return version
+
+    async def _create_version_from_blob_refs(
+        self,
+        *,
+        skill: Skill,
+        file_refs: Sequence[tuple[str, SkillFileBlobRef]],
+        validation: ManifestValidationResult,
+    ) -> SkillVersionRead:
+        """Publish validated blobs and commit the service transaction."""
+
+        version = await self.publish_version_from_blob_refs(
+            skill=skill,
+            file_refs=file_refs,
+            validation=validation,
+            skill_locked=True,
+        )
         await self.session.commit()
         return await self.get_version_read(skill_id=skill.id, version_id=version.id)
 
@@ -1807,7 +2000,6 @@ class SkillService(BaseWorkspaceService):
         )
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_skill(
         self, skill_id: uuid.UUID, *, include_archived: bool = False
     ) -> Skill | None:
@@ -1830,7 +2022,6 @@ class SkillService(BaseWorkspaceService):
             stmt = with_deleted(stmt)
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_skill_by_identifier(
         self, identifier: str | uuid.UUID
     ) -> Skill | None:
@@ -1944,52 +2135,7 @@ class SkillService(BaseWorkspaceService):
             stmt = with_deleted(stmt)
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
-    async def _get_bindable_skills(
-        self,
-        skill_ids: Sequence[uuid.UUID],
-        *,
-        for_update: bool = False,
-    ) -> dict[uuid.UUID, Skill]:
-        """Return active skills that can be bound onto a preset.
-
-        When ``for_update`` is true, rows are locked in a deterministic order so
-        skill archival and preset binding writes serialize on the same records.
-        """
-
-        normalized_ids = sorted(set(skill_ids), key=str)
-        if not normalized_ids:
-            return {}
-
-        if not for_update:
-            stmt = select(Skill).where(
-                Skill.workspace_id == self.workspace_id,
-                Skill.id.in_(normalized_ids),
-                Skill.deleted_at.is_(None),
-                Skill.archived_at.is_(None),
-            )
-            return {
-                skill.id: skill
-                for skill in (await self.session.execute(stmt)).scalars().all()
-            }
-
-        stmt = (
-            select(Skill)
-            .where(
-                Skill.workspace_id == self.workspace_id,
-                Skill.id.in_(normalized_ids),
-                Skill.deleted_at.is_(None),
-                Skill.archived_at.is_(None),
-            )
-            .order_by(Skill.id)
-            .with_for_update()
-        )
-        return {
-            skill.id: skill
-            for skill in (await self.session.execute(stmt)).scalars().all()
-        }
-
     @require_scope("agent:create")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def create_skill(self, params: SkillCreate) -> SkillRead:
         """Create a logical skill and seed its initial draft.
 
@@ -2017,7 +2163,6 @@ class SkillService(BaseWorkspaceService):
         return await self._build_skill_read(skill)
 
     @require_scope("agent:create")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def upload_skill(self, params: SkillUpload) -> SkillRead:
         """Import a full skill draft in one operation.
 
@@ -2028,7 +2173,7 @@ class SkillService(BaseWorkspaceService):
             The created skill summary.
         """
 
-        validation, prepared_files = self._validate_upload_draft(params)
+        validation, prepared_files = await self._validate_upload_draft(params)
 
         async def uploaded_draft_blob_map(
             published: list[PublishedBlobObject],
@@ -2048,7 +2193,6 @@ class SkillService(BaseWorkspaceService):
         return await self._build_skill_read(skill)
 
     @require_scope("agent:update")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def replace_skill_draft(
         self, *, skill_id: uuid.UUID, params: SkillUpload
     ) -> SkillRead:
@@ -2071,7 +2215,6 @@ class SkillService(BaseWorkspaceService):
         await self.session.refresh(skill)
         return await self._build_skill_read(skill)
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def list_skills(
         self, params: CursorPaginationParams
     ) -> CursorPaginatedResponse[SkillReadMinimal]:
@@ -2140,7 +2283,6 @@ class SkillService(BaseWorkspaceService):
             has_previous=params.cursor is not None,
         )
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_skill_read(self, skill_id: uuid.UUID) -> SkillRead | None:
         """Return a fully rendered skill summary."""
 
@@ -2148,7 +2290,6 @@ class SkillService(BaseWorkspaceService):
             return None
         return await self._build_skill_read(skill)
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_draft(self, skill_id: uuid.UUID) -> SkillDraftRead | None:
         """Return the current mutable draft for a skill."""
 
@@ -2156,7 +2297,6 @@ class SkillService(BaseWorkspaceService):
             return None
         return await self._build_draft_read(skill)
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def prepare_draft_download(
         self,
         *,
@@ -2207,7 +2347,6 @@ class SkillService(BaseWorkspaceService):
             files=files,
         )
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_draft_file(
         self,
         *,
@@ -2274,7 +2413,6 @@ class SkillService(BaseWorkspaceService):
             ),
         )
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_version_file(
         self, *, skill_id: uuid.UUID, version_id: uuid.UUID, path: str
     ) -> SkillDraftFileRead | None:
@@ -2336,7 +2474,6 @@ class SkillService(BaseWorkspaceService):
             ),
         )
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_draft_text_file(
         self, *, skill_id: uuid.UUID, path: str
     ) -> str | None:
@@ -2403,6 +2540,26 @@ class SkillService(BaseWorkspaceService):
         for operation in operations:
             match operation:
                 case SkillDraftUpsertTextFileOp():
+                    if operation.path == "SKILL.md":
+                        validation = ManifestValidationResult()
+                        self._parse_manifest_frontmatter(operation.content, validation)
+                        await self._validate_declared_tools(validation)
+                        tool_errors = [
+                            error
+                            for error in validation.errors
+                            if error.code in SKILL_TOOL_ERROR_CODES
+                        ]
+                        if tool_errors:
+                            raise TracecatValidationError(
+                                "Skill draft tool declarations failed validation",
+                                detail={
+                                    "code": "skill_draft_tool_validation_failed",
+                                    "errors": [
+                                        error.model_dump(mode="json")
+                                        for error in tool_errors
+                                    ],
+                                },
+                            )
                     prepared_operations.append(
                         PreparedDraftTextFileOp(
                             path=self._normalize_path(operation.path),
@@ -2558,7 +2715,6 @@ class SkillService(BaseWorkspaceService):
         )
 
     @require_scope("agent:update")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def patch_draft(
         self, *, skill_id: uuid.UUID, params: SkillDraftPatch
     ) -> SkillDraftRead:
@@ -2750,7 +2906,6 @@ class SkillService(BaseWorkspaceService):
         return uploads
 
     @require_scope("agent:update")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def prepare_draft_uploads(
         self,
         *,
@@ -2785,7 +2940,6 @@ class SkillService(BaseWorkspaceService):
         return prepared
 
     @require_scope("agent:create", "agent:update")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def prepare_new_skill_draft_uploads(
         self,
         *,
@@ -2833,7 +2987,6 @@ class SkillService(BaseWorkspaceService):
         return prepared
 
     @require_scope("agent:update")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def create_draft_upload(
         self,
         *,
@@ -2848,7 +3001,6 @@ class SkillService(BaseWorkspaceService):
         )
         return prepared.uploads[0]
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_version(self, version_id: uuid.UUID) -> SkillVersion | None:
         """Return a skill version by ID."""
 
@@ -2859,10 +3011,10 @@ class SkillService(BaseWorkspaceService):
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
     @require_scope("agent:update")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def publish_skill(self, skill_id: uuid.UUID) -> SkillVersionRead:
         """Publish the current draft into a new immutable skill version."""
 
+        await self.lock_publications()
         skill = await self._get_skill_for_update(skill_id)
         if skill is None:
             raise TracecatNotFoundError(f"Skill '{skill_id}' not found")
@@ -2905,12 +3057,12 @@ class SkillService(BaseWorkspaceService):
         )
 
     @require_scope("agent:update")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def publish_skill_version(
         self, *, skill_id: uuid.UUID, params: SkillVersionPublish
     ) -> SkillVersionRead:
         """Atomically publish a new immutable skill version from a file set."""
 
+        await self.lock_publications()
         skill = await self._get_skill_for_update(skill_id)
         if skill is None:
             raise TracecatNotFoundError(f"Skill '{skill_id}' not found")
@@ -2928,7 +3080,7 @@ class SkillService(BaseWorkspaceService):
             )
 
         prepared_files = self._prepare_upload_files(params.files)
-        validation = self._validate_prepared_upload_files(prepared_files)
+        validation = await self._validate_prepared_upload_files(prepared_files)
         if validation.errors:
             raise TracecatValidationError(
                 "Skill version failed validation",
@@ -2948,7 +3100,6 @@ class SkillService(BaseWorkspaceService):
             validation=validation,
         )
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def list_versions(
         self, *, skill_id: uuid.UUID, params: CursorPaginationParams
     ) -> CursorPaginatedResponse[SkillVersionReadMinimal]:
@@ -3036,7 +3187,6 @@ class SkillService(BaseWorkspaceService):
             has_previous=params.cursor is not None,
         )
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_version_read(
         self, *, skill_id: uuid.UUID, version_id: uuid.UUID
     ) -> SkillVersionRead:
@@ -3072,7 +3222,6 @@ class SkillService(BaseWorkspaceService):
             ],
         )
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_version_snapshot_read(
         self, *, skill_id: uuid.UUID, version_id: uuid.UUID
     ) -> SkillVersionSnapshotRead:
@@ -3117,12 +3266,12 @@ class SkillService(BaseWorkspaceService):
         )
 
     @require_scope("agent:update")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def restore_version(
         self, *, skill_id: uuid.UUID, version_id: uuid.UUID
     ) -> SkillReadMinimal:
         """Restore a historical version as the current selected skill version."""
 
+        await self.lock_publications()
         skill = await self._get_skill_for_update(skill_id)
         if skill is None:
             raise TracecatNotFoundError(f"Skill '{skill_id}' not found")
@@ -3131,43 +3280,80 @@ class SkillService(BaseWorkspaceService):
             raise TracecatNotFoundError(f"Skill version '{version_id}' not found")
         if version.name is None:
             self._raise_missing_version_name(skill_version_id=version.id)
-        skill.current_version_id = version.id
-        skill.name = version.name
-        skill.description = version.description
-        self.session.add(skill)
-        await self.session.commit()
-        await self.session.refresh(skill)
-        return self._build_skill_read_minimal(skill)
+        rows = await self._list_version_rows(version.id)
+        await self.session.refresh(version, attribute_names=["tools", "mcp_tools"])
+        dependencies = SkillToolDependencyService(self.session, role=self.role)
+        metadata = await dependencies.load_metadata([version.id])
+        await dependencies.validate_dependencies(
+            metadata=metadata,
+            resolved_skills=[
+                ResolvedSkillRef(
+                    skill_id=skill.id,
+                    skill_name=version.name,
+                    skill_version_id=version.id,
+                    manifest_sha256=version.manifest_sha256,
+                )
+            ],
+        )
+        # Restore the accepted snapshot, including its original projection UUIDs.
+        # Historical frontmatter may not satisfy today's authoring schema; these
+        # canonical fields have already been persisted by the original publisher.
+        validation = ManifestValidationResult(
+            frontmatter=SkillFrontmatter.model_construct(
+                name=version.name, description=version.description
+            ),
+            tool_projection=SkillToolProjection(
+                registry_tool_ids=tuple(tool.tool_id for tool in version.tools),
+                mcp_tools=tuple(
+                    ResolvedSkillMcpTool(
+                        tool_id=tool.tool_id,
+                        mcp_integration_id=tool.mcp_integration_id,
+                        tool_name=tool.tool_name,
+                    )
+                    for tool in version.mcp_tools
+                    if tool.mcp_integration_id is not None
+                ),
+            ),
+        )
+        restored = await self._create_version_from_blob_refs(
+            skill=skill,
+            file_refs=[
+                (
+                    version_file.path,
+                    SkillFileBlobRef(
+                        blob=blob_row,
+                        content_type=version_file.content_type,
+                    ),
+                )
+                for version_file, blob_row in rows
+            ],
+            validation=validation,
+        )
+        refreshed = await self.get_skill(skill.id)
+        if refreshed is None:
+            raise TracecatNotFoundError(f"Skill '{skill.id}' not found")
+        if restored.id != refreshed.current_version_id:
+            raise RuntimeError("Restored skill version was not selected as current")
+        return self._build_skill_read_minimal(refreshed)
 
     @require_scope("agent:delete")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
-    async def archive_skill(self, skill_id: uuid.UUID) -> None:
-        """Archive a skill unless any preset head still references it."""
+    async def archive_skill(
+        self,
+        skill_id: uuid.UUID,
+    ) -> None:
+        """Delete a skill and permanently unlink it from heads and history."""
 
         skill = await self._get_skill_for_update(skill_id)
         if skill is None:
             raise TracecatNotFoundError(f"Skill '{skill_id}' not found")
-        binding_stmt = (
-            select(func.count())
-            .select_from(AgentPresetSkill)
-            .join(
-                AgentPreset,
-                AgentPreset.id == AgentPresetSkill.preset_id,
-            )
-            .where(
-                AgentPresetSkill.workspace_id == self.workspace_id,
-                AgentPresetSkill.skill_id == skill.id,
-                AgentPreset.workspace_id == self.workspace_id,
-                AgentPreset.deleted_at.is_(None),
-            )
-        )
-        binding_count = int(
-            (await self.session.execute(binding_stmt)).scalar_one() or 0
-        )
-        if binding_count > 0:
-            raise TracecatValidationError(
-                "Cannot delete a skill that is still referenced by a preset",
-                detail={"code": "skill_in_use"},
+        # Binding writers lock the Skill first too, so no concurrent save can
+        # reattach it after this cleanup. Include soft-deleted parents/history.
+        for model in (AgentPresetSkill, AgentPresetVersionSkill):
+            await self.session.execute(
+                sa.delete(model).where(
+                    model.workspace_id == self.workspace_id,
+                    model.skill_id == skill_id,
+                )
             )
         archived_at = datetime.now(UTC)
         skill.archived_at = archived_at
@@ -3175,208 +3361,6 @@ class SkillService(BaseWorkspaceService):
         self.session.add(skill)
         await self.session.commit()
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
-    async def validate_binding_inputs(
-        self,
-        bindings: Sequence[AgentPresetSkillBindingBase],
-        *,
-        for_update: bool = False,
-    ) -> None:
-        """Validate preset skill bindings before they are persisted."""
-
-        if not bindings:
-            return
-        if len({binding.skill_id for binding in bindings}) != len(bindings):
-            raise TracecatValidationError(
-                "Duplicate skills are not allowed on a preset",
-                detail={"code": "duplicate_skill_binding"},
-            )
-
-        skill_ids = [binding.skill_id for binding in bindings]
-        skills = await self._get_bindable_skills(
-            skill_ids,
-            for_update=for_update,
-        )
-        missing = [str(skill_id) for skill_id in skill_ids if skill_id not in skills]
-        if missing:
-            raise TracecatValidationError(
-                f"Some skills were not found in this workspace: {sorted(missing)}",
-                detail={"code": "skill_not_found", "missing_skill_ids": missing},
-            )
-
-        for binding in bindings:
-            skill = skills[binding.skill_id]
-            if skill.current_version_id is None:
-                raise TracecatValidationError(
-                    f"Skill '{skill.name}' has no published version",
-                    detail={"code": "skill_not_published", "skill_id": str(skill.id)},
-                )
-
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
-    async def get_resolved_skill_refs_for_preset_version(
-        self,
-        preset_version_id: uuid.UUID,
-        *,
-        use_latest_versions: bool = False,
-    ) -> list[ResolvedSkillRef]:
-        """Return skill refs for an immutable preset version."""
-
-        if use_latest_versions:
-            return await self._get_latest_skill_refs_for_preset_version(
-                preset_version_id
-            )
-
-        stmt = (
-            select(
-                AgentPresetVersionSkill.skill_id,
-                SkillVersion.name,
-                AgentPresetVersionSkill.skill_version_id,
-                SkillVersion.manifest_sha256,
-                Skill.deleted_at,
-                Skill.archived_at,
-            )
-            .join(
-                SkillVersion,
-                AgentPresetVersionSkill.skill_version_id == SkillVersion.id,
-            )
-            .join(
-                Skill,
-                sa.and_(
-                    AgentPresetVersionSkill.workspace_id == Skill.workspace_id,
-                    AgentPresetVersionSkill.skill_id == Skill.id,
-                ),
-            )
-            .where(
-                AgentPresetVersionSkill.workspace_id == self.workspace_id,
-                AgentPresetVersionSkill.preset_version_id == preset_version_id,
-            )
-            .order_by(SkillVersion.name.asc(), AgentPresetVersionSkill.skill_id.asc())
-        )
-        rows = (await self.session.execute(with_deleted(stmt))).tuples().all()
-        resolved: list[ResolvedSkillRef] = []
-        archived_skills: list[str] = []
-        for (
-            skill_id,
-            skill_name,
-            skill_version_id,
-            manifest_sha256,
-            deleted_at,
-            archived_at,
-        ) in rows:
-            if skill_name is None:
-                continue
-            if deleted_at is not None or archived_at is not None:
-                archived_skills.append(f"{skill_name} ({skill_id})")
-                continue
-            resolved.append(
-                ResolvedSkillRef(
-                    skill_id=skill_id,
-                    skill_name=skill_name,
-                    skill_version_id=skill_version_id,
-                    manifest_sha256=manifest_sha256,
-                )
-            )
-        self._raise_if_archived_skills(archived_skills, preset_version_id)
-        return resolved
-
-    @staticmethod
-    def _raise_if_archived_skills(
-        archived_skills: list[str], preset_version_id: uuid.UUID
-    ) -> None:
-        """Reject resolution when any referenced skill is archived."""
-        if archived_skills:
-            raise TracecatValidationError(
-                "Some skills are archived and cannot be resolved",
-                detail={
-                    "code": "skill_archived",
-                    "skills": sorted(archived_skills),
-                    "preset_version_id": str(preset_version_id),
-                },
-            )
-
-    async def _get_latest_skill_refs_for_preset_version(
-        self, preset_version_id: uuid.UUID
-    ) -> list[ResolvedSkillRef]:
-        """Return current skill versions for a preset version's skill IDs."""
-
-        stmt = (
-            select(
-                AgentPresetVersionSkill.skill_id,
-                Skill.name,
-                Skill.current_version_id,
-                Skill.deleted_at,
-                Skill.archived_at,
-                SkillVersion.name,
-                SkillVersion.manifest_sha256,
-            )
-            .join(
-                Skill,
-                sa.and_(
-                    AgentPresetVersionSkill.workspace_id == Skill.workspace_id,
-                    AgentPresetVersionSkill.skill_id == Skill.id,
-                ),
-            )
-            .outerjoin(
-                SkillVersion,
-                sa.and_(
-                    SkillVersion.workspace_id == Skill.workspace_id,
-                    SkillVersion.skill_id == Skill.id,
-                    SkillVersion.id == Skill.current_version_id,
-                ),
-            )
-            .where(
-                AgentPresetVersionSkill.workspace_id == self.workspace_id,
-                AgentPresetVersionSkill.preset_version_id == preset_version_id,
-            )
-            .order_by(
-                SkillVersion.name.asc().nulls_last(),
-                Skill.name.asc(),
-                AgentPresetVersionSkill.skill_id.asc(),
-            )
-        )
-        rows = (await self.session.execute(with_deleted(stmt))).tuples().all()
-        resolved: list[ResolvedSkillRef] = []
-        archived_skills: list[str] = []
-        missing_current: list[str] = []
-        for (
-            skill_id,
-            skill_name,
-            current_version_id,
-            deleted_at,
-            archived_at,
-            current_version_name,
-            manifest_sha256,
-        ) in rows:
-            if deleted_at is not None or archived_at is not None:
-                archived_skills.append(f"{skill_name} ({skill_id})")
-                continue
-            if current_version_id is None:
-                missing_current.append(f"{skill_name} ({skill_id})")
-                continue
-            if current_version_name is None:
-                self._raise_missing_version_name(skill_version_id=current_version_id)
-            resolved.append(
-                ResolvedSkillRef(
-                    skill_id=skill_id,
-                    skill_name=current_version_name,
-                    skill_version_id=current_version_id,
-                    manifest_sha256=manifest_sha256,
-                )
-            )
-
-        self._raise_if_archived_skills(archived_skills, preset_version_id)
-        if missing_current:
-            raise TracecatValidationError(
-                "Some skills have no current published version",
-                detail={
-                    "code": "skill_not_published",
-                    "skills": sorted(missing_current),
-                    "preset_version_id": str(preset_version_id),
-                },
-            )
-        return resolved
-
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_resolved_skill_ref(
         self, *, skill_id: uuid.UUID, skill_version_id: uuid.UUID
     ) -> ResolvedSkillRef:
@@ -3409,7 +3393,6 @@ class SkillService(BaseWorkspaceService):
             manifest_sha256=manifest_sha256,
         )
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_version_file_materialization(
         self, skill_version_id: uuid.UUID
     ) -> list[tuple[str, SkillBlob]]:

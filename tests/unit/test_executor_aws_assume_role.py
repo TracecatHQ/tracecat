@@ -17,6 +17,7 @@ from tracecat.dsl.schemas import RunContext
 from tracecat.exceptions import TracecatCredentialsError
 from tracecat.executor.secret_preprocessors import (
     _AWS_ROLE_ARN_PATTERN,
+    AwsAssumeRoleSecretPreprocessor,
     _assume_role_via_irsa,
     project_secret_env,
 )
@@ -525,3 +526,58 @@ class TestProjectSecretEnv:
         )
 
         assert projection.env["API_KEY"] == "some-key"
+
+
+class TestSecretValuesNeverEchoed:
+    """Preprocessor errors name the key, never the value.
+
+    Masks are exact-substring on the raw leaf; a stripped or escaped copy of
+    the value does not match, so the only safe message is a constant one.
+    """
+
+    def test_invalid_role_arn_error_omits_the_value(self) -> None:
+        padded = "  SUPERSECRET-not-an-arn  "
+        with pytest.raises(TracecatCredentialsError) as exc_info:
+            AwsAssumeRoleSecretPreprocessor()._get_role_arn(
+                {"AWS_ROLE_ARN": padded}, "aws"
+            )
+        assert padded.strip() not in str(exc_info.value)
+        assert "AWS_ROLE_ARN" in str(exc_info.value)
+
+    @pytest.mark.anyio
+    async def test_sts_failure_error_omits_the_role_arn(self) -> None:
+        role_arn = "arn:aws:iam::123456789012:role/SUPERSECRET-role"
+        error = ClientError(
+            {
+                "Error": {
+                    "Code": "AccessDenied",
+                    "Message": f"not authorized to assume {role_arn}",
+                }
+            },
+            "AssumeRole",
+        )
+        fake_sts = AsyncMock()
+        fake_sts.assume_role = AsyncMock(side_effect=error)
+        with (
+            patch(
+                "tracecat.executor.secret_preprocessors.aioboto3.Session"
+            ) as mock_session_cls,
+            pytest.raises(TracecatCredentialsError) as exc_info,
+        ):
+            mock_session = mock_session_cls.return_value
+            mock_session.client.return_value.__aenter__.return_value = fake_sts
+            await _assume_role_via_irsa(
+                role_arn=role_arn,
+                external_id="ext",
+                workspace_id=str(uuid.uuid4()),
+                run_id=str(uuid.uuid4()),
+            )
+        assert role_arn not in str(exc_info.value)
+        assert "AccessDenied" in str(exc_info.value)
+
+    def test_collect_mask_values_covers_stripped_form(self) -> None:
+        from tracecat.executor.secret_preprocessors import collect_mask_values
+
+        masks = collect_mask_values([{"aws": {"AWS_ROLE_ARN": "  padded-value \n"}}])
+        assert "padded-value" in masks
+        assert "  padded-value \n" in masks

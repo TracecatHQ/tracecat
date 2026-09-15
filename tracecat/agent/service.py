@@ -21,8 +21,19 @@ from tracecat_registry._internal import secrets as registry_secrets
 
 from tracecat.agent.access.service import AgentModelAccessService
 from tracecat.agent.catalog.schemas import AgentCatalogRead
-from tracecat.agent.config import MODEL_CONFIGS, PROVIDER_CREDENTIAL_CONFIGS
+from tracecat.agent.catalog.service import AgentCatalogService
+from tracecat.agent.config import (
+    MODEL_CONFIGS,
+    PROVIDER_CREDENTIAL_CONFIGS,
+    provider_display_rank,
+)
+from tracecat.agent.gateway_providers import (
+    GATEWAY_PROVIDER_SPECS,
+    is_builtin_gateway_provider,
+    resolve_gateway_provider_config,
+)
 from tracecat.agent.preset.service import AgentPresetService
+from tracecat.agent.provider.service import discover_openai_compatible_models
 from tracecat.agent.schemas import (
     DefaultModelSelection,
     ModelConfig,
@@ -371,8 +382,8 @@ class AgentManagementService(BaseOrgService):
         )
 
     async def list_providers(self) -> list[str]:
-        """List all available AI model providers."""
-        return sorted(PROVIDER_CREDENTIAL_CONFIGS.keys())
+        """List all available AI model providers in display order."""
+        return sorted(PROVIDER_CREDENTIAL_CONFIGS.keys(), key=provider_display_rank)
 
     async def list_models(self) -> dict[str, ModelConfig]:
         """List all available AI models."""
@@ -387,8 +398,11 @@ class AgentManagementService(BaseOrgService):
     async def list_provider_credential_configs(
         self,
     ) -> list[ProviderCredentialConfig]:
-        """List all provider credential configurations."""
-        return list(PROVIDER_CREDENTIAL_CONFIGS.values())
+        """List all provider credential configurations in display order."""
+        return sorted(
+            PROVIDER_CREDENTIAL_CONFIGS.values(),
+            key=lambda config: provider_display_rank(config.provider),
+        )
 
     async def get_provider_credential_config(
         self, provider: str
@@ -415,6 +429,7 @@ class AgentManagementService(BaseOrgService):
             ]
             update_params = SecretUpdate(keys=keys)
             await self.secrets_service.update_org_secret(existing, update_params)
+            await self._refresh_gateway_provider_catalog_best_effort(params.provider)
             await self._auto_grant_provider_access(params.provider)
             return existing
         except TracecatNotFoundError:
@@ -431,6 +446,7 @@ class AgentManagementService(BaseOrgService):
                 tags={"provider": params.provider, "type": "agent-credentials"},
             )
             await self.secrets_service.create_org_secret(create_params)
+            await self._refresh_gateway_provider_catalog_best_effort(params.provider)
             await self._auto_grant_provider_access(params.provider)
             return await self.secrets_service.get_org_secret_by_name(secret_name)
 
@@ -448,7 +464,76 @@ class AgentManagementService(BaseOrgService):
         ]
         update_params = SecretUpdate(keys=keys)
         await self.secrets_service.update_org_secret(secret, update_params)
+        await self._refresh_gateway_provider_catalog_best_effort(provider)
+        await self._auto_grant_provider_access(provider)
         return secret
+
+    async def _refresh_gateway_provider_catalog_best_effort(
+        self, provider: str
+    ) -> None:
+        """Refresh the model catalog after saving gateway provider credentials.
+
+        Discovery failures (unreachable host, bad key) must not block saving
+        credentials, so they are logged and swallowed here. Admins can retry
+        with :meth:`refresh_gateway_provider_catalog`.
+        """
+        if not is_builtin_gateway_provider(provider):
+            return
+        try:
+            await self.refresh_gateway_provider_catalog(provider)
+        except (ValueError, TracecatNotFoundError) as exc:
+            self.logger.warning(
+                "Gateway provider model discovery failed",
+                provider=provider,
+                error=str(exc),
+            )
+
+    @require_scope("agent:update")
+    async def refresh_gateway_provider_catalog(self, provider: str) -> int:
+        """Discover models from a built-in gateway provider and upsert catalog rows.
+
+        Built-in gateway providers (Ollama, vLLM, LiteLLM, OpenRouter) expose an
+        OpenAI-compatible ``GET /models`` endpoint. Discovered models are stored
+        as org-owned catalog rows keyed by ``model_provider`` with no linked
+        ``AgentCustomProvider``, so they resolve credentials from the org
+        provider secret at runtime.
+
+        Args:
+            provider: Built-in gateway provider slug.
+
+        Returns:
+            Number of models discovered.
+
+        Raises:
+            TracecatNotFoundError: If the provider is not a built-in gateway
+                provider or has no stored credentials.
+            ValueError: If the base URL is missing or discovery fails.
+        """
+        org_id = self.role.organization_id
+        if org_id is None or not is_builtin_gateway_provider(provider):
+            raise TracecatNotFoundError(
+                f"{provider} is not a built-in gateway provider"
+            )
+        creds = await self.get_provider_credentials(provider)
+        if creds is None:
+            raise TracecatNotFoundError(f"No credentials configured for {provider}")
+        runtime = resolve_gateway_provider_config(provider, creds)
+        if runtime is None or not runtime.base_url:
+            raise ValueError(f"{provider} base URL is not configured")
+
+        models = await discover_openai_compatible_models(
+            runtime.base_url,
+            api_key=runtime.api_key,
+        )
+        catalog_service = AgentCatalogService(session=self.session)
+        count = await catalog_service.upsert_discovered_models(
+            org_id=org_id,
+            custom_provider_id=None,
+            model_provider=provider,
+            models=models,
+        )
+        await self._auto_grant_provider_access(provider)
+        return count
 
     @require_scope("agent:read")
     async def get_provider_credentials(self, provider: str) -> dict[str, str] | None:
@@ -687,27 +772,24 @@ class AgentManagementService(BaseOrgService):
         config: AgentConfig,
         credentials: dict[str, str],
     ) -> AgentConfig:
-        """Populate derived runtime settings for the custom model provider."""
-        if config.model_provider != "custom-model-provider":
+        """Populate derived runtime settings for OpenAI-compatible providers."""
+        runtime = resolve_gateway_provider_config(config.model_provider, credentials)
+        if runtime is None:
             return config
-        passthrough = credentials.get(
-            "CUSTOM_MODEL_PROVIDER_PASSTHROUGH", ""
-        ).lower() in {
-            "1",
-            "true",
-            "yes",
-            "on",
-        }
-        if not passthrough:
+        if not runtime.passthrough:
             return replace(config, passthrough=False)
-        if not (base_url := credentials.get("CUSTOM_MODEL_PROVIDER_BASE_URL")):
+        if not runtime.base_url:
+            spec = GATEWAY_PROVIDER_SPECS[config.model_provider]
             raise TracecatNotFoundError(
-                "Custom model provider passthrough requires "
-                "CUSTOM_MODEL_PROVIDER_BASE_URL in provider credentials."
+                f"{config.model_provider} passthrough requires "
+                f"{spec.base_url_key} in provider credentials."
             )
-        updates: dict[str, str | bool] = {"base_url": base_url, "passthrough": True}
-        if model_name := credentials.get("CUSTOM_MODEL_PROVIDER_MODEL_NAME"):
-            updates["model_name"] = model_name
+        updates: dict[str, str | bool] = {
+            "base_url": runtime.base_url,
+            "passthrough": True,
+        }
+        if runtime.model_name:
+            updates["model_name"] = runtime.model_name
         return replace(config, **updates)
 
     @require_scope("agent:update")
@@ -1018,8 +1100,8 @@ class AgentManagementService(BaseOrgService):
 
         # Cloud catalog rows store the invocation target inside the encrypted
         # blob (same shape as the legacy org-secret). Extract it so the
-        # returned ``ModelConfig.name`` matches what pydantic-ai /
-        # Temporal callers expect: the string sent to the provider.
+        # returned ``ModelConfig.name`` matches what runtime callers expect:
+        # the string sent to the provider.
         provider = model_config.provider
         if not provider:
             # Re-fetch the catalog row when we didn't have a pydantic
@@ -1065,9 +1147,8 @@ class AgentManagementService(BaseOrgService):
                 )
             model_config = model_config.model_copy(update={"name": vertex_model})
 
-        # Expose credentials in both env and registry secrets context so
-        # legacy pydantic-ai consumers (auto-title, ranker) pick them up
-        # through ``registry_secrets`` / env vars unchanged.
+        # Expose credentials in both environment and registry secret contexts
+        # for callers that use either credential source.
         with self._credentials_sandbox(credentials):
             yield model_config
 
@@ -1091,7 +1172,7 @@ class AgentManagementService(BaseOrgService):
             preset_id: Agent preset ID to load
             slug: Agent preset slug to load (alternative to preset_id)
             preset_version_id: Optional preset version ID to pin
-            preset_version: Optional preset version number to pin
+            preset_version: Deprecated compatibility input; current head is used
         """
         if self.presets is None:
             raise TracecatAuthorizationError(

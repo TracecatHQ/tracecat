@@ -166,12 +166,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         icon: MousePointerClickIcon,
         isActive: pathname?.startsWith(`${basePath}/agents`),
         visible: canViewAgents === true,
-        isLocked: entitlementsKnown && !agentAddonsEnabled,
-        isPendingEntitlement: !entitlementsKnown,
-        onSelect:
-          entitlementsKnown && !agentAddonsEnabled
-            ? () => setLockedFeatureDialogOpen(true)
-            : undefined,
       },
       {
         title: "Tables",
@@ -213,12 +207,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         url: `${basePath}/skills`,
         icon: Pyramid,
         isActive: pathname?.startsWith(`${basePath}/skills`),
-        isLocked: entitlementsKnown && !agentAddonsEnabled,
-        isPendingEntitlement: !entitlementsKnown,
-        onSelect:
-          entitlementsKnown && !agentAddonsEnabled
-            ? () => setLockedFeatureDialogOpen(true)
-            : undefined,
         visible: canViewAgents === true,
       },
       {
@@ -240,7 +228,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       canViewSecrets,
       canViewIntegrations,
       entitlementsKnown,
-      agentAddonsEnabled,
       workspaceChatEnabled,
       canViewAgents,
       canViewActions,

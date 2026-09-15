@@ -167,12 +167,16 @@ import type {
   AgentPresetsListPresetTagsResponse,
   AgentPresetsMoveAgentPresetToFolderData,
   AgentPresetsMoveAgentPresetToFolderResponse,
+  AgentPresetsPreviewToolPolicyData,
+  AgentPresetsPreviewToolPolicyResponse,
   AgentPresetsRemovePresetTagData,
   AgentPresetsRemovePresetTagResponse,
   AgentPresetsRestoreAgentPresetVersionData,
   AgentPresetsRestoreAgentPresetVersionResponse,
   AgentPresetsUpdateAgentPresetData,
   AgentPresetsUpdateAgentPresetResponse,
+  AgentRefreshProviderModelsData,
+  AgentRefreshProviderModelsResponse,
   AgentSessionsCancelSessionData,
   AgentSessionsCancelSessionResponse,
   AgentSessionsCreateSessionData,
@@ -1062,7 +1066,7 @@ export const publicIncomingWebhookWait = (
     },
     errors: {
       413: "Unwrapped workflow result exceeded inline response limits. Use `detail.download_url` to fetch the externalized result.",
-      422: "Validation Error",
+      422: "Invalid request parameters or a user-owned workflow failure.",
     },
   })
 }
@@ -4856,6 +4860,29 @@ export const agentDeleteProviderCredentials = (
 }
 
 /**
+ * Refresh Provider Models
+ * Re-discover models for a built-in gateway provider (Ollama, vLLM, ...).
+ * @param data The data for the request.
+ * @param data.provider
+ * @returns number Successful Response
+ * @throws ApiError
+ */
+export const agentRefreshProviderModels = (
+  data: AgentRefreshProviderModelsData
+): CancelablePromise<AgentRefreshProviderModelsResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent/providers/{provider}/refresh",
+    path: {
+      provider: data.provider,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Get Default Model
  * Get the organization's default AI model.
  * @returns unknown Successful Response
@@ -5543,6 +5570,33 @@ export const agentPresetsCreateAgentPreset = (
 }
 
 /**
+ * Preview Tool Policy
+ * Evaluate unsaved tool selections without changing a preset.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns AgentPresetToolPolicyRead Successful Response
+ * @throws ApiError
+ */
+export const agentPresetsPreviewToolPolicy = (
+  data: AgentPresetsPreviewToolPolicyData
+): CancelablePromise<AgentPresetsPreviewToolPolicyResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/agent/presets/tool-policy",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      400: "Invalid tool policy selections",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Get Agent Preset
  * Retrieve an agent preset by ID.
  * @param data The data for the request.
@@ -5615,6 +5669,7 @@ export const agentPresetsDeleteAgentPreset = (
       workspace_id: data.workspaceId,
     },
     errors: {
+      404: "Agent preset not found",
       422: "Validation Error",
     },
   })

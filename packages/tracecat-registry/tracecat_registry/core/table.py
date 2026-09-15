@@ -7,6 +7,169 @@ from tracecat_registry import config, ctx, registry, types
 from tracecat_registry.sdk.exceptions import TracecatConflictError
 
 
+# Query inputs deliberately remain plain data: action schema consumers cannot
+# resolve recursive filter models, and the registry cannot import server models.
+@registry.register(
+    default_title="Aggregate rows",
+    description=(
+        "Filter, group, and summarize table rows. Returns groups and a truncated "
+        "flag indicating whether more groups exist than the requested limit."
+    ),
+    display_group="Tables",
+    namespace="core.table",
+)
+async def aggregate_rows(
+    table: Annotated[str, Doc("The name of the workspace table to aggregate.")],
+    group_by: Annotated[
+        list[str | dict[str, Any]],
+        Doc(
+            "Choose how to split rows into groups. Use up to 3 fields, or `[]` for one "
+            "total across all matching rows.\n"
+            "\n"
+            "Supply a field name such as `source`, or an object with `field` and "
+            "optional `bucket`, `timezone`, and `alias`. For example: ['source', "
+            "{'field': 'created_at', 'bucket': 'hour'}]. An alias names the field in "
+            "the result; it defaults to the field name. All output names must be "
+            "unique and at most 63 UTF-8 bytes.\n"
+            "\n"
+            "Fields you can group by:\n"
+            "\n"
+            "- TEXT, SELECT, INTEGER, NUMERIC, and BOOLEAN columns.\n"
+            "- DATE and TIMESTAMPTZ columns, including the system fields `created_at` "
+            "and `updated_at`. These require a `bucket`: `hour`, `day`, `week`, or "
+            "`month`. Weeks start on Monday.\n"
+            "\n"
+            "JSONB, MULTI_SELECT, `id`, and internal columns are unsupported.\n"
+            "\n"
+            "Date and time settings:\n"
+            "\n"
+            "- Timestamps accept an IANA timezone name, such as `America/New_York`. "
+            "The default is `UTC`; results always contain UTC timestamps.\n"
+            "- DATE fields return `YYYY-MM-DD`. They do not accept a timezone, and "
+            "even an `hour` bucket retains only date precision.\n"
+            "\n"
+            "How group values appear in results:\n"
+            "\n"
+            "- Missing values share one `null` group.\n"
+            "- TEXT and SELECT values use only the first 256 characters. Values with "
+            "the same prefix merge into one group.\n"
+            "- NUMERIC values appear as exact decimal strings."
+        ),
+    ],
+    filters: Annotated[
+        dict[str, Any] | None,
+        Doc(
+            "Choose which rows to include before grouping. Omit this input to include "
+            "all rows.\n"
+            "\n"
+            "Write one condition as {'field': 'amount', 'op': 'gte', 'value': 10}. "
+            "Combine conditions with {'and': [...]}, {'or': [...]}, or {'not': {...}}.\n"
+            "\n"
+            "Choose an operator supported by the column type:\n"
+            "\n"
+            "- TEXT: `eq`, `ne`, `in`, `not_in`, `is_null`, `contains`, and "
+            "`starts_with`. Only `contains` and `starts_with` ignore case and match "
+            "literal text; `eq`, `ne`, `in`, and `not_in` are case-sensitive.\n"
+            "- INTEGER and NUMERIC: `eq`, `ne`, `in`, `not_in`, `gt`, `gte`, `lt`, "
+            "`lte`, and `is_null`.\n"
+            "- DATE and TIMESTAMPTZ: `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, and "
+            "`is_null`.\n"
+            "- SELECT: `eq`, `ne`, `in`, `not_in`, and `is_null`.\n"
+            "- BOOLEAN: `eq`, `ne`, and `is_null`.\n"
+            "\n"
+            "Supply a list for `in` or `not_in`. Omit `value` for `is_null`. Use "
+            "strings for exact decimals and ISO-formatted dates or timestamps.\n"
+            "\n"
+            "`ne` and `not_in` exclude missing values. An empty `not_in` list matches "
+            "all rows; an empty `in` list matches none.\n"
+            "\n"
+            "Filters allow up to 4 levels of nesting, 50 conditions, and 1000 total "
+            "values. The server validates the request when the action runs."
+        ),
+    ] = None,
+    aggs: Annotated[
+        list[dict[str, Any]] | None,
+        Doc(
+            "Choose what to calculate for each group. Omit this input to count rows. "
+            "Supply up to 8 calculations; an empty list is invalid.\n"
+            "\n"
+            "Each calculation is an object with `function`, optional `field`, and "
+            "optional `alias`. For example: [{'function': 'sum', 'field': 'bytes_out', "
+            "'alias': 'total_bytes'}].\n"
+            "\n"
+            "Available calculations:\n"
+            "\n"
+            "- `count`: Count rows when you omit `field`, or count non-null values "
+            "when you supply it.\n"
+            "- `count_distinct`: Count different non-null values.\n"
+            "- `sum`, `mean`, `median`: Calculate the total, average, or middle value.\n"
+            "- `min`, `max`: Return the smallest or largest value.\n"
+            "\n"
+            "Every function except `count` requires a field. Numeric columns support "
+            "all functions. Text and date/time columns support `count`, "
+            "`count_distinct`, `min`, and `max`. BOOLEAN and SELECT columns support "
+            "only `count` and `count_distinct`.\n"
+            "\n"
+            "Naming and number formats:\n"
+            "\n"
+            "- Use `alias` to name a result, such as `total_bytes`. Otherwise the name "
+            "is `count` or `function_field`. All output names must be unique and at "
+            "most 63 UTF-8 bytes.\n"
+            "- Counts are integers. INTEGER/NUMERIC sums, all means and medians, and "
+            "NUMERIC min/max use floating-point numbers and can lose precision. "
+            "NUMERIC grouping values remain exact decimal strings."
+        ),
+    ] = None,
+    limit: Annotated[
+        int | None,
+        Doc(
+            "Set the maximum number of groups to return. Use at least 1, up to your "
+            "server's configured maximum (normally 1000). Omit this input to use the "
+            "server default (normally 100).\n"
+            "\n"
+            "If more groups exist, the result sets `truncated` to `true`. There is no "
+            "next-page cursor."
+        ),
+    ] = None,
+    min_count: Annotated[
+        int | None, Doc("Only return groups with at least this many rows (minimum 1).")
+    ] = None,
+    order_by: Annotated[
+        str | None,
+        Doc(
+            "Choose a group or calculation output name to sort by, including any alias "
+            "you set.\n"
+            "\n"
+            "If omitted, results sort by the first date/time bucket, or by the first "
+            "calculation when there is no date/time bucket."
+        ),
+    ] = None,
+    sort: Annotated[
+        Literal["asc", "desc"] | None,
+        Doc(
+            "Use `asc` for ascending order or `desc` for descending order.\n"
+            "\n"
+            "If omitted, the direction is `asc` when the action automatically sorts by "
+            "a date/time bucket. Otherwise it is `desc`, including when you set "
+            "`order_by` yourself. Missing values sort last; group values break ties."
+        ),
+    ] = None,
+) -> types.AggregateResponse:
+    # The recursive query remains plain JSON; only an omitted limit is removed
+    # so the server can apply its configured default and maximum.
+    spec: dict[str, Any] = {
+        "filters": filters,
+        "group_by": group_by,
+        "aggs": aggs,
+        "min_count": min_count,
+        "order_by": order_by,
+        "sort": sort,
+    }
+    if limit is not None:
+        spec["limit"] = limit
+    return await ctx.tables.aio.aggregate_rows(table_name=table, spec=spec)
+
+
 @registry.register(
     default_title="Lookup row",
     description="Get a single row from a table corresponding to the given column and value.",

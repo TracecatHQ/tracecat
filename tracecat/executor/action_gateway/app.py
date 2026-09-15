@@ -17,11 +17,20 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import ORJSONResponse
 from pydantic_core import to_jsonable_python
 
+from tracecat.api.common import (
+    query_overflow_exception_handler,
+    query_timeout_exception_handler,
+)
 from tracecat.contexts import ctx_role
 from tracecat.executor.action_gateway.policy import (
     enforce_agent_script_gateway_access,
 )
 from tracecat.logger import logger
+from tracecat.observability.otel import instrument_fastapi_app
+from tracecat.query.errors import (
+    TracecatQueryOverflowError,
+    TracecatQueryTimeoutError,
+)
 
 router = APIRouter(
     prefix="/internal",
@@ -185,6 +194,14 @@ def _add_exception_handlers(app: FastAPI) -> None:
         auth_pool_exhausted_exception_handler,
     )
     app.add_exception_handler(TracecatException, tracecat_exception_handler)
+    app.add_exception_handler(
+        TracecatQueryTimeoutError,
+        query_timeout_exception_handler,
+    )
+    app.add_exception_handler(
+        TracecatQueryOverflowError,
+        query_overflow_exception_handler,
+    )
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
     app.add_exception_handler(EntitlementRequired, entitlement_exception_handler)
     app.add_exception_handler(ScopeDeniedError, scope_denied_exception_handler)
@@ -209,4 +226,5 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(router)
     _include_internal_routers(app)
     _add_exception_handlers(app)
+    instrument_fastapi_app(app, service_name="tracecat-executor")
     return app

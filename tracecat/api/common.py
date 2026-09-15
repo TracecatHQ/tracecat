@@ -10,6 +10,7 @@ from temporalio.api.operatorservice.v1 import (
     ListSearchAttributesRequest,
     RemoveSearchAttributesRequest,
 )
+from temporalio.service import RPCError, RPCStatusCode
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -25,6 +26,11 @@ from tracecat.dsl.client import get_temporal_client
 from tracecat.exceptions import TracecatException
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
+from tracecat.observability.sentry import capture_auth_pool_exhaustion
+from tracecat.query.errors import (
+    TracecatQueryOverflowError,
+    TracecatQueryTimeoutError,
+)
 from tracecat.workflow.executions.enums import TemporalSearchAttr
 
 # All Tracecat search attributes are Keyword-typed.
@@ -74,6 +80,8 @@ def auth_pool_exhausted_exception_handler(
         if isinstance(exc, AuthPoolExhaustedError)
         else AuthPoolExhaustedError(str(exc))
     )
+    if isinstance(exc, AuthPoolExhaustedError):
+        capture_auth_pool_exhaustion(exc)
     logger.error(
         "Authentication database pool exhausted",
         exc=auth_exc,
@@ -167,6 +175,58 @@ def tracecat_exception_handler(request: Request, exc: Exception) -> Response:
     )
 
 
+def _query_exception_response(
+    request: Request,
+    exc: TracecatQueryTimeoutError | TracecatQueryOverflowError,
+    *,
+    status_code: int,
+) -> Response:
+    logger.warning(
+        "Query execution rejected",
+        status_code=status_code,
+        exception_type=type(exc).__name__,
+        path=request.url.path,
+        role=ctx_role.get(),
+        detail=exc.detail,
+    )
+    return ORJSONResponse(
+        status_code=status_code,
+        content={
+            "type": type(exc).__name__,
+            "message": str(exc),
+            "detail": exc.detail,
+        },
+    )
+
+
+def query_timeout_exception_handler(request: Request, exc: Exception) -> Response:
+    """Return the stable 422 contract for timed-out shared queries."""
+    query_exc = (
+        exc
+        if isinstance(exc, TracecatQueryTimeoutError)
+        else TracecatQueryTimeoutError(str(exc))
+    )
+    return _query_exception_response(
+        request,
+        query_exc,
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+    )
+
+
+def query_overflow_exception_handler(request: Request, exc: Exception) -> Response:
+    """Return the stable 400 contract for shared-query numeric overflow."""
+    query_exc = (
+        exc
+        if isinstance(exc, TracecatQueryOverflowError)
+        else TracecatQueryOverflowError(str(exc))
+    )
+    return _query_exception_response(
+        request,
+        query_exc,
+        status_code=status.HTTP_400_BAD_REQUEST,
+    )
+
+
 def custom_generate_unique_id(route: APIRoute):
     if route.tags:
         return f"{route.tags[0]}-{route.name}"
@@ -217,6 +277,16 @@ async def add_temporal_search_attributes():
             )
         )
     except Exception as e:
+        if isinstance(e, RPCError) and e.status == RPCStatusCode.PERMISSION_DENIED:
+            # Cloud runtime credentials may lack operator-service access.
+            # Attributes must be provisioned externally in these deployments.
+            logger.warning(
+                "Skipping automatic Temporal search attribute registration: "
+                "operator access denied; provision search attributes externally",
+                namespace=namespace,
+                exc=e,
+            )
+            return
         logger.error(
             "Error adding temporal search attributes",
             exc=e,

@@ -71,9 +71,7 @@ module "ecs" {
 
   # Container environment variables
   tracecat_app_env                              = var.tracecat_app_env
-  platform_otel_enabled                         = var.platform_otel_enabled
-  otel_exporter_otlp_endpoint                   = var.otel_exporter_otlp_endpoint
-  otel_exporter_otlp_headers_arn                = var.otel_exporter_otlp_headers_arn
+  outbound_allowed_private_cidrs                = var.outbound_allowed_private_cidrs
   audit_trusted_proxy_cidrs                     = var.audit_trusted_proxy_cidrs
   log_level                                     = var.log_level
   log_format                                    = var.log_format
@@ -88,6 +86,7 @@ module "ecs" {
   result_externalization_enabled                = var.result_externalization_enabled
   collection_manifests_enabled                  = var.collection_manifests_enabled
   result_externalization_threshold_bytes        = var.result_externalization_threshold_bytes
+  unsafe_disable_secret_error_withholding       = var.unsafe_disable_secret_error_withholding
   workflow_artifact_retention_days              = var.workflow_artifact_retention_days
 
   # Database connection pool

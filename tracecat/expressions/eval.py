@@ -1,7 +1,9 @@
+from __future__ import annotations
+
 import re
 from collections.abc import Callable
 from functools import partial
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from tracecat.exceptions import TracecatExpressionError
 from tracecat.expressions import patterns
@@ -15,6 +17,9 @@ from tracecat.expressions.core import (
     TemplateExpression,
 )
 from tracecat.parse import traverse_expressions
+
+if TYPE_CHECKING:
+    from tracecat.expressions.policy import TaintState
 
 
 def _eval_templated_obj_rec(
@@ -55,6 +60,7 @@ def _eval_expression_op(
     match: re.Match[str],
     operand: ExprOperand | None,
     policy: ExprResolutionPolicy | None,
+    taint: TaintState | None,
 ) -> str:
     expr = match.group("template")
     result = TemplateExpression(
@@ -62,6 +68,7 @@ def _eval_expression_op(
         operand=operand,
         policy=policy,
         standalone=False,
+        taint=taint,
     ).result()
     try:
         return str(result)
@@ -74,13 +81,18 @@ def _make_templated_string_operator(
     operand: ExprOperand | None,
     pattern: re.Pattern[str],
     policy: ExprResolutionPolicy | None,
+    taint: TaintState | None,
 ) -> Callable[[str], Any]:
-    evaluator = partial(_eval_expression_op, operand=operand, policy=policy)
+    evaluator = partial(
+        _eval_expression_op, operand=operand, policy=policy, taint=taint
+    )
 
     def operator(line: str) -> Any:
         """Evaluate one standalone or inline templated string."""
         if is_template_only(line) and len(pattern.findall(line)) == 1:
-            return TemplateExpression(line, operand=operand, policy=policy).result()
+            return TemplateExpression(
+                line, operand=operand, policy=policy, taint=taint
+            ).result()
         return pattern.sub(evaluator, line)
 
     return operator
@@ -93,18 +105,21 @@ def eval_templated_object(
     pattern: re.Pattern[str] = patterns.TEMPLATE_STRING,
     policy: ExprResolutionPolicy | None = None,
     key_policy: ExprResolutionPolicy | None = None,
+    taint: TaintState | None = None,
 ) -> Any:
     """Populate templated fields with actual values."""
     operator = _make_templated_string_operator(
         operand=operand,
         pattern=pattern,
         policy=policy,
+        taint=taint,
     )
     key_operator = (
         _make_templated_string_operator(
             operand=operand,
             pattern=pattern,
             policy=key_policy,
+            taint=taint,
         )
         if key_policy is not None
         else None

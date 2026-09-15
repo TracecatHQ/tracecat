@@ -8,6 +8,13 @@ services:
   executor:
     environment:
       TRACECAT__DISABLE_NSJAIL: ${TRACECAT__DISABLE_NSJAIL:-false}
+    # Container-level fork-bomb bound: in-jail RLIMIT_NPROC is bypassable
+    # via nested user namespaces (fresh per-userns fork counter).
+    # All activities, loop iterations, and executor overhead share this cap.
+    # Defaults allow 32 activities x 4 for_each iterations x 64 in-jail
+    # processes = 8192, exceeding this intentional aggregate safety limit.
+    # Process-heavy workloads can hit the cap and fail to fork.
+    pids_limit: 4096
     # Required for nsjail sandbox execution.
     cap_add:
       - SYS_ADMIN
@@ -21,6 +28,8 @@ services:
     privileged: true
 
   agent-executor:
+    # Same fork-bomb bound as executor (nested userns bypasses in-jail caps).
+    pids_limit: 4096
     # Required for nsjail sandbox execution.
     cap_add:
       - SYS_ADMIN

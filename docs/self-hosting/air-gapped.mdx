@@ -1,0 +1,88 @@
+---
+title: Air-gapped deployment
+description: "Run Tracecat on Kubernetes with zero runtime internet connectivity, internal dependencies, and self-hosted LLM inference."
+mode: wide
+---
+
+<Info>
+  Every Tracecat feature works in self-hosted and air-gapped deployments. We ship a feature to Tracecat Cloud only when it can also run on-premises.
+</Info>
+
+Tracecat supports fully air-gapped operation on production Kubernetes. Use internet access during preparation to stage every required artifact, then run Tracecat with zero internet connectivity.
+
+## Reference architecture
+
+The inference service can run inside Kubernetes or on an adjacent private GPU cluster. Every runtime connection stays on customer-controlled networks.
+
+```mermaid
+flowchart TB
+  subgraph preparation["Connected preparation"]
+    artifacts["Helm chart · Tracecat and inference images<br/>model weights · tokenizer · configuration"]
+  end
+
+  subgraph runtime["Disconnected runtime · zero internet routes"]
+    direction TB
+    registry["Internal OCI registry<br/>and model store"]
+    tracecat["Tracecat on Kubernetes<br/>API · UI · workers · executors"]
+    dependencies["Internal dependencies<br/>state · identity · integrations · telemetry"]
+    litellm["Bundled LiteLLM"]
+    inference["vLLM or Ollama<br/>in-cluster or adjacent DGX Spark"]
+
+    registry --> tracecat
+    tracecat <--> dependencies
+    tracecat -->|direct passthrough| inference
+    tracecat -->|bundled route| litellm --> inference
+  end
+
+  artifacts -. mirror before cutover .-> registry
+```
+
+## Prepare while connected
+
+- Mirror the Tracecat OCI chart and every referenced container image into an internal OCI registry.
+- Stage the inference image, model weights, tokenizer, and model configuration in internal repositories.
+- Provision internal PostgreSQL, Redis, S3-compatible storage, Temporal, identity, DNS, TLS, secrets, telemetry, and integration endpoints. Validate image pulls and model discovery before removing egress.
+
+No runtime workflow, integration, telemetry exporter, identity provider, or package dependency may require a public endpoint.
+
+## Choose the model route
+
+Configure the route per agent, including subagents.
+
+| Route | Choose it when | Request path |
+| --- | --- | --- |
+| Direct passthrough | You already operate an OpenAI-compatible endpoint and want the shortest path or per-agent routing. | Agent executor → internal vLLM or Ollama |
+| Bundled LiteLLM | You want centralized model aliases, credentials, request normalization, or multiple inference backends. | Agent executor → bundled LiteLLM → internal inference |
+
+Use [vLLM](https://docs.vllm.ai/en/stable/serving/parallelism_scaling/) as the distributed production option; confirm its model-specific [tool parser](https://docs.vllm.ai/en/stable/features/tool_calling/). Use Ollama as the simpler quantized or single-server option; review its [GPU](https://docs.ollama.com/gpu), [context](https://docs.ollama.com/context-length), [model import](https://docs.ollama.com/import), and [tool-calling](https://docs.ollama.com/capabilities/tool-calling) guidance. Ollama models tagged `:cloud` require the Ollama cloud service and cannot serve requests without egress.
+
+## Open model reference
+
+Reviewed September 2026. Each [DGX Spark](https://docs.nvidia.com/dgx/dgx-spark/hardware.html) provides 128 GB of unified memory. Static weight figures exclude KV cache, serving overhead, and concurrency. Calculated figures use two bytes per BF16 parameter, one byte per FP8 parameter, and half a byte per FP4 parameter. Context is the total window for input, reasoning, and response. Generation figures are vendor recommendations, not separate hard output limits.
+
+| Model | Compute against 2–3 DGX Spark nodes | Size and precision | Tool calling | Context / recommended generation | Defensive cyber evidence |
+| --- | --- | --- | --- | --- | --- |
+| [Gemma 4 26B A4B](https://ai.google.dev/gemma/docs/core) | Published load: 57.7 GB BF16, 28.8 GB SFP8, 14.4 GB Q4 | 25.2B total / 3.8B active | Native function calling; vLLM [`gemma4`](https://docs.vllm.ai/en/stable/api/vllm/tool_parsers/gemma4_engine_tool_parser/) parser | 256K / not published | Function calling published; defensive SOC result unavailable |
+| [Gemma 4 31B](https://ai.google.dev/gemma/docs/core) | Published load: 69.9 GB BF16, 34.9 GB SFP8, 17.5 GB Q4 | 30.7B dense | Native function calling; vLLM [`gemma4`](https://docs.vllm.ai/en/stable/api/vllm/tool_parsers/gemma4_engine_tool_parser/) parser | 256K / not published | Function calling published; defensive SOC result unavailable |
+| [Ministral 3 14B](https://huggingface.co/mistralai/Ministral-3-14B-Instruct-2512-BF16) | Published: under 32 GB BF16 or 24 GB quantized | 14B dense | Native function calling and JSON; vLLM `mistral` parser | 256K / not published | No checkpoint-specific defensive SOC result found |
+| [Mistral Small 4 119B A6B](https://huggingface.co/mistralai/Mistral-Small-4-119B-2603) | Published NVFP4 repository: ≈70.8 GB; vLLM example uses TP2 | 119B total / 6.5B active, BF16 or NVFP4 | Native function calling and JSON; vLLM `mistral` parser | 256K / not published | Agentic results published; defensive SOC result unavailable |
+| [Qwen3.8 27B](https://huggingface.co/Qwen/Qwen3.8-27B) | Published: 55.6 GB BF16 or [18 GB Ollama Q4](https://ollama.com/library/qwen3.8:27b) | 27B dense, BF16 or quantized | Native tool use; vLLM `qwen3_coder` parser | 262K native, 1M with YaRN / up to 262K reasoning content and 131K final response with separate serving limits | Agentic results published; defensive SOC result unavailable |
+| [Qwen3.8-Flash-Next](https://huggingface.co/Qwen/Qwen3.8-Flash-Next) | Published [Ollama NVFP4 artifact](https://ollama.com/library/qwen3.8-flash-next:125b-a6b-nvfp4): 113 GB; no 2–3 Spark recipe found | 125B total / 6B active, plus 51B n-gram embeddings and 4B MTP | Native tool use; vLLM `qwen3_coder` parser | 262K native, 1M with YaRN / up to 262K reasoning content and 131K final response with separate serving limits | Toolathlon published; defensive SOC result unavailable |
+| [GLM-4.7-Flash](https://huggingface.co/zai-org/GLM-4.7-Flash) | Calculated: ≈60 GB BF16 or 30 GB FP8 | 30B total / 3B active | Native; vLLM `glm47` parser | 200K / not published | No checkpoint-specific defensive SOC result found |
+| [GLM-5.3-Flash](https://huggingface.co/zai-org/GLM-5.3-Flash) | Calculated: ≈320 GB FP8 or 160 GB NVFP4; [two-Spark NVFP4 reference](https://docs.nvidia.com/nim/vision-language-models/latest/deploy-on-dgx-spark.html) | 320B total / 18B active, FP8/MTP | Native; vLLM [`glm47` parser and dedicated image](https://recipes.vllm.ai/zai-org/GLM-5.3-Flash) | 1M / not published | AutomationBench published; defensive SOC result unavailable |
+| [Kimi-Linear 48B A3B](https://github.com/MoonshotAI/Kimi-Linear) | Calculated: ≈96 GB BF16 or 48 GB FP8 | 48B total / 3B active | OpenAI-compatible serving; native tool-use evidence unavailable | 1M / not published | No checkpoint-specific defensive SOC result found |
+| [Kimi K3](https://github.com/MoonshotAI/Kimi-K3) | vLLM reference: ≈1.68 TB across 16 GPUs; no 2–3 Spark reference | 2.8T total / 104B active, MXFP4 weights | vLLM `kimi_k3` parser; [Ollama is cloud-only](https://ollama.com/library/kimi-k3) | 1.05M / not published | [Defensive investigation coverage: 0.330](https://simbian.ai/research/cyber-defense-benchmark), with 0/13 ATT&CK tactics above 50% |
+
+Cyber evidence means checkpoint-specific evaluation for defensive alert triage, investigation, structured tool use, or workflow generation. General reasoning, coding, and offensive-security scores are not substitutes. Track emerging defensive evaluations such as [SIABench](https://arxiv.org/abs/2603.06422) and [CyberSOCEval](https://arxiv.org/abs/2509.20166).
+
+Qwen recommends these generation limits only for frameworks that expose separate controls for reasoning content and final responses within a 1M-token YaRN configuration. The limits are not additive to the context window: prompt, reasoning, and response tokens still share the total window. With a single `max_tokens` control, budget the entire generation within that window.
+
+Treat static weight fit as a starting point, not a capacity guarantee. Validate target context length, KV cache, concurrency, latency, and serving overhead with your own workload.
+
+## Related pages
+
+- See [Kubernetes](/self-hosting/kubernetes) for component and resource requirements.
+- See [Self-hosted architecture](/self-hosting/architecture) for service boundaries and request paths.
+- See [Security architecture](/security/architecture) for the threat model and trusted execution boundaries.
+- See [TLS and certificates](/self-hosting/tls) for internal certificate authorities and ingress TLS.
+- See [Custom LLM providers](/agents/custom-llm-providers) for passthrough configuration and model discovery.

@@ -1,4 +1,11 @@
-import { shouldRenderMermaidDiagram } from "@/components/tiptap-node/mermaid-code-block-node/mermaid-code-block-node"
+import {
+  MermaidCodeBlock,
+  shouldRenderMermaidDiagram,
+} from "@/components/tiptap-node/mermaid-code-block-node/mermaid-code-block-node"
+
+it("preserves the existing code-block arrow-up behavior", () => {
+  expect(MermaidCodeBlock.options.exitOnArrowUp).toBe(false)
+})
 
 describe("shouldRenderMermaidDiagram", () => {
   it("renders Mermaid diagrams in read-only views", () => {

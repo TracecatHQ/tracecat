@@ -5,10 +5,11 @@ import re
 from collections import defaultdict
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Any, Protocol, TypeVar
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar
 
 from lark import Token, Tree, Visitor
 
+from tracecat import config
 from tracecat.exceptions import TracecatExpressionError
 from tracecat.expressions import patterns
 from tracecat.expressions.common import ExprContext, ExprOperand, ExprType
@@ -17,6 +18,9 @@ from tracecat.expressions.parser.evaluator import ExprEvaluator
 from tracecat.expressions.validator.validator import BaseExprValidator
 from tracecat.logger import logger
 from tracecat.parse import traverse_expressions
+
+if TYPE_CHECKING:
+    from tracecat.expressions.policy import TaintState
 
 ExtractorResult = TypeVar("ExtractorResult", covariant=True)
 ValidatorResult = TypeVar("ValidatorResult")
@@ -62,6 +66,7 @@ class Expression:
         policy: ExprResolutionPolicy | None = None,
         source: str | None = None,
         standalone: bool = True,
+        taint: TaintState | None = None,
     ) -> None:
         self._expr = expression
         self._operand = operand
@@ -70,6 +75,7 @@ class Expression:
         self._policy = policy
         self._source = source
         self._standalone = standalone
+        self._taint = taint
 
     def __str__(self) -> str:
         return self.__repr__()
@@ -105,6 +111,7 @@ class Expression:
                 detail=str(e),
             ) from e
 
+        secret_error: TracecatExpressionError | None = None
         try:
             visitor = ExprEvaluator(operand=self._operand)
             if parse_tree is None:
@@ -122,10 +129,25 @@ class Expression:
                 )
             return default()
         except TracecatExpressionError as e:
-            raise TracecatExpressionError(
-                f"Error evaluating expression `{self._expr}`\n\n{e}",
-                detail=e.detail if e.detail is not None else str(e),
-            ) from e
+            # Local import: tracecat.expressions.policy imports this module transitively.
+            from tracecat.expressions.policy import references_secret_derived_value
+
+            if (
+                not config.TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING
+                and references_secret_derived_value(parse_tree, taint=self._taint)
+            ):
+                secret_error = TracecatExpressionError(
+                    f"Error evaluating expression `{self._expr}`\n\n"
+                    "Details withheld: the expression may reference a secret.",
+                    detail={"expression": self._expr, "secret_dependent": True},
+                )
+            else:
+                raise TracecatExpressionError(
+                    f"Error evaluating expression `{self._expr}`\n\n{e}",
+                    detail=e.detail if e.detail is not None else str(e),
+                ) from e
+        # Outside the handler: no exception is in flight, so nothing is attached.
+        raise secret_error
 
     def validate(
         self,
@@ -189,6 +211,7 @@ class TemplateExpression:
         pattern: re.Pattern[str] = patterns.TEMPLATE_STRING,
         policy: ExprResolutionPolicy | None = None,
         standalone: bool = True,
+        taint: TaintState | None = None,
         **kwargs: Any,
     ) -> None:
         match = pattern.match(template)
@@ -207,6 +230,7 @@ class TemplateExpression:
             policy=policy,
             source=match.group("template"),
             standalone=standalone,
+            taint=taint,
         )
 
     def __str__(self) -> str:

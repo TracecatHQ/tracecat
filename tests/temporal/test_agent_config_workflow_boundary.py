@@ -1,21 +1,16 @@
 """Temporal regression tests for AgentConfig workflow-boundary decoding.
 
-These tests pin both sides of the behavior:
-- returning AgentConfig directly across the activity boundary reproduces the old
-  decode failure
-- returning AgentConfigPayload and rehydrating inside the workflow succeeds
+These tests verify AgentConfigPayload rehydration across current and legacy
+Temporal workflow boundaries.
 """
 
 from __future__ import annotations
 
-import logging
 from collections.abc import AsyncGenerator
 from datetime import timedelta
 
 import pytest
 from temporalio import activity, workflow
-from temporalio.client import WorkflowFailureError
-from temporalio.exceptions import TimeoutError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
@@ -28,8 +23,6 @@ from tracecat.agent.workflow_schemas import AgentConfigPayload
 from tracecat.dsl._converter import get_data_converter
 
 with workflow.unsafe.imports_passed_through():
-    from tracecat_registry.sdk.agents import AgentConfig as RegistryAgentConfig
-
     from tracecat.agent.types import AgentConfig as TracecatAgentConfig
 
 pytestmark = [pytest.mark.temporal]
@@ -78,20 +71,6 @@ async def return_agent_config_payload() -> AgentConfigPayload:
 
 
 @workflow.defn
-class DirectAgentConfigDecodeWorkflow:
-    @workflow.run
-    async def run(self, _: str) -> str:
-        # Use the activity name string so Temporal respects result_type instead
-        # of replacing it with the callable's annotated return type.
-        config = await workflow.execute_activity(
-            "return_tracecat_agent_config",
-            start_to_close_timeout=timedelta(seconds=10),
-            result_type=RegistryAgentConfig,
-        )
-        return config.model_name
-
-
-@workflow.defn
 class AgentConfigDecodeWorkflow:
     @workflow.run
     async def run(self, _: str) -> str:
@@ -133,39 +112,6 @@ class LegacyAgentConfigPayloadDecodeWorkflow:
         )
         config = agent_config_from_payload(payload)
         return config.model_name
-
-
-@pytest.mark.anyio
-async def test_agent_config_direct_boundary_reproduces_decode_failure(
-    env: WorkflowEnvironment,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """Direct AgentConfig workflow boundary should reproduce the old failure."""
-    task_queue = "test-agent-config-direct-decode"
-    caplog.set_level(logging.WARNING, logger="temporalio.worker._workflow_instance")
-
-    async with Worker(
-        env.client,
-        task_queue=task_queue,
-        activities=[return_tracecat_agent_config],
-        workflows=[DirectAgentConfigDecodeWorkflow],
-        workflow_runner=new_sandbox_runner(),
-    ):
-        with pytest.raises(WorkflowFailureError) as exc_info:
-            await env.client.execute_workflow(
-                DirectAgentConfigDecodeWorkflow.run,
-                "x",
-                id="test-agent-config-direct-decode-1",
-                task_queue=task_queue,
-                execution_timeout=timedelta(seconds=3),
-            )
-
-    assert isinstance(exc_info.value.cause, TimeoutError)
-    assert "Failed to decode payload for type AgentConfig" in caplog.text
-    assert "Payload at index 0 with encoding json/plain could not be converted" in (
-        caplog.text
-    )
-    assert "Failed decoding arguments" in caplog.text
 
 
 @pytest.mark.anyio

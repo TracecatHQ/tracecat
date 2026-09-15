@@ -1,0 +1,46 @@
+type: action
+definition:
+  title: Read active attack data
+  description: >-
+    Retrieve active attack data within the last N days (default: 1 day). Calls GET /v1/security/firewall/attack-status directly.
+  display_group: Vercel Security
+  doc_url: https://vercel.com/docs/rest-api/security/read-active-attack-data
+  namespace: tools.vercel_security
+  name: read_active_attack_data
+  secrets:
+    - name: vercel
+      keys: ["VERCEL_API_TOKEN"]
+  expects:
+    projectId:
+      type: str
+      description: Project ID.
+    since:
+      type: float | None
+      description: Number of days to look back.
+      default: null
+    teamId:
+      type: str | None
+      description: The Team identifier to perform the request on behalf of.
+      default: null
+    slug:
+      type: str | None
+      description: The Team slug to perform the request on behalf of.
+      default: null
+    base_url:
+      type: str | None
+      description: Vercel REST API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.vercel_security.base_url || "https://api.vercel.com" }}/v1/security/firewall/attack-status
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.vercel.VERCEL_API_TOKEN }}
+        params:
+          projectId: ${{ inputs.projectId }}
+          teamId: ${{ inputs.teamId }}
+          slug: ${{ inputs.slug }}
+          since: ${{ inputs.since }}
+  returns: ${{ steps.request.result }}

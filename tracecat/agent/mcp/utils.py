@@ -34,6 +34,15 @@ REGISTRY_MCP_SERVER_NAME = "tracecat-registry"
 LEGACY_REGISTRY_MCP_SERVER_NAME = "tracecat_registry"
 
 
+def is_tracecat_registry_server_name(server_name: str) -> bool:
+    """Return whether a server name routes to the built-in registry."""
+    return (
+        server_name in {REGISTRY_MCP_SERVER_NAME, LEGACY_REGISTRY_MCP_SERVER_NAME}
+        or server_name.startswith(f"{REGISTRY_MCP_SERVER_NAME}-")
+        or server_name.startswith(f"{LEGACY_REGISTRY_MCP_SERVER_NAME}_")
+    )
+
+
 # Lone surrogates cannot cross JSON serialization.
 _SURROGATE_RE = re.compile(r"[\ud800-\udfff]")
 
@@ -79,9 +88,9 @@ def flatten_mcp_content_blocks(
     return text
 
 
-# Anthropic tool names must match this pattern; stdio MCP servers can report
+# Anthropic tool names must match this pattern; MCP servers can report
 # names (e.g. "issue.get") that would put invalid entries in allowed_tools.
-STDIO_MCP_TOOL_NAME_RE = re.compile(r"\A[a-zA-Z0-9_-]{1,64}\Z")
+MCP_TOOL_NAME_RE = re.compile(r"\A[a-zA-Z0-9_-]{1,64}\Z")
 
 
 def action_name_to_mcp_tool_name(action_name: str) -> str:

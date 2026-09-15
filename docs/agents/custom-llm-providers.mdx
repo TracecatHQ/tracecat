@@ -83,6 +83,8 @@ Click Test connection to verify the source before saving it, then click Add sour
 After you save the source, click Refresh.
 Tracecat calls the source's `/models` endpoint and adds the returned models to the organization catalog.
 
+Discovery confirms that the gateway exposes a model ID. It does not confirm that the gateway has local weights or can serve the model without internet access. For an air-gapped deployment, stage every model artifact and send a representative inference request after you remove egress. Ollama models tagged `:cloud` require the Ollama cloud service and cannot run air-gapped.
+
 <Frame>
   ![Custom source model list](/img/agents/custom-source-models.png)
 </Frame>
@@ -110,3 +112,4 @@ A run that fails with `Agent execution timed out after 1800s` hit the action's `
 - See [Secrets and variables](/agents/secrets-variables) for agent secret handling.
 - See [MCP servers](/automations/integrations/mcp-integrations) for connecting MCP tools to agents.
 - See [Environment variables](/self-hosting/environment-variables) for the agent and proxy timeout settings.
+- See [Air-gapped deployment](/self-hosting/air-gapped) for disconnected Kubernetes and self-hosted inference architecture.

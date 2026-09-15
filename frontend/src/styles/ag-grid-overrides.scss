@@ -25,6 +25,26 @@
   --ag-grid-size: 6px;
 }
 
+/*
+ * Thin, muted scrollbars in the shadcn ScrollArea style (border-colored thumb,
+ * transparent track), hidden until the pointer is over the grid.
+ */
+.ag-body-horizontal-scroll-viewport,
+.ag-body-vertical-scroll-viewport,
+.ag-body-viewport {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color 150ms;
+}
+
+.ag-root-wrapper:hover {
+  .ag-body-horizontal-scroll-viewport,
+  .ag-body-vertical-scroll-viewport,
+  .ag-body-viewport {
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+}
+
 /* Align the selection checkbox with the sidebar trigger (px-3 + centered icon) */
 .ag-selection-col-aligned {
   padding-left: 18px !important;

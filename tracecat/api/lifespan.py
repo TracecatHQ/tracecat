@@ -26,6 +26,7 @@ from collections.abc import Callable, Coroutine
 from typing import Any, Literal
 
 from tracecat.logger import logger
+from tracecat.observability.sentry import capture_api_background_task_failure
 
 type TaskKind = Literal["finite", "long_running"]
 type StoppableTaskFactory = Callable[[asyncio.Event], Coroutine[Any, Any, None]]
@@ -148,8 +149,11 @@ class LifespanTaskSupervisor:
         # the server is running; retrieve the exception so asyncio does not
         # log it as "Task exception was never retrieved".
         if (exc := task.exception()) is not None:
+            capture_api_background_task_failure(exc, task_name=task.get_name())
             logger.error(
-                "Supervised lifespan task failed", task=task.get_name(), err=exc
+                "Supervised lifespan task failed",
+                task=task.get_name(),
+                err=exc,
             )
 
     async def drain(self) -> None:

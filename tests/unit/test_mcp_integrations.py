@@ -667,19 +667,19 @@ class TestMCPIntegrationCRUD:
                 catalog_slug=catalog.slug, connection_option_id="gone"
             )
 
-    async def test_platform_mcp_catalog_redacts_locked_rows_without_entitlement(
+    async def test_platform_mcp_catalog_exposes_setup_details(
         self,
         integration_service: IntegrationService,
         session: AsyncSession,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Locked catalog rows stay visible but hide setup details."""
+        """Catalog rows expose their setup details."""
         catalog = _catalog_entry(
-            slug="locked-http-mcp",
-            name="Locked HTTP MCP",
-            description="Locked HTTP catalog row",
+            slug="open-http-mcp",
+            name="Open HTTP MCP",
+            description="Open HTTP catalog row",
             docs_url="https://docs.example.com/mcp",
-            provider_id="locked_mcp",
+            provider_id="open_mcp",
             connection_spec={
                 "kind": "http_none",
                 "server_type": "http",
@@ -689,23 +689,21 @@ class TestMCPIntegrationCRUD:
                 "credentials": [],
                 "server_uri": "https://mcp.example.com/mcp",
             },
-            sort_key="0000:locked-http-mcp",
+            sort_key="0000:open-http-mcp",
         )
         _install_catalog_entry(monkeypatch, catalog)
 
         catalog_service = PlatformMCPCatalogService(session=session)
         items, _ = await catalog_service.list_catalog(
             workspace_id=integration_service.workspace_id,
-            agent_addons_entitled=False,
             q=catalog.slug,
         )
 
-        locked = next(item for item in items if item.slug == catalog.slug)
-        assert locked.locked is True
-        assert locked.docs_url is None
-        assert locked.provider_id is None
-        assert locked.connection_spec is None
-        assert locked.state == "not_configured"
+        item = next(item for item in items if item.slug == catalog.slug)
+        assert item.docs_url == catalog.docs_url
+        assert item.provider_id == catalog.provider_id
+        assert item.connection_spec is not None
+        assert item.state == "not_configured"
 
         existing_mcp = MCPIntegration(
             workspace_id=integration_service.workspace_id,
@@ -721,19 +719,14 @@ class TestMCPIntegrationCRUD:
 
         items, _ = await catalog_service.list_catalog(
             workspace_id=integration_service.workspace_id,
-            agent_addons_entitled=False,
             q=catalog.slug,
         )
 
-        unlocked = next(item for item in items if item.slug == catalog.slug)
-        assert unlocked.locked is False
-        assert unlocked.docs_url is None
-        assert unlocked.provider_id is None
-        assert unlocked.connection_spec is None
-        assert unlocked.mcp_integration_id == existing_mcp.id
-        assert unlocked.mcp_server_type == "http"
-        assert unlocked.mcp_auth_type == MCPAuthType.NONE
-        assert unlocked.state == "configured"
+        configured = next(item for item in items if item.slug == catalog.slug)
+        assert configured.mcp_integration_id == existing_mcp.id
+        assert configured.mcp_server_type == "http"
+        assert configured.mcp_auth_type == MCPAuthType.NONE
+        assert configured.state == "configured"
 
     async def test_platform_mcp_catalog_reports_deleted_oauth_row_as_not_connected(
         self,
@@ -787,7 +780,6 @@ class TestMCPIntegrationCRUD:
 
         connected_items, _ = await catalog_service.list_catalog(
             workspace_id=integration_service.workspace_id,
-            agent_addons_entitled=True,
             q=catalog.slug,
         )
         connected = next(item for item in connected_items if item.slug == catalog.slug)
@@ -803,7 +795,6 @@ class TestMCPIntegrationCRUD:
 
         disconnected_items, _ = await catalog_service.list_catalog(
             workspace_id=integration_service.workspace_id,
-            agent_addons_entitled=True,
             q=catalog.slug,
         )
         item = next(item for item in disconnected_items if item.slug == catalog.slug)
@@ -885,7 +876,6 @@ class TestMCPIntegrationCRUD:
         catalog_service = PlatformMCPCatalogService(session=session)
         items, _ = await catalog_service.list_catalog(
             workspace_id=integration_service.workspace_id,
-            agent_addons_entitled=True,
             q=catalog.slug,
         )
         item = next(item for item in items if item.slug == catalog.slug)
@@ -964,7 +954,6 @@ class TestMCPIntegrationCRUD:
         catalog_service = PlatformMCPCatalogService(session=session)
         items, _ = await catalog_service.list_catalog(
             workspace_id=integration_service.workspace_id,
-            agent_addons_entitled=True,
             q=catalog.slug,
         )
 
@@ -1028,59 +1017,12 @@ class TestMCPIntegrationCRUD:
         catalog_service = PlatformMCPCatalogService(session=session)
         items, _ = await catalog_service.list_catalog(
             workspace_id=integration_service.workspace_id,
-            agent_addons_entitled=True,
             q=catalog.slug,
         )
 
         item = next(item for item in items if item.slug == catalog.slug)
         assert item.state == "configured"
         assert item.mcp_integration_id == local_mcp.id
-
-    async def test_platform_mcp_catalog_connect_requires_entitlement_for_new_rows(
-        self,
-        integration_service: IntegrationService,
-        session: AsyncSession,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Catalog connect cannot create new platform MCP rows without add-ons."""
-        monkeypatch.setattr(
-            tier_defaults,
-            "DEFAULT_ENTITLEMENTS",
-            tier_defaults.DEFAULT_ENTITLEMENTS.model_copy(
-                update={"agent_addons": False}
-            ),
-        )
-        catalog = _catalog_entry(
-            slug="locked-connect-mcp",
-            name="Locked Connect MCP",
-            description="Locked connect catalog row",
-            connection_spec={
-                "kind": "http_none",
-                "server_type": "http",
-                "auth_type": "NONE",
-                "requires_config": False,
-                "config_fields": [],
-                "credentials": [],
-                "server_uri": "https://mcp.example.com/mcp",
-            },
-            sort_key="0000:locked-connect-mcp",
-        )
-        _install_catalog_entry(monkeypatch, catalog)
-
-        with pytest.raises(EntitlementRequired, match="agent_addons"):
-            await integration_service.connect_platform_mcp_catalog(
-                catalog_slug=catalog.slug
-            )
-
-        with pytest.raises(EntitlementRequired, match="agent_addons"):
-            await integration_service.create_mcp_integration(
-                params=MCPHttpIntegrationCreate(
-                    name="Direct locked MCP",
-                    server_uri="https://mcp.example.com/mcp",
-                    auth_type=MCPAuthType.NONE,
-                    catalog_slug=catalog.slug,
-                )
-            )
 
     async def test_create_mcp_integration_rejects_unknown_catalog_slug(
         self,
@@ -1347,7 +1289,6 @@ class TestMCPIntegrationCRUD:
         catalog_service = PlatformMCPCatalogService(session=session)
         items, _ = await catalog_service.list_catalog(
             workspace_id=integration_service.workspace_id,
-            agent_addons_entitled=True,
             q=catalog.slug,
         )
         item = next(item for item in items if item.slug == catalog.slug)
@@ -1391,7 +1332,6 @@ class TestMCPIntegrationCRUD:
         catalog_service = PlatformMCPCatalogService(session=session)
         items, _ = await catalog_service.list_catalog(
             workspace_id=integration_service.workspace_id,
-            agent_addons_entitled=True,
             q=catalog.slug,
         )
         item = next(item for item in items if item.slug == catalog.slug)
@@ -1421,7 +1361,6 @@ class TestMCPIntegrationCRUD:
 
         items, _ = await catalog_service.list_catalog(
             workspace_id=integration_service.workspace_id,
-            agent_addons_entitled=True,
             q=catalog.slug,
         )
         item = next(item for item in items if item.slug == catalog.slug)
@@ -1478,7 +1417,6 @@ class TestMCPIntegrationCRUD:
         catalog_service = PlatformMCPCatalogService(session=session)
         items, _ = await catalog_service.list_catalog(
             workspace_id=integration_service.workspace_id,
-            agent_addons_entitled=True,
             q=catalog.slug,
         )
         item = next(item for item in items if item.slug == catalog.slug)
@@ -1718,7 +1656,6 @@ class TestMCPIntegrationCRUD:
         catalog_service = PlatformMCPCatalogService(session=session)
         items, _ = await catalog_service.list_catalog(
             workspace_id=integration_service.workspace_id,
-            agent_addons_entitled=True,
             q=catalog.slug,
         )
         item = next(item for item in items if item.slug == catalog.slug)
@@ -1823,9 +1760,9 @@ class TestMCPIntegrationCRUD:
             ),
         )
         catalog = _catalog_entry(
-            slug="existing-locked-mcp",
-            name="Existing Locked MCP",
-            description="Existing locked catalog row",
+            slug="existing-mcp",
+            name="Existing MCP",
+            description="Existing catalog row",
             connection_spec={
                 "kind": "http_none",
                 "server_type": "http",
@@ -1835,7 +1772,7 @@ class TestMCPIntegrationCRUD:
                 "credentials": [],
                 "server_uri": "https://mcp.example.com/mcp",
             },
-            sort_key="0000:existing-locked-mcp",
+            sort_key="0000:existing-mcp",
         )
         _install_catalog_entry(monkeypatch, catalog)
         existing_mcp = MCPIntegration(
@@ -1856,56 +1793,6 @@ class TestMCPIntegrationCRUD:
 
         assert result.mcp_integration is not None
         assert result.mcp_integration.id == existing_mcp.id
-
-    async def test_platform_mcp_catalog_oauth_reconnect_requires_entitlement(
-        self,
-        integration_service: IntegrationService,
-        session: AsyncSession,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Re-auth of a disconnected platform OAuth row is gated like a new connect."""
-        monkeypatch.setattr(
-            tier_defaults,
-            "DEFAULT_ENTITLEMENTS",
-            tier_defaults.DEFAULT_ENTITLEMENTS.model_copy(
-                update={"agent_addons": False}
-            ),
-        )
-        catalog = _catalog_entry(
-            slug="oauth-reconnect-locked-mcp",
-            name="OAuth Reconnect Locked MCP",
-            description="Disconnected OAuth catalog row",
-            connection_spec={
-                "kind": "http_oauth2",
-                "server_type": "http",
-                "auth_type": "OAUTH2",
-                "requires_config": False,
-                "config_fields": [],
-                "credentials": [],
-                "server_uri": "https://mcp.example.com/mcp",
-                "scopes": [],
-                "oauth_authorization_endpoint": None,
-                "oauth_token_endpoint": None,
-            },
-            sort_key="0000:oauth-reconnect-locked-mcp",
-        )
-        _install_catalog_entry(monkeypatch, catalog)
-        existing_mcp = MCPIntegration(
-            workspace_id=integration_service.workspace_id,
-            name=catalog.name,
-            slug=catalog.slug,
-            catalog_slug=catalog.slug,
-            server_type="http",
-            server_uri="https://mcp.example.com/mcp",
-            auth_type=MCPAuthType.OAUTH2,
-        )
-        session.add(existing_mcp)
-        await session.flush()
-
-        with pytest.raises(EntitlementRequired, match="agent_addons"):
-            await integration_service.connect_platform_mcp_catalog(
-                catalog_slug=catalog.slug
-            )
 
     async def test_create_custom_provider_avoids_reserved_mcp_prefix(
         self,
@@ -1939,39 +1826,6 @@ class TestMCPIntegrationCRUD:
                     client_secret=SecretStr("test-client-secret"),
                 )
             )
-
-    async def test_mcp_provider_oauth_does_not_auto_create_without_entitlement(
-        self,
-        integration_service: IntegrationService,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """MCP provider OAuth can store tokens without creating locked MCP rows."""
-        monkeypatch.setattr(
-            tier_defaults,
-            "DEFAULT_ENTITLEMENTS",
-            tier_defaults.DEFAULT_ENTITLEMENTS.model_copy(
-                update={"agent_addons": False}
-            ),
-        )
-        provider_key = ProviderKey(
-            id="github_mcp",
-            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
-        )
-
-        oauth_integration = await integration_service.store_integration(
-            provider_key=provider_key,
-            access_token=SecretStr("test_access_token"),
-            refresh_token=SecretStr("test_refresh_token"),
-            expires_in=3600,
-        )
-
-        auto_created = await integration_service.session.execute(
-            select(MCPIntegration).where(
-                MCPIntegration.workspace_id == integration_service.workspace_id,
-                MCPIntegration.oauth_integration_id == oauth_integration.id,
-            )
-        )
-        assert auto_created.scalars().first() is None
 
     async def test_connect_platform_mcp_catalog_creates_default_stdio_row(
         self,
@@ -6287,6 +6141,205 @@ class TestMCPProviderOAuth:
 
         assert captured_hosts == [frozenset({"app.example.com"})]
         assert captured_resources == ["https://mcp.example.com"]
+
+    async def test_runreveal_catalog_follows_self_hosted_server_uri(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A self-hosted RunReveal URI discovers OAuth on that host, not the cloud.
+
+        The shipped row defaults to RunReveal cloud, whose metadata sends OAuth
+        to www-api.runreveal.com. A user-supplied URI must not be rejected, and
+        the authorize redirect and token audience must follow the user's host.
+        """
+        await _seed_service_user(session, integration_service)
+        self_hosted = "https://runreveal.selfhosted.example"
+        docs = {
+            f"{self_hosted}/.well-known/oauth-protected-resource/mcp": None,
+            f"{self_hosted}/.well-known/oauth-protected-resource": None,
+            f"{self_hosted}/.well-known/oauth-authorization-server": {
+                "authorization_endpoint": f"{self_hosted}/oauth/authorize",
+                "token_endpoint": f"{self_hosted}/oauth/token",
+                "registration_endpoint": f"{self_hosted}/oauth/client",
+                "token_endpoint_auth_methods_supported": ["none"],
+            },
+        }
+        fetched: list[str] = []
+
+        async def fake_fetch(url: str) -> OAuthServerMetadata | None:
+            fetched.append(url)
+            assert urlparse(url).hostname == "runreveal.selfhosted.example", url
+            return OAuthServerMetadata.from_json(docs[url])
+
+        monkeypatch.setattr(integration_service, "_fetch_oauth_json", fake_fetch)
+
+        async def fake_register(
+            *,
+            registration_endpoint: str,
+            client_name: str,
+            token_auth_method: str | None,
+            requested_scopes: list[str],
+        ) -> integration_service_module.MCPOAuthRegistrationResult:
+            _ = client_name, token_auth_method, requested_scopes
+            assert registration_endpoint == f"{self_hosted}/oauth/client"
+            return integration_service_module.MCPOAuthRegistrationResult(
+                client_id="self-hosted-client",
+                client_secret=None,
+                auth_method="none",
+                registered_scopes=None,
+            )
+
+        monkeypatch.setattr(
+            integration_service, "_perform_mcp_dynamic_registration", fake_register
+        )
+        authorize_captured: dict[str, object] = {}
+        _patch_mcp_oauth_client(monkeypatch, authorize_captured=authorize_captured)
+
+        result = await integration_service.connect_mcp_oauth_discovery(
+            params=MCPHttpIntegrationCreate(
+                name="RunReveal (self-hosted)",
+                catalog_slug="runreveal-mcp",
+                server_uri=f"{self_hosted}/mcp",
+                auth_type=MCPAuthType.OAUTH2,
+            ),
+        )
+
+        assert fetched
+        assert result.oauth_connect is not None
+        parsed = urlparse(result.oauth_connect.auth_url)
+        assert parsed.hostname == "runreveal.selfhosted.example"
+        assert parsed.path == "/oauth/authorize"
+        assert authorize_captured["resource"] == f"{self_hosted}/mcp"
+        assert result.mcp_integration is not None
+        assert result.mcp_integration.server_uri == f"{self_hosted}/mcp"
+
+    async def test_runreveal_catalog_default_uri_reaches_cloud_oauth(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The default cloud URI still trusts RunReveal's separate OAuth host."""
+        await _seed_service_user(session, integration_service)
+        docs = {
+            "https://api.runreveal.com/.well-known/oauth-protected-resource/mcp": None,
+            "https://api.runreveal.com/.well-known/oauth-protected-resource": None,
+            "https://api.runreveal.com/.well-known/oauth-authorization-server": {
+                "issuer": "https://www-api.runreveal.com",
+                "authorization_endpoint": "https://www-api.runreveal.com/oauth/authorize",
+                "token_endpoint": "https://www-api.runreveal.com/oauth/token",
+                "registration_endpoint": "https://www-api.runreveal.com/oauth/client",
+                "token_endpoint_auth_methods_supported": ["none"],
+            },
+        }
+
+        async def fake_fetch(url: str) -> OAuthServerMetadata | None:
+            return OAuthServerMetadata.from_json(docs[url])
+
+        monkeypatch.setattr(integration_service, "_fetch_oauth_json", fake_fetch)
+
+        async def fake_register(
+            *,
+            registration_endpoint: str,
+            client_name: str,
+            token_auth_method: str | None,
+            requested_scopes: list[str],
+        ) -> integration_service_module.MCPOAuthRegistrationResult:
+            _ = registration_endpoint, client_name, token_auth_method
+            _ = requested_scopes
+            return integration_service_module.MCPOAuthRegistrationResult(
+                client_id="cloud-client",
+                client_secret=None,
+                auth_method="none",
+                registered_scopes=None,
+            )
+
+        monkeypatch.setattr(
+            integration_service, "_perform_mcp_dynamic_registration", fake_register
+        )
+        authorize_captured: dict[str, object] = {}
+        _patch_mcp_oauth_client(monkeypatch, authorize_captured=authorize_captured)
+
+        result = await integration_service.connect_mcp_oauth_discovery(
+            params=MCPHttpIntegrationCreate(
+                name="RunReveal",
+                catalog_slug="runreveal-mcp",
+                server_uri="https://api.runreveal.com/mcp",
+                auth_type=MCPAuthType.OAUTH2,
+            ),
+        )
+
+        assert result.oauth_connect is not None
+        parsed = urlparse(result.oauth_connect.auth_url)
+        assert parsed.hostname == "www-api.runreveal.com"
+        assert authorize_captured["resource"] == "https://api.runreveal.com/mcp"
+
+    @pytest.mark.parametrize(
+        ("row_uri", "user_uri", "expect_pinned"),
+        [
+            pytest.param(
+                "https://mcp.example.test/mcp",
+                "https://mcp.example.test/mcp",
+                True,
+                id="default-uri-keeps-pins",
+            ),
+            pytest.param(
+                "https://mcp.example.test/mcp",
+                "https://mcp.selfhosted.example/mcp",
+                False,
+                id="self-hosted-uri-drops-pins",
+            ),
+            pytest.param(
+                "https://mcp.{REGION}.example.test/mcp",
+                "https://mcp.eu.example.test/mcp",
+                True,
+                id="templated-uri-keeps-pins",
+            ),
+        ],
+    )
+    def test_catalog_pinned_endpoints_only_apply_to_row_default_uri(
+        self, row_uri: str, user_uri: str, expect_pinned: bool
+    ) -> None:
+        """Bringing an OAuth client to a self-hosted URI must not reuse vendor pins."""
+        spec = _MCP_CONNECTION_SPEC_ADAPTER.validate_python(
+            {
+                "kind": "http_oauth2",
+                "server_type": "http",
+                "auth_type": "OAUTH2",
+                "requires_config": True,
+                "config_fields": [],
+                "credentials": [
+                    {
+                        "key": "server_url",
+                        "label": "Server URL",
+                        "description": "MCP endpoint",
+                        "required": True,
+                        "secret": False,
+                        "type": "url",
+                        "target": "server_uri",
+                    }
+                ],
+                "server_uri": row_uri,
+                "scopes": [],
+                "oauth_authorization_endpoint": "https://auth.example.test/oauth/authorize",
+                "oauth_token_endpoint": "https://auth.example.test/oauth/token",
+            }
+        )
+        pinned = IntegrationService._catalog_pinned_oauth_endpoints(
+            spec,
+            server_uri=user_uri,
+            oauth_resource=None,
+            allowed_endpoint_hosts=frozenset({"auth.example.test"}),
+        )
+        if expect_pinned:
+            assert pinned is not None
+            assert pinned.authorization_endpoint.startswith(
+                "https://auth.example.test/"
+            )
+        else:
+            assert pinned is None
 
     def test_feedly_catalog_pins_origin_level_oauth_resource(
         self,

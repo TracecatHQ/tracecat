@@ -178,7 +178,9 @@ def eval_jsonpath(
     """Evaluate a jsonpath expression on the target object (operand)."""
 
     if operand is None or not isinstance(operand, dict | list):
-        logger.error("Invalid operand for jsonpath", operand=operand)
+        logger.error(
+            "Invalid operand for jsonpath", operand_type=type(operand).__name__
+        )
         raise TracecatExpressionError(
             f"A dict or list operand is required as jsonpath target. Got {type(operand)}"
         )
@@ -239,11 +241,13 @@ def eval_jsonpath(
         if strict:
             # We know that if this function is called, there was a templated field.
             # Therefore, it means the jsonpath was valid but there was no match.
-            logger.error("Jsonpath no match", expr=repr(expr), operand=operand)
+            # Operands may contain sensitive values, so log and report the
+            # expression only.
+            logger.error("Jsonpath no match", expr=repr(expr))
             formatted_expr = _expr_with_context(expr, context_type)
             raise TracecatExpressionError(
                 f"Couldn't resolve expression {formatted_expr!r} in the context",
-                detail={"expression": formatted_expr, "operand": operand},
+                detail={"expression": formatted_expr},
             )
         # Return None instead of empty list
         return None

@@ -1,0 +1,50 @@
+type: action
+definition:
+  title: Remove system bypass rule
+  description: >-
+    Remove system bypass rules. Calls DELETE /v1/security/firewall/bypass directly.
+  display_group: Vercel Security
+  doc_url: https://vercel.com/docs/rest-api/security/remove-system-bypass-rule
+  namespace: tools.vercel_security
+  name: remove_system_bypass_rule
+  secrets:
+    - name: vercel
+      keys: ["VERCEL_API_TOKEN"]
+  expects:
+    projectId:
+      type: str
+      description: Project ID.
+    payload:
+      # Generic: Vercel validates this body with additionalProperties: false and
+      # typed optional fields, so unset optionals cannot be sent as null.
+      type: dict[str, Any]
+      description: >-
+        API-native request body. Documented fields: domain or projectScope (one required),
+        sourceIp, allSources, note (max 500 characters).
+    teamId:
+      type: str | None
+      description: The Team identifier to perform the request on behalf of.
+      default: null
+    slug:
+      type: str | None
+      description: The Team slug to perform the request on behalf of.
+      default: null
+    base_url:
+      type: str | None
+      description: Vercel REST API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.vercel_security.base_url || "https://api.vercel.com" }}/v1/security/firewall/bypass
+        method: DELETE
+        headers:
+          Authorization: Bearer ${{ SECRETS.vercel.VERCEL_API_TOKEN }}
+          Content-Type: application/json
+        params:
+          projectId: ${{ inputs.projectId }}
+          teamId: ${{ inputs.teamId }}
+          slug: ${{ inputs.slug }}
+        payload: ${{ inputs.payload }}
+  returns: ${{ steps.request.result }}

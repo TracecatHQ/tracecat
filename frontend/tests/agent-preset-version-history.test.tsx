@@ -95,6 +95,7 @@ const VERSION_READ: AgentPresetVersionRead = {
   workspace_id: WORKSPACE_ID,
   version: 1,
   skills: [],
+  restore_skills: [],
   created_at: "2026-07-01T00:00:00Z",
   updated_at: "2026-07-01T00:00:00Z",
 }
@@ -251,11 +252,10 @@ describe("AgentPresetVersionHistory", () => {
     expect(within(tree).queryByText("Removed")).not.toBeInTheDocument()
   })
 
-  it("marks config.yaml modified when only the skill version pin differs", async () => {
+  it("previews current Skill heads instead of historical version pins", async () => {
     const skillId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
-    // Head pins the skill at v2; the selected version pinned it at v5. The
-    // draft form tracks only the skill id, so the head bindings must supply
-    // the pin or the restore diff hides a real rollback of skill code.
+    // The immutable version records v5, but restore follows the Skill's current
+    // v2 head. The preview must therefore match the v2 draft binding.
     mockUseAgentPreset.mockReturnValue({
       preset: {
         name: "Triage agent",
@@ -283,6 +283,14 @@ describe("AgentPresetVersionHistory", () => {
             skill_version: 5,
           },
         ],
+        restore_skills: [
+          {
+            skill_id: skillId,
+            skill_version_id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+            skill_name: "alpha-skill",
+            skill_version: 2,
+          },
+        ],
       },
       presetVersionIsLoading: false,
       presetVersionError: null,
@@ -303,7 +311,7 @@ describe("AgentPresetVersionHistory", () => {
     expect(items[0]).toHaveTextContent("instructions.md")
     expect(items[0]).not.toHaveTextContent("Modified")
     expect(items[1]).toHaveTextContent("config.yaml")
-    expect(items[1]).toHaveTextContent("Modified")
+    expect(items[1]).not.toHaveTextContent("Modified")
   })
 
   it("shows the load-error state and toasts when versions fail to load", async () => {

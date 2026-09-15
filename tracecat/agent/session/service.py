@@ -14,11 +14,6 @@ from functools import partial
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple, cast
 
 import orjson
-from pydantic_ai.messages import (
-    ModelRequest,
-    UserPromptPart,
-)
-from pydantic_ai.tools import ToolApproved, ToolDenied
 from sqlalchemy import (
     TIMESTAMP,
     String,
@@ -43,9 +38,9 @@ from temporalio.service import RPCError
 from tracecat_ee.workspace_chat.policy import is_workspace_chat_entitled
 from tracecat_registry._internal.exceptions import SecretNotFoundError
 
-import tracecat.agent.adapter.vercel
 import tracecat.artifacts.projection as artifact_projection
 from tracecat import config
+from tracecat.agent.adapter.vercel import is_text_ui_part
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.approvals.types import (
     BooleanApprovalDecision,
@@ -100,7 +95,12 @@ from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.subagents import (
     ResolvedAgentsConfig,
 )
-from tracecat.agent.types import AgentConfig, ClaudeSDKMessageTA
+from tracecat.agent.types import (
+    AgentConfig,
+    ClaudeSDKMessageTA,
+    ToolApproved,
+    ToolDenied,
+)
 from tracecat.artifacts.bindings import ArtifactSideEffect
 from tracecat.artifacts.schemas import Artifact, ArtifactAdapter, ArtifactType
 from tracecat.audit.logger import audit_log
@@ -120,7 +120,6 @@ from tracecat.chat.schemas import (
 )
 from tracecat.chat.service import ChatService
 from tracecat.chat.tools import (
-    filter_workspace_chat_tools_for_entitlements,
     filter_workspace_chat_tools_for_scopes,
     get_default_tools,
 )
@@ -137,13 +136,11 @@ from tracecat.db.models import (
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import RETRY_POLICIES
 from tracecat.exceptions import (
-    EntitlementRequired,
     TracecatConflictError,
     TracecatNotFoundError,
     TracecatValidationError,
 )
 from tracecat.identifiers import UserID
-from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
 from tracecat.redis.client import RedisClient, get_redis_client
 from tracecat.service import BaseWorkspaceService
@@ -219,6 +216,11 @@ def _finalize_auto_title_task(
             error=str(exc),
             error_type=type(exc).__name__,
         )
+
+
+def _extract_vercel_user_prompt(ui_message: Any) -> str | None:
+    text_parts = [part["text"] for part in ui_message.parts if is_text_ui_part(part)]
+    return "\n".join(text_parts) or None
 
 
 @dataclass
@@ -414,34 +416,15 @@ class AgentSessionService(BaseWorkspaceService):
         return self.role.model_copy(update={"scopes": scopes})
 
     async def _get_default_tools(self, entity_type: AgentSessionEntity) -> list[str]:
-        """Get entitlement-aware default tools for a session entity type."""
-        agent_addons_enabled = True
-        if entity_type is AgentSessionEntity.WORKSPACE_CHAT:
-            agent_addons_enabled = await self.has_entitlement(Entitlement.AGENT_ADDONS)
-        return get_default_tools(
-            entity_type.value,
-            agent_addons_enabled=agent_addons_enabled,
-        )
-
-    async def _workspace_chat_tools_for_entitlements(
-        self,
-        tools: list[str] | None,
-    ) -> list[str] | None:
-        """Filter stored Workspace chat tools by current entitlements."""
-        if tools is None:
-            return None
-        return filter_workspace_chat_tools_for_entitlements(
-            tools,
-            agent_addons_enabled=await self.has_entitlement(Entitlement.AGENT_ADDONS),
-        )
+        """Get default tools for a session entity type."""
+        return get_default_tools(entity_type.value)
 
     async def _resolve_builtin_workspace_chat_skills(self) -> list[str] | None:
         """Always-on platform skills staged for entitled workspace-chat sessions.
 
-        Returns the reserved-prefix skill names to stage into the copilot's
-        skills directory, or ``None`` when the org is not entitled to Workspace
-        Chat or the Enterprise package is unavailable. Names only — the executor
-        resolves each to a packaged skill directory at stage time.
+        Returns server-owned image asset keys, or ``None`` when the org is not
+        entitled. The executor resolves each through the platform catalog and
+        stages it in the namespaced plugin, separately from workspace skills.
         """
 
         if not await is_workspace_chat_entitled(self.session, self.role):
@@ -466,41 +449,7 @@ class AgentSessionService(BaseWorkspaceService):
         # the chat user's RBAC. Enforce the caller's action scopes here -- the
         # last point where the user's real role is available -- so `agent:execute`
         # alone cannot grant workflow create/edit or case delete via these tools.
-        merged = filter_workspace_chat_tools_for_scopes(merged, role=self.role)
-        return await self._workspace_chat_tools_for_entitlements(merged)
-
-    async def _custom_mcp_integration_ids(self) -> set[uuid.UUID]:
-        """Return the ids of MCP servers the workspace configured itself.
-
-        Platform catalog connectors are excluded. ``source="workspace"`` is the
-        canonical split, so this stays in step with the picker's own listing.
-        """
-        integrations_service = IntegrationService(self.session, role=self.role)
-        custom = await integrations_service.list_mcp_integrations(source="workspace")
-        return {mcp_integration.id for mcp_integration in custom}
-
-    async def _mcp_integrations_for_entitlements(
-        self, mcp_integrations: list[str]
-    ) -> list[str]:
-        """Keep only the MCP servers the org's plan allows a session to use.
-
-        Every workspace may attach the MCP servers it configured itself; the
-        Tracecat-managed catalog connectors need ``AGENT_ADDONS``. An id that
-        is not a workspace-owned server drops out, malformed ids included --
-        they can never match a row, so there is nothing for them to reach.
-        """
-        if await self.has_entitlement(Entitlement.AGENT_ADDONS):
-            return mcp_integrations
-        custom_ids = await self._custom_mcp_integration_ids()
-        allowed: list[str] = []
-        for mcp_id in mcp_integrations:
-            try:
-                parsed_id = uuid.UUID(mcp_id)
-            except ValueError:
-                continue
-            if parsed_id in custom_ids:
-                allowed.append(mcp_id)
-        return allowed
+        return filter_workspace_chat_tools_for_scopes(merged, role=self.role)
 
     async def _resolve_session_mcp_servers(
         self,
@@ -510,15 +459,9 @@ class AgentSessionService(BaseWorkspaceService):
         """Resolve attached MCP integration IDs into boundary-safe server refs."""
         if not agent_session.mcp_integrations or agent_svc.presets is None:
             return None
-        # Filter the ids rather than the resolved refs: an ``MCPServerConfig``
-        # carries no catalog marker to filter on, and the resolver raises when a
-        # non-empty request resolves to nothing.
-        allowed = await self._mcp_integrations_for_entitlements(
+        return await agent_svc.presets.resolve_mcp_integration_refs(
             agent_session.mcp_integrations
         )
-        if not allowed:
-            return None
-        return await agent_svc.presets.resolve_mcp_integration_refs(allowed)
 
     async def _validate_session_mcp_integrations(
         self, mcp_integrations: list[str] | None
@@ -527,15 +470,7 @@ class AgentSessionService(BaseWorkspaceService):
         if not mcp_integrations:
             return
         preset_service = AgentPresetService(self.session, self.role)
-        selected = await preset_service.load_selected_mcp_integrations(mcp_integrations)
-        if await self.has_entitlement(Entitlement.AGENT_ADDONS):
-            return
-        # Reject a platform connector at write time so an un-entitled org gets a
-        # 403 here instead of a session that silently loses the server at run
-        # time. Its own custom servers persist as normal.
-        custom_ids = await self._custom_mcp_integration_ids()
-        if any(mcp_integration.id not in custom_ids for mcp_integration in selected):
-            raise EntitlementRequired(Entitlement.AGENT_ADDONS.value)
+        await preset_service.load_selected_mcp_integrations(mcp_integrations)
 
     def _build_direct_agent_search_attributes(
         self, session_id: uuid.UUID
@@ -566,6 +501,7 @@ class AgentSessionService(BaseWorkspaceService):
         *,
         channel_context: dict[str, Any] | None = None,
         agents_binding: ResolvedAgentsConfig | None = None,
+        persist_agents_binding: bool = True,
     ) -> AgentSession:
         """Create a new agent session.
 
@@ -574,6 +510,8 @@ class AgentSessionService(BaseWorkspaceService):
             channel_context: Trusted external channel metadata to bind to session.
             agents_binding: Already-resolved internal subagent binding from the
                 workflow.
+            persist_agents_binding: Store legacy session topology. New durable
+                turns keep their resolved topology in Temporal history instead.
 
         Returns:
             The created AgentSession model.
@@ -599,7 +537,9 @@ class AgentSessionService(BaseWorkspaceService):
             agent_preset_id=args.agent_preset_id,
             agent_preset_version_id=args.agent_preset_version_id,
         )
-        if agents_binding is not None:
+        if not persist_agents_binding:
+            resolved_agents_binding = None
+        elif agents_binding is not None:
             resolved_agents_binding = agents_binding.model_dump(mode="json")
         else:
             resolved_agents_binding = (
@@ -704,17 +644,6 @@ class AgentSessionService(BaseWorkspaceService):
         self,
         session_id: uuid.UUID,
     ) -> AgentSession | None:
-        """Get an agent session by ID.
-
-        Only returns actual AgentSession records. Use get_legacy_chat()
-        for legacy Chat records.
-
-        Args:
-            session_id: The session UUID.
-
-        Returns:
-            AgentSession model if found, None otherwise.
-        """
         stmt = select(AgentSession).where(
             AgentSession.id == session_id,
             AgentSession.workspace_id == self.workspace_id,
@@ -722,24 +651,18 @@ class AgentSessionService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_legacy_chat(
-        self,
-        session_id: uuid.UUID,
-    ) -> Chat | None:
-        """Get a legacy Chat by ID.
-
-        Args:
-            session_id: The chat UUID.
-
-        Returns:
-            Chat model if found, None otherwise.
-        """
+    async def get_legacy_chat(self, session_id: uuid.UUID) -> Chat | None:
+        """Get a legacy chat by ID for read-only compatibility."""
         stmt = select(Chat).where(
             Chat.id == session_id,
             Chat.workspace_id == self.workspace_id,
         )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def is_legacy_session(self, session_id: uuid.UUID) -> bool:
+        """Return whether a session ID belongs to a legacy chat."""
+        return await self.get_legacy_chat(session_id) is not None
 
     async def build_initial_artifact(
         self, agent_session: AgentSession
@@ -863,23 +786,12 @@ class AgentSessionService(BaseWorkspaceService):
         await self.session.refresh(agent_session)
         return self.list_artifacts(agent_session)
 
-    async def is_legacy_session(self, session_id: uuid.UUID) -> bool:
-        """Check if a session ID refers to a legacy Chat record.
-
-        Args:
-            session_id: The session/chat UUID.
-
-        Returns:
-            True if this is a legacy Chat, False otherwise.
-        """
-        chat = await self.get_legacy_chat(session_id)
-        return chat is not None
-
     async def get_or_create_session(
         self,
         args: AgentSessionCreate,
         *,
         agents_binding: ResolvedAgentsConfig | None = None,
+        persist_agents_binding: bool = True,
     ) -> tuple[AgentSession, bool]:
         """Get an existing session or create a new one.
 
@@ -895,7 +807,11 @@ class AgentSessionService(BaseWorkspaceService):
             existing = await self.get_session(args.id)
             if existing:
                 return existing, False
-        new_session = await self.create_session(args, agents_binding=agents_binding)
+        new_session = await self.create_session(
+            args,
+            agents_binding=agents_binding,
+            persist_agents_binding=persist_agents_binding,
+        )
         return new_session, True
 
     async def list_sessions(
@@ -909,10 +825,7 @@ class AgentSessionService(BaseWorkspaceService):
         parent_session_id: uuid.UUID | None = None,
         limit: int = 100,
     ) -> list[AgentSessionRead | ChatReadMinimal]:
-        """List agent sessions and legacy chats for the workspace.
-
-        Returns a merged list of AgentSession and legacy Chat records,
-        sorted by created_at. Legacy chats have is_readonly=True.
+        """List agent sessions and read-only legacy chats for the workspace.
 
         Args:
             created_by: Filter by user who created the session.
@@ -924,7 +837,7 @@ class AgentSessionService(BaseWorkspaceService):
             limit: Maximum number of results.
 
         Returns:
-            List of AgentSessionRead or ChatReadMinimal (legacy, read-only).
+            Agent sessions and legacy chat metadata sorted by creation time.
         """
         # Query AgentSession table
         session_stmt = select(AgentSession).where(
@@ -960,7 +873,6 @@ class AgentSessionService(BaseWorkspaceService):
 
         legacy_chats: list[Chat] = []
         if parent_session_id is None and not filter_created_by_none:
-            # Query legacy Chat table
             chat_stmt = select(Chat).where(Chat.workspace_id == self.workspace_id)
             if created_by is not None:
                 chat_stmt = chat_stmt.where(Chat.user_id == created_by)
@@ -972,31 +884,23 @@ class AgentSessionService(BaseWorkspaceService):
                 )
             if entity_id is not None:
                 chat_stmt = chat_stmt.where(Chat.entity_id == entity_id)
-            # Bound query cost at the database layer; we still merge+sort below.
             chat_stmt = chat_stmt.order_by(Chat.created_at.desc()).limit(limit)
-
             chat_result = await self.session.execute(chat_stmt)
             legacy_chats = list(chat_result.scalars().all())
 
-        # Convert and merge
-        items: list[AgentSessionRead | ChatReadMinimal] = []
-
-        for s in sessions:
-            session_read = AgentSessionRead.model_validate(s, from_attributes=True)
-            items.append(
-                session_read.model_copy(
-                    update={
-                        "is_readonly": is_session_readonly(self.role, s.created_by),
-                    }
-                )
+        items: list[AgentSessionRead | ChatReadMinimal] = [
+            AgentSessionRead.model_validate(s, from_attributes=True).model_copy(
+                update={
+                    "is_readonly": is_session_readonly(self.role, s.created_by),
+                }
             )
-
-        for c in legacy_chats:
-            # ChatReadMinimal has is_readonly=True by default
-            items.append(ChatReadMinimal.model_validate(c, from_attributes=True))
-
-        # Sort by created_at descending and apply limit
-        items.sort(key=lambda x: x.created_at, reverse=True)
+            for s in sessions
+        ]
+        items.extend(
+            ChatReadMinimal.model_validate(chat, from_attributes=True)
+            for chat in legacy_chats
+        )
+        items.sort(key=lambda item: item.created_at, reverse=True)
         return items[:limit]
 
     @audit_log(resource_type="agent_session", action="update")
@@ -1313,7 +1217,7 @@ class AgentSessionService(BaseWorkspaceService):
         sdk_session_id = source_session.sdk_session_id
         if not sdk_session_id:
             logger.debug(
-                "No sdk_session_id on session (new session or legacy)",
+                "No sdk_session_id on session (new session)",
                 session_id=source_session_id,
             )
             return None
@@ -1798,7 +1702,7 @@ class AgentSessionService(BaseWorkspaceService):
         *,
         expected_title: str,
     ) -> None:
-        """Best-effort auto-title on first prompt via direct PydanticAI call."""
+        """Best-effort auto-title on the first prompt."""
         prompt = user_prompt.strip()
         entity_type = agent_session.entity_type
         old_title = expected_title
@@ -2103,18 +2007,11 @@ class AgentSessionService(BaseWorkspaceService):
             case ContinueRunRequest():
                 is_continuation = True
             case VercelChatRequest(message=ui_message):
-                [message] = tracecat.agent.adapter.vercel.convert_ui_message(ui_message)
-                match message:
-                    case ModelRequest(parts=[UserPromptPart(content=content)]):
-                        match content:
-                            case str(s):
-                                user_prompt = s
-                            case list(l):
-                                user_prompt = "\n".join(str(item) for item in l)
-                            case _:
-                                raise ValueError(f"Unsupported user prompt: {content}")
-                    case _:
-                        raise ValueError(f"Unsupported message: {message}")
+                user_prompt = _extract_vercel_user_prompt(ui_message)
+                if user_prompt is None:
+                    raise ValueError(
+                        "VercelChatRequest contained no supported text parts"
+                    )
             case BasicChatRequest(message=prompt, instructions=instructions):
                 user_prompt = prompt
                 request_instructions = instructions
@@ -3056,11 +2953,9 @@ class AgentSessionService(BaseWorkspaceService):
         """Retrieve session messages, optionally filtered by message kind.
 
         For forked sessions, includes parent session messages first.
-        Checks the new AgentSessionHistory table first, then falls back to
-        the legacy ChatMessage table for backward compatibility.
 
         Args:
-            session_id: The session UUID (could be AgentSession.id or Chat.id).
+            session_id: The session UUID.
             kinds: Optional list of message kinds to filter by.
             include_active: When True, do not hide the active turn's rows. The
                 mid-turn filter exists for live UI reads (the assistant streams
@@ -3073,8 +2968,6 @@ class AgentSessionService(BaseWorkspaceService):
             List of ChatMessage objects (parent messages + current if forked).
         """
         agent_session = await self.get_session(session_id)
-
-        # If no history in new table, fall back to legacy ChatMessage table
         if not agent_session:
             chat_service = ChatService(self.session, self.role)
             return await chat_service.list_legacy_messages(session_id, kinds=kinds)

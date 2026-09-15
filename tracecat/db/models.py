@@ -3820,8 +3820,8 @@ class AgentPreset(SoftDeleteMixin, WorkspaceModel):
     )
     agents: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
-        default=lambda: {"enabled": False},
-        server_default=text("'{\"enabled\": false}'::jsonb"),
+        default=lambda: {"enabled": True, "subagents": []},
+        server_default=text('\'{"enabled": true, "subagents": []}\'::jsonb'),
         nullable=False,
         doc="Subagent configuration for this preset",
     )
@@ -3880,7 +3880,11 @@ class AgentPreset(SoftDeleteMixin, WorkspaceModel):
 
 
 class AgentPresetVersion(WorkspaceModel):
-    """Immutable version snapshot for an agent preset."""
+    """Saved agent configuration; deletion permanently removes dependency refs.
+
+    Other configuration fields retain their published values. Restoring a
+    version cannot restore links to deleted agents or Skills.
+    """
 
     __tablename__ = "agent_preset_version"
     __table_args__ = (UniqueConstraint("workspace_id", "preset_id", "version"),)
@@ -3955,8 +3959,8 @@ class AgentPresetVersion(WorkspaceModel):
     )
     agents: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
-        default=lambda: {"enabled": False},
-        server_default=text("'{\"enabled\": false}'::jsonb"),
+        default=lambda: {"enabled": True, "subagents": []},
+        server_default=text('\'{"enabled": true, "subagents": []}\'::jsonb'),
         nullable=False,
         doc="Subagent configuration for this preset version",
     )
@@ -4319,7 +4323,6 @@ class SkillVersion(WorkspaceModel):
         nullable=True,
         doc="Cached description parsed from root SKILL.md frontmatter",
     )
-
     skill: Mapped[Skill] = relationship(
         "Skill",
         back_populates="versions",
@@ -4327,6 +4330,16 @@ class SkillVersion(WorkspaceModel):
     )
     files: Mapped[list[SkillVersionFile]] = relationship(
         "SkillVersionFile",
+        back_populates="skill_version",
+        cascade="all, delete-orphan",
+    )
+    tools: Mapped[list[SkillVersionTool]] = relationship(
+        "SkillVersionTool",
+        back_populates="skill_version",
+        cascade="all, delete-orphan",
+    )
+    mcp_tools: Mapped[list[SkillVersionMcpTool]] = relationship(
+        "SkillVersionMcpTool",
         back_populates="skill_version",
         cascade="all, delete-orphan",
     )
@@ -4389,6 +4402,94 @@ class SkillVersionFile(WorkspaceModel):
     blob: Mapped[SkillBlob] = relationship(back_populates="version_files")
 
 
+class SkillVersionTool(WorkspaceModel):
+    """Registry action declared by a published skill version."""
+
+    __tablename__ = "skill_version_tool"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "skill_version_id",
+            "tool_id",
+            name="uq_skill_version_tool_workspace_version_tool",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    skill_version_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("skill_version.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    tool_id: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        doc=(
+            "Verbatim dotted registry action ID. No RegistryAction foreign key "
+            "is used because registry sync replaces those rows."
+        ),
+    )
+
+    skill_version: Mapped[SkillVersion] = relationship(back_populates="tools")
+
+
+class SkillVersionMcpTool(WorkspaceModel):
+    """MCP capability declared by a published skill version."""
+
+    __tablename__ = "skill_version_mcp_tool"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "skill_version_id",
+            "tool_id",
+            name="uq_skill_version_mcp_tool_workspace_version_tool",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    skill_version_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("skill_version.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    tool_id: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        doc="Verbatim frontmatter reference, for example mcp.slack.post_message",
+    )
+    mcp_integration_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("mcp_integration.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        doc=(
+            "Integration UUID resolved at publish time. NULL means the source "
+            "integration was removed and dispatch must fail closed."
+        ),
+    )
+    tool_name: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        doc="Tool within the server; NULL grants the whole integration",
+    )
+
+    skill_version: Mapped[SkillVersion] = relationship(back_populates="mcp_tools")
+
+
 class AgentPresetSkill(WorkspaceModel):
     """Mutable skill binding for the current preset head."""
 
@@ -4438,7 +4539,7 @@ class AgentPresetSkill(WorkspaceModel):
 
 
 class AgentPresetVersionSkill(WorkspaceModel):
-    """Exact skill version snapshot bound to an immutable preset version."""
+    """Exact Skill snapshot reference, removed when the Skill is deleted."""
 
     __tablename__ = "agent_preset_version_skill"
     __table_args__ = (

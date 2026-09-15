@@ -30,7 +30,6 @@ interface ChatToolsPickerProps {
   mcpIntegrations: MCPIntegrationRead[]
   selectedMcpIntegrations: string[]
   onMcpChange: (next: string[]) => void
-  agentAddonsEnabled?: boolean
   mcpEnabled?: boolean
   disabled?: boolean
   /** Selects which chat surface-specific default capabilities are read-only. */
@@ -61,7 +60,6 @@ type CapabilityGroup = {
   id: string
   label: string
   tools: string[]
-  addon?: boolean
 }
 
 const TOOL_SEARCH_LIMIT = 24
@@ -96,6 +94,7 @@ export const DEFAULT_CAPABILITY_GROUPS: CapabilityGroup[] = [
       "core.cases.list_cases",
       "core.cases.get_case",
       "core.cases.search_cases",
+      "core.cases.aggregate_cases",
     ],
   },
   {
@@ -113,6 +112,7 @@ export const DEFAULT_CAPABILITY_GROUPS: CapabilityGroup[] = [
       "core.table.lookup_many",
       "core.table.is_in",
       "core.table.search_rows",
+      "core.table.aggregate_rows",
       "core.table.insert_row",
       "core.table.insert_rows",
       "core.table.update_row",
@@ -142,7 +142,6 @@ export const DEFAULT_CAPABILITY_GROUPS: CapabilityGroup[] = [
   {
     id: "presets",
     label: "Agent presets",
-    addon: true,
     tools: [
       "ai.agent.create_preset",
       "ai.agent.get_preset",
@@ -182,7 +181,6 @@ export function ChatToolsPicker({
   mcpIntegrations,
   selectedMcpIntegrations,
   onMcpChange,
-  agentAddonsEnabled = true,
   mcpEnabled = true,
   disabled = false,
   surface = "regular",
@@ -245,13 +243,8 @@ export function ChatToolsPicker({
   )
 
   const visibleCapabilityGroups = useMemo(
-    () =>
-      isWorkspaceChat
-        ? DEFAULT_CAPABILITY_GROUPS.filter(
-            (group) => !group.addon || agentAddonsEnabled
-          )
-        : [],
-    [agentAddonsEnabled, isWorkspaceChat]
+    () => (isWorkspaceChat ? DEFAULT_CAPABILITY_GROUPS : []),
+    [isWorkspaceChat]
   )
 
   // Tools the user can add: everything except this surface's always-on defaults.
@@ -706,7 +699,6 @@ function CapabilityRow({
         </span>
         <span className="text-[11px] text-muted-foreground">
           {toolCountLabel(group.tools.length)}
-          {group.addon ? " · add-on" : ""}
         </span>
       </button>
       {open ? (

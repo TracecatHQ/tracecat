@@ -15,7 +15,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
 from pydantic import BaseModel
 from pydantic_core import to_jsonable_python
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.admin.router import router as admin_router
 from tracecat_ee.agent.approvals.router import router as approvals_router
@@ -51,6 +50,8 @@ from tracecat.api.common import (
     custom_generate_unique_id,
     generic_exception_handler,
     http_exception_handler,
+    query_overflow_exception_handler,
+    query_timeout_exception_handler,
     tracecat_exception_handler,
 )
 from tracecat.api.lifespan import LifespanTaskSupervisor
@@ -135,11 +136,16 @@ from tracecat.observability.otel import (
     instrument_fastapi_app,
     shutdown_platform_tracing,
 )
+from tracecat.observability.sentry import initialize_api_sentry_from_environment
 from tracecat.organization.management import (
     ensure_default_organization,
     get_default_organization_id,
 )
 from tracecat.organization.router import router as org_router
+from tracecat.query.errors import (
+    TracecatQueryOverflowError,
+    TracecatQueryTimeoutError,
+)
 from tracecat.registry.actions.router import router as registry_actions_router
 from tracecat.registry.repositories.router import router as registry_repos_router
 from tracecat.registry.sync.jobs import sync_platform_registry_on_startup
@@ -274,16 +280,7 @@ async def setup_org_settings(session: AsyncSession, admin_role: Role):
 
 async def setup_workspace_defaults(session: AsyncSession, admin_role: Role):
     ws_service = WorkspaceService(session, role=admin_role)
-    workspaces = await ws_service.admin_list_workspaces()
-    n_workspaces = len(workspaces)
-    logger.info(f"{n_workspaces} workspaces found")
-    if n_workspaces == 0:
-        # Create default workspace if there are no workspaces
-        try:
-            default_workspace = await ws_service.create_workspace("Default Workspace")
-            logger.info("Default workspace created", workspace=default_workspace)
-        except IntegrityError:
-            logger.info("Default workspace already exists, skipping")
+    await ws_service.ensure_default_workspace()
 
 
 async def setup_rbac_defaults(session: AsyncSession):
@@ -633,6 +630,14 @@ def create_app(**kwargs) -> FastAPI:
         auth_pool_exhausted_exception_handler,
     )
     app.add_exception_handler(TracecatException, tracecat_exception_handler)
+    app.add_exception_handler(
+        TracecatQueryTimeoutError,
+        query_timeout_exception_handler,
+    )
+    app.add_exception_handler(
+        TracecatQueryOverflowError,
+        query_overflow_exception_handler,
+    )
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
     app.add_exception_handler(
         FastAPIUsersException,
@@ -672,6 +677,7 @@ def create_app(**kwargs) -> FastAPI:
     return app
 
 
+initialize_api_sentry_from_environment()
 app = create_app()
 
 

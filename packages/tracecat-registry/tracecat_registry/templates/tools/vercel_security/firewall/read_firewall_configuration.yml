@@ -1,0 +1,45 @@
+type: action
+definition:
+  title: Read firewall configuration
+  description: >-
+    Retrieve the specified firewall configuration for a project. The deployed configVersion will be `active`. Calls GET /v1/security/firewall/config/{configVersion} directly.
+  display_group: Vercel Security
+  doc_url: https://vercel.com/docs/rest-api/security/read-firewall-configuration
+  namespace: tools.vercel_security
+  name: read_firewall_configuration
+  secrets:
+    - name: vercel
+      keys: ["VERCEL_API_TOKEN"]
+  expects:
+    projectId:
+      type: str
+      description: Project ID.
+    configVersion:
+      type: str
+      description: The deployed configVersion for the firewall configuration. Use `active` for the deployed configuration.
+      default: active
+    teamId:
+      type: str | None
+      description: The Team identifier to perform the request on behalf of.
+      default: null
+    slug:
+      type: str | None
+      description: The Team slug to perform the request on behalf of.
+      default: null
+    base_url:
+      type: str | None
+      description: Vercel REST API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.vercel_security.base_url || "https://api.vercel.com" }}/v1/security/firewall/config/${{ FN.url_encode(inputs.configVersion) }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.vercel.VERCEL_API_TOKEN }}
+        params:
+          projectId: ${{ inputs.projectId }}
+          teamId: ${{ inputs.teamId }}
+          slug: ${{ inputs.slug }}
+  returns: ${{ steps.request.result }}

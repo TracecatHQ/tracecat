@@ -7,6 +7,7 @@ import dataclasses
 import os
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import AsyncExitStack
 from datetime import timedelta
 
 from temporalio import workflow
@@ -48,7 +49,13 @@ with workflow.unsafe.imports_passed_through():
         RuntimeErrorAttributionInterceptor,
     )
     from tracecat.logger import logger
-    from tracecat.observability.sentry import initialize_sentry_from_environment
+    from tracecat.observability.otel import (
+        initialize_platform_tracing,
+        shutdown_platform_tracing,
+    )
+    from tracecat.observability.sentry import (
+        initialize_worker_sentry_from_environment,
+    )
     from tracecat.storage.blob import close_storage_client_cache
     from tracecat.temporal.worker_lifecycle import run_worker_entrypoint
 
@@ -114,20 +121,27 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
 
     logger.info("Starting AgentWorker")
 
-    client = await get_temporal_client()
+    initialize_platform_tracing("tracecat-agent-worker")
 
-    initialize_sentry_from_environment()
-    interceptors = [RuntimeErrorAttributionInterceptor()]
+    # LIFO teardown: storage cache, then tracing. The stack still runs later
+    # callbacks when an earlier one raises.
+    async with AsyncExitStack() as cleanup:
+        cleanup.callback(shutdown_platform_tracing)
+        cleanup.push_async_callback(close_storage_client_cache)
 
-    activities = get_activities()
-    logger.debug(
-        "Activities loaded",
-        activities=[
-            getattr(a, "__temporal_activity_definition").name for a in activities
-        ],
-    )
+        client = await get_temporal_client()
 
-    try:
+        initialize_worker_sentry_from_environment()
+        interceptors = [RuntimeErrorAttributionInterceptor()]
+
+        activities = get_activities()
+        logger.debug(
+            "Activities loaded",
+            activities=[
+                getattr(a, "__temporal_activity_definition").name for a in activities
+            ],
+        )
+
         with ThreadPoolExecutor(max_workers=threadpool_max_workers) as executor:
             workflows: list[type] = [
                 DurableAgentWorkflow,
@@ -152,8 +166,6 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
                 await shutdown_event.wait()
                 logger.info("AgentWorker shutdown requested")
             logger.info("Temporal Worker context exited")
-    finally:
-        await close_storage_client_cache()
 
 
 if __name__ == "__main__":

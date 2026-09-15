@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from temporalio.exceptions import ApplicationError
 
+from tracecat import config
 from tracecat.exceptions import (
     EntitlementRequired,
     ExecutionError,
@@ -24,6 +25,7 @@ from tracecat.runtime.errors import (
 from tracecat.sandbox.exceptions import (
     SandboxInfrastructureError,
     SandboxWorkloadError,
+    sandbox_resource_limit_message,
 )
 from tracecat.sandbox.types import SandboxErrorCode
 from tracecat.storage.utils import is_retryable_storage_transport_error
@@ -34,15 +36,20 @@ from tracecat.temporal.errors import (
 from tracecat.temporal.exceptions import UserError
 
 
-def _chained_error_classification(
+def chained_error_classification(
     error: BaseException,
 ) -> RuntimeErrorClassification | None:
-    """Classify the first known executor or sandbox failure in the chain.
+    """Extract preserved metadata or classify a known failure before dropping its chain.
+
+    The returned message must be sanitized before attaching it to a new error.
+    Unknown failures return None so each boundary keeps its existing fallback.
 
     ``RegistryArtifactCacheLeaseContentionError`` subclasses
     ``RegistryArtifactCacheCapacityError``, so it must be matched first.
     """
     for cause in iter_error_chain(error):
+        if isinstance(cause, ExecutionError) and cause.classification is not None:
+            return cause.classification
         if isinstance(cause, EntitlementRequired):
             return RuntimeErrorClassification.user(
                 kind=RuntimeErrorKind.TENANT_ENTITLEMENT_DENIED,
@@ -79,6 +86,18 @@ def _chained_error_classification(
                 cause=cause,
             )
         if isinstance(cause, SandboxWorkloadError):
+            if cause.error_code is SandboxErrorCode.RESOURCE_LIMIT_EXCEEDED:
+                # A published cap the workload exceeded is the caller's to fix,
+                # and a second attempt hits the same cap deterministically.
+                return RuntimeErrorClassification.user(
+                    kind=RuntimeErrorKind.SANDBOX_RESOURCE_LIMIT_EXCEEDED,
+                    message=sandbox_resource_limit_message(
+                        memory_mb=config.TRACECAT__SANDBOX_DEFAULT_MEMORY_MB,
+                        memory_env_var="TRACECAT__SANDBOX_DEFAULT_MEMORY_MB",
+                    ),
+                    retry_disposition=RetryDisposition.NON_RETRYABLE,
+                    cause=cause,
+                )
             return RuntimeErrorClassification.user(
                 kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
                 message="The action sandbox workload stopped before producing a result",
@@ -96,7 +115,7 @@ def _execution_error_classification(
     error: ExecutionError,
 ) -> RuntimeErrorClassification:
     """Classify one executor invocation failure."""
-    return _chained_error_classification(error) or RuntimeErrorClassification.user(
+    return chained_error_classification(error) or RuntimeErrorClassification.user(
         kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
         message=str(error),
         retry_disposition=RetryDisposition.RETRYABLE,
@@ -192,7 +211,7 @@ def classify_execute_action_error(
         return _loop_error_classification(error)
     if isinstance(error, ApplicationError):
         return _application_error_classification(error)
-    return _chained_error_classification(error) or RuntimeErrorClassification.platform(
+    return chained_error_classification(error) or RuntimeErrorClassification.platform(
         kind=RuntimeErrorKind.RUNTIME_UNCLASSIFIED,
         message="Tracecat could not execute the action",
         retry_disposition=RetryDisposition.NON_RETRYABLE,

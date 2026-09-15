@@ -14,7 +14,7 @@ from asyncpg.exceptions import (
     UndefinedTableError,
 )
 from sqlalchemy import select
-from sqlalchemy.dialects.postgresql import JSONB, insert
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import DBAPIError, IntegrityError, NoResultFound, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
 from sqlalchemy.orm import selectinload
@@ -45,7 +45,12 @@ from tracecat.pagination import (
     PaginationError,
     paginate,
 )
+from tracecat.query.compiler import compile_aggregation, compile_filter
+from tracecat.query.execution import query_execution_context
 from tracecat.service import BaseWorkspaceService
+from tracecat.tables.common import (
+    INTERNAL_COLUMN_PREFIX as INTERNAL_COLUMN_PREFIX,
+)
 from tracecat.tables.common import (
     ColumnHasDuplicateValuesError,
     coerce_integer_value,
@@ -58,7 +63,20 @@ from tracecat.tables.common import (
     is_valid_sql_type,
     normalize_column_options,
     prepare_default_value,
+    sa_type_for_column,
     to_sql_clause,
+)
+from tracecat.tables.common import (
+    is_internal_column_name as is_internal_column_name,
+)
+from tracecat.tables.common import (
+    quote_identifier as quote_identifier,
+)
+from tracecat.tables.common import (
+    sanitize_identifier as sanitize_identifier,
+)
+from tracecat.tables.common import (
+    validate_identifier as validate_identifier,
 )
 from tracecat.tables.enums import SqlType
 from tracecat.tables.importer import (
@@ -66,7 +84,10 @@ from tracecat.tables.importer import (
     InferredCSVColumn,
     generate_table_name,
 )
+from tracecat.tables.query import TableFieldResolver
 from tracecat.tables.schemas import (
+    AggregateResponse,
+    TableAggregateRequest,
     TableColumnCreate,
     TableColumnUpdate,
     TableCreate,
@@ -86,7 +107,6 @@ DYNAMIC_WORKSPACE_RLS_POLICY = "rls_policy_dynamic_workspace"
 RLS_WORKSPACE_VAR = "app.current_workspace_id"
 RLS_BYPASS_VAR = "app.rls_bypass"
 RLS_BYPASS_ON = "on"
-INTERNAL_COLUMN_PREFIX = "__tc_"
 SYSTEM_VISIBLE_COLUMN_NAMES: tuple[str, ...] = ("id", "created_at", "updated_at")
 
 
@@ -279,25 +299,9 @@ class BaseTablesService(BaseWorkspaceService):
 
         return normalised
 
-    def _sa_type_for_column(self, sql_type: SqlType) -> sa.types.TypeEngine:
+    def _sa_type_for_column(self, sql_type: SqlType) -> sa.types.TypeEngine[Any]:
         """Map SqlType to SQLAlchemy column types for safe binding."""
-        match sql_type:
-            case SqlType.TEXT | SqlType.SELECT:
-                return sa.String()
-            case SqlType.INTEGER:
-                return sa.BigInteger()
-            case SqlType.NUMERIC:
-                return sa.Numeric()
-            case SqlType.DATE:
-                return sa.Date()
-            case SqlType.BOOLEAN:
-                return sa.Boolean()
-            case SqlType.TIMESTAMPTZ:
-                return sa.TIMESTAMP(timezone=True)
-            case SqlType.JSONB | SqlType.MULTI_SELECT:
-                return JSONB()
-            case _:
-                return sa.String()
+        return sa_type_for_column(sql_type)
 
     async def list_tables(self) -> Sequence[Table]:
         """List all lookup tables for a workspace.
@@ -1147,6 +1151,78 @@ class BaseTablesService(BaseWorkspaceService):
         result = await conn.execute(stmt)
         await self.session.flush()
         return result.rowcount
+
+    async def aggregate_rows(
+        self,
+        table_name: str,
+        request: TableAggregateRequest,
+    ) -> AggregateResponse:
+        """Filter and aggregate rows in a workspace-scoped table."""
+        table = await self.get_table_by_name(table_name)
+        schema_name = self._get_schema_name()
+        sanitized_table_name = self._sanitize_identifier(table.name)
+        physical_table = sa.table(sanitized_table_name, schema=schema_name)
+        resolver = TableFieldResolver(table.columns)
+
+        statement = sa.select(sa.literal(1)).select_from(physical_table)
+        if request.filters is not None:
+            statement = statement.where(compile_filter(request.filters, resolver))
+
+        requested_fields = {group.field for group in request.group_by}
+        requested_fields.update(
+            agg.field for agg in request.aggs if agg.field is not None
+        )
+        resolved_fields = {
+            field: resolved
+            for field in requested_fields
+            if (resolved := resolver.resolve_aggregation(field)) is not None
+        }
+        statement = compile_aggregation(
+            statement,
+            request,
+            resolved_fields,
+            limit=request.limit,
+            base_has_multi_valued_join=False,
+        )
+
+        txn_cm = (
+            self.session.begin_nested()
+            if self.session.in_transaction()
+            else self.session.begin()
+        )
+        async with txn_cm as txn:
+            conn = await txn.session.connection()
+            try:
+                async with query_execution_context(txn.session):
+                    result = await conn.execute(
+                        statement,
+                        execution_options={"isolation_level": "READ COMMITTED"},
+                    )
+                rows = [dict(row) for row in result.mappings().all()]
+            except _RETRYABLE_DB_EXCEPTIONS as exc:
+                self.logger.warning(
+                    "Retryable DB exception occurred during table aggregation",
+                    kind=type(exc).__name__,
+                    error=str(exc),
+                    table=table_name,
+                    schema=schema_name,
+                )
+                raise
+            except ProgrammingError as exc:
+                root: BaseException = exc
+                while root.__cause__ is not None:
+                    root = root.__cause__
+                if isinstance(root, UndefinedTableError):
+                    raise TracecatNotFoundError(
+                        f"Table '{table_name}' does not exist"
+                    ) from exc
+                raise
+
+        truncated = len(rows) > request.limit
+        return AggregateResponse(
+            groups=rows[: request.limit],
+            truncated=truncated,
+        )
 
     @retry(
         retry=retry_if_exception_type(_RETRYABLE_DB_EXCEPTIONS),
@@ -2328,42 +2404,3 @@ class TableEditorService(BaseWorkspaceService):
         stmt = sa.delete(table_clause).where(sa.column("id") == row_id)
         await conn.execute(stmt)
         await self.session.flush()
-
-
-def sanitize_identifier(identifier: str) -> str:
-    """Normalize a stored identifier to its physical SQL name."""
-    sanitized = "".join(c for c in identifier if c.isalnum() or c == "_")
-    if not sanitized:
-        raise ValueError("Identifier must contain at least one letter")
-    if not (sanitized[0].isalpha() or sanitized[0] == "_"):
-        raise ValueError("Identifier must start with a letter or underscore")
-    return sanitized.lower()
-
-
-def quote_identifier(identifier: str) -> str:
-    """Double-quote a SQL identifier for safe use in DDL statements.
-
-    Prevents syntax errors when identifier names collide with SQL reserved
-    keywords (e.g. ``select``, ``order``, ``group``).  Safe to use because
-    all callers pass values already restricted to ``[a-zA-Z0-9_]`` by
-    ``validate_identifier`` / ``sanitize_identifier``.
-    """
-    return f'"{identifier}"'
-
-
-def is_internal_column_name(column_name: str) -> bool:
-    """Check whether a column is internal/system-managed for dynamic schemas."""
-    return column_name.lower().startswith(INTERNAL_COLUMN_PREFIX)
-
-
-def validate_identifier(identifier: str) -> str:
-    """Validate an external identifier before using it in DDL operations."""
-    if not identifier:
-        raise ValueError("Identifier must contain at least one letter")
-    if not all(c.isalnum() or c == "_" for c in identifier):
-        raise ValueError(
-            "Identifier must contain only letters, numbers, and underscores"
-        )
-    if not (identifier[0].isalpha() or identifier[0] == "_"):
-        raise ValueError("Identifier must start with a letter or underscore")
-    return identifier.lower()

@@ -1,4 +1,4 @@
-"""Default tier configuration for self-hosted deployments - unlimited everything."""
+"""Default limits and entitlements for OSS/self-hosted deployments."""
 
 from __future__ import annotations
 
@@ -46,9 +46,12 @@ def resolve_oss_default_entitlements(
     Existing OSS deployments can preserve prior behavior by mapping enabled
     feature flags to their corresponding entitlement groups.
 
-    Workspace chat is open source, but agent presets are not: ``agent_addons``
-    stays off in both branches, which keeps preset management tools and ``@``
-    agent mentions behind the enterprise entitlement.
+    Agent presets, skills, and MCP catalog connectors are open source;
+    ``agent_addons`` only gates tool approvals, the agent inbox, and case agent
+    runs.
+
+    Multi-workspace is disabled on both paths. Existing workspaces remain
+    accessible; the entitlement only gates creation beyond the first workspace.
     """
     # Fresh install path.
     if not feature_flags_env:
@@ -60,6 +63,7 @@ def resolve_oss_default_entitlements(
             rbac_addons=False,
             service_accounts=False,
             workspace_chat=True,
+            multi_workspace=False,
             watchtower=False,
         )
 
@@ -93,6 +97,7 @@ def resolve_oss_default_entitlements(
         rbac_addons=rbac_enabled,
         service_accounts=False,
         workspace_chat=True,
+        multi_workspace=False,
         watchtower=False,
     )
 

@@ -36,6 +36,7 @@ from tracecat.agent.mcp.stdio_probe_types import (
     build_stdio_mcp_probe_workflow_id,
     sanitize_stdio_probe_error,
 )
+from tracecat.agent.mcp.utils import is_tracecat_registry_server_name
 from tracecat.agent.workflows.mcp_probe import StdioMCPProbeWorkflow
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.authz.controls import has_scope, require_scope
@@ -46,13 +47,17 @@ from tracecat.db.engine import (
 )
 from tracecat.db.models import (
     AgentPreset,
+    AgentPresetVersionSkill,
     AgentSession,
     MCPIntegration,
     OAuthIntegration,
     OAuthStateDB,
+    Skill,
+    SkillVersionMcpTool,
     WorkspaceOAuthProvider,
 )
 from tracecat.dsl.client import get_temporal_client
+from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers import UserID
 from tracecat.integrations.catalog.loader import (
     get_platform_mcp_catalog_entries,
@@ -779,12 +784,25 @@ class IntegrationService(BaseWorkspaceService):
         Rows pin endpoints precisely when the MCP server does not advertise
         usable RFC 8414 metadata, so discovery would fail. DCR is unavailable
         on this path; such rows supply OAuth client credentials.
+
+        Pinned endpoints belong to the vendor deployment at the row's own
+        ``server_uri``. A row that also lets the user supply the URI (a
+        self-hosted or regional deployment) falls back to discovery from the
+        user's host as soon as that URI differs from the row's default.
+        Templated row URIs carry no default and keep their pins.
         """
         if not isinstance(catalog_spec, MCPHTTPOAuth2ConnectionSpec):
             return None
         authorization_endpoint = catalog_spec.oauth_authorization_endpoint
         token_endpoint = catalog_spec.oauth_token_endpoint
         if not authorization_endpoint or not token_endpoint:
+            return None
+        default_uri = catalog_spec.server_uri
+        if (
+            default_uri
+            and not _CATALOG_PLACEHOLDER_RE.search(default_uri)
+            and server_uri != default_uri
+        ):
             return None
         return MCPOAuthDiscoveryEndpoints(
             authorization_endpoint=cls._validate_mcp_oauth_endpoint(
@@ -2659,14 +2677,6 @@ class IntegrationService(BaseWorkspaceService):
             mcp_integration = existing_mcp.scalars().first()
 
         if mcp_integration is None:
-            if not await self.has_entitlement(Entitlement.AGENT_ADDONS):
-                self.logger.info(
-                    "Skipped MCP provider auto-create due to missing entitlement",
-                    provider=provider_key.id,
-                    workspace_id=self.workspace_id,
-                )
-                return
-
             # Create new MCP integration
             metadata = mcp_provider_impl.metadata
 
@@ -2751,6 +2761,9 @@ class IntegrationService(BaseWorkspaceService):
             }
             if slug in catalog_slugs:
                 slug = f"{slug}-custom"
+
+        if is_tracecat_registry_server_name(slug):
+            slug = f"user-{slug}"
 
         # Truncate to max length, leaving room for suffix if needed
         max_base_length = MAX_SERVER_NAME_LENGTH - 4  # Reserve space for "-999"
@@ -3039,7 +3052,6 @@ class IntegrationService(BaseWorkspaceService):
             self._validate_catalog_url_credentials(
                 params=params, spec=resolved_catalog.spec
             )
-            await self.require_entitlement(Entitlement.AGENT_ADDONS)
         catalog_row = resolved_catalog.entry if resolved_catalog else None
         slug = await self._generate_mcp_integration_slug(
             name=params.name,
@@ -3239,11 +3251,6 @@ class IntegrationService(BaseWorkspaceService):
                     mcp_integration=existing
                 ):
                     return PlatformMCPCatalogConnectResult(mcp_integration=existing)
-                # Re-establishing auth on an existing (e.g. migrated) catalog row
-                # is a reconnect, gated the same as a fresh catalog connect.
-                # Unentitled workspaces keep connected rows and may disconnect,
-                # but must reconnect as a custom MCP server.
-                await self.require_entitlement(Entitlement.AGENT_ADDONS)
                 if custom_connect := await self._start_existing_custom_mcp_oauth(
                     mcp_integration=existing
                 ):
@@ -3268,8 +3275,6 @@ class IntegrationService(BaseWorkspaceService):
                 ):
                     return provider_connect
             return PlatformMCPCatalogConnectResult(mcp_integration=existing)
-
-        await self.require_entitlement(Entitlement.AGENT_ADDONS)
 
         if (
             connection is not None
@@ -4287,6 +4292,11 @@ class IntegrationService(BaseWorkspaceService):
             raise MCPConfigurationError(
                 "Only HTTP MCP servers can be resolved into an HTTP config"
             )
+        if is_tracecat_registry_server_name(mcp_integration.slug):
+            raise MCPConfigurationError(
+                "MCP integration slug conflicts with the built-in registry. "
+                "Recreate the integration to assign a safe slug."
+            )
         if not mcp_integration.server_uri:
             raise MCPConfigurationError("HTTP MCP integration has no server URI")
 
@@ -4346,7 +4356,8 @@ class IntegrationService(BaseWorkspaceService):
 
         server_config: MCPHttpServerConfig = {
             "type": "http",
-            "name": mcp_integration.name,
+            # Display names need not be unique; route by the workspace-unique slug.
+            "name": mcp_integration.slug,
             "url": mcp_integration.server_uri,
             "headers": headers,
             "id": str(mcp_integration.id),
@@ -4819,6 +4830,67 @@ class IntegrationService(BaseWorkspaceService):
         """
         mcp_integration_id = mcp_integration.id
         id_str = str(mcp_integration_id)
+
+        # Projection inserts acquire a foreign-key key-share lock. Wait for
+        # those publications before checking references, and prevent new ones
+        # from appearing between the check and deletion.
+        locked_id = await self.session.scalar(
+            select(MCPIntegration.id)
+            .where(
+                MCPIntegration.id == mcp_integration_id,
+                MCPIntegration.workspace_id == self.workspace_id,
+            )
+            .with_for_update()
+        )
+        if locked_id is None:
+            return False
+
+        current_skill_versions = select(Skill.current_version_id).where(
+            Skill.workspace_id == self.workspace_id,
+            Skill.deleted_at.is_(None),
+            Skill.archived_at.is_(None),
+            Skill.current_version_id.is_not(None),
+        )
+        live_preset_skill_versions = (
+            select(AgentPresetVersionSkill.skill_version_id)
+            .join(
+                AgentPreset,
+                AgentPreset.current_version_id
+                == AgentPresetVersionSkill.preset_version_id,
+            )
+            .where(
+                AgentPresetVersionSkill.workspace_id == self.workspace_id,
+                AgentPreset.workspace_id == self.workspace_id,
+                AgentPreset.deleted_at.is_(None),
+            )
+        )
+        referenced_tool_id = (
+            await self.session.execute(
+                select(SkillVersionMcpTool.tool_id)
+                .where(
+                    SkillVersionMcpTool.workspace_id == self.workspace_id,
+                    SkillVersionMcpTool.mcp_integration_id == mcp_integration_id,
+                    or_(
+                        SkillVersionMcpTool.skill_version_id.in_(
+                            current_skill_versions
+                        ),
+                        SkillVersionMcpTool.skill_version_id.in_(
+                            live_preset_skill_versions
+                        ),
+                    ),
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if referenced_tool_id is not None:
+            raise TracecatValidationError(
+                "Cannot delete an MCP integration referenced by a live skill version",
+                detail={
+                    "code": "mcp_integration_referenced_by_skill",
+                    "mcp_integration_id": str(mcp_integration_id),
+                    "tool_id": referenced_tool_id,
+                },
+            )
 
         try:
             pruned_preset_ids = (

@@ -50,6 +50,24 @@ export function isRequestValidationErrorArray(
   return Array.isArray(obj) && obj.every((o) => isRequestValidationError(o))
 }
 
+function getValidationMessage(error: unknown): string | null {
+  if (typeof error !== "object" || error === null) {
+    return null
+  }
+  if ("message" in error && typeof error.message === "string") {
+    if (!error.message.trim()) {
+      return null
+    }
+    const path = "path" in error && typeof error.path === "string" && error.path
+    return path ? `${path}: ${error.message}` : error.message
+  }
+  if ("msg" in error && typeof error.msg === "string" && error.msg.trim()) {
+    return error.msg
+  }
+  return null
+}
+
+/** Extract readable API messages, including structured validation errors. */
 export function getApiErrorDetail(error: unknown): string | null {
   if (!(error instanceof Error)) {
     return null
@@ -59,6 +77,19 @@ export function getApiErrorDetail(error: unknown): string | null {
   const detail = maybeApiError.body?.detail
   if (typeof detail === "string") {
     return detail
+  }
+  if (typeof detail === "object" && detail !== null) {
+    const errors = "errors" in detail ? detail.errors : detail
+    if (Array.isArray(errors)) {
+      const messages = errors.map(getValidationMessage).filter(Boolean)
+      if (messages.length > 0) {
+        return messages.join("\n")
+      }
+    }
+    const message = getValidationMessage(detail)
+    if (message) {
+      return message
+    }
   }
   if (detail != null) {
     try {

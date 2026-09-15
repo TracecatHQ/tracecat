@@ -1,0 +1,370 @@
+import {
+  isMap,
+  isNode,
+  isSeq,
+  type Node,
+  parseDocument,
+  visit,
+  type YAMLMap,
+} from "yaml"
+import type { MCPIntegrationRead, RegistryActionReadMinimal } from "@/client"
+import { isAgentToolSelectable } from "@/lib/agent-tools"
+
+/** Maximum number of tool declarations accepted by skill frontmatter. */
+export const MAX_SKILL_TOOLS = 64
+
+// Keep in sync with ToolId in tracecat/agent/skill/frontmatter.py.
+const MCP_TOOL_ID_RE = /^mcp\.[a-z0-9_-]+(?:\.[A-Za-z0-9_-]+)?$/
+const REGISTRY_TOOL_ID_RE = /^[a-z0-9_]+(?:\.[a-z0-9_]+)+$/
+// Keep in sync with MCP_TOOL_NAME_RE in tracecat/agent/mcp/utils.py.
+const MCP_TOOL_NAME_RE = /^[A-Za-z0-9_-]{1,64}$/
+
+function isCanonicalToolId(value: string): boolean {
+  const pattern = value.startsWith("mcp.")
+    ? MCP_TOOL_ID_RE
+    : REGISTRY_TOOL_ID_RE
+  return (
+    value.length >= 3 &&
+    value.length <= 255 &&
+    pattern.exec(value)?.[0] === value
+  )
+}
+
+/** Tool option shown in the Skills Studio frontmatter picker. */
+export interface SkillToolOption {
+  value: string
+  label: string
+  description?: string
+  group: string
+  kind: "registry" | "mcp-integration" | "mcp-tool"
+  tagLabel?: string
+  tagGroup?: string
+}
+
+/** Parsed `metadata.tools` state from raw skill frontmatter YAML. */
+export type SkillFrontmatterToolsState =
+  | { valid: true; tools: string[] }
+  | { valid: false; message: string; tools: string[]; canRemove?: boolean }
+
+/**
+ * Read tool declarations without changing the user's raw frontmatter YAML.
+ */
+export function readSkillFrontmatterTools(
+  frontmatter: string,
+  mcpIntegrations?: MCPIntegrationRead[],
+  registryActions?: RegistryActionReadMinimal[]
+): SkillFrontmatterToolsState {
+  const document = parseDocument(frontmatter, { keepSourceTokens: true })
+  if (document.errors.length > 0 || !isMap(document.contents)) {
+    return invalidToolsState("Fix the frontmatter YAML to edit tools here.")
+  }
+
+  const metadata = document.get("metadata", true)
+  if (document.contents.has("<<") || (isMap(metadata) && metadata.has("<<"))) {
+    return invalidToolsState(
+      "Edit tools in the YAML editor when metadata uses merge keys."
+    )
+  }
+  if (metadata === undefined || metadata === null) {
+    return { valid: true, tools: [] }
+  }
+  if (!isMap(metadata)) {
+    return invalidToolsState("metadata must be a YAML mapping.")
+  }
+
+  const tools = metadata.get("tools", true)
+  const editedNodes = new Set<Node>([metadata])
+  if (isNode(tools)) {
+    visit(tools, (_, node) => {
+      if (isNode(node)) editedNodes.add(node)
+    })
+  }
+  let hasReferencedValue = false
+  visit(document, {
+    Alias(_, alias) {
+      const target = alias.resolve(document)
+      if (target && editedNodes.has(target)) {
+        hasReferencedValue = true
+        return visit.BREAK
+      }
+    },
+  })
+  if (hasReferencedValue) {
+    return invalidToolsState(
+      "Edit tools in the YAML editor when other values reference metadata or its tools."
+    )
+  }
+  if (tools === undefined || tools === null) {
+    return { valid: true, tools: [] }
+  }
+  if (!isSeq(tools)) {
+    return invalidToolsState("metadata.tools must be a YAML list.")
+  }
+
+  const values = tools.toJSON()
+  if (
+    !Array.isArray(values) ||
+    values.some((value) => typeof value !== "string")
+  ) {
+    return invalidToolsState("metadata.tools must contain only tool IDs.")
+  }
+
+  if (values.some((value) => value.trim().length === 0)) {
+    return invalidToolsState("metadata.tools must not contain blank tool IDs.")
+  }
+  if (values.length > MAX_SKILL_TOOLS) {
+    return invalidToolsState(
+      `metadata.tools supports at most ${MAX_SKILL_TOOLS} tool IDs.`
+    )
+  }
+
+  const normalized = Array.from(
+    new Set<string>(values.map((value) => value.trim()))
+  )
+  const stdioSlugs = new Set(
+    (mcpIntegrations ?? [])
+      .filter((integration) => integration.server_type === "stdio")
+      .map((integration) => integration.slug)
+  )
+  const invalid = normalized.filter((value) => {
+    const [namespace, slug, tool] = value.split(".")
+    return (
+      !isCanonicalToolId(value) ||
+      (namespace === "mcp" && tool !== undefined && stdioSlugs.has(slug))
+    )
+  })
+  if (invalid.length > 0) {
+    return {
+      valid: false,
+      message: `Invalid tool IDs: ${invalid.join(", ")}. Remove them or fix them in the YAML editor.`,
+      tools: normalized,
+      canRemove: true,
+    }
+  }
+  // An absent catalog means availability is unknown, not that it is empty.
+  const registryIds = registryActions
+    ? new Set(registryActions.map((action) => action.action))
+    : undefined
+  const integrationsBySlug = mcpIntegrations
+    ? new Map(
+        mcpIntegrations.map((integration) => [integration.slug, integration])
+      )
+    : undefined
+  const unavailable = normalized.filter((value) => {
+    if (!value.startsWith("mcp.")) {
+      return registryIds !== undefined && !registryIds.has(value)
+    }
+    if (!integrationsBySlug) return false
+    const [, slug, toolName] = value.split(".")
+    const integration = integrationsBySlug.get(slug)
+    if (!integration) return true
+    if (toolName === undefined) return false
+    return !integration.tools?.some(
+      (tool) =>
+        tool.name === toolName &&
+        tool.enabled !== false &&
+        tool.status === "available"
+    )
+  })
+  if (unavailable.length > 0) {
+    return {
+      valid: false,
+      message: `Unavailable tool IDs: ${unavailable.join(", ")}. Remove them or restore their availability before adding tools.`,
+      tools: normalized,
+      canRemove: true,
+    }
+  }
+  return { valid: true, tools: normalized }
+}
+
+/**
+ * Replace only `metadata.tools` while preserving unrelated YAML source.
+ */
+export function updateSkillFrontmatterTools(
+  frontmatter: string,
+  tools: string[]
+): string {
+  const state = readSkillFrontmatterTools(frontmatter)
+  if (
+    !state.valid &&
+    !(
+      state.canRemove &&
+      tools.length < state.tools.length &&
+      tools.every((tool) => state.tools.includes(tool))
+    )
+  ) {
+    throw new Error(state.message)
+  }
+
+  const normalized = Array.from(
+    new Set(tools.map((tool) => tool.trim()).filter(Boolean))
+  )
+  if (normalized.length > MAX_SKILL_TOOLS) {
+    throw new Error(`Skills support at most ${MAX_SKILL_TOOLS} tools.`)
+  }
+
+  if (state.valid && normalized.some((tool) => !isCanonicalToolId(tool))) {
+    throw new Error("Tools must use canonical registry or MCP IDs.")
+  }
+
+  const document = parseDocument(frontmatter, { keepSourceTokens: true })
+  const existing = document.getIn(["metadata", "tools"], true)
+  const metadata = document.get("metadata", true)
+  const serialized = JSON.stringify(normalized)
+  const newline = frontmatter.includes("\r\n") ? "\r\n" : "\n"
+  const rootIsFlow = isMap(document.contents) && document.contents.flow
+
+  // Expand the tools-only flow mapping created by earlier picker edits.
+  // Leave user-authored flow mappings with other fields or comments intact.
+  if (
+    !rootIsFlow &&
+    isMap(metadata) &&
+    metadata.flow &&
+    metadata.items.length === 1 &&
+    isSeq(existing) &&
+    metadata.range &&
+    !frontmatter.slice(metadata.range[0], metadata.range[1]).includes("#")
+  ) {
+    const [start, end] = metadata.range
+    const indent = isMap(document.contents)
+      ? `${mappingIndent(document.contents)}  `
+      : "  "
+    const anchor = existing.anchor ? `&${existing.anchor} ` : ""
+    return (
+      frontmatter.slice(0, start).replace(/[ \t]+$/, "") +
+      newline +
+      indent +
+      `tools: ${anchor}${serialized}` +
+      frontmatter.slice(end)
+    )
+  }
+  if (isSeq(existing) && existing.range) {
+    // Node ranges exclude the sequence's anchor. Keep it and all source
+    // outside the tools value verbatim, including YAML 1.1 scalar spellings.
+    const [start, end] = existing.range
+    const suffix = frontmatter.slice(start, end).endsWith("\n") ? newline : ""
+    return (
+      frontmatter.slice(0, start) + serialized + suffix + frontmatter.slice(end)
+    )
+  }
+
+  if (isMap(metadata)) {
+    return insertMappingEntry(
+      frontmatter,
+      metadata,
+      `tools: ${serialized}`,
+      newline
+    )
+  }
+  if (isMap(document.contents)) {
+    return insertMappingEntry(
+      frontmatter,
+      document.contents,
+      rootIsFlow
+        ? `metadata: { tools: ${serialized} }`
+        : `metadata:${newline}${mappingIndent(document.contents)}  tools: ${serialized}`,
+      newline
+    )
+  }
+  throw new Error("Frontmatter must be a YAML mapping.")
+}
+
+function mappingIndent(mapping: YAMLMap): string {
+  const token = mapping.srcToken
+  return " ".repeat(token && "indent" in token ? token.indent : 0)
+}
+
+/** Insert a new key without serializing any existing YAML nodes. */
+function insertMappingEntry(
+  source: string,
+  mapping: YAMLMap,
+  entry: string,
+  newline: string
+): string {
+  if (!mapping.range) {
+    throw new Error("Cannot locate the YAML mapping in the source.")
+  }
+  const start = mapping.range[0]
+  if (mapping.flow) {
+    const separator = mapping.items.length > 0 ? ", " : ""
+    return (
+      source.slice(0, start + 1) + entry + separator + source.slice(start + 1)
+    )
+  }
+  const indent = mappingIndent(mapping)
+  return source.slice(0, start) + entry + newline + indent + source.slice(start)
+}
+
+/**
+ * Build canonical registry and MCP tool options for the frontmatter picker.
+ */
+export function buildSkillToolOptions(
+  registryActions: RegistryActionReadMinimal[],
+  mcpIntegrations: MCPIntegrationRead[]
+): SkillToolOption[] {
+  const registryOptions = registryActions
+    .filter((action) => isAgentToolSelectable(action.action))
+    .map<SkillToolOption>((action) => ({
+      value: action.action,
+      label: action.default_title || action.action,
+      description: action.description,
+      group: action.display_group || action.namespace,
+      kind: "registry",
+      tagLabel: action.default_title || action.name,
+      tagGroup: action.display_group || action.namespace,
+    }))
+
+  const nameCounts = new Map<string, number>()
+  for (const integration of mcpIntegrations) {
+    nameCounts.set(
+      integration.name,
+      (nameCounts.get(integration.name) ?? 0) + 1
+    )
+  }
+  const mcpOptions = mcpIntegrations.flatMap<SkillToolOption>((integration) => {
+    const integrationLabel =
+      (nameCounts.get(integration.name) ?? 0) > 1
+        ? `${integration.name} (${integration.slug})`
+        : integration.name
+    const integrationOption: SkillToolOption = {
+      value: `mcp.${integration.slug}`,
+      label: "All tools",
+      description:
+        integration.description || `Allow every tool from ${integration.name}.`,
+      group: integrationLabel,
+      kind: "mcp-integration",
+      tagLabel: "All tools",
+      tagGroup: integrationLabel,
+    }
+    if (integration.server_type === "stdio") {
+      return [integrationOption]
+    }
+    const toolOptions = (integration.tools ?? [])
+      .filter(
+        (tool) =>
+          tool.enabled !== false &&
+          tool.status !== "missing" &&
+          MCP_TOOL_NAME_RE.exec(tool.name)?.[0] === tool.name &&
+          isCanonicalToolId(`mcp.${integration.slug}.${tool.name}`)
+      )
+      .map<SkillToolOption>((tool) => ({
+        value: `mcp.${integration.slug}.${tool.name}`,
+        label: tool.name,
+        description: tool.description || undefined,
+        group: integrationLabel,
+        kind: "mcp-tool",
+        tagLabel: tool.name,
+        tagGroup: integrationLabel,
+      }))
+
+    return [integrationOption, ...toolOptions]
+  })
+
+  return [...registryOptions, ...mcpOptions].sort((left, right) =>
+    left.value.localeCompare(right.value)
+  )
+}
+
+function invalidToolsState(message: string): SkillFrontmatterToolsState {
+  return { valid: false, message, tools: [] }
+}

@@ -123,6 +123,7 @@ Notes:
 - `create_table(workspace_id, name, columns_json=None)`
 - `get_table(workspace_id, table_id)`
 - `update_table(workspace_id, table_id, name=None)`
+- `create_column(workspace_id, table_id, column)`
 - `insert_table_row(workspace_id, table_id, row_json, upsert=False)`
 - `insert_rows(workspace_id, table_id, rows_json, upsert=False)`
 - `update_table_row(workspace_id, table_id, row_id, row_json)`

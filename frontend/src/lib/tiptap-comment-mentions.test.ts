@@ -1,0 +1,508 @@
+import { Schema } from "@tiptap/pm/model"
+import { EditorState } from "@tiptap/pm/state"
+import {
+  AGENT_MENTION_URI_SCHEME,
+  buildAgentMentionHref,
+  buildWorkflowMentionHref,
+  commentMentionLeafText,
+  expandCommentMentionDeletionRange,
+  findCommentMentionLinkRanges,
+  findEditedCommentMentionIndexes,
+  isCommentMentionHref,
+  nodeAllowsCommentMention,
+  preventCommentMentionNavigation,
+  serializeTiptapComment,
+} from "@/lib/tiptap-comment-mentions"
+
+describe("TipTap comment mention serialization", () => {
+  const workflowId = "11111111-1111-4111-8111-111111111111"
+  function mentionRange(
+    mention: { href: string; text: string; formatting: string },
+    from = 1
+  ) {
+    return { ...mention, from, to: from + mention.text.length }
+  }
+
+  function workflowMention(text: string) {
+    return [{ href: buildWorkflowMentionHref(workflowId), text }]
+  }
+
+  it("keeps the existing agent mention wire format intact", () => {
+    const agentId = "22222222-2222-4222-8222-222222222222"
+    const markdown = `Ask [@Response agent](${buildAgentMentionHref(agentId)}) for help`
+
+    expect(serializeTiptapComment(markdown, [])).toEqual({
+      content: markdown,
+      workflowId: null,
+    })
+    expect(buildAgentMentionHref(agentId)).toBe(
+      `${AGENT_MENTION_URI_SCHEME}${agentId}`
+    )
+  })
+
+  it("removes a workflow marker and returns its request id", () => {
+    expect(
+      serializeTiptapComment(
+        `[/Enrich case](${buildWorkflowMentionHref(workflowId)}) investigate this`,
+        workflowMention("/Enrich case")
+      )
+    ).toEqual({
+      content: "investigate this",
+      workflowId,
+    })
+  })
+
+  it("allows a bare workflow command to produce an empty body", () => {
+    expect(
+      serializeTiptapComment(
+        `[/Enrich case](${buildWorkflowMentionHref(workflowId)})`,
+        workflowMention("/Enrich case")
+      )
+    ).toEqual({ content: "", workflowId })
+  })
+
+  it.each([
+    ["bullet item", "- %s"],
+    ["task item", "- [ ] %s"],
+    ["block quote", "> %s"],
+    ["heading", "### %s"],
+    ["strong text", "**%s**"],
+  ])("removes an empty %s around a workflow marker", (_label, template) => {
+    const marker = `[/Enrich case](${buildWorkflowMentionHref(workflowId)})`
+
+    expect(
+      serializeTiptapComment(
+        template.replace("%s", marker),
+        workflowMention("/Enrich case")
+      )
+    ).toEqual({
+      content: "",
+      workflowId,
+    })
+  })
+
+  it("preserves a rich-text container when it has other content", () => {
+    const marker = `[/Enrich case](${buildWorkflowMentionHref(workflowId)})`
+
+    expect(
+      serializeTiptapComment(
+        `- ${marker} investigate this`,
+        workflowMention("/Enrich case")
+      )
+    ).toEqual({ content: "- investigate this", workflowId })
+  })
+
+  it("handles escaped closing brackets in workflow labels", () => {
+    expect(
+      serializeTiptapComment(
+        `Before [/Enrich \\] case](${buildWorkflowMentionHref(workflowId)}) after`,
+        workflowMention("/Enrich \\] case")
+      )
+    ).toEqual({ content: "Before after", workflowId })
+  })
+
+  it("handles raw closing brackets in TipTap workflow labels", () => {
+    expect(
+      serializeTiptapComment(
+        `Before [/Review ] alert](${buildWorkflowMentionHref(workflowId)}) after`,
+        workflowMention("/Review ] alert")
+      )
+    ).toEqual({ content: "Before after", workflowId })
+  })
+
+  it("does not consume an earlier bracketed slash literal", () => {
+    expect(
+      serializeTiptapComment(
+        `Keep [/literal] before [/Review ] alert](${buildWorkflowMentionHref(workflowId)}) after`,
+        workflowMention("/Review ] alert")
+      )
+    ).toEqual({ content: "Keep [/literal] before after", workflowId })
+  })
+
+  it("does not consume an identical marker inside a fenced code block", () => {
+    const marker = `[/Enrich case](${buildWorkflowMentionHref(workflowId)})`
+    const markdown = `\`\`\`md\n${marker}\n\`\`\`\n${marker} investigate this`
+    const mention = workflowMention("/Enrich case")[0]
+
+    expect(
+      serializeTiptapComment(markdown, [
+        { ...mention, markdownOffset: markdown.lastIndexOf(marker) },
+      ])
+    ).toEqual({
+      content: `\`\`\`md\n${marker}\n\`\`\`\ninvestigate this`,
+      workflowId,
+    })
+  })
+
+  it("handles nested slash brackets in a workflow title", () => {
+    expect(
+      serializeTiptapComment(
+        `Before [/Review [/ alert](${buildWorkflowMentionHref(workflowId)}) after`,
+        workflowMention("/Review [/ alert")
+      )
+    ).toEqual({ content: "Before after", workflowId })
+  })
+
+  it("removes every pasted workflow marker and selects the first", () => {
+    const secondWorkflowId = "33333333-3333-4333-8333-333333333333"
+    const first = {
+      href: buildWorkflowMentionHref(workflowId),
+      text: "/Enrich case",
+    }
+    const second = {
+      href: buildWorkflowMentionHref(secondWorkflowId),
+      text: "/Review alert",
+    }
+    const markdown = `[${first.text}](${first.href}) investigate\n[${second.text}](${second.href})`
+
+    expect(serializeTiptapComment(markdown, [first, second])).toEqual({
+      content: "investigate",
+      workflowId,
+    })
+  })
+
+  it("does not change ordinary links or text containing slash commands", () => {
+    const markdown = "Run /Enrich or read [the docs](https://example.com)"
+    expect(serializeTiptapComment(markdown, [])).toEqual({
+      content: markdown,
+      workflowId: null,
+    })
+  })
+
+  it("recognizes only the two internal mention link schemes", () => {
+    expect(isCommentMentionHref(buildAgentMentionHref("agent-id"))).toBe(true)
+    expect(isCommentMentionHref(buildWorkflowMentionHref("workflow-id"))).toBe(
+      true
+    )
+    expect(isCommentMentionHref("https://example.com")).toBe(false)
+  })
+
+  it.each([
+    buildAgentMentionHref("agent-id"),
+    buildWorkflowMentionHref("workflow-id"),
+  ])("prevents native navigation for %s links", (href) => {
+    const anchor = document.createElement("a")
+    const label = document.createElement("span")
+    anchor.href = href
+    anchor.append(label)
+    const preventDefault = jest.fn()
+
+    expect(
+      preventCommentMentionNavigation({
+        target: label,
+        preventDefault,
+      } as unknown as MouseEvent)
+    ).toBe(true)
+    expect(preventDefault).toHaveBeenCalledTimes(1)
+  })
+
+  it("does not intercept ordinary links", () => {
+    const anchor = document.createElement("a")
+    anchor.href = "https://example.com"
+    const preventDefault = jest.fn()
+
+    expect(
+      preventCommentMentionNavigation({
+        target: anchor,
+        preventDefault,
+      } as unknown as MouseEvent)
+    ).toBe(false)
+    expect(preventDefault).not.toHaveBeenCalled()
+  })
+
+  it("treats a hard break as whitespace when scanning for mentions", () => {
+    const schema = new Schema({
+      nodes: {
+        doc: { content: "block+" },
+        paragraph: { content: "inline*", group: "block" },
+        text: { group: "inline" },
+        hardBreak: { inline: true, group: "inline" },
+      },
+    })
+    const paragraph = schema.node("paragraph", null, [
+      schema.text("First line"),
+      schema.node("hardBreak"),
+      schema.text("@triage"),
+    ])
+
+    expect(
+      paragraph.textBetween(
+        0,
+        paragraph.content.size,
+        "\n",
+        commentMentionLeafText
+      )
+    ).toBe("First line\n@triage")
+  })
+
+  it("recognizes text blocks that can carry mention links", () => {
+    const schema = new Schema({
+      nodes: {
+        doc: { content: "block+" },
+        paragraph: { content: "inline*", group: "block" },
+        codeBlock: {
+          content: "text*",
+          group: "block",
+          marks: "",
+          code: true,
+        },
+        text: { group: "inline" },
+      },
+      marks: { link: { attrs: { href: {} } } },
+    })
+
+    expect(
+      nodeAllowsCommentMention(schema.node("paragraph"), schema.marks.link)
+    ).toBe(true)
+    expect(
+      nodeAllowsCommentMention(schema.node("codeBlock"), schema.marks.link)
+    ).toBe(false)
+  })
+
+  it("marks mention links that carry additional formatting", () => {
+    const schema = new Schema({
+      nodes: {
+        doc: { content: "block+" },
+        paragraph: { content: "inline*", group: "block" },
+        text: { group: "inline" },
+      },
+      marks: {
+        link: { attrs: { href: {} } },
+        strong: {},
+      },
+    })
+    const href = buildAgentMentionHref("agent-id")
+    const paragraph = schema.node("paragraph", null, [
+      schema.text("@Triage agent", [
+        schema.mark("link", { href }),
+        schema.mark("strong"),
+      ]),
+    ])
+    const doc = schema.node("doc", null, [paragraph])
+
+    expect(findCommentMentionLinkRanges(doc)).toEqual([
+      {
+        from: 1,
+        to: 14,
+        href,
+        text: "@Triage agent",
+        formatting: '13:[{"type":"strong"}]',
+      },
+    ])
+  })
+
+  it("expands a sole workflow mention deletion to its list item", () => {
+    const schema = new Schema({
+      nodes: {
+        doc: { content: "block+" },
+        paragraph: { group: "block", content: "inline*" },
+        bulletList: { group: "block", content: "listItem+" },
+        listItem: { content: "paragraph block*" },
+        text: { group: "inline" },
+      },
+      marks: { link: { attrs: { href: {} } } },
+    })
+    const href = buildWorkflowMentionHref("workflow-id")
+    const link = schema.mark("link", { href })
+    const doc = schema.node("doc", null, [
+      schema.node("bulletList", null, [
+        schema.node("listItem", null, [
+          schema.node("paragraph", null, [schema.text("Keep this item")]),
+        ]),
+        schema.node("listItem", null, [
+          schema.node("paragraph", null, [schema.text("/Replace me", [link])]),
+        ]),
+      ]),
+    ])
+    const mention = findCommentMentionLinkRanges(doc)[0]
+    if (!mention) {
+      throw new Error("Expected the workflow mention range")
+    }
+    const deletion = expandCommentMentionDeletionRange(doc, mention)
+    const nextDoc = EditorState.create({ doc }).tr.delete(
+      deletion.from,
+      deletion.to
+    ).doc
+
+    expect(nextDoc.textContent).toBe("Keep this item")
+    expect(nextDoc.firstChild?.childCount).toBe(1)
+  })
+
+  it("detects a selected mention whose visible label was edited", () => {
+    expect(
+      findEditedCommentMentionIndexes(
+        [
+          mentionRange({
+            href: buildAgentMentionHref("agent-id"),
+            text: "@Triage agent",
+            formatting: "",
+          }),
+        ],
+        [
+          mentionRange({
+            href: buildAgentMentionHref("agent-id"),
+            text: "@Triage agnt",
+            formatting: "",
+          }),
+        ]
+      )
+    ).toEqual([0])
+  })
+
+  it("detects a mention with an additional formatting mark", () => {
+    const mention = {
+      href: buildAgentMentionHref("agent-id"),
+      text: "@Triage agent",
+    }
+
+    expect(
+      findEditedCommentMentionIndexes(
+        [mentionRange({ ...mention, formatting: "" })],
+        [mentionRange({ ...mention, formatting: "bold" })]
+      )
+    ).toEqual([0])
+  })
+
+  it("preserves an already-formatted mention after an unrelated edit", () => {
+    const mention = {
+      href: buildAgentMentionHref("agent-id"),
+      text: "@Triage agent",
+      formatting: "bold",
+    }
+
+    expect(
+      findEditedCommentMentionIndexes(
+        [mentionRange(mention)],
+        [mentionRange(mention)]
+      )
+    ).toEqual([])
+  })
+
+  it("detects every range when a line break splits a mention link", () => {
+    const href = buildAgentMentionHref("agent-id")
+
+    expect(
+      findEditedCommentMentionIndexes(
+        [mentionRange({ href, text: "@Triage agent", formatting: "" }, 1)],
+        [
+          mentionRange({ href, text: "@Triage", formatting: "" }, 1),
+          mentionRange({ href, text: " agent", formatting: "" }, 9),
+        ]
+      )
+    ).toEqual([0, 1])
+  })
+
+  it("does not treat an additional intact mention as a split", () => {
+    const mention = {
+      href: buildAgentMentionHref("agent-id"),
+      text: "@Triage agent",
+      formatting: "",
+    }
+
+    expect(
+      findEditedCommentMentionIndexes(
+        [mentionRange(mention, 1)],
+        [mentionRange(mention, 1), mentionRange(mention, 14)]
+      )
+    ).toEqual([])
+  })
+
+  it("matches an edited mention after a different mention is removed", () => {
+    const agentMention = {
+      href: buildAgentMentionHref("agent-id"),
+      text: "@Triage agent",
+      formatting: "",
+    }
+    const workflowMention = {
+      href: buildWorkflowMentionHref("workflow-id"),
+      text: "/Enrich case",
+      formatting: "",
+    }
+
+    expect(
+      findEditedCommentMentionIndexes(
+        [mentionRange(agentMention, 1), mentionRange(workflowMention, 20)],
+        [mentionRange({ ...workflowMention, text: "/Enrich" }, 1)],
+        (position) => (position >= 20 ? position - 19 : position)
+      )
+    ).toEqual([0])
+  })
+
+  it("preserves a duplicate target with an unchanged historical label", () => {
+    const href = buildAgentMentionHref("agent-id")
+    const currentMention = {
+      href,
+      text: "@Current agent name",
+      formatting: "",
+    }
+
+    expect(
+      findEditedCommentMentionIndexes(
+        [
+          mentionRange(
+            { href, text: "@Historical agent name", formatting: "" },
+            1
+          ),
+          mentionRange(currentMention, 30),
+        ],
+        [mentionRange(currentMention, 1)],
+        (position) => (position < 30 ? 1 : position - 29)
+      )
+    ).toEqual([])
+  })
+
+  it("keeps duplicate targets paired to their document positions", () => {
+    const href = buildAgentMentionHref("agent-id")
+    const currentMention = {
+      href,
+      text: "@Current agent name",
+      formatting: "",
+    }
+
+    expect(
+      findEditedCommentMentionIndexes(
+        [
+          mentionRange(
+            { href, text: "@Historical agent name", formatting: "" },
+            1
+          ),
+          mentionRange(currentMention, 30),
+        ],
+        [mentionRange(currentMention, 1), mentionRange(currentMention, 30)]
+      )
+    ).toEqual([0])
+  })
+
+  it("does not treat inserted or replaced mentions as label edits", () => {
+    expect(
+      findEditedCommentMentionIndexes(
+        [],
+        [
+          mentionRange({
+            href: buildAgentMentionHref("agent-id"),
+            text: "@Triage agent",
+            formatting: "",
+          }),
+        ]
+      )
+    ).toEqual([])
+    expect(
+      findEditedCommentMentionIndexes(
+        [
+          mentionRange({
+            href: buildAgentMentionHref("old-agent"),
+            text: "@Old agent",
+            formatting: "",
+          }),
+        ],
+        [
+          mentionRange({
+            href: buildAgentMentionHref("new-agent"),
+            text: "@New agent",
+            formatting: "",
+          }),
+        ]
+      )
+    ).toEqual([])
+  })
+})

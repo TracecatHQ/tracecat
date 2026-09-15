@@ -47,6 +47,13 @@ class EntitlementsDict(TypedDict, total=False):
         bool,
         Field(description="Whether Workspace Chat is enabled"),
     ]
+    multi_workspace: Annotated[
+        bool,
+        Field(
+            title="Multi-workspace",
+            description="Whether multiple workspaces per organization are enabled",
+        ),
+    ]
     watchtower: Annotated[
         bool,
         Field(

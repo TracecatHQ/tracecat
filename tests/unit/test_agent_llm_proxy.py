@@ -1,22 +1,28 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+import uuid
+from collections.abc import AsyncIterator, Iterator
 from dataclasses import replace
 from pathlib import Path
-from typing import cast
+from tempfile import TemporaryDirectory
+from typing import Literal, cast
+from unittest.mock import Mock
 
 import httpx
 import orjson
 import pytest
 
+from tracecat.agent.diagnostics import MAX_LLM_ERROR_BODY_BYTES, LLMErrorDiagnostics
 from tracecat.agent.observability import LLMGatewayLoadTracker
 from tracecat.agent.sandbox.llm_proxy import (
     LLMProxyError,
     LLMRoute,
     LLMRoutingPlan,
     LLMSocketProxy,
+    _http_error_classification,
 )
+from tracecat.agent.tokens import LLMRouteClaim, mint_llm_token
 from tracecat.runtime.errors import (
     RetryDisposition,
     RuntimeErrorKind,
@@ -111,6 +117,7 @@ async def test_forward_request_streams_litellm_response(
         routing_plan=_routing_plan(),
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    socket_proxy._direct_client = socket_proxy._client
     writer = _FakeWriter()
 
     monotonic_values = iter([10.0, 10.025, 10.05, 10.075, 10.1, 10.125])
@@ -156,6 +163,57 @@ async def test_forward_request_streams_litellm_response(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("method", ["DELETE", "PUT", "PATCH", "CONNECT"])
+async def test_forward_request_rejects_non_inference_methods(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    method: str,
+) -> None:
+    """The socket proxy must not forward destructive/admin methods to the gateway.
+
+    The socket is reachable by untrusted in-jail code; inference is POST and
+    catalog discovery is GET. Anything else gets a 405 without leaving the
+    proxy, so host-attached gateway credentials can never drive destructive
+    or administrative endpoints.
+    """
+    tracker = LLMGatewayLoadTracker()
+    monkeypatch.setattr("tracecat.agent.sandbox.llm_proxy._proxy_load_tracker", tracker)
+
+    forwarded: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        forwarded.append(request)
+        return httpx.Response(200)
+
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=_routing_plan(),
+    )
+    socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    socket_proxy._direct_client = socket_proxy._client
+    writer = _FakeWriter()
+
+    try:
+        await socket_proxy._forward_request(
+            {
+                "method": method,
+                "path": "/v1/messages",
+                "headers": {},
+                "body": b"{}",
+            },
+            cast(asyncio.StreamWriter, writer),
+        )
+    finally:
+        if socket_proxy._client is not None:
+            await socket_proxy._client.aclose()
+
+    assert forwarded == [], "denied method must not reach the gateway"
+    response_text = writer.buffer.decode("utf-8")
+    assert response_text.startswith("HTTP/1.1 405")
+    assert "HTTP method not allowed" in response_text
+
+
+@pytest.mark.anyio
 async def test_forward_request_returns_upstream_error_response(
     tmp_path: Path,
 ) -> None:
@@ -175,6 +233,7 @@ async def test_forward_request_returns_upstream_error_response(
         on_error=errors.append,
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    socket_proxy._direct_client = socket_proxy._client
     writer = _FakeWriter()
 
     try:
@@ -221,6 +280,7 @@ async def test_forward_request_emits_error_for_critical_upstream_http_error(
         on_error=errors.append,
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    socket_proxy._direct_client = socket_proxy._client
     writer = _FakeWriter()
 
     try:
@@ -246,12 +306,10 @@ async def test_forward_request_emits_error_for_critical_upstream_http_error(
     assert "provider quota exhausted" in response_text
     assert len(errors) == 1
     error = errors[0]
-    assert "LiteLLM request failed (429 Too Many Requests)" in error.message
-    assert "Rate limit exceeded" in error.message
-    assert "provider quota exhausted" in error.message
-    assert "request_id=trace-test-123" in error.message
+    assert error.message == "LLM requests are temporarily rate limited; retry later"
+    assert "provider quota exhausted" not in error.message
     assert error.classification.owner is RuntimeErrorOwner.PLATFORM
-    assert error.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+    assert error.classification.kind is RuntimeErrorKind.AGENT_LLM_RATE_LIMITED
     assert error.classification.retry_disposition is RetryDisposition.RETRYABLE
 
 
@@ -281,6 +339,7 @@ async def test_forward_request_classifies_platform_http_failures_at_source(
         on_error=errors.append,
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    socket_proxy._direct_client = socket_proxy._client
     writer = _FakeWriter()
 
     try:
@@ -341,6 +400,7 @@ async def test_forward_request_classifies_direct_provider_http_failure_as_user_o
         on_error=errors.append,
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    socket_proxy._direct_client = socket_proxy._client
     writer = _FakeWriter()
 
     try:
@@ -359,7 +419,14 @@ async def test_forward_request_classifies_direct_provider_http_failure_as_user_o
 
     assert len(errors) == 1
     assert errors[0].classification.owner is RuntimeErrorOwner.USER
-    assert errors[0].classification.kind is RuntimeErrorKind.AGENT_EXECUTION_FAILED
+    expected_kind = (
+        RuntimeErrorKind.AGENT_LLM_PROVIDER_AUTH_FAILED
+        if status_code == 403
+        else RuntimeErrorKind.AGENT_LLM_RATE_LIMITED
+        if status_code == 429
+        else RuntimeErrorKind.AGENT_EXECUTION_FAILED
+    )
+    assert errors[0].classification.kind is expected_kind
     assert errors[0].classification.retry_disposition is expected_retry_disposition
 
 
@@ -378,6 +445,7 @@ async def test_forward_request_classifies_connect_failure_as_platform(
         on_error=errors.append,
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    socket_proxy._direct_client = socket_proxy._client
     writer = _FakeWriter()
 
     try:
@@ -442,6 +510,7 @@ async def test_forward_request_classifies_error_body_read_failure_by_route(
         on_error=errors.append,
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    socket_proxy._direct_client = socket_proxy._client
     writer = _FakeWriter()
     body = b'{"model":"customer-alias","messages":[]}' if direct else b'{"messages":[]}'
 
@@ -510,6 +579,7 @@ async def test_forward_request_does_not_write_second_response_after_body_failure
         on_error=errors.append,
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    socket_proxy._direct_client = socket_proxy._client
     writer = _FakeWriter()
     body = b'{"model":"customer-alias","messages":[]}' if direct else b'{"messages":[]}'
 
@@ -538,7 +608,7 @@ async def test_forward_request_does_not_write_second_response_after_body_failure
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("failure", ["connect", "timeout"])
-async def test_forward_request_classifies_direct_transport_failure_as_user_owned(
+async def test_forward_request_classifies_direct_transport_failure(
     tmp_path: Path,
     failure: str,
 ) -> None:
@@ -563,6 +633,7 @@ async def test_forward_request_classifies_direct_transport_failure_as_user_owned
         on_error=errors.append,
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    socket_proxy._direct_client = socket_proxy._client
     writer = _FakeWriter()
 
     try:
@@ -580,8 +651,14 @@ async def test_forward_request_classifies_direct_transport_failure_as_user_owned
             await socket_proxy._client.aclose()
 
     assert len(errors) == 1
-    assert errors[0].classification.owner is RuntimeErrorOwner.USER
-    assert errors[0].classification.kind is RuntimeErrorKind.AGENT_EXECUTION_FAILED
+    assert errors[0].classification.owner is (
+        RuntimeErrorOwner.PLATFORM if failure == "timeout" else RuntimeErrorOwner.USER
+    )
+    assert errors[0].classification.kind is (
+        RuntimeErrorKind.AGENT_LLM_READ_TIMEOUT
+        if failure == "timeout"
+        else RuntimeErrorKind.AGENT_EXECUTION_FAILED
+    )
     assert errors[0].classification.retry_disposition is RetryDisposition.RETRYABLE
 
 
@@ -616,7 +693,7 @@ async def test_write_stream_response_emits_error_after_headers_sent(
     assert "event: error" in response_text
     assert "provider stream disconnected" in response_text
     assert [error.message for error in errors] == [
-        "LiteLLM stream failed: provider stream disconnected"
+        "LLM stream failed: provider stream disconnected"
     ]
     assert errors[0].classification.owner is RuntimeErrorOwner.PLATFORM
     assert errors[0].classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
@@ -663,7 +740,7 @@ async def test_write_stream_response_surfaces_friendly_read_timeout(
     assert expected_message in response_text
     assert [error.message for error in errors] == [expected_message]
     assert errors[0].classification.owner is RuntimeErrorOwner.PLATFORM
-    assert errors[0].classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_TIMED_OUT
+    assert errors[0].classification.kind is RuntimeErrorKind.AGENT_LLM_READ_TIMEOUT
 
 
 @pytest.mark.anyio
@@ -699,8 +776,14 @@ async def test_write_stream_response_keeps_direct_transport_failure_retryable(
     )
 
     assert len(errors) == 1
-    assert errors[0].classification.owner is RuntimeErrorOwner.USER
-    assert errors[0].classification.kind is RuntimeErrorKind.AGENT_EXECUTION_FAILED
+    assert errors[0].classification.owner is (
+        RuntimeErrorOwner.PLATFORM if failure == "timeout" else RuntimeErrorOwner.USER
+    )
+    assert errors[0].classification.kind is (
+        RuntimeErrorKind.AGENT_LLM_READ_TIMEOUT
+        if failure == "timeout"
+        else RuntimeErrorKind.AGENT_EXECUTION_FAILED
+    )
     assert errors[0].classification.retry_disposition is RetryDisposition.RETRYABLE
 
 
@@ -763,6 +846,7 @@ async def test_forward_request_strips_authorization_for_passthrough_upstream(
         ),
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    socket_proxy._direct_client = socket_proxy._client
     writer = _FakeWriter()
 
     try:
@@ -861,6 +945,7 @@ async def test_passthrough_does_not_double_prefix_version_in_request_url(
         ),
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    socket_proxy._direct_client = socket_proxy._client
     writer = _FakeWriter()
 
     try:
@@ -923,6 +1008,7 @@ async def test_passthrough_routes_root_direct_and_subagents_to_gateway(
         ),
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    socket_proxy._direct_client = socket_proxy._client
 
     try:
         # Only the exact passthrough model key should bypass managed LiteLLM.
@@ -1003,6 +1089,7 @@ async def test_passthrough_routes_subagent_direct_when_subagent_config_passthrou
         ),
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    socket_proxy._direct_client = socket_proxy._client
 
     try:
         # A passthrough subagent gets its own direct route, independent of the
@@ -1076,6 +1163,7 @@ async def test_forward_request_preserves_anthropic_fields_for_anthropic_upstream
         ),
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    socket_proxy._direct_client = socket_proxy._client
     writer = _FakeWriter()
 
     try:
@@ -1131,6 +1219,7 @@ async def test_forward_request_strips_anthropic_only_fields_for_non_anthropic_up
         routing_plan=_routing_plan(),
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    socket_proxy._direct_client = socket_proxy._client
     writer = _FakeWriter()
 
     try:
@@ -1184,6 +1273,7 @@ async def test_managed_route_can_defer_provider_cleanup_to_gateway(
         routing_plan=_routing_plan(managed_local_provider_cleanup=False),
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    socket_proxy._direct_client = socket_proxy._client
     writer = _FakeWriter()
 
     try:
@@ -1241,6 +1331,7 @@ async def test_forward_request_injects_passthrough_api_key_as_bearer_authorizati
         ),
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    socket_proxy._direct_client = socket_proxy._client
     writer = _FakeWriter()
 
     try:
@@ -1439,3 +1530,649 @@ def test_anthropic_route_preserves_tool_reference_blocks_and_tool_fields() -> No
         data=data,
     )
     assert orjson.loads(request.body) == data
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("direct", [True, False])
+@pytest.mark.parametrize("body_started", [True, False])
+@pytest.mark.parametrize("content_type", ["text/event-stream", "application/json"])
+async def test_read_timeout_records_safe_body_timing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    direct: bool,
+    body_started: bool,
+    content_type: str,
+) -> None:
+    monkeypatch.setattr(
+        "tracecat.agent.sandbox.llm_proxy.app_config.TRACECAT__LLM_PROXY_READ_TIMEOUT",
+        300.0,
+    )
+    errors: list[LLMProxyError] = []
+    proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=_routing_plan(),
+        on_error=errors.append,
+    )
+    log = Mock()
+    monkeypatch.setattr("tracecat.agent.sandbox.llm_proxy.logger", log)
+    now = 12.0
+    monkeypatch.setattr("tracecat.agent.sandbox.llm_proxy.time.monotonic", lambda: now)
+
+    async def stalled_body() -> AsyncIterator[bytes]:
+        nonlocal now
+        yield b""  # Empty chunks must not count as response data.
+        if body_started:
+            yield b"synthetic response content"
+        now = 312.0
+        raise httpx.ReadTimeout("synthetic sensitive diagnostic")
+
+    writer = _FakeWriter()
+    await proxy._write_response(
+        cast(asyncio.StreamWriter, writer),
+        status_code=200,
+        reason_phrase="OK",
+        headers={"Content-Type": content_type},
+        body_chunks=stalled_body(),
+        started_at=10.0,
+        path="/v1/messages",
+        route_is_direct=direct,
+    )
+
+    timeout_log = next(
+        call
+        for call in log.warning.call_args_list
+        if call.args == ("LLM upstream read timed out",)
+    )
+    assert timeout_log.kwargs == {
+        "route": "direct" if direct else "managed",
+        "phase": "response_body",
+        "read_timeout_seconds": 300.0,
+        "response_body_started": body_started,
+        "first_body_chunk_ms": 2000.0 if body_started else None,
+        "time_since_last_chunk_ms": 300000.0 if body_started else None,
+        "elapsed_ms": 302000.0,
+    }
+    assert len(errors) == 1
+    assert errors[0].classification.kind is RuntimeErrorKind.AGENT_LLM_READ_TIMEOUT
+    assert errors[0].classification.owner is RuntimeErrorOwner.PLATFORM
+    assert errors[0].classification.retry_disposition is RetryDisposition.RETRYABLE
+    assert "synthetic sensitive diagnostic" not in str(errors)
+    assert "synthetic sensitive diagnostic" not in str(log.warning.call_args_list)
+    assert writer.buffer.count(b"HTTP/1.1") == 1
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("direct", [True, False])
+@pytest.mark.parametrize("error_response", [True, False])
+async def test_read_timeout_before_headers_records_route(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    direct: bool,
+    error_response: bool,
+) -> None:
+    errors: list[LLMProxyError] = []
+    log = Mock()
+    monkeypatch.setattr("tracecat.agent.sandbox.llm_proxy.logger", log)
+
+    class StalledErrorBody(httpx.AsyncByteStream):
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            yield b"partial error body"
+            raise httpx.ReadTimeout("synthetic sensitive diagnostic")
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if error_response:
+            return httpx.Response(503, stream=StalledErrorBody())
+        raise httpx.ReadTimeout("synthetic sensitive diagnostic", request=request)
+
+    proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=_routing_plan(
+            direct_routes={
+                "synthetic-model": LLMRoute(
+                    base_url="https://provider.example",
+                    model_provider="custom-model-provider",
+                )
+            }
+            if direct
+            else None
+        ),
+        on_error=errors.append,
+    )
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        proxy._client = client
+        proxy._direct_client = client
+        writer = _FakeWriter()
+        await proxy._forward_request(
+            {
+                "method": "POST",
+                "path": "/v1/messages",
+                "headers": {},
+                "body": b'{"model":"synthetic-model"}',
+            },
+            cast(asyncio.StreamWriter, writer),
+        )
+    timeout_log = next(
+        call
+        for call in log.warning.call_args_list
+        if call.args == ("LLM upstream read timed out",)
+    )
+    assert timeout_log.kwargs["route"] == ("direct" if direct else "managed")
+    assert timeout_log.kwargs["phase"] == (
+        "error_body" if error_response else "response_headers"
+    )
+    assert timeout_log.kwargs["response_body_started"] is (
+        None if error_response else False
+    )
+    assert timeout_log.kwargs["first_body_chunk_ms"] is None
+    assert len(errors) == 1
+    assert errors[0].classification.kind is RuntimeErrorKind.AGENT_LLM_READ_TIMEOUT
+    assert errors[0].classification.owner is RuntimeErrorOwner.PLATFORM
+    assert "synthetic sensitive diagnostic" not in str(errors)
+    assert writer.buffer.startswith(b"HTTP/1.1 504")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("status_code", "error_type", "direct", "kind", "owner", "retryable"),
+    [
+        (
+            401,
+            "tracecat_llm_token_invalid",
+            False,
+            RuntimeErrorKind.AGENT_LLM_GATEWAY_AUTH_FAILED,
+            RuntimeErrorOwner.PLATFORM,
+            False,
+        ),
+        (
+            401,
+            "tracecat_llm_provider_auth_failed",
+            False,
+            RuntimeErrorKind.AGENT_LLM_PROVIDER_AUTH_FAILED,
+            RuntimeErrorOwner.USER,
+            False,
+        ),
+        (
+            401,
+            "tracecat_llm_token_invalid",
+            True,
+            RuntimeErrorKind.AGENT_LLM_PROVIDER_AUTH_FAILED,
+            RuntimeErrorOwner.USER,
+            False,
+        ),
+        (
+            429,
+            "budget_exceeded",
+            False,
+            RuntimeErrorKind.AGENT_LLM_BUDGET_EXCEEDED,
+            RuntimeErrorOwner.USER,
+            False,
+        ),
+        (
+            400,
+            "budget_exceeded",
+            False,
+            RuntimeErrorKind.AGENT_LLM_BUDGET_EXCEEDED,
+            RuntimeErrorOwner.USER,
+            False,
+        ),
+        (
+            429,
+            "budget_exceeded",
+            True,
+            RuntimeErrorKind.AGENT_LLM_BUDGET_EXCEEDED,
+            RuntimeErrorOwner.USER,
+            False,
+        ),
+        (
+            429,
+            "rate_limit_error",
+            False,
+            RuntimeErrorKind.AGENT_LLM_RATE_LIMITED,
+            RuntimeErrorOwner.PLATFORM,
+            True,
+        ),
+        (
+            429,
+            "cooldown",
+            False,
+            RuntimeErrorKind.AGENT_LLM_RATE_LIMITED,
+            RuntimeErrorOwner.PLATFORM,
+            True,
+        ),
+        (
+            401,
+            "auth_error",
+            False,
+            RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE,
+            RuntimeErrorOwner.PLATFORM,
+            True,
+        ),
+        (
+            500,
+            "tracecat_llm_token_invalid",
+            False,
+            RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE,
+            RuntimeErrorOwner.PLATFORM,
+            True,
+        ),
+    ],
+)
+async def test_structured_gateway_http_attribution(
+    tmp_path: Path,
+    status_code: int,
+    error_type: str,
+    direct: bool,
+    kind: RuntimeErrorKind,
+    owner: RuntimeErrorOwner,
+    retryable: bool,
+) -> None:
+    errors: list[LLMProxyError] = []
+    # Deliberately misleading text must never select classification or enter
+    # durable failure text, even when it contains credential-shaped data.
+    body = orjson.dumps(
+        {
+            "error": {
+                "type": error_type,
+                "message": "budget_exceeded invalid JWT Bearer synthetic-secret",
+            }
+        }
+    )
+    proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=_routing_plan(
+            direct_routes={
+                "synthetic-model": LLMRoute(
+                    base_url="https://provider.example",
+                    model_provider="custom-model-provider",
+                )
+            }
+            if direct
+            else None
+        ),
+        on_error=errors.append,
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(status_code, content=body)
+        )
+    ) as client:
+        proxy._client = client
+        proxy._direct_client = client
+        writer = _FakeWriter()
+        await proxy._forward_request(
+            {
+                "method": "POST",
+                "path": "/v1/messages",
+                "headers": {},
+                "body": b'{"model":"synthetic-model"}',
+            },
+            cast(asyncio.StreamWriter, writer),
+        )
+    assert len(errors) == 1
+    assert errors[0].classification.kind is kind
+    assert errors[0].classification.owner is owner
+    assert errors[0].classification.retry_disposition is (
+        RetryDisposition.RETRYABLE if retryable else RetryDisposition.NON_RETRYABLE
+    )
+    assert "synthetic-secret" not in errors[0].message
+    assert body in writer.buffer  # SDK still receives the upstream HTTP response.
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("path", ["/models", "/v1/models?limit=10"])
+@pytest.mark.parametrize(
+    "failure", ["auth", "rate_limit", "connect", "headers_timeout", "body_timeout"]
+)
+async def test_failed_discovery_does_not_consume_generation_failure_callback(
+    tmp_path: Path,
+    path: str,
+    failure: str,
+) -> None:
+    errors: list[LLMProxyError] = []
+
+    class StalledBody(httpx.AsyncByteStream):
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            yield b'{"data":'
+            raise httpx.ReadTimeout("synthetic discovery timeout")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            return httpx.Response(
+                401, json={"error": {"type": "tracecat_llm_token_invalid"}}
+            )
+        if failure == "connect":
+            raise httpx.ConnectError("synthetic connection failure")
+        if failure == "headers_timeout":
+            raise httpx.ReadTimeout("synthetic discovery timeout")
+        if failure == "body_timeout":
+            return httpx.Response(200, stream=StalledBody())
+        return httpx.Response(
+            401 if failure == "auth" else 429, json={"error": "synthetic failure"}
+        )
+
+    proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=_routing_plan(),
+        on_error=errors.append,
+    )
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        proxy._client = client
+        proxy._direct_client = client
+        await proxy._forward_request(
+            {"method": "GET", "path": path, "headers": {}, "body": b""},
+            cast(asyncio.StreamWriter, _FakeWriter()),
+        )
+        assert errors == []
+        await proxy._forward_request(
+            {"method": "POST", "path": "/v1/messages", "headers": {}, "body": b"{}"},
+            cast(asyncio.StreamWriter, _FakeWriter()),
+        )
+    assert len(errors) == 1
+    assert (
+        errors[0].classification.kind is RuntimeErrorKind.AGENT_LLM_GATEWAY_AUTH_FAILED
+    )
+
+
+@pytest.mark.parametrize(
+    ("body", "expected_kind"),
+    [
+        (
+            b'{"error":{"code":"insufficient_quota"}}',
+            RuntimeErrorKind.AGENT_LLM_BUDGET_EXCEEDED,
+        ),
+        (
+            b'{"error":{"type":"insufficient_quota"}}',
+            RuntimeErrorKind.AGENT_LLM_BUDGET_EXCEEDED,
+        ),
+        (
+            b'{"error":{"message":"budget_exceeded insufficient_quota"}}',
+            RuntimeErrorKind.AGENT_LLM_RATE_LIMITED,
+        ),
+        (
+            b'{"error":{"type":["budget_exceeded"]}}',
+            RuntimeErrorKind.AGENT_LLM_RATE_LIMITED,
+        ),
+        (b"budget_exceeded", RuntimeErrorKind.AGENT_LLM_RATE_LIMITED),
+        (b"", RuntimeErrorKind.AGENT_LLM_RATE_LIMITED),
+    ],
+)
+def test_budget_classification_requires_structured_evidence(
+    body: bytes,
+    expected_kind: RuntimeErrorKind,
+) -> None:
+    assert (
+        _http_error_classification(429, route_is_direct=True, body=body).kind
+        is expected_kind
+    )
+
+
+@pytest.mark.parametrize("oversized", [False, True])
+def test_error_classification_bounds_json_parsing(
+    monkeypatch: pytest.MonkeyPatch, oversized: bool
+) -> None:
+    body = b'{"error":{"code":"insufficient_quota"}}'.ljust(
+        MAX_LLM_ERROR_BODY_BYTES + int(oversized), b" "
+    )
+    parse = Mock(wraps=orjson.loads)
+    monkeypatch.setattr(orjson, "loads", parse)
+
+    classification = _http_error_classification(429, route_is_direct=False, body=body)
+
+    if oversized:
+        parse.assert_not_called()
+        assert classification.kind is RuntimeErrorKind.AGENT_LLM_RATE_LIMITED
+    else:
+        parse.assert_called_once_with(body)
+        assert classification.kind is RuntimeErrorKind.AGENT_LLM_BUDGET_EXCEEDED
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("configuration", ["builtin", "custom"])
+@pytest.mark.parametrize("direct", [False, True])
+@pytest.mark.parametrize(
+    "failure", ["auth", "budget", "rate", "connect", "headers_timeout", "body_timeout"]
+)
+async def test_llm_metadata_follows_selected_route_on_all_failure_phases(
+    tmp_path: Path,
+    configuration: Literal["builtin", "custom"],
+    direct: bool,
+    failure: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "tracecat.config.TRACECAT__SERVICE_KEY", "synthetic-signing-key-for-tests-only"
+    )
+    errors: list[LLMProxyError] = []
+
+    class StalledBody(httpx.AsyncByteStream):
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            yield b"data: {}\n\n"
+            raise httpx.ReadTimeout("synthetic timeout")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if failure == "connect":
+            raise httpx.ConnectError("synthetic failure")
+        if failure == "headers_timeout":
+            raise httpx.ReadTimeout("synthetic timeout")
+        if failure == "body_timeout":
+            return httpx.Response(
+                200, headers={"Content-Type": "text/event-stream"}, stream=StalledBody()
+            )
+        return httpx.Response(
+            401 if failure == "auth" else 429,
+            json={
+                "error": {
+                    "type": "budget_exceeded"
+                    if failure == "budget"
+                    else "tracecat_llm_token_invalid"
+                    if failure == "auth"
+                    else "rate_limit_error"
+                }
+            },
+        )
+
+    selected_route = LLMRoute(
+        base_url="https://provider.example",
+        model_provider="custom-model-provider"
+        if configuration == "custom"
+        else "openai",
+        mode="direct" if direct else "managed",
+    )
+    plan = LLMRoutingPlan(
+        managed_route=LLMRoute(
+            base_url="http://gateway", model_provider="root-provider", mode="managed"
+        ),
+        direct_routes={"synthetic-model": selected_route} if direct else {},
+    )
+    token = mint_llm_token(
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        session_id=uuid.uuid4(),
+        model="synthetic-root",
+        provider="openai",
+        routes={
+            "synthetic-model": LLMRouteClaim(
+                model="synthetic-model",
+                provider=(
+                    "openai" if configuration == "custom" else "custom-model-provider"
+                )
+                if direct
+                else selected_route.model_provider,
+            )
+        },
+    )
+    proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock", routing_plan=plan, on_error=errors.append
+    )
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        proxy._client = client
+        proxy._direct_client = client
+        await proxy._forward_request(
+            {
+                "method": "POST",
+                "path": "/v1/messages",
+                "headers": {"Authorization": f"Bearer {token}"},
+                "body": b'{"model":"synthetic-model"}',
+            },
+            cast(asyncio.StreamWriter, _FakeWriter()),
+        )
+    assert len(errors) == 1
+    classification = errors[0].classification
+    assert errors[0].diagnostic == LLMErrorDiagnostics(
+        route="direct" if direct else "managed", provider_configuration=configuration
+    )
+    assert "provider.example" not in classification.model_dump_json()
+    assert "synthetic-model" not in classification.model_dump_json()
+    if failure in {"headers_timeout", "body_timeout"}:
+        assert classification.owner is RuntimeErrorOwner.PLATFORM
+        assert classification.kind is RuntimeErrorKind.AGENT_LLM_READ_TIMEOUT
+
+
+@pytest.fixture
+def short_socket_path() -> Iterator[Path]:
+    # pytest's per-test directory can exceed macOS's Unix socket path limit.
+    with TemporaryDirectory() as directory:
+        yield Path(directory) / "llm.sock"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("fail_on_cancel", [False, True])
+async def test_stop_cancels_stream_before_closing_client(
+    short_socket_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fail_on_cancel: bool,
+) -> None:
+    errors: list[LLMProxyError] = []
+    reading = asyncio.Event()
+    stream_closed = asyncio.Event()
+    client_closed = asyncio.Event()
+
+    class BlockingStream(httpx.AsyncByteStream):
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            yield b"data: ready\n\n"
+            reading.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                if fail_on_cancel:
+                    # Some transports surface a read error during cancellation.
+                    raise httpx.ReadError("stream closed during teardown") from None
+                raise
+
+        async def aclose(self) -> None:
+            assert not client_closed.is_set()
+            stream_closed.set()
+
+    class Transport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                headers={"Content-Type": "text/event-stream"},
+                stream=BlockingStream(),
+            )
+
+        async def aclose(self) -> None:
+            assert stream_closed.is_set()
+            client_closed.set()
+
+    client = httpx.AsyncClient(transport=Transport())
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: client)
+    proxy = LLMSocketProxy(short_socket_path, _routing_plan(), errors.append)
+    await proxy.start()
+    reader, writer = await asyncio.open_unix_connection(proxy.socket_path)
+    try:
+        writer.write(b"POST /v1/messages HTTP/1.1\r\nContent-Length: 0\r\n\r\n")
+        await writer.drain()
+        await asyncio.wait_for(reading.wait(), timeout=2)
+        await asyncio.wait_for(proxy.stop(), timeout=2)
+        response = await asyncio.wait_for(reader.read(), timeout=2)
+        assert b"data: ready" in response
+        assert b"event: error" not in response
+        assert errors == []
+        assert stream_closed.is_set()
+        assert client_closed.is_set()
+        assert not proxy._connection_tasks
+        assert not proxy.socket_path.exists()
+        await proxy.stop()
+    finally:
+        writer.close()
+        await writer.wait_closed()
+        await proxy.stop()
+
+
+@pytest.mark.anyio
+async def test_stop_closes_connection_canceled_before_handler_starts(
+    tmp_path: Path,
+) -> None:
+    proxy = LLMSocketProxy(tmp_path / "llm.sock", _routing_plan())
+    writer = _FakeWriter()
+    proxy._accept_connection(asyncio.StreamReader(), cast(asyncio.StreamWriter, writer))
+
+    await proxy.stop()
+
+    assert writer.is_closing()
+    assert not proxy._connection_tasks
+
+
+@pytest.mark.anyio
+async def test_restart_reports_active_stream_failure(short_socket_path: Path) -> None:
+    errors: list[LLMProxyError] = []
+    proxy = LLMSocketProxy(short_socket_path, _routing_plan(), errors.append)
+    for _ in range(2):
+        await proxy.start()
+        try:
+            writer = _FakeWriter()
+            await proxy._write_response(
+                cast(asyncio.StreamWriter, writer),
+                status_code=200,
+                reason_phrase="OK",
+                headers={"Content-Type": "text/event-stream"},
+                body_chunks=_FailingResponseStream(
+                    httpx.Request("POST", "http://example.com")
+                ),
+                path="/v1/messages",
+            )
+            assert b"event: error" in writer.buffer
+        finally:
+            await proxy.stop()
+
+    assert len(errors) == 2
+    assert all(
+        error.classification.owner == RuntimeErrorOwner.PLATFORM for error in errors
+    )
+
+
+@pytest.mark.anyio
+async def test_successful_managed_request_skips_diagnostic_token_verification(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    verify = Mock(
+        side_effect=AssertionError("Success must not decode diagnostic tokens")
+    )
+    monkeypatch.setattr("tracecat.agent.sandbox.llm_proxy.verify_llm_token", verify)
+    proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=LLMRoutingPlan(
+            managed_route=LLMRoute(
+                base_url="http://gateway", model_provider="openai", mode="managed"
+            ),
+            direct_routes={},
+        ),
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, content=b"ok")
+        )
+    ) as client:
+        proxy._client = client
+        proxy._direct_client = client
+        await proxy._forward_request(
+            {
+                "method": "POST",
+                "path": "/v1/messages",
+                "headers": {"Authorization": "Bearer synthetic-token"},
+                "body": b'{"model":"synthetic-model"}',
+            },
+            cast(asyncio.StreamWriter, _FakeWriter()),
+        )
+    verify.assert_not_called()

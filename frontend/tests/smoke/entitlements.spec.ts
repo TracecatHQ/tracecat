@@ -10,6 +10,7 @@ import { expectWorkspaceLanding, getWorkspaceId } from "./utils/auth"
 type Entitlements = {
   git_sync: boolean
   agent_addons: boolean
+  workspace_chat: boolean
 }
 
 async function getEntitlements(
@@ -44,13 +45,13 @@ test.describe("entitlement gates", () => {
   test("locked sidebar item opens upgrade modal without navigation", async ({
     page,
   }, testInfo) => {
-    await skipIfEntitled(page.request, testInfo, "agent_addons")
+    await skipIfEntitled(page.request, testInfo, "workspace_chat")
 
     await page.goto("/workspaces")
     await expectWorkspaceLanding(page)
 
     await expect(async () => {
-      await page.getByRole("button", { name: "Skills" }).click({
+      await page.getByRole("button", { name: "Chat" }).click({
         timeout: 2_000,
       })
     }).toPass()
@@ -58,7 +59,7 @@ test.describe("entitlement gates", () => {
     await expect(
       page.getByRole("dialog", { name: "Upgrade to unlock this feature" })
     ).toBeVisible()
-    await expect(page).not.toHaveURL(/\/skills(\/|$|\?)/)
+    await expect(page).not.toHaveURL(/\/chat(\/|$|\?)/)
   })
 
   test("direct inbox route renders the entitlement empty state", async ({

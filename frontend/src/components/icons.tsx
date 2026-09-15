@@ -671,6 +671,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.sentry": createIconRenderer(SentryIcon),
     "tools.slack_sdk": createIconRenderer(SlackIcon),
     "tools.terraform": createIconRenderer(TerraformIcon),
+    "tools.vercel_security": createIconRenderer(VercelIcon),
     "tools.x": createIconRenderer(Icons.twitter, {
       iconClassName: "fill-current",
     }),
@@ -942,6 +943,16 @@ export const providerIcons: Record<
   vllm: ({ className, ...rest }) => (
     <div className={className}>
       <VllmIcon {...rest} />
+    </div>
+  ),
+  litellm: ({ className }) => (
+    <div className={className}>
+      <LiteLLMIcon className="size-full object-contain" />
+    </div>
+  ),
+  openrouter: ({ className, ...rest }) => (
+    <div className={className}>
+      <OpenRouterIcon {...rest} />
     </div>
   ),
   "manual-custom-source": ({ className, ...rest }) => (
@@ -1661,19 +1672,51 @@ export function OllamaIcon({ className, ...rest }: IconProps) {
 export function VllmIcon({ className, ...rest }: IconProps) {
   return (
     <svg
-      viewBox="0 0 24 24"
+      viewBox="0 0 96 96"
       role="img"
+      aria-label="vLLM"
       className={className}
       xmlns="http://www.w3.org/2000/svg"
       {...rest}
     >
-      <rect x="2" y="2" width="20" height="20" rx="5" fill="#111827" />
-      <path d="M5.5 7.5h2.3l2 6.3 2-6.3h2.2l-3.3 9h-1.8z" fill="#F8FAFC" />
-      <rect x="14.8" y="8" width="1.5" height="8" rx="0.75" fill="#60A5FA" />
-      <rect x="17.2" y="8" width="1.5" height="8" rx="0.75" fill="#34D399" />
-      <rect x="19.6" y="8" width="1.5" height="8" rx="0.75" fill="#FBBF24" />
+      <path
+        fill="#fdb515"
+        d="m41.0477 27.293962l0 55.30709l-27.653542 -55.30709z"
+        fillRule="evenodd"
+      />
+      <path
+        fill="#30a2ff"
+        d="m41.046566 82.60105l21.72966 0l18.653545 -70.385826l-25.574806 13.461943z"
+        fillRule="evenodd"
+      />
     </svg>
   )
+}
+
+export function OpenRouterIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 401.4 293.7"
+      role="img"
+      aria-label="OpenRouter"
+      className={className}
+      xmlns="http://www.w3.org/2000/svg"
+      {...rest}
+    >
+      <path
+        fill="#7624F4"
+        d="M303.9475,17.19926c42.79734,0,77.48933,34.69327,77.48933,77.48933s-34.69199,77.48933-77.48933,77.48933l76.86166,76.86244c9.76367,9.76313,2.84903,26.45667-10.95697,26.45667h-220.88335c-71.32686,0-129.14889-57.82202-129.14889-129.14889S77.64197,17.19926,148.96884,17.19926h154.97866ZM148.96884,68.85881c-42.79607,0-77.48933,34.69327-77.48933,77.48933s34.69327,77.48933,77.48933,77.48933,77.48933-34.69327,77.48933-77.48933-34.69327-77.48933-77.48933-77.48933Z"
+      />
+    </svg>
+  )
+}
+
+/**
+ * LiteLLM brand mark. LiteLLM publishes raster assets only, so this renders
+ * the official favicon shipped in `public/`.
+ */
+export function LiteLLMIcon({ className }: { className?: string }) {
+  return <img src="/litellm-icon.png" alt="LiteLLM" className={className} />
 }
 
 export function GoogleSheetsIcon({ className, ...rest }: IconProps) {
@@ -1913,6 +1956,18 @@ export function MicrosoftIcon({ className, ...rest }: IconProps) {
       <path fill="#80CC28" d="M256 121.666H134.335V0H256z" />
       <path fill="#00ADEF" d="M121.663 256.002H0V134.336h121.663z" />
       <path fill="#FBBC09" d="M256 256.002H134.335V134.336H256z" />
+    </svg>
+  )
+}
+
+/**
+ * Official Vercel logomark.
+ * https://vercel.com/geist/brands
+ */
+export function VercelIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg viewBox="0 0 76 65" className={className} {...rest}>
+      <path d="M37.5274 0L75.0548 65H0L37.5274 0Z" fill="currentColor" />
     </svg>
   )
 }

@@ -5,8 +5,11 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
+import httpx
+import orjson
 import pytest
 from tracecat_registry.sdk.cases import CasesClient
+from tracecat_registry.sdk.client import TracecatClient
 
 
 @pytest.fixture
@@ -24,6 +27,41 @@ def mock_tracecat_client() -> MagicMock:
 def cases_client(mock_tracecat_client: MagicMock) -> CasesClient:
     """Create a CasesClient with mocked HTTP client."""
     return CasesClient(mock_tracecat_client)
+
+
+@pytest.mark.anyio
+async def test_aggregate_cases_uses_exact_gateway_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    spec = {
+        "group_by": [{"field": "fields.amount", "alias": "amount"}],
+        "filters": {"or": [{"field": "fields.region", "op": "is_null"}]},
+        "aggs": [{"function": "count"}],
+    }
+    response = {
+        "groups": [{"amount": "12345678901234567890.123", "count": 2}],
+        "truncated": True,
+    }
+    requests: list[httpx.Request] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        assert request.method == "POST"
+        assert (
+            str(request.url)
+            == "http://tracecat-action-gateway/internal/cases/aggregate"
+        )
+        assert orjson.loads(request.content) == spec
+        return httpx.Response(200, json=response)
+
+    def create_transport(*, uds: str) -> httpx.MockTransport:
+        assert uds == "/tmp/aggregate-cases-test.sock"
+        return httpx.MockTransport(handle)
+
+    monkeypatch.setattr(httpx, "AsyncHTTPTransport", create_transport)
+    client = TracecatClient(action_gateway_socket="/tmp/aggregate-cases-test.sock")
+    assert await client.cases.aggregate_cases(spec) == response
+    assert len(requests) == 1
 
 
 @pytest.mark.anyio

@@ -12,6 +12,7 @@ import { TextAlign } from "@tiptap/extension-text-align"
 import { Typography } from "@tiptap/extension-typography"
 import { Selection } from "@tiptap/extensions"
 import { Markdown } from "@tiptap/markdown"
+import type { Transaction } from "@tiptap/pm/state"
 import type { EditorView } from "@tiptap/pm/view"
 import {
   type Editor,
@@ -102,6 +103,20 @@ import {
   extractImageFiles,
 } from "@/lib/cases/use-case-image-upload"
 import {
+  AGENT_MENTION_URI_SCHEME,
+  type CommentMentionLinkRange,
+  findCommentMentionLinkRanges,
+  findEditedCommentMentionIndexes,
+  preventCommentMentionNavigation,
+  WORKFLOW_MENTION_URI_SCHEME,
+} from "@/lib/tiptap-comment-mentions"
+import {
+  mapImageUploadPosition,
+  sanitizeMarkdownImageAlt,
+  transactionTouchesImageReplacement,
+} from "@/lib/tiptap-image-upload-position"
+import { MarkdownHardBreak } from "@/lib/tiptap-markdown-hard-break"
+import {
   handleImageUpload,
   MAX_FILE_SIZE,
   sanitizeUrl,
@@ -110,26 +125,54 @@ import { cn } from "@/lib/utils"
 
 /** Upload images then insert image nodes at the drop position or selection. */
 async function uploadAndInsertImages(
+  editor: Editor,
   view: EditorView,
   files: File[],
   upload: (file: File) => Promise<string>,
-  startPos?: number
+  startPos: number,
+  endPos?: number
 ): Promise<void> {
   let insertPos = startPos
-  for (const file of files) {
-    try {
-      const src = await upload(file)
-      const imageType = view.state.schema.nodes.image
-      if (!imageType) {
-        continue
-      }
-      const node = imageType.create({ src, alt: file.name })
-      const pos = insertPos ?? view.state.selection.to
-      view.dispatch(view.state.tr.insert(pos, node))
-      insertPos = pos + node.nodeSize
-    } catch {
-      // Upload failures are surfaced by the upload function's own toast.
+  let replaceTo = endPos !== undefined && endPos > startPos ? endPos : null
+  const handleTransaction = ({ transaction }: { transaction: Transaction }) => {
+    if (
+      replaceTo !== null &&
+      transactionTouchesImageReplacement(insertPos, replaceTo, transaction)
+    ) {
+      replaceTo = null
     }
+    insertPos = mapImageUploadPosition(insertPos, transaction)
+    if (replaceTo !== null) {
+      replaceTo = mapImageUploadPosition(replaceTo, transaction, -1)
+    }
+  }
+  editor.on("transaction", handleTransaction)
+  try {
+    for (const file of files) {
+      try {
+        const src = await upload(file)
+        const imageType = view.state.schema.nodes.image
+        if (!imageType) {
+          continue
+        }
+        const node = imageType.create({
+          src,
+          alt: sanitizeMarkdownImageAlt(file.name),
+        })
+        const transaction = view.state.tr
+        if (replaceTo !== null && replaceTo > insertPos) {
+          transaction.replaceWith(insertPos, replaceTo, node)
+        } else {
+          transaction.insert(insertPos, node)
+        }
+        view.dispatch(transaction)
+        replaceTo = null
+      } catch {
+        // Upload failures are surfaced by the upload function's own toast.
+      }
+    }
+  } finally {
+    editor.off("transaction", handleTransaction)
   }
 }
 
@@ -566,6 +609,10 @@ export interface SimpleEditorProps {
    * `attachment://<caseId>/<attachmentId>`). Required to enable paste/drop.
    */
   onImageUpload?: (file: File) => Promise<string>
+  /** Called when the TipTap editor instance becomes available or is removed. */
+  onEditorReady?: (editor: Editor | null) => void
+  /** Allow the internal URI schemes used by case comment mentions. */
+  allowCommentMentionUris?: boolean
 }
 
 export function SimpleEditor({
@@ -587,6 +634,8 @@ export function SimpleEditor({
   enableImages = false,
   imageWorkspaceId = null,
   onImageUpload,
+  onEditorReady,
+  allowCommentMentionUris = false,
 }: SimpleEditorProps) {
   const isMobile = useIsMobile()
   const { height } = useWindowSize()
@@ -597,6 +646,8 @@ export function SimpleEditor({
   const markdownRef = React.useRef<string>(value ?? "")
   const previousEditableRef = React.useRef(editable)
   const imageUploadRef = React.useRef(onImageUpload)
+  const editorRef = React.useRef<Editor | null>(null)
+  const commentMentionLinksRef = React.useRef<CommentMentionLinkRange[]>([])
 
   React.useEffect(() => {
     imageUploadRef.current = onImageUpload
@@ -605,13 +656,20 @@ export function SimpleEditor({
   const extensions = React.useMemo(
     () => [
       StarterKit.configure({
+        hardBreak: false,
         horizontalRule: false,
         codeBlock: false,
         link: {
           openOnClick: false,
           enableClickSelection: true,
+          isAllowedUri: (url, { defaultValidate }) =>
+            (allowCommentMentionUris &&
+              (url.startsWith(AGENT_MENTION_URI_SCHEME) ||
+                url.startsWith(WORKFLOW_MENTION_URI_SCHEME))) ||
+            defaultValidate(url),
         },
       }),
+      MarkdownHardBreak,
       HorizontalRule,
       MermaidCodeBlock.configure({
         renderWhenBlurred: renderMermaidWhenBlurred,
@@ -654,7 +712,12 @@ export function SimpleEditor({
         },
       }),
     ],
-    [renderMermaidWhenBlurred, enableImages, imageWorkspaceId]
+    [
+      allowCommentMentionUris,
+      renderMermaidWhenBlurred,
+      enableImages,
+      imageWorkspaceId,
+    ]
   )
 
   const editor = useEditor({
@@ -672,6 +735,9 @@ export function SimpleEditor({
         ...(placeholder ? { "data-placeholder": placeholder } : {}),
       },
       handleClick: (_view, _pos, event) => {
+        if (allowCommentMentionUris && preventCommentMentionNavigation(event)) {
+          return false
+        }
         if (!event.metaKey && !event.ctrlKey) return false
         const href = (event.target as HTMLElement | null)
           ?.closest("a")
@@ -685,7 +751,8 @@ export function SimpleEditor({
       },
       handlePaste: (view, event) => {
         const upload = imageUploadRef.current
-        if (!upload) {
+        const currentEditor = editorRef.current
+        if (!upload || !currentEditor) {
           return false
         }
         const files = extractImageFiles(event.clipboardData)
@@ -693,16 +760,21 @@ export function SimpleEditor({
           return false
         }
         event.preventDefault()
+        const { from, to } = view.state.selection
         void uploadAndInsertImages(
+          currentEditor,
           view,
           files.map(createPastedImageFile),
-          upload
+          upload,
+          from,
+          to
         )
         return true
       },
       handleDrop: (view, event) => {
         const upload = imageUploadRef.current
-        if (!upload) {
+        const currentEditor = editorRef.current
+        if (!upload || !currentEditor) {
           return false
         }
         const files = extractImageFiles(event.dataTransfer)
@@ -714,7 +786,13 @@ export function SimpleEditor({
           left: event.clientX,
           top: event.clientY,
         })
-        void uploadAndInsertImages(view, files, upload, coords?.pos)
+        void uploadAndInsertImages(
+          currentEditor,
+          view,
+          files,
+          upload,
+          coords?.pos ?? view.state.selection.to
+        )
         return true
       },
     },
@@ -744,6 +822,60 @@ export function SimpleEditor({
 
   const shouldShowToolbar = showToolbar && editable
   const canRenderToolbar = editable && (showToolbar || preserveToolbarSpace)
+
+  React.useEffect(() => {
+    editorRef.current = editor
+    return () => {
+      editorRef.current = null
+    }
+  }, [editor])
+
+  React.useEffect(() => {
+    if (!editor || !editable || !allowCommentMentionUris) {
+      commentMentionLinksRef.current = []
+      return
+    }
+    commentMentionLinksRef.current = findCommentMentionLinkRanges(
+      editor.state.doc
+    )
+    const handleUpdate = ({
+      transaction: updateTransaction,
+    }: {
+      transaction: Transaction
+    }) => {
+      const ranges = findCommentMentionLinkRanges(editor.state.doc)
+      const editedIndexes = findEditedCommentMentionIndexes(
+        commentMentionLinksRef.current,
+        ranges,
+        (position, association) =>
+          updateTransaction.mapping.map(position, association)
+      )
+      commentMentionLinksRef.current = ranges
+      const linkMark = editor.state.schema.marks.link
+      if (!linkMark || editedIndexes.length === 0) {
+        return
+      }
+      let transaction = editor.state.tr
+      for (const index of editedIndexes) {
+        const range = ranges[index]
+        if (range) {
+          transaction = transaction.removeMark(range.from, range.to, linkMark)
+        }
+      }
+      // Undo the user's edit directly; never restore a hidden internal link first.
+      transaction = transaction.setMeta("addToHistory", false)
+      editor.view.dispatch(transaction)
+    }
+    editor.on("update", handleUpdate)
+    return () => {
+      editor.off("update", handleUpdate)
+    }
+  }, [allowCommentMentionUris, editable, editor])
+
+  React.useEffect(() => {
+    onEditorReady?.(editor)
+    return () => onEditorReady?.(null)
+  }, [editor, onEditorReady])
 
   const rect = useCursorVisibility({
     editor,

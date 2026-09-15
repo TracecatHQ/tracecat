@@ -380,6 +380,83 @@ async def test_run_workflow_preserves_scheduler_cancellation() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("preserve_cancellation", [True, False])
+@pytest.mark.parametrize(
+    "error_kind", ["cancellation", "wrapped_cancellation", "failure"]
+)
+async def test_run_workflow_return_error_classification(
+    preserve_cancellation: bool, error_kind: str
+) -> None:
+    workflow = _build_workflow()
+    task = ActionStatement(ref="noop", action="core.noop")
+    dsl = DSLInput(
+        title="Return cancellation",
+        description="preserve native cancellation",
+        entrypoint=DSLEntrypoint(ref=task.ref),
+        actions=[task],
+    )
+    time_anchor = datetime.now(UTC)
+    run_args = DSLRunArgs(
+        role=workflow.role,
+        dsl=dsl,
+        wf_id=workflow.run_context.wf_id,
+        time_anchor=time_anchor,
+    )
+    workflow.dsl = dsl
+    workflow.dispatch_type = "push"
+    workflow.wf_run_id = str(workflow.run_context.wf_run_id)
+    workflow.start_to_close_timeout = run_args.timeout
+    error: Exception
+    match error_kind:
+        case "cancellation":
+            error = CancelledError("cancelled by sibling")
+        case "wrapped_cancellation":
+            error = _activity_error_from(CancelledError("cancelled by sibling"))
+        case _:
+            error = _activity_error_from(RuntimeError("return storage failed"))
+    scheduler = SimpleNamespace(start=AsyncMock(return_value=None))
+    workflow_info = SimpleNamespace(
+        start_time=time_anchor,
+        workflow_id=workflow.run_context.wf_exec_id,
+        run_id=str(workflow.run_context.wf_run_id),
+        execution_timeout=None,
+    )
+
+    with (
+        patch("tracecat.dsl.workflow.workflow.info", return_value=workflow_info),
+        patch(
+            "tracecat.dsl.workflow.get_trigger_type",
+            return_value=TriggerType.MANUAL,
+        ),
+        patch("tracecat.dsl.workflow.DSLScheduler", return_value=scheduler),
+        patch.object(workflow, "_handle_return", new=AsyncMock(side_effect=error)),
+        patch(
+            "tracecat.dsl.workflow.workflow.patched",
+            return_value=preserve_cancellation,
+        ) as patched,
+    ):
+        if preserve_cancellation and error_kind != "failure":
+            with pytest.raises(type(error)) as exc_info:
+                await workflow._run_workflow(run_args)
+            assert exc_info.value is error
+        else:
+            with pytest.raises(ApplicationError) as classified_exc_info:
+                await workflow._run_workflow(run_args)
+            classification = extract_error_classification(classified_exc_info.value)
+            assert classification is not None
+            assert classification.owner is RuntimeErrorOwner.PLATFORM
+            assert (
+                classification.kind
+                is RuntimeErrorKind.WORKFLOW_RUNTIME_INVARIANT_VIOLATION
+            )
+
+    if error_kind == "failure":
+        patched.assert_not_called()
+    else:
+        patched.assert_called_once_with(WorkflowPatch.PRESERVE_RETURN_CANCELLATION)
+
+
+@pytest.mark.anyio
 async def test_execute_task_releases_action_permit_when_cancelled_during_heartbeat_stop() -> (
     None
 ):

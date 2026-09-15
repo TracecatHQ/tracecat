@@ -158,3 +158,16 @@ def test_platform_classification_excludes_sensitive_cause_message() -> None:
     assert classification.cause_type == "RuntimeError"
     assert "secret" not in serialized
     assert "example.invalid" not in serialized
+
+
+def test_runtime_classification_rejects_domain_diagnostics() -> None:
+    original = RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.AGENT_LLM_READ_TIMEOUT,
+        message="Safe failure",
+        retry_disposition=RetryDisposition.RETRYABLE,
+    )
+    assert "llm" not in original.model_dump(mode="json")
+    with pytest.raises(ValidationError):
+        RuntimeErrorClassification.model_validate(
+            original.model_dump(mode="json") | {"llm": {"route": "managed"}}
+        )

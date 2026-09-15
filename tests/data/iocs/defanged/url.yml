@@ -34,3 +34,9 @@
 - id: defanged_url_with_paths_and_params
   text: "Suspicious URL: hxxps://evil[.]example[.]com/malware?id=12345 and http[:]//bad(.)site(.)net/payload.exe"
   expected: ["https://evil.example.com/malware?id=12345", "http://bad.site.net/payload.exe"]
+- id: defanged_url_with_escaped_dots
+  text: "Payload hosted at https://evil\\.example\\.com/malware and http://bad\\.site\\.net"
+  expected: ["https://evil.example.com/malware", "http://bad.site.net"]
+- id: defanged_url_with_escaped_dots_and_protocol
+  text: "C2 at hxxps://c2\\.botnet\\.net/beacon?id=1 and hxxp://drop\\.example\\.org"
+  expected: ["https://c2.botnet.net/beacon?id=1", "http://drop.example.org"]

@@ -10,6 +10,7 @@ class PlatformAction(StrEnum):
     AI_AGENT = "ai.agent"
     AI_PRESET_AGENT = "ai.preset_agent"
     AI_ACTION = "ai.action"
+    AI_SLACKBOT = "ai.slackbot"
     RUN_PYTHON = "core.script.run_python"
 
     @classmethod
@@ -18,15 +19,12 @@ class PlatformAction(StrEnum):
             cls.AI_AGENT,
             cls.AI_PRESET_AGENT,
             cls.AI_ACTION,
+            cls.AI_SLACKBOT,
         )
 
     @classmethod
     def is_streamable(cls, action: str) -> bool:
-        return action in (
-            cls.AI_AGENT,
-            cls.AI_PRESET_AGENT,
-            cls.AI_ACTION,
-        )
+        return cls.is_agent(action)
 
     @classmethod
     def interface_actions(cls) -> frozenset[str]:
@@ -40,6 +38,7 @@ class PlatformAction(StrEnum):
                 cls.AI_AGENT,
                 cls.AI_PRESET_AGENT,
                 cls.AI_ACTION,
+                cls.AI_SLACKBOT,
                 cls.RUN_PYTHON,
             )
         )

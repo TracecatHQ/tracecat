@@ -2,11 +2,41 @@
 
 from __future__ import annotations
 
+import signal
+from dataclasses import dataclass
+
+from tracecat.agent.common.config import TRACECAT__AGENT_SANDBOX_MEMORY_MB
+from tracecat.agent.common.exceptions import AgentSandboxProcessExitError
 from tracecat.runtime.errors import (
     RetryDisposition,
     RuntimeErrorClassification,
     RuntimeErrorKind,
 )
+from tracecat.sandbox.exceptions import sandbox_resource_limit_message
+from tracecat.temporal.errors import iter_error_chain
+
+# Exit codes (``128 + signal``) that mean the jailed agent runtime hit one of
+# its nsjail rlimits. SIGABRT is included here, unlike the core sandbox: the
+# jailed process is the trusted shim plus the Claude Code CLI, whose JavaScript
+# engine aborts on allocation failure and has no in-band channel comparable to
+# Python's MemoryError. SIGKILL covers the OOM killer and the wall-clock limit,
+# SIGXCPU the CPU-time limit, and SIGXFSZ the file-size limit.
+AGENT_SANDBOX_RESOURCE_LIMIT_EXIT_CODES = frozenset(
+    {
+        128 + signal.SIGABRT,
+        128 + signal.SIGKILL,
+        128 + signal.SIGXCPU,
+        128 + signal.SIGXFSZ,
+    }
+)
+
+
+@dataclass(frozen=True, slots=True)
+class AgentRuntimeFailure:
+    """Terminal attribution plus the message safe to surface for a runtime failure."""
+
+    message: str
+    classification: RuntimeErrorClassification
 
 
 def invalid_agent_configuration(
@@ -81,6 +111,63 @@ def user_agent_execution_failed(
     )
 
 
+def agent_llm_read_timeout(
+    error: BaseException | None = None,
+) -> RuntimeErrorClassification:
+    """Assign investigation of an ambiguous upstream read stall to Tracecat.
+
+    Operational ownership is not root-cause attribution: a direct route alone
+    cannot distinguish provider, network, or local proxy failures.
+    """
+    return RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.AGENT_LLM_READ_TIMEOUT,
+        message="Timed out waiting for data from the LLM upstream",
+        retry_disposition=RetryDisposition.RETRYABLE,
+        cause=error,
+    )
+
+
+def agent_llm_gateway_auth_failed() -> RuntimeErrorClassification:
+    """Classify a rejected internal gateway credential at its trusted source."""
+    return RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.AGENT_LLM_GATEWAY_AUTH_FAILED,
+        message="Tracecat could not authenticate to the LLM gateway",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+
+
+def agent_llm_provider_auth_failed() -> RuntimeErrorClassification:
+    """Classify rejected upstream provider credentials or permissions."""
+    return RuntimeErrorClassification.user(
+        kind=RuntimeErrorKind.AGENT_LLM_PROVIDER_AUTH_FAILED,
+        message="LLM provider authentication failed; check provider credentials and permissions",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+
+
+def agent_llm_budget_exceeded() -> RuntimeErrorClassification:
+    """Classify an explicit budget denial that needs a limit or billing change."""
+    return RuntimeErrorClassification.user(
+        kind=RuntimeErrorKind.AGENT_LLM_BUDGET_EXCEEDED,
+        message="LLM budget exhausted; check the configured budget or billing limits",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+
+
+def agent_llm_rate_limited(*, route_is_direct: bool) -> RuntimeErrorClassification:
+    """Classify temporary throttling without assuming that a budget ran out."""
+    constructor = (
+        RuntimeErrorClassification.user
+        if route_is_direct
+        else RuntimeErrorClassification.platform
+    )
+    return constructor(
+        kind=RuntimeErrorKind.AGENT_LLM_RATE_LIMITED,
+        message="LLM requests are temporarily rate limited; retry later",
+        retry_disposition=RetryDisposition.RETRYABLE,
+    )
+
+
 def agent_executor_unavailable(
     error: BaseException | None = None,
 ) -> RuntimeErrorClassification:
@@ -90,6 +177,52 @@ def agent_executor_unavailable(
         message="Tracecat agent executor is unavailable",
         retry_disposition=RetryDisposition.RETRYABLE,
         cause=error,
+    )
+
+
+def agent_sandbox_resource_limit_exceeded(
+    error: BaseException | None = None,
+) -> RuntimeErrorClassification:
+    """Classify a jailed agent runtime that died from one of its rlimits.
+
+    The cap is published deployment configuration the caller's workload
+    exceeded, and a retry hits the same cap deterministically.
+    """
+    return RuntimeErrorClassification.user(
+        kind=RuntimeErrorKind.SANDBOX_RESOURCE_LIMIT_EXCEEDED,
+        message=sandbox_resource_limit_message(
+            memory_mb=TRACECAT__AGENT_SANDBOX_MEMORY_MB,
+            memory_env_var="TRACECAT__AGENT_SANDBOX_MEMORY_MB",
+        ),
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        cause=error,
+    )
+
+
+def agent_runtime_failure(
+    error: BaseException,
+    *,
+    fallback_message: str,
+) -> AgentRuntimeFailure:
+    """Classify an exception raised out of a Claude runtime turn.
+
+    A jailed process that exited with a resource-limit code is attributed to
+    the caller and carries its own message. Every other failure remains
+    platform-owned executor unavailability, surfacing ``fallback_message``.
+    """
+    for cause in iter_error_chain(error):
+        if (
+            isinstance(cause, AgentSandboxProcessExitError)
+            and cause.exit_code in AGENT_SANDBOX_RESOURCE_LIMIT_EXIT_CODES
+        ):
+            classification = agent_sandbox_resource_limit_exceeded(cause)
+            return AgentRuntimeFailure(
+                message=classification.message,
+                classification=classification,
+            )
+    return AgentRuntimeFailure(
+        message=fallback_message,
+        classification=agent_executor_unavailable(error),
     )
 
 

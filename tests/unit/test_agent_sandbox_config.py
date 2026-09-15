@@ -60,7 +60,9 @@ def test_build_agent_env_map_protects_job_scoped_uv_state() -> None:
         "UV_TOOL_DIR": "/run/tracecat/uv-state/tools",
     }
     assert {key: env[key] for key in expected_uv_env} == expected_uv_env
-    assert AGENT_RUNTIME_PROTECTED_ENV_VARS == frozenset(expected_uv_env)
+    assert AGENT_RUNTIME_PROTECTED_ENV_VARS == frozenset(
+        {*expected_uv_env, "TRACECAT__SANDBOX_RLIMIT_NPROC"}
+    )
 
 
 @pytest.mark.parametrize("env_key", sorted(AGENT_RUNTIME_PROTECTED_ENV_VARS))

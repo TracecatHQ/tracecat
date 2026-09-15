@@ -436,6 +436,20 @@ pages:
       - id: core.cases.search_cases
         examples:
           - cases-search
+      - id: core.cases.aggregate_cases
+        info: |
+          The example counts `new` and `in_progress` cases by priority and day.
+          It includes cases created on or after August 1, 2026 whose priority
+          is `high` or `critical`, or whose region is `emea`.
+
+          Before running it, create a TEXT custom case field named `region`.
+
+          Use `ACTIONS.cases_by_priority_per_day.result.groups` to read the results.
+          Each item contains a priority, a date, and a case count.
+          If `ACTIONS.cases_by_priority_per_day.result.truncated` is `true`,
+          the result reached the group limit and omitted some groups.
+        examples:
+          - cases-aggregate
       - id: core.cases.list_case_events
         examples:
           - cases-list-events
@@ -724,6 +738,23 @@ pages:
       - id: core.table.search_rows
         examples:
           - tables-search
+      - id: core.table.aggregate_rows
+        info: |
+          The example groups alerts by source and hour, then calculates the
+          alert count, total bytes, and median duration for each group.
+
+          Before running it, create an `alerts` table with these columns:
+
+          - `source`: TEXT.
+          - `disposition`: TEXT.
+          - `bytes_out`: INTEGER.
+          - `duration_ms`: NUMERIC.
+
+          Use `ACTIONS.bytes_by_source_hourly.result.groups` to read the results.
+          If `ACTIONS.bytes_by_source_hourly.result.truncated` is `true`,
+          the result reached the group limit and omitted some groups.
+        examples:
+          - tables-aggregate
 
   - slug: memory-actions/rows
     title: Rows

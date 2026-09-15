@@ -20,14 +20,18 @@ from datetime import timedelta
 from typing import Any, Literal, Never
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
-from temporalio.exceptions import ApplicationError, FailureError
+from temporalio.exceptions import ApplicationError, is_cancelled_exception
 
 from tracecat.logger import logger
+from tracecat.observability.sentry import capture_activity_failure
+from tracecat.observability.types import PlatformErrorCapture
 from tracecat.runtime.errors import (
     RetryDisposition,
     RuntimeErrorClassification,
+    RuntimeErrorOwner,
     TracecatRuntimeError,
 )
+from tracecat.temporal.error_chain import iter_error_chain
 
 ERROR_TRANSPORT_DETAIL_SCHEMA = "tracecat.temporal_error.v1"
 
@@ -83,6 +87,8 @@ def activity_error_boundary(
     except asyncio.CancelledError:
         raise
     except Exception as error:
+        if is_cancelled_exception(error):
+            raise
         if extract_error_classifications(
             error,
             include_implicit_context=False,
@@ -123,6 +129,7 @@ def application_error_from_classification(
     classification: RuntimeErrorClassification,
     *details: Any,
     next_retry_delay: timedelta | None = None,
+    capture: PlatformErrorCapture | None = None,
 ) -> ApplicationError:
     """Build an ``ApplicationError`` from a runtime error classification.
 
@@ -137,6 +144,13 @@ def application_error_from_classification(
             *transported_details,
             build_error_transport_detail(classification).model_dump(mode="json"),
         )
+
+    if (
+        capture is not None
+        and capture.classification == classification
+        and not any(_parse_error_capture(detail) == capture for detail in details)
+    ):
+        transported_details = (*transported_details, capture.model_dump(mode="json"))
 
     non_retryable = classification.retry_disposition is RetryDisposition.NON_RETRYABLE
     if non_retryable and next_retry_delay is not None:
@@ -155,6 +169,7 @@ def raise_application_error_from_classification(
     classification: RuntimeErrorClassification,
     *details: Any,
     next_retry_delay: timedelta | None = None,
+    capture: PlatformErrorCapture | None = None,
 ) -> Never:
     """Raise a classified error without serializing the active exception context.
 
@@ -166,6 +181,7 @@ def raise_application_error_from_classification(
         classification,
         *details,
         next_retry_delay=next_retry_delay,
+        capture=capture,
     ) from None
 
 
@@ -220,7 +236,40 @@ def raise_wrapped_application_error(
         classification,
         *wrapped_details,
         next_retry_delay=next_retry_delay,
+        capture=(
+            extract_error_capture(error, classification)
+            or capture_activity_failure(
+                error,
+                classification,
+                diagnostics=extract_error_diagnostics(error, classification),
+            )
+        ),
     )
+
+
+def _parse_error_capture(value: object) -> PlatformErrorCapture | None:
+    """Accept only the explicitly discriminated telemetry detail."""
+    try:
+        return PlatformErrorCapture.model_validate(value)
+    except ValidationError:
+        return None
+
+
+def extract_error_capture(
+    error: BaseException,
+    classification: RuntimeErrorClassification,
+) -> PlatformErrorCapture | None:
+    """Find a source capture for this exact failure, excluding incidental context."""
+    if classification.owner is not RuntimeErrorOwner.PLATFORM:
+        return None
+    for cause in iter_error_chain(error, include_implicit_context=False):
+        if not isinstance(cause, ApplicationError):
+            continue
+        for detail in cause.details:
+            capture = _parse_error_capture(detail)
+            if capture is not None and capture.classification == classification:
+                return capture
+    return None
 
 
 def extract_error_classification(
@@ -283,6 +332,29 @@ def extract_error_classifications_from_details(
     return tuple(classifications)
 
 
+def extract_error_diagnostics(
+    error: BaseException,
+    classification: RuntimeErrorClassification,
+) -> tuple[object, ...]:
+    """Read opaque diagnostics for this failure, excluding incidental context.
+
+    Reporting boundaries validate the domain-specific diagnostic models.
+    Diagnostics never participate in classification selection.
+    """
+    diagnostics: list[object] = []
+    for current in iter_error_chain(error, include_implicit_context=False):
+        if not isinstance(current, ApplicationError):
+            continue
+        for detail in current.details:
+            for transport in _transport_details_from_payload(detail):
+                if (
+                    transport.classification == classification
+                    and transport.diagnostic is not None
+                ):
+                    diagnostics.append(transport.diagnostic)
+    return tuple(diagnostics)
+
+
 def _classification_from_details(
     details: Sequence[Any],
 ) -> RuntimeErrorClassification | None:
@@ -292,22 +364,30 @@ def _classification_from_details(
     return None
 
 
-def _classifications_from_payload(
+def _transport_details_from_payload(
     payload: Any,
-) -> tuple[RuntimeErrorClassification, ...]:
+) -> tuple[OpaqueErrorTransportDetail, ...]:
+    """Read a transport payload as its transport details, in transport order."""
     match parse_classified_error_payload(payload):
         case None:
             return ()
         case ErrorTransportDetail() as parsed:
-            return (parsed.classification,)
+            return (parsed,)
         case parsed:
-            return tuple(
-                transport_detail.classification for transport_detail in parsed.values()
-            )
+            return tuple(parsed.values())
+
+
+def _classifications_from_payload(
+    payload: Any,
+) -> tuple[RuntimeErrorClassification, ...]:
+    return tuple(
+        transport_detail.classification
+        for transport_detail in _transport_details_from_payload(payload)
+    )
 
 
 def _serialized_detail(detail: Any) -> Any:
-    if isinstance(detail, ErrorTransportDetail):
+    if isinstance(detail, ErrorTransportDetail | PlatformErrorCapture):
         return detail.model_dump(mode="json")
     return detail
 
@@ -320,40 +400,3 @@ def _append_unique_classification(
     if classification not in seen:
         seen.add(classification)
         classifications.append(classification)
-
-
-def iter_error_chain(
-    error: BaseException,
-    *,
-    include_implicit_context: bool = True,
-) -> Iterator[BaseException]:
-    """Walk an exception chain once, following Temporal and Python causes.
-
-    Args:
-        error: The exception to start from.
-        include_implicit_context: Whether to traverse Python's incidental
-            ``__context__`` chain in addition to Temporal and explicit causes.
-    """
-    current: BaseException | None = error
-    seen: set[int] = set()
-    while current is not None:
-        current_id = id(current)
-        if current_id in seen:
-            return
-        seen.add(current_id)
-        yield current
-
-        if isinstance(current, FailureError) and isinstance(
-            current.cause, BaseException
-        ):
-            current = current.cause
-        elif isinstance(current.__cause__, BaseException):
-            current = current.__cause__
-        elif (
-            include_implicit_context
-            and not current.__suppress_context__
-            and isinstance(current.__context__, BaseException)
-        ):
-            current = current.__context__
-        else:
-            current = None

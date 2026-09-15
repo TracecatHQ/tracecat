@@ -72,8 +72,6 @@ from tracecat.integrations.service import (
 from tracecat.integrations.types import MCPServerType
 from tracecat.logger import logger
 from tracecat.pagination import CursorPaginationParams
-from tracecat.tiers.access import is_org_entitled
-from tracecat.tiers.enums import Entitlement
 
 integrations_router = APIRouter(prefix="/integrations", tags=["integrations"])
 """Routes for managing dynamic integration states."""
@@ -498,6 +496,7 @@ async def list_integrations(
         IntegrationReadMinimal(
             id=integration.id,
             provider_id=integration.provider_id,
+            grant_type=integration.grant_type,
             status=integration.status,
             is_expired=integration.is_expired,
         )
@@ -1063,13 +1062,9 @@ async def list_platform_mcp_catalog(
             detail="Organization ID is required",
         )
 
-    agent_addons_entitled = await is_org_entitled(
-        session, role.organization_id, Entitlement.AGENT_ADDONS
-    )
     svc = PlatformMCPCatalogService(session)
     items, next_cursor = await svc.list_catalog(
         workspace_id=role.workspace_id,
-        agent_addons_entitled=agent_addons_entitled,
         q=q,
         category=category,
         status=catalog_status,

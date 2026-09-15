@@ -1,7 +1,7 @@
 """Lightweight output format helpers for the Claude SDK runtime.
 
-This module has NO pydantic-ai dependencies and can be safely imported
-in sandboxed runtimes with minimal import footprint.
+This module is safe to import in sandboxed runtimes with a minimal import
+footprint.
 """
 
 from __future__ import annotations

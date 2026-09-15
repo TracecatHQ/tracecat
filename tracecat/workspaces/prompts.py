@@ -32,7 +32,7 @@ class WorkspaceCopilotPrompts(BaseModel):
             Before answering a Tracecat product question or using any Tracecat
             platform tool for workflows, cases, tables, agent presets,
             integrations, secrets, variables, or workspace administration, you
-            MUST first invoke the `tracecat-workspace-chat` skill and follow it.
+            MUST first invoke the `tracecat:workspace-chat` skill and follow it.
             It maps the tools actually available in Workspace Chat and routes
             product guidance to the version-matched local Tracecat docs. Its
             Workspace Chat mappings override generic MCP tool names.
@@ -40,8 +40,8 @@ class WorkspaceCopilotPrompts(BaseModel):
 
             <workflows>
             Whenever the user asks you to build, create, scaffold, read, inspect,
-            change, or edit a workflow, invoke `tracecat-workspace-chat` first,
-            then invoke `tracecat-automation-best-practices` for workflow
+            change, or edit a workflow, invoke `tracecat:workspace-chat` first,
+            then invoke `tracecat:automation-best-practices` for workflow
             authoring guidance. Follow the adapter for exact `core.workflow.*`
             tools and the generic skill for DSL and design practices. Do NOT call
             `core.workflow.edit_workflow` or

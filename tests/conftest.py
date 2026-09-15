@@ -752,7 +752,7 @@ def registry_version_with_manifest(default_org: None) -> Iterator[None]:
                 "options": {"required_entitlements": ["case_addons"]},
             }
 
-            # ai.agent preset CRUD actions (agent add-on gated)
+            # ai.agent preset CRUD actions
             agent_preset_actions = {
                 "create_preset": {
                     "description": "Create an agent preset",
@@ -791,7 +791,7 @@ def registry_version_with_manifest(default_org: None) -> Iterator[None]:
                     "display_group": "Agent Presets",
                     "interface": {"expects": {}, "returns": None},
                     "implementation": preset_impl,
-                    "options": {"required_entitlements": ["agent_addons"]},
+                    "options": {},
                 }
 
             # core.table.lookup
@@ -1227,6 +1227,7 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
                 "git_sync": True,
                 "agent_addons": True,
                 "case_addons": True,
+                "multi_workspace": True,
             }
         ),
     )

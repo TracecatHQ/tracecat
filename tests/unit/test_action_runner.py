@@ -289,7 +289,7 @@ class TestActionRunner:
 
             assert isinstance(result, ExecutorActionErrorInfo)
             assert result.type == "SubprocessError"
-            assert "Segmentation fault" in result.message
+            assert result.message == "Subprocess exited with code 1"
 
     @pytest.mark.anyio
     async def test_execute_action_success(
@@ -738,9 +738,19 @@ class TestActionRunner:
 
     @pytest.mark.anyio
     async def test_execute_action_invalid_json_response(
-        self, temp_cache_dir, mock_run_action_input, mock_role
+        self,
+        temp_cache_dir,
+        mock_run_action_input,
+        mock_role,
+        monkeypatch: pytest.MonkeyPatch,
     ):
-        """Test handling of invalid JSON response from subprocess."""
+        canary = "SYNTHETIC_SECRET_CARRIER_92"
+        recorded: list[dict[str, object]] = []
+        monkeypatch.setattr(
+            action_runner.logger,
+            "error",
+            lambda _message, **kwargs: recorded.append(kwargs),
+        )
         runner = ActionRunner(cache_dir=temp_cache_dir)
         base_dir = temp_cache_dir / "base"
         base_dir.mkdir()
@@ -748,7 +758,8 @@ class TestActionRunner:
         with patch("asyncio.create_subprocess_exec") as mock_subprocess:
             mock_proc = AsyncMock()
             mock_proc.returncode = 0
-            mock_proc.communicate = AsyncMock(return_value=(b"not valid json {{{", b""))
+            stdout = b"A" * 490 + canary.encode() + b"{"
+            mock_proc.communicate = AsyncMock(return_value=(stdout, b""))
             mock_subprocess.return_value = mock_proc
 
             result = await runner._execute_direct(
@@ -761,11 +772,28 @@ class TestActionRunner:
 
             assert isinstance(result, ExecutorActionErrorInfo)
             assert result.type == "ProtocolError"
+            assert canary not in result.message
+            assert recorded
+            assert canary not in repr(recorded)
+            assert recorded[0]["stdout_bytes"] == len(stdout)
+            assert isinstance(recorded[0]["parser_position"], int)
 
     @pytest.mark.anyio
-    async def test_execute_action_masks_stderr_on_subprocess_crash(
-        self, temp_cache_dir, mock_run_action_input, mock_role
+    async def test_execute_action_omits_stderr_on_subprocess_crash(
+        self,
+        temp_cache_dir,
+        mock_run_action_input,
+        mock_role,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
+        secret = "SYNTHETIC-LINE-ONE\nSYNTHETIC-LINE-TWO"
+        stderr = repr(secret).encode()
+        recorded: list[dict[str, object]] = []
+        monkeypatch.setattr(
+            action_runner.logger,
+            "error",
+            lambda _message, **kwargs: recorded.append(kwargs),
+        )
         runner = ActionRunner(cache_dir=temp_cache_dir)
         base_dir = temp_cache_dir / "base"
         base_dir.mkdir()
@@ -773,9 +801,7 @@ class TestActionRunner:
         with patch("asyncio.create_subprocess_exec") as mock_subprocess:
             mock_proc = AsyncMock()
             mock_proc.returncode = 17
-            mock_proc.communicate = AsyncMock(
-                return_value=(b"", b"token=temp_token secret=temp_secret")
-            )
+            mock_proc.communicate = AsyncMock(return_value=(b"", stderr))
             mock_subprocess.return_value = mock_proc
 
             result = await runner._execute_direct(
@@ -784,16 +810,22 @@ class TestActionRunner:
                 registry_paths=[base_dir],
                 secret_projection=SecretEnvProjection(
                     env={},
-                    mask_values={"temp_token", "temp_secret"},
+                    mask_values={secret},
                 ),
                 timeout=10.0,
             )
 
         assert isinstance(result, ExecutorActionErrorInfo)
         assert result.type == "SubprocessError"
-        assert "temp_token" not in result.message
-        assert "temp_secret" not in result.message
-        assert "***" in result.message
+        assert result.message == "Subprocess exited with code 17"
+        assert recorded == [
+            {
+                "action": mock_run_action_input.task.action,
+                "returncode": 17,
+                "stderr_bytes": len(stderr),
+            }
+        ]
+        assert "SYNTHETIC-LINE-TWO" not in repr(recorded)
 
     @pytest.mark.anyio
     async def test_execute_action_holds_registry_lease_for_whole_subprocess(

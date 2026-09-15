@@ -8,10 +8,13 @@ import tempfile
 import uuid
 from collections import Counter
 from dataclasses import dataclass, field
+from enum import StrEnum
 from pathlib import Path
 from time import perf_counter
 from typing import Any, cast
 
+from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
 from pydantic import AliasChoices, BaseModel, Field
 from temporalio import activity
 from tracecat_ee.workspace_chat.policy import (
@@ -43,10 +46,11 @@ from tracecat.agent.common.types import (
     is_stdio_mcp_server,
     requires_sandbox_internet_access,
 )
+from tracecat.agent.diagnostics import LLMErrorDiagnostics
 from tracecat.agent.error_policy import (
     agent_executor_protocol_failed,
     agent_executor_timed_out,
-    agent_executor_unavailable,
+    agent_runtime_failure,
     invalid_agent_configuration,
 )
 from tracecat.agent.executor.loopback import (
@@ -86,13 +90,18 @@ from tracecat.agent.sandbox.llm_proxy import (
     LLMRoutingPlan,
     LLMSocketProxy,
 )
-from tracecat.agent.sandbox.otel_relay import OTEL_SOCKET_NAME, OtelSocketReceiver
+from tracecat.agent.sandbox.otel_relay import (
+    OTEL_SOCKET_NAME,
+    OtelRoutingPlan,
+    OtelSocketReceiver,
+    PlatformTraceParent,
+)
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.skill.builtin import (
-    BUILTIN_SKILL_NAME_PREFIX,
-    BUILTIN_WORKSPACE_CHAT_SKILLS,
+    PLATFORM_SKILL_PLUGIN_DIR,
 )
+from tracecat.agent.skill.builtin.staging import stage_platform_skill_plugin
 from tracecat.agent.skill.service import SkillService
 from tracecat.agent.types import AgentConfig, clamp_agent_timeout_seconds
 from tracecat.auth.types import Role
@@ -106,6 +115,13 @@ from tracecat.feature_flags import FeatureFlag, is_feature_enabled
 from tracecat.integrations.mcp_validation import MCPSecretResolutionError
 from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
+from tracecat.observability.otel import (
+    platform_otel_collector_env,
+    platform_span,
+    set_current_span_attributes,
+)
+from tracecat.observability.sentry import capture_activity_failure
+from tracecat.observability.types import PlatformErrorCapture
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.runtime.errors import RuntimeErrorClassification
 from tracecat.settings.service import SettingsService
@@ -119,6 +135,31 @@ from .schemas import (
 
 BROKER_TASK_CANCEL_TIMEOUT_SECONDS = 5.0
 GRACEFUL_CANCEL_TIMEOUT_SECONDS = 30.0
+
+# Turns on the sandbox runtime's native trace exporter for platform tracing.
+_PLATFORM_TELEMETRY_ENV = {
+    "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+    "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA": "1",
+    "OTEL_TRACES_EXPORTER": "otlp",
+    "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
+}
+
+# Silences every tenant-facing signal when the tenant has no OTel config of
+# their own, so platform tracing alone never emits their prompts or tool I/O.
+_PLATFORM_ONLY_TELEMETRY_ENV = {
+    "OTEL_METRICS_EXPORTER": "none",
+    "OTEL_LOGS_EXPORTER": "none",
+    "OTEL_LOG_USER_PROMPTS": "0",
+    "OTEL_LOG_TOOL_DETAILS": "0",
+    "OTEL_LOG_TOOL_CONTENT": "0",
+}
+
+
+class AgentRuntimeOutcome(StrEnum):
+    SUCCESS = "success"
+    FAILURE = "failure"
+    APPROVAL = "approval"
+    CANCELLED = "cancelled"
 
 
 @dataclass(frozen=True, slots=True)
@@ -208,6 +249,10 @@ class AgentExecutorResult(BaseModel):
     # Typed terminal attribution produced by the trusted executor boundary.
     # None keeps activity results recorded before this field replayable.
     classification: RuntimeErrorClassification | None = None
+    diagnostic: LLMErrorDiagnostics | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    sentry_capture: PlatformErrorCapture | None = Field(default=None, exclude=True)
     # None means a legacy activity result did not carry this field. The
     # workflow treats unknown failed results as already terminal-emitted so old
     # histories keep their original command shape.
@@ -229,6 +274,50 @@ class AgentExecutorResult(BaseModel):
     # Tool calls the interrupt aborted mid-flight (errored after cancellation
     # or never resolved). None on legacy results that predate this field.
     interrupted_tool_call_ids: list[str] | None = None
+
+
+def _record_failure(
+    result: AgentExecutorResult,
+    message: str | None,
+    classification: RuntimeErrorClassification | None,
+    *,
+    diagnostic: LLMErrorDiagnostics | None = None,
+) -> None:
+    """Record one terminal attribution trio on an executor result.
+
+    Message and classification are optional so a loopback turn that succeeded
+    clears the trio through the same path a failed one sets it.
+
+    Args:
+        result: Activity result to update in place.
+        message: Durable failure text, or None when there is no failure.
+        classification: Terminal attribution, or None when there is no failure.
+        diagnostic: Safe request context for an LLM failure.
+    """
+    result.error = message
+    result.classification = classification
+    result.diagnostic = diagnostic
+
+
+def _agent_correlation_attributes(input: AgentExecutorInput) -> dict[str, str]:
+    """Build the single trusted correlation mapping for an agent turn."""
+    values: dict[str, uuid.UUID | None] = {
+        "tracecat.organization.id": input.role.organization_id,
+        "tracecat.workspace.id": input.workspace_id,
+        "tracecat.agent.session.id": input.session_id,
+        "tracecat.agent.run.id": input.curr_run_id,
+    }
+    return {key: str(value) for key, value in values.items() if value is not None}
+
+
+def _agent_runtime_outcome(result: AgentExecutorResult) -> AgentRuntimeOutcome:
+    if result.approval_requested:
+        return AgentRuntimeOutcome.APPROVAL
+    if result.cancelled:
+        return AgentRuntimeOutcome.CANCELLED
+    if result.success:
+        return AgentRuntimeOutcome.SUCCESS
+    return AgentRuntimeOutcome.FAILURE
 
 
 class ExecuteApprovedToolsInput(BaseModel):
@@ -357,12 +446,11 @@ class SandboxedAgentExecutor:
     def _llm_routing_plan(self) -> LLMRoutingPlan:
         """Build the socket proxy routing table from each agent's model config.
 
-        Agent config decides routing, not root/subagent position. The managed
-        route is the fallback for every request model that does not have a
-        direct passthrough entry. Direct passthrough traffic bypasses managed
-        LiteLLM, so each passthrough root/subagent needs its own exact-model
-        route to preserve its custom provider base URL, credentials, and
-        upstream model name.
+        Each agent's passthrough setting determines its transport. Managed
+        requests use the shared LiteLLM gateway, which selects the model and
+        provider from the signed token. Passthrough requests use an exact-model
+        route with their own endpoint, credentials, and upstream model name.
+        Root and subagent requests follow the same rules.
 
         Returns:
             Routing plan for the host-side LLM socket proxy.
@@ -390,9 +478,11 @@ class SandboxedAgentExecutor:
         without needing to know which agent produced the request.
 
         A single execution can include a passthrough root agent and multiple
-        passthrough subagents. Since passthrough skips the managed LiteLLM
-        fallback, the shared proxy needs one direct route per exact runtime
-        model key rather than one global passthrough destination.
+        passthrough subagents. Passthrough requests go straight to their
+        provider endpoint instead of through managed LiteLLM, so the shared
+        proxy needs one direct route per exact runtime model key rather than
+        one global passthrough destination. Agents without passthrough need no
+        entry here; their requests use the managed route.
 
         Returns:
             Direct passthrough routes keyed by request model.
@@ -437,9 +527,9 @@ class SandboxedAgentExecutor:
         """Create one direct passthrough route.
 
         Args:
-            base_url: Resolved custom provider base URL.
-            model_provider: Provider behind the custom route.
-            catalog_id: Optional custom-provider catalog row for credentials.
+            base_url: Resolved provider base URL.
+            model_provider: Provider behind the direct route.
+            catalog_id: Optional provider catalog row for credentials.
             upstream_model_name: Optional model name to send to the upstream.
 
         Returns:
@@ -451,7 +541,7 @@ class SandboxedAgentExecutor:
         """
         if base_url is None:
             raise AgentSandboxValidationError(
-                "Custom model provider passthrough requires a resolved base_url."
+                "Model provider passthrough requires a resolved base_url."
             )
         return LLMRoute(
             base_url=base_url,
@@ -489,11 +579,25 @@ class SandboxedAgentExecutor:
             )
             return ResolvedAgentOtelConfig(enabled=False)
 
+    def _platform_trace_parent(self) -> PlatformTraceParent | None:
+        """Capture the active host span and safe agent/workflow correlation."""
+        span_context = trace.get_current_span().get_span_context()
+        if not span_context.is_valid:
+            return None
+
+        return PlatformTraceParent(
+            trace_id=span_context.trace_id.to_bytes(16, byteorder="big"),
+            span_id=span_context.span_id.to_bytes(8, byteorder="big"),
+            trace_flags=int(span_context.trace_flags),
+            resource_attributes=_agent_correlation_attributes(self.input),
+        )
+
     @staticmethod
     def _build_sandbox_env(
         resolved: ResolvedAgentOtelConfig,
         *,
         otel_auth_token: str,
+        platform_tracing: bool = False,
     ) -> dict[str, str]:
         """Build the sandbox-side OTel env.
 
@@ -502,6 +606,10 @@ class SandboxedAgentExecutor:
         host-side socket receiver to verify.
         """
         sandbox_env = dict(resolved.sandbox_env)
+        if platform_tracing:
+            sandbox_env.update(_PLATFORM_TELEMETRY_ENV)
+            if not resolved.enabled:
+                sandbox_env.update(_PLATFORM_ONLY_TELEMETRY_ENV)
         sandbox_env.pop("OTEL_EXPORTER_OTLP_ENDPOINT", None)
         sandbox_env["OTEL_EXPORTER_OTLP_HEADERS"] = (
             f"Authorization=Bearer {otel_auth_token}"
@@ -559,7 +667,15 @@ class SandboxedAgentExecutor:
             # decryption stay trusted-side, never cross Temporal payload boundary).
             otel_socket_path: Path | None = None
             resolved_otel = await self._resolve_agent_otel_config()
-            if resolved_otel.enabled:
+            otel_plan = OtelRoutingPlan.build(
+                collector_env=resolved_otel.collector_env,
+                headers=resolved_otel.headers,
+                platform_trace_parent=self._platform_trace_parent(),
+                platform_collector_env=platform_otel_collector_env(),
+            )
+            platform_tracing = otel_plan.platform_endpoint is not None
+            telemetry_enabled = resolved_otel.enabled or platform_tracing
+            if telemetry_enabled:
                 if self.input.agent_otel_auth_token is None:
                     logger.warning(
                         "Agent OTel enabled but auth token is missing; running without telemetry",
@@ -574,12 +690,12 @@ class SandboxedAgentExecutor:
                     init_payload.agent_otel_sandbox_env = self._build_sandbox_env(
                         resolved_otel,
                         otel_auth_token=self.input.agent_otel_auth_token,
+                        platform_tracing=platform_tracing,
                     )
                     otel_socket_path = socket_dir / OTEL_SOCKET_NAME
                     self._otel_receiver = OtelSocketReceiver(
                         socket_path=otel_socket_path,
-                        collector_env=resolved_otel.collector_env,
-                        headers=resolved_otel.headers,
+                        plan=otel_plan,
                         expected_workspace_id=self.input.workspace_id,
                         expected_organization_id=self.input.role.organization_id,
                         expected_session_id=self.input.session_id,
@@ -610,16 +726,23 @@ class SandboxedAgentExecutor:
 
         except AgentSandboxValidationError as e:
             logger.error("Agent configuration is invalid", error=str(e))
-            result.error = str(e)
-            result.classification = invalid_agent_configuration(e)
+            _record_failure(result, str(e), invalid_agent_configuration(e))
         except AgentSandboxExecutionError as e:
             logger.error("Agent sandbox execution failed", error=str(e))
-            result.error = str(e)
-            result.classification = agent_executor_unavailable(e)
+            failure = agent_runtime_failure(e, fallback_message=str(e))
+            _record_failure(result, failure.message, failure.classification)
+            result.sentry_capture = capture_activity_failure(
+                e, failure.classification, existing_capture=result.sentry_capture
+            )
         except Exception as e:
             logger.exception("Unexpected error in agent executor", error=str(e))
-            result.error = f"Unexpected error: {e}"
-            result.classification = agent_executor_unavailable(e)
+            failure = agent_runtime_failure(
+                e, fallback_message=f"Unexpected error: {e}"
+            )
+            _record_failure(result, failure.message, failure.classification)
+            result.sentry_capture = capture_activity_failure(
+                e, failure.classification, existing_capture=result.sentry_capture
+            )
         finally:
             await self._cleanup()
 
@@ -686,8 +809,8 @@ class SandboxedAgentExecutor:
     ) -> None:
         """Copy loopback result fields into the activity result."""
         result.success = loopback_result.success
-        result.error = loopback_result.error
-        result.classification = loopback_result.classification
+        _record_failure(result, loopback_result.error, loopback_result.classification)
+        result.sentry_capture = loopback_result.sentry_capture
         result.approval_requested = loopback_result.approval_requested
         result.approval_items = loopback_result.approval_items or None
         result.terminal_stream_error_emitted = (
@@ -808,10 +931,17 @@ class SandboxedAgentExecutor:
 
                     if fatal_error_task in done:
                         proxy_error = fatal_error_task.result()
-                        result.error = proxy_error.message
-                        result.classification = proxy_error.classification
+                        _record_failure(
+                            result,
+                            proxy_error.message,
+                            proxy_error.classification,
+                            diagnostic=proxy_error.diagnostic,
+                        )
                         result.terminal_stream_error_emitted = (
-                            await handler.emit_terminal_error(proxy_error.message)
+                            await handler.emit_terminal_error(
+                                proxy_error.message,
+                                classification=proxy_error.classification,
+                            )
                         )
                         await broker.cancel_turn(str(self.input.session_id))
                         await _cancel_task_with_timeout(
@@ -845,12 +975,23 @@ class SandboxedAgentExecutor:
                             )
                     break
                 else:
-                    result.error = (
+                    timeout_message = (
                         f"Agent execution timed out after {self.timeout_seconds}s"
                     )
-                    result.classification = agent_executor_timed_out()
+                    timeout_classification = agent_executor_timed_out()
+                    _record_failure(result, timeout_message, timeout_classification)
+                    # Raise locally so the deadline event retains this source frame.
+                    try:
+                        raise TimeoutError(timeout_message)
+                    except TimeoutError as error:
+                        result.sentry_capture = capture_activity_failure(
+                            error, timeout_classification
+                        )
                     result.terminal_stream_error_emitted = (
-                        await handler.emit_terminal_error(result.error)
+                        await handler.emit_terminal_error(
+                            timeout_message,
+                            classification=timeout_classification,
+                        )
                     )
                     await broker.cancel_turn(str(self.input.session_id))
                     await _cancel_task_with_timeout(
@@ -859,10 +1000,18 @@ class SandboxedAgentExecutor:
                     )
                     broker_task = None
         except Exception as e:
-            result.error = str(e)
-            result.classification = agent_executor_unavailable(e)
+            # A jailed runtime that died from an rlimit is the caller's failure
+            # and must win over the generic executor-unavailable attribution.
+            failure = agent_runtime_failure(e, fallback_message=str(e))
+            _record_failure(result, failure.message, failure.classification)
+            result.sentry_capture = capture_activity_failure(
+                e,
+                failure.classification,
+                existing_capture=handler.build_result().sentry_capture,
+            )
             result.terminal_stream_error_emitted = await handler.emit_terminal_error(
-                result.error
+                failure.message,
+                classification=failure.classification,
             )
             if not isinstance(e, ConcurrentSessionTurnError):
                 raise
@@ -993,9 +1142,7 @@ class SandboxedAgentExecutor:
             socket_dir.mkdir(mode=0o700)
             skills_dir = job_dir / "home" / ".claude" / "skills"
             skills_dir.mkdir(parents=True, exist_ok=True)
-            # Built-ins first: they take precedence, and _stage_resolved_skills
-            # skips any user skill whose name collides with a staged built-in.
-            await self._stage_builtin_skills(skills_dir)
+            await self._stage_builtin_skills(job_dir / PLATFORM_SKILL_PLUGIN_DIR)
             await self._stage_resolved_skills(skills_dir)
 
             # Note: The MCP socket directory is mounted directly into NSJail at /mcp-sockets
@@ -1048,14 +1195,7 @@ class SandboxedAgentExecutor:
         return skills_dir
 
     async def _stage_resolved_skills(self, skills_dir: Path) -> None:
-        """Stage resolved published skills into the per-run home directory.
-
-        Runs after ``_stage_builtin_skills``: built-in platform skills take
-        precedence, so a resolved skill whose name collides with an
-        already-staged built-in (possible for legacy skills created before the
-        ``tracecat-`` prefix was reserved) is skipped with a warning instead of
-        overlaying it.
-        """
+        """Stage workspace skills independently of the platform plugin."""
 
         config = cast(Any, self.input.config)
         resolved_skills = config.resolved_skills or []
@@ -1075,13 +1215,6 @@ class SandboxedAgentExecutor:
 
         async with SkillService.with_session(role=self.input.role) as service:
             for resolved_skill in resolved_skills:
-                if (skills_dir / resolved_skill.skill_name).exists():
-                    logger.warning(
-                        "Resolved skill collides with a staged built-in skill; "
-                        "skipping",
-                        skill=resolved_skill.skill_name,
-                    )
-                    continue
                 cached_dir = await self._ensure_cached_skill_dir(
                     service=service,
                     manifest_sha256=resolved_skill.manifest_sha256,
@@ -1094,65 +1227,16 @@ class SandboxedAgentExecutor:
                     dirs_exist_ok=True,
                 )
 
-    async def _stage_builtin_skills(self, skills_dir: Path) -> None:
-        """Stage always-on built-in platform skills into the run home dir.
-
-        Built-in skills are plain on-disk directories vendored from the public
-        ``tracecat-plugins`` repository into ``TRACECAT__COPILOT_SKILLS_DIR`` at
-        image build time. They are identified by name only (resolved from the
-        config, which set them when the org is workspace-chat entitled), so this
-        method maps each reserved-prefix name to its directory and copies it
-        into the staged skills directory. Built-in skills own the
-        ``tracecat-`` namespace and are staged BEFORE preset
-        ``resolved_skills``, which skip any name already staged here — so a
-        legacy user skill with a reserved-prefix name can never overlay or be
-        overlaid by a built-in.
-        """
-        config = cast(Any, self.input.config)
-        names = config.builtin_skills or []
-        if not names:
+    async def _stage_builtin_skills(self, plugin_dir: Path) -> None:
+        """Stage platform guidance outside the workspace skill directory."""
+        if not self.input.config.builtin_skills:
             return
-
-        requested_names: list[str] = []
-        for name in dict.fromkeys(names):
-            if (
-                not name.startswith(BUILTIN_SKILL_NAME_PREFIX)
-                or "/" in name
-                or name in {".", ".."}
-                or name not in BUILTIN_WORKSPACE_CHAT_SKILLS
-            ):
-                logger.warning("Skipping invalid built-in skill name", skill=name)
-                continue
-            requested_names.append(name)
-        if not requested_names:
-            return
-
-        # The vendored directory lives outside the package tree so that
-        # neither the wheel build nor a development bind mount over `packages/`
-        # can serve a stale copy. Built-ins are part of the Workspace Chat
-        # runtime contract, so fail explicitly if an image omits them instead
-        # of silently starting an entitled session without its guidance.
-        vendored_root = Path(app_config.TRACECAT__COPILOT_SKILLS_DIR)
-        if not vendored_root.is_dir():
-            raise FileNotFoundError(
-                "Vendored copilot skills directory is required when built-in "
-                f"skills are requested: {vendored_root}"
-            )
-        for name in requested_names:
-            source = vendored_root / name
-            if not (source / "SKILL.md").is_file():
-                logger.warning(
-                    "Built-in skill missing SKILL.md; skipping",
-                    skill=name,
-                    skills_root=str(vendored_root),
-                )
-                continue
-            await asyncio.to_thread(
-                shutil.copytree,
-                source,
-                skills_dir / name,
-                dirs_exist_ok=True,
-            )
+        await asyncio.to_thread(
+            stage_platform_skill_plugin,
+            asset_names=self.input.config.builtin_skills,
+            vendored_root=Path(app_config.TRACECAT__COPILOT_SKILLS_DIR),
+            plugin_root=plugin_dir,
+        )
 
     async def _ensure_cached_skill_dir(
         self,
@@ -1399,42 +1483,62 @@ async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
     Returns:
         AgentExecutorResult with execution status and terminal output.
     """
+    activity_info = activity.info()
+    set_current_span_attributes(
+        {
+            **_agent_correlation_attributes(input),
+            "temporal.activity.attempt": activity_info.attempt,
+            "temporal.task_queue": activity_info.task_queue,
+        }
+    )
+
     sandbox_mode = "direct" if TRACECAT__DISABLE_NSJAIL else "nsjail"
     activity.heartbeat(
         f"Starting agent execution ({sandbox_mode} mode): {input.session_id}"
     )
 
-    input = await _hydrate_sdk_session_history(input)
+    with platform_span("tracecat.agent.prepare"):
+        input = await _hydrate_sdk_session_history(input)
 
-    # Stdio MCP servers are spawned directly by the runtime; unlike HTTP
-    # servers they have no per-call secret resolution hook downstream. The
-    # configs in ``input.config.mcp_servers`` and each subagent's
-    # ``config.mcp_servers`` arrive in refs-only shape (no ``env``) — hydrate
-    # from the DB here so the spawned processes get their credentials.
-    config = cast(Any, input.config)
-    try:
-        config.mcp_servers = await _hydrate_stdio_env(
-            config.mcp_servers, role=input.role
-        )
-        for subagent in input.subagents:
-            subagent.config.mcp_servers = await _hydrate_stdio_env(
-                subagent.config.mcp_servers, role=input.role
+        # Stdio MCP servers are spawned directly by the runtime; unlike HTTP
+        # servers they have no per-call secret resolution hook downstream. The
+        # configs in ``input.config.mcp_servers`` and each subagent's
+        # ``config.mcp_servers`` arrive in refs-only shape (no ``env``) — hydrate
+        # from the DB here so the spawned processes get their credentials.
+        config = cast(Any, input.config)
+        try:
+            config.mcp_servers = await _hydrate_stdio_env(
+                config.mcp_servers, role=input.role
             )
-    except AgentSandboxValidationError as e:
-        classification = invalid_agent_configuration(e)
-        return AgentExecutorResult(
-            success=False,
-            error=classification.message,
-            classification=classification,
-            terminal_stream_error_emitted=False,
+            for subagent in input.subagents:
+                subagent.config.mcp_servers = await _hydrate_stdio_env(
+                    subagent.config.mcp_servers, role=input.role
+                )
+        except AgentSandboxValidationError as e:
+            classification = invalid_agent_configuration(e)
+            return AgentExecutorResult(
+                success=False,
+                error=classification.message,
+                classification=classification,
+                terminal_stream_error_emitted=False,
+            )
+
+        timeout_seconds = clamp_agent_timeout_seconds(input.timeout_seconds)
+        executor = SandboxedAgentExecutor(
+            input=input,
+            timeout_seconds=timeout_seconds,
         )
 
-    timeout_seconds = clamp_agent_timeout_seconds(input.timeout_seconds)
-    executor = SandboxedAgentExecutor(
-        input=input,
-        timeout_seconds=timeout_seconds,
-    )
-    result = await executor.run()
+    with platform_span(
+        "tracecat.agent.runtime",
+        attributes={"tracecat.agent.harness": "claude_code"},
+    ) as runtime_span:
+        result = await executor.run()
+        outcome = _agent_runtime_outcome(result)
+        if runtime_span is not None:
+            runtime_span.set_attribute("tracecat.agent.outcome", outcome)
+            if outcome is AgentRuntimeOutcome.FAILURE:
+                runtime_span.set_status(Status(status_code=StatusCode.ERROR))
 
     if result.success:
         activity.heartbeat(f"Agent execution completed: {input.session_id}")

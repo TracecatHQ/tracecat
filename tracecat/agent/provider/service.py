@@ -25,6 +25,7 @@ from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import AgentCatalog, AgentCustomProvider, AgentModelAccess
 from tracecat.exceptions import TracecatNotFoundError
+from tracecat.outbound import create_outbound_http_client
 from tracecat.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,
@@ -418,17 +419,13 @@ class AgentCustomProviderService(BaseOrgService):
         timeout: float,
     ) -> httpx.Response:
         """Make a GET /models request against a provider base URL."""
-        headers = custom_headers.copy() if custom_headers else {}
-        if api_key:
-            if not api_key_header:
-                headers["Authorization"] = f"Bearer {api_key}"
-            else:
-                headers[api_key_header] = api_key
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            return await client.get(
-                f"{base_url.rstrip('/')}/models",
-                headers=headers,
-            )
+        return await fetch_openai_compatible_models(
+            base_url=base_url,
+            api_key=api_key,
+            api_key_header=api_key_header,
+            custom_headers=custom_headers,
+            timeout=timeout,
+        )
 
     async def validate_provider(
         self,
@@ -460,20 +457,60 @@ class AgentCustomProviderService(BaseOrgService):
         api_key_header: str | None = None,
     ) -> list[dict[str, object]]:
         """Discover available models from a provider endpoint."""
-        try:
-            response = await self._fetch_models(
-                base_url=base_url,
-                api_key=api_key,
-                api_key_header=api_key_header,
-                custom_headers=custom_headers,
-                timeout=30.0,
-            )
-            response.raise_for_status()
-            data = response.json()
-        except httpx.HTTPError as err:
-            raise ValueError(f"Failed to discover models: {err}") from err
-        if isinstance(data, dict) and isinstance(data.get("data"), list):
-            return [item for item in data["data"] if isinstance(item, dict)]
-        if isinstance(data, list):
-            return [item for item in data if isinstance(item, dict)]
-        raise ValueError(f"Unexpected response format: {type(data)}")
+        return await discover_openai_compatible_models(
+            base_url,
+            api_key=api_key,
+            custom_headers=custom_headers,
+            api_key_header=api_key_header,
+        )
+
+
+async def fetch_openai_compatible_models(
+    *,
+    base_url: str,
+    api_key: str | None,
+    api_key_header: str | None = None,
+    custom_headers: dict[str, str] | None = None,
+    timeout: float,
+) -> httpx.Response:
+    """Make a GET /models request against an OpenAI-compatible base URL."""
+    headers = custom_headers.copy() if custom_headers else {}
+    if api_key:
+        if not api_key_header:
+            headers["Authorization"] = f"Bearer {api_key}"
+        else:
+            headers[api_key_header] = api_key
+    async with create_outbound_http_client(
+        origin_url=base_url, timeout=timeout
+    ) as client:
+        return await client.get(
+            f"{base_url.rstrip('/')}/models",
+            headers=headers,
+        )
+
+
+async def discover_openai_compatible_models(
+    base_url: str,
+    *,
+    api_key: str | None = None,
+    custom_headers: dict[str, str] | None = None,
+    api_key_header: str | None = None,
+) -> list[dict[str, object]]:
+    """Fetch and normalize the model list from an OpenAI-compatible endpoint."""
+    try:
+        response = await fetch_openai_compatible_models(
+            base_url=base_url,
+            api_key=api_key,
+            api_key_header=api_key_header,
+            custom_headers=custom_headers,
+            timeout=30.0,
+        )
+        response.raise_for_status()
+        data = response.json()
+    except httpx.HTTPError as err:
+        raise ValueError(f"Failed to discover models: {err}") from err
+    if isinstance(data, dict) and isinstance(data.get("data"), list):
+        return [item for item in data["data"] if isinstance(item, dict)]
+    if isinstance(data, list):
+        return [item for item in data if isinstance(item, dict)]
+    raise ValueError(f"Unexpected response format: {type(data)}")

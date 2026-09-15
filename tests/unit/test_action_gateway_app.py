@@ -131,7 +131,6 @@ def test_action_gateway_validation_errors_are_json_safe() -> None:
     [
         pytest.param("GET", "/internal/cases", id="registry-action"),
         pytest.param("POST", "/internal/workflows/run", id="sdk-operation"),
-        pytest.param("POST", "/internal/agent/run", id="nested-agent-run"),
     ],
 )
 def test_agent_script_cannot_reach_gateway(
