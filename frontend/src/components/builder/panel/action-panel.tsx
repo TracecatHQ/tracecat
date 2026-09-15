@@ -1557,7 +1557,7 @@ function ActionPanelContent({
 
                       <ControlFlowField
                         label="Show error details"
-                        description="Unsafe: surface this action's original error message even when secrets are in scope, instead of the generic 'Details withheld' message. Known secret values are still masked, but transformed secrets may leak. Only takes effect when organization settings allow it for this workspace."
+                        description="Unsafe: show this action's original error message even when secrets are in scope. Known secret values are still masked."
                       >
                         <FormField
                           name="unsafe_disable_secret_error_withholding"

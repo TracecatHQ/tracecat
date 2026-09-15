@@ -237,13 +237,9 @@ export function OrgSettingsAppForm() {
               <div className="space-y-0.5">
                 <FormLabel>Workspaces allowed to show error details</FormLabel>
                 <FormDescription>
-                  Unsafe: actions in the selected workspaces may opt into
-                  showing their original error message when secrets are in
-                  scope, instead of the generic &quot;Details withheld&quot;
-                  message. Each action must still enable &quot;Show error
-                  details&quot;. Known secret values are masked, but transformed
-                  secrets may leak. Unselected workspaces cannot use the action
-                  toggle.
+                  Unsafe: actions in these workspaces can opt into showing
+                  original error messages when secrets are in scope. Known
+                  secret values are still masked.
                 </FormDescription>
               </div>
               <div className="space-y-2 pt-2">
