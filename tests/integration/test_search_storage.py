@@ -400,7 +400,9 @@ async def test_paused_edits_and_rollback_cannot_restore_old_results(
         assert not (await session.scalars(eligible_chunks(case.scope))).all()
         await store.set_state(SearchState.REINDEX_REQUIRED)
         await store.set_state(SearchState.DISABLED)
-        await store.set_state(SearchState.ACTIVE)
+        with pytest.raises(SearchError) as activation_error:
+            await store.set_state(SearchState.ACTIVE)
+        assert activation_error.value.code == SearchErrorCode.INDEX_NOT_READY
         assert not (await session.scalars(eligible_chunks(case.scope))).all()
         with pytest.raises(SearchError):
             await store.claim(case.collection_id, claim.document_id)
@@ -632,8 +634,12 @@ async def test_scoped_session_factory_preserves_caller_transaction(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    "intermediate_state", [None, SearchState.DISABLED, SearchState.PAUSED]
+)
 async def test_reindex_recovery_requires_new_configuration(
     storage_case: StorageCase,
+    intermediate_state: SearchState | None,
 ) -> None:
     case = storage_case
     old_claim = await prepared(case, 1)
@@ -642,6 +648,8 @@ async def test_reindex_recovery_requires_new_configuration(
         await store.write_embeddings(old_claim, (embedding(old_claim),))
         await store.publish(old_claim)
         await store.set_state(SearchState.REINDEX_REQUIRED)
+        if intermediate_state is not None:
+            await store.set_state(intermediate_state)
     with pytest.raises(SearchError) as activation_error:
         async with case.sessions.begin() as session:
             await case.store(session).set_state(SearchState.ACTIVE)
@@ -692,3 +700,93 @@ async def test_reindex_recovery_requires_new_configuration(
         await store.write_embeddings(claim, (embedding(claim),))
         await store.publish(claim)
         assert len((await session.scalars(eligible_chunks(case.scope))).all()) == 1
+
+
+@pytest.mark.anyio
+async def test_empty_index_is_partial_after_configuration_change(
+    storage_case: StorageCase,
+) -> None:
+    case = storage_case
+    async with case.sessions.begin() as session:
+        store = case.store(session)
+        await store.checkpoint_backfill(
+            case.collection_id, generation=1, before=None, after=None, complete=True
+        )
+        assert not (await store.status(case.collection_id)).partial
+        await store.save_configuration(
+            provider="synthetic",
+            model="synthetic-v2",
+            endpoint=None,
+            credential_id=uuid.uuid4(),
+            credential_environment="default",
+            dimensions=3,
+            input_token_limit=1024,
+        )
+        status = await store.status(case.collection_id)
+        assert status.partial
+        assert status.pending == status.ready == status.empty == status.failed == 0
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("change", ["configuration", "generation"])
+async def test_stale_failures_become_pending(
+    storage_case: StorageCase, change: str
+) -> None:
+    case = storage_case
+    claim = await claimed(case)
+    async with case.sessions.begin() as session:
+        store = case.store(session)
+        await store.fail(claim, SearchErrorCode.PROVIDER_UNAVAILABLE)
+        status = await store.status(case.collection_id)
+        assert status.failed == 1 and status.pending == 0
+        if change == "configuration":
+            await store.save_configuration(
+                provider="synthetic",
+                model="synthetic-v2",
+                endpoint=None,
+                credential_id=uuid.uuid4(),
+                credential_environment="default",
+                dimensions=3,
+                input_token_limit=1024,
+            )
+        else:
+            await store.configure_collection(
+                source_id=case.source_id,
+                column_ids=(case.column_id,),
+                chunker=ChunkerSettings(tokenizer="synthetic", input_tokens=400),
+                expected_generation=1,
+            )
+        status = await store.status(case.collection_id)
+        assert status.failed == 0 and status.pending == 1
+        assert status.partial
+
+
+@pytest.mark.anyio
+async def test_fresh_workspace_cannot_activate_without_configuration(
+    storage_case: StorageCase,
+) -> None:
+    case = storage_case
+    async with case.sessions.begin() as session:
+        workspace_id = uuid.uuid4()
+        session.add(
+            Workspace(
+                id=workspace_id,
+                organization_id=case.scope.organization_id,
+                name="Synthetic unconfigured workspace",
+            )
+        )
+        await session.flush()
+        store = SearchStorage(
+            session, SearchScope(case.scope.organization_id, workspace_id)
+        )
+        with pytest.raises(SearchError) as error:
+            await store.set_state(SearchState.ACTIVE)
+        assert error.value.code == SearchErrorCode.INDEX_NOT_READY
+        state = await session.scalar(
+            select(SearchWorkspaceState).where(
+                SearchWorkspaceState.workspace_id == workspace_id
+            )
+        )
+        assert state is not None
+        assert state.state == SearchState.DISABLED and state.current_version == 0
+        await session.rollback()
