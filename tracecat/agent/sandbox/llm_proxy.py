@@ -38,6 +38,7 @@ from tracecat.agent.error_policy import (
     agent_llm_budget_exceeded,
     agent_llm_gateway_auth_failed,
     agent_llm_provider_auth_failed,
+    agent_llm_provider_rejected_request,
     agent_llm_rate_limited,
     agent_llm_read_timeout,
     invalid_agent_configuration,
@@ -66,6 +67,7 @@ from tracecat.runtime.errors import RuntimeErrorClassification
 # to avoid producing ``/v1/v1/messages``, which the upstream rejects with
 # a 404 "model not found".
 _PASSTHROUGH_VERSION_SUFFIX_RE = re.compile(r"/v\d+/?$")
+_SAFE_ERROR_TOKEN_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
 
 # Socket filename (created in job's socket directory)
 LLM_SOCKET_NAME = "llm.sock"
@@ -228,11 +230,18 @@ def _error_object_strings(body: bytes) -> tuple[str | None, str | None]:
     )
 
 
+def _safe_error_token(value: str | None) -> str | None:
+    if value is not None and _SAFE_ERROR_TOKEN_RE.fullmatch(value):
+        return value
+    return None
+
+
 def _http_error_classification(
     status_code: int,
     *,
     route_is_direct: bool,
     body: bytes = b"",
+    model: str | None = None,
 ) -> RuntimeErrorClassification:
     # Only machine-readable fields participate in classification. Never infer
     # budget or auth origin from provider messages (which can contain secrets).
@@ -257,12 +266,23 @@ def _http_error_classification(
     if status_code == 429:
         return agent_llm_rate_limited(route_is_direct=route_is_direct)
     if route_is_direct:
-        return user_agent_execution_failed(retryable=status_code in {408, 504})
+        return agent_llm_provider_rejected_request(
+            status_code=status_code,
+            model=model,
+            error_type=_safe_error_token(error_type),
+            error_code=_safe_error_token(error_code),
+            retryable=status_code in {408, 504},
+        )
     if status_code in {408, 504}:
         return agent_executor_timed_out()
     if status_code >= 500:
         return agent_executor_unavailable()
-    return user_agent_execution_failed()
+    return agent_llm_provider_rejected_request(
+        status_code=status_code,
+        model=model,
+        error_type=_safe_error_token(error_type),
+        error_code=_safe_error_token(error_code),
+    )
 
 
 def _transport_error_classification(
@@ -1172,6 +1192,12 @@ class LLMSocketProxy:
                         response.status_code,
                         route_is_direct=route.is_direct,
                         body=error_body,
+                        model=(
+                            request_model
+                            if isinstance(request_model, str)
+                            and len(request_model) <= 128
+                            else None
+                        ),
                     )
                     # Error bodies may echo credentials, budgets or request data.
                     # Keep durable failure text source-owned and privacy-safe.

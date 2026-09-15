@@ -1906,6 +1906,54 @@ def test_budget_classification_requires_structured_evidence(
     )
 
 
+def test_generic_http_error_message_carries_safe_detail() -> None:
+    classification = _http_error_classification(
+        400,
+        route_is_direct=False,
+        body=b'{"error":{"type":"BadRequestError","message":"secret-ish detail"}}',
+        model="vendor/example-model",
+    )
+
+    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTION_FAILED
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert (
+        classification.message
+        == "LLM provider rejected the request (HTTP 400, BadRequestError) "
+        "for model vendor/example-model"
+    )
+    assert "secret-ish detail" not in classification.message
+
+
+def test_generic_http_error_prefers_error_code_over_type() -> None:
+    classification = _http_error_classification(
+        400,
+        route_is_direct=False,
+        body=b'{"error":{"type":"invalid_request_error","code":"unsupported_parameter"}}',
+    )
+
+    assert "unsupported_parameter" in classification.message
+    assert "invalid_request_error" not in classification.message
+
+
+def test_generic_http_error_drops_unsafe_tokens() -> None:
+    classification = _http_error_classification(
+        400,
+        route_is_direct=False,
+        body=b'{"error":{"type":"sk-live-abc def with spaces!"}}',
+    )
+
+    assert classification.message == "LLM provider rejected the request (HTTP 400)"
+
+
+def test_direct_route_generic_error_retryable_on_timeout_status() -> None:
+    classification = _http_error_classification(504, route_is_direct=True)
+
+    assert classification.retry_disposition is RetryDisposition.RETRYABLE
+    assert classification.message.startswith(
+        "LLM provider rejected the request (HTTP 504)"
+    )
+
+
 @pytest.mark.parametrize("oversized", [False, True])
 def test_error_classification_bounds_json_parsing(
     monkeypatch: pytest.MonkeyPatch, oversized: bool
