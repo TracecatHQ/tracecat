@@ -6,9 +6,12 @@ The Temporal database does not need this extension.
 
 ## Supported setup
 
-The base Compose files retain `postgres:16`. Build a derived image from the
-**immutable image actually used by the deployed container**, then layer
-`docker-compose.pgvector.yml` onto the same Compose project to select it.
+The base Compose files default to `postgres:16` and read
+`TRACECAT__PGVECTOR_IMAGE` directly. Build a derived image from the
+**immutable image actually used by the deployed container**, then save its image
+reference in the existing Compose project’s `.env`. Ordinary `docker compose up`
+uses that image automatically; no additional Compose file or startup argument is
+needed. The old `docker-compose.pgvector.yml` remains compatible but is redundant.
 No particular Debian release is selected: Bookworm remains Bookworm and Trixie
 remains Trixie. The build helper never pulls a floating tag or changes a running
 container.
@@ -90,7 +93,6 @@ and build without stopping it:
 ```bash
 bash scripts/postgres/build-pgvector-image.sh \
   --container YOUR_POSTGRES_CONTAINER tracecat-postgres-pgvector:local
-export TRACECAT__PGVECTOR_IMAGE=tracecat-postgres-pgvector:local
 ```
 
 The helper reads the container's image ID, resolves its registry digest, and
@@ -99,19 +101,29 @@ is available; publish that exact base image to a registry first. Keep the build
 output tag distinct from the base image. To use a locally available base for a
 fresh database, pass `--image LOCAL_IMAGE` instead of `--container`.
 
-After testing against a restored backup, use the same Compose files/project and
-add `-f docker-compose.pgvector.yml` to recreate only `postgres_db`. For a
-worktree managed by `just cluster`, the equivalent override is:
+After testing against a restored backup, add or update this line in the existing
+Compose project’s `.env` (do not replace the rest of that file):
+
+```dotenv
+TRACECAT__PGVECTOR_IMAGE=tracecat-postgres-pgvector:local
+```
+
+Use the tested registry digest instead for remote deployment. Keep this setting
+in the same environment file used by the deployment, and remove any stale shell
+export that would override it. Then use the same Compose project and normal
+command, such as `docker compose up -d postgres_db`, to recreate the database.
+Subsequent `docker compose up` commands need no extra flags. For a worktree
+managed by `just cluster`, which also loads the repository `.env`:
 
 ```bash
-just cluster 2 --compose-override docker-compose.pgvector.yml up -d --no-seed --skip-dependency-sync postgres_db
-just cluster 2 --compose-override docker-compose.pgvector.yml exec -T postgres_db \
+just cluster 2 up -d --no-seed --skip-dependency-sync postgres_db
+just cluster 2 exec -T postgres_db \
   psql -X -U postgres -d postgres -v install=true < scripts/postgres/pgvector.sql
 ```
 
 Replace `2` with the existing cluster number and use its configured username.
-Persist the image selection in deployment configuration and keep the override
-on subsequent starts once vector columns exist. For remote deployment, publish
+Keep the image setting in `.env` on subsequent starts once vector columns exist;
+unsetting it selects the plain PostgreSQL default. For remote deployment, publish
 the tested derived image to your registry and select its digest. A database
 container restart is still required, even though existing libraries are preserved.
 
@@ -129,7 +141,7 @@ extension provisioning; it is not inherited from another application database.
    live database. Build from the container image as described above; do not substitute a
    current floating tag for its deployed digest.
 2. For Compose, stop the application writers and database cleanly during a
-   maintenance window. Explicitly include the compatible image override and
+   maintenance window. Save the compatible image selection in `.env` and
    recreate only `postgres_db`
    against its existing volume. Do not remove volumes or initialize a new
    empty data directory. This does not upgrade PostgreSQL or its runtime libraries. If the check
@@ -156,6 +168,7 @@ does not reverse database changes.
 ## Reproduce the image upgrade check
 
 ```bash
+bash scripts/tests/test_pgvector_compose.sh
 bash scripts/tests/test_pgvector.sh
 bash scripts/tests/test_pgvector.sh postgres:16.14-bookworm
 ```

@@ -646,7 +646,7 @@ services:
       - api
 
   postgres_db:
-    image: postgres:16
+    image: ${TRACECAT__PGVECTOR_IMAGE:-postgres:16}
     container_name: postgres_db
     restart: unless-stopped
     networks:

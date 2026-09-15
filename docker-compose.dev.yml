@@ -634,7 +634,7 @@ services:
       - api
 
   postgres_db:
-    image: postgres:16
+    image: ${TRACECAT__PGVECTOR_IMAGE:-postgres:16}
     restart: unless-stopped
     ports:
       - ${PG_PORT:-5432}:5432

@@ -1,3 +1,5 @@
+# Compatibility file for deployments already using this override.
+# New setups set TRACECAT__PGVECTOR_IMAGE in .env; base Compose files read it.
 # Build from the deployed base with scripts/postgres/build-pgvector-image.sh.
 # Set the resulting image before layering this file onto the base configuration.
 services:
