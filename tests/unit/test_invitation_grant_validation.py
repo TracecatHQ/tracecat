@@ -1,6 +1,7 @@
 """Isolated checks for batched invitation validation and live scope ceilings."""
 
 import uuid
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -12,6 +13,7 @@ from tracecat.exceptions import TracecatAuthorizationError, TracecatValidationEr
 from tracecat.invitations.enums import InvitationStatus
 from tracecat.invitations.schemas import InvitationCreate, InvitationGrant
 from tracecat.invitations.service import (
+    _claim_pending,
     revoke_invitation_row,
     validate_grants,
 )
@@ -163,3 +165,26 @@ async def test_revoke_uses_database_status(current_status: InvitationStatus) -> 
     assert "invitation.status =" in str(compiled).split("WHERE")[1]
     assert InvitationStatus.PENDING in compiled.params.values()
     assert query.get_execution_options()["synchronize_session"] is False
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("expires_during_claim", [False, True])
+async def test_claim_rechecks_expiry_after_wait(expires_during_claim: bool) -> None:
+    invitation = Invitation(
+        id=uuid.uuid4(),
+        status=InvitationStatus.PENDING,
+        expires_at=datetime.now(UTC) + timedelta(minutes=1),
+    )
+    session = AsyncMock()
+
+    async def execute_claim(statement):
+        if expires_during_claim:
+            invitation.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+        return MagicMock(rowcount=1)
+
+    session.execute.side_effect = execute_claim
+    if expires_during_claim:
+        with pytest.raises(TracecatAuthorizationError, match="Invitation has expired"):
+            await _claim_pending(session, invitation)
+    else:
+        await _claim_pending(session, invitation)

@@ -100,7 +100,7 @@ function setupGroup() {
   ]
 }
 
-async function renderDialog() {
+async function renderDialog(onCloseAutoFocus?: (event: Event) => void) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
@@ -109,6 +109,7 @@ async function renderDialog() {
       <Dialog open>
         <ManageUserRolesDialog
           member={member}
+          onCloseAutoFocus={onCloseAutoFocus}
           onOpenChange={onOpenChange}
           onRemoveMember={onRemoveMember}
           onSavingChange={onSavingChange}
@@ -620,4 +621,16 @@ it("does not depend on another group read when saving ordinary role changes", as
   expect(rbacListAssignments).toHaveBeenCalledTimes(1)
   expect(rbacReplaceUserAssignments).toHaveBeenCalledTimes(1)
   expect(onRemoveMember).not.toHaveBeenCalled()
+})
+
+test("returns focus to the surviving menu button when the dialog unmounts", async () => {
+  const trigger = document.createElement("button")
+  document.body.appendChild(trigger)
+  const { unmount } = await renderDialog((event) => {
+    event.preventDefault()
+    trigger.focus()
+  })
+  unmount()
+  await waitFor(() => expect(trigger).toHaveFocus())
+  trigger.remove()
 })

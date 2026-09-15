@@ -301,6 +301,9 @@ async def _claim_pending(session: AsyncSession, invitation: Invitation) -> None:
         .values(status=InvitationStatus.ACCEPTED, accepted_at=now)
     )
     if update_result.rowcount != 0:  # pyright: ignore[reportAttributeAccessIssue]
+        # The claim may have waited on a row lock past the initial expiry check.
+        if invitation.expires_at < datetime.now(UTC):
+            raise TracecatAuthorizationError("Invitation has expired")
         return
 
     # Status changed between fetch and update - re-fetch for an accurate error
