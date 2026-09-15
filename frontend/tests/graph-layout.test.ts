@@ -16,12 +16,25 @@ function createNode(id: string, type: string, overrides?: Partial<Node>): Node {
   } as Node
 }
 
-function createEdge(source: string, target: string): Edge {
+function createEdge(
+  source: string,
+  target: string,
+  sourceHandle?: "success" | "error"
+): Edge {
   return {
     id: `${source}-${target}`,
     source,
     target,
+    sourceHandle,
   }
+}
+
+function positionOf(nodes: Node[], id: string) {
+  const node = nodes.find((n) => n.id === id)
+  if (!node) {
+    throw new Error(`missing node ${id}`)
+  }
+  return node.position
 }
 
 describe("getNodeLayoutDimensions", () => {
@@ -55,7 +68,7 @@ describe("getLayoutedElements", () => {
 
     expect(nodes.map((node) => node.position)).toEqual([
       { x: 0, y: 0 },
-      { x: 0, y: 400 },
+      { x: 0, y: 250 },
     ])
   })
 
@@ -76,7 +89,7 @@ describe("getLayoutedElements", () => {
 
     expect(nodes.map((node) => node.position)).toEqual([
       { x: 0, y: 0 },
-      { x: 0, y: 400 },
+      { x: 0, y: 250 },
     ])
   })
 
@@ -90,7 +103,177 @@ describe("getLayoutedElements", () => {
     const action = nodes.find((node) => node.type === "udf")
 
     expect(trigger?.position.y).toBe(0)
-    expect(action?.position.y).toBe(400)
+    expect(action?.position.y).toBe(250)
+  })
+
+  it.each([
+    ["success first", ["success", "error"] as const],
+    ["error first", ["error", "success"] as const],
+  ])(
+    "places success branches left of error branches (%s edge order)",
+    (_label, order) => {
+      const nodes = [
+        createNode("trigger", "trigger"),
+        createNode("require", "udf"),
+        createNode("on-success", "udf"),
+        createNode("on-error", "udf"),
+        createNode("after-success", "udf"),
+        createNode("after-error", "udf"),
+      ]
+      const branchEdges = order.map((handle) =>
+        createEdge("require", `on-${handle}`, handle)
+      )
+      const edges = [
+        createEdge("trigger", "require"),
+        ...branchEdges,
+        createEdge("on-success", "after-success", "success"),
+        createEdge("on-error", "after-error", "success"),
+      ]
+
+      const { nodes: layouted } = getLayoutedElements(nodes, edges)
+
+      expect(positionOf(layouted, "on-success").x).toBeLessThan(
+        positionOf(layouted, "on-error").x
+      )
+      expect(positionOf(layouted, "after-success").x).toBe(
+        positionOf(layouted, "on-success").x
+      )
+      expect(positionOf(layouted, "after-error").x).toBe(
+        positionOf(layouted, "on-error").x
+      )
+    }
+  )
+
+  it("keeps every success child left of every error child with multiple children per handle", () => {
+    const nodes = [
+      createNode("trigger", "trigger"),
+      createNode("require", "udf"),
+      createNode("ok-1", "udf"),
+      createNode("ok-2", "udf"),
+      createNode("err-1", "udf"),
+      createNode("err-2", "udf"),
+    ]
+    const edges = [
+      createEdge("trigger", "require"),
+      createEdge("require", "err-1", "error"),
+      createEdge("require", "ok-1", "success"),
+      createEdge("require", "err-2", "error"),
+      createEdge("require", "ok-2", "success"),
+    ]
+
+    const { nodes: layouted } = getLayoutedElements(nodes, edges)
+    const xs = (ids: string[]) => ids.map((id) => positionOf(layouted, id).x)
+    const maxSuccessX = Math.max(...xs(["ok-1", "ok-2"]))
+    const minErrorX = Math.min(...xs(["err-1", "err-2"]))
+
+    expect(maxSuccessX).toBeLessThan(minErrorX)
+    expect(new Set(xs(["ok-1", "ok-2", "err-1", "err-2"])).size).toBe(4)
+    expect(
+      new Set(
+        ["ok-1", "ok-2", "err-1", "err-2"].map(
+          (id) => positionOf(layouted, id).y
+        )
+      ).size
+    ).toBe(1)
+  })
+
+  it("does not shift a downstream node shared by both branches", () => {
+    const nodes = [
+      createNode("trigger", "trigger"),
+      createNode("require", "udf"),
+      createNode("on-success", "udf"),
+      createNode("on-error", "udf"),
+      createNode("join", "udf"),
+    ]
+    const edges = [
+      createEdge("trigger", "require"),
+      createEdge("require", "on-error", "error"),
+      createEdge("require", "on-success", "success"),
+      createEdge("on-success", "join", "success"),
+      createEdge("on-error", "join", "success"),
+    ]
+
+    const { nodes: layouted } = getLayoutedElements(nodes, edges)
+    const successX = positionOf(layouted, "on-success").x
+    const errorX = positionOf(layouted, "on-error").x
+    const joinX = positionOf(layouted, "join").x
+
+    expect(successX).toBeLessThan(errorX)
+    expect(joinX).toBeGreaterThanOrEqual(successX)
+    expect(joinX).toBeLessThanOrEqual(errorX)
+    expect(joinX).toBe(positionOf(layouted, "require").x)
+  })
+
+  it("leaves nodes untouched when only one handle type is used", () => {
+    const nodes = [
+      createNode("trigger", "trigger"),
+      createNode("require", "udf"),
+      createNode("a", "udf"),
+      createNode("b", "udf"),
+    ]
+    const edges = [
+      createEdge("trigger", "require"),
+      createEdge("require", "a", "success"),
+      createEdge("require", "b", "success"),
+    ]
+
+    const { nodes: layouted } = getLayoutedElements(nodes, edges)
+    const aX = positionOf(layouted, "a").x
+    const bX = positionOf(layouted, "b").x
+
+    expect(aX).not.toBe(bX)
+    expect(positionOf(layouted, "a").y).toBe(positionOf(layouted, "b").y)
+  })
+
+  it("does not reorder branches whose children land on different ranks", () => {
+    const nodes = [
+      createNode("trigger", "trigger"),
+      createNode("require", "udf"),
+      createNode("on-success", "udf"),
+      createNode("on-error", "udf"),
+    ]
+    const edges = [
+      createEdge("trigger", "require"),
+      createEdge("require", "on-error", "error"),
+      createEdge("require", "on-success", "success"),
+      createEdge("on-error", "on-success", "success"),
+    ]
+
+    const { nodes: layouted } = getLayoutedElements(nodes, edges)
+    const { nodes: baseline } = getLayoutedElements(
+      nodes,
+      edges.map((edge) => ({ ...edge, sourceHandle: undefined }))
+    )
+
+    expect(positionOf(layouted, "on-error").y).toBeLessThan(
+      positionOf(layouted, "on-success").y
+    )
+    expect(layouted.map((node) => node.position)).toEqual(
+      baseline.map((node) => node.position)
+    )
+  })
+
+  it("does not apply branch ordering to horizontal layouts", () => {
+    const nodes = [
+      createNode("trigger", "trigger"),
+      createNode("require", "udf"),
+      createNode("on-success", "udf"),
+      createNode("on-error", "udf"),
+    ]
+    const edges = [
+      createEdge("trigger", "require"),
+      createEdge("require", "on-error", "error"),
+      createEdge("require", "on-success", "success"),
+    ]
+
+    const { nodes: layouted } = getLayoutedElements(nodes, edges, "LR")
+
+    expect(positionOf(layouted, "on-success").x).toBe(
+      positionOf(layouted, "on-error").x
+    )
+    expect(positionOf(layouted, "on-success").y).not.toBe(
+      positionOf(layouted, "on-error").y
+    )
   })
 })
 
