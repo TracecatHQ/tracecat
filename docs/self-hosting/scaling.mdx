@@ -17,24 +17,20 @@ Executors are almost always the bottleneck. A workflow run with 8 actions that e
 
 ## Sizing at a glance
 
-The table uses a reference workload of 3 actions per run at 0.5 seconds each (a typical enrich-and-notify workflow) with 1.25× headroom, and the calibration described below: 8 slots per vCPU, 128 MiB per slot, 1 vCPU and 1 GiB per worker, and a base stack of 2 vCPU and 6 GiB. AWS instance names show the host size; pick the equivalent shape on your cloud. Run the [sizing calculator](#sizing-calculator) with your own action count and duration to get exact values.
+The table uses a reference workload of 3 actions per run at 0.5 seconds each (a typical enrich-and-notify workflow) with 1.25× headroom, and the calibration described below: 8 slots per vCPU, 128 MiB per slot, 1 vCPU and 1 GiB per worker, and a base stack of 2 vCPU and 6 GiB. Tiers are named by concurrent actions, the number of action subprocesses running at once across all executors. The AWS instance is the smallest `c5` shape that fits the required vCPU and memory; pick the equivalent shape on your cloud. Run the [sizing calculator](#sizing-calculator) with your own action count and duration to get exact values.
 
-| Host | vCPU / memory | Workflow starts/sec | Concurrent actions | Executors × slots | Workers | PostgreSQL `max_connections` |
-| :--- | :------------ | :------------------ | :----------------- | :---------------- | :------ | :--------------------------- |
-| `c5.xlarge` | 4 / 8 GiB | 2 | 4 | 1 × 4 | 1 | 580 |
-| `c5.2xlarge`, Compose defaults | 8 / 16 GiB | 8 | 16 | 1 × 16 | 1 | 580 |
-| `c5.2xlarge`, tuned | 8 / 16 GiB | 20 | 38 | 2 × 19 | 1 | 660 |
-| `c5.4xlarge` | 16 / 32 GiB | 46 | 87 | 3 × 29 | 3 | 900 |
-| `c5.9xlarge` | 36 / 72 GiB | 120 | 224 | 7 × 32 | 6 | 1,460 |
-| `c5.24xlarge` | 96 / 192 GiB | 325 | 608 | 19 × 32 | 17 | 3,300 |
-| 2 × `c5.24xlarge` | 147 / 166 GiB used | 500 | 960 | 30 × 32 | 25 | 4,820, or 740 with reduced pools |
-| 3 × `c5.24xlarge` | 288 / 322 GiB used | 1,000 | 1,888 | 59 × 32 | 50 | 9,140, or 1,355 with reduced pools |
+| Concurrent actions | Workflow starts/sec | Executors × slots | Workers | Required vCPU / memory | AWS instance | PostgreSQL `max_connections` |
+| :----------------- | :------------------ | :---------------- | :------ | :--------------------- | :----------- | :--------------------------- |
+| 16 (Compose defaults) | 8 | 1 × 16 | 1 | 5 / 9.5 GiB | `c5.2xlarge` (8 vCPU, 16 GiB) | 580 |
+| 32 | 17 | 1 × 32 | 1 | 7 / 11.5 GiB | `c5.2xlarge` (8 vCPU, 16 GiB) | 580 |
+| 64 | 34 | 2 × 32 | 2 | 12 / 17 GiB | `c5.4xlarge` (16 vCPU, 32 GiB) | 740 |
+| 128 | 68 | 4 × 32 | 4 | 22 / 28 GiB | `c5.9xlarge` (36 vCPU, 72 GiB) | 1,060 |
+| 256 | 136 | 8 × 32 | 7 | 41 / 49 GiB | `c5.12xlarge` (48 vCPU, 96 GiB) | 1,620 |
+| 512 | 273 | 16 × 32 | 14 | 80 / 92 GiB | `c5.24xlarge` (96 vCPU, 192 GiB) | 2,820 |
 
-Concurrent actions is the number of action subprocesses running at once across all executors: `starts/sec × 3 actions × 0.5 s × 1.25`. Runs with more or longer actions need proportionally more slots at the same start rate; the same `c5.4xlarge` sustains about 200 starts/sec of single-action, 100 ms workflows and about 3.5 starts/sec of 8-action, 3-second workflows.
+Workflow starts/sec is `concurrent actions / (3 actions × 0.5 s × 1.25)`. Runs with more or longer actions need proportionally more slots at the same start rate: a `c5.4xlarge` sustains about 200 starts/sec of single-action, 100 ms workflows and about 3.5 starts/sec of 8-action, 3-second workflows once you resize executors and workers for that workload.
 
-For comparison, the [n8n scalability benchmark](https://blog.n8n.io/the-n8n-scalability-benchmark/) reports 162 webhook requests/sec on a `c5.4xlarge` in queue mode and 72 requests/sec on a `c5.large` (2 vCPU, 4 GiB) for a single trivial webhook workflow. Tracecat's 46 starts/sec on the same `c5.4xlarge` is for the 3-action reference workload; on a comparable single-action workload the model gives about 200 starts/sec, since each Tracecat action is an isolated subprocess rather than a step inside a shared Node.js process. The stateful services alone need about 2 vCPU and 6 GiB, so a `c5.large` cannot run the full stack; start at `c5.xlarge`.
-
-Up to `c5.24xlarge` every row is a single host. Above that, move the stateful services (PostgreSQL, Temporal, MinIO, Redis) to their own host or managed services and spread executors across nodes with [Docker Swarm](/self-hosting/docker-compose#convert-to-docker-swarm) or [Kubernetes](/self-hosting/kubernetes). The reduced-pool `max_connections` values assume `TRACECAT__DB_POOL_SIZE=2` and `TRACECAT__DB_MAX_OVERFLOW=3`; beyond a few thousand connections, put PgBouncer in transaction mode in front of PostgreSQL and size Temporal's own PostgreSQL, history shards, and matching service separately, since Temporal becomes a bottleneck before Tracecat does. Rows from `c5.9xlarge` up are extrapolations of the calibration, not measured deployments: load-test on one host first and recalibrate the constants before committing hardware at that scale.
+Every tier fits on one host. Beyond 512 concurrent actions, move the stateful services (PostgreSQL, Temporal, MinIO, Redis) to their own host or managed services, spread executors across nodes with [Docker Swarm](/self-hosting/docker-compose#convert-to-docker-swarm) or [Kubernetes](/self-hosting/kubernetes), lower `TRACECAT__DB_POOL_SIZE` and `TRACECAT__DB_MAX_OVERFLOW` or put PgBouncer in front of PostgreSQL, and size Temporal's own PostgreSQL, history shards, and matching service separately, since Temporal becomes a bottleneck before Tracecat does. Tiers from 128 up are extrapolations of the calibration, not measured deployments: load-test on one host first and recalibrate the constants before committing hardware at that scale.
 
 ## Variables that control throughput
 
