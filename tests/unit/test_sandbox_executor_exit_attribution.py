@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import json
 import signal
 from pathlib import Path
 
 import pytest
 from pytest_mock import MockerFixture
 
-from tracecat.sandbox.executor import NsjailExecutor, _classify_missing_nsjail_result
+from tracecat.sandbox.executor import (
+    ActionSandboxConfig,
+    NsjailExecutor,
+    _classify_missing_nsjail_result,
+)
 from tracecat.sandbox.nsjail_protocol import NsjailCompletedProcess
 from tracecat.sandbox.types import SandboxConfig, SandboxErrorCode
 
@@ -192,3 +197,146 @@ async def test_script_crash_does_not_log_injected_secrets(
     for secret in env_vars.values():
         assert secret not in str(log_error.call_args)
     assert log_error.call_args.kwargs["returncode"] == 1
+
+
+@pytest.mark.anyio
+async def test_package_install_failure_does_not_log_sandbox_output(
+    tmp_path: Path, mocker: MockerFixture
+) -> None:
+    """Installer diagnostics stay in the result for caller-side masking."""
+    secret = "synthetic-install-secret"
+    stdout = f"downloaded {secret}"
+    stderr = f"index response {secret}"
+    mocker.patch(
+        "tracecat.sandbox.executor.invoke_nsjail",
+        return_value=NsjailCompletedProcess(
+            returncode=1,
+            stdout=stdout.encode(),
+            stderr=stderr.encode(),
+            workload_started=True,
+        ),
+    )
+    log_error = mocker.patch("tracecat.sandbox.executor.logger.error")
+    executor = NsjailExecutor(cache_dir=str(tmp_path / "cache"))
+    mocker.patch.object(executor, "_build_config", return_value="")
+    mocker.patch.object(executor, "_build_env_map", return_value={})
+
+    result = await executor.execute_install(tmp_path, "deadbeef")
+
+    assert result.success is False
+    assert result.error == stderr
+    log_error.assert_called_once()
+    fields = log_error.call_args.kwargs
+    assert set(fields) == {
+        "returncode",
+        "error_code",
+        "stdout_chars",
+        "stderr_chars",
+        "workload_started",
+        "execution_time_ms",
+    }
+    assert fields["error_code"] is SandboxErrorCode.WORKLOAD_FAILURE
+    assert fields["returncode"] == 1
+    assert fields["stdout_chars"] == len(stdout)
+    assert fields["stderr_chars"] == len(stderr)
+    assert secret not in repr(log_error.call_args)
+
+
+@pytest.mark.anyio
+async def test_action_failure_does_not_log_sandbox_output(
+    tmp_path: Path, mocker: MockerFixture
+) -> None:
+    """Action errors and subprocess streams never enter ordinary logs."""
+    secret = "synthetic-action-secret"
+    stderr = f"action log {secret}"
+    error = {"type": "ValueError", "message": secret}
+    (tmp_path / "result.json").write_text(
+        json.dumps({"success": False, "result": None, "error": error})
+    )
+    mocker.patch(
+        "tracecat.sandbox.executor.invoke_nsjail",
+        return_value=NsjailCompletedProcess(
+            returncode=1,
+            stdout=b"",
+            stderr=stderr.encode(),
+            workload_started=True,
+        ),
+    )
+    log_debug = mocker.patch("tracecat.sandbox.executor.logger.debug")
+    log_info = mocker.patch("tracecat.sandbox.executor.logger.info")
+    log_error = mocker.patch("tracecat.sandbox.executor.logger.error")
+    executor = NsjailExecutor(cache_dir=str(tmp_path / "cache"))
+    mocker.patch.object(executor, "_build_action_config", return_value="")
+    mocker.patch.object(executor, "_build_action_env_map", return_value={})
+
+    result = await executor.execute_action(
+        tmp_path,
+        ActionSandboxConfig(
+            registry_paths=[],
+            tracecat_app_dir=tmp_path,
+            network=None,
+        ),
+    )
+
+    assert result.success is False
+    assert result.error == error
+    assert result.stderr == stderr
+    log_info.assert_not_called()
+    log_error.assert_not_called()
+    assert log_debug.call_count == 2
+    for call in log_debug.call_args_list:
+        assert secret not in repr(call)
+    assert log_debug.call_args_list[-1].kwargs == {
+        "stdout_chars": 0,
+        "stderr_chars": len(stderr),
+        "execution_time_ms": result.execution_time_ms,
+    }
+
+
+@pytest.mark.anyio
+async def test_action_missing_result_does_not_log_sandbox_output(
+    tmp_path: Path, mocker: MockerFixture
+) -> None:
+    """Missing-result diagnostics remain safe when action startup fails."""
+    secret = "synthetic-action-crash-secret"
+    stderr = f"fatal action output {secret}"
+    mocker.patch(
+        "tracecat.sandbox.executor.invoke_nsjail",
+        return_value=NsjailCompletedProcess(
+            returncode=1,
+            stdout=b"",
+            stderr=stderr.encode(),
+            workload_started=True,
+        ),
+    )
+    log_error = mocker.patch("tracecat.sandbox.executor.logger.error")
+    executor = NsjailExecutor(cache_dir=str(tmp_path / "cache"))
+    mocker.patch.object(executor, "_build_action_config", return_value="")
+    mocker.patch.object(executor, "_build_action_env_map", return_value={})
+
+    result = await executor.execute_action(
+        tmp_path,
+        ActionSandboxConfig(
+            registry_paths=[],
+            tracecat_app_dir=tmp_path,
+            network=None,
+        ),
+    )
+
+    assert result.success is False
+    assert result.error_code is SandboxErrorCode.WORKLOAD_FAILURE
+    assert result.stderr == stderr[:2000]
+    log_error.assert_called_once()
+    fields = log_error.call_args.kwargs
+    assert set(fields) == {
+        "error_code",
+        "returncode",
+        "stdout_chars",
+        "stderr_chars",
+        "workload_started",
+        "result_file_exists",
+        "execution_time_ms",
+    }
+    assert fields["error_code"] is SandboxErrorCode.WORKLOAD_FAILURE
+    assert fields["stderr_chars"] == len(stderr)
+    assert secret not in repr(log_error.call_args)
