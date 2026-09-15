@@ -17,12 +17,14 @@ from dataclasses import dataclass, field, replace
 from ipaddress import IPv4Address, IPv4Network, ip_address, ip_network
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, TypedDict, cast
+from typing import Any, Literal, TypedDict, cast
+from unittest.mock import AsyncMock, MagicMock
 
 import orjson
 import pytest
 from claude_agent_sdk import ClaudeAgentOptions
 from claude_agent_sdk.types import SdkPluginConfig
+from sqlalchemy.ext.asyncio import AsyncSession
 
 import tracecat.agent.executor.activity as executor_activity
 import tracecat.agent.runtime.claude_code.broker as broker_module
@@ -77,6 +79,7 @@ from tracecat.agent.skill.types import ResolvedSkillRef
 from tracecat.agent.tokens import LLMRouteClaim, mint_llm_token
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
+from tracecat.db.models import OrganizationSetting
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.observability.types import PlatformErrorCapture
 from tracecat.runtime.errors import (
@@ -91,6 +94,7 @@ from tracecat.sandbox.types import (
     SandboxNetworkProtocol,
     SandboxNetworkPurpose,
 )
+from tracecat.settings.service import SettingsService
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -2931,6 +2935,70 @@ async def test_run_agent_activity_reproduces_mcp_compression_initialize_timeout_
         disable_nsjail_mode=full_harness_disable_nsjail_mode,
         tmp_path=tmp_path,
     )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("actor_type", ["user", "service_account", "service"])
+async def test_executor_otel_stamps_actor_identity(
+    monkeypatch: pytest.MonkeyPatch,
+    actor_type: Literal["user", "service_account", "service"],
+) -> None:
+    executor_input = _make_executor_input(enable_internet_access=False)
+    actor_id = uuid.uuid4()
+    role = Role(
+        type=actor_type,
+        service_id="tracecat-agent-executor",
+        organization_id=uuid.uuid4(),
+        workspace_id=executor_input.workspace_id,
+        service_account_id=actor_id if actor_type == "service_account" else None,
+        user_id=actor_id if actor_type == "user" else None,
+    )
+    executor_input.role = role
+    setting = OrganizationSetting(
+        organization_id=role.organization_id,
+        key="agent_otel_config",
+        is_encrypted=False,
+        value=orjson.dumps(
+            {
+                "enabled": True,
+                "endpoint": "https://collector.example.com",
+                "resource_attributes": {
+                    "service.name": "agent",
+                },
+            }
+        ),
+    )
+    session = AsyncMock(spec=AsyncSession)
+    result = MagicMock()
+    result.scalars.return_value.all.return_value = [setting]
+    session.execute.return_value = result
+    monkeypatch.setattr(app_config, "TRACECAT__DB_ENCRYPTION_KEY", "test-key")
+
+    @contextlib.asynccontextmanager
+    async def settings_session(*, role: Role) -> AsyncIterator[SettingsService]:
+        yield SettingsService(session=session, role=role)
+
+    monkeypatch.setattr(SettingsService, "with_session", settings_session)
+
+    resolved = await SandboxedAgentExecutor(
+        input=executor_input
+    )._resolve_agent_otel_config()
+
+    assert resolved.enabled is True
+    attributes = dict(
+        pair.split("=", 1)
+        for pair in resolved.sandbox_env["OTEL_RESOURCE_ATTRIBUTES"].split(",")
+    )
+    expected_attributes = {
+        "service.name": "agent",
+        "tracecat.session.id": str(executor_input.session_id),
+        "tracecat.workspace.id": str(executor_input.workspace_id),
+        "tracecat.organization.id": str(role.organization_id),
+    }
+    if actor_type != "service":
+        expected_attributes["tracecat.user.id"] = str(actor_id)
+    assert attributes == expected_attributes
+    assert resolved.collector_env["OTEL_RESOURCE_ATTRIBUTES"] == "service.name=agent"
 
 
 @pytest.mark.anyio
