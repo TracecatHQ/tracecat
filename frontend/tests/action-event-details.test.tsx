@@ -93,6 +93,14 @@ jest.mock("@/providers/workflow", () => ({
   }),
 }))
 
+jest.mock("@/lib/hooks", () => ({
+  useCreateDraftWorkflowExecutionFromAction: jest.fn(() => ({
+    createDraftExecutionFromAction: jest.fn(),
+    createDraftExecutionFromActionIsPending: false,
+    createDraftExecutionFromActionError: null,
+  })),
+}))
+
 jest.mock("@/lib/stored-object", () => ({
   isCollectionStoredObject: (value: unknown) =>
     typeof value === "object" &&
