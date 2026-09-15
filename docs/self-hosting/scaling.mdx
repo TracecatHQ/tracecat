@@ -43,14 +43,15 @@ Host totals add roughly 8 vCPU and 16 GiB for the API, worker, UI, Temporal, bot
 | :----- | ----------------: | --------------------------: | ----------------: | :------------------ | :------------------- | -------------------------: | :------- |
 | Default settings | 1 | 16 | 16 | Unlimited (shares host) | 8 vCPU / 16 GiB | 100 | ~3–5 actions/s on an 8-core host |
 | 8 actions/s | 3 | 8 | 24 | 12 vCPU / 12 GiB | 20 vCPU / 32 GiB | 200 | Measured: 8.4–8.5 actions/s |
-| 16 actions/s | 6 | 9 | 54 | 24 vCPU / 24 GiB | 32 vCPU / 48 GiB | 300 | Projected |
-| 32 actions/s | 12 | 9 | 108 | 48 vCPU / 48 GiB | 56 vCPU / 80 GiB | 400 | Projected |
-| 64 actions/s | 24 | 9 | 216 | 96 vCPU / 96 GiB | 104+ vCPU / 144 GiB | 600 or a pooler | Projected, multi-node |
-| 128 actions/s | 48 | 9 | 432 | 192 vCPU / 192 GiB | 200+ vCPU / 256 GiB | Pooler required | Projected, multi-node |
-| 256 actions/s | 96 | 9 | 864 | 384 vCPU / 384 GiB | 392+ vCPU / 512 GiB | Pooler required | Projected, multi-node |
+| 16 actions/s | 6 | 8 | 48 | 24 vCPU / 24 GiB | 32 vCPU / 48 GiB | 300 | Projected |
+| 32 actions/s | 12 | 8 | 96 | 48 vCPU / 48 GiB | 56 vCPU / 80 GiB | 400 | Projected |
+| 64 actions/s | 24 | 8 | 192 | 96 vCPU / 96 GiB | 104+ vCPU / 144 GiB | 600 or a pooler | Projected, multi-node |
+| 128 actions/s | 48 | 8 | 384 | 192 vCPU / 192 GiB | 200+ vCPU / 256 GiB | Pooler required | Projected, multi-node |
+| 256 actions/s | 96 | 8 | 768 | 384 vCPU / 384 GiB | 392+ vCPU / 512 GiB | Pooler required | Projected, multi-node |
 
 Only the 8 actions/s row is measured.
-The higher rows apply the measured coefficients linearly and assume the reference action mix.
+The higher rows keep the validated replica shape fixed (4 vCPU, 8 admitted activities, roughly 2.7 actions per second per replica) and double the replica count for each doubling of throughput, so the scaling rule is three executors per 8 actions per second.
+They assume the reference action mix and that every replica gets its own physical cores.
 Validate any tier above 16 actions/s with the [benchmark suite](https://github.com/TracecatHQ/tracecat/tree/main/packages/tracecat-benchmark) on the target hardware before you commit to it.
 
 The default settings row is deliberately conservative.
