@@ -477,7 +477,7 @@ class SandboxedAgentExecutor:
                     session_id=self.input.session_id,
                     workspace_id=self.input.workspace_id,
                     organization_id=self.input.role.organization_id,
-                    user_id=self.input.role.user_id,
+                    user_id=self.input.role.actor_id,
                 ),
             )
         except Exception as exc:

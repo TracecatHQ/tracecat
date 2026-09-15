@@ -204,13 +204,13 @@ class AgentRunIdentity:
             identifiers the run has no value for.
         """
         attributes = {
-            "tracecat.session_id": str(self.session_id),
-            "tracecat.workspace_id": str(self.workspace_id),
+            "tracecat.session.id": str(self.session_id),
+            "tracecat.workspace.id": str(self.workspace_id),
         }
         if self.organization_id is not None:
-            attributes["tracecat.organization_id"] = str(self.organization_id)
+            attributes["tracecat.organization.id"] = str(self.organization_id)
         if self.user_id is not None:
-            attributes["tracecat.user_id"] = str(self.user_id)
+            attributes["tracecat.user.id"] = str(self.user_id)
         return attributes
 
 

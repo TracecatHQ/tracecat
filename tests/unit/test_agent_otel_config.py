@@ -76,7 +76,7 @@ def test_agent_otel_config_rejects_empty_resource_attribute() -> None:
 
 def test_agent_otel_config_rejects_reserved_resource_attribute() -> None:
     with pytest.raises(ValidationError, match="is reserved"):
-        AgentOtelConfig(resource_attributes={"tracecat.session_id": "spoofed"})
+        AgentOtelConfig(resource_attributes={"tracecat.session.id": "spoofed"})
 
 
 def test_run_identity_attributes_reach_the_sandbox() -> None:
@@ -106,10 +106,10 @@ def test_run_identity_attributes_reach_the_sandbox() -> None:
     )
     assert attributes == {
         "service.name": "tracecat%20agent",
-        "tracecat.session_id": str(session_id),
-        "tracecat.workspace_id": str(workspace_id),
-        "tracecat.organization_id": str(organization_id),
-        "tracecat.user_id": str(user_id),
+        "tracecat.session.id": str(session_id),
+        "tracecat.workspace.id": str(workspace_id),
+        "tracecat.organization.id": str(organization_id),
+        "tracecat.user.id": str(user_id),
     }
 
 
@@ -117,8 +117,8 @@ def test_run_identity_omits_absent_user() -> None:
     identity = AgentRunIdentity(session_id=uuid4(), workspace_id=uuid4())
 
     assert set(identity.to_resource_attributes()) == {
-        "tracecat.session_id",
-        "tracecat.workspace_id",
+        "tracecat.session.id",
+        "tracecat.workspace.id",
     }
 
 
