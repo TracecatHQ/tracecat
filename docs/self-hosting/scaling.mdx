@@ -17,15 +17,15 @@ Executors are almost always the bottleneck. A workflow run with 8 actions that e
 
 ## Sizing at a glance
 
-The table uses a reference workload of 5 actions per run at 2 seconds each with 1.5× headroom, and the calibration described below (4 slots per vCPU, 512 MiB per slot, base stack of 4 vCPU and 10 GiB). Run the [sizing calculator](#sizing-calculator) with your own action count and duration to get exact values.
+The table uses a reference workload of 5 actions per run at 2 seconds each with 1.5× headroom, and the calibration described below (4 slots per vCPU, 256 MiB per slot, base stack of 4 vCPU and 10 GiB). Run the [sizing calculator](#sizing-calculator) with your own action count and duration to get exact values.
 
 | Tier | Workflow starts/sec | Concurrent actions | Executors × slots | Workers | Total vCPU | Total memory | PostgreSQL `max_connections` |
 | :--- | :------------------ | :----------------- | :---------------- | :------ | :--------- | :----------- | :--------------------------- |
-| Compose defaults | 1 | 16 | 1 × 16 | 1 | 10 | 21 GiB | 580 |
-| 10/sec | 10 | 150 | 10 × 15 | 2 | 46 | 99 GiB | 1,380 |
-| 100/sec | 100 | 1,504 | 94 × 16 | 15 | 410 | 886 GiB | 1,730 with `TRACECAT__DB_POOL_SIZE=2`, `TRACECAT__DB_MAX_OVERFLOW=3` |
-| 500/sec | 500 | 7,504 | 469 × 16 | 75 | 2,030 | 4.3 TiB | 8,255 with reduced pools; put PgBouncer in front |
-| 1,000/sec | 1,000 | 15,008 | 938 × 16 | 150 | 4,056 | 8.6 TiB | 16,415 with reduced pools; put PgBouncer in front |
+| Compose defaults | 1 | 16 | 1 × 16 | 1 | 10 | 17 GiB | 580 |
+| 10/sec | 10 | 150 | 10 × 15 | 2 | 46 | 62 GiB | 1,380 |
+| 100/sec | 100 | 1,504 | 94 × 16 | 15 | 410 | 510 GiB | 1,730 with `TRACECAT__DB_POOL_SIZE=2`, `TRACECAT__DB_MAX_OVERFLOW=3` |
+| 500/sec | 500 | 7,504 | 469 × 16 | 75 | 2,030 | 2.5 TiB | 8,255 with reduced pools; put PgBouncer in front |
+| 1,000/sec | 1,000 | 15,008 | 938 × 16 | 150 | 4,056 | 4.9 TiB | 16,415 with reduced pools; put PgBouncer in front |
 
 Concurrent actions is the number of action subprocesses running at once across all executors: `starts/sec × 5 actions × 2 s × 1.5`. Runs with more or longer actions need proportionally more slots at the same start rate. Total vCPU and memory include the base stack and workers.
 
@@ -44,7 +44,7 @@ All variables below are read from `.env` by `docker-compose.yml`. The Kubernetes
 | `TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY` | `4` | Parallel iterations inside a single action's `for_each` loop. Each iteration is another subprocess, so a replica can briefly run up to `MAX_CONCURRENT_ACTIVITIES × FOR_EACH_MAX_CONCURRENCY` processes. |
 | Executor replicas | `1` | Total executor slots = replicas × `MAX_CONCURRENT_ACTIVITIES`. Scale with `docker compose up -d --scale executor=N`. |
 
-Executor slots are cheap while an action waits on the network and expensive while it starts up or runs CPU-bound Python. The calibration used on this page is 4 slots per vCPU and 512 MiB per slot plus 1 GiB per replica, which matches the 4 vCPU / 8 GiB / 16 slot shape in the [Swarm resource table](/self-hosting/docker-compose#service-resource-recommendations). If your actions are mostly HTTP calls you can run 6-8 slots per vCPU; if they run `core.script.run_python` on large payloads, stay at 2-4.
+Executor slots are cheap while an action waits on the network and expensive while it starts up or runs CPU-bound Python. The calibration used on this page is 4 slots per vCPU and 256 MiB per slot plus 1 GiB per replica, so a 16-slot replica needs 4 vCPU and 5 GiB. Memory is per running action: each one is a fresh Python subprocess that imports the registry, and nothing is held between actions. If your actions are mostly HTTP calls you can run 6-8 slots per vCPU; if they run `core.script.run_python` on large payloads, stay at 2-4 and budget up to `TRACECAT__SANDBOX_DEFAULT_MEMORY_MB` (2 GiB) per slot. Measure with `docker stats` on a busy executor and set `EXECUTOR_SLOTS_PER_VCPU` and `EXECUTOR_MEM_MB_PER_SLOT` when running the calculator.
 
 The `pids_limit` on the executor service (4096) is sized for the default 16 slots. Raise it proportionally if you set `MAX_CONCURRENT_ACTIVITIES` above 64 on a single replica.
 
@@ -117,7 +117,7 @@ db_processes         = 5 + worker_replicas + executor_replicas
 pg_max_connections   = db_processes × 80 + 20             # with default pool settings
 ```
 
-Example: `R = 2`, `A = 6`, `T = 2` gives 36 slots, so 3 executor replicas of 12 slots each (9 vCPU, 21 GiB), 1 worker, and `max_connections` of at least 740. Add the base stack (about 4 vCPU and 10 GiB for the API, Temporal, both PostgreSQL instances, Redis, MinIO, Caddy, the UI, and the agent services) to get the host size: 16 vCPU and 40 GiB.
+Example: `R = 2`, `A = 6`, `T = 2` gives 36 slots, so 3 executor replicas of 12 slots each (9 vCPU, 12 GiB), 1 worker, and `max_connections` of at least 740. Add the base stack (about 4 vCPU and 10 GiB for the API, Temporal, both PostgreSQL instances, Redis, MinIO, Caddy, the UI, and the agent services) to get the host size: 16 vCPU and 24 GiB.
 
 Work the formula backwards to find the ceiling of a given host: the executor slots you can afford are `(host_vcpu − 4 − 2 × worker_replicas) × 4`, and the sustainable rate is `slots / (A × T × H)`.
 
@@ -144,12 +144,12 @@ Executors
   Slots per replica          15  (4 per vCPU, max 16 per 4-vCPU replica)
   Total slots                180
   CPU                        45
-  Memory                     102.0 GiB
+  Memory                     57.0 GiB
 ...
 Hardware check (provided: 32 CPUs, 64 GiB)
-  Required                   51 CPUs, 114.0 GiB
-  Result                     INSUFFICIENT (CPU short by 19) (memory short by 50.0 GiB)
-  Max sustainable rate       ~2.50 workflow starts/sec on this hardware
+  Required                   51 CPUs, 69.0 GiB
+  Result                     INSUFFICIENT (CPU short by 19) (memory short by 5.0 GiB)
+  Max sustainable rate       ~2.72 workflow starts/sec on this hardware
 
 Apply
 -----

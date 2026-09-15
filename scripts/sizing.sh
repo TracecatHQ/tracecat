@@ -41,7 +41,7 @@ EOF
 # --- Calibration constants (override via environment) ------------------------
 # Executor: one subprocess per running action (direct backend).
 EXECUTOR_SLOTS_PER_VCPU=${EXECUTOR_SLOTS_PER_VCPU:-4}
-EXECUTOR_MEM_MB_PER_SLOT=${EXECUTOR_MEM_MB_PER_SLOT:-512}
+EXECUTOR_MEM_MB_PER_SLOT=${EXECUTOR_MEM_MB_PER_SLOT:-256}
 EXECUTOR_BASE_MEM_MB=${EXECUTOR_BASE_MEM_MB:-1024}
 # Worker: workflow starts per second one replica sustains at WORKER_VCPU cores.
 WORKER_STARTS_PER_SEC_PER_REPLICA=${WORKER_STARTS_PER_SEC_PER_REPLICA:-10}
