@@ -32,8 +32,13 @@ configured['services']['postgres_db']['image'] = 'postgres:16'
 assert configured['services']['pgvector_setup']['image'] == 'synthetic-postgres-pgvector:validated'
 configured['services']['pgvector_setup']['image'] = 'postgres:16'
 assert default['services']['migrations']['depends_on']['pgvector_setup']['condition'] == 'service_completed_successfully'
-assert default['services']['pgvector_setup']['depends_on']['postgres_db']['condition'] == 'service_healthy'
+assert default['services']['pgvector_setup']['depends_on']['postgres_db']['condition'] == 'service_started'
 assert default['services']['postgres_db']['entrypoint'][0] == 'bash'
+assert default['services']['pgvector_setup']['environment']['TRACECAT__DB_URI'] == default['services']['migrations']['environment']['TRACECAT__DB_URI']
+networks = default.get('networks', {})
+for service in ('postgres_db', 'pgvector_setup'):
+    attached = default['services'][service].get('networks', {})
+    assert any(not networks[name].get('internal', False) for name in attached), service + ' needs outbound access'
 assert configured == default, 'Image selection changed unrelated Compose settings'
 PY
     echo "PASS: $compose_file reads persistent .env image; all other settings unchanged"

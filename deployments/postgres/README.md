@@ -12,8 +12,8 @@ Compose variants use this dependency chain:
 
 ```text
 postgres_db: download/cache extension files, then start PostgreSQL
-    -> healthy PostgreSQL
-pgvector_setup: enable and validate vector in the application database
+    -> container started (setup waits for the actual database connection)
+pgvector_setup: connect to the migration database; enable/check vector
     -> successful exit
 migrations: apply application schema
     -> application services
@@ -36,7 +36,7 @@ An already provisioned image skips the download; SQL setup still validates it.
 
 The first installation requires access to the image's package repositories.
 Downloads retry transient failures. Missing packages, failed verification or
-missing binary dependencies stop database startup and therefore block migrations;
+missing binary dependencies stop the bundled database and block its migrations;
 there is no fallback that silently skips vector provisioning.
 
 A separate `pgvector-cache` volume stores the verified extension bundle. Cache
@@ -47,14 +47,21 @@ checked before reuse. Keep the cache volume for offline restarts. A different
 base image or an empty/damaged cache requires a new download. The cache contains
 no database rows or credentials.
 
-`pgvector_setup` is a one-shot PostgreSQL client using the existing Compose
-administrator credentials. It connects to `postgres_db`, database `postgres`,
-and runs `scripts/postgres/pgvector.sql` with `install=true`. This matches the
-application database configured by the standard Compose setup. It runs for
-existing volumes as well as new ones; it does not rely on initdb-only scripts.
-If an installation uses a different database or administrator credentials, adapt
-its deployment configuration accordingly. The normal application role does not
-need extension-installation privileges.
+`pgvector_setup` connects to the same `TRACECAT__DB_URI` as migrations, preserving
+the database name and URI options such as SSL. It retries connections for up to
+180 seconds. For the bundled server, it uses the existing Compose administrator
+credentials to enable vector in that database, then validates access with the
+migration role. This works for both existing volumes and newly initialized ones.
+The application role does not need extension-installation privileges.
+
+For an external database, setup only validates pgvector with the migration role;
+an administrator must already have enabled it. Setup does not wait for the unused
+bundled database to become healthy or finish downloading packages. It identifies
+the connected server by its address and port, including URI host overrides.
+
+The production database has a dedicated outbound network for package downloads;
+its shared application network remains internal. The setup client also joins the
+application's outbound network so it can reach external PostgreSQL servers.
 
 The database health check uses TCP so it does not report healthy during the
 image's temporary initialization server. Migrations depend on successful

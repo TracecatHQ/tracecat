@@ -1,6 +1,6 @@
 -- Check the application database with psql -X -f scripts/postgres/pgvector.sql.
 -- Only an explicit -v install=true enables installation. Never run as an app
--- startup hook: managed databases may require a separate provisioning role.
+-- startup hook for managed databases: they may require a separate provisioning role.
 \set ON_ERROR_STOP on
 \if :{?install}
 \else
