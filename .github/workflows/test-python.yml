@@ -114,6 +114,9 @@ jobs:
           n
           test@tracecat.com" | bash env.sh
 
+      - name: Check persistent Compose image selection
+        run: bash scripts/tests/test_pgvector_compose.sh
+
       - name: Build pgvector on the CI PostgreSQL image
         run: |
           docker pull postgres:16
@@ -124,7 +127,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          compose_files=(-f docker-compose.dev.yml -f docker-compose.pgvector.yml)
+          compose_files=(-f docker-compose.dev.yml)
           services=(postgres_db minio redis)
 
           uv sync --frozen &
@@ -181,7 +184,7 @@ jobs:
 
       - name: Provision application database vector extension
         run: |
-          docker compose -f docker-compose.dev.yml -f docker-compose.pgvector.yml exec -T postgres_db \
+          docker compose -f docker-compose.dev.yml exec -T postgres_db \
             psql -X -U postgres -d postgres -v install=true < scripts/postgres/pgvector.sql
 
       - name: Verify PostgreSQL image upgrade and vector permissions
@@ -223,12 +226,12 @@ jobs:
             add_args+=(--name "$attr" --type Keyword)
           done
 
-          docker compose -f docker-compose.dev.yml -f docker-compose.pgvector.yml exec -T temporal \
+          docker compose -f docker-compose.dev.yml exec -T temporal \
             tctl --address temporal:7233 --namespace default --auto_confirm \
             admin cluster add-search-attributes "${add_args[@]}"
 
           for _ in {1..30}; do
-            output=$(docker compose -f docker-compose.dev.yml -f docker-compose.pgvector.yml exec -T temporal \
+            output=$(docker compose -f docker-compose.dev.yml exec -T temporal \
               tctl --address temporal:7233 --namespace default \
               admin cluster get-search-attributes --print_json true)
             missing=()
@@ -285,18 +288,18 @@ jobs:
         if: failure()
         run: |
           echo "=== Docker Service Status ==="
-          docker compose -f docker-compose.dev.yml -f docker-compose.pgvector.yml ps
+          docker compose -f docker-compose.dev.yml ps
 
           echo "=== Postgres Logs ==="
-          docker compose -f docker-compose.dev.yml -f docker-compose.pgvector.yml logs postgres_db --tail=200
+          docker compose -f docker-compose.dev.yml logs postgres_db --tail=200
 
           echo "=== MinIO Logs ==="
-          docker compose -f docker-compose.dev.yml -f docker-compose.pgvector.yml logs minio --tail=200
+          docker compose -f docker-compose.dev.yml logs minio --tail=200
 
           echo "=== Redis Logs ==="
-          docker compose -f docker-compose.dev.yml -f docker-compose.pgvector.yml logs redis --tail=200
+          docker compose -f docker-compose.dev.yml logs redis --tail=200
 
           if [ "${{ matrix.test_group }}" = "temporal" ]; then
             echo "=== Temporal Logs ==="
-            docker compose -f docker-compose.dev.yml -f docker-compose.pgvector.yml logs temporal --tail=200
+            docker compose -f docker-compose.dev.yml logs temporal --tail=200
           fi
