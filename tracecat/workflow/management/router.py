@@ -362,7 +362,11 @@ async def get_workflow(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found"
         )
+    return _build_workflow_read(workflow)
 
+
+def _build_workflow_read(workflow: Workflow) -> WorkflowRead:
+    """Serialize a fully loaded workflow (actions, webhook, schedules)."""
     actions = workflow.actions or []
     actions_responses = {
         str(action.id): ActionRead.model_validate(action, from_attributes=True)
@@ -403,7 +407,7 @@ async def get_workflow(
 
 @router.patch(
     "/{workflow_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
+    status_code=status.HTTP_200_OK,
     tags=["workflows"],
 )
 @require_scope("workflow:update")
@@ -412,7 +416,7 @@ async def update_workflow(
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
     params: WorkflowUpdate,
-) -> None:
+) -> WorkflowRead:
     """Update a workflow."""
     service = WorkflowsManagementService(session, role=role)
     try:
@@ -436,6 +440,12 @@ async def update_workflow(
             status_code=status.HTTP_409_CONFLICT,
             detail="Workflow already exists",
         ) from e
+    workflow = await service.get_workflow(workflow_id)
+    if workflow is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found"
+        )
+    return _build_workflow_read(workflow)
 
 
 @router.delete(
@@ -909,18 +919,19 @@ async def create_webhook(
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
     params: WebhookCreate,
-) -> None:
+) -> WebhookRead:
     """Create a webhook for a workflow."""
     if role.workspace_id is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Workspace ID is required"
         )
-    await webhook_service.create_webhook(
+    webhook = await webhook_service.create_webhook(
         role=role,
         session=session,
         workflow_id=workflow_id,
         params=params,
     )
+    return WebhookRead.model_validate(webhook, from_attributes=True)
 
 
 @router.get(
@@ -953,7 +964,7 @@ async def get_webhook(
 @router.patch(
     "/{workflow_id}/webhook",
     tags=["triggers"],
-    status_code=status.HTTP_204_NO_CONTENT,
+    status_code=status.HTTP_200_OK,
 )
 @require_scope("workflow:update")
 async def update_webhook(
@@ -961,10 +972,10 @@ async def update_webhook(
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
     params: WebhookUpdate,
-) -> None:
+) -> WebhookRead:
     """Update the webhook for a workflow. We currently supprt only one webhook per workflow."""
     try:
-        await webhook_service.update_webhook(
+        webhook = await webhook_service.update_webhook(
             role=role,
             session=session,
             workflow_id=workflow_id,
@@ -972,6 +983,7 @@ async def update_webhook(
         )
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    return WebhookRead.model_validate(webhook, from_attributes=True)
 
 
 # ----- Workflow Case Triggers ----- #
@@ -1026,7 +1038,8 @@ async def get_case_trigger(
 @router.patch(
     "/{workflow_id}/case-trigger",
     tags=["triggers"],
-    status_code=status.HTTP_204_NO_CONTENT,
+    status_code=status.HTTP_200_OK,
+    response_model=CaseTriggerRead,
 )
 @require_scope("workflow:update")
 async def update_case_trigger(
@@ -1034,17 +1047,18 @@ async def update_case_trigger(
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
     params: CaseTriggerUpdate,
-) -> None:
+) -> CaseTriggerRead:
     """Update the case trigger configuration for a workflow."""
     service = CaseTriggersService(session, role=role)
     try:
-        await service.update_case_trigger(workflow_id, params)
+        case_trigger = await service.update_case_trigger(workflow_id, params)
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
     except TracecatValidationError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
         ) from e
+    return CaseTriggerRead.model_validate(case_trigger, from_attributes=True)
 
 
 @router.post(

@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
 from tracecat.agent.otel_config import AgentOtelConfig, validate_otel_header_items
 from tracecat.git.constants import GIT_SSH_URL_REGEX
+from tracecat.identifiers import WorkspaceID
 
 
 class BaseSettingsGroup(BaseModel):
@@ -89,6 +90,9 @@ class AppSettingsRead(BaseSettingsGroup):
     app_workflow_export_enabled: bool
     app_create_workspace_on_register: bool
     app_action_form_mode_enabled: bool
+    app_unsafe_disable_secret_error_withholding_workspace_ids: list[WorkspaceID] = (
+        Field(default_factory=list)
+    )
 
 
 class AppSettingsUpdate(BaseSettingsGroup):
@@ -116,6 +120,17 @@ class AppSettingsUpdate(BaseSettingsGroup):
     app_action_form_mode_enabled: bool = Field(
         default=True,
         description="Whether to enable form mode for action inputs. When disabled, only YAML mode is available, preserving raw YAML formatting.",
+    )
+    app_unsafe_disable_secret_error_withholding_workspace_ids: list[WorkspaceID] = (
+        Field(
+            default_factory=list,
+            description=(
+                "UNSAFE: workspaces whose actions may opt into showing their "
+                "original error message when secrets are in scope. Each action "
+                "must still enable 'Show error details' individually. Known "
+                "secret values are still masked."
+            ),
+        )
     )
 
 

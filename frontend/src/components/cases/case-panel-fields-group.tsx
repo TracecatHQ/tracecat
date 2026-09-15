@@ -14,7 +14,7 @@ interface CasePanelFieldsGroupProps {
   visibleCustomFields: CaseFieldRead[]
   showAll: boolean
   onToggleShowAll: () => void
-  updateCase: (caseUpdate: Partial<CaseUpdate>) => Promise<void>
+  updateCase: (caseUpdate: Partial<CaseUpdate>) => Promise<unknown>
   rowClassName: string
   labelClassName: string
   controlClassName: string

@@ -3,11 +3,35 @@ from __future__ import annotations
 import re
 import traceback
 from collections.abc import Callable, Coroutine, Iterable, Mapping, Sequence
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any
 
+from tracecat import config
 from tracecat.exceptions import TracecatException
 from tracecat.secrets.constants import MASK_VALUE
+
+ctx_unsafe_disable_secret_error_withholding: ContextVar[bool] = ContextVar(
+    "unsafe-disable-secret-error-withholding", default=False
+)
+"""Per-action opt-in to surface original error text, resolved by the executor.
+
+Set for the duration of one action invocation once the action's toggle has been
+checked against the workspace-level allow setting.
+"""
+
+
+def secret_error_withholding_disabled() -> bool:
+    """Whether original error text may surface despite secrets in scope.
+
+    True when the deployment-wide knob is on, or the current action opted in
+    and its organization allow-lists the workspace. Known secret values are
+    still exact-string masked downstream.
+    """
+    return (
+        config.TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING
+        or ctx_unsafe_disable_secret_error_withholding.get()
+    )
 
 
 def _compile_mask_pattern(masks: Iterable[str]) -> re.Pattern[str] | None:

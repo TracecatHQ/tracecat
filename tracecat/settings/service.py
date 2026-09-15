@@ -8,6 +8,7 @@ from cryptography.fernet import InvalidToken
 from pydantic import BaseModel, SecretStr
 from pydantic_core import to_jsonable_python
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.api.common import get_default_organization_id
@@ -24,7 +25,7 @@ from tracecat.db.engine import (
 )
 from tracecat.db.models import OrganizationSetting
 from tracecat.db.rls import set_rls_context_from_role
-from tracecat.identifiers import OrganizationID
+from tracecat.identifiers import OrganizationID, WorkspaceID
 from tracecat.logger import logger
 from tracecat.network import DisallowedUrlError, validate_url_resolves_public_async
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
@@ -407,6 +408,36 @@ async def get_setting_from_bypass_session(
         logger.debug("Setting not found, using default value", key=key)
         return default
     return no_default_val
+
+
+async def workspace_allows_error_details(
+    *,
+    organization_id: OrganizationID,
+    workspace_id: WorkspaceID,
+    session: SupportsExecute,
+) -> bool:
+    """Whether the org lets this workspace's actions opt out of secret error withholding.
+
+    Fails closed: any lookup failure or malformed value denies the workspace.
+    """
+    try:
+        value = await get_setting_from_bypass_session(
+            "app_unsafe_disable_secret_error_withholding_workspace_ids",
+            organization_id=organization_id,
+            session=session,
+            default=[],
+        )
+    except SQLAlchemyError as e:
+        logger.warning(
+            "Failed to read error-details workspace allow-list; denying",
+            organization_id=organization_id,
+            workspace_id=workspace_id,
+            error=str(e),
+        )
+        return False
+    if not isinstance(value, list):
+        return False
+    return str(workspace_id) in {str(item) for item in value}
 
 
 async def get_setting(

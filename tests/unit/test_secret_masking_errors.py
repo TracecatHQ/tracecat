@@ -452,6 +452,7 @@ async def _run_template(
     from tracecat_registry import RegistrySecret
 
     from tracecat.auth.types import Role
+    from tracecat.dsl.schemas import ActionStatement
     from tracecat.executor import service as service_module
     from tracecat.executor.schemas import (
         ActionImplementation,
@@ -470,7 +471,11 @@ async def _run_template(
         workspace_id=UUID(int=2),
         service_id="tracecat-executor",
     )
-    run_input = mock.Mock(registry_lock=mock.sentinel.lock, exec_context={})
+    run_input = mock.Mock(
+        registry_lock=mock.sentinel.lock,
+        exec_context={},
+        task=ActionStatement(ref="caller", action="testing.stub", args=caller_args),
+    )
     resolved = ResolvedContext(
         secrets={},
         variables={},

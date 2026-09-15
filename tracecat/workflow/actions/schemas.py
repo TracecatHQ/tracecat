@@ -72,6 +72,14 @@ class ActionControlFlow(Schema):
             "responses while preserving internal workflow data flow between actions."
         ),
     )
+    unsafe_disable_secret_error_withholding: bool = Field(
+        default=False,
+        description=(
+            "UNSAFE: if true, surface this action's original error message even "
+            "when secrets are in scope, instead of the generic 'Details withheld' "
+            "message. Known secret values are still masked."
+        ),
+    )
 
     @field_validator("wait_until", mode="before")
     def validate_wait_until(cls, v: str | None) -> str | None:
