@@ -12,8 +12,8 @@ services:
     # in-jail RLIMIT_NPROC is bypassable via nested user namespaces (fresh
     # per-userns fork counter), so the container cgroup pids limit is the
     # reliable fork-bomb bound. 4096 leaves headroom above the default
-    # executor concurrency ceiling (TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES=16
-    # x 64 in-jail processes = 1024) plus executor threads and nsjail
+    # executor concurrency ceiling (TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES=32
+    # x 64 in-jail processes = 2048) plus executor threads and nsjail
     # launchers. Re-verify headroom when raising concurrency or the in-jail
     # process cap.
     pids_limit: 4096
