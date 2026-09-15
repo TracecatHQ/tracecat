@@ -5709,6 +5709,8 @@ class SearchEmbeddingConfig(TimestampMixin, Base):
 
     Records contain no credential secrets. Collections and chunks reference the
     configuration version, and chunks must match its embedding dimensions.
+    Embedding semantics are immutable within a version; only the credential
+    reference/environment may rotate after validation without rebuilding vectors.
     """
 
     __tablename__ = "search_embedding_config"
