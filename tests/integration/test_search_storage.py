@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from tests.database import TEST_DB_CONFIG
 from tracecat import config
+from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_engine, reset_async_engine
 from tracecat.db.models import (
     Organization,
@@ -23,7 +24,11 @@ from tracecat.db.models import (
     Table,
     Workspace,
 )
-from tracecat.db.tenant_rls import enable_search_table_rls
+from tracecat.db.tenant_rls import (
+    disable_workspace_special_rls,
+    enable_search_table_rls,
+    enable_workspace_special_rls,
+)
 from tracecat.search.cleanup import cleanup_orphans
 from tracecat.search.query import eligible_chunks
 from tracecat.search.service import SearchStorage
@@ -848,3 +853,72 @@ async def test_rejected_checkpoint_does_not_persist_partial_manifest(
         await store.write_embeddings(retry, (embedding(retry, 0), embedding(retry, 1)))
         await store.publish(retry)
         assert len((await session.scalars(eligible_chunks(case.scope))).all()) == 2
+
+
+@pytest.mark.anyio
+async def test_owned_session_applies_trusted_scope_under_rls(
+    storage_case: StorageCase, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    case = storage_case
+    role = f"synthetic_search_{uuid.uuid4().hex}"
+    search_tables = ("search_collection", "search_workspace_state")
+    async with case.sessions.begin() as session:
+        await session.execute(text(f'CREATE ROLE "{role}" NOLOGIN'))
+        await session.execute(text(f'GRANT USAGE ON SCHEMA public TO "{role}"'))
+        await session.execute(
+            text(
+                f"GRANT SELECT, UPDATE ON workspace, search_collection, "
+                f'search_workspace_state, search_document TO "{role}"'
+            )
+        )
+        policies = [enable_workspace_special_rls()]
+        policies.extend(enable_search_table_rls(table) for table in search_tables)
+        for policy in policies:
+            for statement in policy.split(";"):
+                if statement.strip():
+                    await session.execute(text(statement))
+    monkeypatch.setattr(config, "TRACECAT__DB_URI", TEST_DB_CONFIG.test_url_sync)
+    monkeypatch.setattr(config, "TRACECAT__RLS_MODE", config.RLSMode.ENFORCE)
+    reset_async_engine()
+    token = ctx_role.set(None)
+    try:
+        async with SearchStorage.with_session(scope=case.scope) as store:
+            await store.session.execute(text(f'SET LOCAL ROLE "{role}"'))
+            await store.set_state(SearchState.PAUSED)
+            await store.session.commit()
+            # The helper must reapply the scope after either transaction boundary.
+            for finish in (store.session.rollback, store.session.commit):
+                await store.session.execute(text(f'SET LOCAL ROLE "{role}"'))
+                assert (
+                    await store.status(case.collection_id)
+                ).state == SearchState.PAUSED
+                assert (
+                    len((await store.session.scalars(select(SearchCollection))).all())
+                    == 1
+                )
+                await finish()
+        other_scope = SearchScope(uuid.uuid4(), case.scope.workspace_id)
+        async with SearchStorage.with_session(scope=other_scope) as store:
+            await store.session.execute(text(f'SET LOCAL ROLE "{role}"'))
+            # No explicit query predicate: the database itself must hide the row.
+            assert not (await store.session.scalars(select(SearchCollection))).all()
+            with pytest.raises(SearchError) as error:
+                await store.lock_scope()
+            assert error.value.code == SearchErrorCode.NOT_FOUND
+    finally:
+        ctx_role.reset(token)
+        await get_async_engine().dispose()
+        reset_async_engine()
+        async with case.sessions.begin() as session:
+            for statement in disable_workspace_special_rls().split(";"):
+                if statement.strip():
+                    await session.execute(text(statement))
+            for table in search_tables:
+                await session.execute(
+                    text(f"DROP POLICY rls_policy_{table} ON {table}")
+                )
+                await session.execute(
+                    text(f"ALTER TABLE {table} DISABLE ROW LEVEL SECURITY")
+                )
+            await session.execute(text(f'DROP OWNED BY "{role}"'))
+            await session.execute(text(f'DROP ROLE "{role}"'))
