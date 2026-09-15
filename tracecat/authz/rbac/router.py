@@ -18,6 +18,7 @@ from tracecat_ee.rbac.schemas import (
     UserRoleAssignmentCreate,
     UserRoleAssignmentList,
     UserRoleAssignmentReadWithDetails,
+    UserRoleAssignmentsReplace,
     UserRoleAssignmentUpdate,
 )
 from tracecat_ee.rbac.service import RBACService
@@ -30,6 +31,7 @@ from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import Role as DBRole
 from tracecat.db.models import UserRoleAssignment
 from tracecat.exceptions import (
+    TracecatConflictError,
     TracecatNotFoundError,
     TracecatValidationError,
 )
@@ -170,6 +172,26 @@ async def list_user_assignments(
         items=[_assignment_to_read(a) for a in assignments],
         total=len(assignments),
     )
+
+
+@user_assignments_router.put("", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("org:rbac:read")
+async def replace_user_assignments(
+    *,
+    role: OrgActorRole,
+    session: AsyncDBSession,
+    params: UserRoleAssignmentsReplace,
+) -> None:
+    """Save a member's staged direct role changes in one transaction."""
+    service = RBACService(session, role=role)
+    try:
+        await service.replace_user_assignments(params)
+    except TracecatConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except TracecatNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except TracecatValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @user_assignments_router.get(

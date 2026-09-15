@@ -17,7 +17,10 @@ from tracecat.auth.users import (
     get_user_manager_context,
 )
 from tracecat.authz.controls import has_scope, require_scope
-from tracecat.authz.membership import drop_workspace_membership_mirror
+from tracecat.authz.membership import (
+    drop_workspace_membership_mirror,
+    lock_role_changes,
+)
 from tracecat.db.models import (
     AccessToken,
     Group,
@@ -117,6 +120,7 @@ class OrgService(BaseOrgService):
         Raises:
             TracecatAuthorizationError: If the user is a superuser and cannot be deleted.
         """
+        await lock_role_changes(self.session, self.organization_id)
         user = await self.get_member(user_id)
         if user.is_superuser:
             raise TracecatAuthorizationError("Cannot delete superuser")
