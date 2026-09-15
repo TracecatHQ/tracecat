@@ -27,6 +27,7 @@ from tracecat.db.models import (
     Workspace,
 )
 from tracecat.db.models import Role as DBRole
+from tracecat.db.rls import set_rls_context, set_rls_context_from_role
 from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatConflictError,
@@ -295,11 +296,29 @@ class MembershipService(BaseService):
 
         # Any role path is org presence, so a workspace grant to an outsider
         # would admit them to the org. Admission stays behind org:member:invite.
+        #
+        # Presence spans workspaces, but this session is scoped to the
+        # destination workspace, which hides the target's assignments in their
+        # other ones. Drop the workspace filter for the lookup only: the org
+        # filter still applies, and the writes below need the original context.
         org_member_stmt = select(OrganizationMembership.user_id).where(
             OrganizationMembership.user_id == params.user_id,
             OrganizationMembership.organization_id == organization_id,
         )
-        if (await self.session.execute(org_member_stmt)).scalar_one_or_none() is None:
+        await set_rls_context(
+            self.session,
+            org_id=organization_id,
+            workspace_id=None,
+            user_id=self.role.user_id,
+            bypass=False,
+        )
+        try:
+            is_org_member = (
+                await self.session.execute(org_member_stmt)
+            ).scalar_one_or_none() is not None
+        finally:
+            await set_rls_context_from_role(self.session, self.role)
+        if not is_org_member:
             raise TracecatAuthorizationError(
                 "User is not a member of this organization"
             )
