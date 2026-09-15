@@ -117,6 +117,8 @@ with workflow.unsafe.imports_passed_through():
         TracecatExpressionError,
         TracecatNotFoundError,
     )
+    from tracecat.expressions.common import ExprContext
+    from tracecat.expressions.core import extract_expressions
     from tracecat.expressions.eval import is_template_only
     from tracecat.identifiers.workflow import (
         WorkflowExecutionID,
@@ -1667,11 +1669,31 @@ class DSLWorkflow:
         return await workflow.execute_activity(
             DSLActivities.resolve_return_expression_activity,
             arg=EvaluateTemplatedObjectActivityInput(
-                obj=self.dsl.returns, operand=self.context, key=key
+                obj=self.dsl.returns,
+                operand=self._build_return_context(),
+                key=key,
             ),
             start_to_close_timeout=self.start_to_close_timeout,
             retry_policy=RETRY_POLICIES["activity:fail_fast"],
         )
+
+    def _build_return_context(self) -> ExecutionContext:
+        """Build the operand for the return expression.
+
+        Only the action results referenced by ``returns`` are included so the
+        activity input stays within Temporal's payload size limit regardless of
+        how many actions the workflow ran.
+        """
+        expr_ctxs = extract_expressions({"returns": self.dsl.returns})
+        actions = self.context["ACTIONS"]
+        referenced = {
+            ref: actions[ref]
+            for ref in sorted(expr_ctxs[ExprContext.ACTIONS])
+            if ref in actions
+        }
+        return_context = self.context.copy()
+        return_context["ACTIONS"] = referenced
+        return return_context
 
     async def _load_published_workflow_definition(
         self,
