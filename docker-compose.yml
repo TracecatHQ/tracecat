@@ -641,6 +641,7 @@ services:
     restart: unless-stopped
     networks:
       - core-db
+      - postgres-egress
     shm_size: 128mb
     environment:
       POSTGRES_USER: ${TRACECAT__POSTGRES_USER}
@@ -660,18 +661,19 @@ services:
     image: ${TRACECAT__PGVECTOR_IMAGE:-postgres:16}
     restart: "no"
     networks:
+      - core
       - core-db
     environment:
-      PGHOST: postgres_db
-      PGUSER: ${TRACECAT__POSTGRES_USER}
-      PGPASSWORD: ${TRACECAT__POSTGRES_PASSWORD}
-      PGDATABASE: postgres
+      TRACECAT__POSTGRES_USER: ${TRACECAT__POSTGRES_USER}
+      TRACECAT__POSTGRES_PASSWORD: ${TRACECAT__POSTGRES_PASSWORD}
+      TRACECAT__DB_URI: ${TRACECAT__DB_URI}
     volumes:
+      - ./scripts/postgres/compose-setup.sh:/compose-setup.sh:ro
       - ./scripts/postgres/pgvector.sql:/pgvector.sql:ro
-    entrypoint: ["psql", "-X", "-v", "install=true", "-f", "/pgvector.sql"]
+    entrypoint: ["bash", "/compose-setup.sh"]
     depends_on:
       postgres_db:
-        condition: service_healthy
+        condition: service_started
 
   migrations:
     image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0-beta.50}
@@ -788,6 +790,8 @@ volumes:
   sandbox-cache:
 
 networks:
+  # Download extension files without exposing the database to other services.
+  postgres-egress:
   core:
   core-db:
     internal: true

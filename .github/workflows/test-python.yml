@@ -11,6 +11,8 @@ on:
       - packages/tracecat-registry/**
       - pyproject.toml
       - uv.lock
+      - docker-compose.yml
+      - docker-compose.local.yml
       - docker-compose.dev.yml
       - docker-compose.pgvector.yml
       - deployments/postgres/Dockerfile
@@ -29,6 +31,8 @@ on:
       - packages/tracecat-registry/**
       - pyproject.toml
       - uv.lock
+      - docker-compose.yml
+      - docker-compose.local.yml
       - docker-compose.dev.yml
       - docker-compose.pgvector.yml
       - deployments/postgres/Dockerfile
@@ -178,7 +182,9 @@ jobs:
 
       - name: Verify automatic vector provisioning completed
         run: |
-          docker compose -f docker-compose.dev.yml wait pgvector_setup
+          container=$(docker compose -f docker-compose.dev.yml ps --all --quiet pgvector_setup)
+          test -n "$container"
+          test "$(docker wait "$container")" = 0
 
       - name: Verify PostgreSQL image upgrade and vector permissions
         if: matrix.test_group == 'unit'
