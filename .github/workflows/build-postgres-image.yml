@@ -1,0 +1,131 @@
+name: Build PostgreSQL images
+
+on:
+  pull_request:
+    paths:
+      - deployments/postgres/**
+      - scripts/postgres/**
+      - scripts/tests/test_pgvector*.sh
+      - docker-compose*.yml
+      - .github/workflows/build-postgres-image.yml
+  push:
+    branches: [main]
+    paths:
+      - deployments/postgres/**
+      - scripts/postgres/**
+      - scripts/tests/test_pgvector*.sh
+      - docker-compose*.yml
+      - .github/workflows/build-postgres-image.yml
+
+permissions:
+  contents: read
+concurrency:
+  group: postgres-images-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [trixie, bookworm]
+        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Build and test candidate
+        env:
+          VARIANT: ${{ matrix.variant }}
+          PGVECTOR_TEST_SKIP_BUILD: "true"
+        run: |
+          set -euo pipefail
+          bash scripts/postgres/build-image.sh "$VARIANT"
+          base=$(jq -er --arg variant "$VARIANT" '.[$variant].base' deployments/postgres/images.json)
+          image=$(jq -er --arg variant "$VARIANT" '.[$variant].image' deployments/postgres/images.json)
+          # BuildKit's base cache is separate from images used by docker run.
+          docker pull "$base"
+          bash scripts/tests/test_pgvector_compose.sh
+          bash scripts/tests/test_pgvector_startup.sh "$VARIANT" existing
+          bash scripts/tests/test_pgvector_startup.sh "$VARIANT" fresh synthetic_admin
+          PGVECTOR_TEST_IMAGE="$image" bash scripts/tests/test_pgvector.sh "$base"
+      - name: Reject incompatible collation libraries
+        if: matrix.variant == 'trixie'
+        run: |
+          set -euo pipefail
+          source=$(jq -er '.bookworm.base' deployments/postgres/images.json)
+          image=$(jq -er '.trixie.image' deployments/postgres/images.json)
+          docker pull "$source"
+          PGVECTOR_TEST_IMAGE="$image" bash scripts/tests/test_pgvector.sh "$source" --expect-collation-mismatch
+      - name: Save tested image for publication
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/postgres-image
+          jq -er --arg variant "$VARIANT" '.[$variant].image' deployments/postgres/images.json > /tmp/postgres-image/name
+          docker save "$(cat /tmp/postgres-image/name)" | gzip > /tmp/postgres-image/image.tar.gz
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          name: postgres-${{ matrix.variant }}-${{ matrix.arch }}
+          path: /tmp/postgres-image/
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
+
+  # Only trusted main builds reach a write-scoped token. Publish the exact
+  # tested images, then combine their native CPU variants into one public tag.
+  publish:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        variant: [trixie, bookworm]
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: postgres-${{ matrix.variant }}-*
+          path: /tmp/postgres-images
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish tested architectures and versioned manifest
+        env:
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          set -euo pipefail
+          image=$(cat "/tmp/postgres-images/postgres-$VARIANT-amd64/name")
+          suffix=""
+          if [[ "$VARIANT" == bookworm ]]; then suffix="-bookworm"; fi
+          [[ "$image" =~ ^ghcr.io/tracecathq/tracecat-postgres:[1-9][0-9]*$suffix$ ]]
+          refs=()
+          for arch in amd64 arm64; do
+            artifact="/tmp/postgres-images/postgres-$VARIANT-$arch"
+            [[ $(cat "$artifact/name") == "$image" ]]
+            docker load -i "$artifact/image.tar.gz"
+            [[ $(docker image inspect --format '{{.Architecture}}' "$image") == "$arch" ]]
+            tag="$image-$arch-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+            docker tag "$image" "$tag"
+            docker push "$tag"
+            digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "$tag")
+            refs+=("$digest")
+          done
+          docker buildx imagetools create -t "$image" "${refs[@]}"
