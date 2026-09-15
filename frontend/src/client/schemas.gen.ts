@@ -8406,6 +8406,12 @@ export const $CaseFieldCreate = {
       ],
       title: "Default",
     },
+    is_index: {
+      type: "boolean",
+      title: "Is Index",
+      description: "Whether to create a unique index on the column",
+      default: false,
+    },
     options: {
       anyOf: [
         {
@@ -23476,6 +23482,20 @@ export const $ScheduleUpdate = {
       ],
       title: "Status",
     },
+    timeout: {
+      anyOf: [
+        {
+          type: "number",
+          minimum: 0,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Timeout",
+      description:
+        "The maximum number of seconds to wait for the workflow to complete",
+    },
   },
   type: "object",
   title: "ScheduleUpdate",
@@ -25981,6 +26001,12 @@ export const $TableColumnCreate = {
         },
       ],
       title: "Default",
+    },
+    is_index: {
+      type: "boolean",
+      title: "Is Index",
+      description: "Whether to create a unique index on the column",
+      default: false,
     },
     options: {
       anyOf: [
@@ -29252,7 +29278,7 @@ export const $VariableCreate = {
       type: "string",
       maxLength: 255,
       minLength: 1,
-      pattern: "[a-z0-9_]+",
+      pattern: "^[a-z0-9_]+$",
       title: "Name",
     },
     description: {
@@ -29315,7 +29341,6 @@ export const $VariableRead = {
     },
     name: {
       type: "string",
-      pattern: "[a-z0-9_]+",
       title: "Name",
     },
     description: {
@@ -29392,7 +29417,6 @@ export const $VariableReadMinimal = {
     },
     name: {
       type: "string",
-      pattern: "[a-z0-9_]+",
       title: "Name",
     },
     description: {
@@ -29429,7 +29453,7 @@ export const $VariableUpdate = {
           type: "string",
           maxLength: 255,
           minLength: 1,
-          pattern: "[a-z0-9_]+",
+          pattern: "^[a-z0-9_]+$",
         },
         {
           type: "null",
@@ -32615,6 +32639,7 @@ export const $WorkflowMoveToFolder = {
       title: "Folder Path",
     },
   },
+  additionalProperties: false,
   type: "object",
   title: "WorkflowMoveToFolder",
 } as const

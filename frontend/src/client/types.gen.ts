@@ -2266,6 +2266,10 @@ export type CaseFieldCreate = {
   type: SqlType
   nullable?: boolean
   default?: unknown | null
+  /**
+   * Whether to create a unique index on the column
+   */
+  is_index?: boolean
   options?: Array<string> | null
   display_name?: string | null
   kind?: CaseFieldKind | null
@@ -7137,6 +7141,10 @@ export type ScheduleUpdate = {
    */
   end_at?: string | null
   status?: "online" | "offline" | null
+  /**
+   * The maximum number of seconds to wait for the workflow to complete
+   */
+  timeout?: number | null
 }
 
 /**
@@ -7869,6 +7877,10 @@ export type TableColumnCreate = {
   type: SqlType
   nullable?: boolean
   default?: unknown | null
+  /**
+   * Whether to create a unique index on the column
+   */
+  is_index?: boolean
   options?: Array<string> | null
 }
 
@@ -12850,7 +12862,7 @@ export type TablesCreateTableData = {
   workspaceId: string
 }
 
-export type TablesCreateTableResponse = unknown
+export type TablesCreateTableResponse = TableRead
 
 export type TablesGetTableData = {
   tableId: string
@@ -12880,7 +12892,7 @@ export type TablesCreateColumnData = {
   workspaceId: string
 }
 
-export type TablesCreateColumnResponse = unknown
+export type TablesCreateColumnResponse = TableColumnRead
 
 export type TablesUpdateColumnData = {
   columnId: string
@@ -18887,7 +18899,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        201: unknown
+        201: TableRead
         /**
          * Validation Error
          */
@@ -18943,7 +18955,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        201: unknown
+        201: TableColumnRead
         /**
          * Validation Error
          */

@@ -58,6 +58,10 @@ class TableColumnCreate(BaseModel):
     )
     nullable: bool = True
     default: Any | None = None
+    is_index: bool = Field(
+        default=False,
+        description="Whether to create a unique index on the column",
+    )
     options: list[str] | None = None
 
     @field_validator("name")

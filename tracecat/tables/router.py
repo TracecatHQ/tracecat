@@ -21,6 +21,7 @@ from tracecat import config
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.models import Table
 from tracecat.exceptions import TracecatImportError, TracecatNotFoundError
 from tracecat.identifiers import TableColumnID, TableID
 from tracecat.logger import logger
@@ -104,17 +105,37 @@ async def list_tables(
     ]
 
 
-@router.post("", status_code=status.HTTP_201_CREATED)
+async def _table_read(service: TablesService, table: Table) -> TableRead:
+    index_columns = await service.get_index(table)
+    return TableRead(
+        id=table.id,
+        name=table.name,
+        columns=[
+            TableColumnRead(
+                id=column.id,
+                name=column.name,
+                type=SqlType(column.type),
+                nullable=column.nullable,
+                default=column.default,
+                is_index=column.name in index_columns,
+                options=column.options,
+            )
+            for column in table.columns
+        ],
+    )
+
+
+@router.post("", status_code=status.HTTP_201_CREATED, response_model=TableRead)
 @require_scope("table:create")
 async def create_table(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     params: TableCreate,
-) -> None:
+) -> TableRead:
     """Create a new table."""
     service = TablesService(session, role=role)
     try:
-        await service.create_table(params)
+        created = await service.create_table(params)
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -141,6 +162,8 @@ async def create_table(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An error occurred while creating the table",
         ) from e
+    table = await service.get_table(created.id)
+    return await _table_read(service, table)
 
 
 @router.get("/{table_id}", response_model=TableRead)
@@ -160,26 +183,7 @@ async def get_table(
             detail=str(e),
         ) from e
 
-    # Get unique index info or default to empty dict if not present
-    index_columns = await service.get_index(table)
-
-    # Convert to response model (includes is_index field)
-    return TableRead(
-        id=table.id,
-        name=table.name,
-        columns=[
-            TableColumnRead(
-                id=column.id,
-                name=column.name,
-                type=SqlType(column.type),
-                nullable=column.nullable,
-                default=column.default,
-                is_index=column.name in index_columns,
-                options=column.options,
-            )
-            for column in table.columns
-        ],
-    )
+    return await _table_read(service, table)
 
 
 @router.patch("/{table_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -235,14 +239,18 @@ async def delete_table(
     await service.delete_table(table)
 
 
-@router.post("/{table_id}/columns", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/{table_id}/columns",
+    status_code=status.HTTP_201_CREATED,
+    response_model=TableColumnRead,
+)
 @require_scope("table:create")
 async def create_column(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     table_id: TableID,
     params: TableColumnCreate,
-) -> None:
+) -> TableColumnRead:
     """Add a column to a table."""
     service = TablesService(session, role=role)
     try:
@@ -253,7 +261,21 @@ async def create_column(
             detail=str(e),
         ) from e
     try:
-        await service.create_column(table, params)
+        column = await service.create_column(table, params)
+        return TableColumnRead(
+            id=column.id,
+            name=column.name,
+            type=SqlType(column.type),
+            nullable=column.nullable,
+            default=column.default,
+            is_index=params.is_index,
+            options=column.options,
+        )
+    except ColumnHasDuplicateValuesError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        ) from e
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

@@ -9253,7 +9253,7 @@ export const tablesListTables = (
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.requestBody
- * @returns unknown Successful Response
+ * @returns TableRead Successful Response
  * @throws ApiError
  */
 export const tablesCreateTable = (
@@ -9358,7 +9358,7 @@ export const tablesDeleteTable = (
  * @param data.tableId
  * @param data.workspaceId
  * @param data.requestBody
- * @returns unknown Successful Response
+ * @returns TableColumnRead Successful Response
  * @throws ApiError
  */
 export const tablesCreateColumn = (
