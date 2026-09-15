@@ -1,0 +1,10 @@
+{
+  "trixie": {
+    "base": "postgres:16.14-trixie@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b",
+    "image": "ghcr.io/tracecathq/tracecat-postgres:16.14-trixie-vector0.8.6-r1"
+  },
+  "bookworm": {
+    "base": "postgres:16.14-bookworm@sha256:64154d0babcb1741988719e703419af0382b19953706149f9872fbd0f438efa8",
+    "image": "ghcr.io/tracecathq/tracecat-postgres:16.14-bookworm-vector0.8.6-r1"
+  }
+}

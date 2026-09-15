@@ -86,6 +86,10 @@ jobs:
         run: |
           docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml build ui
 
+      # PRs test their own candidate, before its GHCR tag is published.
+      - name: Build PostgreSQL candidate image
+        run: bash scripts/postgres/build-image.sh
+
       - name: Start Tracecat stack
         env:
           TRACECAT__CI_IMAGE_TAG: frontend-smoke-${{ github.run_id }}-${{ github.run_attempt }}

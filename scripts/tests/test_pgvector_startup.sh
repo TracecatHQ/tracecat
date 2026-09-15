@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
 # Real Compose startup using the production wiring and a small SQL migration probe.
-# No image build, pgvector override, or manual extension installation.
+# Build the candidate locally; container startup itself needs no installation.
 set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 work_dir=$(mktemp -d)
 project="pgvector-startup-$(date +%s)-$$"
-source_image=${1:-postgres:16}
+variant=${1:-trixie}
+source_image=$(jq -er --arg variant "$variant" '.[$variant].base' "$repo_root/deployments/postgres/images.json")
+vector_image=$(jq -er --arg variant "$variant" '.[$variant].image' "$repo_root/deployments/postgres/images.json")
+# CI builds once before calling this test; standalone runs build on demand.
+if [[ ${PGVECTOR_TEST_SKIP_BUILD:-false} != true ]]; then
+    bash "$repo_root/scripts/postgres/build-image.sh" "$variant"
+fi
+docker image inspect "$source_image" >/dev/null 2>&1 || docker pull "$source_image"
 scenario=${2:-existing}
 admin_user=${3:-postgres}
 unset COMPOSE_FILE TRACECAT__PGVECTOR_IMAGE
@@ -34,15 +41,17 @@ cleanup() {
 }
 trap cleanup EXIT
 docker compose config --format json > rendered.json 2> warnings.log
-python3 - "$source_image" "$admin_user" <<'PY'
+python3 - "$source_image" "$admin_user" "$vector_image" "$repo_root/deployments/postgres/images.json" <<'PY'
 import json
 import sys
 from pathlib import Path
 config = json.loads(Path('rendered.json').read_text())
 config['services'] = {k: config['services'][k] for k in ('postgres_db', 'migrations')}
 postgres = config['services']['postgres_db']
-assert postgres['image'] == 'postgres:16', 'Default startup must need no image setting'
-postgres['image'] = sys.argv[1]  # Test another supported distribution when requested.
+assert postgres['image'] == json.loads(Path(sys.argv[4]).read_text())['trixie']['image']
+postgres['image'] = sys.argv[3]  # Exercise the matching Bookworm image when requested.
+# Test-only SQL injection makes the socket-only interval observable.
+postgres['volumes'].append({'type': 'bind', 'source': str(Path('scripts/postgres/pgvector.sql').resolve()), 'target': '/usr/local/share/tracecat/pgvector.sql', 'read_only': True})
 postgres.pop('ports', None)
 postgres.pop('container_name', None)
 config['services']['migrations'] = {
@@ -53,7 +62,10 @@ config['services']['migrations'] = {
     'depends_on': config['services']['migrations']['depends_on'],
     'networks': config['services']['migrations']['networks'],
 }
-config['volumes'] = {k: config['volumes'][k] for k in ('core-db', 'pgvector-cache')}
+config['volumes'] = {'core-db': config['volumes']['core-db']}
+# Prove provisioning and recreation do not need Internet access.
+for network in config['networks'].values():
+    network['internal'] = True
 Path('compose.yaml').write_text(json.dumps(config))
 PY
 if [[ "$scenario" == existing ]]; then
@@ -95,12 +107,11 @@ container=$(docker compose ps -q postgres_db 2>> warnings.log)
 before=$(docker run --rm --entrypoint bash "$source_image" -c 'dpkg-query -W; sha256sum "$(command -v postgres)"; find /usr/lib /lib -type f \( -name "libicu*.so.*" -o -name "libc.so.6" \) -exec sha256sum {} + | sort')
 after=$(docker exec "$container" bash -c 'dpkg-query -W; sha256sum "$(command -v postgres)"; find /usr/lib /lib -type f \( -name "libicu*.so.*" -o -name "libc.so.6" \) -exec sha256sum {} + | sort')
 [[ "$before" == "$after" ]]
-# Recreating the container must restore extension files from cache and be idempotent.
+# Recreating the container uses packaged extension files and is idempotent offline.
 docker compose up -d --force-recreate postgres_db > /dev/null 2>> warnings.log
 docker compose up -d --force-recreate migrations > /dev/null 2>> warnings.log
 container=$(docker compose ps --all --quiet migrations 2>> warnings.log)
 [[ -n "$container" && $(docker wait "$container") == 0 ]]
-docker compose logs postgres_db 2>> warnings.log | grep -F 'Using cached pgvector 0.8.6 package.' > /dev/null
 [[ $(docker compose exec -T postgres_db psql -X -U "$admin_user" -d postgres -At -c 'SELECT count(*) FROM synthetic_vectors' 2>> warnings.log) == 2 ]]
 # Rejected SQL must stop the temporary server and prevent migration startup.
 docker compose rm -f migrations > /dev/null 2>> warnings.log
@@ -142,4 +153,4 @@ for ((i=0;i<60;i++)); do
 done
 docker compose exec -T postgres_db pg_isready -h 127.0.0.1 -U "$admin_user" -d postgres > /dev/null 2>> warnings.log
 [[ $(docker compose exec -T postgres_db psql -X -U "$admin_user" -d postgres -At -c 'SELECT count(*) FROM synthetic_vectors' 2>> warnings.log) == 2 ]]
-echo "PASS: $source_image ($scenario, $admin_user): automatic startup, socket-only bootstrap, preserved runtime/data, cache reuse, failure gate, and recovery"
+echo "PASS: $source_image ($scenario, $admin_user): automatic startup, socket-only bootstrap, preserved runtime/data, offline recreation, failure gate, and recovery"

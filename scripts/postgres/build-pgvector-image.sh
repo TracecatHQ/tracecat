@@ -22,4 +22,4 @@ fi
 echo "Building from immutable base: $base_image"
 docker build --load --build-arg "BASE_IMAGE=$base_image" \
     -f "$repo_root/deployments/postgres/Dockerfile" -t "$3" \
-    "$repo_root/deployments/postgres"
+    "$repo_root"
