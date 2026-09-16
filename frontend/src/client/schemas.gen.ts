@@ -6002,7 +6002,7 @@ export const $AwsSecretReferenceCreate = {
       type: "string",
       maxLength: 2048,
       pattern:
-        "^arn:aws(?:-[a-z]+)*:secretsmanager:(?P<region>[a-z0-9-]+):\\d{12}:secret:[^\\s]+$",
+        "^(?:arn:aws(?:-[a-z]+)*:secretsmanager:[a-z0-9-]+:\\d{12}:secret:[^\\s]+|[A-Za-z0-9/_+=.@-]{1,512})$",
       title: "Remote Reference",
     },
     key_mapping: {
@@ -6089,7 +6089,7 @@ export const $AwsSecretReferenceUpdate = {
           type: "string",
           maxLength: 2048,
           pattern:
-            "^arn:aws(?:-[a-z]+)*:secretsmanager:(?P<region>[a-z0-9-]+):\\d{12}:secret:[^\\s]+$",
+            "^(?:arn:aws(?:-[a-z]+)*:secretsmanager:[a-z0-9-]+:\\d{12}:secret:[^\\s]+|[A-Za-z0-9/_+=.@-]{1,512})$",
         },
         {
           type: "null",
