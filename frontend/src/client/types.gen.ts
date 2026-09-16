@@ -4081,43 +4081,14 @@ export type EffectiveEntitlements = {
 }
 
 /**
- * Invalidate the current configuration without deleting historical chunks.
- */
-export type EmbeddingConfigurationDisable = {
-  expected_version: number
-}
-
-/**
- * Choose a supported model and an existing workspace secret environment.
- */
-export type EmbeddingConfigurationInput = {
-  provider: "openai"
-  model: "text-embedding-3-small" | "text-embedding-3-large"
-  credential_id: string
-  credential_environment: string
-}
-
-export type model = "text-embedding-3-small" | "text-embedding-3-large"
-
-/**
- * Current pointer and optional validated configuration, without secret data.
+ * Availability from existing provider settings and current indexing state.
  */
 export type EmbeddingConfigurationRead = {
+  available: boolean
   version: number
   state: SearchState
-  configuration?: EmbeddingConfigurationInput | null
-  supported_models: Array<EmbeddingModelRead>
-}
-
-/**
- * Save only if the current semantic version still matches the setup form.
- */
-export type EmbeddingConfigurationSave = {
-  provider: "openai"
-  model: "text-embedding-3-small" | "text-embedding-3-large"
-  credential_id: string
-  credential_environment: string
-  expected_version: number
+  configuration?: EmbeddingModelRead | null
+  reindex_required?: boolean
 }
 
 /**
@@ -4134,29 +4105,26 @@ export type EmbeddingErrorCode =
   | "RESPONSE_INVALID"
   | "NOT_CONFIGURED"
 
-/**
- * Stable error metadata for clients and retry scheduling.
- */
 export type EmbeddingErrorRead = {
   code: EmbeddingErrorCode
   retryable: boolean
   retry_after?: number | null
 }
 
-/**
- * HTTP error envelope consumed by generated API clients.
- */
 export type EmbeddingErrorResponse = {
   detail: EmbeddingErrorRead
 }
 
 /**
- * Supported model metadata for setup forms and bounded input preparation.
+ * Public metadata needed for status and bounded chunk preparation.
  */
 export type EmbeddingModelRead = {
-  provider: "openai"
-  model: "text-embedding-3-small" | "text-embedding-3-large"
-  endpoint: string
+  provider: "openai" | "gemini" | "bedrock"
+  model:
+    | "text-embedding-3-small"
+    | "text-embedding-3-large"
+    | "gemini-embedding-001"
+    | "amazon.titan-embed-text-v2:0"
   dimensions: number
   tokenizer: string
   input_token_limit: number
@@ -4165,14 +4133,13 @@ export type EmbeddingModelRead = {
   batch_token_limit: number
 }
 
-/**
- * Successful synthetic probe; never expose the probe vector or credentials.
- */
-export type EmbeddingValidationRead = {
-  valid?: true
-  dimensions: number
-  prompt_tokens: number
-}
+export type provider = "openai" | "gemini" | "bedrock"
+
+export type model =
+  | "text-embedding-3-small"
+  | "text-embedding-3-large"
+  | "gemini-embedding-001"
+  | "amazon.titan-embed-text-v2:0"
 
 /**
  * TypedDict for tier entitlements stored in JSONB.
@@ -10907,30 +10874,6 @@ export type SearchGetEmbeddingConfigurationData = {
 
 export type SearchGetEmbeddingConfigurationResponse = EmbeddingConfigurationRead
 
-export type SearchSaveEmbeddingConfigurationData = {
-  requestBody: EmbeddingConfigurationSave
-  workspaceId: string
-}
-
-export type SearchSaveEmbeddingConfigurationResponse =
-  EmbeddingConfigurationRead
-
-export type SearchValidateEmbeddingConfigurationData = {
-  requestBody: EmbeddingConfigurationInput
-  workspaceId: string
-}
-
-export type SearchValidateEmbeddingConfigurationResponse =
-  EmbeddingValidationRead
-
-export type SearchDisableEmbeddingConfigurationData = {
-  requestBody: EmbeddingConfigurationDisable
-  workspaceId: string
-}
-
-export type SearchDisableEmbeddingConfigurationResponse =
-  EmbeddingConfigurationRead
-
 export type ServiceAccountsListWorkspaceServiceAccountsData = {
   cursor?: string | null
   limit?: number
@@ -15046,109 +14989,6 @@ export type $OpenApiTs = {
   "/workspaces/{workspace_id}/search/configuration": {
     get: {
       req: SearchGetEmbeddingConfigurationData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: EmbeddingConfigurationRead
-        /**
-         * Bad Request
-         */
-        400: EmbeddingErrorResponse
-        /**
-         * Conflict
-         */
-        409: EmbeddingErrorResponse
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-        /**
-         * Too Many Requests
-         */
-        429: EmbeddingErrorResponse
-        /**
-         * Bad Gateway
-         */
-        502: EmbeddingErrorResponse
-        /**
-         * Gateway Timeout
-         */
-        504: EmbeddingErrorResponse
-      }
-    }
-    put: {
-      req: SearchSaveEmbeddingConfigurationData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: EmbeddingConfigurationRead
-        /**
-         * Bad Request
-         */
-        400: EmbeddingErrorResponse
-        /**
-         * Conflict
-         */
-        409: EmbeddingErrorResponse
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-        /**
-         * Too Many Requests
-         */
-        429: EmbeddingErrorResponse
-        /**
-         * Bad Gateway
-         */
-        502: EmbeddingErrorResponse
-        /**
-         * Gateway Timeout
-         */
-        504: EmbeddingErrorResponse
-      }
-    }
-  }
-  "/workspaces/{workspace_id}/search/configuration/validate": {
-    post: {
-      req: SearchValidateEmbeddingConfigurationData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: EmbeddingValidationRead
-        /**
-         * Bad Request
-         */
-        400: EmbeddingErrorResponse
-        /**
-         * Conflict
-         */
-        409: EmbeddingErrorResponse
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-        /**
-         * Too Many Requests
-         */
-        429: EmbeddingErrorResponse
-        /**
-         * Bad Gateway
-         */
-        502: EmbeddingErrorResponse
-        /**
-         * Gateway Timeout
-         */
-        504: EmbeddingErrorResponse
-      }
-    }
-  }
-  "/workspaces/{workspace_id}/search/configuration/disable": {
-    post: {
-      req: SearchDisableEmbeddingConfigurationData
       res: {
         /**
          * Successful Response

@@ -8,16 +8,22 @@ from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 
 import httpx
+import orjson
 from pydantic import ValidationError
 
-from tracecat.search.embeddings.catalog import EmbeddingTokenCounter
+from tracecat.search.embeddings.bedrock import request_headers
+from tracecat.search.embeddings.catalog import ByteTokenCounter, EmbeddingTokenCounter
 from tracecat.search.embeddings.types import (
+    BedrockResponse,
     EmbeddingBatch,
     EmbeddingError,
     EmbeddingErrorCode,
+    GeminiResponse,
     ModelSpec,
     PinnedConfiguration,
     ProviderResponse,
+    ProviderUsage,
+    ProviderVector,
     ResolvedCredential,
 )
 from tracecat.search.types import EmbeddingRequest, EmbeddingResult
@@ -26,7 +32,9 @@ from tracecat.search.types import EmbeddingRequest, EmbeddingResult
 def _check_token_budget(request: EmbeddingRequest, spec: ModelSpec) -> None:
     # Tokenization is CPU work. Run it off the event loop and stop as soon as a
     # budget is exceeded rather than processing the rest of an invalid batch.
-    counter = EmbeddingTokenCounter()
+    counter = (
+        EmbeddingTokenCounter() if spec.provider == "openai" else ByteTokenCounter()
+    )
     total = 0
     for item in request.items:
         count = counter.count_tokens(item.text)
@@ -136,29 +144,8 @@ class EmbeddingClient:
                 ordinals.add(item.ordinal)
             async with asyncio.timeout(self.timeout):
                 await asyncio.to_thread(_check_token_budget, request, spec)
-                async with self.http.stream(
-                    "POST",
-                    spec.endpoint,
-                    headers={
-                        "Authorization": f"Bearer {credential.api_key.get_secret_value()}"
-                    },
-                    json={
-                        "model": spec.model,
-                        "input": [item.text for item in request.items],
-                        "encoding_format": "float",
-                    },
-                    timeout=self.timeout,
-                    follow_redirects=False,
-                ) as response:
-                    if response.status_code != 200:
-                        raise _status_error(response)
-                    body = bytearray()
-                    async for part in response.aiter_bytes():
-                        body.extend(part)
-                        if len(body) > 4_000_000:
-                            raise EmbeddingError(EmbeddingErrorCode.RESPONSE_INVALID)
-                parsed = ProviderResponse.model_validate_json(body)
-                return _validate_response(parsed, request, configuration)
+                return await self._embed(configuration, credential, request)
+
         except EmbeddingError as exc:
             error = EmbeddingError(exc.code, exc.retry_after)
         except UnicodeError:
@@ -172,3 +159,100 @@ class EmbeddingClient:
             # their messages: either can carry request data or credential values.
             error = EmbeddingError(EmbeddingErrorCode.UNAVAILABLE)
         raise error
+
+    async def _post(self, url: str, headers: dict[str, str], body: bytes) -> bytes:
+        async with self.http.stream(
+            "POST",
+            url,
+            headers=headers,
+            content=body,
+            timeout=self.timeout,
+            follow_redirects=False,
+        ) as response:
+            if response.status_code != 200:
+                raise _status_error(response)
+            data = bytearray()
+            async for part in response.aiter_bytes():
+                data.extend(part)
+                if len(data) > 4_000_000:
+                    raise EmbeddingError(EmbeddingErrorCode.RESPONSE_INVALID)
+            return bytes(data)
+
+    async def _embed(
+        self,
+        configuration: PinnedConfiguration,
+        credential: ResolvedCredential,
+        request: EmbeddingRequest,
+    ) -> EmbeddingBatch:
+        spec = configuration.spec
+        headers = {"Content-Type": "application/json"}
+        match spec.provider:
+            case "openai":
+                headers["Authorization"] = (
+                    f"Bearer {credential.api_key.get_secret_value()}"
+                )
+                body = orjson.dumps(
+                    {
+                        "model": spec.model,
+                        "input": [item.text for item in request.items],
+                        "encoding_format": "float",
+                    }
+                )
+                parsed = ProviderResponse.model_validate_json(
+                    await self._post(spec.endpoint, headers, body)
+                )
+                return _validate_response(parsed, request, configuration)
+            case "gemini":
+                headers["x-goog-api-key"] = credential.api_key.get_secret_value()
+                # A fixed symmetric task keeps query and document vectors compatible.
+                # The conservative byte budget is well below the model's input limit.
+                body = orjson.dumps(
+                    {
+                        "requests": [
+                            {
+                                "model": f"models/{spec.model}",
+                                "content": {"parts": [{"text": item.text}]},
+                                "taskType": "SEMANTIC_SIMILARITY",
+                                "outputDimensionality": spec.dimensions,
+                            }
+                            for item in request.items
+                        ]
+                    }
+                )
+                response = GeminiResponse.model_validate_json(
+                    await self._post(spec.endpoint, headers, body)
+                )
+                tokens = (
+                    response.usageMetadata.promptTokenCount
+                    if response.usageMetadata
+                    else None
+                )
+                vectors = [
+                    ProviderVector(index=i, embedding=item.values)
+                    for i, item in enumerate(response.embeddings)
+                ]
+            case "bedrock":
+                # Titan accepts one input per request; the catalog enforces that bound.
+                body = orjson.dumps(
+                    {
+                        "inputText": request.items[0].text,
+                        "dimensions": spec.dimensions,
+                        "normalize": True,
+                    }
+                )
+                headers = await request_headers(
+                    credential.values, request.scope, spec.endpoint, body
+                )
+                response = BedrockResponse.model_validate_json(
+                    await self._post(spec.endpoint, headers, body)
+                )
+                tokens = response.inputTextTokenCount
+                vectors = [ProviderVector(index=0, embedding=response.embedding)]
+        parsed = ProviderResponse(
+            model=spec.model,
+            data=vectors,
+            usage=ProviderUsage(prompt_tokens=tokens or 0, total_tokens=tokens or 0),
+        )
+        result = _validate_response(parsed, request, configuration)
+        # Missing provider usage is unknown, not a claimed zero-token request.
+        return EmbeddingBatch(result.results, tokens, tokens)

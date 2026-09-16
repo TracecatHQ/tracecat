@@ -8,6 +8,8 @@ Our call limits are deliberately smaller than the provider's batch limits.
 import base64
 import gzip
 import hashlib
+import re
+from dataclasses import replace
 from functools import cache
 from pathlib import Path
 
@@ -16,12 +18,34 @@ import tiktoken
 from tracecat.search.embeddings.types import (
     EmbeddingError,
     EmbeddingErrorCode,
+    EmbeddingProvider,
     ModelSpec,
 )
 
 MODELS = (
     ModelSpec(model="text-embedding-3-small", dimensions=1536),
     ModelSpec(model="text-embedding-3-large", dimensions=3072),
+    ModelSpec(
+        model="gemini-embedding-001",
+        dimensions=3072,
+        provider="gemini",
+        endpoint="https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:batchEmbedContents",
+        tokenizer="utf8-bytes:v1",
+        input_token_limit=2048,
+        batch_token_limit=16000,
+        input_character_limit=2048,
+    ),
+    ModelSpec(
+        model="amazon.titan-embed-text-v2:0",
+        dimensions=1024,
+        provider="bedrock",
+        endpoint="",
+        tokenizer="utf8-bytes:v1",
+        input_token_limit=8192,
+        batch_size_limit=1,
+        batch_token_limit=8192,
+        input_character_limit=8192,
+    ),
 )
 
 
@@ -71,3 +95,38 @@ class EmbeddingTokenCounter:
     def count_tokens(self, text: str) -> int:
         """Count the exact labeled input, including literal special-token text."""
         return len(self._encoding.encode_ordinary(text))
+
+
+PROVIDER_ORDER: tuple[EmbeddingProvider, ...] = ("openai", "gemini", "bedrock")
+
+
+def default_model(provider: EmbeddingProvider, region: str | None = None) -> ModelSpec:
+    """Select a fixed embedding model; never infer capability from a chat model."""
+    spec = next(spec for spec in MODELS if spec.provider == provider)
+    if provider != "bedrock":
+        return spec
+    if region is None or not re.fullmatch(r"[a-z]{2}(?:-[a-z]+)+-[0-9]+", region):
+        raise EmbeddingError(EmbeddingErrorCode.CONFIGURATION_INVALID)
+    suffix = "amazonaws.com.cn" if region.startswith("cn-") else "amazonaws.com"
+    return replace(
+        spec,
+        endpoint=f"https://bedrock-runtime.{region}.{suffix}/model/{spec.model}/invoke",
+    )
+
+
+class ByteTokenCounter:
+    """Conservative local budget for providers without a bundled tokenizer.
+
+    Counting UTF-8 bytes bounds input more tightly than their token limit.
+    The chunker still traverses all source text; this only makes chunks smaller.
+    """
+
+    identity = "utf8-bytes:v1"
+
+    def count_tokens(self, text: str) -> int:
+        return len(text.encode("utf-8"))
+
+
+def token_counter(spec: ModelSpec) -> EmbeddingTokenCounter | ByteTokenCounter:
+    """Return the pinned counter used by both chunk preparation and embedding."""
+    return EmbeddingTokenCounter() if spec.provider == "openai" else ByteTokenCounter()

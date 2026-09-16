@@ -13755,56 +13755,12 @@ export const $EffectiveEntitlements = {
 Values are resolved from org overrides falling back to tier defaults.`,
 } as const
 
-export const $EmbeddingConfigurationDisable = {
-  properties: {
-    expected_version: {
-      type: "integer",
-      minimum: 0,
-      title: "Expected Version",
-    },
-  },
-  additionalProperties: false,
-  type: "object",
-  required: ["expected_version"],
-  title: "EmbeddingConfigurationDisable",
-  description:
-    "Invalidate the current configuration without deleting historical chunks.",
-} as const
-
-export const $EmbeddingConfigurationInput = {
-  properties: {
-    provider: {
-      type: "string",
-      const: "openai",
-      title: "Provider",
-    },
-    model: {
-      type: "string",
-      enum: ["text-embedding-3-small", "text-embedding-3-large"],
-      title: "Model",
-    },
-    credential_id: {
-      type: "string",
-      format: "uuid",
-      title: "Credential Id",
-    },
-    credential_environment: {
-      type: "string",
-      maxLength: 255,
-      minLength: 1,
-      title: "Credential Environment",
-    },
-  },
-  additionalProperties: false,
-  type: "object",
-  required: ["provider", "model", "credential_id", "credential_environment"],
-  title: "EmbeddingConfigurationInput",
-  description:
-    "Choose a supported model and an existing workspace secret environment.",
-} as const
-
 export const $EmbeddingConfigurationRead = {
   properties: {
+    available: {
+      type: "boolean",
+      title: "Available",
+    },
     version: {
       type: "integer",
       title: "Version",
@@ -13815,69 +13771,24 @@ export const $EmbeddingConfigurationRead = {
     configuration: {
       anyOf: [
         {
-          $ref: "#/components/schemas/EmbeddingConfigurationInput",
+          $ref: "#/components/schemas/EmbeddingModelRead",
         },
         {
           type: "null",
         },
       ],
     },
-    supported_models: {
-      items: {
-        $ref: "#/components/schemas/EmbeddingModelRead",
-      },
-      type: "array",
-      title: "Supported Models",
+    reindex_required: {
+      type: "boolean",
+      title: "Reindex Required",
+      default: false,
     },
   },
   type: "object",
-  required: ["version", "state", "supported_models"],
+  required: ["available", "version", "state"],
   title: "EmbeddingConfigurationRead",
   description:
-    "Current pointer and optional validated configuration, without secret data.",
-} as const
-
-export const $EmbeddingConfigurationSave = {
-  properties: {
-    provider: {
-      type: "string",
-      const: "openai",
-      title: "Provider",
-    },
-    model: {
-      type: "string",
-      enum: ["text-embedding-3-small", "text-embedding-3-large"],
-      title: "Model",
-    },
-    credential_id: {
-      type: "string",
-      format: "uuid",
-      title: "Credential Id",
-    },
-    credential_environment: {
-      type: "string",
-      maxLength: 255,
-      minLength: 1,
-      title: "Credential Environment",
-    },
-    expected_version: {
-      type: "integer",
-      minimum: 0,
-      title: "Expected Version",
-    },
-  },
-  additionalProperties: false,
-  type: "object",
-  required: [
-    "provider",
-    "model",
-    "credential_id",
-    "credential_environment",
-    "expected_version",
-  ],
-  title: "EmbeddingConfigurationSave",
-  description:
-    "Save only if the current semantic version still matches the setup form.",
+    "Availability from existing provider settings and current indexing state.",
 } as const
 
 export const $EmbeddingErrorCode = {
@@ -13922,7 +13833,6 @@ export const $EmbeddingErrorRead = {
   type: "object",
   required: ["code", "retryable"],
   title: "EmbeddingErrorRead",
-  description: "Stable error metadata for clients and retry scheduling.",
 } as const
 
 export const $EmbeddingErrorResponse = {
@@ -13934,24 +13844,24 @@ export const $EmbeddingErrorResponse = {
   type: "object",
   required: ["detail"],
   title: "EmbeddingErrorResponse",
-  description: "HTTP error envelope consumed by generated API clients.",
 } as const
 
 export const $EmbeddingModelRead = {
   properties: {
     provider: {
       type: "string",
-      const: "openai",
+      enum: ["openai", "gemini", "bedrock"],
       title: "Provider",
     },
     model: {
       type: "string",
-      enum: ["text-embedding-3-small", "text-embedding-3-large"],
+      enum: [
+        "text-embedding-3-small",
+        "text-embedding-3-large",
+        "gemini-embedding-001",
+        "amazon.titan-embed-text-v2:0",
+      ],
       title: "Model",
-    },
-    endpoint: {
-      type: "string",
-      title: "Endpoint",
     },
     dimensions: {
       type: "integer",
@@ -13982,7 +13892,6 @@ export const $EmbeddingModelRead = {
   required: [
     "provider",
     "model",
-    "endpoint",
     "dimensions",
     "tokenizer",
     "input_token_limit",
@@ -13992,31 +13901,7 @@ export const $EmbeddingModelRead = {
   ],
   title: "EmbeddingModelRead",
   description:
-    "Supported model metadata for setup forms and bounded input preparation.",
-} as const
-
-export const $EmbeddingValidationRead = {
-  properties: {
-    valid: {
-      type: "boolean",
-      const: true,
-      title: "Valid",
-      default: true,
-    },
-    dimensions: {
-      type: "integer",
-      title: "Dimensions",
-    },
-    prompt_tokens: {
-      type: "integer",
-      title: "Prompt Tokens",
-    },
-  },
-  type: "object",
-  required: ["dimensions", "prompt_tokens"],
-  title: "EmbeddingValidationRead",
-  description:
-    "Successful synthetic probe; never expose the probe vector or credentials.",
+    "Public metadata needed for status and bounded chunk preparation.",
 } as const
 
 export const $EntitlementsDict = {

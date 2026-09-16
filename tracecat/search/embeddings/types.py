@@ -9,7 +9,13 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 from tracecat.search.types import EmbeddingResult
 
-EmbeddingModel = Literal["text-embedding-3-small", "text-embedding-3-large"]
+EmbeddingProvider = Literal["openai", "gemini", "bedrock"]
+EmbeddingModel = Literal[
+    "text-embedding-3-small",
+    "text-embedding-3-large",
+    "gemini-embedding-001",
+    "amazon.titan-embed-text-v2:0",
+]
 
 
 class EmbeddingErrorCode(StrEnum):
@@ -50,7 +56,7 @@ class ModelSpec:
 
     model: EmbeddingModel
     dimensions: int
-    provider: Literal["openai"] = "openai"
+    provider: EmbeddingProvider = "openai"
     endpoint: str = "https://api.openai.com/v1/embeddings"
     tokenizer: str = "tiktoken:0.14.0:cl100k_base:ordinary:v1"
     input_token_limit: int = 8191
@@ -75,6 +81,7 @@ class ResolvedCredential:
 
     api_key: SecretStr = field(repr=False)
     fingerprint: bytes = field(repr=False)
+    values: dict[str, str] = field(default_factory=dict, repr=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,8 +89,8 @@ class EmbeddingBatch:
     """Mapped results and provider-reported token usage for one bounded call."""
 
     results: tuple[EmbeddingResult, ...]
-    prompt_tokens: int
-    total_tokens: int
+    prompt_tokens: int | None
+    total_tokens: int | None
 
 
 class ProviderVector(BaseModel):
@@ -109,3 +116,25 @@ class ProviderResponse(BaseModel):
     model: str
     data: list[ProviderVector]
     usage: ProviderUsage
+
+
+class GeminiVector(BaseModel):
+    model_config = ConfigDict(strict=True)
+    values: list[float]
+
+
+class GeminiUsage(BaseModel):
+    model_config = ConfigDict(strict=True)
+    promptTokenCount: int = Field(ge=0)
+
+
+class GeminiResponse(BaseModel):
+    model_config = ConfigDict(strict=True)
+    embeddings: list[GeminiVector]
+    usageMetadata: GeminiUsage | None = None
+
+
+class BedrockResponse(BaseModel):
+    model_config = ConfigDict(strict=True)
+    embedding: list[float]
+    inputTextTokenCount: int = Field(ge=0)

@@ -658,14 +658,8 @@ import type {
   SchedulesSearchSchedulesResponse,
   SchedulesUpdateScheduleData,
   SchedulesUpdateScheduleResponse,
-  SearchDisableEmbeddingConfigurationData,
-  SearchDisableEmbeddingConfigurationResponse,
   SearchGetEmbeddingConfigurationData,
   SearchGetEmbeddingConfigurationResponse,
-  SearchSaveEmbeddingConfigurationData,
-  SearchSaveEmbeddingConfigurationResponse,
-  SearchValidateEmbeddingConfigurationData,
-  SearchValidateEmbeddingConfigurationResponse,
   SecretsCreateSecretData,
   SecretsCreateSecretResponse,
   SecretsDeleteSecretByIdData,
@@ -1574,7 +1568,7 @@ export const workspacesRevokeWorkspaceInvitation = (
 
 /**
  * Get Embedding Configuration
- * Read this workspace's settings and supported models without credential values.
+ * Read automatic embedding availability without credential metadata.
  * @param data The data for the request.
  * @param data.workspaceId
  * @returns EmbeddingConfigurationRead Successful Response
@@ -1589,99 +1583,6 @@ export const searchGetEmbeddingConfiguration = (
     path: {
       workspace_id: data.workspaceId,
     },
-    errors: {
-      400: "Bad Request",
-      409: "Conflict",
-      422: "Validation Error",
-      429: "Too Many Requests",
-      502: "Bad Gateway",
-      504: "Gateway Timeout",
-    },
-  })
-}
-
-/**
- * Save Embedding Configuration
- * Probe and save with an expected-version check against concurrent edits.
- * @param data The data for the request.
- * @param data.workspaceId
- * @param data.requestBody
- * @returns EmbeddingConfigurationRead Successful Response
- * @throws ApiError
- */
-export const searchSaveEmbeddingConfiguration = (
-  data: SearchSaveEmbeddingConfigurationData
-): CancelablePromise<SearchSaveEmbeddingConfigurationResponse> => {
-  return __request(OpenAPI, {
-    method: "PUT",
-    url: "/workspaces/{workspace_id}/search/configuration",
-    path: {
-      workspace_id: data.workspaceId,
-    },
-    body: data.requestBody,
-    mediaType: "application/json",
-    errors: {
-      400: "Bad Request",
-      409: "Conflict",
-      422: "Validation Error",
-      429: "Too Many Requests",
-      502: "Bad Gateway",
-      504: "Gateway Timeout",
-    },
-  })
-}
-
-/**
- * Validate Embedding Configuration
- * Probe a proposed configuration with synthetic text without saving it.
- * @param data The data for the request.
- * @param data.workspaceId
- * @param data.requestBody
- * @returns EmbeddingValidationRead Successful Response
- * @throws ApiError
- */
-export const searchValidateEmbeddingConfiguration = (
-  data: SearchValidateEmbeddingConfigurationData
-): CancelablePromise<SearchValidateEmbeddingConfigurationResponse> => {
-  return __request(OpenAPI, {
-    method: "POST",
-    url: "/workspaces/{workspace_id}/search/configuration/validate",
-    path: {
-      workspace_id: data.workspaceId,
-    },
-    body: data.requestBody,
-    mediaType: "application/json",
-    errors: {
-      400: "Bad Request",
-      409: "Conflict",
-      422: "Validation Error",
-      429: "Too Many Requests",
-      502: "Bad Gateway",
-      504: "Gateway Timeout",
-    },
-  })
-}
-
-/**
- * Disable Embedding Configuration
- * Disable search and invalidate its pointer while retaining cleanup records.
- * @param data The data for the request.
- * @param data.workspaceId
- * @param data.requestBody
- * @returns EmbeddingConfigurationRead Successful Response
- * @throws ApiError
- */
-export const searchDisableEmbeddingConfiguration = (
-  data: SearchDisableEmbeddingConfigurationData
-): CancelablePromise<SearchDisableEmbeddingConfigurationResponse> => {
-  return __request(OpenAPI, {
-    method: "POST",
-    url: "/workspaces/{workspace_id}/search/configuration/disable",
-    path: {
-      workspace_id: data.workspaceId,
-    },
-    body: data.requestBody,
-    mediaType: "application/json",
     errors: {
       400: "Bad Request",
       409: "Conflict",

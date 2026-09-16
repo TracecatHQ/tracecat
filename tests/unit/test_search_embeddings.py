@@ -291,7 +291,8 @@ def test_configuration_routes_declare_workspace_path():
     app = FastAPI()
     app.include_router(router)
     schema = app.openapi()
-    assert len(schema["paths"]) == 3
+    assert len(schema["paths"]) == 1
+    assert set(next(iter(schema["paths"].values()))) == {"get"}
     for path, methods in schema["paths"].items():
         assert path.startswith("/workspaces/{workspace_id}/search/configuration")
         for operation in methods.values():
