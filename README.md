@@ -55,14 +55,14 @@
     </td>
     <td width="50%" valign="top">
       <img src="img/readme/integrations.gif" alt="Tracecat credentials, OAuth integrations, and the hosted MCP server catalog" width="100%"/>
-      <p align="center"><b>Integrations</b> — 100+ pre-built connectors and hosted MCP servers for security tools</p>
+      <p align="center"><b>Integrations</b> — 100+ pre-built connectors and 50+ hosted MCP servers for security tools</p>
     </td>
   </tr>
 </table>
 
 ## Other Highlights
 
-- **Pre-built MCP servers**: over 100+ Tracecat hosted MCP servers for security operations
+- **Pre-built MCP servers**: 50+ Tracecat-hosted MCP servers for security operations
 - **MCP client**: connect custom agents any MCP server (remote HTTP / OAuth or local via `npx` / `uvx` commands)
 - **Custom registry**: sync custom Python scripts from your Git repo into Tracecat
 - **Sandboxed**: run untrusted code and agents within `nsjail` sandboxes or `pid` runtimes
