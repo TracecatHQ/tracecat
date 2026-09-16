@@ -295,6 +295,65 @@ def test_deleting_external_group_cascades_to_members_and_mappings(
         engine.dispose()
 
 
+def _seed_external_group(conn: Connection, org_id: uuid.UUID) -> uuid.UUID:
+    external_id = uuid.uuid4()
+    conn.execute(
+        text(
+            "INSERT INTO external_group "
+            "(id, organization_id, external_id, display_name) "
+            "VALUES (:id, :org, :ext, 'Engineering')"
+        ),
+        {"id": external_id, "org": org_id, "ext": f"idp-{external_id.hex[:8]}"},
+    )
+    return external_id
+
+
+def test_mapping_rejects_cross_organization_references(migration_db: str) -> None:
+    """A mapping may only join an external group and a group from its own tenant."""
+    engine = _engine(migration_db)
+    try:
+        with engine.begin() as conn:
+            attacker_org = _seed_org(conn)
+            victim_org = _seed_org(conn)
+            attacker_external = _seed_external_group(conn, attacker_org)
+            victim_external = _seed_external_group(conn, victim_org)
+            attacker_group = _seed_group(conn, attacker_org)
+            victim_group = _seed_group(conn, victim_org)
+
+        def insert_mapping(
+            org_id: uuid.UUID, external_group_id: uuid.UUID, group_id: uuid.UUID
+        ) -> None:
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "INSERT INTO external_group_mapping "
+                        "(id, organization_id, external_group_id, group_id) "
+                        "VALUES (gen_random_uuid(), :org, :eg, :g)"
+                    ),
+                    {"org": org_id, "eg": external_group_id, "g": group_id},
+                )
+
+        # Projecting our own synced members into another tenant's group.
+        with pytest.raises(IntegrityError):
+            insert_mapping(attacker_org, attacker_external, victim_group)
+
+        # Pulling another tenant's synced members into our own group.
+        with pytest.raises(IntegrityError):
+            insert_mapping(attacker_org, victim_external, attacker_group)
+
+        # The same-tenant mapping still works.
+        insert_mapping(attacker_org, attacker_external, attacker_group)
+        with engine.connect() as conn:
+            assert (
+                conn.execute(
+                    text("SELECT count(*) FROM external_group_mapping")
+                ).scalar_one()
+                == 1
+            )
+    finally:
+        engine.dispose()
+
+
 def test_downgrade_removes_everything_the_upgrade_added(migration_db: str) -> None:
     """The additive migration round-trips: down leaves no trace, up restores it."""
     engine = _engine(migration_db)

@@ -5756,7 +5756,11 @@ class Group(Base, TimestampMixin):
     """
 
     __tablename__ = "group"
-    __table_args__ = (UniqueConstraint("organization_id", "name"),)
+    __table_args__ = (
+        UniqueConstraint("organization_id", "name"),
+        # Tenant-qualified target for composite foreign keys into this table.
+        UniqueConstraint("id", "organization_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(128), index=True)
@@ -6270,7 +6274,11 @@ class ExternalGroup(Base, TimestampMixin):
     """
 
     __tablename__ = "external_group"
-    __table_args__ = (UniqueConstraint("organization_id", "external_id"),)
+    __table_args__ = (
+        UniqueConstraint("organization_id", "external_id"),
+        # Tenant-qualified target for composite foreign keys into this table.
+        UniqueConstraint("id", "organization_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
     organization_id: Mapped[uuid.UUID] = mapped_column(
@@ -6300,18 +6308,27 @@ class ExternalGroupMapping(Base, TimestampMixin):
     """Admin-authored M:N link projecting an external group into a Tracecat group."""
 
     __tablename__ = "external_group_mapping"
-    __table_args__ = (UniqueConstraint("external_group_id", "group_id"),)
+    __table_args__ = (
+        UniqueConstraint("external_group_id", "group_id"),
+        # Both ends must belong to the mapping's own tenant, not merely exist.
+        ForeignKeyConstraint(
+            ["external_group_id", "organization_id"],
+            ["external_group.id", "external_group.organization_id"],
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["group_id", "organization_id"],
+            ["group.id", "group.organization_id"],
+            ondelete="CASCADE",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
     organization_id: Mapped[uuid.UUID] = mapped_column(
         UUID, ForeignKey("organization.id", ondelete="CASCADE"), index=True
     )
-    external_group_id: Mapped[uuid.UUID] = mapped_column(
-        UUID, ForeignKey("external_group.id", ondelete="CASCADE"), index=True
-    )
-    group_id: Mapped[uuid.UUID] = mapped_column(
-        UUID, ForeignKey("group.id", ondelete="CASCADE"), index=True
-    )
+    external_group_id: Mapped[uuid.UUID] = mapped_column(UUID, index=True)
+    group_id: Mapped[uuid.UUID] = mapped_column(UUID, index=True)
 
 
 # Physical workspace link table the app no longer reads. Writers keep it in
