@@ -8,6 +8,7 @@ import {
   NodeViewWrapper,
   ReactNodeViewRenderer,
 } from "@tiptap/react"
+import { useTheme } from "next-themes"
 import * as React from "react"
 import { cn } from "@/lib/utils"
 
@@ -25,131 +26,236 @@ type MermaidRenderState = {
 const MERMAID_FONT_FAMILY =
   'var(--font-sans), ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
 
-const MERMAID_TEXT_COLOR = "#18181b"
-const MERMAID_MUTED_TEXT_COLOR = "#71717a"
-const MERMAID_LINE_COLOR = "#71717a"
-const MERMAID_BORDER_COLOR = "#d4d4d8"
-const MERMAID_SURFACE_COLOR = "#f4f4f5"
-const MERMAID_SURFACE_SUBTLE_COLOR = "#fafafa"
-const MERMAID_ACCENT_COLOR = "#3b82f6"
+/** Mermaid theme, resolved from the app's next-themes `resolvedTheme`. */
+export type MermaidTheme = "light" | "dark"
 
-/**
- * Cool pastel ramp shared by section scales (`cScale*`), pie slices, and git
- * branches. Mermaid falls back to rainbow defaults for any index left unset,
- * so all twelve slots are defined.
- */
-const MERMAID_CATEGORICAL_COLORS = [
-  "#dbeafe", // blue-100
-  "#bfdbfe", // blue-200
-  "#93c5fd", // blue-300
-  "#c7d2fe", // indigo-200
-  "#a5b4fc", // indigo-300
-  "#bae6fd", // sky-200
-  "#7dd3fc", // sky-300
-  "#e0e7ff", // indigo-100
-  "#e0f2fe", // sky-100
-  "#ddd6fe", // violet-200
-  "#c4b5fd", // violet-300
-  "#e4e4e7", // zinc-200
-] as const
+type MermaidPalette = {
+  text: string
+  mutedText: string
+  line: string
+  border: string
+  surface: string
+  surfaceSubtle: string
+  background: string
+  accent: string
+  accentSoft: string
+  accentSofter: string
+  activation: string
+  arrowhead: string
+  taskBkg: string
+  taskBorder: string
+  activeTaskBkg: string
+  activeTaskBorder: string
+  critBkg: string
+  critBorder: string
+  todayLine: string
+  sankeyNode: string
+  sankeyLink: string
+  /**
+   * Categorical ramp shared by section scales (`cScale*`), pie slices, and
+   * git branches. Mermaid falls back to rainbow defaults for any index left
+   * unset, so all twelve slots are defined.
+   */
+  categorical: readonly [
+    string,
+    string,
+    string,
+    string,
+    string,
+    string,
+    string,
+    string,
+    string,
+    string,
+    string,
+    string,
+  ]
+}
 
-function getMermaidScaleVariables() {
+const MERMAID_LIGHT_PALETTE: MermaidPalette = {
+  text: "#18181b",
+  mutedText: "#71717a",
+  line: "#71717a",
+  border: "#d4d4d8",
+  surface: "#f4f4f5",
+  surfaceSubtle: "#fafafa",
+  background: "#ffffff",
+  accent: "#3b82f6",
+  accentSoft: "#93c5fd",
+  accentSofter: "#bfdbfe",
+  activation: "#e4e4e7",
+  arrowhead: "#a1a1aa",
+  taskBkg: "#dbeafe",
+  taskBorder: "#93c5fd",
+  activeTaskBkg: "#93c5fd",
+  activeTaskBorder: "#60a5fa",
+  critBkg: "#fee2e2",
+  critBorder: "#fca5a5",
+  todayLine: "#f87171",
+  sankeyNode: "#60a5fa",
+  sankeyLink: "#bfdbfe",
+  categorical: [
+    "#dbeafe", // blue-100
+    "#bfdbfe", // blue-200
+    "#93c5fd", // blue-300
+    "#c7d2fe", // indigo-200
+    "#a5b4fc", // indigo-300
+    "#bae6fd", // sky-200
+    "#7dd3fc", // sky-300
+    "#e0e7ff", // indigo-100
+    "#e0f2fe", // sky-100
+    "#ddd6fe", // violet-200
+    "#c4b5fd", // violet-300
+    "#e4e4e7", // zinc-200
+  ],
+}
+
+const MERMAID_DARK_PALETTE: MermaidPalette = {
+  text: "#fafafa",
+  mutedText: "#a3a3a3",
+  line: "#a3a3a3",
+  border: "#404040",
+  surface: "#262626",
+  surfaceSubtle: "#171717",
+  background: "#101010",
+  accent: "#60a5fa",
+  accentSoft: "#3b82f6",
+  accentSofter: "#1d4ed8",
+  activation: "#404040",
+  arrowhead: "#a3a3a3",
+  taskBkg: "#1e3a8a",
+  taskBorder: "#3b82f6",
+  activeTaskBkg: "#1d4ed8",
+  activeTaskBorder: "#60a5fa",
+  critBkg: "#7f1d1d",
+  critBorder: "#ef4444",
+  todayLine: "#f87171",
+  sankeyNode: "#3b82f6",
+  sankeyLink: "#1e3a8a",
+  categorical: [
+    "#1e3a8a", // blue-900
+    "#1e40af", // blue-800
+    "#1d4ed8", // blue-700
+    "#312e81", // indigo-900
+    "#3730a3", // indigo-800
+    "#0c4a6e", // sky-900
+    "#075985", // sky-800
+    "#4338ca", // indigo-700
+    "#0369a1", // sky-700
+    "#4c1d95", // violet-900
+    "#5b21b6", // violet-800
+    "#404040", // neutral-700
+  ],
+}
+
+/** Returns the Mermaid palette for a light or dark app theme. */
+export function getMermaidPalette(theme: MermaidTheme): MermaidPalette {
+  return theme === "dark" ? MERMAID_DARK_PALETTE : MERMAID_LIGHT_PALETTE
+}
+
+function getMermaidScaleVariables(palette: MermaidPalette) {
   const variables: Record<string, string> = {}
 
-  MERMAID_CATEGORICAL_COLORS.forEach((color, index) => {
+  palette.categorical.forEach((color, index) => {
     variables[`cScale${index}`] = color
-    variables[`cScaleLabel${index}`] = MERMAID_TEXT_COLOR
+    variables[`cScaleLabel${index}`] = palette.text
     variables[`pie${index + 1}`] = color
 
     if (index < 8) {
       variables[`git${index}`] = color
-      variables[`gitBranchLabel${index}`] = MERMAID_TEXT_COLOR
+      variables[`gitBranchLabel${index}`] = palette.text
     }
   })
 
   return variables
 }
 
-const MERMAID_THEME_VARIABLES = {
-  fontFamily: MERMAID_FONT_FAMILY,
-  fontSize: "12px",
-  background: "#ffffff",
-  mainBkg: MERMAID_SURFACE_COLOR,
-  secondBkg: MERMAID_SURFACE_SUBTLE_COLOR,
-  tertiaryColor: "#ffffff",
-  primaryColor: MERMAID_SURFACE_COLOR,
-  secondaryColor: MERMAID_SURFACE_SUBTLE_COLOR,
-  primaryBorderColor: MERMAID_BORDER_COLOR,
-  secondaryBorderColor: MERMAID_BORDER_COLOR,
-  tertiaryBorderColor: MERMAID_BORDER_COLOR,
-  primaryTextColor: MERMAID_TEXT_COLOR,
-  secondaryTextColor: MERMAID_TEXT_COLOR,
-  tertiaryTextColor: MERMAID_TEXT_COLOR,
-  textColor: MERMAID_TEXT_COLOR,
-  titleColor: MERMAID_TEXT_COLOR,
-  darkTextColor: MERMAID_TEXT_COLOR,
-  lineColor: MERMAID_LINE_COLOR,
-  arrowheadColor: MERMAID_LINE_COLOR,
-  nodeBorder: MERMAID_BORDER_COLOR,
-  clusterBkg: MERMAID_SURFACE_SUBTLE_COLOR,
-  clusterBorder: "#e4e4e7",
-  defaultLinkColor: MERMAID_LINE_COLOR,
-  edgeLabelBackground: "#ffffff",
-  actorBkg: MERMAID_SURFACE_COLOR,
-  actorBorder: MERMAID_BORDER_COLOR,
-  actorTextColor: MERMAID_TEXT_COLOR,
-  actorLineColor: MERMAID_LINE_COLOR,
-  signalColor: MERMAID_LINE_COLOR,
-  signalTextColor: MERMAID_TEXT_COLOR,
-  labelBoxBkgColor: MERMAID_SURFACE_COLOR,
-  labelBoxBorderColor: MERMAID_BORDER_COLOR,
-  labelTextColor: MERMAID_TEXT_COLOR,
-  loopTextColor: MERMAID_TEXT_COLOR,
-  noteBkgColor: MERMAID_SURFACE_SUBTLE_COLOR,
-  noteBorderColor: MERMAID_BORDER_COLOR,
-  noteTextColor: MERMAID_TEXT_COLOR,
-  activationBkgColor: "#e4e4e7",
-  activationBorderColor: MERMAID_BORDER_COLOR,
-  sectionBkgColor: MERMAID_SURFACE_COLOR,
-  altSectionBkgColor: "#ffffff",
-  taskBkgColor: "#dbeafe",
-  taskTextColor: MERMAID_TEXT_COLOR,
-  taskTextOutsideColor: MERMAID_TEXT_COLOR,
-  taskBorderColor: "#93c5fd",
-  activeTaskBkgColor: "#93c5fd",
-  activeTaskBorderColor: "#60a5fa",
-  doneTaskBkgColor: "#e4e4e7",
-  doneTaskBorderColor: MERMAID_BORDER_COLOR,
-  critBkgColor: "#fee2e2",
-  critBorderColor: "#fca5a5",
-  todayLineColor: "#f87171",
-  gridColor: "#e4e4e7",
-  pieOpacity: "1",
-  pieStrokeColor: "#ffffff",
-  pieOuterStrokeColor: "#e4e4e7",
-  quadrantPointFill: MERMAID_ACCENT_COLOR,
-  quadrantPointTextFill: MERMAID_TEXT_COLOR,
-  ...getMermaidScaleVariables(),
-  xyChart: {
-    backgroundColor: "#ffffff",
-    titleColor: MERMAID_TEXT_COLOR,
-    xAxisTitleColor: MERMAID_TEXT_COLOR,
-    xAxisLabelColor: MERMAID_MUTED_TEXT_COLOR,
-    xAxisTickColor: MERMAID_BORDER_COLOR,
-    xAxisLineColor: MERMAID_BORDER_COLOR,
-    yAxisTitleColor: MERMAID_TEXT_COLOR,
-    yAxisLabelColor: MERMAID_MUTED_TEXT_COLOR,
-    yAxisTickColor: MERMAID_BORDER_COLOR,
-    yAxisLineColor: MERMAID_BORDER_COLOR,
-    plotColorPalette: [
-      MERMAID_ACCENT_COLOR,
-      "#93c5fd",
-      "#a5b4fc",
-      "#7dd3fc",
-      "#c7d2fe",
-    ].join(","),
-  },
-} as const
+/** Builds Mermaid `themeVariables` for the given app theme. */
+export function getMermaidThemeVariables(theme: MermaidTheme) {
+  const palette = getMermaidPalette(theme)
+
+  return {
+    darkMode: theme === "dark",
+    fontFamily: MERMAID_FONT_FAMILY,
+    fontSize: "12px",
+    background: palette.background,
+    mainBkg: palette.surface,
+    secondBkg: palette.surfaceSubtle,
+    tertiaryColor: palette.background,
+    primaryColor: palette.surface,
+    secondaryColor: palette.surfaceSubtle,
+    primaryBorderColor: palette.border,
+    secondaryBorderColor: palette.border,
+    tertiaryBorderColor: palette.border,
+    primaryTextColor: palette.text,
+    secondaryTextColor: palette.text,
+    tertiaryTextColor: palette.text,
+    textColor: palette.text,
+    titleColor: palette.text,
+    darkTextColor: palette.text,
+    lineColor: palette.line,
+    arrowheadColor: palette.line,
+    nodeBorder: palette.border,
+    clusterBkg: palette.surfaceSubtle,
+    clusterBorder: palette.border,
+    defaultLinkColor: palette.line,
+    edgeLabelBackground: palette.background,
+    actorBkg: palette.surface,
+    actorBorder: palette.border,
+    actorTextColor: palette.text,
+    actorLineColor: palette.line,
+    signalColor: palette.line,
+    signalTextColor: palette.text,
+    labelBoxBkgColor: palette.surface,
+    labelBoxBorderColor: palette.border,
+    labelTextColor: palette.text,
+    loopTextColor: palette.text,
+    noteBkgColor: palette.surfaceSubtle,
+    noteBorderColor: palette.border,
+    noteTextColor: palette.text,
+    activationBkgColor: palette.activation,
+    activationBorderColor: palette.border,
+    sectionBkgColor: palette.surface,
+    altSectionBkgColor: palette.background,
+    taskBkgColor: palette.taskBkg,
+    taskTextColor: palette.text,
+    taskTextOutsideColor: palette.text,
+    taskBorderColor: palette.taskBorder,
+    activeTaskBkgColor: palette.activeTaskBkg,
+    activeTaskBorderColor: palette.activeTaskBorder,
+    doneTaskBkgColor: palette.activation,
+    doneTaskBorderColor: palette.border,
+    critBkgColor: palette.critBkg,
+    critBorderColor: palette.critBorder,
+    todayLineColor: palette.todayLine,
+    gridColor: palette.border,
+    pieOpacity: "1",
+    pieStrokeColor: palette.background,
+    pieOuterStrokeColor: palette.border,
+    quadrantPointFill: palette.accent,
+    quadrantPointTextFill: palette.text,
+    ...getMermaidScaleVariables(palette),
+    xyChart: {
+      backgroundColor: palette.background,
+      titleColor: palette.text,
+      xAxisTitleColor: palette.text,
+      xAxisLabelColor: palette.mutedText,
+      xAxisTickColor: palette.border,
+      xAxisLineColor: palette.border,
+      yAxisTitleColor: palette.text,
+      yAxisLabelColor: palette.mutedText,
+      yAxisTickColor: palette.border,
+      yAxisLineColor: palette.border,
+      plotColorPalette: [
+        palette.accent,
+        palette.accentSoft,
+        palette.categorical[4],
+        palette.categorical[6],
+        palette.categorical[3],
+      ].join(","),
+    },
+  }
+}
 
 /** Returns whether a code block should be shown as a Mermaid diagram. */
 export function shouldRenderMermaidDiagram({
@@ -176,11 +282,11 @@ function getMermaidChartId(chart: string) {
   return `case-mermaid-${Math.abs(hash)}-${Math.random().toString(36).slice(2, 9)}`
 }
 
-function getScopedMermaidCss(svgId: string) {
+function getScopedMermaidCss(svgId: string, palette: MermaidPalette) {
   return `
 #${svgId} {
   background: transparent !important;
-  color: ${MERMAID_TEXT_COLOR} !important;
+  color: ${palette.text} !important;
   font-family: ${MERMAID_FONT_FAMILY} !important;
 }
 
@@ -210,8 +316,17 @@ function getScopedMermaidCss(svgId: string) {
 #${svgId} .nodeLabel,
 #${svgId} .legend text,
 #${svgId} .titleText {
-  color: ${MERMAID_TEXT_COLOR} !important;
-  fill: ${MERMAID_TEXT_COLOR} !important;
+  color: ${palette.text} !important;
+  fill: ${palette.text} !important;
+}
+
+#${svgId} .edgeLabel,
+#${svgId} .edgeLabel p,
+#${svgId} .edgeLabel span,
+#${svgId} .edgeLabel rect,
+#${svgId} .labelBkg {
+  background-color: ${palette.background} !important;
+  fill: ${palette.background} !important;
 }
 
 #${svgId} .flowchart-link,
@@ -221,7 +336,7 @@ function getScopedMermaidCss(svgId: string) {
 #${svgId} .relation,
 #${svgId} .edge-thickness-normal,
 #${svgId} .edge-thickness-thick {
-  stroke: ${MERMAID_LINE_COLOR} !important;
+  stroke: ${palette.line} !important;
 }
 
 /* Timeline node boxes draw a darker bottom edge that reads as a shadow. */
@@ -232,18 +347,18 @@ function getScopedMermaidCss(svgId: string) {
 
 /* The timeline spine is drawn with a hardcoded thick black stroke. */
 #${svgId} .lineWrapper line {
-  stroke: ${MERMAID_BORDER_COLOR} !important;
+  stroke: ${palette.border} !important;
   stroke-width: 2px !important;
 }
 
 /* Timeline arrowheads fall back to near-black. */
 #${svgId}[aria-roledescription="timeline"] marker path {
-  fill: #a1a1aa !important;
+  fill: ${palette.arrowhead} !important;
 }
 
 /* Mindmap edges are drawn up to 11px thick. */
 #${svgId}[aria-roledescription="mindmap"] .edge {
-  stroke: ${MERMAID_BORDER_COLOR} !important;
+  stroke: ${palette.border} !important;
   stroke-width: 2px !important;
 }
 
@@ -265,26 +380,30 @@ function getScopedMermaidCss(svgId: string) {
 
 /* Sankey nodes and links fall back to d3 rainbow colors. */
 #${svgId}[aria-roledescription="sankey"] .node rect {
-  fill: #60a5fa !important;
+  fill: ${palette.sankeyNode} !important;
   stroke: none !important;
   rx: 2px;
   ry: 2px;
 }
 
 #${svgId}[aria-roledescription="sankey"] .links path {
-  stroke: #bfdbfe !important;
+  stroke: ${palette.sankeyLink} !important;
 }
 
 #${svgId} stop {
-  stop-color: #bfdbfe !important;
+  stop-color: ${palette.accentSofter} !important;
 }
 `
 }
 
-function addScopedMermaidCss(svg: string, svgId: string) {
+function addScopedMermaidCss(
+  svg: string,
+  svgId: string,
+  palette: MermaidPalette
+) {
   return svg.replace(
     "</svg>",
-    `<style>${getScopedMermaidCss(svgId)}</style></svg>`
+    `<style>${getScopedMermaidCss(svgId, palette)}</style></svg>`
   )
 }
 
@@ -310,6 +429,8 @@ function roundTimelineNodeCorners(svg: string) {
 }
 
 function MermaidDiagram({ chart }: { chart: string }) {
+  const { resolvedTheme } = useTheme()
+  const theme: MermaidTheme = resolvedTheme === "dark" ? "dark" : "light"
   const [svg, setSvg] = React.useState("")
   const [error, setError] = React.useState<string | null>(null)
 
@@ -326,7 +447,7 @@ function MermaidDiagram({ chart }: { chart: string }) {
           startOnLoad: false,
           securityLevel: "strict",
           theme: "base",
-          themeVariables: MERMAID_THEME_VARIABLES,
+          themeVariables: getMermaidThemeVariables(theme),
           fontFamily: MERMAID_FONT_FAMILY,
           suppressErrorRendering: true,
         })
@@ -335,7 +456,11 @@ function MermaidDiagram({ chart }: { chart: string }) {
 
         if (isMounted) {
           setSvg(
-            addScopedMermaidCss(roundTimelineNodeCorners(result.svg), chartId)
+            addScopedMermaidCss(
+              roundTimelineNodeCorners(result.svg),
+              chartId,
+              getMermaidPalette(theme)
+            )
           )
         }
       } catch (renderError) {
@@ -354,7 +479,7 @@ function MermaidDiagram({ chart }: { chart: string }) {
     return () => {
       isMounted = false
     }
-  }, [chart])
+  }, [chart, theme])
 
   if (error) {
     return (
