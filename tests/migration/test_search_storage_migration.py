@@ -5,6 +5,7 @@ import subprocess
 import sys
 import uuid
 
+import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.pool import NullPool
 
@@ -21,7 +22,10 @@ def run_alembic(url: str, *arguments: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_search_migration_requires_provisioning_and_preserves_source_data() -> None:
+@pytest.mark.parametrize("preinstalled", [False, True])
+def test_search_migration_enables_vector_and_preserves_source_data(
+    preinstalled: bool,
+) -> None:
     name = f"test_search_migration_{uuid.uuid4().hex}"
     admin = create_engine(
         TEST_DB_CONFIG.sys_url_sync, isolation_level="AUTOCOMMIT", poolclass=NullPool
@@ -42,18 +46,28 @@ def test_search_migration_requires_provisioning_and_preserves_source_data() -> N
             conn.execute(
                 text("INSERT INTO synthetic_source VALUES (1, 'preserved source')")
             )
-        missing = run_alembic(url, "upgrade", "9680c861644a")
-        assert missing.returncode != 0
-        assert "Provision pgvector" in missing.stderr
         with engine.begin() as conn:
             assert (
-                conn.scalar(text("SELECT version_num FROM alembic_version"))
-                == "31ee4b7f175a"
+                conn.scalar(
+                    text("SELECT count(*) FROM pg_extension WHERE extname = 'vector'")
+                )
+                == 0
             )
-            conn.execute(text("CREATE EXTENSION vector WITH SCHEMA public"))
+            if preinstalled:
+                conn.execute(text("CREATE EXTENSION vector WITH SCHEMA public"))
         upgraded = run_alembic(url, "upgrade", "9680c861644a")
         assert upgraded.returncode == 0, upgraded.stderr
         with engine.begin() as conn:
+            assert (
+                conn.scalar(
+                    text(
+                        "SELECT count(*) FROM pg_extension e "
+                        "JOIN pg_namespace n ON n.oid = e.extnamespace "
+                        "WHERE e.extname = 'vector' AND n.nspname = 'public'"
+                    )
+                )
+                == 1
+            )
             assert (
                 conn.scalar(text("SELECT body FROM synthetic_source WHERE id = 1"))
                 == "preserved source"

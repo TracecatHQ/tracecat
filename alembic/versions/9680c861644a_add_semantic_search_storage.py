@@ -1,7 +1,8 @@
 """Add disabled semantic search storage; no source tables or rows are modified.
 
-Provision pgvector before upgrading. Downgrade removes only derived search data
-and retains the extension; stop search workers before downgrading.
+Install pgvector server files before upgrading. The migration enables the
+extension if needed; its role needs permission to do so. Downgrade removes only
+derived search data and retains the extension; stop search workers first.
 Revision ID: 9680c861644a
 Revises: 31ee4b7f175a
 """
@@ -27,6 +28,7 @@ SEARCH_TABLES = (
 
 
 def upgrade() -> None:
+    op.execute("CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public")
     op.execute("""
         DO $$ BEGIN
             IF NOT EXISTS (
