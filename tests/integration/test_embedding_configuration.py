@@ -449,3 +449,28 @@ async def test_model_change_invalidates_inflight_embedding(embedding_case):
     assert caught.value.code == EmbeddingErrorCode.CONFIGURATION_CHANGED
     fresh = await embed_current(case.request(version=2, dimensions=3072), case.client)
     assert len(fresh.results[0].vector) == 3072
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("scopes", [{"workspace:read"}, {"secret:read"}])
+async def test_read_requires_workspace_and_secret_permissions(embedding_case, scopes):
+    case = embedding_case
+    await case.service().save(case.params())
+    role = case.roles[0].model_copy(update={"scopes": frozenset(scopes)})
+    with pytest.raises(ScopeDeniedError):
+        await WorkspaceEmbeddingService(role, case.client).get()
+    settings = await case.service().get()
+    assert settings.configuration.credential_id == case.secrets[0]
+    assert settings.configuration.credential_environment == "search"
+
+
+@pytest.mark.anyio
+async def test_disable_without_secret_permission_preserves_configuration(
+    embedding_case,
+):
+    case = embedding_case
+    before = await case.service().save(case.params())
+    role = case.roles[0].model_copy(update={"scopes": frozenset({"workspace:update"})})
+    with pytest.raises(ScopeDeniedError):
+        await WorkspaceEmbeddingService(role, case.client).disable(before.version)
+    assert await case.service().get() == before

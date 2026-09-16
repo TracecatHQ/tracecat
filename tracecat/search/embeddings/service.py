@@ -45,7 +45,7 @@ class WorkspaceEmbeddingService:
         self.scope = SearchScope(role.organization_id, role.workspace_id)
         self.client = client
 
-    @require_scope("workspace:read")
+    @require_scope("workspace:read", "secret:read")
     async def get(self) -> EmbeddingConfigurationRead:
         """Get current settings and the finite supported catalog in one response."""
         async with EmbeddingSettingsStorage.with_session(scope=self.scope) as store:
@@ -118,7 +118,7 @@ class WorkspaceEmbeddingService:
             await store.session.commit()
         return await self.get()
 
-    @require_scope("workspace:update")
+    @require_scope("workspace:update", "secret:read")
     async def disable(self, expected_version: int) -> EmbeddingConfigurationRead:
         """Immediately make the old configuration unavailable to all consumers."""
         async with EmbeddingSettingsStorage.with_session(scope=self.scope) as store:
