@@ -60,6 +60,11 @@ publishes the exact tested image artifacts and combines their CPU architectures
 into versioned GHCR tags. Application CI builds its own candidate locally so it
 can test changes before their tag exists in GHCR.
 
+Publication refuses an existing tag, and registry authentication or network
+errors stop publication. Only a confirmed missing manifest permits a new tag.
+This also prevents documentation-only or test-only changes from replacing a
+published image. Main-branch publication runs are serialized.
+
 Tags use a simple image revision: `:1` for the default and `:1-bookworm` for
 Bookworm. PostgreSQL, OS, and pgvector versions are recorded in the build files.
 Bump the revision (`1`, `2`, ...) in `images.json` when changing packaged

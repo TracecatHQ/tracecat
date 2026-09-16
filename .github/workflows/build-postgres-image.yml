@@ -54,6 +54,7 @@ jobs:
           # BuildKit's base cache is separate from images used by docker run.
           docker pull "$base"
           bash scripts/tests/test_pgvector_compose.sh
+          bash scripts/tests/test_pgvector_publish.sh
           bash scripts/tests/test_pgvector_startup.sh "$VARIANT" existing
           bash scripts/tests/test_pgvector_startup.sh "$VARIANT" fresh synthetic_admin
           PGVECTOR_TEST_IMAGE="$image" bash scripts/tests/test_pgvector.sh "$base"
@@ -97,6 +98,9 @@ jobs:
       matrix:
         variant: [trixie, bookworm]
     steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: postgres-${{ matrix.variant }}-*
@@ -110,12 +114,16 @@ jobs:
       - name: Publish tested architectures and versioned manifest
         env:
           VARIANT: ${{ matrix.variant }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           image=$(cat "/tmp/postgres-images/postgres-$VARIANT-amd64/name")
           suffix=""
           if [[ "$VARIANT" == bookworm ]]; then suffix="-bookworm"; fi
           [[ "$image" =~ ^ghcr.io/tracecathq/tracecat-postgres:[1-9][0-9]*$suffix$ ]]
+          # The workflow concurrency group serializes trusted main publishers.
+          # Only a confirmed missing manifest permits a new revision to publish.
+          bash scripts/postgres/check-unpublished-image.sh "$image"
           refs=()
           for arch in amd64 arm64; do
             artifact="/tmp/postgres-images/postgres-$VARIANT-$arch"
