@@ -15,12 +15,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.auth.types import Role
+from tracecat.authz.membership import ensure_member
 from tracecat.authz.seeding import seed_system_roles_for_org
 from tracecat.cases.service import CaseFieldsService
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import (
     AccessToken,
-    LegacyOrganizationMembership,
     MCPRefreshToken,
     Organization,
     OrganizationMembership,
@@ -466,22 +466,10 @@ async def ensure_single_tenant_user_defaults_in_session(
     await seed_system_roles_for_org(session, organization_id)
 
     # Only a missing membership or a superuser owner upgrade reaches here, so the
-    # assignment insert below is the repair. The legacy table is still written
-    # for app versions that read it.
+    # assignment insert below is the repair.
     changed = False
     if membership is None:
-        legacy_insert = pg_insert(LegacyOrganizationMembership).values(
-            user_id=user_id,
-            organization_id=organization_id,
-        )
-        await session.execute(
-            legacy_insert.on_conflict_do_nothing(
-                index_elements=[
-                    LegacyOrganizationMembership.user_id,
-                    LegacyOrganizationMembership.organization_id,
-                ]
-            )
-        )
+        await ensure_member(session, organization_id, user_id)
 
     # Single-tenant defaults are intentionally minimal for regular users, while
     # superusers are granted default-org owner permissions.

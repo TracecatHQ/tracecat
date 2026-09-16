@@ -25,13 +25,11 @@ from tracecat.auth.users import (
     get_user_manager_context,
 )
 from tracecat.authz.controls import has_scope, require_scope
+from tracecat.authz.membership import ensure_member
 from tracecat.authz.service import resolve_grantable_role
 from tracecat.db.models import (
     AccessToken,
-    Group,
-    GroupMember,
     LegacyMembership,
-    LegacyOrganizationMembership,
     MCPPersonalAccessToken,
     MCPRefreshToken,
     Organization,
@@ -152,17 +150,8 @@ async def accept_invitation_for_user(
             # Shouldn't reach here, but handle gracefully
             raise TracecatAuthorizationError("Invitation is no longer valid")
 
-        # Written for app versions that still read the legacy table.
-        await session.execute(
-            pg_insert(LegacyOrganizationMembership)
-            .values(user_id=user_id, organization_id=invitation.organization_id)
-            .on_conflict_do_nothing(
-                index_elements=[
-                    LegacyOrganizationMembership.user_id,
-                    LegacyOrganizationMembership.organization_id,
-                ]
-            )
-        )
+        # The membership row is the aggregate root the assignment hangs off.
+        await ensure_member(session, invitation.organization_id, user_id)
 
         # Upsert the org-wide role assignment to the invitation's role.
         # Uses on_conflict_do_update so a pre-existing organization-member row
@@ -188,7 +177,7 @@ async def accept_invitation_for_user(
         await session.execute(assignment_stmt)
         await session.commit()
 
-        # Membership is derived from the assignment just written.
+        # Membership row was written above.
         membership = (
             await session.execute(
                 select(OrganizationMembership).where(
@@ -331,32 +320,17 @@ class OrgService(BaseOrgService):
         workspace_ids = select(Workspace.id).where(
             Workspace.organization_id == self.organization_id
         )
-        group_ids = select(Group.id).where(
-            Group.organization_id == self.organization_id
-        )
-
         await self.session.execute(
             delete(LegacyMembership).where(
                 LegacyMembership.user_id == user.id,
                 LegacyMembership.workspace_id.in_(workspace_ids),
             )
         )
+        # Deleting the aggregate root cascades assignments and group members.
         await self.session.execute(
-            delete(UserRoleAssignment).where(
-                UserRoleAssignment.user_id == user.id,
-                UserRoleAssignment.organization_id == self.organization_id,
-            )
-        )
-        await self.session.execute(
-            delete(GroupMember).where(
-                GroupMember.user_id == user.id,
-                GroupMember.group_id.in_(group_ids),
-            )
-        )
-        await self.session.execute(
-            delete(LegacyOrganizationMembership).where(
-                LegacyOrganizationMembership.user_id == user.id,
-                LegacyOrganizationMembership.organization_id == self.organization_id,
+            delete(OrganizationMembership).where(
+                OrganizationMembership.user_id == user.id,
+                OrganizationMembership.organization_id == self.organization_id,
             )
         )
         await self.session.commit()
@@ -722,19 +696,9 @@ class OrgService(BaseOrgService):
                 # Shouldn't reach here, but handle gracefully
                 raise TracecatAuthorizationError("Invitation is no longer valid")
 
-            # Written for app versions that still read the legacy table.
-            await self.session.execute(
-                pg_insert(LegacyOrganizationMembership)
-                .values(
-                    user_id=self.role.user_id,
-                    organization_id=invitation.organization_id,
-                )
-                .on_conflict_do_nothing(
-                    index_elements=[
-                        LegacyOrganizationMembership.user_id,
-                        LegacyOrganizationMembership.organization_id,
-                    ]
-                )
+            # The membership row is the aggregate root the assignment hangs off.
+            await ensure_member(
+                self.session, invitation.organization_id, self.role.user_id
             )
 
             # Create RBAC role assignment from invitation's role_id
@@ -763,7 +727,7 @@ class OrgService(BaseOrgService):
                 )
             raise
 
-        # Membership is derived from the assignment just written.
+        # Membership row was written above.
         membership = (
             await self.session.execute(
                 select(OrganizationMembership).where(

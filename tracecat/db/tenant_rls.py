@@ -113,8 +113,12 @@ SPECIAL_TENANT_POLICY_TABLES = frozenset(
 
 # Workspace and oauth_state carry custom policy SQL. scope and agent_catalog
 # both have nullable organization_id and allow shared platform-owned rows.
+# group_member.organization_id is a nullable denormalization for the membership
+# foreign key; the table is governed by its parent group's policy.
 SPECIAL_WORKSPACE_POLICY_TABLES = frozenset({"oauth_state"})
-SPECIAL_ORG_POLICY_TABLES = frozenset({"workspace", "scope", "agent_catalog"})
+SPECIAL_ORG_POLICY_TABLES = frozenset(
+    {"workspace", "scope", "agent_catalog", "group_member"}
+)
 
 CURRENT_WORKSPACE_SCOPED_TABLES = (
     *INITIAL_WORKSPACE_SCOPED_TABLES,

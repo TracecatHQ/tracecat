@@ -24,7 +24,6 @@ from tracecat.db.models import (
     GroupMember,
     GroupRoleAssignment,
     LegacyMembership,
-    LegacyOrganizationMembership,
     Membership,
     OrganizationMembership,
     RoleScope,
@@ -475,7 +474,11 @@ class RBACService(BaseOrgService):
         if result.scalar_one_or_none() is not None:
             raise TracecatValidationError("User is already a member of this group")
 
-        member = GroupMember(group_id=group_id, user_id=user_id)
+        member = GroupMember(
+            group_id=group_id,
+            user_id=user_id,
+            organization_id=self.organization_id,
+        )
         self.session.add(member)
         await self.session.commit()
 
@@ -742,19 +745,8 @@ class RBACService(BaseOrgService):
             workspace_id=workspace_id,
             assigned_by=self.role.user_id,
         )
-        # Written for app versions that still read the legacy table.
-        if workspace_id is None:
-            await self.session.execute(
-                pg_insert(LegacyOrganizationMembership)
-                .values(user_id=user_id, organization_id=self.organization_id)
-                .on_conflict_do_nothing(
-                    index_elements=[
-                        LegacyOrganizationMembership.user_id,
-                        LegacyOrganizationMembership.organization_id,
-                    ]
-                )
-            )
-        else:
+        if workspace_id is not None:
+            # Legacy workspace table is still written for app versions reading it.
             await self.session.execute(
                 pg_insert(LegacyMembership)
                 .values(user_id=user_id, workspace_id=workspace_id)
@@ -809,16 +801,8 @@ class RBACService(BaseOrgService):
         """Delete a user role assignment."""
         assignment = await self.get_user_assignment(assignment_id)
         await self.session.delete(assignment)
-        # A user holds one assignment per slot, so this was their only path here.
-        if assignment.workspace_id is None:
-            await self.session.execute(
-                delete(LegacyOrganizationMembership).where(
-                    LegacyOrganizationMembership.user_id == assignment.user_id,
-                    LegacyOrganizationMembership.organization_id
-                    == self.organization_id,
-                )
-            )
-        else:
+        # Org presence outlives the assignment; only the workspace mirror follows it.
+        if assignment.workspace_id is not None:
             await self.session.execute(
                 delete(LegacyMembership).where(
                     LegacyMembership.user_id == assignment.user_id,

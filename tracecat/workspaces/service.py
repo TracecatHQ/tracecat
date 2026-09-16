@@ -16,13 +16,13 @@ from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
 from tracecat.authz.controls import has_scope, require_scope
 from tracecat.authz.enums import OwnerType
+from tracecat.authz.membership import ensure_member
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.authz.service import resolve_grantable_role
 from tracecat.cases.service import CaseFieldsService
 from tracecat.db.models import (
     Invitation,
     LegacyMembership,
-    LegacyOrganizationMembership,
     Membership,
     Organization,
     OrganizationMembership,
@@ -516,8 +516,8 @@ class WorkspaceService(BaseOrgService):
         workspace = invitation.workspace
         organization_id = workspace.organization_id
 
-        # Derived org presence covers group paths, so a group-only org member
-        # keeps their indirect grant instead of gaining a direct org role.
+        # A user already present in the org keeps their existing grant instead
+        # of gaining a direct org role.
         org_assignment_stmt = select(OrganizationMembership.user_id).where(
             OrganizationMembership.user_id == user_id,
             OrganizationMembership.organization_id == organization_id,
@@ -558,7 +558,10 @@ class WorkspaceService(BaseOrgService):
             # Shouldn't reach here, but handle gracefully
             raise TracecatValidationError("Invitation is no longer valid")
 
-        # Legacy tables are still written for app versions that read them.
+        # The membership row is the aggregate root the assignments below hang off.
+        await ensure_member(self.session, organization_id, user_id)
+
+        # Legacy workspace table is still written for app versions that read it.
         await self.session.execute(
             pg_insert(LegacyMembership)
             .values(user_id=user_id, workspace_id=invitation.workspace_id)
@@ -578,16 +581,6 @@ class WorkspaceService(BaseOrgService):
 
         # A user invited straight to a workspace may not be in the org yet.
         if needs_org_assignment:
-            await self.session.execute(
-                pg_insert(LegacyOrganizationMembership)
-                .values(user_id=user_id, organization_id=organization_id)
-                .on_conflict_do_nothing(
-                    index_elements=[
-                        LegacyOrganizationMembership.user_id,
-                        LegacyOrganizationMembership.organization_id,
-                    ]
-                )
-            )
             org_member_role_result = await self.session.execute(
                 select(DBRole).where(
                     DBRole.organization_id == organization_id,

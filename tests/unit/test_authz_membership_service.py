@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tests.support.membership import grant_workspace_membership
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
+from tracecat.authz.membership import ensure_member
 from tracecat.authz.scopes import ADMIN_SCOPES, EDITOR_SCOPES
 from tracecat.authz.seeding import seed_system_scopes
 from tracecat.authz.service import MembershipService
@@ -19,6 +20,7 @@ from tracecat.db.models import (
     LegacyMembership,
     Membership,
     Organization,
+    OrganizationMembership,
     RoleScope,
     Scope,
     User,
@@ -26,7 +28,11 @@ from tracecat.db.models import (
     Workspace,
 )
 from tracecat.db.models import Role as DBRole
-from tracecat.exceptions import TracecatAuthorizationError, TracecatConflictError
+from tracecat.exceptions import (
+    TracecatAuthorizationError,
+    TracecatConflictError,
+    TracecatNotFoundError,
+)
 from tracecat.workspaces.schemas import WorkspaceMembershipCreate
 
 pytestmark = [pytest.mark.anyio, pytest.mark.usefixtures("db")]
@@ -146,6 +152,7 @@ async def test_delete_membership_removes_membership_and_assignment(
     workspace_editor_role: DBRole,
 ) -> None:
     """Deleting membership should also delete workspace direct role assignment."""
+    await ensure_member(session, organization.id, member_user.id)
     session.add(
         UserRoleAssignment(
             organization_id=organization.id,
@@ -199,6 +206,7 @@ async def test_delete_membership_removes_orphan_assignment(
     workspace_editor_role: DBRole,
 ) -> None:
     """Delete should clean orphan assignments even when membership row is missing."""
+    await ensure_member(session, organization.id, member_user.id)
     session.add(
         UserRoleAssignment(
             organization_id=organization.id,
@@ -247,6 +255,59 @@ async def test_create_membership_duplicate_raises_conflict(
             workspace_id=workspace.id,
             params=WorkspaceMembershipCreate(user_id=member_user.id),
         )
+
+
+async def test_create_membership_rejects_non_org_member(
+    session: AsyncSession,
+    membership_service: MembershipService,
+    workspace: Workspace,
+    member_user: User,
+    workspace_editor_role: DBRole,
+) -> None:
+    """Workspace add must not admit a user who is not already in the org."""
+    assert workspace_editor_role.slug == "workspace-editor"
+
+    with pytest.raises(TracecatNotFoundError):
+        await membership_service.create_membership(
+            workspace_id=workspace.id,
+            params=WorkspaceMembershipCreate(user_id=member_user.id),
+        )
+
+    assert (
+        await session.execute(
+            select(OrganizationMembership.user_id).where(
+                OrganizationMembership.user_id == member_user.id,
+                OrganizationMembership.organization_id == workspace.organization_id,
+            )
+        )
+    ).scalar_one_or_none() is None
+
+
+async def test_create_membership_allows_existing_org_member(
+    session: AsyncSession,
+    membership_service: MembershipService,
+    workspace: Workspace,
+    member_user: User,
+    workspace_editor_role: DBRole,
+) -> None:
+    """An existing org member can be added to a workspace."""
+    assert workspace_editor_role.slug == "workspace-editor"
+    await ensure_member(session, workspace.organization_id, member_user.id)
+    await session.commit()
+
+    await membership_service.create_membership(
+        workspace_id=workspace.id,
+        params=WorkspaceMembershipCreate(user_id=member_user.id),
+    )
+
+    assert (
+        await session.execute(
+            select(Membership).where(
+                Membership.user_id == member_user.id,
+                Membership.workspace_id == workspace.id,
+            )
+        )
+    ).scalar_one_or_none() is not None
 
 
 @pytest.fixture
@@ -301,6 +362,7 @@ async def test_create_membership_rejects_inviter_without_editor_scopes(
         .one()
     )
     session.add(RoleScope(role_id=inviter_role.id, scope_id=invite_scope.id))
+    await ensure_member(session, organization.id, actor_user.id)
     session.add(
         UserRoleAssignment(
             organization_id=organization.id,
@@ -356,6 +418,8 @@ async def test_create_membership_allows_admin_inviter(
     )
     for scope in result.scalars().all():
         session.add(RoleScope(role_id=admin_role.id, scope_id=scope.id))
+    await ensure_member(session, organization.id, actor_user.id)
+    await ensure_member(session, organization.id, member_user.id)
     session.add(
         UserRoleAssignment(
             organization_id=organization.id,
@@ -413,10 +477,20 @@ async def test_list_workspace_members_reports_each_path_once(
     session.add_all([group_role, group])
     await session.flush()
     # actor_user: group only. member_user: group and direct.
+    await ensure_member(session, organization.id, actor_user.id)
+    await ensure_member(session, organization.id, member_user.id)
     session.add_all(
         [
-            GroupMember(group_id=group.id, user_id=actor_user.id),
-            GroupMember(group_id=group.id, user_id=member_user.id),
+            GroupMember(
+                group_id=group.id,
+                user_id=actor_user.id,
+                organization_id=organization.id,
+            ),
+            GroupMember(
+                group_id=group.id,
+                user_id=member_user.id,
+                organization_id=organization.id,
+            ),
             GroupRoleAssignment(
                 organization_id=organization.id,
                 group_id=group.id,
@@ -460,9 +534,14 @@ async def test_delete_membership_rejects_when_group_grant_remains(
     group = Group(name="Reviewers", organization_id=organization.id)
     session.add_all([group_role, group])
     await session.flush()
+    await ensure_member(session, organization.id, member_user.id)
     session.add_all(
         [
-            GroupMember(group_id=group.id, user_id=member_user.id),
+            GroupMember(
+                group_id=group.id,
+                user_id=member_user.id,
+                organization_id=organization.id,
+            ),
             GroupRoleAssignment(
                 organization_id=organization.id,
                 group_id=group.id,

@@ -19,7 +19,6 @@ from tracecat.authz.scopes import ADMIN_SCOPES
 from tracecat.authz.seeding import seed_system_roles_for_org, seed_system_scopes
 from tracecat.db.models import (
     LegacyMembership,
-    LegacyOrganizationMembership,
     Membership,
     Organization,
     OrganizationMembership,
@@ -1035,9 +1034,9 @@ class TestAcceptInvitation:
         ).scalar_one_or_none() is not None
         assert (
             await session.execute(
-                select(LegacyOrganizationMembership).where(
-                    LegacyOrganizationMembership.user_id == external_user.id,
-                    LegacyOrganizationMembership.organization_id == inv_org.id,
+                select(OrganizationMembership).where(
+                    OrganizationMembership.user_id == external_user.id,
+                    OrganizationMembership.organization_id == inv_org.id,
                 )
             )
         ).scalar_one_or_none() is not None
