@@ -3999,6 +3999,10 @@ async def test_initialization_failure_preserves_error_and_diagnostics_before_cle
     mock_claude_sdk_client.query.assert_not_awaited()
     assert runtime.client is None
     assert "synthetic-secret" not in str(mock_socket_writer.send_log.call_args_list)
+    if sink_failure:
+        mock_socket_writer.send_done.assert_not_awaited()
+    else:
+        mock_socket_writer.send_done.assert_awaited_once()
 
 
 @pytest.mark.anyio
@@ -4029,6 +4033,7 @@ async def test_initialization_cancellation_disconnects_and_closes_transport(
             await task
     mock_claude_sdk_client.disconnect.assert_awaited_once()
     transport.close.assert_awaited_once()
+    mock_socket_writer.send_done.assert_not_awaited()
     assert runtime.client is None
 
 

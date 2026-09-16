@@ -1764,6 +1764,7 @@ class ClaudeAgentRuntime:
         initialization_started_at: float | None = None
         client_initialized = False
         completed = False
+        terminal_error_reported = False
 
         async def send_stderr(summary: str) -> None:
             await self._event_writer.send_log(
@@ -2027,6 +2028,7 @@ class ClaudeAgentRuntime:
                         classification=failure.classification,
                         cause=error,
                     )
+                    terminal_error_reported = True
             await log_initialization_failure(e)
             with suppress(Exception):
                 async with asyncio.timeout(DIAGNOSTIC_TIMEOUT_SECONDS):
@@ -2067,7 +2069,10 @@ class ClaudeAgentRuntime:
             self.client = None
             if completed:
                 await self._event_writer.send_done()
-            else:
+            elif terminal_error_reported:
+                # Without a delivered error (including cancellation), "done"
+                # could invent a missing-result failure before the executor has
+                # handled the original exception. Let the executor finalize it.
                 with suppress(Exception):
                     async with asyncio.timeout(DIAGNOSTIC_TIMEOUT_SECONDS):
                         await self._event_writer.send_done()
