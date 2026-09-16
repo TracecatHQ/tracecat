@@ -948,3 +948,70 @@ async def test_deleted_source_table_makes_index_unavailable(
         assert await session.get(SearchCollection, case.collection_id) is not None
         assert not (await session.scalars(eligible_chunks(case.scope))).all()
         assert (await store.status(case.collection_id)).partial
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("initial_state", ["ready", "empty", "failed", "building"])
+async def test_backfill_requeues_stale_generation_and_preserves_current_work(
+    storage_case: StorageCase, initial_state: str
+) -> None:
+    case = storage_case
+    old_claim = await prepared(case, 0 if initial_state == "empty" else 1)
+    async with case.sessions.begin() as session:
+        store = case.store(session)
+        if initial_state == "ready":
+            await store.write_embeddings(old_claim, (embedding(old_claim),))
+        if initial_state in ("ready", "empty"):
+            await store.publish(old_claim)
+        elif initial_state == "failed":
+            await store.fail(old_claim, SearchErrorCode.PROVIDER_UNAVAILABLE)
+        document = await session.get(SearchDocument, old_claim.document_id)
+        assert document is not None
+        row_id = document.source_row_id
+        original_fence = document.fence
+        await store.touch_document(case.collection_id, row_id, backfill=True)
+        assert document.state == initial_state
+        assert document.fence == original_fence
+
+        await store.configure_collection(
+            source_id=case.source_id,
+            column_ids=(case.column_id,),
+            chunker=ChunkerSettings(tokenizer="synthetic", input_tokens=400),
+            expected_generation=1,
+        )
+        document = await store.touch_document(case.collection_id, row_id, backfill=True)
+        assert document.generation == 2
+        assert document.state == "pending"
+        assert document.desired_revision == old_claim.revision + 1
+        assert document.fence == original_fence + 1
+        assert document.build_revision is None
+        assert document.indexed_revision is None
+        assert document.enumeration_cursor is None
+        assert not document.enumeration_complete
+        assert document.expected_chunks == 0
+        assert document.lease_until is None
+        assert document.next_attempt_at is None
+        assert document.attempts == 0
+        assert document.error_code is None
+        await store.checkpoint_backfill(
+            case.collection_id, generation=2, before=None, after=None, complete=True
+        )
+        assert (await store.status(case.collection_id)).pending == 1
+        assert not (await session.scalars(eligible_chunks(case.scope))).all()
+        claim = await store.claim(case.collection_id, document.id)
+        assert claim is not None
+        await store.checkpoint(
+            claim,
+            before=EnumerationCursor(),
+            after=EnumerationCursor(character_offset=10, next_ordinal=1),
+            chunks=(manifest(case),),
+            complete=True,
+        )
+        await store.touch_document(case.collection_id, row_id, backfill=True)
+        assert document.fence == claim.fence
+        assert document.enumeration_complete
+        await store.write_embeddings(claim, (embedding(claim),))
+        await store.publish(claim)
+        assert len((await session.scalars(eligible_chunks(case.scope))).all()) == 1
+        status = await store.status(case.collection_id)
+        assert status.ready == 1 and not status.partial

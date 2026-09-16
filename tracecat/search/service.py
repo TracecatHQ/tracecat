@@ -272,7 +272,7 @@ class SearchStorage(BaseService):
         deleted: bool = False,
         backfill: bool = False,
     ) -> SearchDocument:
-        """Record a source change in its transaction; backfill never overwrites work."""
+        """Record a source change; backfill preserves current-generation work."""
         collection = await self.collection(collection_id)
         document = await self.session.scalar(
             select(SearchDocument)
@@ -293,7 +293,7 @@ class SearchStorage(BaseService):
                 fence=0,
             )
             self.session.add(document)
-        elif backfill:
+        elif backfill and document.generation == collection.generation:
             return document
         else:
             document.desired_revision += 1
