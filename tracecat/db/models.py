@@ -708,12 +708,99 @@ class PlatformSecret(PlatformModel, BaseSecret):
 
 
 class Secret(WorkspaceModel, BaseSecret):
-    """Workspace secrets."""
+    """Workspace secrets.
+
+    ``source`` is ``local`` for values encrypted in ``encrypted_keys`` and
+    ``aws_secrets_manager`` for references resolved at runtime from an
+    organization-owned store. AWS-backed rows never carry remote values in
+    ``encrypted_keys``; ``remote_key_mapping`` only declares output key names.
+    """
 
     __tablename__ = "secret"
     __table_args__ = (UniqueConstraint("name", "environment", "workspace_id"),)
 
+    source: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="local", server_default=text("'local'")
+    )
+    store_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("organization_secret_store.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+    remote_reference: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    remote_key_mapping: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB, nullable=True
+    )
+
     workspace: Mapped[Workspace] = relationship(back_populates="secrets")
+    store: Mapped[OrganizationSecretStore | None] = relationship(
+        "OrganizationSecretStore", back_populates="secrets"
+    )
+
+
+class OrganizationSecretStore(OrganizationModel):
+    """Organization-owned external secret store (AWS Secrets Manager)."""
+
+    __tablename__ = "organization_secret_store"
+    __table_args__ = (UniqueConstraint("organization_id", "name"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    provider: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="aws_secrets_manager"
+    )
+    role_arn: Mapped[str] = mapped_column(String(2048), nullable=False)
+    region: Mapped[str] = mapped_column(String(64), nullable=False)
+    external_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
+
+    secrets: Mapped[list[Secret]] = relationship("Secret", back_populates="store")
+    authorizations: Mapped[list[WorkspaceSecretStoreAuthorization]] = relationship(
+        "WorkspaceSecretStoreAuthorization",
+        back_populates="store",
+        cascade="all, delete-orphan",
+    )
+
+
+class WorkspaceSecretStoreAuthorization(OrganizationModel):
+    """Grants a workspace permission to reference an organization secret store."""
+
+    __tablename__ = "workspace_secret_store_authorization"
+    __table_args__ = (UniqueConstraint("workspace_id", "store_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    workspace_id: Mapped[WorkspaceID] = mapped_column(
+        UUID,
+        ForeignKey("workspace.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    store_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("organization_secret_store.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    store: Mapped[OrganizationSecretStore] = relationship(
+        "OrganizationSecretStore", back_populates="authorizations"
+    )
 
 
 class WorkspaceVariable(WorkspaceModel):

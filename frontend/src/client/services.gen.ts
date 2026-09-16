@@ -530,6 +530,19 @@ import type {
   OrganizationListSessionsResponse,
   OrganizationRevokeInvitationData,
   OrganizationRevokeInvitationResponse,
+  OrganizationSecretStoresAuthorizeSecretStoreWorkspaceData,
+  OrganizationSecretStoresAuthorizeSecretStoreWorkspaceResponse,
+  OrganizationSecretStoresCreateSecretStoreData,
+  OrganizationSecretStoresCreateSecretStoreResponse,
+  OrganizationSecretStoresDeleteSecretStoreData,
+  OrganizationSecretStoresDeleteSecretStoreResponse,
+  OrganizationSecretStoresGetSecretStoreData,
+  OrganizationSecretStoresGetSecretStoreResponse,
+  OrganizationSecretStoresListSecretStoresResponse,
+  OrganizationSecretStoresRevokeSecretStoreWorkspaceData,
+  OrganizationSecretStoresRevokeSecretStoreWorkspaceResponse,
+  OrganizationSecretStoresUpdateSecretStoreData,
+  OrganizationSecretStoresUpdateSecretStoreResponse,
   OrganizationSecretsCreateOrgSecretData,
   OrganizationSecretsCreateOrgSecretResponse,
   OrganizationSecretsDeleteOrgSecretByIdData,
@@ -654,6 +667,10 @@ import type {
   SchedulesSearchSchedulesResponse,
   SchedulesUpdateScheduleData,
   SchedulesUpdateScheduleResponse,
+  SecretsCheckAwsSecretReferenceData,
+  SecretsCheckAwsSecretReferenceResponse,
+  SecretsCreateAwsSecretReferenceData,
+  SecretsCreateAwsSecretReferenceResponse,
   SecretsCreateSecretData,
   SecretsCreateSecretResponse,
   SecretsDeleteSecretByIdData,
@@ -662,12 +679,16 @@ import type {
   SecretsGetAwsAssumeRoleAccessResponse,
   SecretsGetSecretByNameData,
   SecretsGetSecretByNameResponse,
+  SecretsListAuthorizedSecretStoresData,
+  SecretsListAuthorizedSecretStoresResponse,
   SecretsListSecretDefinitionsData,
   SecretsListSecretDefinitionsResponse,
   SecretsListSecretsData,
   SecretsListSecretsResponse,
   SecretsSearchSecretsData,
   SecretsSearchSecretsResponse,
+  SecretsUpdateAwsSecretReferenceData,
+  SecretsUpdateAwsSecretReferenceResponse,
   SecretsUpdateSecretByIdData,
   SecretsUpdateSecretByIdResponse,
   ServiceAccountsCreateOrganizationServiceAccountApiKeyData,
@@ -3609,6 +3630,108 @@ export const secretsGetAwsAssumeRoleAccess = (
     url: "/workspaces/{workspace_id}/secrets/aws-assume-role",
     path: {
       workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Authorized Secret Stores
+ * List external secret stores this workspace is authorized to reference.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns WorkspaceSecretStoreRead Successful Response
+ * @throws ApiError
+ */
+export const secretsListAuthorizedSecretStores = (
+  data: SecretsListAuthorizedSecretStoresData
+): CancelablePromise<SecretsListAuthorizedSecretStoresResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/secrets/stores",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Aws Secret Reference
+ * Create a custom secret whose values live in AWS Secrets Manager.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const secretsCreateAwsSecretReference = (
+  data: SecretsCreateAwsSecretReferenceData
+): CancelablePromise<SecretsCreateAwsSecretReferenceResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/secrets/aws",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Aws Secret Reference
+ * Update the reference or key mapping of an AWS-backed secret.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.secretId
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const secretsUpdateAwsSecretReference = (
+  data: SecretsUpdateAwsSecretReferenceData
+): CancelablePromise<SecretsUpdateAwsSecretReferenceResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/secrets/aws/{secret_id}",
+    path: {
+      workspace_id: data.workspaceId,
+      secret_id: data.secretId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Check Aws Secret Reference
+ * Verify a saved AWS-backed reference resolves. Values are never returned.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.secretId
+ * @returns SecretReferenceCheckResult Successful Response
+ * @throws ApiError
+ */
+export const secretsCheckAwsSecretReference = (
+  data: SecretsCheckAwsSecretReferenceData
+): CancelablePromise<SecretsCheckAwsSecretReferenceResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/secrets/aws/{secret_id}/check",
+    path: {
+      workspace_id: data.workspaceId,
+      secret_id: data.secretId,
     },
     errors: {
       422: "Validation Error",
@@ -9257,6 +9380,165 @@ export const organizationSecretsDeleteOrgSecretById = (
     url: "/organization/secrets/{secret_id}",
     path: {
       secret_id: data.secretId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Secret Stores
+ * List external secret stores owned by the organization.
+ * @returns SecretStoreRead Successful Response
+ * @throws ApiError
+ */
+export const organizationSecretStoresListSecretStores =
+  (): CancelablePromise<OrganizationSecretStoresListSecretStoresResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/organization/secret-stores",
+    })
+  }
+
+/**
+ * Create Secret Store
+ * Create a store. The AssumeRole external ID is generated server-side.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns SecretStoreRead Successful Response
+ * @throws ApiError
+ */
+export const organizationSecretStoresCreateSecretStore = (
+  data: OrganizationSecretStoresCreateSecretStoreData
+): CancelablePromise<OrganizationSecretStoresCreateSecretStoreResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/organization/secret-stores",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Secret Store
+ * Get a store, including its persisted trust-policy inputs.
+ * @param data The data for the request.
+ * @param data.storeId
+ * @returns SecretStoreRead Successful Response
+ * @throws ApiError
+ */
+export const organizationSecretStoresGetSecretStore = (
+  data: OrganizationSecretStoresGetSecretStoreData
+): CancelablePromise<OrganizationSecretStoresGetSecretStoreResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/organization/secret-stores/{store_id}",
+    path: {
+      store_id: data.storeId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Secret Store
+ * Update store metadata. The external ID never changes.
+ * @param data The data for the request.
+ * @param data.storeId
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const organizationSecretStoresUpdateSecretStore = (
+  data: OrganizationSecretStoresUpdateSecretStoreData
+): CancelablePromise<OrganizationSecretStoresUpdateSecretStoreResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/organization/secret-stores/{store_id}",
+    path: {
+      store_id: data.storeId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Secret Store
+ * Delete a store. Rejected while workspace secrets still reference it.
+ * @param data The data for the request.
+ * @param data.storeId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const organizationSecretStoresDeleteSecretStore = (
+  data: OrganizationSecretStoresDeleteSecretStoreData
+): CancelablePromise<OrganizationSecretStoresDeleteSecretStoreResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/organization/secret-stores/{store_id}",
+    path: {
+      store_id: data.storeId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Authorize Secret Store Workspace
+ * Authorize a workspace to reference this store.
+ * @param data The data for the request.
+ * @param data.storeId
+ * @param data.requestBody
+ * @returns SecretStoreAuthorizationRead Successful Response
+ * @throws ApiError
+ */
+export const organizationSecretStoresAuthorizeSecretStoreWorkspace = (
+  data: OrganizationSecretStoresAuthorizeSecretStoreWorkspaceData
+): CancelablePromise<OrganizationSecretStoresAuthorizeSecretStoreWorkspaceResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/organization/secret-stores/{store_id}/authorizations",
+    path: {
+      store_id: data.storeId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Revoke Secret Store Workspace
+ * Revoke a workspace authorization. Rejected while references remain.
+ * @param data The data for the request.
+ * @param data.storeId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const organizationSecretStoresRevokeSecretStoreWorkspace = (
+  data: OrganizationSecretStoresRevokeSecretStoreWorkspaceData
+): CancelablePromise<OrganizationSecretStoresRevokeSecretStoreWorkspaceResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/organization/secret-stores/{store_id}/authorizations/{workspace_id}",
+    path: {
+      store_id: data.storeId,
+      workspace_id: data.workspaceId,
     },
     errors: {
       422: "Validation Error",

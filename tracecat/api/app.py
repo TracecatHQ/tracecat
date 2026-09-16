@@ -150,6 +150,7 @@ from tracecat.registry.actions.router import router as registry_actions_router
 from tracecat.registry.repositories.router import router as registry_repos_router
 from tracecat.registry.sync.jobs import sync_platform_registry_on_startup
 from tracecat.secrets.router import org_router as org_secrets_router
+from tracecat.secrets.router import org_store_router as org_secret_stores_router
 from tracecat.secrets.router import router as secrets_router
 from tracecat.service_accounts.router import (
     org_router as org_service_accounts_router,
@@ -519,6 +520,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(registry_actions_router)
     app.include_router(org_settings_router)
     app.include_router(org_secrets_router)
+    app.include_router(org_secret_stores_router)
     _include_workspace_scoped_router(app, tables_router)
     _include_workspace_scoped_router(app, cases_router)
     _include_workspace_scoped_router(app, case_versions_router)

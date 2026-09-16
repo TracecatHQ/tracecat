@@ -20,10 +20,27 @@ from pydantic import (
     model_validator,
 )
 
-from tracecat.db.models import OrganizationSecret, Secret
+from tracecat.db.models import (
+    OrganizationSecret,
+    OrganizationSecretStore,
+    Secret,
+    WorkspaceSecretStoreAuthorization,
+)
 from tracecat.identifiers import OrganizationID, SecretID, WorkspaceID
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
-from tracecat.secrets.enums import SecretType
+from tracecat.secrets.enums import (
+    AwsSecretMappingMode,
+    AwsSecretResolutionErrorCode,
+    SecretSource,
+    SecretStoreProvider,
+    SecretType,
+)
+
+AWS_SECRET_ARN_PATTERN = (
+    r"^arn:aws(?:-[a-z]+)*:secretsmanager:(?P<region>[a-z0-9-]+):\d{12}:secret:[^\s]+$"
+)
+AWS_ROLE_ARN_PATTERN = r"^arn:aws(?:-[a-z]+)*:iam::\d{12}:role/[\w+=,.@/-]+$"
+AWS_REGION_PATTERN = r"^[a-z]{2}(?:-[a-z]+)+-\d$"
 
 SecretName = Annotated[str, StringConstraints(pattern=r"[a-z0-9_]+")]
 """Validator for a secret name. e.g. 'aws_access_key_id'"""
@@ -290,6 +307,10 @@ class SecretReadMinimal(BaseModel):
     keys: list[str]
     environment: str
     is_corrupted: bool = False
+    source: SecretSource = SecretSource.LOCAL
+    store_id: UUID | None = None
+    store_name: str | None = None
+    remote_reference: str | None = None
 
 
 class SecretReadBase(BaseModel):
@@ -310,9 +331,18 @@ class SecretRead(SecretReadBase):
     """Read schema for workspace-scoped secrets."""
 
     workspace_id: WorkspaceID
+    source: SecretSource = SecretSource.LOCAL
+    store_id: UUID | None = None
+    remote_reference: str | None = None
+    remote_key_mapping: AwsSecretKeyMapping | None = None
 
     @staticmethod
     def from_database(obj: Secret) -> SecretRead:
+        mapping = (
+            AwsSecretKeyMapping.model_validate(obj.remote_key_mapping)
+            if obj.remote_key_mapping is not None
+            else None
+        )
         return SecretRead(
             id=obj.id,
             type=SecretType(obj.type),
@@ -324,7 +354,205 @@ class SecretRead(SecretReadBase):
             updated_at=obj.updated_at,
             encrypted_keys=obj.encrypted_keys,
             tags=obj.tags,
+            source=SecretSource(obj.source or SecretSource.LOCAL),
+            store_id=obj.store_id,
+            remote_reference=obj.remote_reference,
+            remote_key_mapping=mapping,
         )
+
+
+# === External secret stores (AWS Secrets Manager) ===
+
+
+class AwsSecretJsonField(BaseModel):
+    """One declared output key sourced from a top-level JSON field."""
+
+    key: SecretKey = Field(..., min_length=1, max_length=255)
+    field: str = Field(..., min_length=1, max_length=255)
+
+
+class AwsSecretKeyMapping(BaseModel):
+    """Declares how a remote AWS secret value maps onto output keys.
+
+    ``whole_string`` maps the entire ``SecretString`` onto exactly one key.
+    ``json`` maps selected top-level string fields onto declared keys.
+    """
+
+    mode: AwsSecretMappingMode
+    keys: list[SecretKey] = Field(default_factory=list, max_length=100)
+    fields: list[AwsSecretJsonField] = Field(default_factory=list, max_length=100)
+
+    @model_validator(mode="after")
+    def validate_mapping(self) -> AwsSecretKeyMapping:
+        if self.mode == AwsSecretMappingMode.WHOLE_STRING:
+            if len(self.keys) != 1 or self.fields:
+                raise ValueError(
+                    "whole_string mappings declare exactly one output key and no fields"
+                )
+            return self
+        if not self.fields or self.keys:
+            raise ValueError("json mappings declare at least one field and no keys")
+        output_keys = [entry.key for entry in self.fields]
+        if len(set(output_keys)) != len(output_keys):
+            raise ValueError("Output keys must be unique")
+        return self
+
+    def output_keys(self) -> list[str]:
+        """Return the declared output key names without touching AWS."""
+        if self.mode == AwsSecretMappingMode.WHOLE_STRING:
+            return list(self.keys)
+        return [entry.key for entry in self.fields]
+
+
+class SecretStoreCreate(BaseModel):
+    """Create an organization-owned AWS Secrets Manager store."""
+
+    name: str = Field(..., min_length=1, max_length=100)
+    description: str | None = Field(default=None, max_length=1000)
+    provider: SecretStoreProvider = SecretStoreProvider.AWS_SECRETS_MANAGER
+    role_arn: str = Field(..., pattern=AWS_ROLE_ARN_PATTERN, max_length=2048)
+    region: str = Field(..., pattern=AWS_REGION_PATTERN, max_length=64)
+    enabled: bool = True
+
+
+class SecretStoreUpdate(BaseModel):
+    """Update an organization-owned secret store. The external ID is immutable."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    description: str | None = Field(default=None, max_length=1000)
+    role_arn: str | None = Field(
+        default=None, pattern=AWS_ROLE_ARN_PATTERN, max_length=2048
+    )
+    region: str | None = Field(default=None, pattern=AWS_REGION_PATTERN, max_length=64)
+    enabled: bool | None = None
+
+
+class SecretStoreRead(BaseModel):
+    """Organization view of a secret store, including trust-policy inputs."""
+
+    id: UUID
+    organization_id: OrganizationID
+    name: str
+    description: str | None = None
+    provider: SecretStoreProvider
+    role_arn: str
+    region: str
+    external_id: str
+    enabled: bool
+    tracecat_aws_account_id: str | None = None
+    tracecat_aws_principal_arn: str | None = None
+    authorized_workspace_ids: list[WorkspaceID] = Field(default_factory=list)
+    reference_count: int = 0
+    created_at: datetime
+    updated_at: datetime
+
+    @staticmethod
+    def from_database(
+        obj: OrganizationSecretStore,
+        *,
+        authorized_workspace_ids: list[WorkspaceID],
+        reference_count: int,
+        tracecat_aws_account_id: str | None,
+        tracecat_aws_principal_arn: str | None,
+    ) -> SecretStoreRead:
+        return SecretStoreRead(
+            id=obj.id,
+            organization_id=obj.organization_id,
+            name=obj.name,
+            description=obj.description,
+            provider=SecretStoreProvider(obj.provider),
+            role_arn=obj.role_arn,
+            region=obj.region,
+            external_id=obj.external_id,
+            enabled=obj.enabled,
+            tracecat_aws_account_id=tracecat_aws_account_id,
+            tracecat_aws_principal_arn=tracecat_aws_principal_arn,
+            authorized_workspace_ids=authorized_workspace_ids,
+            reference_count=reference_count,
+            created_at=obj.created_at,
+            updated_at=obj.updated_at,
+        )
+
+
+class SecretStoreAuthorizationCreate(BaseModel):
+    """Authorize a workspace to reference a store."""
+
+    workspace_id: WorkspaceID
+
+
+class SecretStoreAuthorizationRead(BaseModel):
+    id: UUID
+    store_id: UUID
+    workspace_id: WorkspaceID
+    created_at: datetime
+
+    @staticmethod
+    def from_database(
+        obj: WorkspaceSecretStoreAuthorization,
+    ) -> SecretStoreAuthorizationRead:
+        return SecretStoreAuthorizationRead(
+            id=obj.id,
+            store_id=obj.store_id,
+            workspace_id=obj.workspace_id,
+            created_at=obj.created_at,
+        )
+
+
+class WorkspaceSecretStoreRead(BaseModel):
+    """Workspace view of an authorized store. Never exposes the external ID."""
+
+    id: UUID
+    name: str
+    description: str | None = None
+    provider: SecretStoreProvider
+    region: str
+    enabled: bool
+
+    @staticmethod
+    def from_database(obj: OrganizationSecretStore) -> WorkspaceSecretStoreRead:
+        return WorkspaceSecretStoreRead(
+            id=obj.id,
+            name=obj.name,
+            description=obj.description,
+            provider=SecretStoreProvider(obj.provider),
+            region=obj.region,
+            enabled=obj.enabled,
+        )
+
+
+class AwsSecretReferenceCreate(BaseModel):
+    """Create a workspace custom secret backed by AWS Secrets Manager."""
+
+    name: str = Field(..., min_length=1, max_length=100)
+    description: str | None = Field(default=None, min_length=0, max_length=1000)
+    environment: str = DEFAULT_SECRETS_ENVIRONMENT
+    tags: dict[str, str] | None = None
+    store_id: UUID
+    remote_reference: str = Field(..., pattern=AWS_SECRET_ARN_PATTERN, max_length=2048)
+    key_mapping: AwsSecretKeyMapping
+
+
+class AwsSecretReferenceUpdate(BaseModel):
+    """Update an AWS-backed workspace secret. Values are never accepted."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    description: str | None = Field(default=None, min_length=0, max_length=1000)
+    environment: str | None = Field(default=None, min_length=1, max_length=100)
+    tags: dict[str, str] | None = None
+    store_id: UUID | None = None
+    remote_reference: str | None = Field(
+        default=None, pattern=AWS_SECRET_ARN_PATTERN, max_length=2048
+    )
+    key_mapping: AwsSecretKeyMapping | None = None
+
+
+class SecretReferenceCheckResult(BaseModel):
+    """Outcome of a reference check. Never contains the remote value."""
+
+    ok: bool
+    error_code: AwsSecretResolutionErrorCode | None = None
+    message: str | None = None
+    resolved_keys: list[str] = Field(default_factory=list)
 
 
 class OrganizationSecretRead(SecretReadBase):

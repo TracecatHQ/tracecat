@@ -13,6 +13,7 @@ import {
   RadioTowerIcon,
   Settings2,
   UsersIcon,
+  VaultIcon,
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
@@ -91,6 +92,14 @@ export function OrganizationSidebar({
       url: "/organization/settings/domains",
       icon: GlobeIcon,
       isActive: pathname?.includes("/organization/settings/domains"),
+      visible: canViewSettings === true,
+      locked: false,
+    },
+    {
+      title: "Secret stores",
+      url: "/organization/settings/secret-stores",
+      icon: VaultIcon,
+      isActive: pathname?.includes("/organization/settings/secret-stores"),
       visible: canViewSettings === true,
       locked: false,
     },
