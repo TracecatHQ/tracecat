@@ -1,0 +1,25 @@
+docs/snippets/mcp-tools.mdx
+  s_8b366659fc0192::t_12bee23556c6be 17-28,436-437
+tests/unit/test_mcp_server.py
+  s_8b366659fc0192::t_dae9389e10ef4b 929-1099
+tracecat/mcp/schemas.py
+  s_8b366659fc0192::t_8437819ee54483 304-335,342
+tracecat/mcp/server.py
+  s_8b366659fc0192::t_8905e31d51f95c 213-215,3600-3723
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "636d4a4ef084c760bd5bf7d36374fbb5d0e56b3b",
+  "prompts": {},
+  "sessions": {
+    "s_8b366659fc0192": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f443bf1c-b0ee-416e-a93e-54c01ce2acb5",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
