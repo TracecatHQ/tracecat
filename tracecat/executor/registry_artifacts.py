@@ -1077,6 +1077,8 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
         Yields:
             Importable Python paths for the requested artifacts.
         """
+        if self._immutable and paths_may_be_modified:
+            raise ValueError("Immutable registry artifacts cannot have writable leases")
         if not artifact_uris:
             logger.info("No registry artifact URIs provided")
             yield []
@@ -1264,10 +1266,14 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
                     candidates=len(candidates),
                 )
                 materialized = False
+                self._entry_sizes.pop(cache_key, None)
+                self._materializing.add(cache_key)
                 try:
                     registry_paths = await artifact.materialize(ctx)
                     materialized = True
                 finally:
+                    self._materializing.discard(cache_key)
+                    self._entry_sizes.pop(cache_key, None)
                     if _is_cache_entry_uri(artifact.uri):
                         # Any attempt may deposit canonical bytes, even when it
                         # fails or is cancelled.

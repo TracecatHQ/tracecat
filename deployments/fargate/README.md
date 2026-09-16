@@ -33,6 +33,25 @@ Terraform stack for Tracecat on AWS ECS Fargate (`>1.0.0-beta.xx`).
 - `TRACECAT__DISABLE_NSJAIL=true`
 - `TRACECAT__EXECUTOR_BACKEND=direct` (executor + agent-executor)
 
+## Registry artifact cache
+
+Each executor task includes a cache manager with exclusive write access to a
+shared task volume. The executor mounts `/tmp/tracecat/registry-cache` read-only.
+Published artifacts are measured once; action completion releases a lease
+without rescanning their files. Existing byte limits, admission reservations,
+and eviction protection for active leases still apply.
+
+The manager is essential and must not restart independently. Lost connections
+retain their leases; restart with unreleased lease markers fails closed. Replace
+the entire Fargate task to recover. In Compose, stop all consumers before
+replacing the dedicated registry-cache volume. Never clear live lease markers.
+The manager shares the task's existing CPU, memory, and ephemeral-storage budget.
+
+Direct actions receive a temporary working directory and separate home/cache
+paths, cleaned up after process-tree termination. Installing dependencies or
+writing beside imported registry packages must use writable scratch storage.
+This change requires both the new application image and task definition.
+
 ## Default sizing
 
 - `api_cpu=2048`

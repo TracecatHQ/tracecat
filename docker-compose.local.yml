@@ -202,6 +202,34 @@ services:
       minio:
         condition: service_healthy
 
+  registry-cache:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    user: "0"
+    # Restarting with active lease markers fails closed; replace the executor
+    # and cache volume together after an unclean task shutdown.
+    restart: "no"
+    command: ["python", "-m", "tracecat.executor.registry_cache_manager"]
+    environment:
+      TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_BYTES: ${TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_BYTES:-10737418240}
+      TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES: ${TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES:-64}
+      TRACECAT__BLOB_STORAGE_ENDPOINT: ${TRACECAT__BLOB_STORAGE_ENDPOINT:-http://minio:9000}
+      TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY: ${TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY:-tracecat-registry}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - registry-cache:/tmp/tracecat/registry-cache
+    healthcheck:
+      test: ["CMD", "python", "-m", "tracecat.executor.registry_cache_manager", "--health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      - core
+
   executor:
     build:
       context: .
@@ -229,6 +257,7 @@ services:
     # devices:
     #   - /dev/net/tun:/dev/net/tun
     environment:
+      TRACECAT__EXECUTOR_REGISTRY_CACHE_REMOTE: ${TRACECAT__EXECUTOR_REGISTRY_CACHE_REMOTE:-true}
       # Common
       LOG_LEVEL: ${LOG_LEVEL}
       TRACECAT__LOG_FORMAT: ${TRACECAT__LOG_FORMAT:-console}
@@ -309,10 +338,13 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     volumes:
+      - registry-cache:/tmp/tracecat/registry-cache:ro
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
       - sandbox-cache:/var/lib/tracecat/sandbox-cache
     command: ["python", "-m", "tracecat.executor.worker"]
     depends_on:
+      registry-cache:
+        condition: service_healthy
       migrations:
         condition: service_completed_successfully
       temporal:
@@ -780,6 +812,7 @@ services:
       retries: 5
 
 volumes:
+  registry-cache:
   core-db:
   temporal-db:
   minio-data:

@@ -482,7 +482,10 @@ def _move_entry_to_trash(entry_dir: Path, trash_dir: Path, cache_key: str) -> Pa
 class RegistryArtifactCacheStorage:
     """Own cache state, filesystem lifecycle, and one shared budget policy."""
 
-    def __init__(self, cache_dir: Path):
+    def __init__(self, cache_dir: Path, *, immutable: bool = False):
+        self._immutable = immutable
+        self._entry_sizes: dict[str, int] = {}
+        self._materializing: set[str] = set()
         self.cache_dir = cache_dir
         self.entries_dir = cache_dir / CACHE_ENTRIES_DIR_NAME
         self.staging_dir = cache_dir / CACHE_STAGING_DIR_NAME
@@ -1148,12 +1151,16 @@ class RegistryArtifactCacheStorage:
         """Measure every registry artifact entry currently on disk."""
         if allocation_unit is None:
             allocation_unit = _filesystem_allocation_unit(self.cache_dir)
+        cache_keys = self._discover_cache_keys()
+        self._entry_sizes = {
+            key: size for key, size in self._entry_sizes.items() if key in cache_keys
+        }
         return {
             cache_key: self._measure_entry(
                 cache_key,
                 allocation_unit=allocation_unit,
             )
-            for cache_key in self._discover_cache_keys()
+            for cache_key in cache_keys
         }
 
     def _discover_cache_keys(self) -> set[str]:
@@ -1187,11 +1194,15 @@ class RegistryArtifactCacheStorage:
         except FileNotFoundError:
             mount_is_active = False
         pruned_directories = (paths.squashfs_mount_dir,) if mount_is_active else ()
-        size_bytes = _directory_footprint(
-            paths.entry_dir,
-            allocation_unit=allocation_unit,
-            pruned_directories=pruned_directories,
-        )
+        size_bytes = self._entry_sizes.get(cache_key)
+        if size_bytes is None or cache_key in self._materializing:
+            size_bytes = _directory_footprint(
+                paths.entry_dir,
+                allocation_unit=allocation_unit,
+                pruned_directories=pruned_directories,
+            )
+            if self._immutable and cache_key not in self._materializing:
+                self._entry_sizes[cache_key] = size_bytes
         try:
             last_used = paths.entry_dir.stat().st_mtime
         except FileNotFoundError:
