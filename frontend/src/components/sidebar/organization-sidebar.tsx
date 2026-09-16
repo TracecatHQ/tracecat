@@ -11,6 +11,7 @@ import {
   LogsIcon,
   MousePointerClickIcon,
   RadioTowerIcon,
+  RefreshCwIcon,
   Settings2,
   ShieldCheckIcon,
   UsersIcon,
@@ -44,6 +45,7 @@ export function OrganizationSidebar({
   const gitSyncEnabled = hasEntitlement("git_sync")
   const serviceAccountsEnabled = hasEntitlement("service_accounts")
   const externalSecretStoresEnabled = hasEntitlement("external_secret_stores")
+  const rbacAddonsEnabled = hasEntitlement("rbac_addons")
 
   // Scope checks for org sidebar items
   const canViewSecretStores = useScopeCheck("org:secret:read")
@@ -97,6 +99,14 @@ export function OrganizationSidebar({
       isActive: pathname?.includes("/organization/settings/domains"),
       visible: canViewSettings === true,
       locked: false,
+    },
+    {
+      title: "SCIM",
+      url: "/organization/settings/scim",
+      icon: RefreshCwIcon,
+      isActive: pathname?.includes("/organization/settings/scim"),
+      visible: canViewSettings === true,
+      locked: !rbacAddonsEnabled,
     },
     {
       title: "Secret stores",
