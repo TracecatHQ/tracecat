@@ -120,7 +120,7 @@ export type ActionReadMinimal = {
 
 export type ActionRetryPolicy = {
   /**
-   * Total number of execution attempts. 0 means unlimited, 1 means no retries.
+   * Total number of execution attempts. 0 means unlimited, 1 means no retries. Covers exceptions raised by the action as well as transient executor failures (sandbox crash, sandbox or executor timeout, result storage unavailable). Deterministic failures such as sandbox policy violations, resource-limit kills, missing permissions, or entitlement denials are never retried.
    */
   max_attempts?: number
   /**

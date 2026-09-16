@@ -45,8 +45,8 @@ def _assert_invalid_result(outcome: ResultEnvelopeOutcome | None) -> None:
     assert outcome is not None
     assert outcome.valid_envelope is False
     # include_error_code=True: rejected sandbox-produced envelopes must be
-    # classified as workload failures so the error policy treats them as
-    # non-retryable (a corrupt result file must not trigger retry loops).
+    # classified as workload failures so the error policy attributes them to
+    # the action's owner and applies the action's retry policy.
     assert outcome.result == SandboxResult(
         success=False,
         error="invalid result",

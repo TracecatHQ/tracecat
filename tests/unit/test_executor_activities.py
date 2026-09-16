@@ -465,38 +465,44 @@ class TestExecuteActionActivity:
 
     @pytest.mark.anyio
     @pytest.mark.parametrize(
-        ("error_code", "kind"),
+        ("error_code", "kind", "retry_disposition"),
         [
             pytest.param(
                 SandboxErrorCode.RESOURCE_LIMIT_EXCEEDED,
                 RuntimeErrorKind.SANDBOX_RESOURCE_LIMIT_EXCEEDED,
+                RetryDisposition.NON_RETRYABLE,
                 id="resource_limit_exceeded",
             ),
             pytest.param(
                 SandboxErrorCode.POLICY_VIOLATION,
                 RuntimeErrorKind.ACTION_EXECUTION_FAILED,
+                RetryDisposition.NON_RETRYABLE,
                 id="policy_violation",
             ),
             pytest.param(
                 SandboxErrorCode.WORKLOAD_FAILURE,
                 RuntimeErrorKind.ACTION_EXECUTION_FAILED,
+                RetryDisposition.RETRYABLE,
                 id="workload_failure",
             ),
         ],
     )
-    async def test_sandbox_workload_failure_is_user_owned_and_non_retryable(
+    async def test_sandbox_workload_failure_is_user_owned(
         self,
         mock_run_action_input: RunActionInput,
         mock_role: Role,
         error_code: SandboxErrorCode,
         kind: RuntimeErrorKind,
+        retry_disposition: RetryDisposition,
     ) -> None:
-        """Invariant: a sandbox workload failure is the caller's and is not retried.
+        """Invariant: a sandbox workload failure is the caller's.
 
         A resource-limit death additionally earns its own kind so fleet-wide
         alerting can key on it; every other workload code keeps the generic
         action-failure kind. The ``ApplicationError`` type carries the kind
-        verbatim, which is the string those alerts match on.
+        verbatim, which is the string those alerts match on. Deterministic
+        codes (resource limit, policy violation) are never retried; a workload
+        that exited without a result follows the action's retry policy.
         """
         workload_error = SandboxWorkloadError(
             "synthetic sandbox workload diagnostic",
@@ -536,9 +542,11 @@ class TestExecuteActionActivity:
         assert classification.owner is RuntimeErrorOwner.USER
         assert classification.kind is kind
         assert app_error.type == kind.value
-        assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+        assert classification.retry_disposition is retry_disposition
         assert classification.cause_type == "SandboxWorkloadError"
-        assert app_error.non_retryable is True
+        assert app_error.non_retryable is (
+            retry_disposition is RetryDisposition.NON_RETRYABLE
+        )
         assert "synthetic sandbox workload diagnostic" not in str(app_error)
 
     @pytest.mark.anyio
@@ -613,7 +621,8 @@ class TestExecuteActionActivity:
             classification.kind
             is RuntimeErrorKind.STORAGE_PERSISTENCE_TRANSPORT_UNAVAILABLE
         )
-        assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+        assert classification.retry_disposition is RetryDisposition.RETRYABLE
+        assert exc_info.value.non_retryable is False
         assert exc_info.value.type == classification.kind.value
         assert "storage diagnostic" not in exc_info.value.message
 
@@ -892,6 +901,49 @@ class TestExecuteActionActivity:
             action_error_info = transport.diagnostic
             assert action_error_info is not None
             assert action_error_info.stream_id == "test-stream-123"
+
+    @pytest.mark.anyio
+    async def test_retried_workload_failure_reports_temporal_attempt(
+        self, mock_run_action_input: RunActionInput, mock_role: Role
+    ) -> None:
+        """A retryable sandbox crash reports the Temporal attempt it failed on."""
+        workload_error = SandboxWorkloadError(
+            "stopped", error_code=SandboxErrorCode.WORKLOAD_FAILURE
+        )
+        exec_error = ExecutionError(
+            info=ExecutorActionErrorInfo(
+                type=type(workload_error).__name__,
+                message="masked executor error",
+                action_name="test_action",
+                filename="<test>",
+                function="test_function",
+            )
+        )
+        exec_error.__cause__ = workload_error
+
+        with (
+            patch("tracecat.executor.activities.activity") as mock_activity,
+            patch("tracecat.executor.activities.get_executor_backend") as mock_backend,
+            patch(
+                "tracecat.executor.activities.dispatch_action",
+                new_callable=AsyncMock,
+            ) as mock_dispatch,
+        ):
+            mock_activity.info.return_value = MagicMock(attempt=2)
+            mock_backend.return_value = MagicMock()
+            mock_dispatch.side_effect = exec_error
+
+            with pytest.raises(ApplicationError) as exc_info:
+                await ExecutorActivities.execute_action_activity(
+                    mock_run_action_input, mock_role
+                )
+
+        app_error = exc_info.value
+        assert app_error.non_retryable is False
+        transport = parse_classified_action_error_payload(app_error.details[0])
+        assert isinstance(transport, ActionErrorTransportDetail)
+        assert transport.diagnostic is not None
+        assert transport.diagnostic.attempt == 2
 
 
 class TestProbeStdioMCPConnectionActivity:

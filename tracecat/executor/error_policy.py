@@ -36,6 +36,24 @@ from tracecat.temporal.errors import (
 from tracecat.temporal.exceptions import UserError
 
 
+def _sandbox_workload_retry_disposition(
+    error_code: SandboxErrorCode,
+) -> RetryDisposition:
+    """Decide whether a sandbox workload failure may use the action's retry policy.
+
+    A policy violation is deterministic: the same syscall is blocked on every
+    attempt. A workload that timed out, or that exited without producing a
+    result (crashed, was killed, or wrote an unreadable envelope), is the
+    load-dependent failure mode a ``retry_policy`` exists for. Resource-limit
+    deaths are handled separately by the caller.
+    """
+    match error_code:
+        case SandboxErrorCode.POLICY_VIOLATION:
+            return RetryDisposition.NON_RETRYABLE
+        case _:
+            return RetryDisposition.RETRYABLE
+
+
 def chained_error_classification(
     error: BaseException,
 ) -> RuntimeErrorClassification | None:
@@ -101,11 +119,7 @@ def chained_error_classification(
             return RuntimeErrorClassification.user(
                 kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
                 message="The action sandbox workload stopped before producing a result",
-                retry_disposition=(
-                    RetryDisposition.RETRYABLE
-                    if cause.error_code is SandboxErrorCode.TIMEOUT
-                    else RetryDisposition.NON_RETRYABLE
-                ),
+                retry_disposition=_sandbox_workload_retry_disposition(cause.error_code),
                 cause=cause,
             )
     return None
@@ -243,8 +257,12 @@ def result_persistence_error_classification(
             else RuntimeErrorKind.RUNTIME_UNCLASSIFIED
         ),
         message="Tracecat could not persist the action result",
-        # Preserve today's effective fail-fast behavior. Retry policy changes
-        # are intentionally handled separately from attribution.
-        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        # A transport failure is transient, so the action's retry policy may
+        # re-run the attempt. Anything else stays fail-fast.
+        retry_disposition=(
+            RetryDisposition.RETRYABLE
+            if transport_failure
+            else RetryDisposition.NON_RETRYABLE
+        ),
         cause=error,
     )

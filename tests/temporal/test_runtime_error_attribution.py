@@ -24,7 +24,8 @@ from tracecat.runtime.errors import (
     RuntimeErrorKind,
     RuntimeErrorOwner,
 )
-from tracecat.sandbox.exceptions import SandboxInfrastructureError
+from tracecat.sandbox.exceptions import SandboxInfrastructureError, SandboxWorkloadError
+from tracecat.sandbox.types import SandboxErrorCode
 from tracecat.temporal.errors import (
     extract_error_classification,
     extract_error_classifications,
@@ -158,6 +159,24 @@ def _executor_boundary_runner(
     return wrapped
 
 
+def _recovered_executor_runner(
+    *,
+    error_factory: Callable[[], Exception],
+    failures: int,
+    max_attempts: int,
+) -> Callable[[_ScenarioContext], Awaitable[harness.ScenarioObservation]]:
+    async def wrapped(context: _ScenarioContext) -> harness.ScenarioObservation:
+        return await harness.run_recovered_executor_failure_has_no_terminal_owner(
+            context.env,
+            context.test_worker_factory,
+            error_factory=error_factory,
+            failures=failures,
+            max_attempts=max_attempts,
+        )
+
+    return wrapped
+
+
 def _engine_runner(
     operation: _TerminalOperation,
 ) -> Callable[[_ScenarioContext], Awaitable[harness.ScenarioObservation]]:
@@ -231,15 +250,15 @@ ATTRIBUTION_SCENARIOS: tuple[_AttributionScenario, ...] = (
         runner=_executor_boundary_runner("backend_initialization"),
     ),
     _AttributionScenario(
-        id="executor.result_persistence.non_retryable",
+        id="executor.result_persistence.exhausted",
         topology=_Topology.SINGLE_ACTION,
         fault_point=_FaultPoint.RESULT_PERSISTENCE,
         fault="HTTPClientError",
         root=_ExecutionExpectation(_FAILED, RuntimeErrorOwner.PLATFORM),
         envelope_owners=frozenset({RuntimeErrorOwner.PLATFORM}),
         kind=RuntimeErrorKind.STORAGE_PERSISTENCE_TRANSPORT_UNAVAILABLE,
-        retry_disposition=RetryDisposition.NON_RETRYABLE,
-        attempts=1,
+        retry_disposition=RetryDisposition.RETRYABLE,
+        attempts=3,
         runner=_executor_boundary_runner("result_persistence"),
     ),
     _AttributionScenario(
@@ -330,6 +349,58 @@ ATTRIBUTION_SCENARIOS: tuple[_AttributionScenario, ...] = (
         attempts=3,
         runner=_basic_runner(
             harness.run_successful_registry_contention_retry_has_no_terminal_owner
+        ),
+    ),
+    _AttributionScenario(
+        id="executor.sandbox_workload.exhausted",
+        topology=_Topology.SINGLE_ACTION,
+        fault_point=_FaultPoint.EXECUTOR_DISPATCH,
+        fault="SandboxWorkloadError(workload_failure)",
+        root=_ExecutionExpectation(_FAILED, RuntimeErrorOwner.USER),
+        envelope_owners=frozenset({RuntimeErrorOwner.USER}),
+        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
+        retry_disposition=RetryDisposition.RETRYABLE,
+        attempts=3,
+        runner=_executor_runner(
+            error_factory=lambda: SandboxWorkloadError(
+                "sandbox supervisor diagnostic must not enter history",
+                error_code=SandboxErrorCode.WORKLOAD_FAILURE,
+            ),
+            max_attempts=3,
+        ),
+    ),
+    _AttributionScenario(
+        id="executor.sandbox_workload.recovered",
+        topology=_Topology.SINGLE_ACTION,
+        fault_point=_FaultPoint.EXECUTOR_DISPATCH,
+        fault="SandboxWorkloadError(workload_failure)",
+        root=_ExecutionExpectation(_COMPLETED, None),
+        attempts=2,
+        runner=_recovered_executor_runner(
+            error_factory=lambda: SandboxWorkloadError(
+                "sandbox supervisor diagnostic must not enter history",
+                error_code=SandboxErrorCode.WORKLOAD_FAILURE,
+            ),
+            failures=1,
+            max_attempts=3,
+        ),
+    ),
+    _AttributionScenario(
+        id="executor.sandbox_policy_violation.non_retryable",
+        topology=_Topology.SINGLE_ACTION,
+        fault_point=_FaultPoint.EXECUTOR_DISPATCH,
+        fault="SandboxWorkloadError(policy_violation)",
+        root=_ExecutionExpectation(_FAILED, RuntimeErrorOwner.USER),
+        envelope_owners=frozenset({RuntimeErrorOwner.USER}),
+        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        attempts=1,
+        runner=_executor_runner(
+            error_factory=lambda: SandboxWorkloadError(
+                "sandbox supervisor diagnostic must not enter history",
+                error_code=SandboxErrorCode.POLICY_VIOLATION,
+            ),
+            max_attempts=3,
         ),
     ),
     _AttributionScenario(

@@ -76,9 +76,9 @@ def _invalid_result(
             success=False,
             error=error,
             # A rejected envelope was produced by sandbox-controlled code, so
-            # classify it as a workload failure: without an explicit code the
-            # error policy treats the failure as retryable, letting a corrupt
-            # result file trigger retry loops.
+            # classify it as a workload failure: the error policy then
+            # attributes it to the action's owner and applies the action's
+            # retry policy rather than the bare default.
             error_code=(
                 SandboxErrorCode.WORKLOAD_FAILURE if include_error_code else None
             ),

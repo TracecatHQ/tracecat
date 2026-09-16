@@ -780,16 +780,31 @@ async def run_successful_registry_contention_retry_has_no_terminal_owner(
     test_worker_factory,
 ) -> ScenarioObservation:
     """Recovered lease contention does not leave terminal attribution behind."""
-    fault = _DispatchFault(
+    return await run_recovered_executor_failure_has_no_terminal_owner(
+        env,
+        test_worker_factory,
         error_factory=lambda: RegistryArtifactCacheLeaseContentionError(
             current_bytes=80,
             additional_bytes=30,
             max_bytes=100,
         ),
         failures=2,
+        max_attempts=3,
     )
+
+
+async def run_recovered_executor_failure_has_no_terminal_owner(
+    env: WorkflowEnvironment,
+    test_worker_factory,
+    *,
+    error_factory: Callable[[], Exception],
+    failures: int,
+    max_attempts: int,
+) -> ScenarioObservation:
+    """A retryable executor failure that recovers within ``max_attempts`` succeeds."""
+    fault = _DispatchFault(error_factory=error_factory, failures=failures)
     dsl_queue = f"runtime-error-attribution-{uuid.uuid4()}"
-    run_args = _inline_run_args(max_attempts=3)
+    run_args = _inline_run_args(max_attempts=max_attempts)
 
     with (
         patch(

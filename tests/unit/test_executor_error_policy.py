@@ -155,7 +155,7 @@ def test_sandbox_resource_limit_gets_dedicated_user_owned_kind() -> None:
 @pytest.mark.parametrize(
     ("error_code", "retry_disposition"),
     [
-        (SandboxErrorCode.WORKLOAD_FAILURE, RetryDisposition.NON_RETRYABLE),
+        (SandboxErrorCode.WORKLOAD_FAILURE, RetryDisposition.RETRYABLE),
         (SandboxErrorCode.POLICY_VIOLATION, RetryDisposition.NON_RETRYABLE),
         (SandboxErrorCode.TIMEOUT, RetryDisposition.RETRYABLE),
     ],
@@ -164,7 +164,12 @@ def test_other_sandbox_workload_codes_keep_action_execution_failed(
     error_code: SandboxErrorCode,
     retry_disposition: RetryDisposition,
 ) -> None:
-    """Invariant: only the resource-limit code leaves ``action.execution.failed``."""
+    """Invariant: only the resource-limit code leaves ``action.execution.failed``.
+
+    A policy violation is deterministic and never retried. A workload that
+    exited without a result or timed out is load-dependent, so the action's
+    ``retry_policy`` applies.
+    """
     workload_error = SandboxWorkloadError("stopped", error_code=error_code)
 
     classification = classify_execute_action_error(
