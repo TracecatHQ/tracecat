@@ -21,18 +21,6 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     op.add_column(
-        "organization_membership",
-        sa.Column("external_id", sa.String(), nullable=True),
-    )
-    op.create_index(
-        "ix_org_membership_org_external_id",
-        "organization_membership",
-        ["organization_id", "external_id"],
-        unique=True,
-        postgresql_where=sa.text("external_id IS NOT NULL"),
-    )
-
-    op.add_column(
         "group_member",
         sa.Column("organization_id", sa.UUID(), nullable=True),
     )
@@ -192,9 +180,3 @@ def downgrade() -> None:
     )
 
     op.drop_column("group_member", "organization_id")
-    op.drop_index(
-        "ix_org_membership_org_external_id",
-        table_name="organization_membership",
-        postgresql_where=sa.text("external_id IS NOT NULL"),
-    )
-    op.drop_column("organization_membership", "external_id")
