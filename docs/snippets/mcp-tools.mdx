@@ -31,7 +31,9 @@
 
   Prefer this tool over `update_workflow` for focused edits to an existing workflow. If the latest `draft_document` and `draft_revision` are already in the context window, reuse them and build the smallest patch that changes the intended fields. Call `get_workflow` only when the latest draft is missing, stale, or a revision conflict says the draft changed.
 
-  Patch paths are rooted at `draft_document`, so action edits use `/definition/actions/N/...`, not `/actions/N/...`. RFC 6902 array rules apply: `/-` appends, and indexes shift after array edits.
+  Patch paths are rooted at `draft_document`, so action edits use `/definition/actions/...`, not `/actions/...`.
+
+  Address actions by ref, not index: `/definition/actions/@<ref>` (with any suffix, e.g. `/definition/actions/@build_alert/args/url`) and `/layout/actions/@<ref>` resolve to the action's current index when each op runs, so you never need to `test` an index first or track how earlier ops shifted the array. `add` to `/definition/actions/@<ref>` appends a new action when the ref does not exist yet (the value's `ref` must match); `remove` on `/definition/actions/@<ref>` deletes that action. An unknown ref fails the whole patch and names the known refs. Numeric paths (`/definition/actions/N/...`) still work with RFC 6902 array rules (`/-` appends, indexes shift after array edits), but the server re-sorts actions by ref on save, so prefer `@<ref>`.
 </ResponseField>
 
 <ResponseField name="update_workflow" type="tool">

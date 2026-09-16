@@ -211,6 +211,7 @@ from tracecat.mcp.schemas import (
     MCPTruncationSummary,
     ValidationResponse,
     WorkflowActionDetailResponse,
+    WorkflowActionIndexEntry,
     WorkflowActionListResponse,
     WorkflowActionSummary,
     WorkflowEditDocument,
@@ -277,6 +278,7 @@ from tracecat.workflow.management.draft import (
     WorkflowEditError,
     apply_layout_to_workflow,
     build_workflow_edit_document,
+    canonicalize_workflow_edit_document,
     compute_workflow_edit_revision,
     extract_layout_positions,
     normalize_workflow_edit_document_for_persisted_revision,
@@ -3597,6 +3599,16 @@ async def get_workflow(
         raise ToolError(f"Failed to get workflow: {e}") from None
 
 
+def _action_index_entries(
+    document: WorkflowEditDocument,
+) -> list[WorkflowActionIndexEntry]:
+    """Map each action in ``definition.actions`` to its array index."""
+    return [
+        WorkflowActionIndexEntry(index=index, ref=action.ref)
+        for index, action in enumerate(document.definition.actions)
+    ]
+
+
 async def _load_workflow_edit_document(
     workspace_id: uuid.UUID,
     workflow_id: MCPWorkflowUUID,
@@ -3738,8 +3750,19 @@ async def edit_workflow(
     stale, or a revision conflict says the draft changed.
 
     Patch paths are rooted at `draft_document`, so action edits use
-    `/definition/actions/N/...`, not `/actions/N/...`. RFC 6902 array rules
-    apply: `/-` appends, and indexes shift after array edits.
+    `/definition/actions/...`, not `/actions/...`.
+
+    Address actions by ref, not index: `/definition/actions/@<ref>` (with any
+    suffix, e.g. `/definition/actions/@build_alert/args/url`) and
+    `/layout/actions/@<ref>` resolve to the action's current index when each
+    op runs, so you never need to `test` an index first or track how earlier
+    ops shifted the array. `add` to `/definition/actions/@<ref>` appends a new
+    action when the ref does not exist yet (the value's `ref` must match);
+    `remove` on `/definition/actions/@<ref>` deletes that action. An unknown
+    ref fails the whole patch and names the known refs. Numeric paths
+    (`/definition/actions/N/...`) still work with RFC 6902 array rules (`/-`
+    appends, indexes shift after array edits), but the server re-sorts
+    actions by ref on save, so prefer `@<ref>`.
 
     Args:
         workspace_id: The workspace ID.
@@ -3764,12 +3787,12 @@ async def edit_workflow(
       "patch_ops": [
         {
           "op": "replace",
-          "path": "/definition/actions/2/args/script",
+          "path": "/definition/actions/@run_script/args/script",
           "value": "def main(): return {'ok': True}"
         },
         {
           "op": "add",
-          "path": "/definition/actions/-",
+          "path": "/definition/actions/@notify_owner",
           "value": {
             "ref": "notify_owner",
             "action": "core.http_request",
@@ -3783,14 +3806,16 @@ async def edit_workflow(
         },
         {
           "op": "add",
-          "path": "/layout/actions/-",
+          "path": "/layout/actions/@notify_owner",
           "value": {"ref": "notify_owner", "x": 600, "y": 120}
         }
       ]
     }
     ```
 
-    Returns JSON with the workflow id and the new `draft_revision`.
+    Returns JSON with the workflow id, the new `draft_revision`, and `actions`
+    (`[{index, ref}]`) as stored after the patch and the server's re-sort, so
+    numeric paths in a follow-up patch can be built without refetching.
     """
 
     try:
@@ -3851,6 +3876,10 @@ async def edit_workflow(
                             updated_document
                         )
                     ),
+                    # Persisting re-sorts actions by ref; report that order.
+                    actions=_action_index_entries(
+                        canonicalize_workflow_edit_document(updated_document)
+                    ),
                 )
 
             await persist_workflow_edit_document(
@@ -3870,6 +3899,7 @@ async def edit_workflow(
                 message=f"Workflow {workflow_id} updated successfully",
                 workflow_id=str(workflow.id),
                 draft_revision=compute_workflow_edit_revision(refreshed_document),
+                actions=_action_index_entries(refreshed_document),
             )
     except WorkflowEditError as e:
         raise _workflow_edit_error_to_tool_error(e) from e

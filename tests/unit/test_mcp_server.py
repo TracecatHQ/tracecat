@@ -2127,6 +2127,150 @@ async def test_edit_workflow_validate_only_revision_drops_inert_case_trigger(
 
 
 @pytest.mark.anyio
+async def test_edit_workflow_validate_only_resolves_ref_paths_and_returns_actions(
+    monkeypatch,
+):
+    async def _validate_dsl(*_args, **_kwargs):
+        return set()
+
+    workflow_id = uuid.uuid4()
+    workflow = _chained_workflow_stub(workflow_id)
+    _patch_workflow_read(monkeypatch, workflow)
+    monkeypatch.setattr(draft, "validate_dsl", _validate_dsl)
+
+    draft_document = draft.build_workflow_edit_document(
+        cast(draft._WorkflowEditDocumentSource, workflow)
+    )
+    base_revision = draft.compute_workflow_edit_revision(draft_document)
+
+    payload = _payload(
+        await _tool(mcp_server.edit_workflow)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(workflow_id),
+            base_revision=base_revision,
+            patch_ops=[
+                # Remove the first action so later refs must re-resolve.
+                {"op": "remove", "path": "/definition/actions/@build_alert"},
+                {"op": "remove", "path": "/layout/actions/@build_alert"},
+                {
+                    "op": "replace",
+                    "path": "/definition/actions/@fetch_events/args/url",
+                    "value": "https://example.invalid/v2/events",
+                },
+                {
+                    "op": "add",
+                    "path": "/definition/actions/@notify_owner",
+                    "value": {
+                        "ref": "notify_owner",
+                        "action": "core.transform.reshape",
+                        "depends_on": ["classify"],
+                        "args": {"value": "${{ ACTIONS.classify.result }}"},
+                    },
+                },
+                {
+                    "op": "add",
+                    "path": "/layout/actions/@notify_owner",
+                    "value": {"ref": "notify_owner", "x": 70.0, "y": 80.0},
+                },
+            ],
+            validate_only=True,
+        )
+    )
+
+    assert payload["valid"] is True
+    # Reported in post-save (ref-sorted) order, not patch order.
+    assert payload["actions"] == [
+        {"index": 0, "ref": "classify"},
+        {"index": 1, "ref": "fetch_events"},
+        {"index": 2, "ref": "notify_owner"},
+    ]
+
+
+@pytest.mark.anyio
+async def test_edit_workflow_unknown_ref_path_names_ref(monkeypatch):
+    workflow_id = uuid.uuid4()
+    workflow = _chained_workflow_stub(workflow_id)
+    _patch_workflow_read(monkeypatch, workflow)
+    base_revision = draft.compute_workflow_edit_revision(
+        draft.build_workflow_edit_document(
+            cast(draft._WorkflowEditDocumentSource, workflow)
+        )
+    )
+
+    with pytest.raises(ToolError, match="Unknown action ref 'ghost'"):
+        await _tool(mcp_server.edit_workflow)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(workflow_id),
+            base_revision=base_revision,
+            patch_ops=[
+                {
+                    "op": "replace",
+                    "path": "/definition/actions/@ghost/args/url",
+                    "value": "https://example.invalid",
+                }
+            ],
+            validate_only=True,
+        )
+
+
+@pytest.mark.anyio
+async def test_edit_workflow_apply_returns_post_save_action_map(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    workflow_id = uuid.uuid4()
+    workflow = _chained_workflow_stub(workflow_id)
+
+    class _FakeSession:
+        def add(self, obj):
+            _ = obj
+
+        async def commit(self):
+            return None
+
+        async def refresh(self, obj, attrs=None):
+            _ = obj, attrs
+
+    class _WorkflowService:
+        def __init__(self) -> None:
+            self.session = _FakeSession()
+
+        async def get_workflow(self, _wf_id, *, for_update: bool = False):
+            _ = for_update
+            return workflow
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_WorkflowService()),
+    )
+
+    base_revision = draft.compute_workflow_edit_revision(
+        draft.build_workflow_edit_document(
+            cast(draft._WorkflowEditDocumentSource, workflow)
+        )
+    )
+    payload = _payload(
+        await _tool(mcp_server.edit_workflow)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(workflow_id),
+            base_revision=base_revision,
+            patch_ops=[
+                {"op": "replace", "path": "/metadata/title", "value": "Renamed flow"}
+            ],
+        )
+    )
+
+    assert payload["message"] == f"Workflow {workflow_id} updated successfully"
+    assert payload["actions"] == [
+        {"index": 0, "ref": "build_alert"},
+        {"index": 1, "ref": "classify"},
+        {"index": 2, "ref": "fetch_events"},
+    ]
+
+
+@pytest.mark.anyio
 async def test_edit_workflow_rejects_stale_revision(monkeypatch):
     async def _resolve(_workspace_id):
         return uuid.uuid4(), SimpleNamespace()
