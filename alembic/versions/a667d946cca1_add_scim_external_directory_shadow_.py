@@ -26,6 +26,10 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
+    # Tenant-qualified target for the mapping's composite foreign key.
+    op.create_unique_constraint(
+        op.f("uq_group_id_organization_id"), "group", ["id", "organization_id"]
+    )
     op.create_table(
         "external_group",
         sa.Column("id", sa.UUID(), nullable=False),
@@ -51,6 +55,11 @@ def upgrade() -> None:
             ondelete="CASCADE",
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_external_group")),
+        sa.UniqueConstraint(
+            "id",
+            "organization_id",
+            name=op.f("uq_external_group_id_organization_id"),
+        ),
         sa.UniqueConstraint(
             "organization_id",
             "external_id",
@@ -133,15 +142,16 @@ def upgrade() -> None:
             server_default=sa.text("now()"),
             nullable=False,
         ),
+        # Both ends must belong to the mapping's own tenant, not merely exist.
         sa.ForeignKeyConstraint(
-            ["external_group_id"],
-            ["external_group.id"],
+            ["external_group_id", "organization_id"],
+            ["external_group.id", "external_group.organization_id"],
             name=op.f("fk_external_group_mapping_external_group_id_external_group"),
             ondelete="CASCADE",
         ),
         sa.ForeignKeyConstraint(
-            ["group_id"],
-            ["group.id"],
+            ["group_id", "organization_id"],
+            ["group.id", "group.organization_id"],
             name=op.f("fk_external_group_mapping_group_id_group"),
             ondelete="CASCADE",
         ),
@@ -311,3 +321,4 @@ def downgrade() -> None:
         op.f("ix_external_group_organization_id"), table_name="external_group"
     )
     op.drop_table("external_group")
+    op.drop_constraint(op.f("uq_group_id_organization_id"), "group", type_="unique")
