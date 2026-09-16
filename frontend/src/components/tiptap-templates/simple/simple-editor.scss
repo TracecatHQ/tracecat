@@ -177,10 +177,44 @@
   margin: 0;
 }
 
+// Wide tables scroll horizontally inside their wrapper instead of squeezing
+// columns or spilling past the editor. The scrollbar is a thin, transparent
+// track whose thumb only shows while the pointer or focus is on the table.
 .simple-editor-content .tiptap.ProseMirror.simple-editor .tableWrapper {
   margin: 0.75rem 0;
   max-width: 100%;
+  min-width: 0;
   overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color 150ms ease;
+
+  &::-webkit-scrollbar {
+    height: 0.625rem;
+    background: transparent;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+    background-color: transparent;
+  }
+
+  &:hover,
+  &:focus-within {
+    scrollbar-color: hsl(var(--border)) transparent;
+
+    &::-webkit-scrollbar-thumb {
+      background-color: hsl(var(--border));
+    }
+  }
 }
 
 .simple-editor-content .tiptap.ProseMirror.simple-editor table {
@@ -197,6 +231,9 @@
   padding: 0.375rem 0.5rem;
   text-align: left;
   vertical-align: top;
+  // Cells wrap at word boundaries only; anything narrower scrolls the wrapper.
+  overflow-wrap: normal;
+  word-break: normal;
 }
 
 .simple-editor-content .tiptap.ProseMirror.simple-editor th {
