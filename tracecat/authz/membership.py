@@ -24,6 +24,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
+from tracecat.authz.controls import check_scopes
 from tracecat.db.models import (
     AccessToken,
     Group,
@@ -358,6 +359,9 @@ async def _reconcile_member_access(
             .scalars()
             .all()
         )
+        if removed_users:
+            # Reconcile-driven eviction is member removal, so it needs that scope.
+            check_scopes(actor, "org:member:remove")
         for user in removed_users:
             await remove_member_access(
                 session, user=user, organization_id=organization_id, actor=actor

@@ -1935,3 +1935,137 @@ class TestWorkspaceDeletionReconciliation:
             assert (key.revoked_at is not None) == (index == 0)
             if index == 0:
                 assert key.revoked_by == role.user_id
+
+
+@pytest.fixture
+def rbac_only_role(role: Role) -> Role:
+    """An actor with full org RBAC authority but no member-removal scope."""
+    return role.model_copy(
+        update={"scopes": ORG_ADMIN_SCOPES - frozenset({"org:member:remove"})}
+    )
+
+
+@pytest.mark.anyio
+class TestEvictionRequiresRemovalScope:
+    """Reconcile-driven eviction is member removal, so RBAC scopes alone deny it."""
+
+    async def test_replace_to_empty_is_denied_and_rolled_back(
+        self,
+        session: AsyncSession,
+        rbac_only_role: Role,
+        org: Organization,
+        workspace: Workspace,
+    ):
+        member = await _workspace_only_user(session, org, workspace)
+        await grant_org_membership(session, user_id=member.id, organization_id=org.id)
+        await session.commit()
+        service = RBACService(session, role=rbac_only_role)
+        params = await _replacement(service, member.id)
+        before = params.expected_assignments
+        params.assignments = []
+        with pytest.raises(TracecatAuthorizationError):
+            await service.replace_user_assignments(params)
+        assert (
+            await _replacement(service, params.user_id)
+        ).expected_assignments == before
+
+    async def test_delete_final_assignment_is_denied_and_rolled_back(
+        self,
+        session: AsyncSession,
+        rbac_only_role: Role,
+        org: Organization,
+        workspace: Workspace,
+    ):
+        member = await _workspace_only_user(session, org, workspace)
+        await grant_org_membership(session, user_id=member.id, organization_id=org.id)
+        await session.commit()
+        grant_id = (
+            await session.execute(
+                select(UserRoleAssignment.id).where(
+                    UserRoleAssignment.user_id == member.id,
+                    UserRoleAssignment.workspace_id == workspace.id,
+                )
+            )
+        ).scalar_one()
+        with pytest.raises(TracecatAuthorizationError):
+            await RBACService(session, role=rbac_only_role).delete_user_assignment(
+                grant_id
+            )
+        assert await session.get(UserRoleAssignment, grant_id) is not None
+
+    async def test_remove_final_group_member_is_denied_and_rolled_back(
+        self,
+        session: AsyncSession,
+        rbac_only_role: Role,
+        org: Organization,
+        workspace: Workspace,
+    ):
+        member = await _workspace_only_user(session, org, workspace)
+        group, _ = await _workspace_group(session, org, workspace, member)
+        await session.execute(
+            delete(UserRoleAssignment).where(UserRoleAssignment.user_id == member.id)
+        )
+        await grant_org_membership(session, user_id=member.id, organization_id=org.id)
+        await session.commit()
+        group_id, member_id = group.id, member.id
+        with pytest.raises(TracecatAuthorizationError):
+            await RBACService(session, role=rbac_only_role).remove_group_member(
+                group_id, member_id
+            )
+        assert (
+            await session.scalar(
+                select(GroupMember).where(
+                    GroupMember.group_id == group_id,
+                    GroupMember.user_id == member_id,
+                )
+            )
+        ) is not None
+
+    async def test_removing_a_non_final_role_still_succeeds(
+        self,
+        session: AsyncSession,
+        rbac_only_role: Role,
+        org: Organization,
+        workspace: Workspace,
+    ):
+        member = await _workspace_only_user(session, org, workspace)
+        await grant_org_membership(
+            session,
+            user_id=member.id,
+            organization_id=org.id,
+            slug="organization-admin",
+        )
+        await session.commit()
+        grant_id = (
+            await session.execute(
+                select(UserRoleAssignment.id).where(
+                    UserRoleAssignment.user_id == member.id,
+                    UserRoleAssignment.workspace_id == workspace.id,
+                )
+            )
+        ).scalar_one()
+        await RBACService(session, role=rbac_only_role).delete_user_assignment(grant_id)
+        assert await session.get(UserRoleAssignment, grant_id) is None
+        assert await _org_assignment(session, member.id) is not None
+
+    async def test_removal_scope_allows_eviction(
+        self,
+        session: AsyncSession,
+        role: Role,
+        org: Organization,
+        workspace: Workspace,
+    ):
+        member = await _workspace_only_user(session, org, workspace)
+        await grant_org_membership(session, user_id=member.id, organization_id=org.id)
+        await session.commit()
+        service = RBACService(session, role=role)
+        params = await _replacement(service, member.id)
+        params.assignments = []
+        await service.replace_user_assignments(params)
+        assert not (
+            await session.execute(
+                select(UserRoleAssignment).where(
+                    UserRoleAssignment.user_id == member.id
+                )
+            )
+        ).all()
