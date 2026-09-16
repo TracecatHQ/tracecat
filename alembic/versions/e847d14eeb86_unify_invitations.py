@@ -1,7 +1,7 @@
 """unify invitations
 
 Revision ID: e847d14eeb86
-Revises: 31ee4b7f175a
+Revises: fa922accd060
 Create Date: 2026-09-10 15:40:00.000000
 
 Makes ``invitation`` the single source of truth for invitations: org-scoped,
@@ -40,7 +40,7 @@ from tracecat.db.tenant_rls import (
 
 # revision identifiers, used by Alembic.
 revision: str = "e847d14eeb86"
-down_revision: str | None = "31ee4b7f175a"
+down_revision: str | None = "fa922accd060"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
