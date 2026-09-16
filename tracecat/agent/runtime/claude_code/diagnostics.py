@@ -47,6 +47,7 @@ class StderrSnapshot(TypedDict):
     stderr_lines: int
     stderr_tail: list[str]
     stderr_tail_bytes: int
+    stderr_withheld_lines: int
     stderr_evicted_lines: int
 
 
@@ -57,11 +58,15 @@ class StderrTail:
         self._lines: deque[str] = deque()
         self._bytes = 0
         self._total = 0
+        self._withheld = 0
 
-    def append(self, line: str) -> str:
+    def append(self, line: str) -> str | None:
         """Minimize a line before retaining it and return its safe summary."""
         summary = summarize_stderr(line)
         self._total += 1
+        if summary == "[stderr content withheld]":
+            self._withheld += 1
+            return None
         self._lines.append(summary)
         self._bytes += len(summary.encode()) + 1
         while len(self._lines) > STDERR_MAX_LINES or self._bytes > STDERR_MAX_BYTES:
@@ -74,53 +79,29 @@ class StderrTail:
             "stderr_lines": self._total,
             "stderr_tail": list(self._lines),
             "stderr_tail_bytes": self._bytes,
-            "stderr_evicted_lines": self._total - len(self._lines),
+            "stderr_withheld_lines": self._withheld,
+            "stderr_evicted_lines": self._total - self._withheld - len(self._lines),
         }
 
 
 class StderrForwarder:
-    """Forward a bounded number of safe summaries without blocking the child."""
+    """Deliver at most 32 transport-minimized summaries; retain no second tail."""
 
     def __init__(self, send: Callable[[str], Awaitable[None]]) -> None:
-        self.tail = StderrTail()
         self._send = send
-        self._queue: asyncio.Queue[str] = asyncio.Queue(maxsize=STDERR_MAX_LINES)
-        self._task: asyncio.Task[None] | None = None
-        self._accepted = 0
-        self._queued_bytes = 0
-        self.delivery_failed = False
+        # Each item is capped at 256 UTF-8 bytes, bounding queued bytes as well
+        # as lines. The transport owns sanitization and retained diagnostics.
+        self._queue: asyncio.Queue[str] = asyncio.Queue(maxsize=STDERR_FORWARD_LIMIT)
 
-    def start(self) -> None:
-        """Start delivery before entering the SDK context."""
-        self._task = asyncio.create_task(self._drain())
+    def capture(self, summary: str) -> None:
+        """Enqueue a safe transport summary without blocking the child's pipe."""
+        with suppress(asyncio.QueueFull):
+            self._queue.put_nowait(summary.encode()[:256].decode(errors="ignore"))
 
-    def capture(self, line: str) -> None:
-        """Capture synchronously; overflow and sink failures never block stderr."""
-        summary = self.tail.append(line)
-        if self.delivery_failed or self._accepted >= STDERR_FORWARD_LIMIT:
-            return
-        size = len(summary.encode()) + 1
-        if self._queued_bytes + size > STDERR_MAX_BYTES:
-            return
-        self._accepted += 1
-        self._queued_bytes += size
-        self._queue.put_nowait(summary)
-
-    async def _drain(self) -> None:
-        while True:
-            summary = await self._queue.get()
-            self._queued_bytes -= len(summary.encode()) + 1
-            try:
+    async def run(self) -> None:
+        """Stop on sink failure or after the per-turn delivery budget is spent."""
+        with suppress(Exception):
+            for _ in range(STDERR_FORWARD_LIMIT):
+                summary = await self._queue.get()
                 async with asyncio.timeout(DIAGNOSTIC_TIMEOUT_SECONDS):
                     await self._send(summary)
-            except Exception:
-                self.delivery_failed = True
-                return
-
-    async def close(self) -> None:
-        """Cancel delivery without waiting for the queue to flush."""
-        if self._task is not None:
-            self._task.cancel()
-            with suppress(asyncio.CancelledError):
-                await self._task
-            self._task = None

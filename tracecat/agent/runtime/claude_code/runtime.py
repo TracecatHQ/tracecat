@@ -17,7 +17,7 @@ import re
 import tempfile
 import uuid
 from collections.abc import AsyncIterator, Callable, Iterable, Sequence
-from contextlib import suppress
+from contextlib import AsyncExitStack, suppress
 from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
@@ -124,6 +124,16 @@ _SESSION_FRAME_MARGIN = 4096
 CLAUDE_PROJECT_DIR_SANITIZE_RE = re.compile(r"[^a-zA-Z0-9]")
 LOG_PREVIEW_CHARS = 8000
 _CLIENT_CLEANUP_TIMEOUT_SECONDS = 4.0
+
+
+async def _disconnect_client(client: ClaudeSDKClient, transport: Transport) -> None:
+    """Stop SDK tasks and close transport even if entry failed before query setup."""
+    try:
+        async with asyncio.timeout(_CLIENT_CLEANUP_TIMEOUT_SECONDS):
+            await client.disconnect()
+    finally:
+        async with asyncio.timeout(_CLIENT_CLEANUP_TIMEOUT_SECONDS):
+            await transport.close()
 
 
 def _claude_project_dir_name(cwd: Path) -> str:
@@ -1759,10 +1769,9 @@ class ClaudeAgentRuntime:
 
         session_flush_task: asyncio.Task[None] | None = None
         transport: Transport | None = None
-        client: ClaudeSDKClient | None = None
-        client_closed = False
+        cleanup = AsyncExitStack()
+        stderr_task: asyncio.Task[None] | None = None
         initialization_started_at: float | None = None
-        client_initialized = False
         completed = False
         terminal_error_reported = False
 
@@ -1772,34 +1781,6 @@ class ClaudeAgentRuntime:
             )
 
         stderr_forwarder = StderrForwarder(send_stderr)
-
-        async def log_initialization_failure(error: BaseException) -> None:
-            if initialization_started_at is None or client_initialized:
-                return
-            # Emit only types and fixed/minimized diagnostics, never exception
-            # text, commands, environment values, or SDK initialization payloads.
-            with suppress(Exception):
-                async with asyncio.timeout(DIAGNOSTIC_TIMEOUT_SECONDS):
-                    await self._event_writer.send_log(
-                        "warning",
-                        "Claude SDK initialization failed",
-                        phase="initialize",
-                        elapsed_ms=round(
-                            (perf_counter() - initialization_started_at) * 1000, 2
-                        ),
-                        error_type=type(error).__name__,
-                        cause_type=(
-                            type(error.__cause__).__name__
-                            if error.__cause__ is not None
-                            else None
-                        ),
-                        stderr_delivery_failed=stderr_forwarder.delivery_failed,
-                        **(
-                            transport.initialization_diagnostics()
-                            if isinstance(transport, SandboxedCLITransport)
-                            else stderr_forwarder.tail.snapshot()
-                        ),
-                    )
 
         # Stable per-session working directory for the Claude Code CLI.
         # IMPORTANT: Must be deterministic per session_id. The CLI indexes
@@ -1889,11 +1870,12 @@ class ClaudeAgentRuntime:
 
             transport = self._transport_factory(options)
             client = ClaudeSDKClient(options=options, transport=transport)
-            logger.debug("Client created, entering context")
-            stderr_forwarder.start()
+            logger.debug("Connecting ClaudeSDKClient")
+            cleanup.push_async_callback(_disconnect_client, client, transport)
+            stderr_task = asyncio.create_task(stderr_forwarder.run())
             initialization_started_at = perf_counter()
-            await client.__aenter__()
-            client_initialized = True
+            await client.connect()
+            initialization_started_at = None
             self.client = client
             self._client_connected_event.set()
             log_benchmark_phase("runtime_client_connected")
@@ -1979,8 +1961,7 @@ class ClaudeAgentRuntime:
                         await self._register_assistant_tool_approvals(message)
                     elif isinstance(message, UserMessage):
                         await self._emit_user_tool_results(message)
-            await client.__aexit__(None, None, None)
-            client_closed = True
+            await cleanup.aclose()
 
             # CLI has exited — session file is fully flushed.
             await self._emit_new_session_lines(
@@ -1994,20 +1975,6 @@ class ClaudeAgentRuntime:
             # recover the exit code the transport recorded before attributing.
             error: Exception = _sandbox_process_exit_error(transport) or e
             failure = agent_runtime_failure(error, fallback_message=str(e))
-            if initialization_started_at is not None and not client_initialized:
-                # Keep safe evidence with the original cause even if both log
-                # and terminal-event delivery fail. Notes do not change its type,
-                # message, classification, or retry policy.
-                with suppress(Exception):
-                    snapshot = (
-                        transport.initialization_diagnostics()
-                        if isinstance(transport, SandboxedCLITransport)
-                        else stderr_forwarder.tail.snapshot()
-                    )
-                    e.add_note(
-                        "Claude SDK initialization diagnostics: "
-                        + orjson.dumps(snapshot).decode()
-                    )
             # Log the attributed error's own type and message together, so the
             # two never describe different exceptions. When attribution
             # replaced the SDK's exception, its text is kept alongside as the
@@ -2019,53 +1986,55 @@ class ClaudeAgentRuntime:
             if error is not e:
                 log_fields["cause_type"] = type(e).__name__
                 log_fields["cause_message"] = str(e)
+            if initialization_started_at is not None:
+                # A single safe snapshot is retained before terminal delivery,
+                # which may capture the exception before returning to us.
+                log_fields = {
+                    "phase": "initialize",
+                    "elapsed_ms": round(
+                        (perf_counter() - initialization_started_at) * 1000, 2
+                    ),
+                    "error_type": type(e).__name__,
+                    "cause_type": type(e.__cause__).__name__ if e.__cause__ else None,
+                }
+                with suppress(Exception):
+                    if isinstance(transport, SandboxedCLITransport):
+                        log_fields.update(transport.initialization_diagnostics())
+                    e.add_note(
+                        "Claude SDK initialization diagnostics: "
+                        + orjson.dumps(log_fields).decode()
+                    )
             # Record terminal failure before best-effort diagnostics or cleanup.
             # Delivery failure must not replace the original SDK exception.
             with suppress(Exception):
-                async with asyncio.timeout(DIAGNOSTIC_TIMEOUT_SECONDS):
-                    await self._event_writer.send_error(
-                        failure.message,
-                        classification=failure.classification,
-                        cause=error,
-                    )
-                    terminal_error_reported = True
-            await log_initialization_failure(e)
+                await self._event_writer.send_error(
+                    failure.message, classification=failure.classification, cause=error
+                )
+                terminal_error_reported = True
             with suppress(Exception):
-                async with asyncio.timeout(DIAGNOSTIC_TIMEOUT_SECONDS):
-                    if initialization_started_at is not None and not client_initialized:
+                if initialization_started_at is not None:
+                    async with asyncio.timeout(DIAGNOSTIC_TIMEOUT_SECONDS):
                         await self._event_writer.send_log(
-                            "error", "Runtime error", error_type=type(error).__name__
+                            "warning", "Claude SDK initialization failed", **log_fields
                         )
-                    else:
-                        await self._event_writer.send_log(
-                            "error", "Runtime error", **log_fields
-                        )
+                else:
+                    await self._event_writer.send_log(
+                        "error", "Runtime error", **log_fields
+                    )
             if error is e:
                 raise
             raise error from e
-        except asyncio.CancelledError as e:
-            await log_initialization_failure(e)
-            raise
         finally:
+            if stderr_task is not None:
+                stderr_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await stderr_task
             with suppress(Exception):
-                async with asyncio.timeout(DIAGNOSTIC_TIMEOUT_SECONDS):
-                    await stderr_forwarder.close()
-            # __aexit__ is not called when __aenter__ fails. Disconnect closes
-            # SDK reader tasks; close the transport as well because the SDK may
-            # have failed before creating its query object. Both are idempotent.
-            if client is not None and not client_closed:
-                with suppress(Exception):
-                    async with asyncio.timeout(_CLIENT_CLEANUP_TIMEOUT_SECONDS):
-                        await client.disconnect()
-                if transport is not None:
-                    with suppress(Exception):
-                        async with asyncio.timeout(_CLIENT_CLEANUP_TIMEOUT_SECONDS):
-                            await transport.close()
+                await cleanup.aclose()
             if session_flush_task is not None:
                 session_flush_task.cancel()
                 with suppress(asyncio.CancelledError, Exception):
-                    async with asyncio.timeout(DIAGNOSTIC_TIMEOUT_SECONDS):
-                        await session_flush_task
+                    await session_flush_task
             self.client = None
             if completed:
                 await self._event_writer.send_done()
@@ -2074,5 +2043,4 @@ class ClaudeAgentRuntime:
                 # could invent a missing-result failure before the executor has
                 # handled the original exception. Let the executor finalize it.
                 with suppress(Exception):
-                    async with asyncio.timeout(DIAGNOSTIC_TIMEOUT_SECONDS):
-                        await self._event_writer.send_done()
+                    await self._event_writer.send_done()

@@ -716,6 +716,8 @@ async def test_transport_stderr_flood_is_bounded_and_callback_safe(
     snapshot = transport.initialization_diagnostics()
     assert snapshot["stderr_bytes"] == len(data)
     assert snapshot["stderr_lines"] == 1002
+    assert snapshot["stderr_withheld_lines"] == 1000
+    assert len(snapshot["stderr_tail"]) == 2
     assert snapshot["stderr_tail_bytes"] <= 4096
     assert len(snapshot["stderr_tail"]) <= 64
     assert snapshot["stderr_callback_failed"] is True

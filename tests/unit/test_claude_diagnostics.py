@@ -1,6 +1,7 @@
 """Content minimization and flood behavior for Claude stderr diagnostics."""
 
 import asyncio
+from contextlib import suppress
 from unittest.mock import AsyncMock
 
 import pytest
@@ -48,25 +49,29 @@ def test_stderr_tail_bounds_lines_and_utf8_bytes(line: str) -> None:
     assert len(snapshot["stderr_tail"]) <= STDERR_MAX_LINES
     assert snapshot["stderr_tail_bytes"] <= STDERR_MAX_BYTES
     assert len("\n".join(snapshot["stderr_tail"]).encode()) <= STDERR_MAX_BYTES
-    assert snapshot["stderr_evicted_lines"] == 1000 - len(snapshot["stderr_tail"])
+    assert snapshot["stderr_evicted_lines"] == (
+        1000 - snapshot["stderr_withheld_lines"] - len(snapshot["stderr_tail"])
+    )
+    if line == "synthetic payload" or line.startswith("🔒"):
+        assert snapshot["stderr_withheld_lines"] == 1000
+        assert snapshot["stderr_tail"] == []
 
 
 @pytest.mark.anyio
-async def test_forwarder_limits_total_delivery_and_retains_latest_tail() -> None:
+async def test_forwarder_limits_total_delivery() -> None:
     sink = AsyncMock()
     forwarder = StderrForwarder(sink)
-    forwarder.start()
+    task = asyncio.create_task(forwarder.run())
     try:
         for _ in range(1000):
             forwarder.capture("ENOENT synthetic-secret")
             await asyncio.sleep(0)
         forwarder.capture("ENOSPC synthetic-secret")
         assert sink.await_count == STDERR_FORWARD_LIMIT
-        assert forwarder.tail.snapshot()["stderr_tail"][-1] == (
-            "ENOSPC [stderr content withheld]"
-        )
     finally:
-        await forwarder.close()
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
 
 
 @pytest.mark.anyio
@@ -81,14 +86,15 @@ async def test_sink_failure_does_not_stop_capture(blocked: bool) -> None:
         raise RuntimeError("synthetic sink failure")
 
     forwarder = StderrForwarder(sink)
-    forwarder.start()
+    task = asyncio.create_task(forwarder.run())
     forwarder.capture("ENOENT secret")
     await started.wait()
-    # Bound even a sink which never returns, then retain diagnostics after failure.
+    # A failed or blocked sink terminates the forwarder; later capture is
+    # bounded and cannot block the transport, which owns the retained tail.
     async with asyncio.timeout(1):
-        while not forwarder.delivery_failed:
-            await asyncio.sleep(0.01)
+        await task
     for _ in range(1000):
-        forwarder.capture("ENOSPC secret")
-    assert forwarder.tail.snapshot()["stderr_lines"] == 1001
-    await forwarder.close()
+        forwarder.capture("ENOSPC " + "🔒" * 1000)
+    assert forwarder._queue.qsize() <= STDERR_FORWARD_LIMIT
+    while not forwarder._queue.empty():
+        assert len(forwarder._queue.get_nowait().encode()) <= 256

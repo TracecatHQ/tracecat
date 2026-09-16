@@ -648,6 +648,8 @@ class SandboxedCLITransport(Transport):
 
     def _capture_stderr(self, line: bytes) -> None:
         summary = self._stderr_tail.append(line.decode("utf-8", errors="replace"))
+        if summary is None:
+            return
         if self._options.stderr is not None and not self._stderr_callback_failed:
             try:
                 self._options.stderr(summary)
