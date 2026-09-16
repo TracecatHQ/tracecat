@@ -10,6 +10,7 @@ from tracecat.auth.crypto import generate_token
 DEFAULT_API_KEY_PREFIX = "tc_sk_"
 ORG_API_KEY_PREFIX = "tc_org_sk_"
 WORKSPACE_API_KEY_PREFIX = "tc_ws_sk_"
+SCIM_API_KEY_PREFIX = "tc_scim_sk_"
 API_KEY_PREVIEW_LENGTH = 4
 SALT_BYTES = 16
 DIGEST_SIZE = 32

@@ -668,6 +668,42 @@ import type {
   SchedulesSearchSchedulesResponse,
   SchedulesUpdateScheduleData,
   SchedulesUpdateScheduleResponse,
+  ScimCreateGroupData,
+  ScimCreateGroupResponse,
+  ScimCreateScimMappingData,
+  ScimCreateScimMappingResponse,
+  ScimCreateUserData,
+  ScimCreateUserResponse,
+  ScimDeleteGroupData,
+  ScimDeleteGroupResponse,
+  ScimDeleteScimMappingData,
+  ScimDeleteScimMappingResponse,
+  ScimDeleteUserData,
+  ScimDeleteUserResponse,
+  ScimGetGroupData,
+  ScimGetGroupResponse,
+  ScimGetScimConnectionResponse,
+  ScimGetUserData,
+  ScimGetUserResponse,
+  ScimIssueScimTokenResponse,
+  ScimListExternalGroupsResponse,
+  ScimListGroupsData,
+  ScimListGroupsResponse,
+  ScimListScimMappingsResponse,
+  ScimListUsersData,
+  ScimListUsersResponse,
+  ScimPatchGroupData,
+  ScimPatchGroupResponse,
+  ScimPatchUserData,
+  ScimPatchUserResponse,
+  ScimReplaceGroupData,
+  ScimReplaceGroupResponse,
+  ScimReplaceUserData,
+  ScimReplaceUserResponse,
+  ScimResourceTypesResponse,
+  ScimRevokeScimTokenResponse,
+  ScimSchemasDocumentResponse,
+  ScimServiceProviderConfigResponse,
   SearchGetEmbeddingConfigurationData,
   SearchGetEmbeddingConfigurationResponse,
   SecretsCreateSecretData,
@@ -14023,6 +14059,469 @@ export const rbacDeleteAssignment = (
     },
   })
 }
+
+/**
+ * Get Scim Connection
+ * Read the SCIM connection status. Never returns the token.
+ * @returns ScimConnectionRead Successful Response
+ * @throws ApiError
+ */
+export const scimGetScimConnection =
+  (): CancelablePromise<ScimGetScimConnectionResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/scim/connection",
+    })
+  }
+
+/**
+ * Issue Scim Token
+ * Create or rotate the SCIM connection token.
+ *
+ * The raw token is returned only in this response.
+ * @returns ScimConnectionTokenRead Successful Response
+ * @throws ApiError
+ */
+export const scimIssueScimToken =
+  (): CancelablePromise<ScimIssueScimTokenResponse> => {
+    return __request(OpenAPI, {
+      method: "POST",
+      url: "/scim/connection",
+    })
+  }
+
+/**
+ * Revoke Scim Token
+ * Revoke the SCIM connection token.
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const scimRevokeScimToken =
+  (): CancelablePromise<ScimRevokeScimTokenResponse> => {
+    return __request(OpenAPI, {
+      method: "DELETE",
+      url: "/scim/connection",
+    })
+  }
+
+/**
+ * List External Groups
+ * List synced IdP groups available as mapping sources.
+ * @returns ExternalGroupRead Successful Response
+ * @throws ApiError
+ */
+export const scimListExternalGroups =
+  (): CancelablePromise<ScimListExternalGroupsResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/scim/external-groups",
+    })
+  }
+
+/**
+ * List Scim Mappings
+ * List group mappings with both sides joined in.
+ * @returns ExternalGroupMappingRead Successful Response
+ * @throws ApiError
+ */
+export const scimListScimMappings =
+  (): CancelablePromise<ScimListScimMappingsResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/scim/mappings",
+    })
+  }
+
+/**
+ * Create Scim Mapping
+ * Map an external group into a Tracecat group and reconcile immediately.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns ExternalGroupMappingRead Successful Response
+ * @throws ApiError
+ */
+export const scimCreateScimMapping = (
+  data: ScimCreateScimMappingData
+): CancelablePromise<ScimCreateScimMappingResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/scim/mappings",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Scim Mapping
+ * Remove a mapping and revoke the membership only it supplied.
+ * @param data The data for the request.
+ * @param data.mappingId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const scimDeleteScimMapping = (
+  data: ScimDeleteScimMappingData
+): CancelablePromise<ScimDeleteScimMappingResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/scim/mappings/{mapping_id}",
+    path: {
+      mapping_id: data.mappingId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Users
+ * List provisioned users, optionally filtered by ``userName``.
+ *
+ * The filter matches case-insensitively: Okta queries with whatever casing
+ * the directory holds, and a case-sensitive match would make it create a
+ * duplicate.
+ * @param data The data for the request.
+ * @param data.filter
+ * @param data.startIndex
+ * @param data.count
+ * @returns ScimListResponse Successful Response
+ * @throws ApiError
+ */
+export const scimListUsers = (
+  data: ScimListUsersData = {}
+): CancelablePromise<ScimListUsersResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/scim/v2/Users",
+    query: {
+      filter: data.filter,
+      startIndex: data.startIndex,
+      count: data.count,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create User
+ * Provision a user, linking an existing account rather than conflicting.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns ScimUserResource Successful Response
+ * @throws ApiError
+ */
+export const scimCreateUser = (
+  data: ScimCreateUserData
+): CancelablePromise<ScimCreateUserResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/scim/v2/Users",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get User
+ * Read one provisioned user.
+ * @param data The data for the request.
+ * @param data.resourceId
+ * @returns ScimUserResource Successful Response
+ * @throws ApiError
+ */
+export const scimGetUser = (
+  data: ScimGetUserData
+): CancelablePromise<ScimGetUserResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/scim/v2/Users/{resource_id}",
+    path: {
+      resource_id: data.resourceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Replace User
+ * Replace a user resource. Only ``active`` changes anything in Tracecat.
+ * @param data The data for the request.
+ * @param data.resourceId
+ * @param data.requestBody
+ * @returns ScimUserResource Successful Response
+ * @throws ApiError
+ */
+export const scimReplaceUser = (
+  data: ScimReplaceUserData
+): CancelablePromise<ScimReplaceUserResponse> => {
+  return __request(OpenAPI, {
+    method: "PUT",
+    url: "/scim/v2/Users/{resource_id}",
+    path: {
+      resource_id: data.resourceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Patch User
+ * Apply a PatchOp. ``active`` is the operation that matters.
+ * @param data The data for the request.
+ * @param data.resourceId
+ * @param data.requestBody
+ * @returns ScimUserResource Successful Response
+ * @throws ApiError
+ */
+export const scimPatchUser = (
+  data: ScimPatchUserData
+): CancelablePromise<ScimPatchUserResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/scim/v2/Users/{resource_id}",
+    path: {
+      resource_id: data.resourceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete User
+ * Deprovision a user. Already-removed is success, not an error.
+ *
+ * The service keeps raising ``NoResultFound``; idempotency is a property of
+ * this transport, not of deprovisioning.
+ * @param data The data for the request.
+ * @param data.resourceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const scimDeleteUser = (
+  data: ScimDeleteUserData
+): CancelablePromise<ScimDeleteUserResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/scim/v2/Users/{resource_id}",
+    path: {
+      resource_id: data.resourceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Groups
+ * List synced external groups.
+ * @param data The data for the request.
+ * @param data.filter
+ * @param data.startIndex
+ * @param data.count
+ * @returns ScimListResponse Successful Response
+ * @throws ApiError
+ */
+export const scimListGroups = (
+  data: ScimListGroupsData = {}
+): CancelablePromise<ScimListGroupsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/scim/v2/Groups",
+    query: {
+      filter: data.filter,
+      startIndex: data.startIndex,
+      count: data.count,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Group
+ * Create or rename a synced external group and set its members.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns ScimGroupResource Successful Response
+ * @throws ApiError
+ */
+export const scimCreateGroup = (
+  data: ScimCreateGroupData
+): CancelablePromise<ScimCreateGroupResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/scim/v2/Groups",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Group
+ * Read one synced external group.
+ * @param data The data for the request.
+ * @param data.groupId
+ * @returns ScimGroupResource Successful Response
+ * @throws ApiError
+ */
+export const scimGetGroup = (
+  data: ScimGetGroupData
+): CancelablePromise<ScimGetGroupResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/scim/v2/Groups/{group_id}",
+    path: {
+      group_id: data.groupId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Replace Group
+ * Replace a group's name and its complete member list.
+ * @param data The data for the request.
+ * @param data.groupId
+ * @param data.requestBody
+ * @returns ScimGroupResource Successful Response
+ * @throws ApiError
+ */
+export const scimReplaceGroup = (
+  data: ScimReplaceGroupData
+): CancelablePromise<ScimReplaceGroupResponse> => {
+  return __request(OpenAPI, {
+    method: "PUT",
+    url: "/scim/v2/Groups/{group_id}",
+    path: {
+      group_id: data.groupId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Patch Group
+ * Add or remove members, or rename the group.
+ *
+ * The projection reconciles against a complete member list, so each operation
+ * is folded into the current set and the result replaces it wholesale.
+ * @param data The data for the request.
+ * @param data.groupId
+ * @param data.requestBody
+ * @returns ScimGroupResource Successful Response
+ * @throws ApiError
+ */
+export const scimPatchGroup = (
+  data: ScimPatchGroupData
+): CancelablePromise<ScimPatchGroupResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/scim/v2/Groups/{group_id}",
+    path: {
+      group_id: data.groupId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Group
+ * Delete a synced group and drop the membership it supplied.
+ * @param data The data for the request.
+ * @param data.groupId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const scimDeleteGroup = (
+  data: ScimDeleteGroupData
+): CancelablePromise<ScimDeleteGroupResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/scim/v2/Groups/{group_id}",
+    path: {
+      group_id: data.groupId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Service Provider Config
+ * Advertise the subset of the specification this surface implements.
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const scimServiceProviderConfig =
+  (): CancelablePromise<ScimServiceProviderConfigResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/scim/v2/ServiceProviderConfig",
+    })
+  }
+
+/**
+ * Resource Types
+ * List the resource types this surface serves.
+ * @returns ScimListResponse Successful Response
+ * @throws ApiError
+ */
+export const scimResourceTypes =
+  (): CancelablePromise<ScimResourceTypesResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/scim/v2/ResourceTypes",
+    })
+  }
+
+/**
+ * Schemas Document
+ * List the resource schemas this surface understands.
+ * @returns ScimListResponse Successful Response
+ * @throws ApiError
+ */
+export const scimSchemasDocument =
+  (): CancelablePromise<ScimSchemasDocumentResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/scim/v2/Schemas",
+    })
+  }
 
 /**
  * Users:Current User

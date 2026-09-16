@@ -14,6 +14,7 @@ from tracecat.api.app import app
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session, get_async_session_bypass_rls
+from tracecat.exceptions import TracecatConflictError
 from tracecat.organization import router as organization_router
 
 
@@ -160,6 +161,42 @@ async def test_update_org_member_omits_superuser_flag(
     assert data["user_id"] == str(user.id)
     assert data["role"] == "Admin"
     assert "is_superuser" not in data
+
+
+@pytest.mark.anyio
+async def test_delete_org_member_scim_managed_returns_conflict(
+    client: TestClient, test_admin_role: Role
+) -> None:
+    user = _member_user()
+
+    with patch.object(organization_router, "OrgService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.delete_member.side_effect = TracecatConflictError(
+            "This member is managed by your identity provider. "
+            "Deprovision them there to remove their access."
+        )
+        MockService.return_value = mock_svc
+
+        response = client.delete(f"/organization/members/{user.id}")
+
+    assert response.status_code == status.HTTP_409_CONFLICT
+    assert "identity provider" in response.json()["detail"]
+
+
+@pytest.mark.anyio
+async def test_delete_org_member_ordinary_user_succeeds(
+    client: TestClient, test_admin_role: Role
+) -> None:
+    user = _member_user()
+
+    with patch.object(organization_router, "OrgService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.delete_member.return_value = None
+        MockService.return_value = mock_svc
+
+        response = client.delete(f"/organization/members/{user.id}")
+
+    assert response.status_code == status.HTTP_204_NO_CONTENT
 
 
 @pytest.mark.anyio

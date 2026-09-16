@@ -4401,6 +4401,36 @@ export type ExpressionValidationResponse = {
 }
 
 /**
+ * Request to project an external group into a Tracecat group.
+ */
+export type ExternalGroupMappingCreate = {
+  external_group_id: string
+  group_id: string
+}
+
+/**
+ * A mapping joined with both sides, so a list renders without refetching.
+ */
+export type ExternalGroupMappingRead = {
+  id: string
+  external_group_id: string
+  external_group_external_id: string
+  external_group_display_name: string
+  group_id: string
+  group_name: string
+}
+
+/**
+ * A synced IdP group offered to an admin as a mapping source.
+ */
+export type ExternalGroupRead = {
+  id: string
+  external_id: string
+  display_name: string
+  member_count: number
+}
+
+/**
  * Data externalized to blob storage.
  */
 export type ExternalObject = {
@@ -5303,6 +5333,7 @@ export type InvitationRead = {
   accepted_at: string | null
   created_by_platform_admin: boolean
   grants: Array<InvitationGrant>
+  warning?: string | null
 }
 
 /**
@@ -7135,12 +7166,13 @@ export type ResultMessage = {
  * - A service's `user_id` is the user it's acting on behalf of. This can be None for internal services.
  */
 export type Role = {
-  type: "user" | "service" | "service_account"
+  type: "user" | "service" | "service_account" | "scim"
   workspace_id?: string | null
   bound_workspace_id?: string | null
   organization_id?: string | null
   user_id?: string | null
   service_account_id?: string | null
+  scim_connection_id?: string | null
   service_id:
     | "tracecat-api"
     | "tracecat-bootstrap"
@@ -7160,7 +7192,7 @@ export type Role = {
   [key: string]: unknown | string | boolean
 }
 
-export type type4 = "user" | "service" | "service_account"
+export type type4 = "user" | "service" | "service_account" | "scim"
 
 export type service_id =
   | "tracecat-api"
@@ -7466,6 +7498,152 @@ export type ScheduleUpdate = {
    * The maximum number of seconds to wait for the workflow to complete
    */
   timeout?: number | null
+}
+
+/**
+ * Status of an organization's SCIM connection. Never carries the token.
+ */
+export type ScimConnectionRead = {
+  id: string
+  organization_id: string
+  preview: string
+  last_used_at?: string | null
+  revoked_at?: string | null
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * A freshly issued token. The raw value is returned exactly once.
+ */
+export type ScimConnectionTokenRead = {
+  connection: ScimConnectionRead
+  token: string
+}
+
+/**
+ * One entry of a user's multi-valued email attribute.
+ */
+export type ScimEmail = {
+  value?: string | null
+  primary?: boolean | null
+  type?: string | null
+}
+
+/**
+ * A member reference inside a Group resource.
+ */
+export type ScimGroupMemberRef = {
+  value: string
+  display?: string | null
+}
+
+/**
+ * An inbound Group resource on POST or PUT.
+ */
+export type ScimGroupRequest = {
+  schemas?: Array<string>
+  displayName: string
+  externalId?: string | null
+  members?: Array<ScimGroupMemberRef> | null
+}
+
+/**
+ * A Group resource as returned to the provider.
+ */
+export type ScimGroupResource = {
+  schemas?: Array<string>
+  id: string
+  displayName: string
+  externalId?: string | null
+  members?: Array<ScimGroupMemberRef>
+  meta?: ScimMeta | null
+}
+
+/**
+ * The envelope every SCIM query returns, paginated 1-based.
+ */
+export type ScimListResponse = {
+  schemas?: Array<string>
+  totalResults: number
+  startIndex: number
+  itemsPerPage: number
+  Resources?: Array<{
+    [key: string]: unknown
+  }>
+}
+
+/**
+ * Resource metadata. Only the fields Okta reads are emitted.
+ */
+export type ScimMeta = {
+  resourceType: string
+  created?: string | null
+  lastModified?: string | null
+  location?: string | null
+}
+
+/**
+ * A user's name components as pushed by the provider.
+ */
+export type ScimName = {
+  givenName?: string | null
+  familyName?: string | null
+  formatted?: string | null
+}
+
+/**
+ * A PATCH request body.
+ */
+export type ScimPatchOp = {
+  schemas?: Array<string>
+  Operations: Array<ScimPatchOperation>
+}
+
+/**
+ * One entry of a PatchOp ``Operations`` array.
+ *
+ * ``op`` is case-insensitive per RFC 7644; Azure sends ``Add`` where Okta
+ * sends ``add``.
+ */
+export type ScimPatchOperation = {
+  op: "add" | "remove" | "replace"
+  path?: string | null
+  value?: unknown
+}
+
+export type op = "add" | "remove" | "replace"
+
+/**
+ * An inbound User resource on POST or PUT.
+ *
+ * ``userName`` is the only attribute Tracecat stores as identity; the display
+ * and name attributes are accepted so providers do not see a validation
+ * failure, but nothing here maps onto a Tracecat column.
+ */
+export type ScimUserRequest = {
+  schemas?: Array<string>
+  userName: string
+  externalId?: string | null
+  active?: boolean
+  name?: ScimName | null
+  displayName?: string | null
+  emails?: Array<ScimEmail>
+}
+
+/**
+ * A User resource as returned to the provider.
+ */
+export type ScimUserResource = {
+  schemas?: Array<string>
+  id: string
+  userName: string
+  externalId?: string | null
+  active?: boolean
+  name?: ScimName | null
+  displayName?: string | null
+  emails?: Array<ScimEmail>
+  meta?: ScimMeta | null
 }
 
 /**
@@ -15049,6 +15227,116 @@ export type RbacDeleteAssignmentData = {
 
 export type RbacDeleteAssignmentResponse = void
 
+export type ScimGetScimConnectionResponse = ScimConnectionRead
+
+export type ScimIssueScimTokenResponse = ScimConnectionTokenRead
+
+export type ScimRevokeScimTokenResponse = void
+
+export type ScimListExternalGroupsResponse = Array<ExternalGroupRead>
+
+export type ScimListScimMappingsResponse = Array<ExternalGroupMappingRead>
+
+export type ScimCreateScimMappingData = {
+  requestBody: ExternalGroupMappingCreate
+}
+
+export type ScimCreateScimMappingResponse = ExternalGroupMappingRead
+
+export type ScimDeleteScimMappingData = {
+  mappingId: string
+}
+
+export type ScimDeleteScimMappingResponse = void
+
+export type ScimListUsersData = {
+  count?: number
+  filter?: string | null
+  startIndex?: number
+}
+
+export type ScimListUsersResponse = ScimListResponse
+
+export type ScimCreateUserData = {
+  requestBody: ScimUserRequest
+}
+
+export type ScimCreateUserResponse = ScimUserResource
+
+export type ScimGetUserData = {
+  resourceId: string
+}
+
+export type ScimGetUserResponse = ScimUserResource
+
+export type ScimReplaceUserData = {
+  requestBody: ScimUserRequest
+  resourceId: string
+}
+
+export type ScimReplaceUserResponse = ScimUserResource
+
+export type ScimPatchUserData = {
+  requestBody: ScimPatchOp
+  resourceId: string
+}
+
+export type ScimPatchUserResponse = ScimUserResource
+
+export type ScimDeleteUserData = {
+  resourceId: string
+}
+
+export type ScimDeleteUserResponse = void
+
+export type ScimListGroupsData = {
+  count?: number
+  filter?: string | null
+  startIndex?: number
+}
+
+export type ScimListGroupsResponse = ScimListResponse
+
+export type ScimCreateGroupData = {
+  requestBody: ScimGroupRequest
+}
+
+export type ScimCreateGroupResponse = ScimGroupResource
+
+export type ScimGetGroupData = {
+  groupId: string
+}
+
+export type ScimGetGroupResponse = ScimGroupResource
+
+export type ScimReplaceGroupData = {
+  groupId: string
+  requestBody: ScimGroupRequest
+}
+
+export type ScimReplaceGroupResponse = ScimGroupResource
+
+export type ScimPatchGroupData = {
+  groupId: string
+  requestBody: ScimPatchOp
+}
+
+export type ScimPatchGroupResponse = ScimGroupResource
+
+export type ScimDeleteGroupData = {
+  groupId: string
+}
+
+export type ScimDeleteGroupResponse = void
+
+export type ScimServiceProviderConfigResponse = {
+  [key: string]: unknown
+}
+
+export type ScimResourceTypesResponse = ScimListResponse
+
+export type ScimSchemasDocumentResponse = ScimListResponse
+
 export type UsersUsersCurrentUserResponse = UserRead
 
 export type UsersUsersPatchCurrentUserData = {
@@ -22266,6 +22554,276 @@ export type $OpenApiTs = {
          * Validation Error
          */
         422: HTTPValidationError
+      }
+    }
+  }
+  "/scim/connection": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ScimConnectionRead
+      }
+    }
+    post: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ScimConnectionTokenRead
+      }
+    }
+    delete: {
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+      }
+    }
+  }
+  "/scim/external-groups": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<ExternalGroupRead>
+      }
+    }
+  }
+  "/scim/mappings": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<ExternalGroupMappingRead>
+      }
+    }
+    post: {
+      req: ScimCreateScimMappingData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ExternalGroupMappingRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/scim/mappings/{mapping_id}": {
+    delete: {
+      req: ScimDeleteScimMappingData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/scim/v2/Users": {
+    get: {
+      req: ScimListUsersData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ScimListResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: ScimCreateUserData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: ScimUserResource
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/scim/v2/Users/{resource_id}": {
+    get: {
+      req: ScimGetUserData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ScimUserResource
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    put: {
+      req: ScimReplaceUserData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ScimUserResource
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: ScimPatchUserData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ScimUserResource
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: ScimDeleteUserData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/scim/v2/Groups": {
+    get: {
+      req: ScimListGroupsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ScimListResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: ScimCreateGroupData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: ScimGroupResource
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/scim/v2/Groups/{group_id}": {
+    get: {
+      req: ScimGetGroupData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ScimGroupResource
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    put: {
+      req: ScimReplaceGroupData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ScimGroupResource
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: ScimPatchGroupData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ScimGroupResource
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: ScimDeleteGroupData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/scim/v2/ServiceProviderConfig": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: unknown
+        }
+      }
+    }
+  }
+  "/scim/v2/ResourceTypes": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ScimListResponse
+      }
+    }
+  }
+  "/scim/v2/Schemas": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ScimListResponse
       }
     }
   }

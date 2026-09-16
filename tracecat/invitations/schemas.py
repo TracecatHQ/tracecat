@@ -52,6 +52,8 @@ class InvitationRead(BaseModel):
     accepted_at: datetime | None
     created_by_platform_admin: bool
     grants: list[InvitationGrant]
+    # Non-blocking advisory set on create when the org is SCIM-provisioned.
+    warning: str | None = None
 
 
 class InvitationReadMinimal(BaseModel):
