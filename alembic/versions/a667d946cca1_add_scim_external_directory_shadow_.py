@@ -11,7 +11,12 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 
 from alembic import op
-from tracecat.db.tenant_rls import disable_org_table_rls, enable_org_table_rls
+from tracecat.db.tenant_rls import (
+    disable_external_group_member_table_rls,
+    disable_org_table_rls,
+    enable_external_group_member_table_rls,
+    enable_org_table_rls,
+)
 
 # revision identifiers, used by Alembic.
 revision: str = "a667d946cca1"
@@ -204,6 +209,7 @@ def upgrade() -> None:
     # Tenant isolation is enforced in the database, not only in the registry.
     for table in ("external_user", "external_group", "external_group_mapping"):
         op.execute(enable_org_table_rls(table))
+    op.execute(enable_external_group_member_table_rls())
 
     op.create_table(
         "scim_connection",
@@ -277,6 +283,7 @@ def downgrade() -> None:
     op.drop_index(op.f("ix_scim_connection_id"), table_name="scim_connection")
     op.drop_table("scim_connection")
 
+    op.execute(disable_external_group_member_table_rls())
     for table in ("external_group_mapping", "external_group", "external_user"):
         op.execute(disable_org_table_rls(table))
 
