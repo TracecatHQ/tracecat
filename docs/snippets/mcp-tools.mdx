@@ -14,6 +14,18 @@
   Get metadata for a specific workflow.
 </ResponseField>
 
+<ResponseField name="list_workflow_actions" type="tool">
+  List the actions in a draft workflow as a compact index-and-ref table.
+
+  Use this instead of `get_workflow` when you only need to know which actions exist, their order, their `depends_on` wiring, or the current array index of a ref for `edit_workflow`. It returns one small row per action and no `args`, so it stays cheap on large workflows. Follow up with `get_workflow_action` to read one action in full, or `get_workflow` when you need the whole `draft_document`.
+</ResponseField>
+
+<ResponseField name="get_workflow_action" type="tool">
+  Get one action from a draft workflow by its `ref`.
+
+  Use this instead of `get_workflow` when you need the full definition of a single action (its `args`, `run_if`, `for_each`, retry policy, and so on) without loading the whole `draft_document`. Pair it with `list_workflow_actions` to discover refs. Edit the action afterwards with `edit_workflow` using `/definition/actions/@<ref>/...` paths.
+</ResponseField>
+
 <ResponseField name="edit_workflow" type="tool">
   Edit a draft workflow using RFC 6902 JSON Patch.
 
@@ -421,6 +433,8 @@
   Update an existing agent preset in the selected workspace.
 
   Use `skills` to replace attached published skills. Each binding contains `skill_id`. Omit `skills` to leave bindings unchanged, or pass an empty list to detach all skills.
+
+  Set `clear_output_type=true` to remove an existing `output_type` (agent returns plain text). Omitting `output_type` leaves it unchanged.
 </ResponseField>
 
 <ResponseField name="list_agent_tree" type="tool">

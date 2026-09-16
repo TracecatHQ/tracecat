@@ -926,6 +926,177 @@ async def test_get_workflow_returns_metadata_only(monkeypatch):
     assert "definition_yaml" not in payload
 
 
+def _chained_workflow_stub(workflow_id: uuid.UUID) -> SimpleNamespace:
+    """Three trigger-reachable actions; the edit document sorts them by ref."""
+    trigger_id = f"trigger-{workflow_id}"
+    fetch_events = _action_stub(
+        ref="fetch_events",
+        type="core.http_request",
+        inputs="url: https://example.invalid/events",
+        upstream_edges=[{"source_id": trigger_id, "source_type": "trigger"}],
+        position_x=10.0,
+        position_y=20.0,
+    )
+    classify = _action_stub(
+        ref="classify",
+        type="core.transform.reshape",
+        inputs="value: ${{ ACTIONS.fetch_events.result }}",
+        control_flow={
+            "run_if": "${{ FN.length(ACTIONS.fetch_events.result) > 0 }}",
+            "environment": "staging",
+        },
+        upstream_edges=[
+            {
+                "source_id": str(fetch_events.id),
+                "source_type": "udf",
+                "source_handle": "success",
+            }
+        ],
+        position_x=30.0,
+        position_y=40.0,
+    )
+    build_alert = _action_stub(
+        ref="build_alert",
+        type="core.transform.reshape",
+        inputs="value: ${{ var.item }}",
+        control_flow={"for_each": "${{ for var.item in ACTIONS.classify.result }}"},
+        upstream_edges=[
+            {
+                "source_id": str(classify.id),
+                "source_type": "udf",
+                "source_handle": "success",
+            }
+        ],
+        position_x=50.0,
+        position_y=60.0,
+    )
+    return _workflow_stub(
+        id=workflow_id,
+        entrypoint="fetch_events",
+        actions=[fetch_events, classify, build_alert],
+    )
+
+
+def _patch_workflow_read(monkeypatch, workflow: SimpleNamespace) -> None:
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    class _WorkflowService:
+        def __init__(self) -> None:
+            self.session = object()
+
+        async def get_workflow(self, _wf_id, *, for_update: bool = False):
+            _ = for_update
+            return workflow
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_WorkflowService()),
+    )
+
+
+@pytest.mark.anyio
+async def test_list_workflow_actions_returns_index_map(monkeypatch):
+    workflow_id = uuid.uuid4()
+    workflow = _chained_workflow_stub(workflow_id)
+    _patch_workflow_read(monkeypatch, workflow)
+    expected_revision = draft.compute_workflow_edit_revision(
+        draft.build_workflow_edit_document(
+            cast(draft._WorkflowEditDocumentSource, workflow)
+        )
+    )
+
+    payload = _payload(
+        await _tool(mcp_server.list_workflow_actions)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(workflow_id),
+        )
+    )
+
+    assert payload["draft_revision"] == expected_revision
+    assert payload["entrypoint"]["ref"] == "fetch_events"
+    assert payload["actions"] == [
+        {
+            "index": 0,
+            "ref": "build_alert",
+            "action": "core.transform.reshape",
+            "depends_on": ["classify"],
+            "has_run_if": False,
+            "has_for_each": True,
+            "environment": None,
+        },
+        {
+            "index": 1,
+            "ref": "classify",
+            "action": "core.transform.reshape",
+            "depends_on": ["fetch_events"],
+            "has_run_if": True,
+            "has_for_each": False,
+            "environment": "staging",
+        },
+        {
+            "index": 2,
+            "ref": "fetch_events",
+            "action": "core.http_request",
+            "depends_on": [],
+            "has_run_if": False,
+            "has_for_each": False,
+            "environment": None,
+        },
+    ]
+    assert "args" not in json.dumps(payload)
+
+
+@pytest.mark.anyio
+async def test_get_workflow_action_returns_full_action_and_layout(monkeypatch):
+    workflow_id = uuid.uuid4()
+    workflow = _chained_workflow_stub(workflow_id)
+    _patch_workflow_read(monkeypatch, workflow)
+
+    payload = _payload(
+        await _tool(mcp_server.get_workflow_action)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(workflow_id),
+            ref="classify",
+        )
+    )
+
+    assert payload["index"] == 1
+    assert payload["action"]["ref"] == "classify"
+    assert payload["action"]["args"] == {"value": "${{ ACTIONS.fetch_events.result }}"}
+    assert payload["action"]["run_if"] == (
+        "${{ FN.length(ACTIONS.fetch_events.result) > 0 }}"
+    )
+    assert payload["layout"] == {
+        "ref": "classify",
+        "x": 30.0,
+        "y": 40.0,
+        "position": None,
+    }
+    assert payload["draft_revision"]
+
+
+@pytest.mark.anyio
+async def test_get_workflow_action_unknown_ref_lists_valid_refs(monkeypatch):
+    workflow_id = uuid.uuid4()
+    _patch_workflow_read(monkeypatch, _chained_workflow_stub(workflow_id))
+
+    with pytest.raises(ToolError, match="not found") as exc_info:
+        await _tool(mcp_server.get_workflow_action)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(workflow_id),
+            ref="missing_step",
+        )
+
+    message = str(exc_info.value)
+    assert "'missing_step'" in message
+    assert "'build_alert'" in message
+    assert "'classify'" in message
+    assert "'fetch_events'" in message
+
+
 def test_build_workflow_edit_document_normalizes_null_schedule_timeout() -> None:
     workflow = _workflow_stub(schedules=[_schedule_stub(timeout=None)])
 

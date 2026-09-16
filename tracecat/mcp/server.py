@@ -210,6 +210,9 @@ from tracecat.mcp.schemas import (
     MCPTruncationInfo,
     MCPTruncationSummary,
     ValidationResponse,
+    WorkflowActionDetailResponse,
+    WorkflowActionListResponse,
+    WorkflowActionSummary,
     WorkflowEditDocument,
     WorkflowEditResponse,
     WorkflowLayout,
@@ -3592,6 +3595,130 @@ async def get_workflow(
     except Exception as e:
         logger.error("Failed to get workflow", error=str(e))
         raise ToolError(f"Failed to get workflow: {e}") from None
+
+
+async def _load_workflow_edit_document(
+    workspace_id: uuid.UUID,
+    workflow_id: MCPWorkflowUUID,
+) -> tuple[WorkflowUUID, WorkflowEditDocument]:
+    """Load the same draft document ``get_workflow`` returns, without metadata."""
+    wf_id = WorkflowUUID.new(workflow_id)
+    _, role = await _resolve_workspace_role(workspace_id)
+    async with WorkflowsManagementService.with_session(role=role) as svc:
+        workflow = await svc.get_workflow(wf_id)
+        if not workflow:
+            raise ToolError(f"Workflow {wf_id} not found")
+        return wf_id, build_workflow_edit_document(workflow)
+
+
+@mcp.tool()
+async def list_workflow_actions(
+    workspace_id: uuid.UUID,
+    workflow_id: MCPWorkflowUUID,
+) -> WorkflowActionListResponse:
+    """List the actions in a draft workflow as a compact index-and-ref table.
+
+    Use this instead of `get_workflow` when you only need to know which actions
+    exist, their order, their `depends_on` wiring, or the current array index
+    of a ref for `edit_workflow`. It returns one small row per action and no
+    `args`, so it stays cheap on large workflows. Follow up with
+    `get_workflow_action` to read one action in full, or `get_workflow` when
+    you need the whole `draft_document`.
+
+    Args:
+        workspace_id: The workspace ID.
+        workflow_id: The workflow ID (short or full format).
+
+    Returns JSON with `draft_revision` (usable as `base_revision` for
+    `edit_workflow`), the definition `entrypoint`, and `actions`, each with
+    `index`, `ref`, `action`, `depends_on`, `has_run_if`, `has_for_each`, and
+    `environment`, in the order they appear in `draft_document.definition.actions`.
+    """
+
+    try:
+        wf_id, document = await _load_workflow_edit_document(workspace_id, workflow_id)
+        return WorkflowActionListResponse(
+            workflow_id=str(wf_id),
+            draft_revision=compute_workflow_edit_revision(document),
+            entrypoint=document.definition.entrypoint,
+            actions=[
+                WorkflowActionSummary(
+                    index=index,
+                    ref=action.ref,
+                    action=action.action,
+                    depends_on=list(action.depends_on),
+                    has_run_if=action.run_if is not None,
+                    has_for_each=action.for_each is not None,
+                    environment=action.environment,
+                )
+                for index, action in enumerate(document.definition.actions)
+            ],
+        )
+    except WorkflowEditError as e:
+        raise _workflow_edit_error_to_tool_error(e) from e
+    except ToolError:
+        raise
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to list workflow actions", error=str(e))
+        raise ToolError(f"Failed to list workflow actions: {e}") from None
+
+
+@mcp.tool()
+async def get_workflow_action(
+    workspace_id: uuid.UUID,
+    workflow_id: MCPWorkflowUUID,
+    ref: str,
+) -> WorkflowActionDetailResponse:
+    """Get one action from a draft workflow by its `ref`.
+
+    Use this instead of `get_workflow` when you need the full definition of a
+    single action (its `args`, `run_if`, `for_each`, retry policy, and so on)
+    without loading the whole `draft_document`. Pair it with
+    `list_workflow_actions` to discover refs. Edit the action afterwards with
+    `edit_workflow` using `/definition/actions/@<ref>/...` paths.
+
+    Args:
+        workspace_id: The workspace ID.
+        workflow_id: The workflow ID (short or full format).
+        ref: The action `ref` (for example `build_alert`).
+
+    Returns JSON with `draft_revision`, the action's current `index` in
+    `draft_document.definition.actions`, the full `action` object, and its
+    `layout` entry (or null when the action has no layout position).
+    """
+
+    try:
+        wf_id, document = await _load_workflow_edit_document(workspace_id, workflow_id)
+        valid_refs = [action.ref for action in document.definition.actions]
+        if ref not in valid_refs:
+            raise ToolError(
+                f"Action ref {ref!r} not found in workflow {wf_id}. "
+                f"Valid refs: {valid_refs}"
+            )
+        index = valid_refs.index(ref)
+        action = document.definition.actions[index]
+        layout = next(
+            (entry for entry in document.layout.actions if entry.ref == ref),
+            None,
+        )
+        return WorkflowActionDetailResponse(
+            workflow_id=str(wf_id),
+            draft_revision=compute_workflow_edit_revision(document),
+            index=index,
+            action=action,
+            layout=layout,
+        )
+    except WorkflowEditError as e:
+        raise _workflow_edit_error_to_tool_error(e) from e
+    except ToolError:
+        raise
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to get workflow action", error=str(e))
+        raise ToolError(f"Failed to get workflow action: {e}") from None
 
 
 @mcp.tool()
