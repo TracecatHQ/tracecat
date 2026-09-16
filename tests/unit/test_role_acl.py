@@ -8,8 +8,9 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from tracecat.auth import credentials
+from tracecat.auth import credentials, ip_allowlist_enforcement
 from tracecat.auth.credentials import RoleACL
+from tracecat.auth.ip_allowlist import OrgIPAllowlist
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session
@@ -32,6 +33,12 @@ def role_acl_app(monkeypatch: pytest.MonkeyPatch) -> Generator[FastAPI, None, No
     )
     monkeypatch.setattr(credentials, "set_rls_context", AsyncMock())
     monkeypatch.setattr(credentials, "set_rls_context_from_role", AsyncMock())
+    # The allowlist loader opens its own DB session outside dependency overrides.
+    monkeypatch.setattr(
+        ip_allowlist_enforcement,
+        "get_org_ip_allowlist",
+        AsyncMock(return_value=OrgIPAllowlist(enabled=False, networks=())),
+    )
 
     token = ctx_role.set(None)
     try:
