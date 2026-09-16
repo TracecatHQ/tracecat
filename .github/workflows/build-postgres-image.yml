@@ -8,14 +8,19 @@ on:
       - scripts/tests/test_pgvector*.sh
       - docker-compose*.yml
       - .github/workflows/build-postgres-image.yml
+      - .dockerignore
   push:
     branches: [main]
+    # Only image inputs start publication. Docs, tests, Compose wiring, and
+    # publisher changes are still validated by the broader PR trigger above.
     paths:
-      - deployments/postgres/**
-      - scripts/postgres/**
-      - scripts/tests/test_pgvector*.sh
-      - docker-compose*.yml
-      - .github/workflows/build-postgres-image.yml
+      - deployments/postgres/Dockerfile
+      - deployments/postgres/images.json
+      - scripts/postgres/build-image.sh
+      - scripts/postgres/compose-entrypoint.sh
+      - scripts/postgres/pgvector.sql
+      - scripts/postgres/initdb-pgvector.sql
+      - .dockerignore
 
 permissions:
   contents: read

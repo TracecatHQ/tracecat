@@ -55,20 +55,21 @@ bundled-database dependency; this change does not add external-database routing.
 
 `.github/workflows/build-postgres-image.yml` tests both OS variants on native
 amd64 and arm64 runners. PR runs have read-only permissions and do not publish.
-After a change reaches `main`, a separate job with package-write permission
+When image inputs change on `main`, a separate job with package-write permission
 publishes the exact tested image artifacts and combines their CPU architectures
 into versioned GHCR tags. Application CI builds its own candidate locally so it
 can test changes before their tag exists in GHCR.
 
 Publication refuses an existing tag, and registry authentication or network
 errors stop publication. Only a confirmed missing manifest permits a new tag.
-This also prevents documentation-only or test-only changes from replacing a
-published image. Main-branch publication runs are serialized.
+Documentation, tests, Compose wiring, and publisher-only changes are tested in
+PRs but do not trigger publication on `main`. They do not need a new image
+revision. Main-branch publication runs are serialized.
 
 Tags use a simple image revision: `:1` for the default and `:1-bookworm` for
 Bookworm. PostgreSQL, OS, and pgvector versions are recorded in the build files.
 Bump the revision (`1`, `2`, ...) in `images.json` when changing packaged
-files or base digests; update all three Compose defaults together. These images
+files, base digests, or build inputs; update all three Compose defaults together. These images
 have their own version, independent of the API and UI release versions.
 
 **First release prerequisite:** publish both image tags and make the GHCR package
