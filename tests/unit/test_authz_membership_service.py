@@ -132,8 +132,7 @@ def actor_role(
         organization_id=organization.id,
         workspace_id=workspace.id,
         service_id="tracecat-api",
-        # Workspace removal can evict a workspace-only user from the org.
-        scopes=ADMIN_SCOPES | frozenset({"org:member:remove"}),
+        scopes=ADMIN_SCOPES,
     )
 
 

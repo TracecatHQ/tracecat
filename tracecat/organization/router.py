@@ -8,6 +8,7 @@ from tracecat.auth.credentials import AuthenticatedUserOnly
 from tracecat.auth.dependencies import OrgActorRole, OrgUserRole
 from tracecat.auth.schemas import SessionRead, UserUpdate
 from tracecat.authz.controls import require_scope
+from tracecat.authz.scopes import ORG_MEMBER_ROLE_SLUG
 from tracecat.db.dependencies import AsyncDBSession, AsyncDBSessionBypass
 from tracecat.db.models import (
     Organization,
@@ -304,6 +305,8 @@ async def list_org_members(
             UserRoleAssignment.organization_id == role.organization_id,
             UserRoleAssignment.workspace_id.is_(None),
             UserRoleAssignment.user_id.in_(user_ids),  # pyright: ignore[reportAttributeAccessIssue]
+            # Legacy assignments of the implicit role are data, never displayed.
+            DBRole.slug.is_distinct_from(ORG_MEMBER_ROLE_SLUG),
         )
     )
     rbac_result = await session.execute(rbac_stmt)
@@ -317,8 +320,8 @@ async def list_org_members(
         if rbac_info:
             role_name, role_slug = rbac_info
         else:
-            role_name = "Member"
-            role_slug = "organization-member"
+            role_name = ""
+            role_slug = None
         result.append(
             OrgMemberRead(
                 user_id=user.id,

@@ -179,11 +179,11 @@ async def test_create_organization_invitation_rejects_existing_member(
             org.id,
             AdminOrgInvitationCreate(
                 email=member.email,
-                role_slug="organization-member",
+                role_slug="organization-admin",
             ),
         )
 
-    assert org_roles["organization-member"].organization_id == org.id
+    assert org_roles["organization-admin"].organization_id == org.id
 
 
 @pytest.mark.anyio
@@ -210,7 +210,7 @@ async def test_create_organization_invitation_allows_existing_superuser(
         org.id,
         AdminOrgInvitationCreate(
             email=superuser.email,
-            role_slug="organization-member",
+            role_slug="organization-admin",
         ),
     )
 
@@ -218,7 +218,7 @@ async def test_create_organization_invitation_allows_existing_superuser(
         select(Invitation.id).where(Invitation.email == superuser.email)
     )
     assert invitation_id == invitation.id
-    assert org_roles["organization-member"].organization_id == org.id
+    assert org_roles["organization-admin"].organization_id == org.id
 
 
 @pytest.mark.anyio

@@ -312,16 +312,10 @@ export type status = "success" | "error"
  */
 export type AdminOrgInvitationCreate = {
   email: string
-  role_slug?:
-    | "organization-owner"
-    | "organization-admin"
-    | "organization-member"
+  role_slug?: "organization-owner" | "organization-admin"
 }
 
-export type role_slug =
-  | "organization-owner"
-  | "organization-admin"
-  | "organization-member"
+export type role_slug = "organization-owner" | "organization-admin"
 
 /**
  * Create response containing the raw invitation token.

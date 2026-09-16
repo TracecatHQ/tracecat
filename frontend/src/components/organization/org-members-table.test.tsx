@@ -224,13 +224,13 @@ beforeAll(() => {
   HTMLElement.prototype.releasePointerCapture = jest.fn()
 })
 
-it("hides the baseline and stages edits until Done; Cancel writes nothing", async () => {
+it("shows the baseline role and stages edits until Done; Cancel writes nothing", async () => {
   const { user } = await renderDialog()
-  expect(screen.queryByText("Organization Member")).not.toBeInTheDocument()
+  expect(screen.getByText("Organization Member")).toBeInTheDocument()
   await user.click(screen.getByRole("combobox", { name: "Role" }))
   expect(
-    screen.queryByRole("option", { name: "Organization Member" })
-  ).not.toBeInTheDocument()
+    screen.getByRole("option", { name: "Organization Member" })
+  ).toBeInTheDocument()
   await user.click(screen.getByRole("option", { name: "Organization Admin" }))
   await user.click(screen.getByRole("button", { name: "Add role" }))
   expect(screen.getByText("Organization Admin")).toBeInTheDocument()
@@ -312,6 +312,7 @@ it("refreshes cached workspace member lists after saving organization roles", as
 })
 
 it("uses the member-removal confirmation for the final direct role, before any writes", async () => {
+  savedAssignments = [workspaceRole]
   const { user } = await renderDialog()
   await user.click(
     screen.getByRole("button", {
@@ -334,6 +335,7 @@ it("keeps a baseline-only member unchanged when Done has no edits", async () => 
 })
 
 it("confirms removal after Done; Cancel preserves the draft without writes", async () => {
+  savedAssignments = [workspaceRole]
   setupGroup()
   const { user } = await renderDialog()
   expect(await screen.findByText("via Operators")).toBeInTheDocument()
@@ -408,6 +410,7 @@ it("confirms organization-role removal while workspace access remains", async ()
 })
 
 it("requires member-remove permission for the final role", async () => {
+  savedAssignments = [workspaceRole]
   jest
     .mocked(useScopeCheck)
     .mockImplementation((scope) => scope !== "org:member:remove")
@@ -424,6 +427,7 @@ it("requires member-remove permission for the final role", async () => {
 })
 
 it("rejects a stale draft when group access changes before Done", async () => {
+  savedAssignments = [workspaceRole]
   const { user } = await renderDialog()
   await user.click(
     screen.getByRole("button", {
@@ -455,6 +459,7 @@ it("rejects a stale draft when direct assignments change before Done", async () 
 })
 
 it("blocks final-role removal when group membership cannot be loaded", async () => {
+  savedAssignments = [workspaceRole]
   setupGroup()
   jest.mocked(rbacListAssignments).mockRejectedValue(new Error("Unavailable"))
   const { user } = await renderDialog()
@@ -508,7 +513,7 @@ it("undoes a staged baseline promotion without deleting its persisted source", a
       name: "Remove Organization Admin from organization",
     })
   )
-  expect(screen.queryByText("Organization Member")).not.toBeInTheDocument()
+  expect(screen.getByText("Organization Member")).toBeInTheDocument()
   expect(screen.queryByRole("alert")).not.toBeInTheDocument()
   await user.click(screen.getByRole("button", { name: "Done" }))
   expect(operationOrder).toEqual([])
@@ -559,6 +564,7 @@ it("keeps basic promotion available without RBAC addons and does not fetch group
 })
 
 it("does not infer absent group paths without RBAC addons", async () => {
+  savedAssignments = [workspaceRole]
   jest.mocked(useEntitlements).mockReturnValue({
     hasEntitlement: () => false,
     hasEntitlementData: true,
@@ -578,6 +584,7 @@ it("does not infer absent group paths without RBAC addons", async () => {
 })
 
 it("refreshes group paths when initial group loading finishes after editing starts", async () => {
+  savedAssignments = [workspaceRole]
   let finishGroupRead: (value: {
     items: GroupRoleAssignmentReadWithDetails[]
     total: number

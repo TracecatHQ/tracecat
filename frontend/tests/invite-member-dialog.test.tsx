@@ -130,7 +130,6 @@ jest.mock("@/components/ui/select", () => {
 })
 
 const ORG_ADMIN_ROLE_ID = "11111111-1111-1111-1111-111111111111"
-const ORG_MEMBER_ROLE_ID = "22222222-2222-2222-2222-222222222222"
 const WORKSPACE_EDITOR_ROLE_ID = "33333333-3333-3333-3333-333333333333"
 const CUSTOM_ROLE_ID = "44444444-4444-4444-4444-444444444444"
 
@@ -155,7 +154,6 @@ function createRole(
 
 const ROLES = [
   createRole(ORG_ADMIN_ROLE_ID, "Admin", "organization-admin"),
-  createRole(ORG_MEMBER_ROLE_ID, "Member", "organization-member"),
   createRole(WORKSPACE_EDITOR_ROLE_ID, "Editor", "workspace-editor"),
   createRole(CUSTOM_ROLE_ID, "Custom", null),
 ]
@@ -196,18 +194,6 @@ afterEach(() => {
 })
 
 describe("InviteMemberDialog", () => {
-  it("omits the baseline organization-member role from the org role picker", () => {
-    render(<InviteMemberDialog open={true} onOpenChange={() => {}} />)
-
-    const rolePicker = screen.getByLabelText("Grant 1 role")
-    const optionValues = Array.from(rolePicker.querySelectorAll("option")).map(
-      (option) => option.getAttribute("value")
-    )
-
-    expect(optionValues).toContain(ORG_ADMIN_ROLE_ID)
-    expect(optionValues).not.toContain(ORG_MEMBER_ROLE_ID)
-  })
-
   it("offers each scope only its own preset roles, plus custom roles", async () => {
     const user = userEvent.setup()
     render(<InviteMemberDialog open={true} onOpenChange={() => {}} />)
@@ -321,6 +307,6 @@ describe("InviteMemberDialog", () => {
       screen.getByLabelText("Grant 1 role").querySelectorAll("option")
     ).map((option) => option.getAttribute("value"))
     expect(optionValues).toContain(WORKSPACE_EDITOR_ROLE_ID)
-    expect(optionValues).not.toContain(ORG_MEMBER_ROLE_ID)
+    expect(optionValues).not.toContain(ORG_ADMIN_ROLE_ID)
   })
 })
