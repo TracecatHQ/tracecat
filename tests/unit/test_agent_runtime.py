@@ -16,6 +16,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import orjson
 import pytest
+from claude_agent_sdk import ClaudeAgentOptions, Transport
+from claude_agent_sdk._internal.query import Query
 from claude_agent_sdk.types import (
     AssistantMessage,
     HookContext,
@@ -3919,3 +3921,204 @@ async def test_run_keeps_original_error_when_sandbox_process_did_not_exit(
     assert log_args.kwargs["error_type"] == "ValueError"
     assert log_args.kwargs["error_message"] == "Test error"
     assert "cause_type" not in log_args.kwargs
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("sink_failure", [False, True])
+async def test_initialization_failure_preserves_error_and_diagnostics_before_cleanup(
+    mock_socket_writer: MagicMock,
+    mock_claude_sdk_client: MagicMock,
+    sample_init_payload: RuntimeInitPayload,
+    sink_failure: bool,
+) -> None:
+    original = Exception("Control request timeout: initialize")
+    original.__cause__ = TimeoutError()
+    transport = MagicMock()
+    transport.close = AsyncMock()
+    forwarded = asyncio.Event()
+    order: list[str] = []
+    callback = None
+
+    def factory(options: Any) -> Any:
+        nonlocal callback
+        callback = options.stderr
+        return transport
+
+    async def send_log(_level: str, message: str, **extra: object) -> None:
+        if extra.get("source") == "claude_stderr":
+            assert message == "ECONNREFUSED [stderr content withheld]"
+            forwarded.set()
+        if message == "Claude SDK initialization failed":
+            order.append("diagnostics")
+            assert extra["phase"] == "initialize"
+            assert extra["cause_type"] == "TimeoutError"
+            assert extra["stderr_tail"] == ["ECONNREFUSED [stderr content withheld]"]
+            assert isinstance(extra["elapsed_ms"], float)
+            if sink_failure:
+                raise RuntimeError("synthetic log sink failure")
+
+    async def connect() -> None:
+        assert callback is not None
+        callback("ECONNREFUSED token=synthetic-secret prompt=synthetic-payload")
+        # Delivery must be running before __aenter__ returns or raises.
+        async with asyncio.timeout(1):
+            await forwarded.wait()
+        raise original
+
+    async def send_error(*_args: Any, **kwargs: Any) -> None:
+        assert kwargs["cause"] is original
+        order.append("terminal")
+        if sink_failure:
+            raise RuntimeError("synthetic error sink failure")
+
+    async def disconnect() -> None:
+        order.append("disconnect")
+        if sink_failure:
+            raise RuntimeError("synthetic disconnect failure")
+
+    mock_socket_writer.send_log = AsyncMock(side_effect=send_log)
+    mock_socket_writer.send_error = AsyncMock(side_effect=send_error)
+    if sink_failure:
+        mock_socket_writer.send_done.side_effect = RuntimeError(
+            "synthetic done failure"
+        )
+    mock_claude_sdk_client.connect.side_effect = connect
+    mock_claude_sdk_client.disconnect.side_effect = disconnect
+    with patch.object(
+        runtime_module, "ClaudeSDKClient", return_value=mock_claude_sdk_client
+    ):
+        runtime = ClaudeAgentRuntime(mock_socket_writer, transport_factory=factory)
+        with pytest.raises(Exception) as excinfo:
+            await runtime.run(sample_init_payload)
+    assert excinfo.value is original
+    assert isinstance(excinfo.value.__cause__, TimeoutError)
+    assert "ECONNREFUSED" in "\n".join(excinfo.value.__notes__)
+    assert "synthetic-secret" not in "\n".join(excinfo.value.__notes__)
+    assert order == ["terminal", "diagnostics", "disconnect"]
+    transport.close.assert_awaited_once()
+    mock_claude_sdk_client.query.assert_not_awaited()
+    assert runtime.client is None
+    assert "synthetic-secret" not in str(mock_socket_writer.send_log.call_args_list)
+
+
+@pytest.mark.anyio
+async def test_initialization_cancellation_disconnects_and_closes_transport(
+    mock_socket_writer: MagicMock,
+    mock_claude_sdk_client: MagicMock,
+    sample_init_payload: RuntimeInitPayload,
+) -> None:
+    initializing = asyncio.Event()
+    transport = MagicMock()
+    transport.close = AsyncMock()
+
+    async def connect() -> None:
+        initializing.set()
+        await asyncio.Event().wait()
+
+    mock_claude_sdk_client.connect.side_effect = connect
+    with patch.object(
+        runtime_module, "ClaudeSDKClient", return_value=mock_claude_sdk_client
+    ):
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: transport
+        )
+        task = asyncio.create_task(runtime.run(sample_init_payload))
+        await initializing.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    mock_claude_sdk_client.disconnect.assert_awaited_once()
+    transport.close.assert_awaited_once()
+    assert runtime.client is None
+
+
+@pytest.mark.anyio
+async def test_initialization_failure_bounds_disconnect_and_fallback_close(
+    mock_socket_writer: MagicMock,
+    mock_claude_sdk_client: MagicMock,
+    sample_init_payload: RuntimeInitPayload,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(runtime_module, "_CLIENT_CLEANUP_TIMEOUT_SECONDS", 0.01)
+    original = ValueError("synthetic initialization failure")
+    mock_claude_sdk_client.connect.side_effect = original
+
+    async def blocked() -> None:
+        await asyncio.Event().wait()
+
+    mock_claude_sdk_client.disconnect.side_effect = blocked
+    transport = MagicMock()
+    transport.close = AsyncMock(side_effect=blocked)
+    with patch.object(
+        runtime_module, "ClaudeSDKClient", return_value=mock_claude_sdk_client
+    ):
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: transport
+        )
+        async with asyncio.timeout(1):
+            with pytest.raises(ValueError) as excinfo:
+                await runtime.run(sample_init_payload)
+    assert excinfo.value is original
+    mock_socket_writer.send_error.assert_awaited_once()
+    transport.close.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_real_sdk_initialization_timeout_closes_reader_and_keeps_cause(
+    mock_socket_writer: MagicMock,
+    sample_init_payload: RuntimeInitPayload,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Exercise the pinned SDK's real initialize request and disconnect lifecycle."""
+    reader_stopped = asyncio.Event()
+    closed = asyncio.Event()
+    initialize = Query.initialize
+
+    async def short_initialize(query: Query) -> dict[str, Any] | None:
+        query._initialize_timeout = 0.01
+        return await initialize(query)
+
+    monkeypatch.setattr(Query, "initialize", short_initialize)
+
+    class SilentTransport(Transport):
+        def __init__(self, options: ClaudeAgentOptions) -> None:
+            self.options = options
+
+        async def connect(self) -> None:
+            assert self.options.stderr is not None
+            self.options.stderr("ETIMEDOUT synthetic-secret")
+
+        async def write(self, data: str) -> None:
+            pass
+
+        async def close(self) -> None:
+            closed.set()
+
+        async def end_input(self) -> None:
+            pass
+
+        def is_ready(self) -> bool:
+            return not closed.is_set()
+
+        async def read_messages(self):
+            try:
+                await asyncio.Event().wait()
+                yield {}
+            finally:
+                reader_stopped.set()
+
+    runtime = ClaudeAgentRuntime(mock_socket_writer, transport_factory=SilentTransport)
+    async with asyncio.timeout(1):
+        with pytest.raises(Exception) as excinfo:
+            await runtime.run(sample_init_payload)
+    assert str(excinfo.value) == "Control request timeout: initialize"
+    assert isinstance(excinfo.value.__cause__, TimeoutError)
+    assert reader_stopped.is_set()
+    assert closed.is_set()
+    assert runtime.client is None
+    terminal = mock_socket_writer.send_error.await_args
+    assert terminal is not None
+    assert terminal.kwargs["cause"] is excinfo.value
+    logs = mock_socket_writer.send_log.call_args_list
+    assert any(call.kwargs.get("source") == "claude_stderr" for call in logs)
+    assert "synthetic-secret" not in str(logs)

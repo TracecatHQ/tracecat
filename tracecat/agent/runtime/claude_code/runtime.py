@@ -95,6 +95,10 @@ from tracecat.agent.mcp.utils import (
     normalize_mcp_tool_name,
 )
 from tracecat.agent.runtime.claude_code.adapter import ClaudeSDKAdapter
+from tracecat.agent.runtime.claude_code.diagnostics import (
+    DIAGNOSTIC_TIMEOUT_SECONDS,
+    StderrForwarder,
+)
 from tracecat.agent.runtime.claude_code.session_lines import (
     APPROVAL_CONTINUATION_PROMPT,
     is_approval_continuation_prompt_line,
@@ -119,6 +123,7 @@ CLAUDE_PROJECT_DIR_MAX_LENGTH = 200
 _SESSION_FRAME_MARGIN = 4096
 CLAUDE_PROJECT_DIR_SANITIZE_RE = re.compile(r"[^a-zA-Z0-9]")
 LOG_PREVIEW_CHARS = 8000
+_CLIENT_CLEANUP_TIMEOUT_SECONDS = 4.0
 
 
 def _claude_project_dir_name(cwd: Path) -> str:
@@ -1754,6 +1759,46 @@ class ClaudeAgentRuntime:
 
         session_flush_task: asyncio.Task[None] | None = None
         transport: Transport | None = None
+        client: ClaudeSDKClient | None = None
+        client_closed = False
+        initialization_started_at: float | None = None
+        client_initialized = False
+        completed = False
+
+        async def send_stderr(summary: str) -> None:
+            await self._event_writer.send_log(
+                "warning", summary, source="claude_stderr"
+            )
+
+        stderr_forwarder = StderrForwarder(send_stderr)
+
+        async def log_initialization_failure(error: BaseException) -> None:
+            if initialization_started_at is None or client_initialized:
+                return
+            # Emit only types and fixed/minimized diagnostics, never exception
+            # text, commands, environment values, or SDK initialization payloads.
+            with suppress(Exception):
+                async with asyncio.timeout(DIAGNOSTIC_TIMEOUT_SECONDS):
+                    await self._event_writer.send_log(
+                        "warning",
+                        "Claude SDK initialization failed",
+                        phase="initialize",
+                        elapsed_ms=round(
+                            (perf_counter() - initialization_started_at) * 1000, 2
+                        ),
+                        error_type=type(error).__name__,
+                        cause_type=(
+                            type(error.__cause__).__name__
+                            if error.__cause__ is not None
+                            else None
+                        ),
+                        stderr_delivery_failed=stderr_forwarder.delivery_failed,
+                        **(
+                            transport.initialization_diagnostics()
+                            if isinstance(transport, SandboxedCLITransport)
+                            else stderr_forwarder.tail.snapshot()
+                        ),
+                    )
 
         # Stable per-session working directory for the Claude Code CLI.
         # IMPORTANT: Must be deterministic per session_id. The CLI indexes
@@ -1777,7 +1822,6 @@ class ClaudeAgentRuntime:
                 fork_session=fork_session,
             )
 
-            stderr_queue: asyncio.Queue[str] = asyncio.Queue()
             reserved_subagent_server_names = self._reserved_subagent_server_names(
                 subagent.alias for subagent in payload.subagents
             )
@@ -1791,10 +1835,6 @@ class ClaudeAgentRuntime:
             agent_definitions = self._build_agent_definitions(
                 payload=payload, existing_mcp_names=set(mcp_servers)
             )
-
-            def handle_claude_stderr(line: str) -> None:
-                """Forward Claude CLI stderr to loopback via queue."""
-                stderr_queue.put_nowait(line)
 
             await self._event_writer.send_log(
                 "debug",
@@ -1813,14 +1853,8 @@ class ClaudeAgentRuntime:
                 stdio_mcp_servers=stdio_mcp_servers,
                 stdio_tools_by_server=stdio_mcp_spec.tools_by_server,
                 agent_definitions=agent_definitions,
-                stderr=handle_claude_stderr,
+                stderr=stderr_forwarder.capture,
             )
-
-            async def drain_stderr() -> None:
-                """Background task to drain stderr queue to loopback."""
-                while True:
-                    line = await stderr_queue.get()
-                    await self._event_writer.send_log("warning", f"[stderr] {line}")
 
             logger.debug(
                 "Creating ClaudeSDKClient",
@@ -1855,118 +1889,124 @@ class ClaudeAgentRuntime:
             transport = self._transport_factory(options)
             client = ClaudeSDKClient(options=options, transport=transport)
             logger.debug("Client created, entering context")
-            async with client:
-                self.client = client
-                self._client_connected_event.set()
-                log_benchmark_phase("runtime_client_connected")
-                stderr_task = asyncio.create_task(drain_stderr())
-                session_flush_task = asyncio.create_task(
-                    self._flush_session_lines_when_signaled(
-                        is_approval_continuation=payload.is_approval_continuation
-                    )
+            stderr_forwarder.start()
+            initialization_started_at = perf_counter()
+            await client.__aenter__()
+            client_initialized = True
+            self.client = client
+            self._client_connected_event.set()
+            log_benchmark_phase("runtime_client_connected")
+            session_flush_task = asyncio.create_task(
+                self._flush_session_lines_when_signaled(
+                    is_approval_continuation=payload.is_approval_continuation
                 )
-                try:
+            )
+            await self._event_writer.send_log(
+                "info",
+                "Sending query to Claude SDK",
+                is_continuation=payload.is_approval_continuation,
+                **query_log_extra,
+            )
+            if isinstance(query_input, str) and self._is_manual_compaction_prompt(
+                query_input
+            ):
+                await self._event_writer.send_stream_event(
+                    self._build_compaction_status_event(phase="started")
+                )
+            await client.query(query_input)
+            log_benchmark_phase("runtime_query_sent")
+            self._query_sent_event.set()
+            await self._send_pending_interrupt()
+
+            await self._event_writer.send_log("debug", "Query sent, receiving response")
+
+            first_stream_event_logged = False
+            async for message in client.receive_response():
+                logger.debug("Received message", message_type=type(message).__name__)
+                raw_sdk_session_id = getattr(message, "session_id", None)
+                sdk_session_id = (
+                    raw_sdk_session_id if isinstance(raw_sdk_session_id, str) else None
+                )
+                await self._capture_sdk_session_id(
+                    sdk_session_id,
+                    resume_session_id=resume_session_id,
+                    fork_session=fork_session,
+                )
+                if isinstance(message, StreamEvent):
+                    if not first_stream_event_logged:
+                        first_stream_event_logged = True
+                        log_benchmark_phase("runtime_first_stream_event")
+
+                    # Partial streaming delta - forward to UI
+                    unified = self._stream_adapter.to_unified_event(message)
+                    await self._event_writer.send_stream_event(unified)
+                    self._session_flush_event.set()
+
+                elif isinstance(message, ResultMessage):
                     await self._event_writer.send_log(
                         "info",
-                        "Sending query to Claude SDK",
-                        is_continuation=payload.is_approval_continuation,
-                        **query_log_extra,
+                        "Agent turn completed",
+                        num_turns=message.num_turns,
+                        duration_ms=message.duration_ms,
+                        usage=message.usage,
                     )
-                    if isinstance(
-                        query_input, str
-                    ) and self._is_manual_compaction_prompt(query_input):
-                        await self._event_writer.send_stream_event(
-                            self._build_compaction_status_event(phase="started")
-                        )
-                    await client.query(query_input)
-                    log_benchmark_phase("runtime_query_sent")
-                    self._query_sent_event.set()
-                    await self._send_pending_interrupt()
-
-                    await self._event_writer.send_log(
-                        "debug", "Query sent, receiving response"
+                    log_benchmark_phase(
+                        "runtime_result_received",
+                        duration_ms=message.duration_ms,
+                        num_turns=message.num_turns,
+                    )
+                    result_output = (
+                        message.structured_output
+                        if message.structured_output is not None
+                        else message.result
+                    )
+                    await self._event_writer.send_result(
+                        usage=message.usage,
+                        num_turns=message.num_turns,
+                        duration_ms=message.duration_ms,
+                        output=result_output,
                     )
 
-                    first_stream_event_logged = False
-                    async for message in client.receive_response():
-                        logger.debug(
-                            "Received message", message_type=type(message).__name__
-                        )
-                        raw_sdk_session_id = getattr(message, "session_id", None)
-                        sdk_session_id = (
-                            raw_sdk_session_id
-                            if isinstance(raw_sdk_session_id, str)
-                            else None
-                        )
-                        await self._capture_sdk_session_id(
-                            sdk_session_id,
-                            resume_session_id=resume_session_id,
-                            fork_session=fork_session,
-                        )
-                        if isinstance(message, StreamEvent):
-                            if not first_stream_event_logged:
-                                first_stream_event_logged = True
-                                log_benchmark_phase("runtime_first_stream_event")
+                elif isinstance(message, SystemMessage):
+                    await self._handle_system_message(message)
 
-                            # Partial streaming delta - forward to UI
-                            unified = self._stream_adapter.to_unified_event(message)
-                            await self._event_writer.send_stream_event(unified)
-                            self._session_flush_event.set()
+                else:
+                    # AssistantMessage, UserMessage, etc.
+                    await self._emit_new_session_lines()
 
-                        elif isinstance(message, ResultMessage):
-                            await self._event_writer.send_log(
-                                "info",
-                                "Agent turn completed",
-                                num_turns=message.num_turns,
-                                duration_ms=message.duration_ms,
-                                usage=message.usage,
-                            )
-                            log_benchmark_phase(
-                                "runtime_result_received",
-                                duration_ms=message.duration_ms,
-                                num_turns=message.num_turns,
-                            )
-                            result_output = (
-                                message.structured_output
-                                if message.structured_output is not None
-                                else message.result
-                            )
-                            await self._event_writer.send_result(
-                                usage=message.usage,
-                                num_turns=message.num_turns,
-                                duration_ms=message.duration_ms,
-                                output=result_output,
-                            )
-
-                        elif isinstance(message, SystemMessage):
-                            await self._handle_system_message(message)
-
-                        else:
-                            # AssistantMessage, UserMessage, etc.
-                            await self._emit_new_session_lines()
-
-                            if isinstance(message, AssistantMessage):
-                                await self._register_assistant_tool_approvals(message)
-                            elif isinstance(message, UserMessage):
-                                await self._emit_user_tool_results(message)
-                finally:
-                    stderr_task.cancel()
-                    try:
-                        await stderr_task
-                    except asyncio.CancelledError:
-                        pass
+                    if isinstance(message, AssistantMessage):
+                        await self._register_assistant_tool_approvals(message)
+                    elif isinstance(message, UserMessage):
+                        await self._emit_user_tool_results(message)
+            await client.__aexit__(None, None, None)
+            client_closed = True
 
             # CLI has exited — session file is fully flushed.
             await self._emit_new_session_lines(
                 is_approval_continuation=payload.is_approval_continuation
             )
             log_benchmark_phase("runtime_complete")
+            completed = True
 
         except Exception as e:
             # The SDK reports a dead sandbox process as a plain Exception, so
             # recover the exit code the transport recorded before attributing.
             error: Exception = _sandbox_process_exit_error(transport) or e
             failure = agent_runtime_failure(error, fallback_message=str(e))
+            if initialization_started_at is not None and not client_initialized:
+                # Keep safe evidence with the original cause even if both log
+                # and terminal-event delivery fail. Notes do not change its type,
+                # message, classification, or retry policy.
+                with suppress(Exception):
+                    snapshot = (
+                        transport.initialization_diagnostics()
+                        if isinstance(transport, SandboxedCLITransport)
+                        else stderr_forwarder.tail.snapshot()
+                    )
+                    e.add_note(
+                        "Claude SDK initialization diagnostics: "
+                        + orjson.dumps(snapshot).decode()
+                    )
             # Log the attributed error's own type and message together, so the
             # two never describe different exceptions. When attribution
             # replaced the SDK's exception, its text is kept alongside as the
@@ -1978,19 +2018,56 @@ class ClaudeAgentRuntime:
             if error is not e:
                 log_fields["cause_type"] = type(e).__name__
                 log_fields["cause_message"] = str(e)
-            await self._event_writer.send_log("error", "Runtime error", **log_fields)
-            await self._event_writer.send_error(
-                failure.message,
-                classification=failure.classification,
-                cause=error,
-            )
+            # Record terminal failure before best-effort diagnostics or cleanup.
+            # Delivery failure must not replace the original SDK exception.
+            with suppress(Exception):
+                async with asyncio.timeout(DIAGNOSTIC_TIMEOUT_SECONDS):
+                    await self._event_writer.send_error(
+                        failure.message,
+                        classification=failure.classification,
+                        cause=error,
+                    )
+            await log_initialization_failure(e)
+            with suppress(Exception):
+                async with asyncio.timeout(DIAGNOSTIC_TIMEOUT_SECONDS):
+                    if initialization_started_at is not None and not client_initialized:
+                        await self._event_writer.send_log(
+                            "error", "Runtime error", error_type=type(error).__name__
+                        )
+                    else:
+                        await self._event_writer.send_log(
+                            "error", "Runtime error", **log_fields
+                        )
             if error is e:
                 raise
             raise error from e
+        except asyncio.CancelledError as e:
+            await log_initialization_failure(e)
+            raise
         finally:
+            with suppress(Exception):
+                async with asyncio.timeout(DIAGNOSTIC_TIMEOUT_SECONDS):
+                    await stderr_forwarder.close()
+            # __aexit__ is not called when __aenter__ fails. Disconnect closes
+            # SDK reader tasks; close the transport as well because the SDK may
+            # have failed before creating its query object. Both are idempotent.
+            if client is not None and not client_closed:
+                with suppress(Exception):
+                    async with asyncio.timeout(_CLIENT_CLEANUP_TIMEOUT_SECONDS):
+                        await client.disconnect()
+                if transport is not None:
+                    with suppress(Exception):
+                        async with asyncio.timeout(_CLIENT_CLEANUP_TIMEOUT_SECONDS):
+                            await transport.close()
             if session_flush_task is not None:
                 session_flush_task.cancel()
-                with suppress(asyncio.CancelledError):
-                    await session_flush_task
+                with suppress(asyncio.CancelledError, Exception):
+                    async with asyncio.timeout(DIAGNOSTIC_TIMEOUT_SECONDS):
+                        await session_flush_task
             self.client = None
-            await self._event_writer.send_done()
+            if completed:
+                await self._event_writer.send_done()
+            else:
+                with suppress(Exception):
+                    async with asyncio.timeout(DIAGNOSTIC_TIMEOUT_SECONDS):
+                        await self._event_writer.send_done()

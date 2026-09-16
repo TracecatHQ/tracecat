@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import socket
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -689,3 +690,155 @@ async def test_transport_records_shim_exit_code_observed_on_write(
         await transport.write('{"type":"user"}\n')
 
     assert transport.exit_code == 137
+
+
+@pytest.mark.anyio
+async def test_transport_stderr_flood_is_bounded_and_callback_safe(
+    tmp_path: Path,
+) -> None:
+    transport = _make_transport(tmp_path, use_jailed_paths=False)
+    reader = asyncio.StreamReader()
+    transport._process = cast(Any, SimpleNamespace(stderr=reader, returncode=None))
+    calls: list[str] = []
+
+    def failing_callback(line: str) -> None:
+        calls.append(line)
+        raise RuntimeError("synthetic sink failure")
+
+    transport._options.stderr = failing_callback
+    # Exceed StreamReader's readline limit, include multibyte content, then
+    # verify the later error survives. No newline may cause unbounded buffering.
+    data = b"ENOENT " + ("🔒" * 100_000).encode() + b"\n" + b"secret\n" * 1000
+    data += b"ENOSPC synthetic-secret\n"
+    reader.feed_data(data)
+    reader.feed_eof()
+    await transport._drain_stderr()
+    snapshot = transport.initialization_diagnostics()
+    assert snapshot["stderr_bytes"] == len(data)
+    assert snapshot["stderr_lines"] == 1002
+    assert snapshot["stderr_tail_bytes"] <= 4096
+    assert len(snapshot["stderr_tail"]) <= 64
+    assert snapshot["stderr_callback_failed"] is True
+    assert calls == ["ENOENT [stderr content withheld]"]
+    assert "ENOSPC" in await transport._collect_error_stderr()
+    assert "secret" not in repr(snapshot)
+    assert "🔒" not in repr(snapshot)
+
+
+@pytest.mark.anyio
+async def test_transport_retains_unterminated_stderr_before_initialization_timeout(
+    tmp_path: Path,
+) -> None:
+    transport = _make_transport(tmp_path, use_jailed_paths=False)
+    reader = asyncio.StreamReader()
+    transport._process = cast(Any, SimpleNamespace(stderr=reader, returncode=None))
+    reader.feed_data(b"ECONNREFUSED synthetic-secret")
+    task = asyncio.create_task(transport._drain_stderr())
+    await asyncio.sleep(0)
+    snapshot = transport.initialization_diagnostics()
+    assert snapshot["stderr_partial"] == "ECONNREFUSED [stderr content withheld]"
+    assert snapshot["process_returncode"] is None
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+
+@pytest.mark.anyio
+async def test_transport_close_cancellation_kills_process_and_releases_resources(
+    tmp_path: Path,
+) -> None:
+    transport = _make_transport(tmp_path, use_jailed_paths=False)
+    waiting = asyncio.Event()
+    killed = asyncio.Event()
+
+    class Process:
+        returncode: int | None = None
+        stdin = None
+
+        async def wait(self) -> int:
+            waiting.set()
+            await killed.wait()
+            return -9
+
+        def kill(self) -> None:
+            self.returncode = -9
+            killed.set()
+
+    process = Process()
+    transport._process = cast(Any, process)
+    owned_dir = tmp_path / "owned"
+    owned_dir.mkdir()
+    transport._spawned_runtime = transport_module.SpawnedRuntime(
+        process=cast(Any, process), job_dir=owned_dir
+    )
+    task = asyncio.create_task(transport.close())
+    await waiting.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert killed.is_set()
+    assert not owned_dir.exists()
+    assert transport._process is None
+    assert transport.exit_code is None
+    await transport.close()
+
+
+@pytest.mark.anyio
+async def test_transport_kills_and_reaps_child_ignoring_terminate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Use an actual child to verify deadlines and force-kill escalation."""
+    monkeypatch.setattr(transport_module, "_PROCESS_EXIT_TIMEOUT_SECONDS", 0.01)
+    transport = _make_transport(tmp_path, use_jailed_paths=False)
+    ready = asyncio.Event()
+    transport._options.stderr = lambda _: ready.set()
+    process = await asyncio.create_subprocess_exec(
+        sys.executable,
+        "-c",
+        "import signal, sys, time; "
+        "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+        "print('ENOENT synthetic-secret', file=sys.stderr, flush=True); "
+        "time.sleep(60)",
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    transport._process = process
+    transport._stderr_task = asyncio.create_task(transport._drain_stderr())
+    try:
+        async with asyncio.timeout(2):
+            await ready.wait()
+            snapshot = transport.initialization_diagnostics()
+            assert snapshot["process_started"] is True
+            assert snapshot["process_returncode"] is None
+            assert snapshot["stderr_bytes"] > 0
+            assert snapshot["sdk_version"]
+            await transport.close()
+        assert process.returncode == -9
+        assert transport._stderr_task is None
+        assert transport.exit_code is None
+    finally:
+        if process.returncode is None:
+            process.kill()
+            await process.wait()
+
+
+@pytest.mark.anyio
+async def test_transport_initialization_counts_stdout_without_retaining_payload(
+    tmp_path: Path,
+) -> None:
+    transport = _make_transport(tmp_path, use_jailed_paths=False)
+    reader = asyncio.StreamReader()
+    data = b'synthetic-private-text\n{"type":"control_response","secret":"synthetic"}\n'
+    reader.feed_data(data)
+    reader.feed_eof()
+    transport._process = cast(
+        Any, SimpleNamespace(stdout=reader, stderr=None, returncode=0)
+    )
+    messages = [message async for message in transport.read_messages()]
+    assert len(messages) == 1
+    snapshot = transport.initialization_diagnostics()
+    assert snapshot["stdout_bytes"] == len(data)
+    assert snapshot["stdout_messages"] == 1
+    assert snapshot["process_returncode"] == 0
+    assert "synthetic" not in repr(snapshot)
