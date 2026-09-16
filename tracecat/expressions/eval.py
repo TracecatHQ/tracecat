@@ -170,7 +170,7 @@ def get_iterables_from_expression(
         isinstance(iterable_exprs, list)
         and all(isinstance(expr, IterableExpr) for expr in iterable_exprs)
     ):
-        raise ValueError(
+        raise TracecatExpressionError(
             "Invalid for_each expression. Must be an IterableExpr or a list of IterableExprs."
         )
     return iterable_exprs
