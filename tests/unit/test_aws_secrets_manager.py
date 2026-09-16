@@ -213,6 +213,19 @@ async def test_disabled_store_and_region_mismatch_skip_network(
     assert fake_aws.sm_calls == []
 
 
+async def test_friendly_name_reference_skips_region_check(
+    fake_aws: type[_FakeSession],
+) -> None:
+    fake_aws.sm_response = {"SecretString": "by-name"}
+    resolved = await resolve_aws_secret_references(
+        [make_reference(secret_arn="prod/app/api-key", region="eu-west-1")]
+    )
+    assert resolved == {"api": {"TOKEN": "by-name"}}
+    assert fake_aws.sm_calls == [
+        {"SecretId": "prod/app/api-key", "VersionStage": "AWSCURRENT"}
+    ]
+
+
 @pytest.mark.parametrize(
     ("make_error", "target", "expected", "aws_code"),
     [
