@@ -20,6 +20,9 @@ from tracecat.authz.scopes import ORG_MEMBER_FLOOR_SCOPES, ORG_MEMBER_ROLE_SLUG
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import SupportsExecute
 from tracecat.db.models import (
+    ExternalGroupMapping,
+    ExternalGroupMember,
+    ExternalUser,
     Group,
     GroupMember,
     GroupRoleAssignment,
@@ -101,6 +104,30 @@ async def query_effective_scopes(
         )
     )
 
+    # IdP group assignments: active external user → mapping → group role
+    idp_group_scopes = (
+        select(Scope.name)
+        .join(RoleScope, RoleScope.scope_id == Scope.id)
+        .join(DBRole, DBRole.id == RoleScope.role_id)
+        .join(GroupRoleAssignment, GroupRoleAssignment.role_id == DBRole.id)
+        .join(
+            ExternalGroupMapping,
+            ExternalGroupMapping.group_id == GroupRoleAssignment.group_id,
+        )
+        .join(
+            ExternalGroupMember,
+            ExternalGroupMember.external_group_id
+            == ExternalGroupMapping.external_group_id,
+        )
+        .join(ExternalUser, ExternalUser.id == ExternalGroupMember.external_user_id)
+        .where(
+            ExternalUser.user_id == user_id,
+            ExternalUser.active,
+            GroupRoleAssignment.organization_id == organization_id,
+            group_workspace_condition,
+        )
+    )
+
     # Presence alone carries a scope floor; same statement as the role paths so
     # a concurrent removal is never read half-applied.
     floor_scopes = select(func.unnest(pg_array(sorted(ORG_MEMBER_FLOOR_SCOPES)))).where(
@@ -109,7 +136,7 @@ async def query_effective_scopes(
             OrganizationMembership.organization_id == organization_id,
         )
     )
-    combined = user_scopes.union(group_scopes, floor_scopes)
+    combined = user_scopes.union(group_scopes, idp_group_scopes, floor_scopes)
     result = await session.execute(combined)
     return frozenset(result.scalars().all())
 

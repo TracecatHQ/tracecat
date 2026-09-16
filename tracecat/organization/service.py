@@ -23,6 +23,7 @@ from tracecat.authz.membership import (
 )
 from tracecat.db.models import (
     AccessToken,
+    ExternalUser,
     Group,
     GroupMember,
     Organization,
@@ -32,6 +33,7 @@ from tracecat.db.models import (
 )
 from tracecat.exceptions import (
     TracecatAuthorizationError,
+    TracecatConflictError,
     TracecatNotFoundError,
 )
 from tracecat.identifiers import SessionID, UserID
@@ -103,7 +105,14 @@ class OrgService(BaseOrgService):
 
     @require_scope("org:member:remove")
     @audit_log(resource_type="organization_member", action="delete")
-    async def delete_member(self, user_id: UserID) -> None:
+    async def delete_member(
+        self,
+        user_id: UserID,
+        *,
+        allow_idp_managed: bool = False,
+        member: User | None = None,
+        commit: bool = True,
+    ) -> None:
         """
         Remove a member of the organization.
 
@@ -114,14 +123,44 @@ class OrgService(BaseOrgService):
         that revokes their organization-scoped MCP tokens. It raises an
         authorization error for superusers, as superusers cannot be removed.
 
+        The identity provider is the source of truth for the users it manages,
+        so an actively linked member cannot be removed here: the next sync would
+        re-provision them and the removal would silently revert. The linkage is
+        per-tenant, so another organization's admin is unaffected.
+
         Args:
             user_id (UserID): The unique identifier of the user to be removed.
+            allow_idp_managed (bool): Bypass the guard. Reserved for the SCIM
+                deprovisioning path, which removes the member precisely because
+                the provider has already deprovisioned them.
+            member (User | None): An already-resolved member, for a caller whose
+                own preceding writes remove the last row this lookup joins on.
+            commit (bool): Commit on success. The SCIM path passes ``False`` so
+                deactivation and removal land in one transaction.
 
         Raises:
             TracecatAuthorizationError: If the user is a superuser and cannot be deleted.
+            TracecatConflictError: If the user is managed by the identity
+                provider and ``allow_idp_managed`` is not set.
         """
+        idp_managed = await self.session.scalar(
+            select(
+                select(ExternalUser.id)
+                .where(
+                    ExternalUser.user_id == user_id,
+                    ExternalUser.organization_id == self.organization_id,
+                    ExternalUser.active,
+                )
+                .exists()
+            )
+        )
+        if idp_managed and not allow_idp_managed:
+            raise TracecatConflictError(
+                "Member is managed by the identity provider; deprovision them there."
+            )
+
         await lock_role_changes(self.session, self.organization_id)
-        user = await self.get_member(user_id)
+        user = member if member is not None else await self.get_member(user_id)
         if user.is_superuser:
             raise TracecatAuthorizationError("Cannot delete superuser")
 
@@ -152,7 +191,8 @@ class OrgService(BaseOrgService):
                 OrganizationMembership.organization_id == self.organization_id,
             )
         )
-        await self.session.commit()
+        if commit:
+            await self.session.commit()
 
     @require_scope("org:member:update")
     @audit_log(resource_type="organization_member", action="update")

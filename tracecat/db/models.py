@@ -5993,6 +5993,23 @@ _role_paths = union_all(
         GroupMember,
         GroupMember.group_id == GroupRoleAssignment.group_id,
     ),
+    # IdP-sourced: an active external user reaches a group through its mapping.
+    select(
+        type_coerce(ExternalUser.user_id, UUID).label("user_id"),
+        type_coerce(GroupRoleAssignment.organization_id, UUID).label("organization_id"),
+        type_coerce(GroupRoleAssignment.workspace_id, UUID).label("workspace_id"),
+    )
+    .join_from(
+        GroupRoleAssignment,
+        ExternalGroupMapping,
+        ExternalGroupMapping.group_id == GroupRoleAssignment.group_id,
+    )
+    .join(
+        ExternalGroupMember,
+        ExternalGroupMember.external_group_id == ExternalGroupMapping.external_group_id,
+    )
+    .join(ExternalUser, ExternalUser.id == ExternalGroupMember.external_user_id)
+    .where(ExternalUser.active),
 ).subquery("role_paths")
 
 # Workspace rows only: org presence is the stored OrganizationMembership row.

@@ -58,6 +58,7 @@ from tracecat.db.engine import (
 )
 from tracecat.db.models import (
     AccessToken,
+    ExternalUser,
     OAuthAccount,
     OrganizationDomain,
     OrganizationMembership,
@@ -216,6 +217,11 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         if AuthType.BASIC not in config.TRACECAT__AUTH_TYPES:
             return False
 
+        # An IdP-provisioned user holds a generated password the IdP cannot
+        # revoke, so treat provisioning like that org enforcing SAML.
+        if await self._is_externally_managed(user.id):
+            return False
+
         org_ids = await self._list_user_org_ids(user.id)
         if not org_ids:
             return True
@@ -298,6 +304,13 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             if await self._is_org_saml_enforced(org_id):
                 return True
         return False
+
+    async def _is_externally_managed(self, user_id: uuid.UUID) -> bool:
+        """Check whether an IdP provisions this user in any organization."""
+        statement = select(ExternalUser.id).where(ExternalUser.user_id == user_id)
+        async with get_async_session_auth_context_manager() as session:
+            result = await session.execute(statement)
+            return result.first() is not None
 
     async def _is_saml_enforced_for_oauth(self, email: str) -> bool:
         """Check if SAML enforcement blocks OAuth for this email.
@@ -595,6 +608,19 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                         audit_sink=audit_sink,
                         error=str(exc),
                     )
+
+    async def forgot_password(self, user: User, request: Request | None = None) -> None:
+        """Start a reset, unless auth policy forbids this user a local password."""
+        # Mint no token at all: a reset the user could never use is a confusing
+        # state, and the router returns 202 either way so nothing is leaked.
+        if not await self._is_local_password_login_allowed(user):
+            self.logger.info(
+                "Blocked password reset request by auth policy",
+                user_id=str(user.id),
+                email=user.email,
+            )
+            return
+        await super().forgot_password(user, request)
 
     async def on_after_forgot_password(
         self, user: User, token: str, request: Request | None = None

@@ -155,7 +155,7 @@ async def compute_effective_scopes(role: Role) -> frozenset[str]:
     if role.is_platform_superuser:
         return frozenset({"*"})
 
-    if role.type == "service_account":
+    if role.type in ("service_account", "scim"):
         return role.scopes or frozenset()
 
     if role.type == "service":
@@ -446,7 +446,7 @@ async def _authenticate_api_key(
 
 @contextmanager
 def TemporaryRole(
-    type: Literal["user", "service", "service_account"] = "service",
+    type: Literal["user", "service", "service_account", "scim"] = "service",
     user_id: uuid.UUID | None = None,
     service_id: InternalServiceID = "tracecat-service",
 ):

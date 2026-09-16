@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from contextlib import asynccontextmanager
+from unittest.mock import AsyncMock
 
 import pytest
 from cryptography.fernet import Fernet
@@ -21,6 +22,7 @@ from tracecat.api.common import bootstrap_role
 from tracecat.auth.enums import AuthType
 from tracecat.auth.users import UserManager
 from tracecat.db.models import (
+    ExternalUser,
     OAuthAccount,
     Organization,
     OrganizationDomain,
@@ -355,3 +357,126 @@ async def test_authenticate_rejects_password_for_workspace_only_saml_org(
     )
 
     assert authenticated_user is None
+
+
+async def _link_external_user(
+    session: AsyncSession, *, user: User, organization: Organization
+) -> ExternalUser:
+    external_user = ExternalUser(
+        id=uuid.uuid4(),
+        organization_id=organization.id,
+        user_id=user.id,
+        external_id=uuid.uuid4().hex,
+    )
+    session.add(external_user)
+    await session.commit()
+    return external_user
+
+
+@pytest.mark.anyio
+async def test_authenticate_rejects_password_for_scim_provisioned_user(
+    session: AsyncSession,
+    user_manager: UserManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user, organization = await _create_user_with_org_membership(
+        session,
+        email="user@acme-scim.com",
+        password="password-123456",
+        saml_enforced=False,
+    )
+    await _link_external_user(session, user=user, organization=organization)
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__AUTH_TYPES",
+        {AuthType.BASIC, AuthType.SAML},
+    )
+
+    authenticated_user = await user_manager.authenticate(
+        OAuth2PasswordRequestForm(
+            username=user.email,
+            password="password-123456",
+        )
+    )
+
+    assert authenticated_user is None
+
+
+@pytest.mark.anyio
+async def test_authenticate_allows_password_without_external_user_row(
+    session: AsyncSession,
+    user_manager: UserManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user, _ = await _create_user_with_org_membership(
+        session,
+        email="user@acme-no-scim.com",
+        password="password-123456",
+        saml_enforced=False,
+    )
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__AUTH_TYPES",
+        {AuthType.BASIC, AuthType.SAML},
+    )
+
+    authenticated_user = await user_manager.authenticate(
+        OAuth2PasswordRequestForm(
+            username=user.email,
+            password="password-123456",
+        )
+    )
+
+    assert authenticated_user is not None
+    assert authenticated_user.id == user.id
+
+
+@pytest.mark.anyio
+async def test_forgot_password_blocked_for_scim_provisioned_user(
+    session: AsyncSession,
+    user_manager: UserManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user, organization = await _create_user_with_org_membership(
+        session,
+        email="user@acme-scim-reset.com",
+        password="password-123456",
+        saml_enforced=False,
+    )
+    await _link_external_user(session, user=user, organization=organization)
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__AUTH_TYPES",
+        {AuthType.BASIC, AuthType.SAML},
+    )
+    on_after = AsyncMock()
+    monkeypatch.setattr(user_manager, "on_after_forgot_password", on_after)
+
+    await user_manager.forgot_password(user)
+
+    on_after.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_forgot_password_allowed_without_external_user_row(
+    session: AsyncSession,
+    user_manager: UserManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user, _ = await _create_user_with_org_membership(
+        session,
+        email="user@acme-no-scim-reset.com",
+        password="password-123456",
+        saml_enforced=False,
+    )
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__AUTH_TYPES",
+        {AuthType.BASIC, AuthType.SAML},
+    )
+    on_after = AsyncMock()
+    monkeypatch.setattr(user_manager, "on_after_forgot_password", on_after)
+
+    await user_manager.forgot_password(user)
+
+    on_after.assert_awaited_once()
