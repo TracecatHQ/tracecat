@@ -1,7 +1,7 @@
 """Tracecat managed actions and integrations registry."""
 
-__version__ = "1.0.0-beta.52"
-__pep440_version__ = "1.0.0b52"
+__version__ = "1.0.0"
+__pep440_version__ = "1.0.0"
 
 
 from tracecat_registry import types
