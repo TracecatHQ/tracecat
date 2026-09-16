@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from uuid import UUID
 
 from sqlalchemy import delete, func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
@@ -22,6 +23,8 @@ from tracecat.db.models import (
     Group,
     GroupMember,
     GroupRoleAssignment,
+    LegacyMembership,
+    LegacyOrganizationMembership,
     Membership,
     OrganizationMembership,
     RoleScope,
@@ -739,6 +742,29 @@ class RBACService(BaseOrgService):
             workspace_id=workspace_id,
             assigned_by=self.role.user_id,
         )
+        # Written for app versions that still read the legacy table.
+        if workspace_id is None:
+            await self.session.execute(
+                pg_insert(LegacyOrganizationMembership)
+                .values(user_id=user_id, organization_id=self.organization_id)
+                .on_conflict_do_nothing(
+                    index_elements=[
+                        LegacyOrganizationMembership.user_id,
+                        LegacyOrganizationMembership.organization_id,
+                    ]
+                )
+            )
+        else:
+            await self.session.execute(
+                pg_insert(LegacyMembership)
+                .values(user_id=user_id, workspace_id=workspace_id)
+                .on_conflict_do_nothing(
+                    index_elements=[
+                        LegacyMembership.user_id,
+                        LegacyMembership.workspace_id,
+                    ]
+                )
+            )
         self.session.add(assignment)
         try:
             await self.session.commit()
@@ -783,6 +809,22 @@ class RBACService(BaseOrgService):
         """Delete a user role assignment."""
         assignment = await self.get_user_assignment(assignment_id)
         await self.session.delete(assignment)
+        # A user holds one assignment per slot, so this was their only path here.
+        if assignment.workspace_id is None:
+            await self.session.execute(
+                delete(LegacyOrganizationMembership).where(
+                    LegacyOrganizationMembership.user_id == assignment.user_id,
+                    LegacyOrganizationMembership.organization_id
+                    == self.organization_id,
+                )
+            )
+        else:
+            await self.session.execute(
+                delete(LegacyMembership).where(
+                    LegacyMembership.user_id == assignment.user_id,
+                    LegacyMembership.workspace_id == assignment.workspace_id,
+                )
+            )
         await self.session.commit()
 
     async def get_user_role_scopes(
