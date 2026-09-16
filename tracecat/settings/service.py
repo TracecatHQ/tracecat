@@ -39,6 +39,7 @@ from tracecat.settings.schemas import (
     BaseSettingsGroup,
     GitSettingsUpdate,
     SAMLSettingsUpdate,
+    SecuritySettingsUpdate,
     SettingCreate,
     SettingUpdate,
 )
@@ -77,6 +78,7 @@ class SettingsService(BaseOrgService):
         SAMLSettingsUpdate,
         AppSettingsUpdate,
         AuditSettingsUpdate,
+        SecuritySettingsUpdate,
     ]
     """The set of settings groups that are managed by the service."""
 
@@ -329,6 +331,19 @@ class SettingsService(BaseOrgService):
         audit_settings = await self.list_org_settings(keys=AUDIT_SETTINGS_KEYS)
         await self._update_grouped_settings(audit_settings, params)
         clear_audit_setting_cache()
+
+    @require_scope("org:settings:update")
+    @audit_log(resource_type="organization_setting", action="update")
+    async def update_security_settings(self, params: SecuritySettingsUpdate) -> None:
+        """Persist the organization IP allowlist.
+
+        Callers must clear the allowlist cache after this commits; the service
+        cannot import the enforcement module without creating an import cycle.
+        """
+        security_settings = await self.list_org_settings(
+            keys=SecuritySettingsUpdate.keys()
+        )
+        await self._update_grouped_settings(security_settings, params)
 
     @require_scope("org:settings:update")
     @audit_log(resource_type="organization_setting", action="update")

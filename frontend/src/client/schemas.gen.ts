@@ -15649,6 +15649,100 @@ export const $HealthResponse = {
   title: "HealthResponse",
 } as const
 
+export const $IPAllowlist = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Name",
+      description: "Human-readable name, e.g. 'Corporate VPN'.",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 500,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+      description:
+        "Optional note on what this allowlist covers and who owns it.",
+    },
+    cidrs: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      maxItems: 50,
+      minItems: 1,
+      title: "Cidrs",
+      description: "IPv4 or IPv6 addresses or CIDR ranges.",
+    },
+  },
+  type: "object",
+  required: ["name", "cidrs"],
+  title: "IPAllowlist",
+  description: "A named group of allowed IP addresses or CIDR ranges.",
+} as const
+
+export const $IPAllowlistCheckRequest = {
+  properties: {
+    ip_address: {
+      type: "string",
+      maxLength: 45,
+      minLength: 1,
+      title: "Ip Address",
+    },
+  },
+  type: "object",
+  required: ["ip_address"],
+  title: "IPAllowlistCheckRequest",
+  description:
+    "Check whether an IP address would be admitted by the saved allowlist.",
+} as const
+
+export const $IPAllowlistCheckResult = {
+  properties: {
+    allowed: {
+      type: "boolean",
+      title: "Allowed",
+    },
+    matched_cidr: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Matched Cidr",
+    },
+    matched_allowlist: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Matched Allowlist",
+    },
+    enforced: {
+      type: "boolean",
+      title: "Enforced",
+    },
+  },
+  type: "object",
+  required: ["allowed", "enforced"],
+  title: "IPAllowlistCheckResult",
+} as const
+
 export const $InboxGroup = {
   type: "string",
   enum: ["review_required", "running", "error", "completed"],
@@ -24497,6 +24591,50 @@ export const $SecretValidationResult = {
   required: ["status"],
   title: "SecretValidationResult",
   description: "Result of validating credentials.",
+} as const
+
+export const $SecuritySettingsRead = {
+  properties: {
+    ip_allowlist_enabled: {
+      type: "boolean",
+      title: "Ip Allowlist Enabled",
+    },
+    ip_allowlists: {
+      items: {
+        $ref: "#/components/schemas/IPAllowlist",
+      },
+      type: "array",
+      title: "Ip Allowlists",
+    },
+  },
+  type: "object",
+  required: ["ip_allowlist_enabled", "ip_allowlists"],
+  title: "SecuritySettingsRead",
+  description: "Organization security settings.",
+} as const
+
+export const $SecuritySettingsUpdate = {
+  properties: {
+    ip_allowlist_enabled: {
+      type: "boolean",
+      title: "Ip Allowlist Enabled",
+      description:
+        "Restrict organization API access to the configured IP allowlists. Has no effect while no allowlists exist.",
+      default: false,
+    },
+    ip_allowlists: {
+      items: {
+        $ref: "#/components/schemas/IPAllowlist",
+      },
+      type: "array",
+      maxItems: 100,
+      title: "Ip Allowlists",
+      description: "Named groups of allowed IP addresses or CIDR ranges.",
+    },
+  },
+  type: "object",
+  title: "SecuritySettingsUpdate",
+  description: "Organization security settings.",
 } as const
 
 export const $Select = {
