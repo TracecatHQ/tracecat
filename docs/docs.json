@@ -126,6 +126,7 @@
               "manage-platform/rbac",
               "manage-platform/custom-roles",
               "manage-platform/service-accounts",
+              "manage-platform/ip-allowlist",
               "manage-platform/git-sync"
             ]
           },
