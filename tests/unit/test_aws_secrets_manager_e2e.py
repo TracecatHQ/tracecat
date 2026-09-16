@@ -148,6 +148,41 @@ async def test_e2e_whole_string_and_json_references_resolve_in_sandbox(
 
 
 @pytest.mark.anyio
+async def test_e2e_friendly_name_reference_resolves_in_store_region(
+    moto_endpoint: str,
+    stores: SecretStoresService,
+    secrets: SecretsService,
+    svc_workspace: Workspace,
+    svc_admin_role: Role,
+) -> None:
+    _seed_secret(moto_endpoint, "prod/app/api-key", "key-by-name")
+
+    store = await stores.create_store(
+        SecretStoreCreate(name="prod", role_arn=ROLE_ARN, region=REGION)
+    )
+    await stores.authorize_workspace(store, svc_workspace.id)
+    await secrets.create_aws_secret_reference(
+        AwsSecretReferenceCreate(
+            name="aws_named",
+            store_id=store.id,
+            remote_reference="prod/app/api-key",
+            key_mapping=AwsSecretKeyMapping(
+                mode=AwsSecretMappingMode.WHOLE_STRING, keys=["API_KEY"]
+            ),
+        )
+    )
+
+    check = await secrets.check_aws_secret_reference(
+        await secrets.get_secret_by_name("aws_named")
+    )
+    assert check.ok is True
+    assert check.resolved_keys == ["API_KEY"]
+
+    async with AuthSandbox(role=svc_admin_role, secrets=["aws_named.API_KEY"]) as sb:
+        assert sb.secrets == {"aws_named": {"API_KEY": "key-by-name"}}
+
+
+@pytest.mark.anyio
 async def test_e2e_missing_remote_secret_fails_without_leaking(
     moto_endpoint: str,
     stores: SecretStoresService,

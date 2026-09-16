@@ -39,6 +39,13 @@ from tracecat.secrets.enums import (
 AWS_SECRET_ARN_PATTERN = (
     r"^arn:aws(?:-[a-z]+)*:secretsmanager:(?P<region>[a-z0-9-]+):\d{12}:secret:[^\s]+$"
 )
+AWS_SECRET_NAME_PATTERN = r"^[A-Za-z0-9/_+=.@-]{1,512}$"
+"""Secrets Manager friendly name, as accepted by ``GetSecretValue.SecretId``."""
+AWS_SECRET_ID_PATTERN = (
+    r"^(?:arn:aws(?:-[a-z]+)*:secretsmanager:[a-z0-9-]+:\d{12}:secret:[^\s]+"
+    r"|[A-Za-z0-9/_+=.@-]{1,512})$"
+)
+"""Either a full Secrets Manager ARN or a friendly secret name."""
 AWS_ROLE_ARN_PATTERN = r"^arn:aws(?:-[a-z]+)*:iam::\d{12}:role/[\w+=,.@/-]+$"
 AWS_REGION_PATTERN = r"^[a-z]{2}(?:-[a-z]+)+-\d$"
 
@@ -528,7 +535,7 @@ class AwsSecretReferenceCreate(BaseModel):
     environment: str = DEFAULT_SECRETS_ENVIRONMENT
     tags: dict[str, str] | None = None
     store_id: UUID
-    remote_reference: str = Field(..., pattern=AWS_SECRET_ARN_PATTERN, max_length=2048)
+    remote_reference: str = Field(..., pattern=AWS_SECRET_ID_PATTERN, max_length=2048)
     key_mapping: AwsSecretKeyMapping
 
 
@@ -541,7 +548,7 @@ class AwsSecretReferenceUpdate(BaseModel):
     tags: dict[str, str] | None = None
     store_id: UUID | None = None
     remote_reference: str | None = Field(
-        default=None, pattern=AWS_SECRET_ARN_PATTERN, max_length=2048
+        default=None, pattern=AWS_SECRET_ID_PATTERN, max_length=2048
     )
     key_mapping: AwsSecretKeyMapping | None = None
 

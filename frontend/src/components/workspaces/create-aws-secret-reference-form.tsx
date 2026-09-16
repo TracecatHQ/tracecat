@@ -31,8 +31,8 @@ import {
 } from "@/hooks/use-secret-stores"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
-const SECRET_ARN_REGEX =
-  /^arn:aws(?:-[a-z]+)*:secretsmanager:[a-z0-9-]+:\d{12}:secret:.+$/
+const SECRET_ID_REGEX =
+  /^(?:arn:aws(?:-[a-z]+)*:secretsmanager:[a-z0-9-]+:\d{12}:secret:.+|[A-Za-z0-9/_+=.@-]{1,512})$/
 const KEY_REGEX = /^[A-Za-z_][A-Za-z0-9_]*$/
 
 const awsReferenceSchema = z
@@ -46,7 +46,7 @@ const awsReferenceSchema = z
     store_id: z.string().min(1, "Select an authorized store"),
     remote_reference: z
       .string()
-      .regex(SECRET_ARN_REGEX, "Enter a full Secrets Manager ARN"),
+      .regex(SECRET_ID_REGEX, "Enter a Secrets Manager secret name or ARN"),
     mode: z.enum(["whole_string", "json"]),
     whole_string_key: z.string().default(""),
     fields: z
@@ -132,7 +132,7 @@ interface CreateAwsSecretReferenceFormProps {
 
 /**
  * Form for creating a workspace custom secret whose values live in AWS
- * Secrets Manager. Collects a store, a full secret ARN, and a key mapping.
+ * Secrets Manager. Collects a store, a secret name or ARN, and a key mapping.
  * There is intentionally no value editor, value preview, or rotation control.
  */
 export function CreateAwsSecretReferenceForm({
@@ -290,14 +290,15 @@ export function CreateAwsSecretReferenceForm({
             name="remote_reference"
             render={() => (
               <FormItem>
-                <FormLabel className="text-sm">Secret ARN</FormLabel>
+                <FormLabel className="text-sm">Secret name or ARN</FormLabel>
                 <FormDescription className="text-sm">
-                  Full ARN of the secret. Its region must match the store.
+                  The secret name as shown in the AWS console (looked up in the
+                  store's region) or its full ARN.
                 </FormDescription>
                 <FormControl>
                   <Input
                     className="font-mono text-xs"
-                    placeholder="arn:aws:secretsmanager:us-east-1:123456789012:secret:app/api-AbCdEf"
+                    placeholder="prod/app/api-key"
                     {...register("remote_reference")}
                   />
                 </FormControl>

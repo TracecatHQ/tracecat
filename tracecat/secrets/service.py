@@ -32,8 +32,8 @@ from tracecat.identifiers import SecretID, WorkspaceID
 from tracecat.logger import logger
 from tracecat.registry.constants import REGISTRY_GIT_SSH_KEY_SECRET_NAME
 from tracecat.secrets.aws_secrets_manager import (
-    arn_region,
     check_aws_secret_reference,
+    reference_region_matches,
 )
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.encryption import decrypt_keyvalues, encrypt_keyvalues
@@ -471,7 +471,7 @@ class SecretsService(BaseOrgService):
     def _validate_reference_region(
         store: OrganizationSecretStore, remote_reference: str
     ) -> None:
-        if arn_region(remote_reference) != store.region:
+        if not reference_region_matches(remote_reference, store.region):
             raise ValueError(
                 f"Secret ARN region must match the store region {store.region!r}."
             )

@@ -99,12 +99,24 @@ def _role_session_name(reference: AwsSecretReference) -> str:
     return f"tracecat-secretstore-{store_short}"[:_ROLE_SESSION_NAME_MAX_LEN]
 
 
+def is_secret_arn(secret_id: str) -> bool:
+    """Whether a ``SecretId`` is a full ARN rather than a friendly name."""
+    return secret_id.startswith("arn:")
+
+
 def arn_region(secret_arn: str) -> str | None:
     """Extract the region component of a Secrets Manager ARN."""
     parts = secret_arn.split(":")
     if len(parts) < 6 or parts[2] != "secretsmanager":
         return None
     return parts[3] or None
+
+
+def reference_region_matches(secret_id: str, region: str) -> bool:
+    """Friendly names are region-scoped by the store; ARNs must agree with it."""
+    if not is_secret_arn(secret_id):
+        return True
+    return arn_region(secret_id) == region
 
 
 def _classify_client_error(
@@ -122,7 +134,7 @@ async def _fetch_secret_string(reference: AwsSecretReference) -> _FetchOutcome:
     """
     if not reference.store_enabled:
         return _FetchOutcome(failure=AwsSecretResolutionErrorCode.STORE_DISABLED)
-    if arn_region(reference.secret_arn) != reference.region:
+    if not reference_region_matches(reference.secret_arn, reference.region):
         return _FetchOutcome(failure=AwsSecretResolutionErrorCode.REGION_MISMATCH)
 
     config = _client_config()
