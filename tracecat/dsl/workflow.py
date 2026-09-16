@@ -91,6 +91,7 @@ with workflow.unsafe.imports_passed_through():
         resolve_time_anchor_activity,
         resolve_workflow_concurrency_limits_enabled_activity,
     )
+    from tracecat.dsl.return_context import build_return_context
     from tracecat.dsl.scheduler import DSLScheduler, PlatformExecutionError
     from tracecat.dsl.schemas import (
         ROOT_STREAM,
@@ -1664,10 +1665,11 @@ class DSLWorkflow:
         self.logger.trace("Returning value from expression")
         self._set_logical_time_context()
         key = return_key(str(self.workspace_id), self.wf_exec_id)
+        operand = build_return_context(self.dsl.returns, self.context)
         return await workflow.execute_activity(
             DSLActivities.resolve_return_expression_activity,
             arg=EvaluateTemplatedObjectActivityInput(
-                obj=self.dsl.returns, operand=self.context, key=key
+                obj=self.dsl.returns, operand=operand, key=key
             ),
             start_to_close_timeout=self.start_to_close_timeout,
             retry_policy=RETRY_POLICIES["activity:fail_fast"],
