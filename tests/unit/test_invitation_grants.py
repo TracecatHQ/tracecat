@@ -17,11 +17,13 @@ from tests.support.membership import (
 )
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
+from tracecat.authz.membership import ensure_member
 from tracecat.authz.scopes import ORG_ADMIN_SCOPES
 from tracecat.authz.seeding import seed_system_roles_for_org, seed_system_scopes
 from tracecat.db.models import (
     Invitation,
     Organization,
+    OrganizationMembership,
     RoleScope,
     Scope,
     User,
@@ -109,6 +111,8 @@ async def admin(session: AsyncSession, org: Organization) -> User:
     ).scalars()
     for scope in scopes.all():
         session.add(RoleScope(role_id=admin_db_role.id, scope_id=scope.id))
+    # The assignment hangs off the membership row, so the row comes first.
+    await ensure_member(session, org.id, user.id)
     session.add(
         UserRoleAssignment(
             organization_id=org.id,
@@ -459,6 +463,17 @@ class TestAcceptInvitationGrants:
             None: member_role_id,
             workspace_a.id: editor_role_id,
         }
+        membership_rows = (
+            await session.execute(
+                select(func.count())
+                .select_from(OrganizationMembership)
+                .where(
+                    OrganizationMembership.user_id == invitee.id,
+                    OrganizationMembership.organization_id == org.id,
+                )
+            )
+        ).scalar_one()
+        assert membership_rows == 1
 
     @pytest.mark.anyio
     async def test_org_grant_does_not_add_second_org_row(
