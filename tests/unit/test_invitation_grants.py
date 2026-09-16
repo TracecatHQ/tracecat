@@ -217,7 +217,7 @@ class TestCreateInvitationGrants:
     ):
         """An invitation persists every grant it was given."""
         service = InvitationService(session, role=_admin_role(org.id, admin.id))
-        member_role_id = await _role_id(session, org.id, "organization-member")
+        member_role_id = await _role_id(session, org.id, "organization-admin")
         editor_role_id = await _role_id(session, org.id, "workspace-editor")
 
         invitation = await service.create_invitation(
@@ -306,7 +306,7 @@ class TestCreateInvitationGrants:
     ):
         """A second pending invitation for the same email is rejected."""
         service = InvitationService(session, role=_admin_role(org.id, admin.id))
-        member_role_id = await _role_id(session, org.id, "organization-member")
+        member_role_id = await _role_id(session, org.id, "organization-admin")
         params = InvitationCreate(
             email="dupe@example.com",
             grants=[InvitationGrant(role_id=member_role_id)],
@@ -324,7 +324,7 @@ class TestCreateInvitationGrants:
     ):
         """An expired invitation is replaced rather than blocking a new one."""
         service = InvitationService(session, role=_admin_role(org.id, admin.id))
-        member_role_id = await _role_id(session, org.id, "organization-member")
+        member_role_id = await _role_id(session, org.id, "organization-admin")
         params = InvitationCreate(
             email="expired@example.com",
             grants=[InvitationGrant(role_id=member_role_id)],
@@ -351,7 +351,7 @@ class TestCreateInvitationGrants:
         await grant_org_membership(session, user_id=invitee.id, organization_id=org.id)
         await session.commit()
         service = InvitationService(session, role=_admin_role(org.id, admin.id))
-        member_role_id = await _role_id(session, org.id, "organization-member")
+        member_role_id = await _role_id(session, org.id, "organization-admin")
 
         with pytest.raises(TracecatValidationError, match="already a member"):
             await service.create_invitation(
@@ -387,6 +387,28 @@ class TestCreateInvitationGrants:
         assert invitation.created_by_platform_admin is False
 
 
+class TestImplicitMemberRoleGrant:
+    """``organization-member`` comes from presence, so it cannot be invited."""
+
+    @pytest.mark.anyio
+    async def test_grant_of_the_implicit_role_is_rejected(
+        self,
+        session: AsyncSession,
+        org: Organization,
+        admin: User,
+    ):
+        service = InvitationService(session, role=_admin_role(org.id, admin.id))
+        hidden_role_id = await _role_id(session, org.id, "organization-member")
+
+        with pytest.raises(TracecatValidationError, match="granted implicitly"):
+            await service.create_invitation(
+                InvitationCreate(
+                    email="implicit@example.com",
+                    grants=[InvitationGrant(role_id=hidden_role_id)],
+                )
+            )
+
+
 class TestAcceptInvitationGrants:
     """What accepting an invitation assigns."""
 
@@ -402,7 +424,7 @@ class TestAcceptInvitationGrants:
     ):
         """Accepting yields exactly the grants, org-member added only if absent."""
         service = InvitationService(session, role=_admin_role(org.id, admin.id))
-        member_role_id = await _role_id(session, org.id, "organization-member")
+        member_role_id = await _role_id(session, org.id, "organization-admin")
         editor_role_id = await _role_id(session, org.id, "workspace-editor")
         admin_role_id = await _role_id(session, org.id, "workspace-admin")
 
@@ -433,7 +455,7 @@ class TestAcceptInvitationGrants:
         assert invitation.accepted_at is not None
 
     @pytest.mark.anyio
-    async def test_workspace_only_grant_adds_org_member(
+    async def test_workspace_only_grant_admits_without_org_role(
         self,
         session: AsyncSession,
         org: Organization,
@@ -441,10 +463,9 @@ class TestAcceptInvitationGrants:
         invitee: User,
         workspace_a: Workspace,
     ):
-        """A workspace-only invite also makes the user an org member."""
+        """A workspace-only invite admits the user without a synthetic org role."""
         service = InvitationService(session, role=_admin_role(org.id, admin.id))
         editor_role_id = await _role_id(session, org.id, "workspace-editor")
-        member_role_id = await _role_id(session, org.id, "organization-member")
 
         invitation = await service.create_invitation(
             InvitationCreate(
@@ -460,7 +481,6 @@ class TestAcceptInvitationGrants:
         )
 
         assert await _assignments(session, invitee.id, org.id) == {
-            None: member_role_id,
             workspace_a.id: editor_role_id,
         }
         membership_rows = (

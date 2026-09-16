@@ -137,8 +137,7 @@ class TestWorkspaceService:
                 organization_id=svc_organization.id,
                 user_id=uuid.uuid4(),
                 service_id="tracecat-api",
-                # Deleting a workspace can evict its workspace-only members.
-                scopes=ADMIN_SCOPES | frozenset({"org:member:remove"}),
+                scopes=ADMIN_SCOPES,
             ),
         )
         await service.delete_workspace(workspace.id)

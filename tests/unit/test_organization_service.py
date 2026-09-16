@@ -234,8 +234,8 @@ def create_superuser_role(organization_id: uuid.UUID, user_id: uuid.UUID) -> Rol
 
 @pytest.fixture
 async def org1_member_role(session: AsyncSession, org1: Organization) -> DBRole:
-    """Create an RBAC 'organization-member' role for org1."""
-    role = await _system_role(session, org1.id, "organization-member")
+    """Create a grantable org-wide role for org1."""
+    role = await _system_role(session, org1.id, "organization-admin")
     return role
 
 
@@ -453,7 +453,7 @@ class TestOrganizationServiceDeleteMember:
         org1_member_role: DBRole,
     ):
         """Deleting a member removes org access without touching other orgs."""
-        org2_member_role = await _system_role(session, org2.id, "organization-member")
+        org2_member_role = await _system_role(session, org2.id, "organization-admin")
         workspace_org1 = Workspace(
             id=uuid.uuid4(),
             name=f"test-workspace-org1-{uuid.uuid4().hex[:8]}",
@@ -1398,7 +1398,7 @@ class TestOrganizationServiceInvitations:
         )
 
         # Create invitation for org2 directly (need a role for org2)
-        org2_role = await _system_role(session, org2.id, "organization-member")
+        org2_role = await _system_role(session, org2.id, "organization-admin")
         await session.flush()
         org2_invitation = Invitation(
             organization_id=org2.id,
@@ -1605,7 +1605,7 @@ class TestOrganizationServiceInvitations:
     ):
         """Test revoke_invitation raises error for invitation in different org."""
         # Create invitation in org2 directly (need a role for org2)
-        org2_role = await _system_role(session, org2.id, "organization-member")
+        org2_role = await _system_role(session, org2.id, "organization-admin")
         await session.flush()
         org2_invitation = Invitation(
             organization_id=org2.id,
