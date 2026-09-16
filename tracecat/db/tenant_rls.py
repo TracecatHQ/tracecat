@@ -99,6 +99,12 @@ POST_RLS_ORG_SCOPED_TABLES = (
     "watchtower_agent",
     "mcp_refresh_token",
     "agent_custom_provider",
+    # external_group_member carries no tenant column, like group_member. It is
+    # isolated transitively through its external_group parent.
+    "external_user",
+    "external_group",
+    "external_group_mapping",
+    "scim_connection",
 )
 
 POST_RLS_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES = (
