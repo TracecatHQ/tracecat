@@ -743,6 +743,26 @@ def test_private_catalog_overlay_does_not_drop_public_rows() -> None:
     assert splunk_oauth_credentials["client_secret"].secret is True
 
 
+def test_datadog_row_uses_configurable_regional_v1_endpoint() -> None:
+    """Datadog users can select their regional /v1/mcp endpoint."""
+    _clear_catalog_cache()
+    entry = loader.get_platform_mcp_catalog_entry_by_slug(
+        "datadog-mcp", include_private=True
+    )
+    assert entry is not None
+    spec = entry.connection_spec
+    assert spec is not None
+    assert spec.kind == "http_oauth2"
+    assert spec.server_uri == "https://mcp.datadoghq.com/v1/mcp"
+    assert spec.requires_config is True
+    assert spec.oauth_resource_ignored_query_params == ["toolsets"]
+    assert spec.oauth_authorization_endpoint is None
+    assert spec.oauth_token_endpoint is None
+    assert {credential.key: credential.target for credential in spec.credentials} == {
+        "server_url": "server_uri",
+    }
+
+
 def test_google_secops_row_ships_templated_uri_and_pinned_authorize_params() -> None:
     """Google's managed remote SecOps server needs a region and offline consent."""
     _clear_catalog_cache()
