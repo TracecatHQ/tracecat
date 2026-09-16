@@ -436,6 +436,7 @@ function MermaidCodeBlockView({ editor, node }: NodeViewProps) {
         data-mermaid-code-block="true"
       >
         <MermaidDiagram chart={chart} />
+        <NodeViewContent as="div" className="hidden" />
       </NodeViewWrapper>
     )
   }
