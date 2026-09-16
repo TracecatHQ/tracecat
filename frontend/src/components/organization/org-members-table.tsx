@@ -97,7 +97,6 @@ export function OrgMembersTable() {
   const roleMenuTrigger = useRef<HTMLButtonElement | null>(null)
   const inviteWorkspaceId = searchParams.get("inviteWorkspace")
 
-  // Membership is implicit; the baseline role is an internal detail.
   function roleText(member: OrgMemberRead): string {
     if (member.invitation_id) {
       return invitationGrantsSummary(
@@ -106,7 +105,6 @@ export function OrgMembersTable() {
         workspaces ?? []
       )
     }
-    if (member.role_slug === BASELINE_ROLE_SLUG) return "Member"
     return member.role_name
   }
 
@@ -505,8 +503,6 @@ export function OrgMembersTable() {
   )
 }
 
-const BASELINE_ROLE_SLUG = "organization-member"
-
 type DraftAssignment = Pick<
   UserRoleAssignmentReadWithDetails,
   "role_id" | "role_name" | "workspace_id" | "workspace_name"
@@ -593,28 +589,19 @@ export function ManageUserRolesDialog({
     enabled: canReadRbac && Boolean(userId) && canReadGroups,
     meta: { suppressErrorToast: true },
   })
-  const baselineRoleId = roles.find(
-    (role) => role.slug === BASELINE_ROLE_SLUG
-  )?.id
   const ready =
     canReadRbac &&
     Boolean(userId) &&
     !userAssignmentsIsLoading &&
     !userAssignmentsError &&
     !rolesIsLoading &&
-    !rolesError &&
-    Boolean(baselineRoleId)
+    !rolesError
   const groupAccessKnown = canReadGroups && groupsLoaded && !groupsError
   const assignments = draft?.assignments ?? userAssignments
   const original = draft?.original ?? userAssignments
-  const visibleAssignments = assignments.filter(
-    (assignment) => assignment.role_id !== baselineRoleId
-  )
-  const visibleGroupAssignments = groupAssignments.filter(
-    (assignment) => assignment.role_id !== baselineRoleId
-  )
+  const visibleAssignments = assignments
+  const visibleGroupAssignments = groupAssignments
   const selectedWorkspaceId = workspaceId === "org-wide" ? null : workspaceId
-  // Retain the hidden baseline source so promotion updates its unique org row.
   const selectedOriginal = original.find(
     (assignment) => (assignment.workspace_id ?? null) === selectedWorkspaceId
   )
@@ -675,8 +662,7 @@ export function ManageUserRolesDialog({
 
   function handleAddRole() {
     const role = roles.find((item) => item.id === roleId)
-    if (!ready || isSaving || !role || role.id === baselineRoleId || !canAdd)
-      return
+    if (!ready || isSaving || !role || !canAdd) return
     const assignment = {
       role_id: role.id,
       role_name: role.name,
@@ -814,13 +800,11 @@ export function ManageUserRolesDialog({
                   <SelectValue placeholder="Select a role" />
                 </SelectTrigger>
                 <SelectContent>
-                  {roles
-                    .filter((role) => role.id !== baselineRoleId)
-                    .map((role) => (
-                      <SelectItem key={role.id} value={role.id}>
-                        {role.name}
-                      </SelectItem>
-                    ))}
+                  {roles.map((role) => (
+                    <SelectItem key={role.id} value={role.id}>
+                      {role.name}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
               <Select
@@ -906,10 +890,7 @@ export function ManageUserRolesDialog({
               )}
               {!ready && (
                 <p role="status" className="text-sm text-muted-foreground">
-                  {userAssignmentsError ||
-                  rolesError ||
-                  groupsError ||
-                  (!rolesIsLoading && !baselineRoleId)
+                  {userAssignmentsError || rolesError || groupsError
                     ? "Unable to load roles and group access. Close and reopen to retry."
                     : "Loading roles and group access…"}
                 </p>

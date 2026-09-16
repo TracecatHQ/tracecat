@@ -27,6 +27,7 @@ from tracecat.auth.credentials import RoleACL
 from tracecat.auth.dependencies import OrgActorRole
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
+from tracecat.authz.scopes import ORG_MEMBER_ROLE_SLUG
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import Role as DBRole
 from tracecat.db.models import UserRoleAssignment
@@ -102,7 +103,10 @@ async def list_roles(
 
     stmt = (
         select(DBRole)
-        .where(DBRole.organization_id == role.organization_id)
+        .where(
+            DBRole.organization_id == role.organization_id,
+            DBRole.slug.is_distinct_from(ORG_MEMBER_ROLE_SLUG),
+        )
         .options(selectinload(DBRole.scopes))
         .order_by(DBRole.name)
     )

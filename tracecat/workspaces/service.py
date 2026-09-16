@@ -11,7 +11,7 @@ from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
 from tracecat.authz.controls import has_scope, require_scope
 from tracecat.authz.enums import OwnerType
-from tracecat.authz.membership import lock_role_changes, reconcile_member_access
+from tracecat.authz.membership import audit_evicted_members, lock_role_changes
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.cases.service import CaseFieldsService
 from tracecat.db.models import (
@@ -300,18 +300,13 @@ class WorkspaceService(BaseOrgService):
         )
         await case_fields_service.drop_workspace_schema()
         await self.session.delete(workspace)
-        try:
-            await reconcile_member_access(
-                self.session,
-                organization_id=self.organization_id,
-                user_ids=affected_users,
-                actor=self.role,
-                remove_if_empty=True,
-            )
-            await self.session.commit()
-        except Exception:
-            await self.session.rollback()
-            raise
+        await self.session.commit()
+        await audit_evicted_members(
+            self.session,
+            organization_id=self.organization_id,
+            user_ids=affected_users,
+            actor=self.role,
+        )
 
     async def search_workspaces(self, params: WorkspaceSearch) -> Sequence[Workspace]:
         """Search workspaces visible to the current actor."""

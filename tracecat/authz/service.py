@@ -11,11 +11,12 @@ from sqlalchemy.sql.elements import ColumnElement
 from tracecat.auth.types import Role
 from tracecat.authz.controls import ensure_can_grant_scopes, require_scope
 from tracecat.authz.membership import (
+    audit_evicted_members,
     drop_workspace_membership_mirror,
     lock_role_changes,
     mirror_workspace_membership,
-    reconcile_member_access,
 )
+from tracecat.authz.scopes import ORG_MEMBER_FLOOR_SCOPES, ORG_MEMBER_ROLE_SLUG
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import SupportsExecute
 from tracecat.db.models import (
@@ -103,7 +104,20 @@ async def query_effective_scopes(
     # Single atomic query: union both assignment paths
     combined = user_scopes.union(group_scopes)
     result = await session.execute(combined)
-    return frozenset(result.scalars().all())
+    scopes = frozenset(result.scalars().all())
+
+    # Presence alone carries a scope floor, independent of any role.
+    is_member = (
+        await session.execute(
+            select(OrganizationMembership.user_id).where(
+                OrganizationMembership.user_id == user_id,
+                OrganizationMembership.organization_id == organization_id,
+            )
+        )
+    ).scalar_one_or_none() is not None
+    if is_member:
+        return scopes | ORG_MEMBER_FLOOR_SCOPES
+    return scopes
 
 
 async def resolve_granter_scopes(
@@ -175,6 +189,8 @@ async def _resolve_grantable(
     role = (await session.execute(stmt)).scalar_one_or_none()
     if role is None:
         raise TracecatNotFoundError(not_found_message)
+    if role.slug == ORG_MEMBER_ROLE_SLUG:
+        raise TracecatValidationError("organization-member is granted implicitly")
 
     if not granter.is_platform_superuser:
         granter_scopes = await resolve_granter_scopes(session, granter)
@@ -329,17 +345,7 @@ class MembershipService(BaseService):
                 assigned_by=self.role.user_id if self.role else None,
             )
         )
-        try:
-            await reconcile_member_access(
-                self.session,
-                organization_id=organization_id,
-                user_ids=[params.user_id],
-                actor=self.role,
-            )
-            await self.session.commit()
-        except Exception:
-            await self.session.rollback()
-            raise
+        await self.session.commit()
 
     @require_scope("workspace:member:remove")
     async def delete_membership(
@@ -398,15 +404,11 @@ class MembershipService(BaseService):
                 .returning(UserRoleAssignment.user_id)
             )
         ).scalar_one_or_none()
-        try:
-            await reconcile_member_access(
+        await self.session.commit()
+        if removed_user_id is not None and self.role is not None:
+            await audit_evicted_members(
                 self.session,
                 organization_id=organization_id,
-                user_ids=[user_id] if removed_user_id is not None else [],
+                user_ids=[user_id],
                 actor=self.role,
-                remove_if_empty=True,
             )
-            await self.session.commit()
-        except Exception:
-            await self.session.rollback()
-            raise

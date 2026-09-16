@@ -64,7 +64,7 @@ async def _get_org_role_assignment_slug(
     *,
     user_id: uuid.UUID,
     organization_id: uuid.UUID,
-) -> str:
+) -> str | None:
     result = await session.execute(
         select(DBRole.slug)
         .join(UserRoleAssignment, UserRoleAssignment.role_id == DBRole.id)
@@ -74,9 +74,7 @@ async def _get_org_role_assignment_slug(
             UserRoleAssignment.workspace_id.is_(None),
         )
     )
-    role_slug = result.scalar_one()
-    assert role_slug is not None
-    return role_slug
+    return result.scalar_one_or_none()
 
 
 @pytest.mark.anyio
@@ -142,7 +140,7 @@ async def test_single_tenant_defaults_for_session_resolves_default_org(
 
 
 @pytest.mark.anyio
-async def test_single_tenant_defaults_assign_member_role(
+async def test_single_tenant_defaults_admit_without_org_role(
     session: AsyncSession,
 ) -> None:
     org = await _create_org_with_roles(session)
@@ -175,11 +173,12 @@ async def test_single_tenant_defaults_assign_member_role(
             )
         )
     ).scalar_one_or_none() is not None
+    # Presence is the row; a regular user gets no org-wide role.
     assert (
         await _get_org_role_assignment_slug(
             session, user_id=user.id, organization_id=org.id
         )
-        == "organization-member"
+        is None
     )
 
 
@@ -238,7 +237,8 @@ async def test_single_tenant_defaults_are_idempotent(
         )
     )
     assert membership_count is not None
-    assert len(assignment_result.scalars().all()) == 1
+    # A regular user is admitted by the row alone.
+    assert len(assignment_result.scalars().all()) == 0
 
 
 @pytest.mark.anyio
@@ -305,7 +305,7 @@ async def test_single_tenant_defaults_handle_concurrent_repairs() -> None:
             )
 
         assert membership_count == 1
-        assert assignment_count == 1
+        assert assignment_count == 0
     finally:
         async with get_async_session_bypass_rls_context_manager() as cleanup_session:
             await cleanup_session.execute(

@@ -107,13 +107,11 @@ function InviteMemberForm({
 }) {
   const { createInvitation, createInvitationIsPending } = useOrgMembers()
   const { roles } = useRbacRoles()
-  // Everyone gets organization-member on join; it is never something to grant.
-  const grantableRoles = roles.filter((r) => r.slug !== "organization-member")
   // A preset role only fits the scope it was built for: a workspace role
   // granted org-wide would apply its scopes across every workspace. Custom
   // roles have no slug prefix, so they stay offered on both.
   const rolesForScope = (scope: string) =>
-    grantableRoles.filter(
+    roles.filter(
       (r) =>
         !r.slug ||
         r.slug.startsWith(scope === ORG_WIDE ? "organization-" : "workspace-")
