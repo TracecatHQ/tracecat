@@ -7523,6 +7523,9 @@ export type SessionRead = {
   created_at: string
   user_id: string
   user_email: string
+  ip_address?: string | null
+  user_agent?: string | null
+  last_seen_at?: string | null
 }
 
 export type Session_Any_ = {

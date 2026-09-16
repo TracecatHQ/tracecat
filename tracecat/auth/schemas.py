@@ -71,3 +71,6 @@ class SessionRead(BaseModel):
     created_at: datetime
     user_id: UUID4
     user_email: EmailStr
+    ip_address: str | None = None
+    user_agent: str | None = None
+    last_seen_at: datetime | None = None
