@@ -238,6 +238,11 @@ from tracecat.registry.repository import Repository
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.service import SecretsService
 from tracecat.storage import blob
+from tracecat.storage.object import (
+    CollectionObject,
+    ExternalObject,
+    retrieve_stored_object,
+)
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import (
     TableColumnCreate,
@@ -265,13 +270,20 @@ from tracecat.workflow.case_triggers.schemas import (
 )
 from tracecat.workflow.case_triggers.service import CaseTriggersService
 from tracecat.workflow.executions.schemas import (
+    WorkflowExecutionActionResultResponse,
     WorkflowExecutionDetailResponse,
+    WorkflowExecutionEventCompact,
     WorkflowExecutionSummaryResponse,
 )
 from tracecat.workflow.executions.service import WorkflowExecutionsService
 from tracecat.workflow.executions.shaping import (
+    DEFAULT_ACTION_RESULT_WINDOW_BYTES,
+    MAX_ACTION_RESULT_WINDOW_BYTES,
     build_execution_events,
     build_execution_summary,
+    select_execution_events,
+    strip_event_results,
+    window_result_text,
 )
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.draft import (
@@ -5144,10 +5156,42 @@ async def list_workflow_executions(
         raise ToolError(f"Failed to list workflow executions: {e}") from None
 
 
+async def _load_execution_with_events(
+    workspace_id: uuid.UUID,
+    execution_id: WorkflowExecutionID,
+) -> tuple[Any, list[WorkflowExecutionEventCompact[Any, Any, Any]]]:
+    """Resolve an execution in the workspace and its compact event history."""
+    _, role = await _resolve_workspace_role(workspace_id)
+
+    # Verify the execution's workflow belongs to this workspace
+    try:
+        wf_id, _ = exec_id_to_parts(execution_id)
+    except ValueError as e:
+        raise ToolError(f"Invalid execution ID: {e}") from e
+    async with WorkflowsManagementService.with_session(role=role) as mgmt_svc:
+        workflow = await mgmt_svc.get_workflow(wf_id)
+    if workflow is None:
+        raise ToolError(
+            f"Execution {execution_id} not found in workspace {workspace_id}"
+        )
+
+    exec_service = await WorkflowExecutionsService.connect(role=role)
+    execution = await exec_service.get_execution(execution_id)
+    if execution is None:
+        raise ToolError(f"Execution {execution_id} not found")
+
+    compact_events = await exec_service.list_workflow_execution_events_compact(
+        execution_id
+    )
+    return execution, compact_events
+
+
 @mcp.tool()
 async def get_workflow_execution(
     workspace_id: uuid.UUID,
     execution_id: WorkflowExecutionID,
+    action_refs: list[str] | None = None,
+    include_results: bool = True,
 ) -> WorkflowExecutionDetailResponse:
     """Get status and details of a specific workflow execution.
 
@@ -5155,46 +5199,41 @@ async def get_workflow_execution(
     showing each action's status, timing, and any errors. Use this to debug
     failed runs or check the progress of running workflows.
 
+    Each event's `result` is inlined only when its JSON is short; longer
+    results appear as a cut-off `result_truncated` preview. To read one
+    action's complete result at any size, call `get_execution_action_result`.
+
     Args:
         workspace_id: The workspace ID.
         execution_id: The workflow execution ID (returned by run_* tools or
             list_workflow_executions).
+        action_refs: When set, only events for these action refs are returned.
+            The synthetic `__workflow_trigger__`, `__workflow_completed__`, and
+            `__workflow_failure__` events are always kept.
+        include_results: Set to false to omit `result` and `result_truncated`
+            from every event, which keeps the response small when you only
+            need status and timing.
 
     Returns JSON with execution metadata (id, run_id, status, start_time,
-    close_time) and an events array with per-action status, timing, inputs,
-    results, and errors.
+    close_time) and an events array with per-action status, timing, results,
+    and errors.
     """
 
     try:
-        _, role = await _resolve_workspace_role(workspace_id)
-
-        # Verify the execution's workflow belongs to this workspace
-        try:
-            wf_id, _ = exec_id_to_parts(execution_id)
-        except ValueError as e:
-            raise ToolError(f"Invalid execution ID: {e}") from e
-        async with WorkflowsManagementService.with_session(role=role) as mgmt_svc:
-            workflow = await mgmt_svc.get_workflow(wf_id)
-        if workflow is None:
-            raise ToolError(
-                f"Execution {execution_id} not found in workspace {workspace_id}"
-            )
-
-        exec_service = await WorkflowExecutionsService.connect(role=role)
-        execution = await exec_service.get_execution(execution_id)
-        if execution is None:
-            raise ToolError(f"Execution {execution_id} not found")
-
-        # Get compact event history for action-level details
-        compact_events = await exec_service.list_workflow_execution_events_compact(
-            execution_id
+        execution, compact_events = await _load_execution_with_events(
+            workspace_id, execution_id
         )
+        events = build_execution_events(
+            select_execution_events(compact_events, action_refs=action_refs)
+        )
+        if not include_results:
+            events = strip_event_results(events)
 
         summary = build_execution_summary(execution)
         return WorkflowExecutionDetailResponse(
             **summary.model_dump(),
             history_length=execution.history_length,
-            events=build_execution_events(compact_events),
+            events=events,
         )
     except ToolError:
         raise
@@ -5203,6 +5242,119 @@ async def get_workflow_execution(
     except Exception as e:
         logger.error("Failed to get workflow execution", error=str(e))
         raise ToolError(f"Failed to get workflow execution: {e}") from None
+
+
+async def _materialize_action_result(value: Any) -> Any:
+    """Dereference externalized results through the engine's storage backend.
+
+    Compact events carry `ExternalObject`/`CollectionObject` handles for
+    results the engine offloaded to blob storage. Looped child workflows carry
+    a list of per-iteration results, each of which may be a handle.
+    """
+    match value:
+        case ExternalObject() | CollectionObject():
+            return await retrieve_stored_object(value)
+        case list():
+            return [await _materialize_action_result(item) for item in value]
+        case _:
+            return value
+
+
+@mcp.tool()
+async def get_execution_action_result(
+    workspace_id: uuid.UUID,
+    execution_id: WorkflowExecutionID,
+    action_ref: str,
+    stream_id: str | None = None,
+    max_bytes: int = DEFAULT_ACTION_RESULT_WINDOW_BYTES,
+    offset: int = 0,
+) -> WorkflowExecutionActionResultResponse:
+    """Get the full stored result of one action in a workflow execution.
+
+    Use this when `get_workflow_execution` shows `result_truncated` for an
+    action, or when the result was offloaded to blob storage, and you need the
+    whole value (a findings list, a classification summary, an API payload).
+    The result is returned as JSON text in byte windows: read `total_bytes`,
+    and if `truncated` is true call again with `offset=next_offset` until
+    `next_offset` is null. Concatenate the `result` strings in order to rebuild
+    the JSON.
+
+    Args:
+        workspace_id: The workspace ID.
+        execution_id: The workflow execution ID.
+        action_ref: The action `ref` whose result to read. The most recent
+            attempt for that ref is used.
+        stream_id: Required only when the ref ran in several execution streams
+            (for example scatter items); the error lists the available ids.
+        max_bytes: Window size in bytes (default 65536, max 1048576).
+        offset: Byte offset to start from; pass the previous `next_offset`.
+
+    Returns JSON with `result` (JSON text slice), `total_bytes`, `offset`,
+    `truncated`, and `next_offset`, plus the event's `status` and `stream_id`.
+    """
+
+    try:
+        _, compact_events = await _load_execution_with_events(
+            workspace_id, execution_id
+        )
+        matching = [event for event in compact_events if event.action_ref == action_ref]
+        if not matching:
+            available = sorted({event.action_ref for event in compact_events})
+            raise ToolError(
+                f"No event for action ref {action_ref!r} in execution "
+                f"{execution_id}. Available refs: {available}"
+            )
+        if stream_id is not None:
+            matching = [
+                event for event in matching if str(event.stream_id) == stream_id
+            ]
+            if not matching:
+                raise ToolError(
+                    f"No event for action ref {action_ref!r} in stream {stream_id!r}"
+                )
+        if len(matching) > 1:
+            stream_ids = sorted({str(event.stream_id) for event in matching})
+            raise ToolError(
+                f"Action ref {action_ref!r} has results in {len(matching)} "
+                f"streams; pass stream_id to pick one. Available stream ids: "
+                f"{stream_ids}"
+            )
+        event = matching[0]
+
+        if event.should_mask_output:
+            # Masked results are already redacted in the compact event; never
+            # dereference the stored object behind them.
+            result = event.action_result
+        else:
+            result = await _materialize_action_result(event.action_result)
+        text = json.dumps(result, default=str)
+        window = window_result_text(
+            text,
+            offset=max(offset, 0),
+            max_bytes=_normalize_limit(
+                max_bytes,
+                default=DEFAULT_ACTION_RESULT_WINDOW_BYTES,
+                max_limit=MAX_ACTION_RESULT_WINDOW_BYTES,
+            ),
+        )
+        return WorkflowExecutionActionResultResponse(
+            execution_id=execution_id,
+            action_ref=action_ref,
+            stream_id=str(event.stream_id),
+            status=str(event.status),
+            result=window.result,
+            total_bytes=window.total_bytes,
+            offset=window.offset,
+            truncated=window.truncated,
+            next_offset=window.next_offset,
+        )
+    except ToolError:
+        raise
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to get execution action result", error=str(e))
+        raise ToolError(f"Failed to get execution action result: {e}") from None
 
 
 @mcp.tool()

@@ -147,6 +147,14 @@
   Get status and details of a specific workflow execution.
 
   Returns execution metadata (status, timing) and a compact event timeline showing each action's status, timing, and any errors. Use this to debug failed runs or check the progress of running workflows.
+
+  Each event's `result` is inlined only when its JSON is short; longer results appear as a cut-off `result_truncated` preview. To read one action's complete result at any size, call `get_execution_action_result`.
+</ResponseField>
+
+<ResponseField name="get_execution_action_result" type="tool">
+  Get the full stored result of one action in a workflow execution.
+
+  Use this when `get_workflow_execution` shows `result_truncated` for an action, or when the result was offloaded to blob storage, and you need the whole value (a findings list, a classification summary, an API payload). The result is returned as JSON text in byte windows: read `total_bytes`, and if `truncated` is true call again with `offset=next_offset` until `next_offset` is null. Concatenate the `result` strings in order to rebuild the JSON.
 </ResponseField>
 
 <ResponseField name="get_webhook" type="tool">

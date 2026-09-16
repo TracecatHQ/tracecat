@@ -48,6 +48,7 @@ from tracecat.agent.skill.schemas import (
 from tracecat.agent.stream.events import StreamDelta, StreamEnd
 from tracecat.auth.types import Role
 from tracecat.db.models import Schedule, Workflow
+from tracecat.dsl.schemas import ROOT_STREAM, StreamID
 from tracecat.exceptions import (
     BuiltinRegistryHasNoSelectionError,
     EntitlementRequired,
@@ -62,11 +63,23 @@ from tracecat.integrations.enums import (
     OAuthGrantType,
 )
 from tracecat.integrations.schemas import ProviderKey
+from tracecat.storage.object import ExternalObject, ObjectRef
 from tracecat.tables.service import TablesService
 from tracecat.validation.schemas import (
     ValidationDetail,
     ValidationResult,
     ValidationResultType,
+)
+from tracecat.workflow.executions.constants import WF_COMPLETED_REF, WF_TRIGGER_REF
+from tracecat.workflow.executions.enums import (
+    WorkflowEventType,
+    WorkflowExecutionEventStatus,
+)
+from tracecat.workflow.executions.schemas import WorkflowExecutionEventCompact
+from tracecat.workflow.executions.shaping import (
+    MAX_EVENT_RESULT_CHARS,
+    select_execution_events,
+    window_result_text,
 )
 from tracecat.workflow.management import layout as layout_module
 from tracecat.workflow.schedules import bridge as schedules_bridge
@@ -11621,3 +11634,330 @@ async def test_request_audit_middleware_tolerates_missing_http_request(
 
     result = await mw.on_call_tool(_make_tool_context(), _call_next)
     assert result is sentinel
+
+
+# ---------------------------------------------------------------------------
+# Execution results: filtering, result stripping, and per-action windows
+# ---------------------------------------------------------------------------
+
+
+def _compact_event(
+    ref: str,
+    *,
+    result: Any,
+    source_event_id: int = 1,
+    stream_id: StreamID = ROOT_STREAM,
+) -> WorkflowExecutionEventCompact[Any, Any, Any]:
+    now = datetime.now(UTC)
+    return WorkflowExecutionEventCompact(
+        source_event_id=source_event_id,
+        schedule_time=now,
+        start_time=now,
+        close_time=now,
+        curr_event_type=WorkflowEventType.ACTIVITY_TASK_COMPLETED,
+        status=WorkflowExecutionEventStatus.COMPLETED,
+        action_name="core.transform.reshape",
+        action_ref=ref,
+        action_result=result,
+        stream_id=stream_id,
+    )
+
+
+def _patch_execution_read(
+    monkeypatch,
+    events: list[WorkflowExecutionEventCompact[Any, Any, Any]],
+) -> str:
+    """Fake the workspace, workflow, and execution lookups; return an exec id."""
+    wf_id = mcp_server.WorkflowUUID.new(uuid.uuid4())
+    execution_id = f"{wf_id.short()}:exec-{uuid.uuid4().hex[:8]}"
+
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    class _WorkflowService:
+        async def get_workflow(self, _wf_id):
+            return SimpleNamespace(id=wf_id)
+
+    class _ExecService:
+        async def get_execution(self, _execution_id):
+            return SimpleNamespace(
+                id=execution_id,
+                run_id=uuid.uuid4(),
+                status=WorkflowExecutionStatus.COMPLETED,
+                start_time=datetime.now(UTC),
+                close_time=datetime.now(UTC),
+                typed_search_attributes=None,
+                history_length=len(events),
+            )
+
+        async def list_workflow_execution_events_compact(self, _execution_id):
+            return events
+
+    async def _connect(*, role):
+        return _ExecService()
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_WorkflowService()),
+    )
+    monkeypatch.setattr(mcp_server.WorkflowExecutionsService, "connect", _connect)
+    return execution_id
+
+
+def test_window_result_text_pages_by_bytes() -> None:
+    text = "0123456789"
+
+    first = window_result_text(text, offset=0, max_bytes=4)
+    assert (first.result, first.total_bytes, first.offset) == ("0123", 10, 0)
+    assert first.truncated is True
+    assert first.next_offset == 4
+
+    last = window_result_text(text, offset=8, max_bytes=4)
+    assert last.result == "89"
+    assert last.truncated is False
+    assert last.next_offset is None
+
+    beyond = window_result_text(text, offset=50, max_bytes=4)
+    assert (beyond.result, beyond.offset, beyond.truncated) == ("", 10, False)
+
+
+def test_window_result_text_never_splits_multibyte_characters() -> None:
+    text = "abécd"  # "é" is two bytes in UTF-8
+
+    window = window_result_text(text, offset=0, max_bytes=3)
+    assert window.result == "ab"
+    assert window.next_offset == 2
+
+    rest = window_result_text(text, offset=2, max_bytes=100)
+    assert rest.result == "écd"
+    assert rest.truncated is False
+
+
+def test_select_execution_events_keeps_synthetic_workflow_events() -> None:
+    events = [
+        _compact_event(WF_TRIGGER_REF, result=None),
+        _compact_event("fetch_events", result=[1]),
+        _compact_event("classify", result="ok"),
+        _compact_event(WF_COMPLETED_REF, result=None),
+    ]
+
+    kept = select_execution_events(events, action_refs=["classify"])
+    assert [event.action_ref for event in kept] == [
+        WF_TRIGGER_REF,
+        "classify",
+        WF_COMPLETED_REF,
+    ]
+    assert select_execution_events(events, action_refs=None) == events
+
+
+@pytest.mark.anyio
+async def test_get_workflow_execution_filters_refs_and_strips_results(
+    monkeypatch,
+):
+    events = [
+        _compact_event(WF_TRIGGER_REF, result=None, source_event_id=1),
+        _compact_event("fetch_events", result={"count": 2}, source_event_id=2),
+        _compact_event("classify", result={"label": "benign"}, source_event_id=3),
+    ]
+    execution_id = _patch_execution_read(monkeypatch, events)
+
+    full = _payload(
+        await _tool(mcp_server.get_workflow_execution)(
+            workspace_id=str(uuid.uuid4()),
+            execution_id=execution_id,
+            action_refs=["classify"],
+        )
+    )
+    assert [event["action_ref"] for event in full["events"]] == [
+        WF_TRIGGER_REF,
+        "classify",
+    ]
+    assert full["events"][1]["result"] == {"label": "benign"}
+
+    lean = _payload(
+        await _tool(mcp_server.get_workflow_execution)(
+            workspace_id=str(uuid.uuid4()),
+            execution_id=execution_id,
+            include_results=False,
+        )
+    )
+    assert len(lean["events"]) == 3
+    assert all(event["result"] is None for event in lean["events"])
+    assert all(event["result_truncated"] is None for event in lean["events"])
+    assert lean["events"][2]["status"] == "COMPLETED"
+
+
+@pytest.mark.anyio
+async def test_get_execution_action_result_windows_full_inline_result(
+    monkeypatch,
+):
+    findings = [{"id": index, "note": "x" * 100} for index in range(50)]
+    execution_id = _patch_execution_read(
+        monkeypatch, [_compact_event("build_alert", result=findings)]
+    )
+    expected = json.dumps(findings, default=str)
+    assert len(expected) > MAX_EVENT_RESULT_CHARS
+
+    chunks: list[str] = []
+    offset = 0
+    while True:
+        payload = _payload(
+            await _tool(mcp_server.get_execution_action_result)(
+                workspace_id=str(uuid.uuid4()),
+                execution_id=execution_id,
+                action_ref="build_alert",
+                max_bytes=2048,
+                offset=offset,
+            )
+        )
+        assert payload["total_bytes"] == len(expected.encode())
+        assert payload["offset"] == offset
+        assert payload["stream_id"] == str(ROOT_STREAM)
+        assert payload["status"] == "COMPLETED"
+        chunks.append(payload["result"])
+        if not payload["truncated"]:
+            assert payload["next_offset"] is None
+            break
+        assert payload["next_offset"] == offset + 2048
+        offset = payload["next_offset"]
+
+    assert len(chunks) > 1
+    assert json.loads("".join(chunks)) == findings
+
+
+@pytest.mark.anyio
+async def test_get_execution_action_result_clamps_max_bytes(monkeypatch):
+    execution_id = _patch_execution_read(
+        monkeypatch, [_compact_event("build_alert", result="y" * 10)]
+    )
+
+    payload = _payload(
+        await _tool(mcp_server.get_execution_action_result)(
+            workspace_id=str(uuid.uuid4()),
+            execution_id=execution_id,
+            action_ref="build_alert",
+            max_bytes=0,
+        )
+    )
+    # Clamped up to the configured minimum limit rather than returning nothing.
+    assert len(payload["result"]) == mcp_server.config.TRACECAT__LIMIT_MIN
+    assert payload["truncated"] is True
+
+    payload = _payload(
+        await _tool(mcp_server.get_execution_action_result)(
+            workspace_id=str(uuid.uuid4()),
+            execution_id=execution_id,
+            action_ref="build_alert",
+            max_bytes=10**9,
+        )
+    )
+    assert payload["truncated"] is False
+
+
+@pytest.mark.anyio
+async def test_get_execution_action_result_unknown_ref_lists_available(
+    monkeypatch,
+):
+    execution_id = _patch_execution_read(
+        monkeypatch,
+        [
+            _compact_event("fetch_events", result=1, source_event_id=1),
+            _compact_event("classify", result=2, source_event_id=2),
+        ],
+    )
+
+    with pytest.raises(ToolError, match="No event for action ref 'ghost'") as exc:
+        await _tool(mcp_server.get_execution_action_result)(
+            workspace_id=str(uuid.uuid4()),
+            execution_id=execution_id,
+            action_ref="ghost",
+        )
+    assert "'classify'" in str(exc.value)
+    assert "'fetch_events'" in str(exc.value)
+
+
+@pytest.mark.anyio
+async def test_get_execution_action_result_requires_stream_id_for_scatter(
+    monkeypatch,
+):
+    stream_a = StreamID.new("scatter_items", 0)
+    stream_b = StreamID.new("scatter_items", 1)
+    execution_id = _patch_execution_read(
+        monkeypatch,
+        [
+            _compact_event(
+                "classify", result="a", source_event_id=1, stream_id=stream_a
+            ),
+            _compact_event(
+                "classify", result="b", source_event_id=2, stream_id=stream_b
+            ),
+        ],
+    )
+
+    with pytest.raises(ToolError, match="pass stream_id") as exc:
+        await _tool(mcp_server.get_execution_action_result)(
+            workspace_id=str(uuid.uuid4()),
+            execution_id=execution_id,
+            action_ref="classify",
+        )
+    assert str(stream_a) in str(exc.value)
+    assert str(stream_b) in str(exc.value)
+
+    payload = _payload(
+        await _tool(mcp_server.get_execution_action_result)(
+            workspace_id=str(uuid.uuid4()),
+            execution_id=execution_id,
+            action_ref="classify",
+            stream_id=str(stream_b),
+        )
+    )
+    assert payload["result"] == '"b"'
+    assert payload["stream_id"] == str(stream_b)
+
+    with pytest.raises(ToolError, match="in stream 'nope'"):
+        await _tool(mcp_server.get_execution_action_result)(
+            workspace_id=str(uuid.uuid4()),
+            execution_id=execution_id,
+            action_ref="classify",
+            stream_id="nope",
+        )
+
+
+@pytest.mark.anyio
+async def test_get_execution_action_result_dereferences_external_result(
+    monkeypatch,
+):
+    external = ExternalObject(
+        ref=ObjectRef(
+            bucket="placeholder-bucket",
+            key="placeholder/key.json",
+            size_bytes=1,
+            sha256="0" * 64,
+        )
+    )
+    stored_payload = {"summary": "s" * 5000, "items": list(range(20))}
+    loaded: list[Any] = []
+
+    async def _fake_retrieve(stored):
+        loaded.append(stored)
+        return stored_payload
+
+    monkeypatch.setattr(mcp_server, "retrieve_stored_object", _fake_retrieve)
+    execution_id = _patch_execution_read(
+        monkeypatch, [_compact_event("classify", result=external)]
+    )
+
+    payload = _payload(
+        await _tool(mcp_server.get_execution_action_result)(
+            workspace_id=str(uuid.uuid4()),
+            execution_id=execution_id,
+            action_ref="classify",
+            max_bytes=1024 * 1024,
+        )
+    )
+
+    assert loaded == [external]
+    assert payload["truncated"] is False
+    assert json.loads(payload["result"]) == stored_payload
