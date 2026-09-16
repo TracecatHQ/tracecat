@@ -19,6 +19,7 @@ from tracecat.db.models import (
     GroupRoleAssignment,
     LegacyMembership,
     Membership,
+    OrganizationMembership,
     RoleScope,
     Scope,
     User,
@@ -300,7 +301,16 @@ class MembershipService(BaseService):
         ).scalar_one_or_none() is not None:
             raise TracecatConflictError("User is already a member of workspace.")
 
-        # Written for app versions that still read the legacy table.
+        # Workspace add must not admit outsiders: org membership is a
+        # precondition, not a side effect.
+        org_member_stmt = select(OrganizationMembership.user_id).where(
+            OrganizationMembership.user_id == params.user_id,
+            OrganizationMembership.organization_id == organization_id,
+        )
+        if (await self.session.execute(org_member_stmt)).scalar_one_or_none() is None:
+            raise TracecatNotFoundError("User not found in organization")
+
+        # Legacy workspace table is still written for app versions that read it.
         await self.session.execute(
             pg_insert(LegacyMembership)
             .values(user_id=params.user_id, workspace_id=workspace_id)

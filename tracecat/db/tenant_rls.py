@@ -129,9 +129,12 @@ SEARCH_POLICY_TABLES = frozenset(
         "search_chunk",
     }
 )
+# group_member.organization_id is a nullable denormalization for the membership
+# foreign key; the table is governed by its parent group's policy.
 SPECIAL_WORKSPACE_POLICY_TABLES = frozenset({"oauth_state"}) | SEARCH_POLICY_TABLES
 SPECIAL_ORG_POLICY_TABLES = (
-    frozenset({"workspace", "scope", "agent_catalog"}) | SEARCH_POLICY_TABLES
+    frozenset({"workspace", "scope", "agent_catalog", "group_member"})
+    | SEARCH_POLICY_TABLES
 )
 
 CURRENT_WORKSPACE_SCOPED_TABLES = (

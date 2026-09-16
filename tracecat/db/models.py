@@ -40,6 +40,7 @@ from sqlalchemy import (
     func,
     select,
     text,
+    type_coerce,
     union_all,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
@@ -242,7 +243,7 @@ class Organization(Base, TimestampMixin):
     # Relationships
     members: Mapped[list[User]] = relationship(
         "User",
-        secondary=lambda: OrganizationMembership.__table__,
+        secondary="organization_membership",
         back_populates="organizations",
         viewonly=True,
         lazy="select",
@@ -418,6 +419,8 @@ class Workspace(OrganizationModel):
     members: Mapped[list[User]] = relationship(
         "User",
         secondary=lambda: Membership.__table__,
+        primaryjoin="Workspace.id == Membership.workspace_id",
+        secondaryjoin="Membership.user_id == User.id",
         viewonly=True,
         back_populates="workspaces",
     )
@@ -578,6 +581,8 @@ class User(SQLAlchemyBaseUserTableUUID, Base):
         back_populates="members",
         lazy="select",
         secondary=lambda: Membership.__table__,
+        primaryjoin="User.id == Membership.user_id",
+        secondaryjoin="Membership.workspace_id == Workspace.id",
         viewonly=True,
     )
     assigned_cases: Mapped[list[Case]] = relationship(
@@ -606,7 +611,7 @@ class User(SQLAlchemyBaseUserTableUUID, Base):
     )
     organizations: Mapped[list[Organization]] = relationship(
         "Organization",
-        secondary=lambda: OrganizationMembership.__table__,
+        secondary="organization_membership",
         viewonly=True,
         back_populates="members",
         lazy="select",
@@ -1048,6 +1053,16 @@ class ServiceAccount(OrganizationModel):
             "workspace_id IS NULL OR organization_id IS NOT NULL",
             name="service_account_workspace_requires_org",
         ),
+        # Column-list SET NULL so removing the owner never nulls organization_id.
+        ForeignKeyConstraint(
+            ["organization_id", "owner_user_id"],
+            [
+                "organization_membership.organization_id",
+                "organization_membership.user_id",
+            ],
+            name="fk_service_account_owner_org_membership",
+            ondelete="SET NULL (owner_user_id)",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -1071,11 +1086,7 @@ class ServiceAccount(OrganizationModel):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID,
-        ForeignKey("user.id", ondelete="SET NULL"),
-        nullable=True,
-    )
+    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(UUID, nullable=True)
     disabled_at: Mapped[datetime | None] = mapped_column(
         TIMESTAMP(timezone=True), nullable=True
     )
@@ -5653,6 +5664,19 @@ class GroupMember(Base):
     """Junction table linking users to groups."""
 
     __tablename__ = "group_member"
+    __table_args__ = (
+        # Nullable this release so N-1 pods can still insert; NULL in a
+        # composite FK is unchecked. App code always populates it.
+        ForeignKeyConstraint(
+            ["organization_id", "user_id"],
+            [
+                "organization_membership.organization_id",
+                "organization_membership.user_id",
+            ],
+            name="fk_group_member_org_membership",
+            ondelete="CASCADE",
+        ),
+    )
 
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID, ForeignKey("user.id", ondelete="CASCADE"), primary_key=True
@@ -5660,6 +5684,7 @@ class GroupMember(Base):
     group_id: Mapped[uuid.UUID] = mapped_column(
         UUID, ForeignKey("group.id", ondelete="CASCADE"), primary_key=True
     )
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(UUID, nullable=True)
     added_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now()
     )
@@ -5725,6 +5750,16 @@ class UserRoleAssignment(Base):
     __tablename__ = "user_role_assignment"
     __table_args__ = (
         UniqueConstraint("user_id", "workspace_id"),
+        # Assignments hang off the membership row; removing a member unwinds them.
+        ForeignKeyConstraint(
+            ["organization_id", "user_id"],
+            [
+                "organization_membership.organization_id",
+                "organization_membership.user_id",
+            ],
+            name="fk_user_role_assignment_org_membership",
+            ondelete="CASCADE",
+        ),
         # Partial unique index for org-wide assignments (workspace_id IS NULL)
         Index(
             "ix_user_role_assignment_user_org_unique",
@@ -5998,18 +6033,21 @@ class SearchChunk(TimestampMixin, Base):
     error_code: Mapped[str | None] = mapped_column(Text)
 
 
-# Membership is derived, never stored: a user is present at a scope iff they
-# hold a role path there, directly or through a group.
+# Workspace membership is derived, never stored: a user is present in a
+# workspace iff they hold a role path there, directly or through a group.
+# type_coerce strips the source columns' foreign keys: the composite one to
+# organization_membership would otherwise propagate into the subquery and the
+# mapper would try to resolve it as a real table.
 _role_paths = union_all(
     select(
-        UserRoleAssignment.user_id,
-        UserRoleAssignment.organization_id,
-        UserRoleAssignment.workspace_id,
+        type_coerce(UserRoleAssignment.user_id, UUID).label("user_id"),
+        type_coerce(UserRoleAssignment.organization_id, UUID).label("organization_id"),
+        type_coerce(UserRoleAssignment.workspace_id, UUID).label("workspace_id"),
     ),
     select(
-        GroupMember.user_id,
-        GroupRoleAssignment.organization_id,
-        GroupRoleAssignment.workspace_id,
+        type_coerce(GroupMember.user_id, UUID).label("user_id"),
+        type_coerce(GroupRoleAssignment.organization_id, UUID).label("organization_id"),
+        type_coerce(GroupRoleAssignment.workspace_id, UUID).label("workspace_id"),
     ).join_from(
         GroupRoleAssignment,
         GroupMember,
@@ -6017,8 +6055,7 @@ _role_paths = union_all(
     ),
 ).subquery("role_paths")
 
-# Workspace rows only, matching the dropped `membership` table: org presence is
-# OrganizationMembership below.
+# Workspace rows only: org presence is the stored OrganizationMembership row.
 membership_select = (
     select(
         _role_paths.c.user_id,
@@ -6048,34 +6085,40 @@ class Membership(Base):
     workspace_id: Mapped[uuid.UUID]
 
 
-# The NULL-workspace slice reproduces the `organization_membership` table:
-# every row the writers produce holds an org-wide assignment. Widening this to
-# any role path would grant org access to workspace-only users.
-organization_membership_select = (
-    select(_role_paths.c.user_id, _role_paths.c.organization_id)
-    .where(_role_paths.c.workspace_id.is_(None))
-    .distinct()
-    .subquery("organization_membership_derived")
-)
+# Organization presence is stored: `organization_membership` is the aggregate
+# root and children hang off it by composite foreign key.
+class OrganizationMembership(Base, TimestampMixin):
+    """Link table for users and organizations (many to many)."""
+
+    __tablename__ = "organization_membership"
+    __table_args__ = (
+        # Index for "get all members of org" queries
+        # (PK index covers user_id lookups, but not org_id alone)
+        Index("ix_org_membership_org_id", "organization_id"),
+        Index(
+            "ix_org_membership_org_external_id",
+            "organization_id",
+            "external_id",
+            unique=True,
+            postgresql_where=text("external_id IS NOT NULL"),
+        ),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("user.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("organization.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    external_id: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
-class OrganizationMembership(Base):
-    """Read-only organization presence derived from role assignments."""
-
-    __table__ = organization_membership_select
-    __mapper_args__ = {
-        "primary_key": [
-            organization_membership_select.c.user_id,
-            organization_membership_select.c.organization_id,
-        ]
-    }
-
-    user_id: Mapped[uuid.UUID]
-    organization_id: Mapped[uuid.UUID]
-
-
-# Physical tables the app no longer reads. Writers still keep them in step so
-# older app versions see the same rows; the stacked follow-up drops them.
+# Physical workspace link table the app no longer reads. Writers keep it in
+# step so older app versions see the same rows; a follow-up drops it.
 class LegacyMembership(Base):
     __tablename__ = "membership"
     __table_args__ = (
@@ -6088,16 +6131,4 @@ class LegacyMembership(Base):
     )
     workspace_id: Mapped[uuid.UUID] = mapped_column(
         UUID, ForeignKey("workspace.id", ondelete="CASCADE"), primary_key=True
-    )
-
-
-class LegacyOrganizationMembership(Base, TimestampMixin):
-    __tablename__ = "organization_membership"
-    __table_args__ = (Index("ix_org_membership_org_id", "organization_id"),)
-
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID, ForeignKey("user.id", ondelete="CASCADE"), primary_key=True
-    )
-    organization_id: Mapped[uuid.UUID] = mapped_column(
-        UUID, ForeignKey("organization.id", ondelete="CASCADE"), primary_key=True
     )
