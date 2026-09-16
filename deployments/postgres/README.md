@@ -46,10 +46,12 @@ checks prevent TCP readiness and block migrations. The existing-volume wrapper
 also stops its temporary server on failure. Each existing-volume boot adds a
 short server start/stop cycle.
 
-Automatic provisioning covers only the bundled Compose database. An external
-database or a different database named in `TRACECAT__DB_URI` must be provisioned
-separately with the administrator SQL command below. Compose retains its existing
-bundled-database dependency; this change does not add external-database routing.
+The Compose startup hook provisions only the bundled database. For an external
+application database, the schema migration enables pgvector if its role has
+permission; otherwise an administrator must enable it first. Compose retains its
+existing bundled-database dependency; this change does not add external-database
+routing. See the [pgvector setup guide](https://docs.tracecat.com/self-hosting/pgvector)
+for server installation and migration troubleshooting.
 
 ### Image publication
 
@@ -79,10 +81,11 @@ pullable image before its first successful trusted `main` run.
 
 ## Managed PostgreSQL, RDS and Kubernetes
 
-The prebuilt image applies only to Compose. RDS supplies its own extension binaries;
-authorized database provisioning must enable pgvector >= 0.8.0 in `public` before
-application migrations. This PR does not add a Terraform PostgreSQL-provider
-resource or grant the application elevated privileges.
+The prebuilt image applies only to Compose. RDS supplies its own extension binaries.
+The schema migration runs `CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public`
+and requires pgvector >= 0.8.0. If the migration role cannot create extensions, an
+authorized administrator must enable it before migration. This PR does not add a
+Terraform PostgreSQL-provider resource or grant the application elevated privileges.
 
 The checked-in Fargate RDS default is PostgreSQL 16.10. The separate Kubernetes
 repository's reviewed EKS RDS default is 16.13, and its Helm chart uses external

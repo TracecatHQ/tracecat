@@ -12,10 +12,15 @@ from sqlalchemy.pool import NullPool
 from tests.database import TEST_DB_CONFIG
 
 
-def run_alembic(url: str, *arguments: str) -> subprocess.CompletedProcess[str]:
+def run_alembic(
+    url: str, *arguments: str, role: str | None = None
+) -> subprocess.CompletedProcess[str]:
+    env = {**os.environ, "TRACECAT__DB_URI": url}
+    if role is not None:
+        env["PGOPTIONS"] = f"-c role={role}"
     return subprocess.run(
         [sys.executable, "-m", "alembic", *arguments],
-        env={**os.environ, "TRACECAT__DB_URI": url},
+        env=env,
         capture_output=True,
         text=True,
         check=False,
@@ -27,6 +32,7 @@ def test_search_migration_enables_vector_and_preserves_source_data(
     preinstalled: bool,
 ) -> None:
     name = f"test_search_migration_{uuid.uuid4().hex}"
+    restricted_role = f"migration_role_{uuid.uuid4().hex}"
     admin = create_engine(
         TEST_DB_CONFIG.sys_url_sync, isolation_level="AUTOCOMMIT", poolclass=NullPool
     )
@@ -55,6 +61,39 @@ def test_search_migration_enables_vector_and_preserves_source_data(
             )
             if preinstalled:
                 conn.execute(text("CREATE EXTENSION vector WITH SCHEMA public"))
+        if not preinstalled:
+            with engine.begin() as conn:
+                conn.execute(text(f'CREATE ROLE "{restricted_role}"'))
+                conn.execute(
+                    text(f'GRANT CREATE ON DATABASE "{name}" TO "{restricted_role}"')
+                )
+                conn.execute(
+                    text(f'GRANT USAGE ON SCHEMA public TO "{restricted_role}"')
+                )
+                conn.execute(
+                    text(f'GRANT SELECT ON alembic_version TO "{restricted_role}"')
+                )
+            denied = run_alembic(url, "upgrade", "9680c861644a", role=restricted_role)
+            assert denied.returncode != 0
+            assert "permission denied to create extension" in denied.stderr
+            assert "https://docs.tracecat.com/self-hosting/pgvector" in denied.stderr
+        else:
+            with engine.begin() as conn:
+                conn.execute(text("CREATE SCHEMA synthetic_vector"))
+                conn.execute(text("ALTER EXTENSION vector SET SCHEMA synthetic_vector"))
+            wrong_schema = run_alembic(url, "upgrade", "9680c861644a")
+            assert wrong_schema.returncode != 0
+            assert "Tracecat requires pgvector" in wrong_schema.stderr
+            assert (
+                "https://docs.tracecat.com/self-hosting/pgvector" in wrong_schema.stderr
+            )
+            with engine.begin() as conn:
+                conn.execute(text("ALTER EXTENSION vector SET SCHEMA public"))
+        with engine.connect() as conn:
+            assert (
+                conn.scalar(text("SELECT version_num FROM alembic_version"))
+                == "31ee4b7f175a"
+            )
         upgraded = run_alembic(url, "upgrade", "9680c861644a")
         assert upgraded.returncode == 0, upgraded.stderr
         with engine.begin() as conn:
@@ -107,4 +146,5 @@ def test_search_migration_enables_vector_and_preserves_source_data(
                 {"name": name},
             )
             conn.execute(text(f'DROP DATABASE IF EXISTS "{name}"'))
+            conn.execute(text(f'DROP ROLE IF EXISTS "{restricted_role}"'))
         admin.dispose()

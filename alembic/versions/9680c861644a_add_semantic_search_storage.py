@@ -28,7 +28,16 @@ SEARCH_TABLES = (
 
 
 def upgrade() -> None:
-    op.execute("CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public")
+    op.execute("""
+        DO $$ BEGIN
+            CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;
+        EXCEPTION WHEN OTHERS THEN
+            RAISE EXCEPTION USING
+                ERRCODE = SQLSTATE,
+                MESSAGE = SQLERRM,
+                HINT = 'For pgvector installation and permissions, see https://docs.tracecat.com/self-hosting/pgvector';
+        END $$;
+    """)
     op.execute("""
         DO $$ BEGIN
             IF NOT EXISTS (
@@ -36,7 +45,8 @@ def upgrade() -> None:
                 WHERE e.extname = 'vector' AND n.nspname = 'public'
                   AND string_to_array(e.extversion, '.')::int[] >= ARRAY[0,8,0]
             ) THEN
-                RAISE EXCEPTION 'Provision pgvector >= 0.8.0 in public before migrating: run scripts/postgres/pgvector.sql with install=true as a database administrator';
+                RAISE EXCEPTION 'Tracecat requires pgvector >= 0.8.0 in the public schema'
+                    USING HINT = 'For pgvector version and schema requirements, see https://docs.tracecat.com/self-hosting/pgvector';
             END IF;
         END $$;
     """)
