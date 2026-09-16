@@ -329,6 +329,11 @@ function getScopedMermaidCss(svgId: string, palette: MermaidPalette) {
   fill: ${palette.background} !important;
 }
 
+#${svgId} marker.zeroOrMore circle,
+#${svgId} marker.zeroOrOne circle {
+  fill: ${palette.background} !important;
+}
+
 #${svgId} .flowchart-link,
 #${svgId} .messageLine0,
 #${svgId} .messageLine1,
