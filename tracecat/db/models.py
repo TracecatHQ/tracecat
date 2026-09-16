@@ -6095,13 +6095,6 @@ class OrganizationMembership(Base, TimestampMixin):
         # Index for "get all members of org" queries
         # (PK index covers user_id lookups, but not org_id alone)
         Index("ix_org_membership_org_id", "organization_id"),
-        Index(
-            "ix_org_membership_org_external_id",
-            "organization_id",
-            "external_id",
-            unique=True,
-            postgresql_where=text("external_id IS NOT NULL"),
-        ),
     )
 
     user_id: Mapped[uuid.UUID] = mapped_column(
@@ -6114,7 +6107,6 @@ class OrganizationMembership(Base, TimestampMixin):
         ForeignKey("organization.id", ondelete="CASCADE"),
         primary_key=True,
     )
-    external_id: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 # Physical workspace link table the app no longer reads. Writers keep it in
