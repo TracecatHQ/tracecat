@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tests.support.membership import grant_org_membership
+from tests.support.membership import grant_org_membership, seed_external_user
 from tracecat import config
 from tracecat.auth.api_keys import ORG_API_KEY_PREFIX, generate_managed_api_key
 from tracecat.auth.schemas import UserRole
@@ -32,6 +32,7 @@ from tracecat.db.models import (
     Organization,
     OrganizationMembership,
     RoleScope,
+    ScimConnection,
     Scope,
     ServiceAccount,
     ServiceAccountApiKey,
@@ -50,9 +51,11 @@ from tracecat.db.models import (
 )
 from tracecat.exceptions import (
     TracecatAuthorizationError,
+    TracecatConflictError,
     TracecatValidationError,
 )
 from tracecat.invitations.enums import InvitationStatus
+from tracecat.invitations.router import create_invitation
 from tracecat.invitations.schemas import InvitationCreate, InvitationGrant
 from tracecat.invitations.service import (
     InvitationService,
@@ -670,6 +673,141 @@ class TestOrganizationServiceDeleteMember:
         # Verify superuser was NOT deleted
         result = await session.execute(select(User).where(User.id == superuser.id))  # pyright: ignore[reportArgumentType]
         assert result.scalar_one_or_none() is not None
+
+    @pytest.mark.anyio
+    async def test_delete_scim_managed_member_raises_conflict(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        user_in_org1: User,
+        admin_in_org1: User,
+    ):
+        """SCIM owns its members: removing one here would revert on next sync."""
+        await seed_external_user(
+            session, organization_id=org1.id, user_id=user_in_org1.id
+        )
+
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = OrgService(session, role=role)
+
+        with pytest.raises(TracecatConflictError, match="identity provider"):
+            await service.delete_member(user_in_org1.id)
+
+        assert (
+            await session.scalar(
+                select(OrganizationMembership).where(
+                    OrganizationMembership.user_id == user_in_org1.id,
+                    OrganizationMembership.organization_id == org1.id,
+                )
+            )
+            is not None
+        )
+
+    @pytest.mark.anyio
+    async def test_delete_scim_managed_member_allowed_with_bypass(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        user_in_org1: User,
+        admin_in_org1: User,
+    ):
+        """allow_scim_managed is the SCIM deprovisioning path's own escape hatch."""
+        await seed_external_user(
+            session, organization_id=org1.id, user_id=user_in_org1.id
+        )
+
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = OrgService(session, role=role)
+
+        await service.delete_member(user_in_org1.id, allow_scim_managed=True)
+
+        assert (
+            await session.scalar(
+                select(OrganizationMembership).where(
+                    OrganizationMembership.user_id == user_in_org1.id,
+                    OrganizationMembership.organization_id == org1.id,
+                )
+            )
+            is None
+        )
+
+    @pytest.mark.anyio
+    async def test_delete_superuser_takes_precedence_over_scim_guard(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+    ):
+        """A SCIM-managed superuser still fails on the superuser check first."""
+        superuser = User(
+            id=uuid.uuid4(),
+            email=f"superuser-{uuid.uuid4().hex[:8]}@example.com",
+            hashed_password="hashed",
+            role=UserRole.ADMIN,
+            is_active=True,
+            is_superuser=True,
+            is_verified=True,
+        )
+        session.add(superuser)
+        await session.flush()
+
+        await seed_external_user(session, organization_id=org1.id, user_id=superuser.id)
+        await grant_org_membership(
+            session, user_id=superuser.id, organization_id=org1.id
+        )
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = OrgService(session, role=role)
+
+        with pytest.raises(TracecatAuthorizationError, match="Cannot delete superuser"):
+            await service.delete_member(superuser.id)
+
+        # The bypass does not lower the superuser bar either.
+        with pytest.raises(TracecatAuthorizationError, match="Cannot delete superuser"):
+            await service.delete_member(superuser.id, allow_scim_managed=True)
+
+    @pytest.mark.anyio
+    async def test_scim_guard_is_per_organization(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        org2: Organization,
+        user_in_org1: User,
+        admin_in_org1: User,
+    ):
+        """A linkage in one org must not block removal by another org's admin."""
+        await seed_external_user(
+            session, organization_id=org2.id, user_id=user_in_org1.id
+        )
+        service = OrgService(session, role=create_admin_role(org1.id, admin_in_org1.id))
+
+        # org2 owns the linkage, so org1's admin is unaffected by it.
+        await service.delete_member(user_in_org1.id)
+        assert (
+            await session.scalar(
+                select(OrganizationMembership).where(
+                    OrganizationMembership.user_id == user_in_org1.id,
+                    OrganizationMembership.organization_id == org1.id,
+                )
+            )
+            is None
+        )
+
+    @pytest.mark.anyio
+    async def test_scim_guard_blocks_the_owning_organization(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        user_in_org1: User,
+        admin_in_org1: User,
+    ):
+        """The org holding the linkage is the one refused."""
+        await seed_external_user(
+            session, organization_id=org1.id, user_id=user_in_org1.id
+        )
+        service = OrgService(session, role=create_admin_role(org1.id, admin_in_org1.id))
+
+        with pytest.raises(TracecatConflictError, match="identity provider"):
+            await service.delete_member(user_in_org1.id)
 
     @pytest.mark.anyio
     async def test_delete_nonexistent_member_raises(
@@ -1887,3 +2025,110 @@ class TestOrganizationServiceInvitations:
             await accept_invitation_for_user(
                 session, user_id=user_in_org2.id, token=invitation.token
             )
+
+
+class TestOrganizationScimInviteWarning:
+    """Manual invites into a SCIM-provisioned org carry a standing-exception warning."""
+
+    @staticmethod
+    async def _connect_scim(
+        session: AsyncSession, organization_id: uuid.UUID
+    ) -> ScimConnection:
+        connection = ScimConnection(
+            id=uuid.uuid4(),
+            organization_id=organization_id,
+            key_id=uuid.uuid4().hex[:32],
+            hashed=uuid.uuid4().hex,
+            salt=uuid.uuid4().hex,
+            preview="scim_...abcd",
+        )
+        session.add(connection)
+        await session.commit()
+        return connection
+
+    @pytest.mark.anyio
+    async def test_is_scim_connected_false_without_connection(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+    ):
+        service = InvitationService(
+            session, role=create_admin_role(org1.id, admin_in_org1.id)
+        )
+
+        assert await service.is_scim_connected() is False
+
+    @pytest.mark.anyio
+    async def test_is_scim_connected_true_with_connection(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+    ):
+        await self._connect_scim(session, org1.id)
+        service = InvitationService(
+            session, role=create_admin_role(org1.id, admin_in_org1.id)
+        )
+
+        assert await service.is_scim_connected() is True
+
+    @pytest.mark.anyio
+    async def test_is_scim_connected_ignores_other_org_connection(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        org2: Organization,
+        admin_in_org1: User,
+    ):
+        await self._connect_scim(session, org2.id)
+        service = InvitationService(
+            session, role=create_admin_role(org1.id, admin_in_org1.id)
+        )
+
+        assert await service.is_scim_connected() is False
+
+    @pytest.mark.anyio
+    async def test_create_invitation_warns_in_scim_org(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+        org1_member_role: DBRole,
+    ):
+        await self._connect_scim(session, org1.id)
+        role = create_admin_role(org1.id, admin_in_org1.id)
+
+        response = await create_invitation(
+            role=role,
+            session=session,
+            params=InvitationCreate(
+                email="manual@example.com",
+                grants=[InvitationGrant(role_id=org1_member_role.id)],
+            ),
+        )
+
+        assert response.warning is not None
+        assert "manual@example.com" in response.warning
+        assert "deprovisioned" in response.warning
+
+    @pytest.mark.anyio
+    async def test_create_invitation_has_no_warning_without_scim(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+        org1_member_role: DBRole,
+    ):
+        role = create_admin_role(org1.id, admin_in_org1.id)
+
+        response = await create_invitation(
+            role=role,
+            session=session,
+            params=InvitationCreate(
+                email="manual-no-scim@example.com",
+                grants=[InvitationGrant(role_id=org1_member_role.id)],
+            ),
+        )
+
+        assert response.warning is None

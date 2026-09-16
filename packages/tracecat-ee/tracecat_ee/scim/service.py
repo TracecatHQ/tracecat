@@ -1,0 +1,550 @@
+"""Directory synchronization from an external identity provider.
+
+The identity provider owns which users are in which external group; Tracecat
+owns what a group grants. External groups never enter RBAC directly: an
+admin-authored mapping is read live by the IdP arm of the role-path union, so
+no ``group_member`` rows are projected and nothing needs recomputing.
+
+Deprovisioning is org-scoped removal, not global deactivation. ``active=false``
+from one tenant's provider must not reach that user's other organizations, so it
+clears ``external_user.active`` and delegates removal to
+``OrgService.delete_member`` rather than writing ``is_active``.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from uuid import UUID
+
+from sqlalchemy import ColumnElement, delete, func, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+from tracecat.audit.logger import audit_log
+from tracecat.authz.controls import require_scope
+from tracecat.authz.enums import ScimConnectionStatus
+from tracecat.authz.membership import ensure_member
+from tracecat.db.models import (
+    ExternalGroup,
+    ExternalGroupMapping,
+    ExternalGroupMember,
+    ExternalUser,
+    Group,
+    GroupMember,
+    ScimConnection,
+)
+from tracecat.exceptions import TracecatNotFoundError
+from tracecat.organization.service import OrgService
+from tracecat.service import BaseOrgService
+from tracecat_ee.scim.schemas import ExternalGroupMappingRead, ExternalGroupRead
+
+
+class SCIMService(BaseOrgService):
+    """Syncs external directory state into Tracecat groups and membership."""
+
+    service_name = "scim"
+
+    # =========================================================================
+    # Read-side operations for the admin mapping API
+    # =========================================================================
+
+    @require_scope("org:rbac:read")
+    async def list_external_groups(self) -> list[ExternalGroupRead]:
+        """List this organization's synced IdP groups with their member counts.
+
+        Returns:
+            Every synced external group, ordered by display name.
+        """
+        # Correlated scalar subquery rather than an outer join plus group_by:
+        # it keeps groups with no members at zero without a coalesce, and the
+        # selected columns stay a flat projection.
+        member_count = (
+            select(func.count())
+            .select_from(ExternalGroupMember)
+            .where(ExternalGroupMember.external_group_id == ExternalGroup.id)
+            .scalar_subquery()
+        )
+        stmt = (
+            select(
+                ExternalGroup.id,
+                ExternalGroup.external_id,
+                ExternalGroup.display_name,
+                member_count.label("member_count"),
+            )
+            .where(ExternalGroup.organization_id == self.organization_id)
+            .order_by(ExternalGroup.display_name, ExternalGroup.id)
+        )
+        rows = (await self.session.execute(stmt)).tuples().all()
+        return [
+            ExternalGroupRead(
+                id=group_id,
+                external_id=external_id,
+                display_name=display_name,
+                member_count=member_count,
+            )
+            for group_id, external_id, display_name, member_count in rows
+        ]
+
+    @require_scope("org:rbac:read")
+    async def get_mapping(self, mapping_id: UUID) -> ExternalGroupMappingRead:
+        """Read one mapping with both sides joined in.
+
+        Args:
+            mapping_id: The mapping to read.
+
+        Returns:
+            The mapping and the display detail for both of its sides.
+
+        Raises:
+            TracecatNotFoundError: The mapping is not in this organization.
+        """
+        rows = await self._mapping_rows(ExternalGroupMapping.id == mapping_id)
+        if not rows:
+            raise TracecatNotFoundError("External group mapping not found")
+        return rows[0]
+
+    @require_scope("org:rbac:read")
+    async def list_mappings(self) -> list[ExternalGroupMappingRead]:
+        """List this organization's mappings with both sides joined in.
+
+        Returns:
+            Every mapping, ordered by external then Tracecat group name.
+        """
+        return await self._mapping_rows()
+
+    async def _mapping_rows(
+        self, *criteria: ColumnElement[bool]
+    ) -> list[ExternalGroupMappingRead]:
+        """Read mappings joined to both sides, always org-scoped."""
+        stmt = (
+            select(
+                ExternalGroupMapping.id,
+                ExternalGroupMapping.external_group_id,
+                ExternalGroup.external_id,
+                ExternalGroup.display_name,
+                ExternalGroupMapping.group_id,
+                Group.name,
+            )
+            .join(
+                ExternalGroup,
+                ExternalGroup.id == ExternalGroupMapping.external_group_id,
+            )
+            .join(Group, Group.id == ExternalGroupMapping.group_id)
+            .where(
+                ExternalGroupMapping.organization_id == self.organization_id, *criteria
+            )
+            .order_by(ExternalGroup.display_name, Group.name, ExternalGroupMapping.id)
+        )
+        rows = (await self.session.execute(stmt)).tuples().all()
+        return [
+            ExternalGroupMappingRead(
+                id=mapping_id,
+                external_group_id=external_group_id,
+                external_group_external_id=external_id,
+                external_group_display_name=display_name,
+                group_id=group_id,
+                group_name=group_name,
+            )
+            for (
+                mapping_id,
+                external_group_id,
+                external_id,
+                display_name,
+                group_id,
+                group_name,
+            ) in rows
+        ]
+
+    # =========================================================================
+    # Write-side operations for the sync endpoints
+    # =========================================================================
+
+    @audit_log(
+        resource_type="scim_directory",
+        action="sync",
+        resource_id_attr="id",
+    )
+    async def upsert_external_group(
+        self, *, external_id: str, display_name: str
+    ) -> ExternalGroup:
+        """Create or rename a synced external group.
+
+        Args:
+            external_id: The provider's identifier for the group.
+            display_name: The provider's current display name.
+
+        Returns:
+            The stored external group.
+        """
+        stmt = (
+            pg_insert(ExternalGroup)
+            .values(
+                organization_id=self.organization_id,
+                external_id=external_id,
+                display_name=display_name,
+            )
+            .on_conflict_do_update(
+                index_elements=[
+                    ExternalGroup.organization_id,
+                    ExternalGroup.external_id,
+                ],
+                set_={"display_name": display_name},
+            )
+            .returning(ExternalGroup)
+        )
+        external_group = (await self.session.execute(stmt)).scalar_one()
+        # Renaming grants nothing, so no group needs reconciling here.
+        return external_group
+
+    @audit_log(
+        resource_type="scim_directory",
+        action="sync",
+        resource_id_attr="external_group_id",
+    )
+    async def delete_external_group(self, external_group_id: UUID) -> None:
+        """Delete a synced external group and drop what it supplied.
+
+        Args:
+            external_group_id: The external group to remove.
+
+        Raises:
+            TracecatNotFoundError: The external group is not in this organization.
+        """
+        # Target groups first, then the external group: delete_mapping takes
+        # the group lock before touching mapping rows, and the reverse order
+        # here would let the two wait on each other.
+        await self._get_external_group(external_group_id)
+        for group_id in sorted(set(await self._mapped_group_ids(external_group_id))):
+            await self._lock_group(group_id)
+
+        # Re-read under lock: a mapping created concurrently would otherwise
+        # supply members this deletion never reconciles.
+        external_group = await self._get_external_group(
+            external_group_id, for_update=True
+        )
+        affected = await self._mapped_group_ids(external_group_id)
+        # The cascade takes the mappings with it, so groups whose last mapping
+        # this was would silently lose every member. Freeze them as manual.
+        for group_id in sorted(set(affected), key=str):
+            if await self._is_last_mapping(group_id, external_group_id):
+                await self._freeze_idp_members_as_manual(group_id)
+        await self.session.delete(external_group)
+        await self.session.flush()
+
+    @audit_log(
+        resource_type="scim_directory",
+        action="sync",
+        resource_id_attr="external_group_id",
+    )
+    async def replace_external_group_members(
+        self, external_group_id: UUID, external_user_ids: Sequence[UUID]
+    ) -> None:
+        """Replace an external group's member list with the provider's.
+
+        Args:
+            external_group_id: The external group being synced.
+            external_user_ids: The complete member list as pushed by the
+                provider, as ``external_user`` row ids.
+
+        Raises:
+            TracecatNotFoundError: The external group is not in this organization.
+        """
+        # Serializes concurrent replacements: without it two pushes can each
+        # delete nothing and insert independently, leaving their union.
+        await self._get_external_group(external_group_id, for_update=True)
+        desired = set(external_user_ids)
+
+        stale = delete(ExternalGroupMember).where(
+            ExternalGroupMember.external_group_id == external_group_id
+        )
+        if desired:
+            stale = stale.where(ExternalGroupMember.external_user_id.not_in(desired))
+        await self.session.execute(stale)
+
+        if desired:
+            await self.session.execute(
+                pg_insert(ExternalGroupMember)
+                .values(
+                    [
+                        {
+                            "external_group_id": external_group_id,
+                            "external_user_id": external_user_id,
+                        }
+                        for external_user_id in sorted(desired, key=str)
+                    ]
+                )
+                .on_conflict_do_nothing(
+                    index_elements=[
+                        ExternalGroupMember.external_group_id,
+                        ExternalGroupMember.external_user_id,
+                    ]
+                )
+            )
+        await self.session.flush()
+
+    @require_scope("org:rbac:create")
+    @audit_log(
+        resource_type="scim_group_mapping",
+        action="create",
+        resource_id_attr="id",
+    )
+    async def create_mapping(
+        self, *, external_group_id: UUID, group_id: UUID
+    ) -> ExternalGroupMapping:
+        """Map a synced external group into a Tracecat group.
+
+        Args:
+            external_group_id: The synced source group.
+            group_id: The Tracecat group whose scopes its members receive.
+
+        Returns:
+            The stored mapping.
+
+        Raises:
+            TracecatNotFoundError: Either side is not in this organization.
+        """
+        await self._get_external_group(external_group_id)
+        await self._lock_group(group_id)
+
+        stmt = (
+            pg_insert(ExternalGroupMapping)
+            .values(
+                organization_id=self.organization_id,
+                external_group_id=external_group_id,
+                group_id=group_id,
+            )
+            .on_conflict_do_nothing(
+                index_elements=[
+                    ExternalGroupMapping.external_group_id,
+                    ExternalGroupMapping.group_id,
+                ]
+            )
+            .returning(ExternalGroupMapping)
+        )
+        mapping = (await self.session.execute(stmt)).scalar_one_or_none()
+        if mapping is None:
+            mapping = await self._get_mapping(
+                external_group_id=external_group_id, group_id=group_id
+            )
+        # The IdP owns a mapped group's membership, so hand-added rows would be
+        # invisible in the UI yet still grant access.
+        await self._purge_manual_members(group_id)
+        await self.session.flush()
+        return mapping
+
+    @require_scope("org:rbac:delete")
+    @audit_log(
+        resource_type="scim_group_mapping",
+        action="delete",
+        resource_id_attr="mapping_id",
+    )
+    async def delete_mapping(self, mapping_id: UUID) -> None:
+        """Remove a mapping and drop the membership only it supplied.
+
+        Args:
+            mapping_id: The mapping to remove.
+
+        Raises:
+            TracecatNotFoundError: The mapping is not in this organization.
+        """
+        stmt = select(ExternalGroupMapping).where(
+            ExternalGroupMapping.id == mapping_id,
+            ExternalGroupMapping.organization_id == self.organization_id,
+        )
+        mapping = (await self.session.execute(stmt)).scalar_one_or_none()
+        if mapping is None:
+            raise TracecatNotFoundError("External group mapping not found")
+
+        group_id = mapping.group_id
+        # Locked before the delete: create_mapping locks the group first, so
+        # the reverse order here would let the two wait on each other.
+        await self._lock_group(group_id)
+        # Unmapping the last source would drop every member at once, so the
+        # current IdP membership is frozen as manual rows first.
+        if await self._is_last_mapping(group_id, mapping.external_group_id):
+            await self._freeze_idp_members_as_manual(group_id)
+        await self.session.delete(mapping)
+        await self.session.flush()
+
+    # =========================================================================
+    # Deprovisioning
+    # =========================================================================
+
+    async def deprovision_user(self, user_id: UUID) -> None:
+        """Remove a user from this organization at the provider's instruction.
+
+        ``active=false`` revokes access to this tenant only: the row and its
+        group links are kept so re-activation relinks the same resource id, and
+        the global ``is_active`` flag is never written. Clearing ``active``
+        already drops the IdP role-path arm; ``delete_member`` then removes the
+        membership row and the direct and manual paths with it.
+
+        Args:
+            user_id: The user the provider has deprovisioned.
+
+        Raises:
+            TracecatAuthorizationError: The user is a superuser, or the caller
+                lacks ``org:member:remove``.
+            NoResultFound: The user is not a member of this organization.
+        """
+        org_service = OrgService(self.session, self.role)
+        # Resolved first: delete_member's own lookup joins on rows this
+        # deactivation is about to make invisible to the role-path union.
+        member = await org_service.get_member(user_id)
+        await self.deactivate_external_user(user_id)
+        # One transaction with the deactivation above, so a failure cannot
+        # leave the user inactive but still admitted.
+        await org_service.delete_member(
+            user_id, allow_idp_managed=True, member=member, commit=False
+        )
+        await self.session.commit()
+
+    async def reactivate_external_user(self, external_user: ExternalUser) -> None:
+        """Re-admit a user the provider has activated again.
+
+        Admission still waits on the connection being active: a pending
+        connection collects the directory without granting anything.
+        """
+        await self.session.execute(
+            update(ExternalUser)
+            .where(ExternalUser.id == external_user.id)
+            .values(active=True)
+        )
+        if await self._connection_is_active():
+            await ensure_member(
+                self.session, self.organization_id, external_user.user_id
+            )
+        await self.session.flush()
+
+    async def _connection_is_active(self) -> bool:
+        """Whether this organization's connection has been activated."""
+        stmt = select(ScimConnection.status).where(
+            ScimConnection.organization_id == self.organization_id
+        )
+        return (
+            await self.session.execute(stmt)
+        ).scalar_one_or_none() == ScimConnectionStatus.ACTIVE
+
+    async def deactivate_external_user(self, user_id: UUID) -> None:
+        """Clear the active flag, keeping the row and its group links."""
+        await self.session.execute(
+            update(ExternalUser)
+            .where(
+                ExternalUser.user_id == user_id,
+                ExternalUser.organization_id == self.organization_id,
+            )
+            .values(active=False)
+        )
+        await self.session.flush()
+
+    # =========================================================================
+    # Helpers
+    # =========================================================================
+
+    async def _lock_group(self, group_id: UUID) -> None:
+        """Lock the group so concurrent reconciles serialize on it.
+
+        Groups are locked before any user row, matching the order RBAC's
+        ``_sync_group_memberships`` takes, so the two cannot deadlock.
+        """
+        stmt = (
+            select(Group.id)
+            .where(Group.id == group_id, Group.organization_id == self.organization_id)
+            .with_for_update()
+        )
+        if (await self.session.execute(stmt)).scalar_one_or_none() is None:
+            raise TracecatNotFoundError("Group not found")
+
+    async def _get_external_group(
+        self, external_group_id: UUID, *, for_update: bool = False
+    ) -> ExternalGroup:
+        stmt = select(ExternalGroup).where(
+            ExternalGroup.id == external_group_id,
+            ExternalGroup.organization_id == self.organization_id,
+        )
+        if for_update:
+            stmt = stmt.with_for_update()
+        external_group = (await self.session.execute(stmt)).scalar_one_or_none()
+        if external_group is None:
+            raise TracecatNotFoundError("External group not found")
+        return external_group
+
+    async def _get_mapping(
+        self, *, external_group_id: UUID, group_id: UUID
+    ) -> ExternalGroupMapping:
+        stmt = select(ExternalGroupMapping).where(
+            ExternalGroupMapping.external_group_id == external_group_id,
+            ExternalGroupMapping.group_id == group_id,
+            ExternalGroupMapping.organization_id == self.organization_id,
+        )
+        mapping = (await self.session.execute(stmt)).scalar_one_or_none()
+        if mapping is None:
+            raise TracecatNotFoundError("External group mapping not found")
+        return mapping
+
+    async def _mapped_group_ids(self, external_group_id: UUID) -> list[UUID]:
+        stmt = select(ExternalGroupMapping.group_id).where(
+            ExternalGroupMapping.external_group_id == external_group_id,
+            ExternalGroupMapping.organization_id == self.organization_id,
+        )
+        return list((await self.session.execute(stmt)).scalars())
+
+    async def _is_last_mapping(self, group_id: UUID, external_group_id: UUID) -> bool:
+        """Whether this is the only external group still mapped into the group."""
+        stmt = select(ExternalGroupMapping.id).where(
+            ExternalGroupMapping.group_id == group_id,
+            ExternalGroupMapping.organization_id == self.organization_id,
+            ExternalGroupMapping.external_group_id != external_group_id,
+        )
+        return (await self.session.execute(stmt)).first() is None
+
+    async def _freeze_idp_members_as_manual(self, group_id: UUID) -> None:
+        """Copy the group's current IdP members in as manual rows.
+
+        Losing its last mapping would otherwise revoke every member's access at
+        once; the admin keeps the membership and can edit it by hand again.
+        """
+        members = (
+            select(ExternalUser.user_id)
+            .join(
+                ExternalGroupMember,
+                ExternalGroupMember.external_user_id == ExternalUser.id,
+            )
+            .join(
+                ExternalGroupMapping,
+                ExternalGroupMapping.external_group_id
+                == ExternalGroupMember.external_group_id,
+            )
+            .where(
+                ExternalGroupMapping.group_id == group_id,
+                ExternalGroupMapping.organization_id == self.organization_id,
+                ExternalUser.active,
+            )
+            .distinct()
+        )
+        user_ids = list((await self.session.execute(members)).scalars())
+        if not user_ids:
+            return
+        await self.session.execute(
+            pg_insert(GroupMember)
+            .values(
+                [
+                    {
+                        "group_id": group_id,
+                        "user_id": user_id,
+                        "organization_id": self.organization_id,
+                    }
+                    for user_id in sorted(user_ids, key=str)
+                ]
+            )
+            .on_conflict_do_nothing(
+                index_elements=[GroupMember.user_id, GroupMember.group_id]
+            )
+        )
+        await self.session.flush()
+
+    async def _purge_manual_members(self, group_id: UUID) -> None:
+        """Drop hand-added rows from a group the IdP now owns."""
+        await self.session.execute(
+            delete(GroupMember).where(GroupMember.group_id == group_id)
+        )
+        await self.session.flush()

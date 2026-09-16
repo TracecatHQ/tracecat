@@ -2,22 +2,24 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Final
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import EmailStr
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from tracecat import config
 from tracecat.api.common import get_default_organization_id
 from tracecat.auth.enums import AuthType
 from tracecat.core.schemas import Schema
 from tracecat.db.dependencies import AsyncDBSessionBypass
-from tracecat.db.models import Organization, OrganizationDomain
+from tracecat.db.models import Invitation, Organization, OrganizationDomain
 from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers import OrganizationID
+from tracecat.invitations.enums import InvitationStatus
 from tracecat.organization.domains import normalize_domain
 from tracecat.service import BaseService
 from tracecat.settings.service import get_setting_from_bypass_session
@@ -65,7 +67,7 @@ class AuthDiscoveryService(BaseService):
             if org_resolution is None:
                 raise TracecatValidationError("Invalid organization")
             org_id, resolved_org_slug = org_resolution
-            method = await self._organization_discovery_method(org_id)
+            method = await self._organization_discovery_method(org_id, str(email))
             return AuthDiscoverResponse(
                 method=method,
                 next_url=self._build_next_url(
@@ -77,14 +79,14 @@ class AuthDiscoveryService(BaseService):
         email_domain = self._extract_domain(email)
         resolution = await self._resolve_organization(email_domain)
         if resolution is None:
-            method = await self._unmapped_domain_fallback_method()
+            method = await self._unmapped_domain_fallback_method(str(email))
             return AuthDiscoverResponse(
                 method=method,
                 next_url=self._build_next_url(method=method, email=str(email)),
             )
 
         org_id, org_slug = resolution
-        method = await self._organization_discovery_method(org_id)
+        method = await self._organization_discovery_method(org_id, str(email))
         return AuthDiscoverResponse(
             method=method,
             next_url=self._build_next_url(
@@ -126,15 +128,34 @@ class AuthDiscoveryService(BaseService):
         return row[0], row[1]
 
     async def _organization_discovery_method(
-        self, org_id: OrganizationID
+        self, org_id: OrganizationID, email: str | None = None
     ) -> AuthDiscoveryMethod:
         if await self._org_saml_enabled(org_id):
+            # A live invitation is an admin-created non-IdP path: the IdP does
+            # not know this invitee, so offer basic auth when it is enabled.
+            if (
+                email is not None
+                and await self._org_basic_enabled(org_id)
+                and await self._has_live_invitation(org_id, email)
+            ):
+                return AuthDiscoveryMethod.BASIC
             return AuthDiscoveryMethod.SAML
         if await self._org_oidc_enabled(org_id):
             return AuthDiscoveryMethod.OIDC
         if await self._org_basic_enabled(org_id):
             return AuthDiscoveryMethod.BASIC
         return self._platform_fallback_method()
+
+    async def _has_live_invitation(self, org_id: OrganizationID, email: str) -> bool:
+        """Check for a pending, unexpired invitation for this email in the org."""
+        stmt = select(Invitation.id).where(
+            Invitation.organization_id == org_id,
+            func.lower(Invitation.email) == email.lower(),
+            Invitation.status == InvitationStatus.PENDING,
+            Invitation.expires_at >= datetime.now(UTC),
+        )
+        result = await self.session.execute(stmt)
+        return result.first() is not None
 
     async def _org_saml_enabled(self, org_id: OrganizationID) -> bool:
         if AuthType.SAML not in config.TRACECAT__AUTH_TYPES:
@@ -153,7 +174,9 @@ class AuthDiscoveryService(BaseService):
     async def _org_basic_enabled(self, _org_id: OrganizationID) -> bool:
         return AuthType.BASIC in config.TRACECAT__AUTH_TYPES
 
-    async def _unmapped_domain_fallback_method(self) -> AuthDiscoveryMethod:
+    async def _unmapped_domain_fallback_method(
+        self, email: str | None = None
+    ) -> AuthDiscoveryMethod:
         """Resolve fallback auth method when no org domain mapping is found."""
         if config.TRACECAT__EE_MULTI_TENANT:
             return self._platform_fallback_method()
@@ -161,7 +184,7 @@ class AuthDiscoveryService(BaseService):
             default_org_id = await get_default_organization_id(self.session)
         except ValueError:
             return self._platform_fallback_method()
-        return await self._organization_discovery_method(default_org_id)
+        return await self._organization_discovery_method(default_org_id, email)
 
     @staticmethod
     def _extract_domain(email: str) -> str:

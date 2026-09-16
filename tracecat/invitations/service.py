@@ -32,6 +32,7 @@ from tracecat.db.models import (
     Invitation,
     InvitationGrant,
     OrganizationMembership,
+    ScimConnection,
     User,
     UserRoleAssignment,
     Workspace,
@@ -525,6 +526,18 @@ class InvitationService(BaseOrgService):
         )
         await self.session.commit()
         return invitation
+
+    async def is_scim_connected(self) -> bool:
+        """Check whether an identity provider provisions this organization."""
+        return bool(
+            await self.session.scalar(
+                select(
+                    select(ScimConnection.id)
+                    .where(ScimConnection.organization_id == self.organization_id)
+                    .exists()
+                )
+            )
+        )
 
     async def list_invitations(
         self, *, status: InvitationStatus | None = None
