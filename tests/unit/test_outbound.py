@@ -22,7 +22,12 @@ from cryptography.fernet import Fernet
 from litellm.anthropic_interface import acreate as create_anthropic_message
 from litellm.caching.dual_cache import DualCache
 from litellm.caching.llm_caching_handler import LLMClientCache
-from litellm.exceptions import APIConnectionError, APIError, InternalServerError
+from litellm.exceptions import (
+    APIConnectionError,
+    APIError,
+    InternalServerError,
+    PermissionDeniedError,
+)
 from litellm.llms.base_llm.chat.transformation import BaseLLMException
 from litellm.proxy._types import UserAPIKeyAuth
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -614,7 +619,14 @@ async def test_gateway_credential_urls_use_guarded_transport(
     ]
     try:
         if private:
-            with pytest.raises((APIError, APIConnectionError, InternalServerError)):
+            with pytest.raises(
+                (
+                    APIError,
+                    APIConnectionError,
+                    InternalServerError,
+                    PermissionDeniedError,
+                )
+            ):
                 await litellm.acompletion(
                     **data,
                     messages=[{"role": "user", "content": "hello"}],
@@ -674,6 +686,7 @@ async def test_litellm_protocol_switches_cannot_bypass_guard(
             APIError,
             APIConnectionError,
             InternalServerError,
+            PermissionDeniedError,
             DisallowedUrlError,
             BaseLLMException,
         )
