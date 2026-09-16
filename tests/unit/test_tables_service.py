@@ -1050,6 +1050,33 @@ class TestTableColumns:
         error_msg = str(exc_info.value)
         assert "unique" in error_msg.lower() or "duplicate" in error_msg.lower()
 
+    async def test_create_column_with_is_index_creates_unique_index(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        await tables_service.create_column(
+            table,
+            TableColumnCreate(name="email", type=SqlType.TEXT, is_index=True),
+        )
+
+        refreshed = await tables_service.get_table(table.id)
+        assert await tables_service.get_index(refreshed) == ["email"]
+
+    async def test_create_table_with_is_index_column(
+        self, tables_service: TablesService
+    ) -> None:
+        created = await tables_service.create_table(
+            TableCreate(
+                name="indexed_on_create",
+                columns=[
+                    TableColumnCreate(name="key", type=SqlType.TEXT, is_index=True),
+                    TableColumnCreate(name="value", type=SqlType.TEXT),
+                ],
+            )
+        )
+
+        refreshed = await tables_service.get_table(created.id)
+        assert await tables_service.get_index(refreshed) == ["key"]
+
     async def test_update_column_can_create_unique_index(
         self, tables_service: TablesService, table: Table, session: AsyncSession
     ) -> None:

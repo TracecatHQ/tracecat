@@ -21,7 +21,11 @@ from tracecat.db.models import (
     WorkflowTag,
     Workspace,
 )
-from tracecat.exceptions import BuiltinRegistryHasNoSelectionError
+from tracecat.exceptions import (
+    BuiltinRegistryHasNoSelectionError,
+    TracecatConflictError,
+    TracecatNotFoundError,
+)
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.pagination import CursorPaginatedResponse
 from tracecat.validation.schemas import (
@@ -911,6 +915,89 @@ async def test_get_workflow_with_relationships(
 
         assert "webhook" in data
         assert data["webhook"]["status"] == "online"
+
+
+@pytest.mark.anyio
+async def test_move_workflow_rejects_unknown_fields(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_workflow: Workflow,
+) -> None:
+    """POST /workflows/{id}/move with an unsupported key must not silently succeed."""
+    with patch(
+        "tracecat.workflow.management.router.WorkflowFolderService.move_workflow",
+        new_callable=AsyncMock,
+    ) as mock_move:
+        response = client.post(
+            f"/workflows/{mock_workflow.id}/move",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"folder_id": str(uuid.uuid4())},
+        )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    mock_move.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_create_schedule_unpublished_workflow_returns_conflict(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_workflow: Workflow,
+) -> None:
+    with patch(
+        "tracecat.workflow.schedules.router.WorkflowSchedulesService.create_schedule",
+        new_callable=AsyncMock,
+        side_effect=TracecatConflictError(
+            "Workflow must be saved before creating a schedule."
+        ),
+    ):
+        response = client.post(
+            "/schedules",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={
+                "workflow_id": WorkflowUUID.new(mock_workflow.id).short(),
+                "cron": "0 0 * * *",
+            },
+        )
+
+    assert response.status_code == status.HTTP_409_CONFLICT
+
+
+@pytest.mark.anyio
+async def test_create_schedule_rejects_cron_and_every_together(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_workflow: Workflow,
+) -> None:
+    response = client.post(
+        "/schedules",
+        params={"workspace_id": str(test_admin_role.workspace_id)},
+        json={
+            "workflow_id": WorkflowUUID.new(mock_workflow.id).short(),
+            "cron": "0 0 * * *",
+            "every": "PT1H",
+        },
+    )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+
+@pytest.mark.anyio
+async def test_delete_missing_schedule_returns_not_found(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with patch(
+        "tracecat.workflow.schedules.router.WorkflowSchedulesService.delete_schedule",
+        new_callable=AsyncMock,
+        side_effect=TracecatNotFoundError("Schedule not found"),
+    ):
+        response = client.delete(
+            "/schedules/sch_00000000000000000000000000000000",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
 def _draft_workflow(mock_workflow: Workflow) -> Workflow:

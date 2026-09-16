@@ -50,9 +50,11 @@ class ScheduleCreate(BaseModel):
 
     @model_validator(mode="after")
     def validate_schedule_spec(self) -> "ScheduleCreate":
-        """Ensure at least one schedule specifier is provided."""
+        """Ensure exactly one schedule specifier is provided."""
         if self.cron is None and self.every is None:
             raise ValueError("Either cron or every must be provided for a schedule")
+        if self.cron is not None and self.every is not None:
+            raise ValueError("Only one of cron or every may be provided for a schedule")
         return self
 
     @field_validator("cron")
@@ -79,6 +81,11 @@ class ScheduleUpdate(BaseModel):
         default=None, description="ISO 8601 datetime string"
     )
     status: Literal["online", "offline"] | None = None
+    timeout: float | None = Field(
+        default=None,
+        ge=0,
+        description="The maximum number of seconds to wait for the workflow to complete",
+    )
 
     @field_validator("cron")
     @classmethod
