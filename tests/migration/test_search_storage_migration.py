@@ -41,7 +41,7 @@ def test_search_migration_enables_vector_and_preserves_source_data(
     try:
         with admin.connect() as conn:
             conn.execute(text(f'CREATE DATABASE "{name}"'))
-        previous = run_alembic(url, "upgrade", "31ee4b7f175a")
+        previous = run_alembic(url, "upgrade", "a7c3e9f1b2d4")
         assert previous.returncode == 0, previous.stderr
         with engine.begin() as conn:
             conn.execute(
@@ -92,7 +92,7 @@ def test_search_migration_enables_vector_and_preserves_source_data(
         with engine.connect() as conn:
             assert (
                 conn.scalar(text("SELECT version_num FROM alembic_version"))
-                == "31ee4b7f175a"
+                == "a7c3e9f1b2d4"
             )
         upgraded = run_alembic(url, "upgrade", "9680c861644a")
         assert upgraded.returncode == 0, upgraded.stderr
@@ -125,7 +125,7 @@ def test_search_migration_enables_vector_and_preserves_source_data(
                 == 5
             )
             assert conn.scalar(text("SELECT count(*) FROM search_workspace_state")) == 0
-        downgraded = run_alembic(url, "downgrade", "31ee4b7f175a")
+        downgraded = run_alembic(url, "downgrade", "a7c3e9f1b2d4")
         assert downgraded.returncode == 0, downgraded.stderr
         with engine.begin() as conn:
             assert conn.scalar(text("SELECT count(*) FROM synthetic_source")) == 2

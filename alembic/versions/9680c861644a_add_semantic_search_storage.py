@@ -4,7 +4,7 @@ Install pgvector server files before upgrading. The migration enables the
 extension if needed; its role needs permission to do so. Downgrade removes only
 derived search data and retains the extension; stop search workers first.
 Revision ID: 9680c861644a
-Revises: 31ee4b7f175a
+Revises: a7c3e9f1b2d4
 """
 
 import sqlalchemy as sa
@@ -14,7 +14,7 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 revision = "9680c861644a"
-down_revision = "31ee4b7f175a"
+down_revision = "a7c3e9f1b2d4"
 branch_labels = None
 depends_on = None
 
