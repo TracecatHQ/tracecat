@@ -38,7 +38,7 @@ dependencies = [
     "dateparser==1.2.2",
     "defusedxml==0.7.1",
     "email-validator==2.2.0",
-    "fastapi-users[sqlalchemy,oauth]==15.0.2",
+    "fastapi-users[sqlalchemy,oauth]==15.0.5",
     "fastapi[standard]==0.137.1",
     "fastmcp==3.2.0",
     "google-auth==2.48.0",
@@ -48,7 +48,8 @@ dependencies = [
     "httpx==0.28.1",
     "jsonpath_ng==1.7.0",
     "lark==1.1.9",
-    "litellm[proxy]==1.89.1",
+    # 1.101.0 changes Anthropic error envelopes used by gateway classification.
+    "litellm[proxy]==1.100.0",
     "loguru==0.7.3",
     "minio==7.2.18",
     "opentelemetry-api==1.43.0",
@@ -97,13 +98,8 @@ members = ["packages/*"]
 [tool.uv]
 # Keep overrides only for requirements that conflict with our pinned versions.
 override-dependencies = [
-    # LiteLLM proxy 1.89.1 requires boto3>=1.43.1,<2.0; the registry pins 1.40.61.
+    # LiteLLM 1.100.0 requires boto3>=1.43.1,<2.0; aioboto3 pins boto3<1.40.62.
     "boto3==1.40.61",
-    # LiteLLM proxy 1.89.1 requires cryptography>=46.0.7,<47.0.
-    "cryptography==50.0.0",
-    # FastAPI Users 15.0.2 pins python-multipart==0.0.21 and PyJWT==2.10.1.
-    "python-multipart==0.0.31",
-    "PyJWT==2.13.0",
 ]
 # Preserve transitive pins while respecting upstream dependency requirements.
 constraint-dependencies = [
@@ -115,6 +111,8 @@ constraint-dependencies = [
     "mako==1.3.12",
     "pillow==12.3.0",
     "pyasn1==0.6.4",
+    "PyJWT==2.13.0",
+    "python-multipart==0.0.31",
     "requests==2.33.0",
     "urllib3==2.7.0",
 ]
