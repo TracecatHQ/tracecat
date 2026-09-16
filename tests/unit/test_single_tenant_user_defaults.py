@@ -12,10 +12,10 @@ from sqlalchemy.orm import Mapped
 from tests.support.membership import grant_org_membership_via_group
 from tracecat import config
 from tracecat.auth.schemas import UserRole
+from tracecat.authz.membership import ensure_member
 from tracecat.authz.seeding import seed_system_roles_for_org
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import (
-    LegacyOrganizationMembership,
     Organization,
     OrganizationMembership,
     User,
@@ -169,9 +169,9 @@ async def test_single_tenant_defaults_assign_member_role(
     # The legacy table is kept in step for older app versions.
     assert (
         await session.execute(
-            select(LegacyOrganizationMembership).where(
-                LegacyOrganizationMembership.user_id == user.id,
-                LegacyOrganizationMembership.organization_id == org.id,
+            select(OrganizationMembership).where(
+                OrganizationMembership.user_id == user.id,
+                OrganizationMembership.organization_id == org.id,
             )
         )
     ).scalar_one_or_none() is not None
@@ -336,6 +336,7 @@ async def test_single_tenant_defaults_keep_existing_role_after_repair(
             )
         )
     ).scalar_one()
+    await ensure_member(session, org.id, user.id)
     session.add(
         UserRoleAssignment(
             organization_id=org.id,
@@ -383,6 +384,7 @@ async def test_single_tenant_defaults_keep_owner_role_for_regular_user(
             )
         )
     ).scalar_one()
+    await ensure_member(session, org.id, user.id)
     session.add(
         UserRoleAssignment(
             organization_id=org.id,
@@ -471,6 +473,7 @@ async def test_single_tenant_defaults_upgrade_superuser_to_owner(
             )
         )
     ).scalar_one()
+    await ensure_member(session, org.id, user.id)
     session.add(
         UserRoleAssignment(
             organization_id=org.id,

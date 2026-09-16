@@ -1,7 +1,7 @@
 """Helpers for granting membership in tests.
 
-Membership is derived from role assignments, so tests grant a role rather than
-insert a membership row.
+Org presence is stored: the membership row is written first, then the role
+assignment that hangs off it.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.authz.membership import ensure_member
 from tracecat.authz.seeding import seed_system_roles_for_org
 from tracecat.db.models import (
     Group,
@@ -61,6 +62,7 @@ async def grant_org_membership(
     existing assignment is left in place.
     """
     role_id = await _role_id(session, organization_id, slug)
+    await ensure_member(session, organization_id, user_id)
     await session.execute(
         pg_insert(UserRoleAssignment)
         .values(
@@ -93,6 +95,7 @@ async def grant_workspace_membership(
     Idempotent: a user may hold at most one assignment per workspace.
     """
     role_id = await _role_id(session, organization_id, slug)
+    await ensure_member(session, organization_id, user_id)
     await session.execute(
         pg_insert(UserRoleAssignment)
         .values(
@@ -135,7 +138,10 @@ async def grant_org_membership_via_group(
     )
     session.add_all([role, group])
     await session.flush()
-    session.add(GroupMember(group_id=group.id, user_id=user_id))
+    await ensure_member(session, organization_id, user_id)
+    session.add(
+        GroupMember(group_id=group.id, user_id=user_id, organization_id=organization_id)
+    )
     session.add(
         GroupRoleAssignment(
             organization_id=organization_id,

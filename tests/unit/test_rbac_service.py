@@ -15,6 +15,7 @@ from tests.support.membership import (
 )
 from tracecat.auth.types import Role
 from tracecat.authz.enums import ScopeSource
+from tracecat.authz.membership import ensure_member
 from tracecat.authz.scopes import ORG_ADMIN_SCOPES
 from tracecat.authz.seeding import seed_system_scopes
 from tracecat.db.models import (
@@ -22,8 +23,8 @@ from tracecat.db.models import (
     GroupMember,
     GroupRoleAssignment,
     LegacyMembership,
-    LegacyOrganizationMembership,
     Organization,
+    OrganizationMembership,
     RoleScope,
     Scope,
     User,
@@ -158,6 +159,7 @@ async def role(
     for scope in seeded_scopes:
         if scope.name in ORG_ADMIN_SCOPES:
             session.add(RoleScope(role_id=admin_role.id, scope_id=scope.id))
+    await ensure_member(session, org.id, admin_user.id)
     session.add(
         UserRoleAssignment(
             organization_id=org.id,
@@ -986,30 +988,28 @@ class TestRBACServiceUserAssignments:
         await service.create_user_assignment(user_id=user.id, role_id=custom_role.id)
 
         assert (
-            await _legacy_org_row(session, user.id, service.organization_id) is not None
+            await _org_membership_row(session, user.id, service.organization_id)
+            is not None
         )
 
-    async def test_create_org_assignment_tolerates_existing_legacy_row(
+    async def test_create_org_assignment_tolerates_existing_membership_row(
         self,
         session: AsyncSession,
         role: Role,
         user: User,
     ):
-        """A pre-existing legacy org row does not break the upsert."""
-        session.add(
-            LegacyOrganizationMembership(
-                user_id=user.id, organization_id=role.organization_id
-            )
-        )
+        """A pre-existing membership row does not break the upsert."""
+        service = RBACService(session, role=role)
+        await ensure_member(session, service.organization_id, user.id)
         await session.commit()
 
-        service = RBACService(session, role=role)
         custom_role = await service.create_role(name="Legacy Org Role Again")
 
         await service.create_user_assignment(user_id=user.id, role_id=custom_role.id)
 
         assert (
-            await _legacy_org_row(session, user.id, service.organization_id) is not None
+            await _org_membership_row(session, user.id, service.organization_id)
+            is not None
         )
 
     async def test_create_workspace_assignment_writes_legacy_membership(
@@ -1031,13 +1031,13 @@ class TestRBACServiceUserAssignments:
 
         assert await _legacy_workspace_row(session, user.id, workspace.id) is not None
 
-    async def test_delete_last_org_assignment_removes_legacy_org_membership(
+    async def test_delete_last_org_assignment_keeps_org_membership(
         self,
         session: AsyncSession,
         role: Role,
         user: User,
     ):
-        """Removing the only org-wide assignment evicts the legacy org row."""
+        """Org presence is stored, so it outlives the last org-wide assignment."""
         service = RBACService(session, role=role)
         custom_role = await service.create_role(name="Evictable Org Role")
         assignment = await service.create_user_assignment(
@@ -1046,20 +1046,19 @@ class TestRBACServiceUserAssignments:
 
         await service.delete_user_assignment(assignment.id)
 
-        assert await _legacy_org_row(session, user.id, service.organization_id) is None
+        assert (
+            await _org_membership_row(session, user.id, service.organization_id)
+            is not None
+        )
 
-    async def test_delete_org_assignment_keeps_other_org_legacy_membership(
+    async def test_delete_org_assignment_keeps_membership_in_both_orgs(
         self,
         session: AsyncSession,
         role: Role,
         user: User,
         org: Organization,
     ):
-        """Legacy eviction is scoped to the organization being left.
-
-        A user holds at most one org-wide assignment per org, so the "other
-        assignment" that must survive lives in a second organization.
-        """
+        """Deleting an assignment never removes presence in any organization."""
         other_org_id = uuid.uuid4()
         other_org = Organization(
             id=other_org_id,
@@ -1088,8 +1087,8 @@ class TestRBACServiceUserAssignments:
 
         await service.delete_user_assignment(assignment.id)
 
-        assert await _legacy_org_row(session, user.id, org.id) is None
-        assert await _legacy_org_row(session, user.id, other_org.id) is not None
+        assert await _org_membership_row(session, user.id, org.id) is not None
+        assert await _org_membership_row(session, user.id, other_org.id) is not None
 
     async def test_delete_last_workspace_assignment_removes_legacy_membership(
         self,
@@ -1130,13 +1129,13 @@ class TestRBACServiceUserAssignments:
         )
 
 
-async def _legacy_org_row(
+async def _org_membership_row(
     session: AsyncSession, user_id: uuid.UUID, organization_id: uuid.UUID
-) -> LegacyOrganizationMembership | None:
+) -> OrganizationMembership | None:
     result = await session.execute(
-        select(LegacyOrganizationMembership).where(
-            LegacyOrganizationMembership.user_id == user_id,
-            LegacyOrganizationMembership.organization_id == organization_id,
+        select(OrganizationMembership).where(
+            OrganizationMembership.user_id == user_id,
+            OrganizationMembership.organization_id == organization_id,
         )
     )
     return result.scalar_one_or_none()

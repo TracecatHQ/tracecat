@@ -22,13 +22,13 @@ from tracecat.auth.users import (
     get_user_manager_context,
     lookup_user_by_email,
 )
+from tracecat.authz.membership import ensure_member
 from tracecat.db.engine import (
     get_async_session_bypass_rls_context_manager,
     get_async_session_context_manager,
 )
 from tracecat.db.models import (
     LegacyMembership,
-    LegacyOrganizationMembership,
     OrganizationTier,
     Tier,
     User,
@@ -349,28 +349,6 @@ async def _get_or_create_local_user(
     return user, True
 
 
-async def _ensure_legacy_org_membership(
-    *,
-    session: AsyncSession,
-    user_id: UUID,
-    organization_id: UUID,
-) -> None:
-    """Write the legacy table for app versions that still read it."""
-    result = await session.execute(
-        select(LegacyOrganizationMembership).where(
-            LegacyOrganizationMembership.user_id == user_id,
-            LegacyOrganizationMembership.organization_id == organization_id,
-        )
-    )
-    if result.scalar_one_or_none() is None:
-        session.add(
-            LegacyOrganizationMembership(
-                user_id=user_id,
-                organization_id=organization_id,
-            )
-        )
-
-
 async def _ensure_legacy_workspace_membership(
     *,
     session: AsyncSession,
@@ -490,12 +468,8 @@ async def create_dev_user(
             slug=workspace_role,
         )
 
-        # The role assignments below are what make the user a member.
-        await _ensure_legacy_org_membership(
-            session=session,
-            user_id=user.id,
-            organization_id=organization_id,
-        )
+        # The membership row is the aggregate root the assignments hang off.
+        await ensure_member(session, organization_id, user.id)
         await _ensure_legacy_workspace_membership(
             session=session,
             user_id=user.id,

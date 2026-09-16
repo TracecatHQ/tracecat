@@ -16,13 +16,16 @@ from tracecat import config
 from tracecat.auth.api_keys import ORG_API_KEY_PREFIX, generate_managed_api_key
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
+from tracecat.authz.membership import ensure_member
 from tracecat.authz.scopes import ORG_ADMIN_SCOPES, ORG_MEMBER_SCOPES, ORG_OWNER_SCOPES
-from tracecat.authz.seeding import seed_system_roles_for_org, seed_system_scopes
+from tracecat.authz.seeding import (
+    seed_system_roles_for_org,
+    seed_system_scopes,
+)
 from tracecat.db.models import (
     AccessToken,
     Group,
     GroupMember,
-    LegacyOrganizationMembership,
     MCPRefreshToken,
     Membership,
     Organization,
@@ -152,6 +155,7 @@ async def admin_in_org1(session: AsyncSession, org1: Organization) -> User:
     )
     for scope in scope_result.scalars().all():
         session.add(RoleScope(role_id=admin_db_role.id, scope_id=scope.id))
+    await ensure_member(session, org1.id, user.id)
     session.add(
         UserRoleAssignment(
             organization_id=org1.id,
@@ -430,6 +434,8 @@ class TestOrganizationServiceDeleteMember:
             token=f"token-{uuid.uuid4().hex}",
             user_id=user_in_org1.id,
         )
+        await ensure_member(session, org1.id, user_in_org1.id)
+        await ensure_member(session, org2.id, user_in_org1.id)
         org1_role_assignment = UserRoleAssignment(
             organization_id=org1.id,
             user_id=user_in_org1.id,
@@ -447,10 +453,12 @@ class TestOrganizationServiceDeleteMember:
         org1_group_member = GroupMember(
             user_id=user_in_org1.id,
             group_id=group_org1.id,
+            organization_id=org1.id,
         )
         org2_group_member = GroupMember(
             user_id=user_in_org1.id,
             group_id=group_org2.id,
+            organization_id=org2.id,
         )
         session.add_all(
             [
@@ -1725,12 +1733,12 @@ class TestOrganizationServiceInvitations:
         assert membership.user_id == user_in_org2.id
         assert membership.organization_id == org1.id
 
-        # The legacy table is kept in step for older app versions.
+        # Admission wrote the membership row.
         assert (
             await session.execute(
-                select(LegacyOrganizationMembership).where(
-                    LegacyOrganizationMembership.user_id == user_in_org2.id,
-                    LegacyOrganizationMembership.organization_id == org1.id,
+                select(OrganizationMembership).where(
+                    OrganizationMembership.user_id == user_in_org2.id,
+                    OrganizationMembership.organization_id == org1.id,
                 )
             )
         ).scalar_one_or_none() is not None
