@@ -544,7 +544,7 @@ class ActionRunner:
         )
 
 
-# Lazy singleton - no lifespan required
+# Process-local singleton, drained after executor activities stop
 _action_runner: ActionRunner | None = None
 
 
@@ -554,3 +554,12 @@ def get_action_runner() -> ActionRunner:
     if _action_runner is None:
         _action_runner = ActionRunner()
     return _action_runner
+
+
+async def shutdown_action_runner() -> None:
+    """Stop registry maintenance after draining executor activities."""
+    global _action_runner
+    runner = _action_runner
+    if runner is not None:
+        await runner.registry_artifacts.shutdown()
+        _action_runner = None

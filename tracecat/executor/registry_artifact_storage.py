@@ -63,6 +63,9 @@ __all__ = (
     "validate_cache_entry_path",
 )
 
+BUDGET_MAINTENANCE_INTERVAL_SECONDS = 30.0
+"""Minimum delay between background accounting passes for writable artifacts."""
+
 CACHE_ENTRIES_DIR_NAME = "entries"
 """Directory containing one atomic subdirectory per cache key."""
 
@@ -480,7 +483,13 @@ def _move_entry_to_trash(entry_dir: Path, trash_dir: Path, cache_key: str) -> Pa
 
 
 class RegistryArtifactCacheStorage:
-    """Own cache state, filesystem lifecycle, and one shared budget policy."""
+    """Own cache state, filesystem lifecycle, and one shared budget policy.
+
+    Cold writes reserve capacity synchronously. Writes by running actions are
+    reconciled in the background, so operators must retain disk headroom for
+    runtime growth between passes. Action completion never waits for a budget
+    scan; lease-protected mount cleanup still completes before returning.
+    """
 
     def __init__(self, cache_dir: Path):
         self.cache_dir = cache_dir
@@ -498,6 +507,38 @@ class RegistryArtifactCacheStorage:
         self._failed_startup_cleanup: dict[Path, _RegistryArtifactCleanupIdentity] = {}
         self._squashfs_mount_policy = registry_artifact_mounts.SquashfsMountPolicy()
         self._budget_dirty = True
+        self._budget_maintenance_task: asyncio.Task[None] | None = None
+        self._closed = False
+        self._admission_generation = 0
+
+    def _schedule_budget_maintenance(self) -> None:
+        """Coalesce lease releases into one rate-limited accounting task."""
+        if self._closed or not self._budget_dirty:
+            return
+        if self._budget_maintenance_task is None:
+            self._budget_maintenance_task = asyncio.create_task(
+                self._run_budget_maintenance(), name="registry-cache-maintenance"
+            )
+
+    async def _run_budget_maintenance(self) -> None:
+        try:
+            while self._budget_dirty:
+                await asyncio.sleep(BUDGET_MAINTENANCE_INTERVAL_SECONDS)
+                await self._converge_cache_budget()
+        finally:
+            self._budget_maintenance_task = None
+
+    async def shutdown(self) -> None:
+        """Stop maintenance and join any filesystem work already in progress.
+
+        Call after draining action activities. The next startup sweep accounts
+        for pending writes; shutdown need not launch a final full-cache scan.
+        """
+        self._closed = True
+        task = self._budget_maintenance_task
+        if task is not None:
+            task.cancel()
+            await rejoin_future_on_cancel(asyncio.gather(task, return_exceptions=True))
 
     async def ensure_swept(self) -> None:
         """Run the cancellation-safe startup sweep exactly once."""
@@ -713,6 +754,7 @@ class RegistryArtifactCacheStorage:
                 return
             if not mounted:
                 return
+            self._admission_generation += 1
             if not await self._unmount(mount_dir):
                 logger.warning(
                     "Failed to unmount registry artifact for loop-device reclamation",
@@ -753,25 +795,56 @@ class RegistryArtifactCacheStorage:
         )
 
     async def _converge_cache_budget(self) -> None:
-        """Bring an idle cache back under budget after a lease release."""
-        while self._budget_dirty:
-            self._budget_dirty = False
-            try:
-                within_budget = await self._enforce_cache_budget()
-            except OSError as e:
-                logger.warning(
-                    "Failed to converge registry artifact cache to budget",
-                    cache_dir=str(self.cache_dir),
-                    error=str(e),
-                )
+        """Run one accounting pass; leave concurrent writes for the next pass."""
+        if not self._budget_dirty:
+            return
+        self._budget_dirty = False
+        started = time.monotonic()
+        try:
+            if not await self._enforce_background_cache_budget():
                 self._budget_dirty = True
-                break
-            except BaseException:
-                self._budget_dirty = True
-                raise
-            if not within_budget:
-                self._budget_dirty = True
-                break
+        except Exception as error:
+            self._budget_dirty = True
+            logger.warning(
+                "Failed to converge registry artifact cache to budget",
+                cache_dir=str(self.cache_dir),
+                error_type=type(error).__name__,
+            )
+        except BaseException:
+            self._budget_dirty = True
+            raise
+        else:
+            logger.info(
+                "Registry artifact cache maintenance completed",
+                duration_ms=round((time.monotonic() - started) * 1000, 1),
+                pending=self._budget_dirty,
+            )
+
+    async def _enforce_background_cache_budget(self) -> bool:
+        """Measure outside admission, discarding snapshots raced by a writer.
+
+        Runtime writes are accounted eventually. Cold writers still use fresh,
+        serialized admission checks before downloading or extracting artifacts.
+        """
+        if (
+            config.TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_BYTES <= 0
+            and config.TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES <= 0
+        ):
+            return True
+        async with self._admission_lock:
+            self._admission_generation += 1
+            trash_clean, startup_clean = await self._reclaim_pending_work()
+            if not (trash_clean and startup_clean):
+                return False
+            generation = self._admission_generation
+
+        snapshot = await run_blocking_rejoin_on_cancel(self._scan_cache_snapshot)
+
+        async with self._admission_lock:
+            if generation != self._admission_generation:
+                return False
+            self._admission_generation += 1
+            return await self._enforce_cache_snapshot(snapshot, protected_key=None)
 
     async def _enforce_cache_budget(
         self,
@@ -780,6 +853,7 @@ class RegistryArtifactCacheStorage:
     ) -> bool:
         """Evict idle LRU entries until the measured cache fits."""
         async with self._admission_lock:
+            self._admission_generation += 1
             return await self._enforce_cache_budget_locked(protected_key=protected_key)
 
     async def _reclaim_pending_work(self) -> tuple[bool, bool]:
@@ -808,7 +882,20 @@ class RegistryArtifactCacheStorage:
         if budget.max_entries <= 0 and budget.max_bytes <= 0:
             return True
 
-        snapshot = await asyncio.to_thread(self._scan_cache_snapshot)
+        snapshot = await run_blocking_rejoin_on_cancel(self._scan_cache_snapshot)
+        return await self._enforce_cache_snapshot(snapshot, protected_key=protected_key)
+
+    async def _enforce_cache_snapshot(
+        self,
+        snapshot: RegistryArtifactCacheSnapshot,
+        *,
+        protected_key: str | None,
+    ) -> bool:
+        """Apply the current budget to a snapshot while admission is locked."""
+        budget = RegistryArtifactCacheBudget(
+            max_entries=config.TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES,
+            max_bytes=config.TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_BYTES,
+        )
         eviction_pass = await self._evict_until_fits(
             snapshot.entries,
             total_bytes=snapshot.total_bytes,

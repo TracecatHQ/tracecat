@@ -218,8 +218,10 @@ TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_BYTES = int(
 )
 """Maximum on-disk size of the executor-local registry artifact cache, in bytes.
 
-Cold downloads and extraction scratch are admitted within this bound. Mounted
-artifacts only account for their backing image file. Set to 0 to disable
+Cold downloads and extraction scratch are admitted within this bound. Writes
+by running actions are reconciled by rate-limited background maintenance, so
+leave disk headroom for growth between passes. Mounted artifacts only account
+for their backing image file. Set to 0 to disable
 size-based eviction and materialization limits."""
 
 TRACECAT__AGENT_SKILL_CACHE_DIR = os.environ.get(

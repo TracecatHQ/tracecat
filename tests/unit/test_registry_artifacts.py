@@ -12,7 +12,7 @@ import threading
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from unittest.mock import ANY, AsyncMock, call, patch
+from unittest.mock import ANY, AsyncMock, Mock, call, patch
 
 import httpx
 import pytest
@@ -1607,6 +1607,9 @@ class TestRegistryArtifactCacheLease:
             with pytest.raises(RuntimeError, match="mount failed"):
                 async with cache.lease([artifact_uri]):
                     pass
+            assert cache._paths_for(cache_key).entry_dir.exists()
+            await cache._converge_cache_budget()
+            await cache.shutdown()
 
         assert cache._refcount(cache_key) == 0
         assert not cache._paths_for(cache_key).entry_dir.exists()
@@ -2091,7 +2094,7 @@ class TestRegistryArtifactCacheLease:
     async def test_repeated_cancellation_finishes_all_lease_cleanup(
         self, temp_cache_dir: Path
     ) -> None:
-        """Every unmount and budget pass finishes before cancellation propagates."""
+        """Every unmount finishes before cancellation; accounting is scheduled."""
         cache = RegistryArtifactCache(temp_cache_dir)
         artifact_uris = [
             "s3://bucket/first.tar.gz",
@@ -2112,8 +2115,8 @@ class TestRegistryArtifactCacheLease:
                 first_unmount_started.set()
                 await finish_first_unmount.wait()
 
-        async def mock_converge_cache_budget() -> None:
-            cleanup_calls.append("converge")
+        def schedule_maintenance() -> None:
+            cleanup_calls.append("schedule")
 
         async def hold_lease() -> None:
             async with cache.lease(artifact_uris):
@@ -2122,7 +2125,7 @@ class TestRegistryArtifactCacheLease:
 
         with (
             patch.object(cache, "_unmount_idle_entry", mock_unmount_idle_entry),
-            patch.object(cache, "_converge_cache_budget", mock_converge_cache_budget),
+            patch.object(cache, "_schedule_budget_maintenance", schedule_maintenance),
         ):
             holder = asyncio.create_task(hold_lease())
             await lease_entered.wait()
@@ -2139,9 +2142,9 @@ class TestRegistryArtifactCacheLease:
 
         assert cleanup_calls == [
             cache_keys[1],
-            "converge",
+            "schedule",
             cache_keys[0],
-            "converge",
+            "schedule",
         ]
         assert all(cache._refcount(cache_key) == 0 for cache_key in cache_keys)
 
@@ -2277,7 +2280,7 @@ class TestRegistryArtifactCacheLease:
             raise RuntimeError("download failed")
 
         tracked_acquire_artifact = AsyncMock(wraps=cache._acquire_artifact)
-        converge_cache_budget = AsyncMock()
+        schedule_budget_maintenance = Mock()
 
         with (
             patch(MOUNT_CHECK, lambda path: path in harness.mounted),
@@ -2287,8 +2290,8 @@ class TestRegistryArtifactCacheLease:
             patch.object(cache, "_acquire_artifact", tracked_acquire_artifact),
             patch.object(
                 cache,
-                "_converge_cache_budget",
-                converge_cache_budget,
+                "_schedule_budget_maintenance",
+                schedule_budget_maintenance,
             ),
         ):
             with pytest.raises(RuntimeError, match="download failed"):
@@ -2307,7 +2310,7 @@ class TestRegistryArtifactCacheLease:
         assert cache._paths_for(first_key).squashfs_image_path.is_file()
         assert not cache._paths_for(failed_key).entry_dir.exists()
         assert untouched_path.is_dir()
-        assert converge_cache_budget.await_count == 2
+        assert schedule_budget_maintenance.call_count == 2
         assert not cache.staging_dir.exists() or not any(cache.staging_dir.iterdir())
         assert not cache.trash_dir.exists() or not any(cache.trash_dir.iterdir())
 
@@ -2974,6 +2977,8 @@ class TestRegistryArtifactCacheEviction:
             async with cache.lease([new_uri]) as registry_paths:
                 assert registry_paths == [cache._paths_for(new_key).tarball_target_dir]
                 assert not idle.exists()
+            await cache._converge_cache_budget()
+            await cache.shutdown()
 
         assert not idle.exists()
         assert cache._paths_for(new_key).tarball_target_dir.is_dir()
@@ -3203,7 +3208,7 @@ class TestRegistryArtifactCacheEviction:
     async def test_mutable_cache_hit_rescans_unknown_entry_growth(
         self, temp_cache_dir: Path
     ) -> None:
-        """Writable direct actions cannot grow a warm entry outside the cap."""
+        """Writable growth is reclaimed by background accounting after release."""
         cache = RegistryArtifactCache(temp_cache_dir)
         await cache.ensure_swept()
         artifact_uri = "s3://bucket/mutable-cached.tar.gz"
@@ -3228,6 +3233,11 @@ class TestRegistryArtifactCacheEviction:
             ) as registry_paths:
                 assert registry_paths == [target_dir]
                 (entry_dir / "action-output.bin").write_bytes(b"x" * 4096)
+
+            scan_cache_snapshot.assert_not_called()
+            assert entry_dir.exists()
+            await cache._converge_cache_budget()
+            await cache.shutdown()
 
         assert scan_cache_snapshot.call_count == 1
         assert not entry_dir.exists()
@@ -3288,9 +3298,14 @@ class TestRegistryArtifactCacheEviction:
             ),
             patch.object(SquashfsArtifact, "materialize", mock_materialize),
             patch.object(cache, "_enforce_cache_budget", enforce_cache_budget),
+            patch.object(
+                cache, "_enforce_background_cache_budget", enforce_cache_budget
+            ),
         ):
             with pytest.raises(RuntimeError, match="mount failed"):
                 await _materialize(cache, cache_key, artifact_uri)
+            await cache._converge_cache_budget()
+            await cache.shutdown()
 
         assert cache._paths_for(cache_key).squashfs_image_path.is_file()
         assert cache._budget_dirty is False
@@ -3327,8 +3342,13 @@ class TestRegistryArtifactCacheEviction:
             ),
             patch.object(SquashfsArtifact, "materialize", mock_materialize),
             patch.object(cache, "_enforce_cache_budget", enforce_cache_budget),
+            patch.object(
+                cache, "_enforce_background_cache_budget", enforce_cache_budget
+            ),
         ):
             await _materialize(cache, cache_key, artifact_uri)
+            await cache._converge_cache_budget()
+            await cache.shutdown()
 
         assert cache._budget_dirty is False
         assert enforce_cache_budget.await_args_list == [
@@ -3392,7 +3412,7 @@ class TestRegistryArtifactCacheEviction:
         with (
             patch.object(
                 cache,
-                "_enforce_cache_budget",
+                "_enforce_background_cache_budget",
                 side_effect=mock_enforce_cache_budget,
             ),
             patch.object(TarballArtifact, "download", mock_download),
@@ -3403,6 +3423,9 @@ class TestRegistryArtifactCacheEviction:
             registry_paths = await _materialize(cache, cache_key, artifact_uri)
             materialized.set()
             await convergence
+            assert cache._budget_dirty is True
+            await cache._converge_cache_budget()
+            await cache.shutdown()
 
         assert registry_paths == [cache._paths_for(cache_key).tarball_target_dir]
         assert convergence_scans == 2
@@ -3428,7 +3451,7 @@ class TestRegistryArtifactCacheEviction:
         cache._budget_dirty = True
         with patch.object(
             cache,
-            "_enforce_cache_budget",
+            "_enforce_background_cache_budget",
             side_effect=mock_enforce_cache_budget,
         ):
             convergence = asyncio.create_task(cache._converge_cache_budget())

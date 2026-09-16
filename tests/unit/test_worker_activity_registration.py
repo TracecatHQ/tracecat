@@ -79,6 +79,7 @@ async def test_executor_worker_continues_after_registry_cache_warmup_failure(
     action_gateway.stop = AsyncMock()
     initialize_backend = AsyncMock()
     shutdown_backend = AsyncMock()
+    shutdown_runner = AsyncMock()
     close_storage_cache = AsyncMock()
     get_temporal_client = AsyncMock(return_value=object())
     warning = Mock()
@@ -106,6 +107,7 @@ async def test_executor_worker_continues_after_registry_cache_warmup_failure(
     monkeypatch.setattr(worker, "get_action_runner", lambda: action_runner)
     monkeypatch.setattr(worker, "initialize_executor_backend", initialize_backend)
     monkeypatch.setattr(worker, "shutdown_executor_backend", shutdown_backend)
+    monkeypatch.setattr(worker, "shutdown_action_runner", shutdown_runner)
     monkeypatch.setattr(worker, "close_storage_client_cache", close_storage_cache)
     monkeypatch.setattr(worker, "get_temporal_client", get_temporal_client)
     monkeypatch.setattr(worker, "Worker", _FakeWorker)
@@ -124,6 +126,7 @@ async def test_executor_worker_continues_after_registry_cache_warmup_failure(
         error="transient cache failure",
     )
     shutdown_backend.assert_awaited_once()
+    shutdown_runner.assert_awaited_once()
     close_storage_cache.assert_awaited_once()
     action_gateway.stop.assert_awaited_once()
 

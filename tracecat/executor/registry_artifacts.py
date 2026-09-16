@@ -1028,7 +1028,7 @@ class _RegistryArtifactLease:
             )
 
     async def aclose(self) -> None:
-        """Release the pin exactly once and finish all resulting maintenance."""
+        """Release the pin and finish mount cleanup; defer cache accounting."""
         if self._closed:
             return
         self._closed = True
@@ -1072,7 +1072,7 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
             artifact_uris: Registry artifact URIs in deterministic PYTHONPATH
                 order. Empty input requests no additional import paths.
             paths_may_be_modified: Whether the consumer can write to returned
-                paths. Mutable leases re-arm budget convergence after use.
+                paths. Mutable leases request background budget accounting after use.
 
         Yields:
             Importable Python paths for the requested artifacts.
@@ -1146,11 +1146,11 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
             yield registry_paths
 
     async def _finish_lease_cleanup(self, idle_keys: list[str]) -> None:
-        """Unmount every newly idle entry and converge the cache budget."""
+        """Unmount newly idle entries and schedule background cache accounting."""
         for cache_key in idle_keys:
             await self._unmount_idle_entry(cache_key)
             await self._discard_idle_squashfs_extraction(cache_key)
-        await self._converge_cache_budget()
+        self._schedule_budget_maintenance()
 
     async def _discard_idle_squashfs_extraction(self, cache_key: str) -> None:
         """Discard an unsquashed fallback after its final lease releases."""
@@ -1166,6 +1166,7 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
             if not os.path.lexists(extracted_path):
                 self._squashfs_mount_policy.forget_extraction(cache_key)
                 return
+            self._admission_generation += 1
             retired_path = unique_work_path(self.trash_dir, cache_key)
             try:
                 extracted_path.rename(retired_path)
@@ -1212,6 +1213,7 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
                 return cached_paths
 
         async with self._admission_lock:
+            self._admission_generation += 1
             async with self._runtime_lock(cache_key):
                 if cached_paths := self._locally_cached_path(ctx, artifact_uri):
                     return cached_paths

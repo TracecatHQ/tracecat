@@ -55,7 +55,10 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.client import get_temporal_client
     from tracecat.dsl.interceptor import RuntimeErrorAttributionInterceptor
     from tracecat.executor.action_gateway.server import ActionGateway
-    from tracecat.executor.action_runner import get_action_runner
+    from tracecat.executor.action_runner import (
+        get_action_runner,
+        shutdown_action_runner,
+    )
     from tracecat.executor.activities import ExecutorActivities
     from tracecat.executor.backends import (
         initialize_executor_backend,
@@ -205,7 +208,10 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
             logger.info("Temporal Worker context exited")
     finally:
         logger.info("Shutting down executor backend")
-        await shutdown_executor_backend()
+        try:
+            await shutdown_executor_backend()
+        finally:
+            await shutdown_action_runner()
         await close_storage_client_cache()
         await action_gateway.stop()
         shutdown_platform_tracing()
