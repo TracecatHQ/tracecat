@@ -4119,12 +4119,16 @@ export type EmbeddingErrorResponse = {
  * Public metadata needed for status and bounded chunk preparation.
  */
 export type EmbeddingModelRead = {
-  provider: "openai" | "gemini" | "bedrock"
+  provider: "openai" | "gemini" | "bedrock" | "ollama" | "vllm"
   model:
     | "text-embedding-3-small"
     | "text-embedding-3-large"
     | "gemini-embedding-001"
     | "amazon.titan-embed-text-v2:0"
+    | "all-minilm"
+    | "all-minilm:latest"
+    | "all-minilm:22m"
+    | "sentence-transformers/all-MiniLM-L6-v2"
   dimensions: number
   tokenizer: string
   input_token_limit: number
@@ -4133,13 +4137,17 @@ export type EmbeddingModelRead = {
   batch_token_limit: number
 }
 
-export type provider = "openai" | "gemini" | "bedrock"
+export type provider = "openai" | "gemini" | "bedrock" | "ollama" | "vllm"
 
 export type model =
   | "text-embedding-3-small"
   | "text-embedding-3-large"
   | "gemini-embedding-001"
   | "amazon.titan-embed-text-v2:0"
+  | "all-minilm"
+  | "all-minilm:latest"
+  | "all-minilm:22m"
+  | "sentence-transformers/all-MiniLM-L6-v2"
 
 /**
  * TypedDict for tier entitlements stored in JSONB.

@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import math
 import struct
+from contextlib import AsyncExitStack
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 
@@ -11,6 +12,7 @@ import httpx
 import orjson
 from pydantic import ValidationError
 
+from tracecat.outbound import OutboundRequestDenied, create_outbound_http_client
 from tracecat.search.embeddings.bedrock import request_headers
 from tracecat.search.embeddings.catalog import ByteTokenCounter, EmbeddingTokenCounter
 from tracecat.search.embeddings.types import (
@@ -20,6 +22,7 @@ from tracecat.search.embeddings.types import (
     EmbeddingErrorCode,
     GeminiResponse,
     ModelSpec,
+    OllamaResponse,
     PinnedConfiguration,
     ProviderResponse,
     ProviderUsage,
@@ -105,7 +108,7 @@ def _validate_response(
 
 
 class EmbeddingClient:
-    """Use a caller-owned HTTP client, with no redirects or implicit retries."""
+    """Use the caller's cloud client and guarded self-hosted clients; never retry."""
 
     def __init__(self, http: httpx.AsyncClient, *, timeout: float = 30.0):
         self.http = http
@@ -148,6 +151,8 @@ class EmbeddingClient:
 
         except EmbeddingError as exc:
             error = EmbeddingError(exc.code, exc.retry_after)
+        except OutboundRequestDenied:
+            error = EmbeddingError(EmbeddingErrorCode.CONFIGURATION_INVALID)
         except UnicodeError:
             error = EmbeddingError(EmbeddingErrorCode.INPUT_INVALID)
         except (TimeoutError, httpx.TimeoutException):
@@ -160,15 +165,32 @@ class EmbeddingClient:
             error = EmbeddingError(EmbeddingErrorCode.UNAVAILABLE)
         raise error
 
-    async def _post(self, url: str, headers: dict[str, str], body: bytes) -> bytes:
-        async with self.http.stream(
-            "POST",
-            url,
-            headers=headers,
-            content=body,
-            timeout=self.timeout,
-            follow_redirects=False,
-        ) as response:
+    async def _post(
+        self,
+        url: str,
+        headers: dict[str, str],
+        body: bytes,
+        *,
+        self_hosted: bool = False,
+    ) -> bytes:
+        async with AsyncExitStack() as stack:
+            http = self.http
+            if self_hosted:
+                # Configured servers are caller-controlled destinations. Apply the
+                # same DNS/IP policy and origin binding as agent model discovery.
+                http = await stack.enter_async_context(
+                    create_outbound_http_client(origin_url=url, timeout=self.timeout)
+                )
+            response = await stack.enter_async_context(
+                http.stream(
+                    "POST",
+                    url,
+                    headers=headers,
+                    content=body,
+                    timeout=self.timeout,
+                    follow_redirects=False,
+                )
+            )
             if response.status_code != 200:
                 raise _status_error(response)
             data = bytearray()
@@ -187,10 +209,9 @@ class EmbeddingClient:
         spec = configuration.spec
         headers = {"Content-Type": "application/json"}
         match spec.provider:
-            case "openai":
-                headers["Authorization"] = (
-                    f"Bearer {credential.api_key.get_secret_value()}"
-                )
+            case "openai" | "vllm":
+                if key := credential.api_key.get_secret_value():
+                    headers["Authorization"] = f"Bearer {key}"
                 body = orjson.dumps(
                     {
                         "model": spec.model,
@@ -199,9 +220,43 @@ class EmbeddingClient:
                     }
                 )
                 parsed = ProviderResponse.model_validate_json(
-                    await self._post(spec.endpoint, headers, body)
+                    await self._post(
+                        spec.endpoint,
+                        headers,
+                        body,
+                        self_hosted=spec.provider == "vllm",
+                    )
                 )
                 return _validate_response(parsed, request, configuration)
+            case "ollama":
+                if key := credential.api_key.get_secret_value():
+                    headers["Authorization"] = f"Bearer {key}"
+                body = orjson.dumps(
+                    {
+                        "model": spec.model,
+                        "input": [item.text for item in request.items],
+                        "truncate": False,
+                    }
+                )
+                response = OllamaResponse.model_validate_json(
+                    await self._post(spec.endpoint, headers, body, self_hosted=True)
+                )
+                # An omitted Ollama tag means :latest. Other tags must match exactly.
+                expected_model = (
+                    spec.model if ":" in spec.model else f"{spec.model}:latest"
+                )
+                actual_model = (
+                    response.model
+                    if ":" in response.model
+                    else f"{response.model}:latest"
+                )
+                if actual_model != expected_model:
+                    raise EmbeddingError(EmbeddingErrorCode.RESPONSE_INVALID)
+                tokens = response.prompt_eval_count
+                vectors = [
+                    ProviderVector(index=i, embedding=vector)
+                    for i, vector in enumerate(response.embeddings)
+                ]
             case "gemini":
                 headers["x-goog-api-key"] = credential.api_key.get_secret_value()
                 # A fixed symmetric task keeps query and document vectors compatible.

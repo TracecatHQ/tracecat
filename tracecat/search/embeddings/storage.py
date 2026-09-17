@@ -21,6 +21,7 @@ from tracecat.search.embeddings.catalog import (
     get_model,
     recipe_revision,
 )
+from tracecat.search.embeddings.self_hosted import select_self_hosted_model
 from tracecat.search.embeddings.types import (
     EmbeddingError,
     EmbeddingErrorCode,
@@ -113,29 +114,36 @@ class EmbeddingSettingsStorage(SearchStorage):
             )
         )
         allowed = (
-            await self.session.scalars(
-                select(AgentCatalog.model_provider)
-                .join(AgentModelAccess, AgentModelAccess.catalog_id == AgentCatalog.id)
-                .where(
-                    AgentModelAccess.organization_id == self.scope.organization_id,
-                    AgentModelAccess.workspace_id == self.scope.workspace_id
-                    if override
-                    else AgentModelAccess.workspace_id.is_(None),
-                    or_(
-                        AgentCatalog.organization_id == self.scope.organization_id,
-                        AgentCatalog.organization_id.is_(None),
-                    ),
-                    AgentCatalog.custom_provider_id.is_(None),
+            (
+                await self.session.execute(
+                    select(AgentCatalog.model_provider, AgentCatalog.model_name)
+                    .join(
+                        AgentModelAccess, AgentModelAccess.catalog_id == AgentCatalog.id
+                    )
+                    .where(
+                        AgentModelAccess.organization_id == self.scope.organization_id,
+                        AgentModelAccess.workspace_id == self.scope.workspace_id
+                        if override
+                        else AgentModelAccess.workspace_id.is_(None),
+                        or_(
+                            AgentCatalog.organization_id == self.scope.organization_id,
+                            AgentCatalog.organization_id.is_(None),
+                        ),
+                        AgentCatalog.custom_provider_id.is_(None),
+                    )
+                    .distinct()
                 )
-                .distinct()
             )
-        ).all()
+            .tuples()
+            .all()
+        )
         preferred = await self._preferred_provider()
         providers = sorted(
             PROVIDER_ORDER, key=lambda p: (p != preferred, PROVIDER_ORDER.index(p))
         )
         for provider in providers:
-            if provider not in allowed:
+            allowed_models = {name for source, name in allowed if source == provider}
+            if not allowed_models:
                 continue
             secret = await self.session.scalar(
                 select(OrganizationSecret)
@@ -154,10 +162,17 @@ class EmbeddingSettingsStorage(SearchStorage):
                     secret.encrypted_keys, key=get_db_encryption_key()
                 )
                 values = {item.key: item.value.get_secret_value() for item in keys}
-                key_name = (
-                    "OPENAI_API_KEY" if provider == "openai" else "GEMINI_API_KEY"
-                )
-                if provider != "bedrock" and not values.get(key_name, "").strip():
+                key_name = {
+                    "openai": "OPENAI_API_KEY",
+                    "gemini": "GEMINI_API_KEY",
+                    "bedrock": "AWS_BEARER_TOKEN_BEDROCK",
+                    "ollama": "OLLAMA_API_KEY",
+                    "vllm": "VLLM_API_KEY",
+                }[provider]
+                if (
+                    provider in {"openai", "gemini"}
+                    and not values.get(key_name, "").strip()
+                ):
                     raise ValueError("Missing provider key")
                 if provider == "bedrock" and not (
                     values.get("AWS_ROLE_ARN")
@@ -175,7 +190,12 @@ class EmbeddingSettingsStorage(SearchStorage):
                 ):
                     if base_url.rstrip("/") != "https://api.openai.com/v1":
                         raise EmbeddingError(EmbeddingErrorCode.CONFIGURATION_INVALID)
-                spec = default_model(provider, values.get("AWS_REGION"))
+                if provider in {"ollama", "vllm"}:
+                    spec = select_self_hosted_model(provider, allowed_models, values)
+                    if spec is None:
+                        continue
+                else:
+                    spec = default_model(provider, values.get("AWS_REGION"))
                 credential = ResolvedCredential(
                     SecretStr(values.get(key_name, "")),
                     hashlib.sha256(secret.encrypted_keys).digest(),

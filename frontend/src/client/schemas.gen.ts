@@ -13850,7 +13850,7 @@ export const $EmbeddingModelRead = {
   properties: {
     provider: {
       type: "string",
-      enum: ["openai", "gemini", "bedrock"],
+      enum: ["openai", "gemini", "bedrock", "ollama", "vllm"],
       title: "Provider",
     },
     model: {
@@ -13860,6 +13860,10 @@ export const $EmbeddingModelRead = {
         "text-embedding-3-large",
         "gemini-embedding-001",
         "amazon.titan-embed-text-v2:0",
+        "all-minilm",
+        "all-minilm:latest",
+        "all-minilm:22m",
+        "sentence-transformers/all-MiniLM-L6-v2",
       ],
       title: "Model",
     },

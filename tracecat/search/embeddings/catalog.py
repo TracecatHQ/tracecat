@@ -16,6 +16,7 @@ from pathlib import Path
 import orjson
 import tiktoken
 
+from tracecat.search.embeddings.self_hosted import SELF_HOSTED_MODELS
 from tracecat.search.embeddings.types import (
     EmbeddingError,
     EmbeddingErrorCode,
@@ -47,6 +48,7 @@ MODELS = (
         batch_token_limit=8192,
         input_character_limit=8192,
     ),
+    *SELF_HOSTED_MODELS,
 )
 
 
@@ -98,11 +100,19 @@ class EmbeddingTokenCounter:
         return len(self._encoding.encode_ordinary(text))
 
 
-PROVIDER_ORDER: tuple[EmbeddingProvider, ...] = ("openai", "gemini", "bedrock")
+PROVIDER_ORDER: tuple[EmbeddingProvider, ...] = (
+    "openai",
+    "gemini",
+    "bedrock",
+    "ollama",
+    "vllm",
+)
 
 
 def default_model(provider: EmbeddingProvider, region: str | None = None) -> ModelSpec:
-    """Select a fixed embedding model; never infer capability from a chat model."""
+    """Select a fixed cloud model; self-hosted models require catalog discovery."""
+    if provider in {"ollama", "vllm"}:
+        raise EmbeddingError(EmbeddingErrorCode.CONFIGURATION_INVALID)
     spec = next(spec for spec in MODELS if spec.provider == provider)
     if provider != "bedrock":
         return spec

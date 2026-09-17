@@ -2,6 +2,7 @@
 
 import asyncio
 import hashlib
+import ipaddress
 import threading
 import uuid
 from collections.abc import AsyncIterator
@@ -57,6 +58,7 @@ class ProviderServer:
     entered: threading.Event = field(default_factory=threading.Event)
     release: threading.Event = field(default_factory=threading.Event)
     hold: bool = False
+    models: tuple[str, ...] = ()
 
 
 @pytest.fixture
@@ -64,6 +66,13 @@ def provider_server():
     state = ProviderServer()
 
     class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            state.calls.append(self.path)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(orjson.dumps({"data": [{"id": m} for m in state.models]}))
+
         def do_POST(self):
             data = orjson.loads(self.rfile.read(int(self.headers["content-length"])))
             state.calls.append(self.path)
@@ -73,7 +82,14 @@ def provider_server():
             self.send_response(state.status)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
-            if "batchEmbedContents" in self.path:
+            if self.path.endswith("/api/embed"):
+                assert data["truncate"] is False
+                payload = {
+                    "model": data["model"],
+                    "embeddings": [[1.0] * 384 for _ in data["input"]],
+                    "prompt_eval_count": 8,
+                }
+            elif "batchEmbedContents" in self.path:
                 payload = {
                     "embeddings": [{"values": [1.0] * 3072} for _ in data["requests"]]
                 }
@@ -83,7 +99,11 @@ def provider_server():
                 payload = {
                     "model": data["model"],
                     "data": [
-                        {"index": i, "embedding": [1.0] * 1536}
+                        {
+                            "index": i,
+                            "embedding": [1.0]
+                            * (384 if "MiniLM" in data["model"] else 1536),
+                        }
                         for i in reversed(range(len(data["input"])))
                     ],
                     "usage": {"prompt_tokens": 8, "total_tokens": 8},
@@ -110,6 +130,7 @@ class LocalProviderTransport(httpx.AsyncHTTPTransport):
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         assert request.url.host in {
+            "127.0.0.1",
             "api.openai.com",
             "generativelanguage.googleapis.com",
             "bedrock-runtime.us-east-1.amazonaws.com",
@@ -134,6 +155,7 @@ class ConfigurationCase:
     client: EmbeddingClient
     server: ProviderServer
     sessions: async_sessionmaker[AsyncSession]
+    base_url: str
 
     def scope(self, index=0):
         role = self.roles[index]
@@ -216,6 +238,11 @@ async def embedding_case(
     monkeypatch, provider_server
 ) -> AsyncIterator[ConfigurationCase]:
     monkeypatch.setattr(config, "TRACECAT__DB_URI", TEST_DB_CONFIG.test_url)
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS",
+        [ipaddress.ip_network("127.0.0.0/8")],
+    )
     await get_async_engine().dispose()
     reset_async_engine()
     engine = create_async_engine(TEST_DB_CONFIG.test_url)
@@ -251,7 +278,9 @@ async def embedding_case(
             )
     state, port = provider_server
     async with httpx.AsyncClient(transport=LocalProviderTransport(port)) as http:
-        yield ConfigurationCase(roles, EmbeddingClient(http), state, sessions)
+        yield ConfigurationCase(
+            roles, EmbeddingClient(http), state, sessions, f"http://127.0.0.1:{port}/v1"
+        )
     async with sessions.begin() as session:
         for role in roles:
             for model in (
@@ -740,3 +769,124 @@ async def test_retired_model_recovers_or_disables_without_losing_pause(
     with pytest.raises(EmbeddingError):
         await embed_current(request, case.client)
     assert not case.server.calls
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "provider,model",
+    [
+        ("ollama", "all-minilm:latest"),
+        ("vllm", "sentence-transformers/all-MiniLM-L6-v2"),
+    ],
+)
+async def test_self_hosted_discovery_selection_embedding_and_removal(
+    embedding_case, provider, model, monkeypatch
+):
+    case = embedding_case
+    await case.connect(provider, values={f"{provider.upper()}_BASE_URL": case.base_url})
+    assert not (await case.service().get()).available  # Chat alone is insufficient.
+    case.server.models = (model, "synthetic-chat")
+    admin = case.roles[0].model_copy(
+        update={"scopes": frozenset({"agent:read", "agent:update", "org:secret:read"})}
+    )
+    async with case.sessions() as session:
+        await AgentManagementService(
+            session, role=admin
+        ).refresh_gateway_provider_catalog(provider)
+    case.server.calls.clear()
+    status = await case.service().get()
+    assert status.available and status.configuration.dimensions == 384
+    assert not case.server.calls  # Selection/status never probes the provider.
+    request = await case.request()
+    with monkeypatch.context() as policy:
+        policy.setattr(config, "TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS", [])
+        with pytest.raises(EmbeddingError) as caught:
+            await embed_current(request, case.client)
+        assert caught.value.code == EmbeddingErrorCode.CONFIGURATION_INVALID
+        assert caught.value.__context__ is None
+        assert not case.server.calls  # Denied destinations never receive text or keys.
+    result = await embed_current(request, case.client)
+    assert len(result.results[0].vector) == 384
+    assert case.server.calls == (
+        ["/api/embed"] if provider == "ollama" else ["/v1/embeddings"]
+    )
+
+    # Refresh removes the embedding model but leaves chat usable.
+    case.server.models = ("synthetic-chat",)
+    async with case.sessions() as session:
+        await AgentManagementService(
+            session, role=admin
+        ).refresh_gateway_provider_catalog(provider)
+    assert await resolve_embedding_configuration(case.scope()) is None
+    with pytest.raises(EmbeddingError) as caught:
+        await embed_current(request, case.client)
+    assert caught.value.code == EmbeddingErrorCode.NOT_CONFIGURED
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "provider,model",
+    [
+        ("ollama", "all-minilm:22m"),
+        ("vllm", "sentence-transformers/all-MiniLM-L6-v2"),
+    ],
+)
+async def test_self_hosted_model_access_and_endpoint_versioning(
+    embedding_case, provider, model
+):
+    case = embedding_case
+    chat_id, secret_id = await case.connect(
+        provider, values={f"{provider.upper()}_BASE_URL": case.base_url}
+    )
+    await case.connect("openai")
+    await case.prefer(chat_id)
+    async with case.sessions.begin() as session:
+        catalog = AgentCatalog(
+            organization_id=case.scope().organization_id,
+            model_provider=provider,
+            model_name=model,
+        )
+        session.add(catalog)
+        await session.flush()
+        model_id = catalog.id
+        session.add(
+            AgentModelAccess(
+                organization_id=case.scope().organization_id, catalog_id=model_id
+            )
+        )
+    selected = await resolve_embedding_configuration(case.scope())
+    assert selected is not None
+    assert selected.spec.provider == provider  # Default provider beats cloud fallback.
+    async with case.sessions.begin() as session:
+        secret = await session.scalar(
+            select(OrganizationSecret).where(OrganizationSecret.id == secret_id)
+        )
+        secret.encrypted_keys = encrypted(
+            {
+                f"{provider.upper()}_BASE_URL": case.base_url,
+                f"{provider.upper()}_API_KEY": "synthetic-rotated",
+            }
+        )
+    rotated = await resolve_embedding_configuration(case.scope())
+    assert rotated is not None and rotated.version == selected.version
+    async with case.sessions.begin() as session:
+        secret = await session.scalar(
+            select(OrganizationSecret).where(OrganizationSecret.id == secret_id)
+        )
+        secret.encrypted_keys = encrypted(
+            {f"{provider.upper()}_BASE_URL": case.base_url.replace("/v1", "/new/v1")}
+        )
+    moved = await resolve_embedding_configuration(case.scope())
+    assert moved is not None and moved.version > selected.version
+    # Explicit workspace chat access must not imply embedding-model access.
+    async with case.sessions.begin() as session:
+        session.add(
+            AgentModelAccess(
+                organization_id=case.scope().organization_id,
+                workspace_id=case.scope().workspace_id,
+                catalog_id=chat_id,
+            )
+        )
+    assert await resolve_embedding_configuration(case.scope()) is None
+    # Another tenant's catalog/credentials never enable this workspace.
+    assert await resolve_embedding_configuration(case.scope(1)) is None

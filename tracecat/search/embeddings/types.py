@@ -9,12 +9,16 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 from tracecat.search.types import EmbeddingResult
 
-EmbeddingProvider = Literal["openai", "gemini", "bedrock"]
+EmbeddingProvider = Literal["openai", "gemini", "bedrock", "ollama", "vllm"]
 EmbeddingModel = Literal[
     "text-embedding-3-small",
     "text-embedding-3-large",
     "gemini-embedding-001",
     "amazon.titan-embed-text-v2:0",
+    "all-minilm",
+    "all-minilm:latest",
+    "all-minilm:22m",
+    "sentence-transformers/all-MiniLM-L6-v2",
 ]
 
 
@@ -141,3 +145,12 @@ class BedrockResponse(BaseModel):
     model_config = ConfigDict(strict=True)
     embedding: list[float]
     inputTextTokenCount: int = Field(ge=0)
+
+
+class OllamaResponse(BaseModel):
+    """Native embedding response; the server may return a canonical model tag."""
+
+    model_config = ConfigDict(strict=True)
+    model: str
+    embeddings: list[list[float]]
+    prompt_eval_count: int | None = Field(default=None, ge=0)
