@@ -284,7 +284,12 @@ async def test_deleting_membership_unwinds_children(
         status="active",
         expires_at=datetime.now(UTC) + timedelta(days=1),
     )
-    session.add_all([service_account, pat, refresh_token])
+    actor = User(
+        id=uuid.uuid4(),
+        email=f"actor-{uuid.uuid4().hex[:8]}@example.com",
+        hashed_password="test",
+    )
+    session.add_all([service_account, pat, refresh_token, actor])
     await session.commit()
 
     user_id = user.id
@@ -292,7 +297,10 @@ async def test_deleting_membership_unwinds_children(
     service_account_id = service_account.id
     pat_id = pat.id
     refresh_token_id = refresh_token.id
+    actor_id = actor.id
 
+    # The trigger attributes the revocation to the caller's RLS user setting.
+    await set_rls_context(session, org_id=org_id, workspace_id=None, user_id=actor_id)
     await session.execute(
         delete(OrganizationMembership).where(
             OrganizationMembership.user_id == user_id,
@@ -331,6 +339,7 @@ async def test_deleting_membership_unwinds_children(
         )
     ).scalar_one()
     assert refreshed_pat.revoked_at is not None
+    assert refreshed_pat.revoked_by == actor_id
     refreshed_rt = (
         await session.execute(
             select(MCPRefreshToken).where(MCPRefreshToken.id == refresh_token_id)

@@ -28,10 +28,15 @@ Steps, in order:
    owner nulls only that column and the organization keeps the account.
 6. A row trigger on ``organization_membership`` revokes the user's MCP personal
    access tokens and refresh tokens for that organization on delete. They are
-   revoked, not cascaded, so the rows keep ``user_id`` for attribution.
+   revoked, not cascaded, so the rows keep ``user_id`` for attribution, and
+   ``revoked_by`` is taken from the ``app.current_user_id`` setting when the
+   caller set one.
 
 Downgrade reverses 6, 5, 4 and 1. The backfilled membership rows and nulled
-owners are left in place; both are valid under the previous schema.
+owners are left in place; both are valid under the previous schema. The nulled
+owner IDs are not recoverable: they pointed at users already removed from the
+organization and carried no runtime meaning, so the loss is accepted rather
+than blocking downgrade.
 """
 
 from collections.abc import Sequence
@@ -156,7 +161,10 @@ def upgrade() -> None:
         AS $$
         BEGIN
             UPDATE mcp_personal_access_token
-            SET revoked_at = now()
+            SET revoked_at = now(),
+                revoked_by = NULLIF(
+                    current_setting('app.current_user_id', true), ''
+                )::uuid
             WHERE user_id = OLD.user_id
               AND organization_id = OLD.organization_id
               AND revoked_at IS NULL;
