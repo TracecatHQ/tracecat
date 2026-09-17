@@ -115,91 +115,6 @@ def pytest_xdist_auto_num_workers(config: pytest.Config) -> int:
 # Default ports are for cluster 1, override with PG_PORT, TEMPORAL_PORT, MINIO_PORT, REDIS_PORT
 
 
-def _install_membership_path_evictor(conn: Any) -> None:
-    """Mirror the production triggers that evict a member with no role paths."""
-    conn.execute(
-        text(
-            """
-            CREATE OR REPLACE FUNCTION drop_membership_without_paths()
-            RETURNS trigger
-            LANGUAGE plpgsql
-            AS $$
-            DECLARE
-                org uuid;
-            BEGIN
-                -- OLD has no group_id on user_role_assignment, so resolve per table rather
-                -- than coalescing across both shapes.
-                IF TG_TABLE_NAME = 'group_member' THEN
-                    org := COALESCE(
-                        OLD.organization_id,
-                        (SELECT organization_id FROM "group" WHERE id = OLD.group_id)
-                    );
-                ELSE
-                    org := OLD.organization_id;
-                END IF;
-                IF org IS NULL THEN
-                    RETURN NULL;
-                END IF;
-
-                -- Superusers are never deletable, so a pathless one keeps the
-                -- membership row rather than being evicted.
-                IF EXISTS (
-                    SELECT 1 FROM "user" WHERE id = OLD.user_id AND is_superuser
-                ) THEN
-                    RETURN NULL;
-                END IF;
-
-                IF NOT EXISTS (
-                    SELECT 1 FROM user_role_assignment
-                    WHERE organization_id = org AND user_id = OLD.user_id
-                ) AND NOT EXISTS (
-                    SELECT 1 FROM group_member gm
-                    JOIN "group" g ON g.id = gm.group_id
-                    WHERE gm.user_id = OLD.user_id AND g.organization_id = org
-                ) THEN
-                    DELETE FROM organization_membership
-                    WHERE organization_id = org AND user_id = OLD.user_id;
-                END IF;
-
-                RETURN NULL;
-            END;
-            $$;
-            """
-        )
-    )
-    conn.execute(
-        text(
-            "DROP TRIGGER IF EXISTS trg_user_role_assignment_drop_membership "
-            "ON user_role_assignment"
-        )
-    )
-    conn.execute(
-        text("DROP TRIGGER IF EXISTS trg_group_member_drop_membership ON group_member")
-    )
-    conn.execute(
-        text(
-            """
-            CREATE CONSTRAINT TRIGGER trg_user_role_assignment_drop_membership
-            AFTER DELETE ON user_role_assignment
-            DEFERRABLE INITIALLY DEFERRED
-            FOR EACH ROW
-            EXECUTE FUNCTION drop_membership_without_paths()
-            """
-        )
-    )
-    conn.execute(
-        text(
-            """
-            CREATE CONSTRAINT TRIGGER trg_group_member_drop_membership
-            AFTER DELETE ON group_member
-            DEFERRABLE INITIALLY DEFERRED
-            FOR EACH ROW
-            EXECUTE FUNCTION drop_membership_without_paths()
-            """
-        )
-    )
-
-
 def _install_membership_token_revoker(conn: Any) -> None:
     """Mirror the production trigger that revokes MCP tokens on member removal."""
     conn.execute(
@@ -555,7 +470,6 @@ def db() -> Iterator[None]:
             Base.metadata.create_all(conn)
             _install_case_number_allocator(conn)
             _install_membership_token_revoker(conn)
-            _install_membership_path_evictor(conn)
         yield
     finally:
         if test_engine is not None:
@@ -592,7 +506,6 @@ def default_org(db: None, env_sandbox: None) -> Iterator[None]:
             Base.metadata.create_all(conn)
             _install_case_number_allocator(conn)
             _install_membership_token_revoker(conn)
-            _install_membership_path_evictor(conn)
 
         with Session(sync_engine) as session:
             base_org_slug = f"test-org-{TEST_ORG_ID.hex[:8]}"

@@ -19,75 +19,6 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
-# A member stays present while they hold any direct assignment or any group link
-# in the organization; losing the last one removes them.
-DROP_MEMBERSHIP_FUNCTION = """
-CREATE OR REPLACE FUNCTION drop_membership_without_paths()
-RETURNS trigger
-LANGUAGE plpgsql
-AS $$
-DECLARE
-    org uuid;
-BEGIN
-    -- OLD has no group_id on user_role_assignment, so resolve per table rather
-    -- than coalescing across both shapes.
-    IF TG_TABLE_NAME = 'group_member' THEN
-        org := COALESCE(
-            OLD.organization_id,
-            (SELECT organization_id FROM "group" WHERE id = OLD.group_id)
-        );
-    ELSE
-        org := OLD.organization_id;
-    END IF;
-    IF org IS NULL THEN
-        RETURN NULL;
-    END IF;
-
-    -- Superusers are never deletable, so a pathless one keeps the membership
-    -- row rather than being evicted.
-    IF EXISTS (
-        SELECT 1 FROM "user" WHERE id = OLD.user_id AND is_superuser
-    ) THEN
-        RETURN NULL;
-    END IF;
-
-    IF NOT EXISTS (
-        SELECT 1 FROM user_role_assignment
-        WHERE organization_id = org AND user_id = OLD.user_id
-    ) AND NOT EXISTS (
-        SELECT 1 FROM group_member gm
-        JOIN "group" g ON g.id = gm.group_id
-        WHERE gm.user_id = OLD.user_id AND g.organization_id = org
-    ) THEN
-        DELETE FROM organization_membership
-        WHERE organization_id = org AND user_id = OLD.user_id;
-    END IF;
-
-    RETURN NULL;
-END;
-$$;
-"""
-
-# Deferred so a replace-assignments transaction that deletes then reinserts
-# never evicts mid-transaction.
-DROP_MEMBERSHIP_TRIGGERS = (
-    """
-    CREATE CONSTRAINT TRIGGER trg_user_role_assignment_drop_membership
-    AFTER DELETE ON user_role_assignment
-    DEFERRABLE INITIALLY DEFERRED
-    FOR EACH ROW
-    EXECUTE FUNCTION drop_membership_without_paths()
-    """,
-    """
-    CREATE CONSTRAINT TRIGGER trg_group_member_drop_membership
-    AFTER DELETE ON group_member
-    DEFERRABLE INITIALLY DEFERRED
-    FOR EACH ROW
-    EXECUTE FUNCTION drop_membership_without_paths()
-    """,
-)
-
-
 def upgrade() -> None:
     op.add_column(
         "group_member",
@@ -122,13 +53,18 @@ def upgrade() -> None:
         ON CONFLICT DO NOTHING
         """
     )
+    # Ownership metadata must not become membership: an owner who was already
+    # removed from the organization is cleared instead of being re-admitted.
     op.execute(
         """
-        INSERT INTO organization_membership (user_id, organization_id)
-        SELECT DISTINCT sa.owner_user_id, sa.organization_id
-        FROM service_account AS sa
-        WHERE sa.owner_user_id IS NOT NULL
-        ON CONFLICT DO NOTHING
+        UPDATE service_account
+        SET owner_user_id = NULL
+        WHERE owner_user_id IS NOT NULL
+          AND NOT EXISTS (
+              SELECT 1 FROM organization_membership m
+              WHERE m.organization_id = service_account.organization_id
+                AND m.user_id = service_account.owner_user_id
+          )
         """
     )
 
@@ -217,21 +153,8 @@ def upgrade() -> None:
         """
     )
 
-    op.execute(DROP_MEMBERSHIP_FUNCTION)
-    for statement in DROP_MEMBERSHIP_TRIGGERS:
-        op.execute(statement)
-
 
 def downgrade() -> None:
-    op.execute(
-        "DROP TRIGGER IF EXISTS trg_user_role_assignment_drop_membership "
-        "ON user_role_assignment"
-    )
-    op.execute(
-        "DROP TRIGGER IF EXISTS trg_group_member_drop_membership ON group_member"
-    )
-    op.execute("DROP FUNCTION IF EXISTS drop_membership_without_paths()")
-
     op.execute(
         "DROP TRIGGER IF EXISTS trg_organization_membership_revoke_mcp_tokens "
         "ON organization_membership"
