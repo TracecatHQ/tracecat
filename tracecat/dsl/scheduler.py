@@ -235,10 +235,12 @@ class DSLScheduler:
         run_context: RunContext,
         logger: WorkflowRuntimeLogger | None = None,
         dependency_plan: DSLDependencyPlan | None = None,
+        dependency_compilation_failed: bool = False,
     ):
         # Static
         self.dsl = dsl
         self.dependency_plan = dependency_plan
+        self.dependency_compilation_failed = dependency_compilation_failed
         self.executor = executor
         if max_pending_tasks < 1:
             raise ValueError("max_pending_tasks must be greater than 0")
@@ -1785,7 +1787,7 @@ class DSLScheduler:
         self, task: ActionStatement, stream_id: StreamID
     ) -> ExecutionContext:
         """Select scatter/gather inputs, preserving pre-compilation histories."""
-        if self.dependency_plan is None:
+        if self.dependency_plan is None and not self.dependency_compilation_failed:
             return self.get_context(stream_id)
         return self.build_stream_aware_context(task, stream_id)
 
@@ -1793,7 +1795,7 @@ class DSLScheduler:
         self, task: ActionStatement, stream_id: StreamID
     ) -> ExecutionContext:
         """Build a context that is aware of the stream hierarchy."""
-        if self.dependency_plan is not None and self.dependency_plan.use_full_context:
+        if self.dependency_compilation_failed:
             all_actions: dict[str, TaskResult] = {}
             current_stream: StreamID | None = stream_id
             while current_stream is not None:

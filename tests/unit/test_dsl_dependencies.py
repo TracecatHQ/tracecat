@@ -111,8 +111,8 @@ async def test_compile_activity_falls_back_for_unsupported_references(
     returns: str,
 ) -> None:
     assert (
-        await DSLActivities.compile_dsl_dependencies_activity(make_dsl(returns))
-    ).use_full_context
+        await DSLActivities.compile_dsl_dependencies_activity(make_dsl(returns)) is None
+    )
 
 
 @pytest.mark.anyio
@@ -122,7 +122,7 @@ async def test_compile_activity_fails_open_on_unexpected_compiler_error() -> Non
         side_effect=RuntimeError("synthetic compiler failure"),
     ):
         plan = await DSLActivities.compile_dsl_dependencies_activity(make_dsl(None))
-    assert plan.use_full_context
+    assert plan is None
 
 
 @pytest.mark.anyio
@@ -143,7 +143,8 @@ async def test_compiler_fallback_does_not_suppress_invalid_return(
     expression = "${{ ACTIONS.first.result + }}"
     assert (
         await DSLActivities.compile_dsl_dependencies_activity(make_dsl(expression))
-    ).use_full_context
+        is None
+    )
     with pytest.raises(ApplicationError) as exc:
         await to_thread(
             DSLActivities.resolve_return_expression_activity,
@@ -257,11 +258,12 @@ async def test_handle_return_does_not_send_unreferenced_inline_results() -> None
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("enabled", [True, False])
-async def test_compilation_is_patch_gated(enabled: bool) -> None:
+@pytest.mark.parametrize("failed", [True, False])
+async def test_compilation_is_patch_gated(enabled: bool, failed: bool) -> None:
     workflow = object.__new__(DSLWorkflow)
     workflow.dsl = make_dsl("${{ ACTIONS.first.result }}")
     workflow.start_to_close_timeout = timedelta(seconds=60)
-    plan = compile_dsl_dependencies(workflow.dsl)
+    plan = None if failed else compile_dsl_dependencies(workflow.dsl)
     execute = AsyncMock(return_value=plan)
     with (
         patch(
@@ -270,6 +272,7 @@ async def test_compilation_is_patch_gated(enabled: bool) -> None:
         patch("tracecat.dsl.workflow.workflow.execute_activity", new=execute),
     ):
         await workflow._compile_dependencies()
+    assert workflow.dependency_compilation_failed is (enabled and failed)
     patched.assert_called_once_with(WorkflowPatch.COMPILE_DSL_DEPENDENCIES)
     if enabled:
         assert workflow.dependency_plan is plan
@@ -332,6 +335,7 @@ def test_plan_selects_live_stream_results_without_parsing(
     context: ExecutionContext,
 ) -> None:
     scheduler = object.__new__(DSLScheduler)
+    scheduler.dependency_compilation_failed = False
     scheduler.dependency_plan = DSLDependencyPlan(
         actions={"consumer": ["first", "second", "skipped"]}, returns=[]
     )
@@ -375,7 +379,8 @@ async def test_compiler_fallback_preserves_full_action_context(
     scheduler.dependency_plan = await DSLActivities.compile_dsl_dependencies_activity(
         dsl
     )
-    assert scheduler.dependency_plan.use_full_context
+    assert scheduler.dependency_plan is None
+    scheduler.dependency_compilation_failed = True
     scheduler._root_context = context
     scheduler.streams = {ROOT_STREAM: context}
     scheduler.stream_hierarchy = {ROOT_STREAM: None}
@@ -419,6 +424,7 @@ def test_legacy_action_context_still_uses_sparse_extraction(
     context: ExecutionContext,
 ) -> None:
     scheduler = object.__new__(DSLScheduler)
+    scheduler.dependency_compilation_failed = False
     scheduler.dependency_plan = None
     scheduler.logger = get_workflow_logger()
     scheduler._root_context = context
@@ -441,6 +447,7 @@ async def test_collection_activity_inputs_use_consumer_dependencies(
     context: ExecutionContext, kind: str, compiled: bool
 ) -> None:
     scheduler = object.__new__(DSLScheduler)
+    scheduler.dependency_compilation_failed = False
     scheduler.logger = get_workflow_logger()
     scheduler.role = Role(
         type="service", service_id="tracecat-runner", workspace_id=UUID(int=1)

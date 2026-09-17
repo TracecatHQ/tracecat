@@ -692,7 +692,7 @@ class DSLActivities:
     @activity.defn
     async def compile_dsl_dependencies_activity(
         dsl: DSLInput,
-    ) -> DSLDependencyPlan:
+    ) -> DSLDependencyPlan | None:
         """Compile optional dependencies, falling back to the original context."""
         try:
             return compile_dsl_dependencies(dsl)
@@ -703,7 +703,7 @@ class DSLActivities:
                 "Dependency compilation failed; using the original workflow context",
                 error_type=type(error).__name__,
             )
-            return DSLDependencyPlan(actions={}, returns=[], use_full_context=True)
+            return None
 
     @staticmethod
     @activity.defn
