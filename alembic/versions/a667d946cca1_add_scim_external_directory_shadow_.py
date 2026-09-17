@@ -146,13 +146,15 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(
             ["external_group_id", "organization_id"],
             ["external_group.id", "external_group.organization_id"],
-            name=op.f("fk_external_group_mapping_external_group_id_external_group"),
+            name=op.f(
+                "fk_external_group_mapping_external_group_id_organization_id_external_group"
+            ),
             ondelete="CASCADE",
         ),
         sa.ForeignKeyConstraint(
             ["group_id", "organization_id"],
             ["group.id", "group.organization_id"],
-            name=op.f("fk_external_group_mapping_group_id_group"),
+            name=op.f("fk_external_group_mapping_group_id_organization_id_group"),
             ondelete="CASCADE",
         ),
         sa.ForeignKeyConstraint(
@@ -238,7 +240,7 @@ def upgrade() -> None:
         sa.Column("last_used_at", sa.TIMESTAMP(timezone=True), nullable=True),
         sa.Column("revoked_at", sa.TIMESTAMP(timezone=True), nullable=True),
         sa.Column("created_by", sa.UUID(), nullable=True),
-        sa.Column("surrogate_id", sa.Integer(), sa.Identity(), nullable=False),
+        sa.Column("surrogate_id", sa.Integer(), nullable=False),
         sa.Column(
             "created_at",
             sa.TIMESTAMP(timezone=True),
