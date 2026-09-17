@@ -197,6 +197,35 @@ async def test_assignment_without_membership_is_rejected(
     await session.rollback()
 
 
+async def test_losing_the_last_assignment_keeps_the_member(
+    session: AsyncSession,
+    org: Organization,
+    workspace: Workspace,
+    user: User,
+    db_role: DBRole,
+) -> None:
+    """Membership is explicit: dropping the last role path is not a removal."""
+    await ensure_member(session, org.id, user.id)
+    session.add(
+        UserRoleAssignment(
+            organization_id=org.id,
+            user_id=user.id,
+            workspace_id=workspace.id,
+            role_id=db_role.id,
+        )
+    )
+    await session.flush()
+    assert await _presence(session, user.id) == (1, 1)
+
+    await session.execute(
+        delete(UserRoleAssignment).where(UserRoleAssignment.user_id == user.id)
+    )
+    await session.flush()
+
+    # No role path left, but the row stands: only Remove member deletes it.
+    assert await _presence(session, user.id) == (0, 1)
+
+
 async def test_deleting_membership_unwinds_children(
     session: AsyncSession,
     org: Organization,
