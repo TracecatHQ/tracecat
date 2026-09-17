@@ -46,7 +46,14 @@ class EmbeddingSettingsStorage(SearchStorage):
         config = await self._configuration(state.current_version)
         if config is None:
             return state.current_version, SearchState(state.state), None
-        spec = get_model(config.provider, config.model)
+        try:
+            spec = get_model(config.provider, config.model)
+        except EmbeddingError as exc:
+            if exc.code != EmbeddingErrorCode.CONFIGURATION_INVALID:
+                raise
+            # A removed catalog entry is stale, not an unrecoverable workspace.
+            # Preserve the pointer/state so synchronization can replace or disable it.
+            return state.current_version, SearchState(state.state), None
         # Restore persisted fields and carry the saved recipe revision separately.
         # synchronize() replaces stale/unknown revisions before any embedding call.
         spec = replace(
@@ -191,9 +198,12 @@ class EmbeddingSettingsStorage(SearchStorage):
         """Pin automatic selection before work; callers commit before provider I/O."""
         await self.lock_scope()
         selected = await self.available()
-        _, state, current = await self.current()
+        version, state, current = await self.current()
         if selected is None:
-            if current is not None:
+            # A retired model still has a saved configuration even though current()
+            # cannot reconstruct it. Invalidate its pointer exactly once.
+            saved = await self._configuration(version) if version else None
+            if saved is not None:
                 await self.set_state(SearchState.REINDEX_REQUIRED)
                 await self.set_state(
                     SearchState.PAUSED

@@ -677,3 +677,66 @@ async def test_agent_default_lookup_still_requires_agent_read(embedding_case):
         service = AgentManagementService(session, role=case.roles[0])
         with pytest.raises(ScopeDeniedError):
             await service.get_default_model_selection()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("paused", [False, True])
+@pytest.mark.parametrize("provider_removed", [False, True])
+async def test_retired_model_recovers_or_disables_without_losing_pause(
+    embedding_case, paused, provider_removed
+):
+    case = embedding_case
+    _, secret_id = await case.connect()
+    request = await case.request()
+    async with case.sessions.begin() as session:
+        config = await session.get(
+            SearchEmbeddingConfig,
+            (
+                case.scope().organization_id,
+                case.scope().workspace_id,
+                request.config_version,
+            ),
+        )
+        config.model = "retired-embedding-model"
+        state = await session.get(
+            SearchWorkspaceState,
+            (case.scope().organization_id, case.scope().workspace_id),
+        )
+        state.state = SearchState.PAUSED if paused else SearchState.ACTIVE
+        state.reconciliation_required = False
+        if provider_removed:
+            await session.execute(
+                delete(OrganizationSecret).where(OrganizationSecret.id == secret_id)
+            )
+    # Availability must remain readable even when the saved model is retired.
+    assert (await case.service().get()).available is not provider_removed
+    selected = await resolve_embedding_configuration(case.scope())
+    if provider_removed:
+        assert selected is None
+    else:
+        assert selected is not None and selected.version > request.config_version
+        assert selected.spec.model == "text-embedding-3-small"
+    async with case.sessions() as session:
+        state = await session.get(
+            SearchWorkspaceState,
+            (case.scope().organization_id, case.scope().workspace_id),
+        )
+        version = state.current_version
+        assert version > request.config_version
+        assert state.reconciliation_required
+        expected_state = (
+            SearchState.PAUSED
+            if paused
+            else (SearchState.DISABLED if provider_removed else SearchState.ACTIVE)
+        )
+        assert state.state == expected_state
+    await resolve_embedding_configuration(case.scope())
+    async with case.sessions() as session:
+        state = await session.get(
+            SearchWorkspaceState,
+            (case.scope().organization_id, case.scope().workspace_id),
+        )
+        assert state.current_version == version
+    with pytest.raises(EmbeddingError):
+        await embed_current(request, case.client)
+    assert not case.server.calls
