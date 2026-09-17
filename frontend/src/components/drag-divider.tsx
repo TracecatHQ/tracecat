@@ -58,7 +58,7 @@ export function DragDivider({
         orientation === "vertical"
           ? "after:absolute after:inset-y-0 after:left-1/2 after:w-0.5 after:-translate-x-1/2"
           : "after:absolute after:inset-x-0 after:top-1/2 after:h-0.5 after:-translate-y-1/2",
-        "after:bg-transparent after:transition-colors after:duration-150 group-hover:after:bg-ring/40",
+        "after:bg-transparent after:transition-colors after:duration-150 hover:after:bg-ring/40",
         isDragging && "after:bg-ring/60",
         className
       )}
@@ -66,7 +66,7 @@ export function DragDivider({
       {/* Grip icon shows on hover */}
       <GripVertical
         className={cn(
-          "z-20 h-4 w-4 rounded-sm bg-background text-muted-foreground opacity-0 transition-opacity duration-150 group-hover:opacity-100",
+          "z-20 size-4 shrink-0 rounded-sm bg-background text-muted-foreground opacity-0 transition-opacity duration-150 group-hover:opacity-100",
           orientation === "horizontal" && "rotate-90",
           isDragging && "opacity-100"
         )}
