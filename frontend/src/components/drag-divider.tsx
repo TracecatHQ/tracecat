@@ -48,26 +48,27 @@ export function DragDivider({
       data-orientation={orientation}
       {...dragHandleProps}
       className={cn(
-        // Base styles
-        "group relative flex shrink-0 items-center justify-center",
-        // Add visual feedback when dragging
-        isDragging && "opacity-80",
+        // Base styles: a 1px border line with a wider invisible grab area
+        "group relative z-10 flex shrink-0 items-center justify-center bg-border",
+        "before:absolute before:z-10 before:content-['']",
+        orientation === "vertical"
+          ? "w-px before:inset-y-0 before:left-1/2 before:w-4 before:-translate-x-1/2"
+          : "h-px before:inset-x-0 before:top-1/2 before:h-4 before:-translate-y-1/2",
+        // Visual feedback while hovering or dragging
+        orientation === "vertical"
+          ? "after:absolute after:inset-y-0 after:left-1/2 after:w-0.5 after:-translate-x-1/2"
+          : "after:absolute after:inset-x-0 after:top-1/2 after:h-0.5 after:-translate-y-1/2",
+        "after:bg-transparent after:transition-colors after:duration-150 group-hover:after:bg-ring/40",
+        isDragging && "after:bg-ring/60",
         className
       )}
     >
-      {/* Slim line that appears on hover */}
-      <div
-        className={cn(
-          "absolute bg-transparent transition-colors duration-150 group-hover:bg-border",
-          orientation === "vertical" ? "inset-y-3 w-px" : "inset-x-3 h-px"
-        )}
-      />
       {/* Grip icon shows on hover */}
       <GripVertical
         className={cn(
-          "text-border opacity-0 transition-opacity duration-150 group-hover:opacity-100",
+          "z-20 h-4 w-4 rounded-sm bg-background text-muted-foreground opacity-0 transition-opacity duration-150 group-hover:opacity-100",
           orientation === "horizontal" && "rotate-90",
-          "h-4 w-4"
+          isDragging && "opacity-100"
         )}
       />
     </div>
