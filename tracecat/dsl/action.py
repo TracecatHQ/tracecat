@@ -33,11 +33,13 @@ from tracecat.dsl.common import (
     ResolvedSubflowBatch,
     ResolvedSubflowConfig,
 )
+from tracecat.dsl.compiler import compile_dsl_dependencies
 from tracecat.dsl.enums import StreamErrorHandlingStrategy
 from tracecat.dsl.error_transport import is_classified_action_error_payload
 from tracecat.dsl.schemas import (
     ActionStatement,
     DSLConfig,
+    DSLDependencyPlan,
     ExecutionContext,
     MaterializedExecutionContext,
     MaterializedTaskResult,
@@ -685,6 +687,13 @@ class DSLActivities:
                 "__temporal_activity_definition",
             )
         ]
+
+    @staticmethod
+    @activity.defn
+    async def compile_dsl_dependencies_activity(dsl: DSLInput) -> DSLDependencyPlan:
+        """Compile the DSL once before scheduling consumers of action results."""
+        with activity_error_boundary(_expression_error_classification):
+            return compile_dsl_dependencies(dsl)
 
     @staticmethod
     @activity.defn

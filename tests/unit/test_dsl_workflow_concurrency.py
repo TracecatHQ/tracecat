@@ -372,6 +372,7 @@ async def test_run_workflow_preserves_scheduler_cancellation() -> None:
             return_value=TriggerType.MANUAL,
         ),
         patch("tracecat.dsl.workflow.DSLScheduler", return_value=scheduler),
+        patch.object(workflow, "_compile_dependencies", new=AsyncMock()),
         pytest.raises(ActivityError) as exc_info,
     ):
         await workflow._run_workflow(run_args)
@@ -429,6 +430,7 @@ async def test_run_workflow_return_error_classification(
             return_value=TriggerType.MANUAL,
         ),
         patch("tracecat.dsl.workflow.DSLScheduler", return_value=scheduler),
+        patch.object(workflow, "_compile_dependencies", new=AsyncMock()),
         patch.object(workflow, "_handle_return", new=AsyncMock(side_effect=error)),
         patch(
             "tracecat.dsl.workflow.workflow.patched",
