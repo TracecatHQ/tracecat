@@ -1,19 +1,17 @@
 """Resolve existing provider settings and pin embedding semantics per workspace."""
 
 import hashlib
-import uuid
 from dataclasses import replace
 
-import orjson
 from pydantic import SecretStr
 from sqlalchemy import exists, or_, select
 
+from tracecat.agent.default_model import resolve_org_default_model
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.db.models import (
     AgentCatalog,
     AgentModelAccess,
     OrganizationSecret,
-    OrganizationSetting,
     SearchWorkspaceState,
     Workspace,
 )
@@ -32,7 +30,7 @@ from tracecat.search.embeddings.types import (
 from tracecat.search.service import SearchStorage
 from tracecat.search.types import SearchState
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
-from tracecat.secrets.encryption import decrypt_keyvalues, decrypt_value
+from tracecat.secrets.encryption import decrypt_keyvalues
 
 
 class EmbeddingSettingsStorage(SearchStorage):
@@ -80,45 +78,10 @@ class EmbeddingSettingsStorage(SearchStorage):
         )
 
     async def _preferred_provider(self) -> str | None:
-        settings = (
-            await self.session.scalars(
-                select(OrganizationSetting).where(
-                    OrganizationSetting.organization_id == self.scope.organization_id,
-                    OrganizationSetting.key.in_(
-                        ("agent_default_model_catalog_id", "agent_default_model")
-                    ),
-                )
-            )
-        ).all()
-        values: dict[str, str] = {}
-        for setting in settings:
-            raw = (
-                decrypt_value(setting.value, key=get_db_encryption_key())
-                if setting.is_encrypted
-                else setting.value
-            )
-            value = orjson.loads(raw)
-            if isinstance(value, str):
-                values[setting.key] = value
-        stmt = select(AgentCatalog.model_provider).where(
-            or_(
-                AgentCatalog.organization_id == self.scope.organization_id,
-                AgentCatalog.organization_id.is_(None),
-            )
+        entry = await resolve_org_default_model(
+            self.session, self.scope.organization_id
         )
-        if catalog_id := values.get("agent_default_model_catalog_id"):
-            try:
-                identifier = uuid.UUID(catalog_id)
-            except ValueError:
-                return None
-            return await self.session.scalar(stmt.where(AgentCatalog.id == identifier))
-        if name := values.get("agent_default_model"):
-            return await self.session.scalar(
-                stmt.where(AgentCatalog.model_name == name)
-                .order_by(AgentCatalog.model_provider, AgentCatalog.id)
-                .limit(1)
-            )
-        return None
+        return entry.model_provider if entry else None
 
     async def available(self) -> tuple[PinnedConfiguration, ResolvedCredential] | None:
         """Choose only configured, permitted providers, independent of workflow secrets.

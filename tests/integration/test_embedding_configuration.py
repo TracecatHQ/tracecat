@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from tests.database import TEST_DB_CONFIG
 from tracecat import config
+from tracecat.agent.service import AgentManagementService
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.auth.types import Role
 from tracecat.db.engine import get_async_engine, reset_async_engine
@@ -599,3 +600,80 @@ async def test_standard_openai_base_url_remains_supported(embedding_case, base_u
     result = await embed_current(await case.request(), case.client)
     assert len(result.results[0].vector) == 1536
     assert len(case.server.calls) == 1
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "scenario,expected_default",
+    [
+        ("canonical", "gemini"),
+        ("malformed_id", "gemini"),
+        ("disabled_id", None),
+        ("ambiguous_name", None),
+        ("disabled_duplicate", "gemini"),
+    ],
+)
+async def test_agents_and_search_share_default_model_resolution(
+    embedding_case, scenario, expected_default
+):
+    case = embedding_case
+    openai_id, _ = await case.connect("openai")
+    gemini_id, _ = await case.connect("gemini")
+    async with case.sessions.begin() as session:
+        session.add(
+            OrganizationSetting(
+                organization_id=case.scope().organization_id,
+                key="agent_default_model",
+                value=orjson.dumps("synthetic-gemini-chat"),
+                value_type="json",
+                is_encrypted=False,
+            )
+        )
+        if scenario in {"canonical", "malformed_id", "disabled_id"}:
+            session.add(
+                OrganizationSetting(
+                    organization_id=case.scope().organization_id,
+                    key="agent_default_model_catalog_id",
+                    value=orjson.dumps(
+                        "invalid-id" if scenario == "malformed_id" else str(gemini_id)
+                    ),
+                    value_type="json",
+                    is_encrypted=False,
+                )
+            )
+        if scenario == "disabled_id":
+            await session.execute(
+                delete(AgentModelAccess).where(AgentModelAccess.catalog_id == gemini_id)
+            )
+        if scenario == "ambiguous_name":
+            entry = await session.scalar(
+                select(AgentCatalog).where(AgentCatalog.id == openai_id)
+            )
+            entry.model_name = "synthetic-gemini-chat"
+        if scenario == "disabled_duplicate":
+            # This alphabetically earlier match is not enabled and must be ignored.
+            session.add(
+                AgentCatalog(
+                    organization_id=case.scope().organization_id,
+                    model_provider="anthropic",
+                    model_name="synthetic-gemini-chat",
+                )
+            )
+    agent_role = case.roles[0].model_copy(update={"scopes": frozenset({"agent:read"})})
+    async with case.sessions() as session:
+        selected = await AgentManagementService(
+            session, role=agent_role
+        ).get_default_model_selection()
+    assert (selected.model_provider if selected else None) == expected_default
+    status = await case.service().get()
+    assert status.configuration.provider == (expected_default or "openai")
+    assert not case.server.calls
+
+
+@pytest.mark.anyio
+async def test_agent_default_lookup_still_requires_agent_read(embedding_case):
+    case = embedding_case
+    async with case.sessions() as session:
+        service = AgentManagementService(session, role=case.roles[0])
+        with pytest.raises(ScopeDeniedError):
+            await service.get_default_model_selection()

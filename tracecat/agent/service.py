@@ -27,6 +27,12 @@ from tracecat.agent.config import (
     PROVIDER_CREDENTIAL_CONFIGS,
     provider_display_rank,
 )
+from tracecat.agent.default_model import (
+    read_default_model_catalog_id,
+    read_default_model_name,
+    resolve_legacy_default_model,
+    resolve_org_default_model,
+)
 from tracecat.agent.gateway_providers import (
     GATEWAY_PROVIDER_SPECS,
     is_builtin_gateway_provider,
@@ -324,51 +330,10 @@ class AgentManagementService(BaseOrgService):
         await self.session.commit()
 
     async def _get_default_model_name_setting(self) -> str | None:
-        """Return the stored legacy default model name, if present."""
-        setting = await self.settings_service.get_org_setting(
-            _DEFAULT_MODEL_SETTING_KEY
-        )
-        if not setting:
-            return None
-        value = self.settings_service.get_value(setting)
-        return value if isinstance(value, str) and value else None
+        return await read_default_model_name(self.session, self.organization_id)
 
     async def _get_default_model_catalog_id_setting(self) -> uuid.UUID | None:
-        """Return the stored canonical default model catalog id, if present."""
-        setting = await self.settings_service.get_org_setting(
-            _DEFAULT_MODEL_CATALOG_ID_SETTING_KEY
-        )
-        if not setting:
-            return None
-
-        value = self.settings_service.get_value(setting)
-        if not isinstance(value, str) or not value:
-            return None
-        try:
-            return uuid.UUID(value)
-        except ValueError:
-            logger.warning("Invalid default model catalog id setting", value=value)
-            return None
-
-    def _resolve_legacy_default_model_entry(
-        self,
-        enabled_models: list[AgentCatalogRead],
-        *,
-        model_name: str,
-    ) -> AgentCatalogRead | None:
-        """Resolve a legacy name-only default model selection."""
-        matches = [entry for entry in enabled_models if entry.model_name == model_name]
-        if not matches:
-            return None
-        if len(matches) == 1:
-            return matches[0]
-
-        builtin_matches = [
-            entry for entry in matches if entry.custom_provider_id is None
-        ]
-        if len(builtin_matches) == 1:
-            return builtin_matches[0]
-        return None
+        return await read_default_model_catalog_id(self.session, self.organization_id)
 
     def _to_default_model_selection(
         self, catalog_entry: AgentCatalogRead
@@ -1014,26 +979,11 @@ class AgentManagementService(BaseOrgService):
             return self.settings_service.get_value(setting)
         return None
 
+    @require_scope("agent:read")
     async def get_default_model_selection(self) -> DefaultModelSelection | None:
         """Get the canonical default model selection, if it resolves cleanly."""
-        access_svc = AgentModelAccessService(session=self.session, role=self.role)
-        enabled_models = await access_svc.get_org_models()
-
-        if catalog_id := await self._get_default_model_catalog_id_setting():
-            if catalog_entry := next(
-                (entry for entry in enabled_models if entry.id == catalog_id),
-                None,
-            ):
-                return self._to_default_model_selection(catalog_entry)
-            return None
-
-        if model_name := await self._get_default_model_name_setting():
-            if catalog_entry := self._resolve_legacy_default_model_entry(
-                enabled_models,
-                model_name=model_name,
-            ):
-                return self._to_default_model_selection(catalog_entry)
-        return None
+        entry = await resolve_org_default_model(self.session, self.organization_id)
+        return self._to_default_model_selection(entry) if entry else None
 
     @contextlib.contextmanager
     def _credentials_sandbox(self, credentials: dict[str, str]) -> Iterator[None]:
@@ -1070,7 +1020,7 @@ class AgentManagementService(BaseOrgService):
 
             access_svc = AgentModelAccessService(session=self.session, role=self.role)
             enabled_models = await access_svc.get_org_models()
-            catalog_entry = self._resolve_legacy_default_model_entry(
+            catalog_entry = resolve_legacy_default_model(
                 enabled_models, model_name=legacy_name
             )
             if catalog_entry is None:
