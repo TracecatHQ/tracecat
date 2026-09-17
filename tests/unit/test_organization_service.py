@@ -711,7 +711,7 @@ class TestOrganizationServiceDeleteMember:
         user_in_org1: User,
         admin_in_org1: User,
     ):
-        """allow_scim_managed is the SCIM deprovisioning path's own escape hatch."""
+        """allow_idp_managed is the SCIM deprovisioning path's own escape hatch."""
         await seed_external_user(
             session, organization_id=org1.id, user_id=user_in_org1.id
         )
@@ -719,7 +719,7 @@ class TestOrganizationServiceDeleteMember:
         role = create_admin_role(org1.id, admin_in_org1.id)
         service = OrgService(session, role=role)
 
-        await service.delete_member(user_in_org1.id, allow_scim_managed=True)
+        await service.delete_member(user_in_org1.id, allow_idp_managed=True)
 
         assert (
             await session.scalar(
@@ -763,7 +763,7 @@ class TestOrganizationServiceDeleteMember:
 
         # The bypass does not lower the superuser bar either.
         with pytest.raises(TracecatAuthorizationError, match="Cannot delete superuser"):
-            await service.delete_member(superuser.id, allow_scim_managed=True)
+            await service.delete_member(superuser.id, allow_idp_managed=True)
 
     @pytest.mark.anyio
     async def test_scim_guard_is_per_organization(

@@ -143,6 +143,13 @@ class OrgService(BaseOrgService):
             TracecatConflictError: If the user is managed by the identity
                 provider and ``allow_idp_managed`` is not set.
         """
+        await lock_role_changes(self.session, self.organization_id)
+        user = member if member is not None else await self.get_member(user_id)
+        # Checked before the provider guard: a superuser is never removable
+        # here, whichever directory happens to manage them.
+        if user.is_superuser:
+            raise TracecatAuthorizationError("Cannot delete superuser")
+
         idp_managed = await self.session.scalar(
             select(
                 select(ExternalUser.id)
@@ -158,11 +165,6 @@ class OrgService(BaseOrgService):
             raise TracecatConflictError(
                 "Member is managed by the identity provider; deprovision them there."
             )
-
-        await lock_role_changes(self.session, self.organization_id)
-        user = member if member is not None else await self.get_member(user_id)
-        if user.is_superuser:
-            raise TracecatAuthorizationError("Cannot delete superuser")
 
         await self.session.execute(
             delete(AccessToken).where(type_cast(Any, AccessToken.user_id) == user.id)

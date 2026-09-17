@@ -17,7 +17,6 @@ from tracecat.db.models import (
     Invitation,
     Organization,
     OrganizationDomain,
-    Role,
 )
 from tracecat.exceptions import TracecatValidationError
 from tracecat.invitations.enums import InvitationStatus
@@ -268,19 +267,11 @@ async def _create_invitation(
     status: InvitationStatus = InvitationStatus.PENDING,
     expires_in: timedelta = timedelta(days=7),
 ) -> Invitation:
-    role = Role(
-        id=uuid.uuid4(),
-        name="Organization member",
-        slug=f"organization-member-{uuid.uuid4().hex[:8]}",
-        organization_id=organization_id,
-    )
-    session.add(role)
-    await session.flush()
+    # Discovery reads status and expiry only, so the invitation needs no grant.
     invitation = Invitation(
         id=uuid.uuid4(),
         organization_id=organization_id,
         email=email,
-        role_id=role.id,
         token=uuid.uuid4().hex,
         expires_at=datetime.now(UTC) + expires_in,
         status=status,

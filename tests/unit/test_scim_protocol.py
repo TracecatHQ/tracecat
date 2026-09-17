@@ -26,6 +26,7 @@ from tracecat_ee.scim.service import SCIMService
 
 from tests.support.membership import grant_org_membership
 from tracecat.auth.types import Role
+from tracecat.authz.enums import ScimConnectionStatus
 from tracecat.db.engine import get_async_session
 from tracecat.db.models import (
     ExternalGroupMapping,
@@ -34,6 +35,7 @@ from tracecat.db.models import (
     Group,
     Organization,
     OrganizationMembership,
+    ScimConnection,
     User,
 )
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
@@ -73,6 +75,18 @@ async def org(session: AsyncSession) -> Organization:
             id=uuid.uuid4(),
             email=f"seed-{uuid.uuid4().hex[:8]}@tracecat.com",
             hashed_password="x",
+        )
+    )
+    # An activated connection; a pending one links without admitting anyone.
+    session.add(
+        ScimConnection(
+            id=uuid.uuid4(),
+            organization_id=org_id,
+            key_id=uuid.uuid4().hex[:16],
+            hashed="x",
+            salt="y",
+            preview="scim_...",
+            status=ScimConnectionStatus.ACTIVE,
         )
     )
     await session.flush()
@@ -169,6 +183,18 @@ async def _is_member(
         OrganizationMembership.organization_id == organization_id,
     )
     return (await session.execute(stmt)).scalar_one_or_none() is not None
+
+
+async def _resource_is_member(
+    session: AsyncSession, *, resource_id: uuid.UUID, organization_id: uuid.UUID
+) -> bool:
+    """Whether the user behind a SCIM resource id is present in the org."""
+    user_id = (
+        await session.execute(
+            select(ExternalUser.user_id).where(ExternalUser.id == resource_id)
+        )
+    ).scalar_one()
+    return await _is_member(session, user_id=user_id, organization_id=organization_id)
 
 
 # =============================================================================
@@ -306,7 +332,9 @@ async def test_patch_active_false_deprovisions(
     email = f"erin-{uuid.uuid4().hex[:8]}@tracecat.com"
     created = (await _post_user(client, email)).json()
     user_id = uuid.UUID(created["id"])
-    assert await _is_member(session, user_id=user_id, organization_id=org.id)
+    assert await _resource_is_member(
+        session, resource_id=user_id, organization_id=org.id
+    )
 
     response = await client.patch(
         f"/scim/v2/Users/{user_id}",
@@ -318,7 +346,9 @@ async def test_patch_active_false_deprovisions(
 
     assert response.status_code == status.HTTP_200_OK
     assert response.json()["active"] is False
-    assert not await _is_member(session, user_id=user_id, organization_id=org.id)
+    assert not await _resource_is_member(
+        session, resource_id=user_id, organization_id=org.id
+    )
 
 
 @pytest.mark.anyio
@@ -339,7 +369,9 @@ async def test_patch_azure_shape_deprovisions(
     )
 
     assert response.status_code == status.HTTP_200_OK
-    assert not await _is_member(session, user_id=user_id, organization_id=org.id)
+    assert not await _resource_is_member(
+        session, resource_id=user_id, organization_id=org.id
+    )
 
 
 @pytest.mark.anyio
@@ -360,7 +392,9 @@ async def test_put_active_false_deprovisions(
     )
 
     assert response.status_code == status.HTTP_200_OK
-    assert not await _is_member(session, user_id=user_id, organization_id=org.id)
+    assert not await _resource_is_member(
+        session, resource_id=user_id, organization_id=org.id
+    )
 
 
 @pytest.mark.anyio
@@ -374,7 +408,9 @@ async def test_delete_user_deprovisions(
     response = await client.delete(f"/scim/v2/Users/{user_id}")
 
     assert response.status_code == status.HTTP_204_NO_CONTENT
-    assert not await _is_member(session, user_id=user_id, organization_id=org.id)
+    assert not await _resource_is_member(
+        session, resource_id=user_id, organization_id=org.id
+    )
 
 
 @pytest.mark.anyio
@@ -658,7 +694,7 @@ def test_is_scim_path_only_matches_the_protocol_surface() -> None:
 
 @pytest.fixture
 async def unauthenticated_client(
-    session: AsyncSession,
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> AsyncIterator[httpx.AsyncClient]:
     """Mount the router with real token verification in place."""
     app = FastAPI()
@@ -667,6 +703,16 @@ async def unauthenticated_client(
     async def override_session() -> AsyncSession:
         return session
 
+    # Token verification opens its own session, which the override above does
+    # not reach; without this it would query the developer's database.
+    @asynccontextmanager
+    async def _auth_session() -> AsyncIterator[AsyncSession]:
+        yield session
+
+    monkeypatch.setattr(
+        "tracecat_ee.scim.credentials.get_async_session_auth_context_manager",
+        _auth_session,
+    )
     app.dependency_overrides[get_async_session] = override_session
     _install_handlers(app)
 

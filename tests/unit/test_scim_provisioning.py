@@ -13,12 +13,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.scim.provisioning import ScimProvisioningService
 
 from tracecat.auth.types import Role
+from tracecat.authz.enums import ScimConnectionStatus
+from tracecat.authz.membership import ensure_member
 from tracecat.authz.seeding import seed_system_roles_for_org
 from tracecat.db.models import (
     ExternalUser,
     Invitation,
+    InvitationGrant,
     Organization,
     OrganizationMembership,
+    ScimConnection,
     User,
     UserRoleAssignment,
 )
@@ -70,6 +74,23 @@ async def org(session: AsyncSession) -> Organization:
 
 
 @pytest.fixture
+async def active_connection(session: AsyncSession, org: Organization) -> None:
+    """Activate the org's connection; a pending one admits nobody."""
+    session.add(
+        ScimConnection(
+            id=uuid.uuid4(),
+            organization_id=org.id,
+            key_id=uuid.uuid4().hex[:16],
+            hashed="x",
+            salt="y",
+            preview="scim_...",
+            status=ScimConnectionStatus.ACTIVE,
+        )
+    )
+    await session.flush()
+
+
+@pytest.fixture
 def role(org: Organization) -> Role:
     return Role(
         type="scim",
@@ -97,7 +118,10 @@ async def _is_member(
 
 @pytest.mark.anyio
 async def test_provision_creates_user_and_admits_them(
-    session: AsyncSession, org: Organization, service: ScimProvisioningService
+    session: AsyncSession,
+    org: Organization,
+    service: ScimProvisioningService,
+    active_connection: None,
 ) -> None:
     """A new email becomes an account that is present in the organization."""
     email = f"new-{uuid.uuid4().hex[:8]}@tracecat.com"
@@ -198,7 +222,10 @@ async def test_inactive_user_is_linked_but_not_admitted(
 
 @pytest.mark.anyio
 async def test_pending_invitation_is_revoked_on_provisioning(
-    session: AsyncSession, org: Organization, service: ScimProvisioningService
+    session: AsyncSession,
+    org: Organization,
+    service: ScimProvisioningService,
+    active_connection: None,
 ) -> None:
     """A live invite carries its own role, so provisioning revokes it.
 
@@ -220,11 +247,21 @@ async def test_pending_invitation_is_revoked_on_provisioning(
         organization_id=org.id,
         email=email,
         status=InvitationStatus.PENDING,
-        role_id=admin_role_id,
         token=uuid.uuid4().hex,
         expires_at=datetime.now(UTC) + timedelta(days=3),
     )
     session.add(invitation)
+    await session.flush()
+    # The grant is what would outrank SCIM's member role on acceptance.
+    session.add(
+        InvitationGrant(
+            id=uuid.uuid4(),
+            organization_id=org.id,
+            invitation_id=invitation.id,
+            workspace_id=None,
+            role_id=admin_role_id,
+        )
+    )
     await session.flush()
 
     await service.provision_user(external_id="idp-6", email=email)
@@ -235,7 +272,10 @@ async def test_pending_invitation_is_revoked_on_provisioning(
 
 @pytest.mark.anyio
 async def test_provision_grants_only_the_member_role(
-    session: AsyncSession, org: Organization, service: ScimProvisioningService
+    session: AsyncSession,
+    org: Organization,
+    service: ScimProvisioningService,
+    active_connection: None,
 ) -> None:
     """Provisioning admits at organization-member, never higher."""
     email = f"member-{uuid.uuid4().hex[:8]}@tracecat.com"
@@ -258,7 +298,10 @@ async def test_provision_grants_only_the_member_role(
 
 @pytest.mark.anyio
 async def test_existing_higher_role_is_not_downgraded(
-    session: AsyncSession, org: Organization, service: ScimProvisioningService
+    session: AsyncSession,
+    org: Organization,
+    service: ScimProvisioningService,
+    active_connection: None,
 ) -> None:
     """An admin an operator promoted keeps that role when the provider re-pushes."""
     email = f"admin-{uuid.uuid4().hex[:8]}@tracecat.com"
@@ -274,6 +317,7 @@ async def test_existing_higher_role_is_not_downgraded(
             )
         )
     ).scalar_one()
+    await ensure_member(session, org.id, user.id)
     session.add(
         UserRoleAssignment(
             organization_id=org.id,
@@ -307,3 +351,26 @@ async def test_non_email_username_is_rejected(
     """A bare username has no address to store, so it fails validation."""
     with pytest.raises(TracecatValidationError):
         await service.provision_user(external_id="idp-9", email="not-an-email")
+
+
+@pytest.mark.anyio
+async def test_pending_connection_links_without_admitting(
+    session: AsyncSession, org: Organization, service: ScimProvisioningService
+) -> None:
+    """A connection awaiting review collects the directory but grants nothing."""
+    email = f"pending-{uuid.uuid4().hex[:8]}@tracecat.com"
+
+    provisioned = await service.provision_user(external_id="idp-pending", email=email)
+
+    linked = (
+        await session.execute(
+            select(ExternalUser.active).where(
+                ExternalUser.organization_id == org.id,
+                ExternalUser.user_id == provisioned.user.id,
+            )
+        )
+    ).scalar_one()
+    assert linked is True
+    assert not await _is_member(
+        session, user_id=provisioned.user.id, organization_id=org.id
+    )
