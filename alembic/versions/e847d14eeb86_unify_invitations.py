@@ -22,6 +22,11 @@ this migration. The contract drop belongs to a later release.
 Duplicate pending rows for one ``(organization, email)`` are merged into the
 newest row before a partial unique index makes that invariant a database rule.
 
+Downgrade restores the legacy tables' unconditional uniqueness by keeping the
+newest row per scope and email and dropping older settled history. No live
+invitation and no access is lost; the loss is accepted rather than blocking
+rollback.
+
 """
 
 from collections.abc import Sequence
@@ -471,7 +476,8 @@ def downgrade() -> None:
         """
     )
     # Org grants go back to the legacy table, keeping the token when the row had
-    # no workspace grant to spend it on.
+    # no workspace grant to spend it on. The legacy table is unique per
+    # (email, organization), so only the newest row per email survives.
     op.execute(
         f"""
         INSERT INTO organization_invitation (
@@ -479,7 +485,8 @@ def downgrade() -> None:
             expires_at, accepted_at, created_by_platform_admin,
             created_at, updated_at
         )
-        SELECT CASE WHEN i.workspace_id IS NULL THEN i.id
+        SELECT DISTINCT ON (i.organization_id, lower(i.email))
+               CASE WHEN i.workspace_id IS NULL THEN i.id
                     ELSE gen_random_uuid() END,
                i.organization_id, i.email, g.role_id,
                CASE WHEN i.workspace_id IS NULL THEN i.token
@@ -489,6 +496,7 @@ def downgrade() -> None:
         FROM invitation AS i
         JOIN invitation_grant AS g ON g.invitation_id = i.id
         WHERE g.workspace_id IS NULL
+        ORDER BY i.organization_id, lower(i.email), i.created_at DESC, i.id DESC
         """
     )
 
