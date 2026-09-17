@@ -10,7 +10,6 @@ import {
   invitationsGetInvitationToken,
   type OrgMemberRead,
   rbacListAssignments,
-  rbacListUserAssignments,
   rbacReplaceUserAssignments,
   type UserRoleAssignmentReadWithDetails,
 } from "@/client"
@@ -491,11 +490,6 @@ export function OrgMembersTable() {
               event.preventDefault()
               roleMenuTrigger.current?.focus()
             }}
-            onRemoveMember={() => {
-              setIsChangeRoleOpen(false)
-              setRemoveConfirmationEmail("")
-              setIsRemoveMemberOpen(true)
-            }}
           />
         )}
       </Dialog>
@@ -512,35 +506,16 @@ async function readGroupAssignments(userId: string) {
   return (await rbacListAssignments({ userId })).items
 }
 
-function assignmentSnapshot(
-  assignments: (
-    | UserRoleAssignmentReadWithDetails
-    | GroupRoleAssignmentReadWithDetails
-  )[]
-) {
-  return JSON.stringify(
-    assignments
-      .map(({ id, role_id, workspace_id }) => [
-        id,
-        role_id,
-        workspace_id ?? null,
-      ])
-      .sort()
-  )
-}
-
 /** Stage direct role edits while showing the group paths that retain access. */
 export function ManageUserRolesDialog({
   member,
   onOpenChange,
   onSavingChange,
-  onRemoveMember,
   onCloseAutoFocus,
 }: {
   member: OrgMemberRead
   onOpenChange: (open: boolean) => void
   onSavingChange: (saving: boolean) => void
-  onRemoveMember: () => void
   onCloseAutoFocus?: (event: Event) => void
 }) {
   const [roleId, setRoleId] = useState("")
@@ -560,7 +535,6 @@ export function ManageUserRolesDialog({
   const canCreateAssignment = useScopeCheck("org:rbac:create") === true
   const canUpdateAssignment = useScopeCheck("org:rbac:update") === true
   const canDeleteAssignment = useScopeCheck("org:rbac:delete") === true
-  const canRemoveMember = useScopeCheck("org:member:remove") === true
   const {
     userAssignments,
     isLoading: userAssignmentsIsLoading,
@@ -630,21 +604,18 @@ export function ManageUserRolesDialog({
       )
   )
   const hasChanges = updates.length + creates.length + deletes.length > 0
-  const removesMember =
+  // An empty final set is a valid save: the user stays a member on the floor.
+  const leavesNoRoles =
     hasChanges &&
     visibleAssignments.length === 0 &&
     groupAccessKnown &&
     visibleGroupAssignments.length === 0
-  const blockedUnknownRemoval =
-    hasChanges && visibleAssignments.length === 0 && !groupAccessKnown
   const canSave =
     ready &&
     !isSaving &&
-    !blockedUnknownRemoval &&
     (!updates.length || canUpdateAssignment) &&
     (!creates.length || canCreateAssignment) &&
-    (!deletes.length || canDeleteAssignment) &&
-    (!removesMember || canRemoveMember)
+    (!deletes.length || canDeleteAssignment)
   const removedRoles = deletes.map(
     (assignment) =>
       `${assignment.role_name} in ${assignment.workspace_name ?? "the organization"}`
@@ -698,7 +669,7 @@ export function ManageUserRolesDialog({
       return
     }
     if (!canSave || !userId || !draft) return
-    if (!removalConfirmed && !removesMember && removedRoles.length > 0) {
+    if (!removalConfirmed && removedRoles.length > 0) {
       setIsRemovalConfirmationOpen(true)
       return
     }
@@ -706,35 +677,6 @@ export function ManageUserRolesDialog({
     onSavingChange(true)
     setSaveError("")
     try {
-      if (removesMember) {
-        const [freshAssignments, freshGroups] = await Promise.all([
-          rbacListUserAssignments({ userId }),
-          groupAccessKnown || draft.groups !== null
-            ? readGroupAssignments(userId)
-            : null,
-        ])
-        queryClient.setQueryData(
-          ["rbac-user-assignments", userId, undefined],
-          freshAssignments.items
-        )
-        if (freshGroups !== null)
-          queryClient.setQueryData(groupQueryKey, freshGroups)
-        if (
-          assignmentSnapshot(original) !==
-            assignmentSnapshot(freshAssignments.items) ||
-          (freshGroups !== null &&
-            assignmentSnapshot(draft.groups ?? groupAssignments) !==
-              assignmentSnapshot(freshGroups))
-        ) {
-          setDraft(null)
-          setSaveError(
-            "Roles or group access changed while this dialog was open. Review the current roles and try again."
-          )
-          return
-        }
-        onRemoveMember()
-        return
-      }
       await rbacReplaceUserAssignments({
         requestBody: {
           user_id: userId,
@@ -916,23 +858,9 @@ export function ManageUserRolesDialog({
             </p>
           </div>
         )}
-        {ready &&
-          !groupAccessKnown &&
-          !groupsIsLoading &&
-          !blockedUnknownRemoval && (
-            <p role="status" className="text-sm text-muted-foreground">
-              Group access cannot be checked. Only direct roles are shown.
-            </p>
-          )}
-        {blockedUnknownRemoval && (
-          <p role="alert" className="text-sm text-destructive">
-            Group access cannot be checked. Use Remove from organization to
-            revoke all access.
-          </p>
-        )}
-        {removesMember && !canRemoveMember && (
-          <p role="alert" className="text-sm text-destructive">
-            You do not have permission to remove organization members.
+        {ready && !groupAccessKnown && !groupsIsLoading && (
+          <p role="status" className="text-sm text-muted-foreground">
+            Group access cannot be checked. Only direct roles are shown.
           </p>
         )}
         {saveError && (
@@ -967,6 +895,8 @@ export function ManageUserRolesDialog({
               This will remove {removedRoles.join(", ")} from {member.email}.
               {visibleGroupAssignments.length > 0 &&
                 " Access from groups is unchanged."}
+              {leavesNoRoles &&
+                " This leaves the user with no roles. They stay a member with baseline access. Use Remove member to remove them."}
               {(updates.length > 0 || creates.length > 0) &&
                 " Your other role changes will also be saved."}
             </AlertDialogDescription>
