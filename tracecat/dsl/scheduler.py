@@ -235,12 +235,10 @@ class DSLScheduler:
         run_context: RunContext,
         logger: WorkflowRuntimeLogger | None = None,
         dependency_plan: DSLDependencyPlan | None = None,
-        dependency_compilation_failed: bool = False,
     ):
         # Static
         self.dsl = dsl
         self.dependency_plan = dependency_plan
-        self.dependency_compilation_failed = dependency_compilation_failed
         self.executor = executor
         if max_pending_tasks < 1:
             raise ValueError("max_pending_tasks must be greater than 0")
@@ -1787,7 +1785,7 @@ class DSLScheduler:
         self, task: ActionStatement, stream_id: StreamID
     ) -> ExecutionContext:
         """Select scatter/gather inputs, preserving pre-compilation histories."""
-        if self.dependency_plan is None and not self.dependency_compilation_failed:
+        if self.dependency_plan is None:
             return self.get_context(stream_id)
         return self.build_stream_aware_context(task, stream_id)
 
@@ -1795,19 +1793,7 @@ class DSLScheduler:
         self, task: ActionStatement, stream_id: StreamID
     ) -> ExecutionContext:
         """Build a context that is aware of the stream hierarchy."""
-        if self.dependency_compilation_failed:
-            all_actions: dict[str, TaskResult] = {}
-            current_stream: StreamID | None = stream_id
-            while current_stream is not None:
-                if context := self.streams.get(current_stream):
-                    for ref, result in context.get("ACTIONS", {}).items():
-                        # The nearest stream wins when a parent has the same ref.
-                        all_actions.setdefault(ref, result)
-                current_stream = self.stream_hierarchy.get(current_stream)
-            full_context = self._root_context.copy()
-            full_context.update(ACTIONS=all_actions)
-            return full_context
-        # Only pre-compilation histories extract dependencies in the workflow.
+        # Old histories and compilation failures use the legacy extractor.
         if self.dependency_plan is None:
             action_refs = extract_expressions(task.model_dump())[ExprContext.ACTIONS]
         else:
