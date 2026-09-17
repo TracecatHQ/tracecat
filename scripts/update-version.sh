@@ -19,15 +19,23 @@ usage() {
     echo "  $0 1.0.1     # Set specific version"
     echo "  $0 1.0.0-beta.0  # Set specific prerelease tag"
     echo "  $0 1.0.0-beta.48-rc.5  # Keep release/image tag convention"
+    echo "  $0 1.0.0-beta.48-rc.5.post1  # Hotfix an existing release candidate"
     exit 1
 }
 
 PUBLIC_SUFFIX_PATTERN='(alpha|a|beta|b|rc|dev|post)\.[0-9]+'
-PUBLIC_VERSION_PATTERN="[0-9]+\.[0-9]+\.[0-9]+(-${PUBLIC_SUFFIX_PATTERN}){0,2}"
-VERSION_SEARCH_PATTERN='[0-9]+\.[0-9]+\.[0-9]+(-[a-z]+\.[0-9]+){0,2}'
+PUBLIC_VERSION_PATTERN="[0-9]+\.[0-9]+\.[0-9]+(-${PUBLIC_SUFFIX_PATTERN}(-${PUBLIC_SUFFIX_PATTERN})?(\.post[0-9]+)?)?"
+VERSION_SEARCH_PATTERN='[0-9]+\.[0-9]+\.[0-9]+(-[a-z]+\.[0-9]+){0,2}(\.post[0-9]+)?'
 
 to_python_version() {
     local python_version=$1
+    local post_suffix=""
+
+    # Keep the hotfix after the local rc component for nested beta/rc versions.
+    if [[ $python_version =~ ^(.+)(\.post[0-9]+)$ ]]; then
+        python_version="${BASH_REMATCH[1]}"
+        post_suffix="${BASH_REMATCH[2]}"
+    fi
 
     if [[ $python_version =~ ^(.+-[a-z]+\.[0-9]+)-([a-z]+)\.([0-9]+)$ ]]; then
         python_version="${BASH_REMATCH[1]}+${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
@@ -41,7 +49,7 @@ to_python_version() {
     python_version=${python_version//-dev./.dev}
     python_version=${python_version//-post./.post}
 
-    printf '%s\n' "$python_version"
+    printf '%s\n' "${python_version}${post_suffix}"
 }
 
 escape_version_regex() {
@@ -93,7 +101,10 @@ fi
 # Parse arguments and determine new version
 if [ "$#" -eq 0 ]; then
     # Auto-increment: if prerelease, increment prerelease number; otherwise increment patch
-    if [[ $CURRENT_VERSION =~ ^(.+-[a-zA-Z]+\.)([0-9]+)$ ]]; then
+    if [[ $CURRENT_VERSION =~ ^(.+\.post)([0-9]+)$ ]]; then
+        NEW_VERSION="${BASH_REMATCH[1]}$((BASH_REMATCH[2] + 1))"
+        echo "No version specified. Incrementing hotfix version to $NEW_VERSION"
+    elif [[ $CURRENT_VERSION =~ ^(.+-[a-zA-Z]+\.)([0-9]+)$ ]]; then
         NEW_VERSION="${BASH_REMATCH[1]}$((BASH_REMATCH[2] + 1))"
         echo "No version specified. Incrementing prerelease version to $NEW_VERSION"
     else
@@ -281,7 +292,7 @@ update_release_tag_file() {
     run_sed_in_place "s/$escaped_current_version/$escaped_new_version/g" "$file" && \
     run_sed_in_place "s#(/blob/)${VERSION_SEARCH_PATTERN}/#\\1${escaped_new_version}/#g" "$file" && \
     run_sed_in_place "s/\`${VERSION_SEARCH_PATTERN}\`/\`${escaped_new_version}\`/g" "$file" && \
-    run_sed_in_place "s/(\\$\\{TRACECAT__IMAGE_TAG:-)${VERSION_SEARCH_PATTERN}(\\})/\\1${escaped_new_version}\\3/g" "$file" && \
+    run_sed_in_place "s/(\\$\\{TRACECAT__IMAGE_TAG:-)${VERSION_SEARCH_PATTERN}(\\})/\\1${escaped_new_version}\\4/g" "$file" && \
     run_sed_in_place '/variable "tracecat_image_tag"/,/\}/ s/(default[[:space:]]*=[[:space:]]*)"[^"]*"/\1"'"$escaped_new_version"'"/' "$file" && \
     run_sed_in_place "s#(raw\\.githubusercontent\\.com/TracecatHQ/tracecat/)${VERSION_SEARCH_PATTERN}/#\\1${escaped_new_version}/#g" "$file" && \
     run_sed_in_place "s/(TF_VAR_tracecat_image_tag=)${VERSION_SEARCH_PATTERN}/\\1${escaped_new_version}/g" "$file" && \

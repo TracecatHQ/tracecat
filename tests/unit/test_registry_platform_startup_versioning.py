@@ -15,6 +15,18 @@ from tracecat.db.models import PlatformRegistryVersion
         ("1.0.0-beta.48-rc.6", "1.0.0-beta.48-rc.5", True),
         ("1.0.0-beta.48-rc.6", "1.0.0-beta.48", False),
         ("1.0.0-beta.48", "1.0.0-beta.48-rc.6", True),
+        ("1.0.0-beta.52-rc.22", "1.0.0-beta.52-rc.22.post1", False),
+        ("1.0.0-beta.52-rc.22.post1", "1.0.0-beta.52-rc.22", True),
+        ("1.0.0-beta.52-rc.22.post1", "1.0.0-beta.52-rc.22.post1", False),
+        ("1.0.0-beta.52-rc.22", "1.0.0-beta.52-rc.22.post0", False),
+        ("1.0.0-beta.52-rc.22.post0", "1.0.0-beta.52-rc.22", True),
+        ("1.0.0-beta.52-rc.22.post1", "1.0.0-beta.52-rc.22.post2", False),
+        ("1.0.0-beta.52-rc.22.post10", "1.0.0-beta.52-rc.22.post2", True),
+        ("1.0.0-beta.52-rc.22.post1", "1.0.0-beta.52-rc.23", False),
+        ("1.0.0-beta.52-rc.23", "1.0.0-beta.52-rc.22.post1", True),
+        ("1.0.0-beta.52-rc.22.post1", "1.0.0-beta.52", False),
+        ("1.0.0-beta.52", "1.0.0-beta.52-rc.22.post1", True),
+        ("1.0.0-beta.52.post1", "1.0.0-beta.52-rc.22.post1", True),
     ],
 )
 def test_is_downgrade_handles_temporary_beta_rc_release_tags(

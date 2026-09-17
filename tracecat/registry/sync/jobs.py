@@ -36,7 +36,8 @@ PLATFORM_SYNC_LOCK_KEY = derive_lock_key_from_parts("platform_registry_sync")
 _RELEASE_TAG_PATTERN = re.compile(
     r"^(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)"
     r"(?:-(?P<stage>alpha|a|beta|b|rc|dev|post)\.(?P<number>\d+)"
-    r"(?:-(?P<sub_stage>alpha|a|beta|b|rc|dev|post)\.(?P<sub_number>\d+))?)?$"
+    r"(?:-(?P<sub_stage>alpha|a|beta|b|rc|dev|post)\.(?P<sub_number>\d+))?)?"
+    r"(?:\.post(?P<post_number>\d+))?$"
 )
 _STAGE_RANK = {
     "dev": 0,
@@ -59,7 +60,7 @@ class _ArtifactBuildRequest:
     expected_current_version_id: UUID | None = None
 
 
-def _release_tag_key(version: str) -> tuple[int, int, int, int, int, int, int]:
+def _release_tag_key(version: str) -> tuple[int, int, int, int, int, int, int, int]:
     """Return a sortable key for Tracecat release/image tag versions."""
     match = _RELEASE_TAG_PATTERN.fullmatch(version)
     if match is None:
@@ -78,6 +79,7 @@ def _release_tag_key(version: str) -> tuple[int, int, int, int, int, int, int]:
         number,
         _STAGE_RANK[sub_stage],
         sub_number,
+        int(match.group("post_number") or -1),
     )
 
 
