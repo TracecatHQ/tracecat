@@ -38,9 +38,9 @@ class AwsSecretReference:
     json_fields: tuple[AwsSecretJsonFieldSelector, ...]
 
     @property
-    def fetch_key(self) -> tuple[str, str]:
+    def fetch_key(self) -> tuple[UUID, str]:
         """Deduplication key for one remote read within an operation."""
-        return (self.role_arn, self.secret_arn)
+        return (self.store_id, self.secret_arn)
 
     def output_keys(self) -> list[str]:
         """Return declared output key names without touching AWS."""

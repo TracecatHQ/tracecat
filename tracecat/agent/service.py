@@ -42,6 +42,7 @@ from tracecat.agent.schemas import (
     ProviderCredentialConfig,
 )
 from tracecat.agent.types import AgentConfig
+from tracecat.auth.sandbox import AuthSandbox
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
@@ -551,17 +552,15 @@ class AgentManagementService(BaseOrgService):
         self,
         provider: str,
     ) -> dict[str, str] | None:
-        """Get decrypted credentials for an AI provider at workspace level."""
+        """Resolve local or AWS-backed workspace credentials for an AI provider."""
         secret_name = self._get_workspace_credential_secret_name(provider)
-        try:
-            secret = await self.secrets_service.get_secret_by_name(
-                secret_name,
-                DEFAULT_SECRETS_ENVIRONMENT,
-            )
-            decrypted_keys = self.secrets_service.decrypt_keys(secret.encrypted_keys)
-            return {kv.key: kv.value.get_secret_value() for kv in decrypted_keys}
-        except TracecatNotFoundError:
-            return None
+        async with AuthSandbox(
+            role=self.role,
+            secrets=[secret_name],
+            optional_secrets=[secret_name],
+            environment=DEFAULT_SECRETS_ENVIRONMENT,
+        ) as sandbox:
+            return sandbox.secrets.get(secret_name)
 
     async def _augment_runtime_provider_credentials(
         self, provider: str, credentials: dict[str, str]

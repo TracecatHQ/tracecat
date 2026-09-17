@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable
+from dataclasses import replace
 from typing import Any, Self
 
 import pytest
@@ -98,6 +99,7 @@ class _FakeSession:
     sm_response: dict[str, Any] = {"SecretString": "plain-value"}
 
     def __init__(self, region_name: str | None = None) -> None:
+        self.region_name = region_name
         type(self).client_kwargs.append({"region_name": region_name})
 
     def client(self, service: str, **kwargs: Any) -> _FakeClient:
@@ -307,7 +309,7 @@ async def test_failure_message_never_contains_payload(
     assert err.__cause__ is None and err.__context__ is None
 
 
-async def test_reads_deduplicated_per_role_and_arn(
+async def test_reads_deduplicated_per_store_and_reference(
     fake_aws: type[_FakeSession],
 ) -> None:
     fake_aws.sm_response = {"SecretString": '{"a": "1", "b": "2"}'}
@@ -339,6 +341,32 @@ async def test_reads_deduplicated_per_role_and_arn(
     # No cross-operation caching: a second call hits AWS again.
     await resolve_aws_secret_references([first])
     assert len(fake_aws.sm_calls) == 3
+
+
+async def test_stores_use_their_own_region_and_external_id(
+    fake_aws: type[_FakeSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first = make_reference(alias="east", secret_arn="app/api")
+    second = replace(
+        first,
+        alias="west",
+        store_id=uuid.uuid4(),
+        region="eu-west-1",
+        external_id="tracecat-other-external-id",
+    )
+
+    async def get_secret_value(client: _FakeClient, **kwargs: Any) -> dict[str, str]:
+        client._recorder.sm_calls.append(kwargs)
+        return {"SecretString": client._recorder.region_name or ""}
+
+    monkeypatch.setattr(_FakeClient, "get_secret_value", get_secret_value)
+    resolved = await resolve_aws_secret_references([first, second])
+    assert resolved == {"east": {"TOKEN": REGION}, "west": {"TOKEN": "eu-west-1"}}
+    assert {call["ExternalId"] for call in fake_aws.sts_calls} == {
+        first.external_id,
+        second.external_id,
+    }
+    assert len(fake_aws.sm_calls) == 2
 
 
 async def test_empty_references_do_not_touch_aws(

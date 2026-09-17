@@ -17,6 +17,7 @@ from tracecat.db.models import (
     Workspace,
     WorkspaceSecretStoreAuthorization,
 )
+from tracecat.db.rls import set_rls_context, set_rls_context_from_role
 from tracecat.exceptions import TracecatConflictError, TracecatNotFoundError
 from tracecat.identifiers import WorkspaceID
 from tracecat.secrets.schemas import SecretStoreCreate, SecretStoreUpdate
@@ -63,22 +64,38 @@ class SecretStoresService(BaseOrgService):
         return store
 
     async def count_references(
-        self, store_ids: Sequence[uuid.UUID]
+        self,
+        store_ids: Sequence[uuid.UUID],
+        *,
+        workspace_id: WorkspaceID | None = None,
     ) -> dict[uuid.UUID, int]:
         """Count workspace secrets referencing each store (metadata only)."""
         if not store_ids:
             return {}
         stmt = (
-            select(Secret.store_id, func.count(Secret.id))
-            .where(Secret.store_id.in_(store_ids))
-            .group_by(Secret.store_id)
+            select(OrganizationSecretStore.id, func.count(Secret.id))
+            .select_from(Secret)
+            .join(
+                OrganizationSecretStore, Secret.store_id == OrganizationSecretStore.id
+            )
+            .where(
+                Secret.store_id.in_(store_ids),
+                OrganizationSecretStore.organization_id == self.organization_id,
+            )
+            .group_by(OrganizationSecretStore.id)
         )
-        result = await self.session.execute(stmt)
-        counts: dict[uuid.UUID, int] = {}
-        for store_id, count in result.tuples().all():
-            if store_id is not None:
-                counts[store_id] = count
-        return counts
+        if workspace_id is not None:
+            stmt = stmt.where(Secret.workspace_id == workspace_id)
+        # Org sessions carry no workspace context, so `secret` rows are hidden
+        # by RLS. Bypass on this same transaction; restore before returning.
+        await set_rls_context(
+            self.session, self.organization_id, None, self.role.user_id, bypass=True
+        )
+        try:
+            result = await self.session.execute(stmt)
+        finally:
+            await set_rls_context_from_role(self.session, self.role)
+        return dict(result.tuples().all())
 
     @require_scope("org:secret:create")
     @audit_log(resource_type="organization_secret_store", action="create")
@@ -163,11 +180,8 @@ class SecretStoresService(BaseOrgService):
         Rejected while that workspace still holds secrets referencing the store
         so runtime never silently loses an authorized binding.
         """
-        reference_stmt = select(func.count(Secret.id)).where(
-            Secret.store_id == store.id, Secret.workspace_id == workspace_id
-        )
-        reference_count = (await self.session.execute(reference_stmt)).scalar_one()
-        if reference_count:
+        counts = await self.count_references([store.id], workspace_id=workspace_id)
+        if reference_count := counts.get(store.id, 0):
             raise TracecatConflictError(
                 f"Workspace still has {reference_count} secret(s) referencing this"
                 " store. Remove those references first.",

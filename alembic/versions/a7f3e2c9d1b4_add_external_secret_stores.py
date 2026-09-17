@@ -178,6 +178,15 @@ def upgrade() -> None:
         ["id"],
         ondelete="RESTRICT",
     )
+    # A reference can only exist while its workspace authorization exists.
+    op.create_foreign_key(
+        "fk_secret_store_authorization",
+        "secret",
+        "workspace_secret_store_authorization",
+        ["workspace_id", "store_id"],
+        ["workspace_id", "store_id"],
+        ondelete="RESTRICT",
+    )
 
     op.execute(enable_org_table_rls("organization_secret_store"))
     op.execute(
@@ -202,6 +211,7 @@ def downgrade() -> None:
     )
     op.execute(disable_org_table_rls("organization_secret_store"))
 
+    op.drop_constraint("fk_secret_store_authorization", "secret", type_="foreignkey")
     op.drop_constraint(
         op.f("fk_secret_store_id_organization_secret_store"),
         "secret",
