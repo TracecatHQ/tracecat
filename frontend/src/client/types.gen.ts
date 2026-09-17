@@ -339,6 +339,7 @@ export type AdminOrgInvitationCreateResponse = {
   created_at: string
   accepted_at: string | null
   created_by_platform_admin: boolean
+  last_emailed_at?: string | null
   token: string
 }
 
@@ -358,6 +359,7 @@ export type AdminOrgInvitationRead = {
   created_at: string
   accepted_at: string | null
   created_by_platform_admin: boolean
+  last_emailed_at?: string | null
 }
 
 /**
@@ -11964,6 +11966,12 @@ export type InvitationsRevokeInvitationData = {
 
 export type InvitationsRevokeInvitationResponse = void
 
+export type InvitationsResendInvitationData = {
+  invitationId: string
+}
+
+export type InvitationsResendInvitationResponse = InvitationRead
+
 export type InvitationsGetInvitationTokenData = {
   invitationId: string
 }
@@ -12880,6 +12888,13 @@ export type AdminRevokeOrganizationInvitationData = {
 }
 
 export type AdminRevokeOrganizationInvitationResponse = void
+
+export type AdminResendOrganizationInvitationData = {
+  invitationId: string
+  orgId: string
+}
+
+export type AdminResendOrganizationInvitationResponse = AdminOrgInvitationRead
 
 export type AdminListOrganizationDomainsData = {
   orgId: string
@@ -16834,6 +16849,21 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/invitations/{invitation_id}/resend": {
+    post: {
+      req: InvitationsResendInvitationData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: InvitationRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/invitations/{invitation_id}/token": {
     get: {
       req: InvitationsGetInvitationTokenData
@@ -18479,6 +18509,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/organizations/{org_id}/invitations/{invitation_id}/resend": {
+    post: {
+      req: AdminResendOrganizationInvitationData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AdminOrgInvitationRead
         /**
          * Validation Error
          */

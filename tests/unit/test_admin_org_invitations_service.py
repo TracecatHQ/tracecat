@@ -474,7 +474,7 @@ async def test_resend_organization_invitation_resets_claim_and_keeps_sent_timest
         AdminOrgInvitationCreate(email="resend@example.com"),
     )
     db_invitation = await session.scalar(
-        select(OrganizationInvitation).where(OrganizationInvitation.id == invitation.id)
+        select(Invitation).where(Invitation.id == invitation.id)
     )
     assert db_invitation is not None
     db_invitation.email_claimed_at = datetime.now(UTC) - timedelta(minutes=5)
@@ -555,7 +555,7 @@ async def test_resend_organization_invitation_enforces_cooldown(
         AdminOrgInvitationCreate(email="resend-cooldown@example.com"),
     )
     db_invitation = await session.scalar(
-        select(OrganizationInvitation).where(OrganizationInvitation.id == invitation.id)
+        select(Invitation).where(Invitation.id == invitation.id)
     )
     assert db_invitation is not None
 

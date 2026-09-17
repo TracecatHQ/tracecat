@@ -47,6 +47,8 @@ depends_on: str | Sequence[str] | None = None
 # pgcrypto is not installed, so tokens are built from two md5 halves.
 _FRESH_TOKEN = "md5(gen_random_uuid()::text) || md5(random()::text)"
 
+_EMAIL_INDEX_NAME = "ix_invitation_email_unclaimed"
+
 
 def upgrade() -> None:
     op.add_column("invitation", sa.Column("organization_id", sa.UUID(), nullable=True))
@@ -58,6 +60,32 @@ def upgrade() -> None:
             server_default=sa.text("false"),
             nullable=False,
         ),
+    )
+    # The invitation row is its own delivery outbox; a NULL claim means unsent.
+    op.add_column(
+        "invitation",
+        sa.Column("email_claimed_at", sa.TIMESTAMP(timezone=True), nullable=True),
+    )
+    op.add_column(
+        "invitation",
+        sa.Column("email_sent_at", sa.TIMESTAMP(timezone=True), nullable=True),
+    )
+    op.add_column(
+        "invitation",
+        sa.Column(
+            "email_attempts",
+            sa.Integer(),
+            nullable=False,
+            server_default=sa.text("0"),
+        ),
+    )
+    # Workspace invitations predate the outbox and were delivered out of band;
+    # claiming them keeps this migration from mass-emailing every pending row.
+    op.execute(
+        sa.text(
+            "UPDATE invitation SET email_claimed_at = now() "
+            "WHERE email_claimed_at IS NULL"
+        )
     )
     op.execute(
         """
@@ -202,11 +230,13 @@ def upgrade() -> None:
         INSERT INTO invitation (
             id, organization_id, email, status,
             invited_by, token, expires_at, accepted_at,
-            created_by_platform_admin, created_at, updated_at
+            created_by_platform_admin, created_at, updated_at,
+            email_claimed_at, email_sent_at, email_attempts
         )
         SELECT oi.id, oi.organization_id, oi.email, oi.status,
                oi.invited_by, oi.token, oi.expires_at, oi.accepted_at,
-               oi.created_by_platform_admin, oi.created_at, oi.updated_at
+               oi.created_by_platform_admin, oi.created_at, oi.updated_at,
+               oi.email_claimed_at, oi.email_sent_at, oi.email_attempts
         FROM organization_invitation AS oi
         WHERE (
                 (oi.status = 'PENDING' AND oi.expires_at > now())
@@ -309,6 +339,15 @@ def upgrade() -> None:
         unique=True,
         postgresql_where=sa.text("status = 'PENDING'"),
     )
+    op.create_index(
+        _EMAIL_INDEX_NAME,
+        "invitation",
+        ["created_at"],
+        # Exhausted and revoked rows keep a NULL claim; keep them out of the scan.
+        postgresql_where=sa.text(
+            "email_claimed_at IS NULL AND status = 'PENDING' AND email_attempts < 3"
+        ),
+    )
 
     # invitation is now purely org-scoped.
     op.execute(enable_org_table_rls("invitation"))
@@ -375,6 +414,10 @@ def downgrade() -> None:
     op.execute(disable_org_table_rls("invitation"))
     op.execute(disable_org_optional_workspace_table_rls("invitation_grant"))
     op.drop_index("ix_invitation_org_email_pending_unique", table_name="invitation")
+    op.drop_index(_EMAIL_INDEX_NAME, table_name="invitation")
+    op.drop_column("invitation", "email_attempts")
+    op.drop_column("invitation", "email_sent_at")
+    op.drop_column("invitation", "email_claimed_at")
     op.add_column("invitation", sa.Column("workspace_id", sa.UUID(), nullable=True))
     op.add_column("invitation", sa.Column("role_id", sa.UUID(), nullable=True))
 
