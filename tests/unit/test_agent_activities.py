@@ -2444,6 +2444,99 @@ class TestSandboxedAgentExecutorCancellation:
         assert result.success is True
 
     @pytest.mark.anyio
+    @pytest.mark.parametrize("interrupt_delivered", [False, True])
+    @pytest.mark.parametrize("runtime_failed", [False, True])
+    async def test_cancellation_cleanup_timeout_preserves_outcome(
+        self,
+        executor_input: AgentExecutorInput,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        interrupt_delivered: bool,
+        runtime_failed: bool,
+    ) -> None:
+        """A stuck shutdown must not escape as an executor-unavailable error."""
+        executor = SandboxedAgentExecutor(input=executor_input)
+        executor._job_dir = tmp_path
+        executor._llm_proxy = AsyncMock()
+        handler = LoopbackHandler(
+            input=LoopbackInput(
+                session_id=executor_input.session_id,
+                workspace_id=executor_input.workspace_id,
+            )
+        )
+        if runtime_failed:
+            handler._result = LoopbackResult(
+                success=False,
+                error="runtime crashed",
+                classification=user_agent_execution_failed(),
+            )
+
+        started = asyncio.Event()
+        stopped = asyncio.Event()
+        hard_cancel = AsyncMock()
+
+        class FakeBroker:
+            @asynccontextmanager
+            async def session_turn_lease(self, _session_id: str) -> AsyncIterator[None]:
+                yield
+
+            async def run_turn_in_session_lease(
+                self, _request: ClaudeTurnRequest, _handler: LoopbackHandler
+            ) -> None:
+                started.set()
+                try:
+                    await asyncio.Event().wait()
+                finally:
+                    stopped.set()
+
+            async def interrupt_turn(self, _session_id: str, _reason: str) -> bool:
+                # Cover both startup that cannot accept an interrupt and a
+                # runtime that accepts it but never finishes shutting down.
+                return interrupt_delivered
+
+            cancel_turn = hard_cancel
+
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.get_claude_runtime_broker",
+            FakeBroker,
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.GRACEFUL_CANCEL_TIMEOUT_SECONDS", 0.01
+        )
+        capture_failure = MagicMock()
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.capture_activity_failure",
+            capture_failure,
+        )
+        result = AgentExecutorResult(success=False, terminal_stream_error_emitted=False)
+        task = asyncio.create_task(
+            executor._run_with_broker(
+                result=result,
+                handler=handler,
+                init_payload=executor._build_runtime_init_payload(),
+                socket_dir=tmp_path / "sockets",
+                llm_socket_path=tmp_path / "sockets" / "llm.sock",
+                artifact_working_set=None,
+                otel_socket_path=None,
+            )
+        )
+        await asyncio.wait_for(started.wait(), timeout=5)
+        task.cancel()
+        await asyncio.wait_for(task, timeout=5)
+
+        hard_cancel.assert_awaited_once_with(str(executor_input.session_id))
+        assert stopped.is_set()
+        assert result.cancelled is True
+        assert result.cancelled_reason == "user_cancel"
+        assert result.success is not runtime_failed
+        assert result.error == ("runtime crashed" if runtime_failed else None)
+        assert result.classification == (
+            user_agent_execution_failed() if runtime_failed else None
+        )
+        assert result.sentry_capture is None
+        capture_failure.assert_not_called()
+
+    @pytest.mark.anyio
     async def test_cancel_signal_interrupts_turn_without_task_cancellation(
         self,
         executor_input: AgentExecutorInput,
