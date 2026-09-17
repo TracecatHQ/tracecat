@@ -64,6 +64,8 @@ hashes during alert triage.
 
 Each entry is a registry action name (`core.http_request`) or an MCP reference
 (`mcp.<slug>` for the whole server, `mcp.<slug>.<tool>` for one tool).
+Per-tool references work for HTTP integrations; a stdio integration is granted whole
+with `mcp.<slug>`.
 A skill can declare at most 64 tools.
 
 When the skill is attached to a preset agent, its tools are added to the preset's own
@@ -124,20 +126,10 @@ The agent can discover the skill by its `SKILL.md` metadata and use the bundled 
 Use skills for reusable agent behavior.
 Use preset instructions for behavior that belongs only to one preset agent.
 
-## Where tools live
-
-- Preset `actions`: registry actions that only this one agent needs.
-- Preset MCP integrations (`mcp_integration_ids`): a connector's tools, attached straight
-  to the preset. MCP integrations do not have to go through a skill.
-- Skill `metadata.tools`: a group of tools that belong together and are reused across
-  several agents, registry actions and MCP references alike. Attaching the skill brings
-  the instructions and the tools together.
-- The `actions` argument on the `ai.preset_agent` workflow action: replaces the preset's
-  registry actions for a single run instead of adding to them, so the registry actions a
-  skill contributed are dropped for that run. MCP tools stay attached, whether the preset
-  or a skill supplied them, and an empty list changes nothing. It fits a test or an eval
-  that needs a different tool set; the preset or a skill is the better home for tools the
-  agent should have on every run, including in chat.
+A skill's `metadata.tools` fits a group of tools that several agents share, so the
+instructions and the tools travel together. Tools only one agent needs fit on the preset.
+See [Where tools come from](/agents/ai-preset-agent#where-tools-come-from) for the full
+picture, including what the `ai.preset_agent` `actions` input does to a skill's tools.
 
 ## Related pages
 

@@ -2201,10 +2201,8 @@ show candidate integrations first.
 `core.script.run_python` unless a specific integration is requested.
 - For `ai.agent`, prefer the `model` object. Use legacy top-level \
 `model_name`/`model_provider` only when requested.
-- For `ai.preset_agent`, `preset` and `user_prompt` are normally enough: tools \
-come from the preset's `actions`, the MCP integrations attached to it, and its \
-skills. The `actions` argument here replaces the preset's registry actions for \
-that one run (MCP tools are unaffected), which suits a test or an eval.
+- For `ai.preset_agent`, tools come from the preset and its skills; the \
+`actions` input swaps the preset's registry actions for one run.
 
 ## Expression syntax (used in action `args:` values)
 - `${{ TRIGGER.<field> }}` — workflow trigger input
@@ -2700,7 +2698,7 @@ actions:
 Use top-level `model_name` and `model_provider` only when explicitly requested.
 
 ### AI Preset Agent
-Tools come from the preset's actions and MCP integrations and from its skills.
+Tools come from the preset and its skills.
 ```yaml
 actions:
   - ref: triage
@@ -2992,31 +2990,14 @@ helpers call Tracecat APIs.
 5. `list_agent_presets`, `get_agent_preset`, or `run_agent_preset` as needed
 
 ### Where tools live
-- Tools usually go on the agent preset — its registry `actions`, or an MCP
-integration attached to it directly via `mcp_integration_ids` — or on a skill
-(SKILL.md frontmatter `metadata.tools`, which takes registry actions and MCP
-references alike). A skill is the better home when the tools group naturally with
-the instructions and are reused across agents; the preset is the simpler home
-when only this one agent needs them. An MCP integration can go straight on the
-preset and does not have to be moved into a skill.
-- The effective tool set is the preset's `actions`, the preset's MCP
-integrations, and every attached skill's `metadata.tools`. A `namespaces` filter
-on the preset applies to the registry actions in that set — MCP tools are not
-filtered by it.
-- Skill tools are granted whenever the preset config is resolved, whether or not
-the model opens the skill. Only the skill instructions load on demand.
+- Preset tools: registry `actions`, plus MCP integrations attached via
+`mcp_integration_ids`.
+- A skill's `metadata.tools` (registry actions or `mcp.<slug>` references) fits a
+group of tools several agents share.
+- The `actions` input on an `ai.preset_agent` action swaps the preset's registry
+actions for one run — MCP tools stay, an empty list is ignored — which is handy
+for a test or an eval.
 - Set an `output_type` only when the user explicitly asks for structured output.
-
-### Calling a preset from a workflow
-- An `ai.preset_agent` action normally carries just `preset` and `user_prompt`;
-an `instructions` string is appended to the preset's instructions for the run.
-Tools come from the preset and its skills.
-- The `actions` argument on `ai.preset_agent` replaces the preset's registry
-actions for that one run instead of adding to them. MCP tools are unaffected,
-whether the preset attaches the integration or a skill declares it, and an empty
-list changes nothing. It is a good fit for trying a preset with a different tool
-set in a test or an eval; tools the agent should have in every run belong on the
-preset or on a skill, which also gives it those tools in chat.
 """
 
 
@@ -8492,11 +8473,8 @@ async def create_agent_preset(
 
     Use `skills` to attach published skills. Each binding contains `skill_id`.
 
-    Tools are attached here via `actions` for registry actions and
-    `mcp_integration_ids` for MCP integrations, or via an attached skill's
-    SKILL.md frontmatter `metadata.tools` when the same tools are reused across
-    agents. Tools attached this way are what the agent has in chat and in every
-    workflow that calls it.
+    Attach tools via `actions`, `mcp_integration_ids`, or a skill's
+    `metadata.tools`.
     """
 
     try:
@@ -8582,10 +8560,8 @@ async def update_agent_preset(
     `skill_id`. Omit `skills` to leave bindings unchanged, or pass an empty list
     to detach all skills.
 
-    Tools go here via `actions` for registry actions and `mcp_integration_ids`
-    for MCP integrations, or on an attached skill via its SKILL.md frontmatter
-    `metadata.tools` when the same tools are reused across agents. Tools attached
-    this way are what the agent has in chat and in every workflow that calls it.
+    Attach tools via `actions`, `mcp_integration_ids`, or a skill's
+    `metadata.tools`.
 
     Set `clear_output_type=true` to remove an existing `output_type` (agent
     returns plain text). Omitting `output_type` leaves it unchanged.
@@ -9193,9 +9169,7 @@ async def prepare_skill_upload(
     headers, then call `complete_skill_upload` with the returned `skill_id`,
     `base_revision`, paths, and upload IDs.
 
-    Declare the skill's tools in its SKILL.md frontmatter `metadata.tools`. Those
-    tools are granted to every preset the skill is attached to, alongside the
-    preset's own tools.
+    Declare the skill's tools in its SKILL.md frontmatter `metadata.tools`.
     """
 
     try:
@@ -9363,9 +9337,7 @@ async def publish_skill(
 ) -> SkillVersionRead:
     """Publish a skill draft into an immutable skill version.
 
-    Only published skill versions can be attached to agent presets. A skill's
-    SKILL.md frontmatter `metadata.tools` grants those tools to every preset the
-    skill is attached to, on top of the preset's own tools.
+    Only published skill versions can be attached to agent presets.
     """
 
     try:
@@ -9521,11 +9493,8 @@ async def run_agent_preset(
     """Run an agent preset with a prompt and return text or approval status.
 
     Creates an ephemeral session, triggers the agent workflow, and waits
-    for the response. The agent has access to the tools configured on the preset
-    (its registry `actions` and the MCP integrations attached via
-    `mcp_integration_ids`) plus the tools declared in the `metadata.tools`
-    frontmatter of its attached skills. This tool takes no tool overrides, so
-    change the preset or its skills to change what the agent can call.
+    for the response. The agent has access to all tools configured on the preset
+    and its skills.
 
     Args:
         workspace_id: The workspace ID (from list_workspaces).

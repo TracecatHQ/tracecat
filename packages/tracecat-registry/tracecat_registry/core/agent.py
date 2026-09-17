@@ -115,8 +115,8 @@ async def agent(
 @registry.register(
     default_title="Run agent preset",
     description=(
-        "Run an AI agent using a saved agent preset. Tools come from the preset's "
-        "actions and MCP integrations and from its attached skills."
+        "Run an AI agent using a saved agent preset. Tools come from the preset "
+        "and its skills."
     ),
     display_group="AI",
     namespace="ai",
@@ -145,20 +145,17 @@ async def preset_agent(
     actions: Annotated[
         list[str] | None,
         Doc(
-            "Optional. Replaces the preset's registry actions for this run instead of "
-            "adding to them; MCP tools are unaffected, whether the preset attaches the "
-            "integration or a skill declares it, and an empty list changes nothing. "
-            "Handy for trying a preset with a different tool set in a test or an eval. "
-            "For tools the agent should normally have, add them to the preset or to a "
-            "skill."
+            "Optional. Swaps the preset's registry actions for this run (MCP tools "
+            "stay; an empty list is ignored). Handy for tests and evals; tools the "
+            "agent normally needs fit better on the preset or a skill."
         ),
         ActionType(multiple=True),
     ] = None,
     instructions: Annotated[
         str | None,
         Doc(
-            "Appended to the preset instructions for this run. Instructions the agent "
-            "needs on every run fit better on the preset itself."
+            "Appended to the preset instructions for this run; durable instructions "
+            "fit better on the preset."
         ),
         TextArea(),
     ] = None,
