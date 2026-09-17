@@ -75,3 +75,15 @@ References: [Ollama MiniLM](https://ollama.com/library/all-minilm),
 [Ollama embedding API](https://docs.ollama.com/api/embed),
 [vLLM embeddings](https://docs.vllm.ai/en/latest/models/pooling_models/embed/),
 [MiniLM model card](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2).
+
+## Code boundaries
+
+- `storage.py` loads permitted connections in one batch and manages saved versions.
+- `selection.py` selects a recipe from those connections without database or network calls.
+- `wire.py` builds provider requests and decodes four response formats into ordered vectors.
+- `client.py` owns deadlines, network policy, response limits, vector validation and safe errors.
+- `service.py` checks the configuration before and after the network call.
+
+Unknown usage remains `None` throughout. The saved recipe is compared directly
+with the selected configuration; a removed model naturally fails that comparison
+and triggers replacement or disabling. Provider failure never selects a fallback.

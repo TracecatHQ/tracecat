@@ -20,43 +20,20 @@ from tracecat.search.embeddings.types import (
 # UTF-8 bytes, leaving room for special tokens within its 256-token trained limit.
 # Sources: https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2
 # and https://ollama.com/library/all-minilm (22m is the default L6 model).
+_MINILM = ModelSpec(
+    provider="ollama",
+    model="all-minilm:22m",
+    dimensions=384,
+    endpoint="",
+    tokenizer="utf8-bytes:v1",
+    input_token_limit=240,
+    input_character_limit=240,
+)
 SELF_HOSTED_MODELS = (
-    ModelSpec(
-        provider="ollama",
-        model="all-minilm:22m",
-        dimensions=384,
-        endpoint="",
-        tokenizer="utf8-bytes:v1",
-        input_token_limit=240,
-        input_character_limit=240,
-    ),
-    ModelSpec(
-        provider="ollama",
-        model="all-minilm:latest",
-        dimensions=384,
-        endpoint="",
-        tokenizer="utf8-bytes:v1",
-        input_token_limit=240,
-        input_character_limit=240,
-    ),
-    ModelSpec(
-        provider="ollama",
-        model="all-minilm",
-        dimensions=384,
-        endpoint="",
-        tokenizer="utf8-bytes:v1",
-        input_token_limit=240,
-        input_character_limit=240,
-    ),
-    ModelSpec(
-        provider="vllm",
-        model="sentence-transformers/all-MiniLM-L6-v2",
-        dimensions=384,
-        endpoint="",
-        tokenizer="utf8-bytes:v1",
-        input_token_limit=240,
-        input_character_limit=240,
-    ),
+    _MINILM,
+    replace(_MINILM, model="all-minilm:latest"),
+    replace(_MINILM, model="all-minilm"),
+    replace(_MINILM, provider="vllm", model="sentence-transformers/all-MiniLM-L6-v2"),
 )
 
 

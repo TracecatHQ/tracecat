@@ -1,12 +1,8 @@
 """Workspace availability endpoint, separate from table selection and ranking routes."""
 
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
-
 from fastapi import APIRouter, Depends, HTTPException
 
 from tracecat.auth.dependencies import WorkspaceUserPathRole, require_workspace_id_path
-from tracecat.auth.types import Role
 from tracecat.search.embeddings.schemas import (
     EmbeddingConfigurationRead,
     EmbeddingErrorRead,
@@ -26,10 +22,13 @@ router = APIRouter(
 )
 
 
-@asynccontextmanager
-async def _service(role: Role) -> AsyncIterator[WorkspaceEmbeddingService]:
+@router.get("")
+async def get_embedding_configuration(
+    role: WorkspaceUserPathRole,
+) -> EmbeddingConfigurationRead:
+    """Read automatic embedding availability without credential metadata."""
     try:
-        yield WorkspaceEmbeddingService(role)
+        return await WorkspaceEmbeddingService(role).get()
     except EmbeddingError as exc:
         match exc.code:
             case EmbeddingErrorCode.CONFIGURATION_CHANGED:
@@ -52,15 +51,4 @@ async def _service(role: Role) -> AsyncIterator[WorkspaceEmbeddingService]:
         )
     except SearchError:
         error = HTTPException(404, detail="Workspace unavailable")
-    else:
-        return
     raise error
-
-
-@router.get("")
-async def get_embedding_configuration(
-    role: WorkspaceUserPathRole,
-) -> EmbeddingConfigurationRead:
-    """Read automatic embedding availability without credential metadata."""
-    async with _service(role) as service:
-        return await service.get()

@@ -1,6 +1,5 @@
 """Provider wire contracts and explicit Bedrock authentication."""
 
-import hashlib
 import uuid
 from dataclasses import replace
 
@@ -12,93 +11,126 @@ from botocore.exceptions import (
     EndpointConnectionError,
     ParamValidationError,
 )
-from pydantic import SecretStr
 
+from tests.embedding_helpers import (
+    StubProvider,
+    configuration_for,
+    credential_for,
+    request_for,
+    wire_response,
+)
 from tracecat.search.embeddings import bedrock
+from tracecat.search.embeddings import client as client_module
 from tracecat.search.embeddings.catalog import (
     default_model,
     recipe_revision,
     token_counter,
 )
-from tracecat.search.embeddings.client import EmbeddingClient
 from tracecat.search.embeddings.types import (
     EmbeddingError,
     EmbeddingErrorCode,
-    PinnedConfiguration,
     ResolvedCredential,
 )
-from tracecat.search.types import EmbeddingInput, EmbeddingRequest, SearchScope
+from tracecat.search.types import SearchScope
+
+pytestmark = pytest.mark.anyio
 
 
-@pytest.mark.anyio
-@pytest.mark.parametrize("provider", ["gemini", "bedrock"])
+@pytest.mark.parametrize(
+    "provider,model",
+    [
+        ("openai", None),
+        ("gemini", None),
+        ("bedrock", None),
+        ("ollama", "all-minilm"),
+        ("ollama", "all-minilm:latest"),
+        ("ollama", "all-minilm:22m"),
+        ("vllm", None),
+    ],
+)
 @pytest.mark.parametrize("invalid", [False, True])
-async def test_provider_payload_and_validated_vectors(provider, invalid):
-    spec = default_model(provider, "us-east-1")
+async def test_provider_payload_and_validated_vectors(
+    provider, model, invalid, monkeypatch
+):
+    configuration = configuration_for(provider, model)
+    spec = configuration.spec
     texts = (
-        ("summary: alpha", "summary: beta")
-        if provider == "gemini"
-        else ("summary: alpha",)
+        ("summary: alpha",)
+        if provider == "bedrock"
+        else ("summary: alpha", "summary: beta")
     )
-    config = PinnedConfiguration(1, spec, uuid.uuid4(), "default")
-    request = EmbeddingRequest(
-        SearchScope(uuid.uuid4(), uuid.uuid4()),
-        1,
-        spec.dimensions,
-        tuple(
-            EmbeddingInput(i, hashlib.sha256(text.encode()).hexdigest(), text)
-            for i, text in enumerate(texts)
-        ),
-    )
-    credential = ResolvedCredential(
-        SecretStr("synthetic-key"),
-        b"fingerprint",
-        {
-            "AWS_REGION": "us-east-1",
-            "AWS_BEARER_TOKEN_BEDROCK": "synthetic-key",
-        },
-    )
+    request = request_for(configuration, texts)
 
     async def handler(http_request):
         body = orjson.loads(http_request.content)
-        dimensions = 1 if invalid else spec.dimensions
         if provider == "gemini":
             assert http_request.headers["x-goog-api-key"] == "synthetic-key"
-            assert [r["content"]["parts"][0]["text"] for r in body["requests"]] == list(
-                texts
-            )
-            assert all(r["taskType"] == "SEMANTIC_SIMILARITY" for r in body["requests"])
-            assert all(r["outputDimensionality"] == 3072 for r in body["requests"])
-            return httpx.Response(
-                200,
-                json={
-                    "embeddings": [
-                        {"values": [float(i + 1)] * dimensions} for i in range(2)
-                    ]
-                },
-            )
-        assert http_request.headers["authorization"] == "Bearer synthetic-key"
-        assert body == {"inputText": texts[0], "dimensions": 1024, "normalize": True}
-        return httpx.Response(
-            200, json={"embedding": [1.0] * dimensions, "inputTextTokenCount": 4}
-        )
-
-    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
-        client = EmbeddingClient(http)
-        if invalid:
-            with pytest.raises(EmbeddingError) as caught:
-                await client.embed(config, credential, request)
-            assert caught.value.code == EmbeddingErrorCode.RESPONSE_INVALID
+            assert body == {
+                "requests": [
+                    {
+                        "model": f"models/{spec.model}",
+                        "content": {"parts": [{"text": text}]},
+                        "taskType": "SEMANTIC_SIMILARITY",
+                        "outputDimensionality": 3072,
+                    }
+                    for text in texts
+                ]
+            }
         else:
-            result = await client.embed(config, credential, request)
-            assert [r.ordinal for r in result.results] == list(range(len(texts)))
-            assert [r.vector[0] for r in result.results] == [
-                float(i + 1) for i in range(len(texts))
-            ]
-            assert result.prompt_tokens == (None if provider == "gemini" else 4)
+            assert http_request.headers["authorization"] == "Bearer synthetic-key"
+            if provider == "bedrock":
+                assert body == {
+                    "inputText": texts[0],
+                    "dimensions": 1024,
+                    "normalize": True,
+                }
+            else:
+                assert body == {
+                    "model": spec.model,
+                    "input": list(texts),
+                    **(
+                        {"truncate": False}
+                        if provider == "ollama"
+                        else {"encoding_format": "float"}
+                    ),
+                }
+        vectors = [
+            [float(i + 1)] * (1 if invalid else spec.dimensions)
+            for i in range(len(texts))
+        ]
+        return httpx.Response(200, json=wire_response(configuration, vectors))
+
+    stub = StubProvider(handler)
+    monkeypatch.setattr(client_module, "create_outbound_http_client", stub.http)
+    if invalid:
+        with pytest.raises(EmbeddingError) as caught:
+            await stub.embed(configuration, credential_for(provider), request)
+        assert caught.value.code == EmbeddingErrorCode.RESPONSE_INVALID
+    else:
+        result = await stub.embed(configuration, credential_for(provider), request)
+        assert [r.ordinal for r in result.results] == [i.ordinal for i in request.items]
+        assert [r.vector[0] for r in result.results] == list(range(1, len(texts) + 1))
+        assert result.prompt_tokens == result.total_tokens == 4
+    assert len(stub.calls) == 1 and str(stub.calls[0].url) == spec.endpoint
 
 
-@pytest.mark.anyio
+@pytest.mark.parametrize("provider", ["gemini", "ollama"])
+async def test_missing_usage_stays_unknown(provider, monkeypatch):
+    configuration = configuration_for(provider)
+    body = wire_response(configuration, [[1.0] * configuration.spec.dimensions])
+    body.pop("usageMetadata" if provider == "gemini" else "prompt_eval_count")
+
+    async def handler(request):
+        return httpx.Response(200, json=body)
+
+    stub = StubProvider(handler)
+    monkeypatch.setattr(client_module, "create_outbound_http_client", stub.http)
+    result = await stub.embed(
+        configuration, credential_for(provider), request_for(configuration, ("hello",))
+    )
+    assert result.prompt_tokens is None and result.total_tokens is None
+
+
 async def test_bedrock_static_keys_sign_exact_request_without_ambient_credentials(
     monkeypatch,
 ):
@@ -124,7 +156,6 @@ async def test_bedrock_static_keys_sign_exact_request_without_ambient_credential
     assert headers["X-Amz-Security-Token"] == "synthetic-session"
 
 
-@pytest.mark.anyio
 async def test_bedrock_missing_credentials_never_uses_ambient_keys(monkeypatch):
     def no_session():
         pytest.fail("Missing credentials must not resolve ambient AWS credentials")
@@ -149,7 +180,6 @@ def test_non_openai_budget_counts_complete_utf8_input():
         )
 
 
-@pytest.mark.anyio
 @pytest.mark.parametrize(
     "region,session_name,expected_name",
     [
@@ -222,7 +252,6 @@ def test_recipe_revision_excludes_operational_batch_limits():
     assert recipe_revision(spec) != recipe_revision(replace(spec, recipe_version=2))
 
 
-@pytest.mark.anyio
 @pytest.mark.parametrize(
     "aws_error, expected_code, retryable",
     [
@@ -263,29 +292,21 @@ async def test_sts_failures_are_classified_without_inference_or_secret_leaks(
             return STS()
 
     monkeypatch.setattr(bedrock.boto3, "Session", Session)
-    spec = default_model("bedrock", "us-east-1")
-    configuration = PinnedConfiguration(1, spec, uuid.uuid4(), "default")
+    configuration = configuration_for("bedrock")
     credential = ResolvedCredential(
-        SecretStr(""),
-        b"fingerprint",
         {
             "AWS_REGION": "us-east-1",
             "AWS_ROLE_ARN": "arn:aws:iam::123456789012:role/synthetic-role",
-        },
-    )
-    request = EmbeddingRequest(
-        SearchScope(uuid.uuid4(), uuid.uuid4()),
-        1,
-        spec.dimensions,
-        (EmbeddingInput(0, hashlib.sha256(b"hello").hexdigest(), "hello"),),
+        }
     )
 
     async def no_inference(request):
         pytest.fail("Failed role assumption must not call the embedding endpoint")
 
-    async with httpx.AsyncClient(transport=httpx.MockTransport(no_inference)) as http:
-        with pytest.raises(EmbeddingError) as caught:
-            await EmbeddingClient(http).embed(configuration, credential, request)
+    with pytest.raises(EmbeddingError) as caught:
+        await StubProvider(no_inference).embed(
+            configuration, credential, request_for(configuration, ("hello",))
+        )
     assert caught.value.code == expected_code
     assert caught.value.retryable is retryable
     assert caught.value.__context__ is None and caught.value.__cause__ is None

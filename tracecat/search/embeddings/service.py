@@ -8,7 +8,10 @@ from tracecat.search.embeddings.schemas import (
     EmbeddingConfigurationRead,
     EmbeddingModelRead,
 )
-from tracecat.search.embeddings.storage import EmbeddingSettingsStorage
+from tracecat.search.embeddings.storage import (
+    EmbeddingSettingsStorage,
+    configuration_matches,
+)
 from tracecat.search.embeddings.types import (
     EmbeddingBatch,
     EmbeddingError,
@@ -34,23 +37,15 @@ class WorkspaceEmbeddingService:
             selected = await store.available()
             version, state, current = await store.current()
             pending = await store.reconciliation_pending()
+            changed = not configuration_matches(
+                current, selected[0] if selected else None
+            )
         spec = selected[0].spec if selected else None
         configuration = (
-            None
-            if spec is None
-            else EmbeddingModelRead(
-                provider=spec.provider,
-                model=spec.model,
-                dimensions=spec.dimensions,
-                tokenizer=spec.tokenizer,
-                input_token_limit=spec.input_token_limit,
-                input_character_limit=spec.input_character_limit,
-                batch_size_limit=spec.batch_size_limit,
-                batch_token_limit=spec.batch_token_limit,
-            )
+            EmbeddingModelRead.model_validate(spec, from_attributes=True)
+            if spec
+            else None
         )
-        selected_revision = selected[0].recipe_revision if selected else None
-        changed = selected_revision != (current.recipe_revision if current else None)
         return EmbeddingConfigurationRead(
             available=spec is not None,
             version=version,

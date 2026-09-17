@@ -5,8 +5,6 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr
-
 from tracecat.search.types import EmbeddingResult
 
 EmbeddingProvider = Literal["openai", "gemini", "bedrock", "ollama", "vllm"]
@@ -84,11 +82,9 @@ class PinnedConfiguration:
 
 @dataclass(frozen=True, slots=True)
 class ResolvedCredential:
-    """Short-lived decrypted key and a digest to detect rotation during validation."""
+    """Short-lived decrypted provider settings; never included in repr or persisted."""
 
-    api_key: SecretStr = field(repr=False)
-    fingerprint: bytes = field(repr=False)
-    values: dict[str, str] = field(default_factory=dict, repr=False)
+    values: dict[str, str] = field(repr=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,57 +96,21 @@ class EmbeddingBatch:
     total_tokens: int | None
 
 
-class ProviderVector(BaseModel):
-    """Strict parsing of one indexed OpenAI embedding response."""
+@dataclass(frozen=True, slots=True)
+class ProviderResult:
+    """Decoded vectors in input order; missing usage stays unknown."""
 
-    model_config = ConfigDict(strict=True)
-    index: int = Field(ge=0)
-    embedding: list[float]
-
-
-class ProviderUsage(BaseModel):
-    """Nonnegative usage reported by the provider."""
-
-    model_config = ConfigDict(strict=True)
-    prompt_tokens: int = Field(ge=0)
-    total_tokens: int = Field(ge=0)
+    vectors: list[list[float]]
+    prompt_tokens: int | None
+    total_tokens: int | None
 
 
-class ProviderResponse(BaseModel):
-    """Only the documented response fields needed for validation."""
+@dataclass(frozen=True, slots=True)
+class ProviderConnection:
+    """Permitted catalog models and their saved organization credential binding."""
 
-    model_config = ConfigDict(strict=True)
-    model: str
-    data: list[ProviderVector]
-    usage: ProviderUsage
-
-
-class GeminiVector(BaseModel):
-    model_config = ConfigDict(strict=True)
-    values: list[float]
-
-
-class GeminiUsage(BaseModel):
-    model_config = ConfigDict(strict=True)
-    promptTokenCount: int = Field(ge=0)
-
-
-class GeminiResponse(BaseModel):
-    model_config = ConfigDict(strict=True)
-    embeddings: list[GeminiVector]
-    usageMetadata: GeminiUsage | None = None
-
-
-class BedrockResponse(BaseModel):
-    model_config = ConfigDict(strict=True)
-    embedding: list[float]
-    inputTextTokenCount: int = Field(ge=0)
-
-
-class OllamaResponse(BaseModel):
-    """Native embedding response; the server may return a canonical model tag."""
-
-    model_config = ConfigDict(strict=True)
-    model: str
-    embeddings: list[list[float]]
-    prompt_eval_count: int | None = Field(default=None, ge=0)
+    provider: EmbeddingProvider
+    models: frozenset[str]
+    credential_id: uuid.UUID
+    environment: str
+    encrypted_keys: bytes = field(repr=False)

@@ -1,23 +1,23 @@
 """Self-hosted selection, native Ollama, and OpenAI-compatible vLLM contracts."""
 
-import hashlib
-import uuid
-
 import httpx
-import orjson
 import pytest
-from pydantic import SecretStr
 
+from tests.embedding_helpers import (
+    StubProvider,
+    configuration_for,
+    credential_for,
+    request_for,
+    wire_response,
+)
 from tracecat.search.embeddings import client as client_module
-from tracecat.search.embeddings.client import EmbeddingClient
 from tracecat.search.embeddings.self_hosted import select_self_hosted_model
 from tracecat.search.embeddings.types import (
     EmbeddingError,
     EmbeddingErrorCode,
-    PinnedConfiguration,
-    ResolvedCredential,
 )
-from tracecat.search.types import EmbeddingInput, EmbeddingRequest, SearchScope
+
+pytestmark = pytest.mark.anyio
 
 MODELS = [
     ("ollama", "all-minilm"),
@@ -83,70 +83,23 @@ def test_model_choice_is_independent_of_catalog_order():
         assert spec is not None and spec.model == "all-minilm:22m"
 
 
-@pytest.mark.anyio
-@pytest.mark.parametrize("provider,model", MODELS)
-@pytest.mark.parametrize("api_key", ["", "synthetic-key"])
-async def test_payload_auth_and_ordered_vectors(provider, model, api_key, monkeypatch):
-    spec = select_self_hosted_model(
-        provider, [model], {f"{provider.upper()}_BASE_URL": "http://models.test/v1"}
-    )
-    assert spec is not None
-    configuration = PinnedConfiguration(1, spec, uuid.uuid4(), "default")
-    texts = ("First document", "Second document")
-    request = EmbeddingRequest(
-        SearchScope(uuid.uuid4(), uuid.uuid4()),
-        1,
-        384,
-        tuple(
-            EmbeddingInput(i, hashlib.sha256(text.encode()).hexdigest(), text)
-            for i, text in enumerate(texts)
-        ),
+@pytest.mark.parametrize("provider", ["ollama", "vllm"])
+async def test_servers_without_api_keys(provider, monkeypatch):
+    configuration = configuration_for(provider)
+
+    async def handler(request):
+        assert "authorization" not in request.headers
+        return httpx.Response(200, json=wire_response(configuration, [[1.0] * 384]))
+
+    stub = StubProvider(handler)
+    monkeypatch.setattr(client_module, "create_outbound_http_client", stub.http)
+    await stub.embed(
+        configuration,
+        credential_for(provider, ""),
+        request_for(configuration, ("hello",)),
     )
 
-    async def handler(http_request):
-        body = orjson.loads(http_request.content)
-        assert http_request.headers.get("authorization") == (
-            f"Bearer {api_key}" if api_key else None
-        )
-        assert body["input"] == list(texts)
-        assert body["model"] == model
-        if provider == "ollama":
-            assert body["truncate"] is False
-            return httpx.Response(
-                200,
-                json={
-                    "model": model if ":" in model else model + ":latest",
-                    "embeddings": [[1.0] * 384, [2.0] * 384],
-                },
-            )
-        assert body["encoding_format"] == "float"
-        assert "dimensions" not in body
-        return httpx.Response(
-            200,
-            json={
-                "model": model,
-                "data": [
-                    {"index": 1, "embedding": [2.0] * 384},
-                    {"index": 0, "embedding": [1.0] * 384},
-                ],
-                "usage": {"prompt_tokens": 8, "total_tokens": 8},
-            },
-        )
 
-    def outbound_client(*, origin_url, timeout):
-        assert origin_url == spec.endpoint
-        return httpx.AsyncClient(transport=httpx.MockTransport(handler))
-
-    monkeypatch.setattr(client_module, "create_outbound_http_client", outbound_client)
-    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
-        result = await EmbeddingClient(http).embed(
-            configuration, ResolvedCredential(SecretStr(api_key), b"digest"), request
-        )
-    assert [r.vector[0] for r in result.results] == [1.0, 2.0]
-    assert result.prompt_tokens == (None if provider == "ollama" else 8)
-
-
-@pytest.mark.anyio
 @pytest.mark.parametrize(
     "failure",
     [
@@ -163,21 +116,11 @@ async def test_payload_auth_and_ordered_vectors(provider, model, api_key, monkey
 async def test_invalid_responses_and_inputs_are_rejected(
     provider, model, failure, monkeypatch
 ):
-    spec = select_self_hosted_model(
-        provider, [model], {f"{provider.upper()}_BASE_URL": "http://models.test/v1"}
-    )
-    assert spec is not None
+    configuration = configuration_for(provider, model)
     text = "界" * 81 if failure == "long_unicode" else "A document"
-    request = EmbeddingRequest(
-        SearchScope(uuid.uuid4(), uuid.uuid4()),
-        1,
-        384,
-        (EmbeddingInput(0, hashlib.sha256(text.encode()).hexdigest(), text),),
-    )
-    calls = []
+    request = request_for(configuration, (text,))
 
     async def handler(http_request):
-        calls.append(http_request)
         if failure == "redirect":
             return httpx.Response(
                 302, headers={"Location": "https://other.test/embeddings"}
@@ -189,33 +132,14 @@ async def test_invalid_responses_and_inputs_are_rejected(
             3 if failure == "wrong_dimension" else 384
         )
         vectors = [] if failure == "wrong_count" else [vector]
-        payload = (
-            {"model": response_model, "embeddings": vectors}
-            if provider == "ollama"
-            else {
-                "model": response_model,
-                "data": [{"index": i, "embedding": v} for i, v in enumerate(vectors)],
-                "usage": {"prompt_tokens": 1, "total_tokens": 1},
-            }
-        )
+        payload = wire_response(configuration, vectors)
+        payload["model"] = response_model
         return httpx.Response(200, json=payload)
 
-    monkeypatch.setattr(
-        client_module,
-        "create_outbound_http_client",
-        lambda **kwargs: httpx.AsyncClient(
-            transport=httpx.MockTransport(handler), follow_redirects=True
-        ),
-    )
-    async with httpx.AsyncClient(
-        transport=httpx.MockTransport(handler), follow_redirects=True
-    ) as http:
-        with pytest.raises(EmbeddingError) as caught:
-            await EmbeddingClient(http).embed(
-                PinnedConfiguration(1, spec, uuid.uuid4(), "default"),
-                ResolvedCredential(SecretStr("synthetic-key"), b"digest"),
-                request,
-            )
+    stub = StubProvider(handler)
+    monkeypatch.setattr(client_module, "create_outbound_http_client", stub.http)
+    with pytest.raises(EmbeddingError) as caught:
+        await stub.embed(configuration, credential_for(provider), request)
     expected = (
         EmbeddingErrorCode.INPUT_INVALID
         if failure == "long_unicode"
@@ -224,5 +148,5 @@ async def test_invalid_responses_and_inputs_are_rejected(
         else EmbeddingErrorCode.RESPONSE_INVALID
     )
     assert caught.value.code == expected
-    assert len(calls) == (0 if failure == "long_unicode" else 1)
+    assert len(stub.calls) == (0 if failure == "long_unicode" else 1)
     assert caught.value.__context__ is None

@@ -50,6 +50,8 @@ from tracecat.search.types import (
 from tracecat.secrets.encryption import encrypt_keyvalues
 from tracecat.secrets.schemas import SecretKeyValue
 
+pytestmark = pytest.mark.anyio
+
 
 @dataclass
 class ProviderServer:
@@ -164,6 +166,29 @@ class ConfigurationCase:
 
     def service(self, index=0):
         return WorkspaceEmbeddingService(self.roles[index])
+
+    async def state(self, session):
+        state = await session.get(
+            SearchWorkspaceState,
+            (self.scope().organization_id, self.scope().workspace_id),
+        )
+        assert state is not None
+        return state
+
+    async def secret(self, session, secret_id):
+        secret = await session.scalar(
+            select(OrganizationSecret).where(OrganizationSecret.id == secret_id)
+        )
+        assert secret is not None
+        return secret
+
+    async def saved_configuration(self, session, version):
+        record = await session.get(
+            SearchEmbeddingConfig,
+            (self.scope().organization_id, self.scope().workspace_id, version),
+        )
+        assert record is not None
+        return record
 
     async def request(self, index=0):
         scope = self.scope(index)
@@ -303,7 +328,6 @@ async def embedding_case(
     reset_async_engine()
 
 
-@pytest.mark.anyio
 @pytest.mark.parametrize(
     "provider,dimensions", [("openai", 1536), ("gemini", 3072), ("bedrock", 1024)]
 )
@@ -323,7 +347,6 @@ async def test_automatically_reuses_existing_provider(
     assert len(case.server.calls) == 1
 
 
-@pytest.mark.anyio
 async def test_no_supported_provider_is_unavailable_without_network_or_state(
     embedding_case,
 ):
@@ -347,7 +370,6 @@ async def test_no_supported_provider_is_unavailable_without_network_or_state(
     assert not case.server.calls
 
 
-@pytest.mark.anyio
 async def test_default_provider_and_fixed_fallback_order(embedding_case):
     case = embedding_case
     gemini, _ = await case.connect("gemini")
@@ -361,14 +383,10 @@ async def test_default_provider_and_fixed_fallback_order(embedding_case):
     assert second.spec.provider == "gemini" and second.version > first.version
     assert (await case.service().get()).reindex_required
     async with case.sessions() as session:
-        state = await session.get(
-            SearchWorkspaceState,
-            (case.scope().organization_id, case.scope().workspace_id),
-        )
+        state = await case.state(session)
         assert state.reconciliation_required
 
 
-@pytest.mark.anyio
 async def test_workspace_access_overrides_and_cross_org_isolation(embedding_case):
     case = embedding_case
     await case.connect("openai")
@@ -395,15 +413,12 @@ async def test_workspace_access_overrides_and_cross_org_isolation(embedding_case
     assert not (await case.service(1).get()).available
 
 
-@pytest.mark.anyio
 async def test_credential_rotation_keeps_version_and_removal_disables(embedding_case):
     case = embedding_case
     _, secret_id = await case.connect()
     request = await case.request()
     async with case.sessions.begin() as session:
-        secret = await session.scalar(
-            select(OrganizationSecret).where(OrganizationSecret.id == secret_id)
-        )
+        secret = await case.secret(session, secret_id)
         secret.encrypted_keys = encrypted({"OPENAI_API_KEY": "synthetic-rotated"})
     assert (await case.request()).config_version == request.config_version
     await embed_current(request, case.client)
@@ -425,7 +440,6 @@ async def test_credential_rotation_keeps_version_and_removal_disables(embedding_
     assert (await case.request()).config_version > request.config_version
 
 
-@pytest.mark.anyio
 @pytest.mark.parametrize("status", [401, 429, 503])
 async def test_provider_failure_does_not_select_another_provider(
     embedding_case, status
@@ -441,7 +455,6 @@ async def test_provider_failure_does_not_select_another_provider(
     assert (await case.request()).config_version == request.config_version
 
 
-@pytest.mark.anyio
 @pytest.mark.parametrize("change", ["remove", "preference", "region"])
 async def test_changes_during_provider_call_reject_stale_results(
     embedding_case, change
@@ -491,7 +504,6 @@ async def test_changes_during_provider_call_reject_stale_results(
     assert caught.value.code == EmbeddingErrorCode.CONFIGURATION_CHANGED
 
 
-@pytest.mark.anyio
 async def test_invalid_preferred_credential_does_not_fall_back(embedding_case):
     case = embedding_case
     await case.connect("openai", values={"OPENAI_API_KEY": ""})
@@ -502,7 +514,6 @@ async def test_invalid_preferred_credential_does_not_fall_back(embedding_case):
     assert not case.server.calls
 
 
-@pytest.mark.anyio
 async def test_status_requires_workspace_read_but_not_secret_read(embedding_case):
     case = embedding_case
     await case.connect()
@@ -512,27 +523,19 @@ async def test_status_requires_workspace_read_but_not_secret_read(embedding_case
         await WorkspaceEmbeddingService(role).get()
 
 
-@pytest.mark.anyio
 async def test_provider_reconnection_preserves_operational_pause(embedding_case):
     case = embedding_case
     _, secret_id = await case.connect()
     await case.request()
     async with case.sessions.begin() as session:
-        state = await session.get(
-            SearchWorkspaceState,
-            (case.scope().organization_id, case.scope().workspace_id),
-        )
+        state = await case.state(session)
         state.state = SearchState.PAUSED
-        secret = await session.scalar(
-            select(OrganizationSecret).where(OrganizationSecret.id == secret_id)
-        )
+        secret = await case.secret(session, secret_id)
         # Hide the credential from selection without changing model access.
         secret.environment = "synthetic-other-environment"
     assert await resolve_embedding_configuration(case.scope()) is None
     async with case.sessions.begin() as session:
-        secret = await session.scalar(
-            select(OrganizationSecret).where(OrganizationSecret.id == secret_id)
-        )
+        secret = await case.secret(session, secret_id)
         secret.environment = "default"
     request = await case.request()
     assert (await case.service().get()).state == SearchState.PAUSED
@@ -542,7 +545,6 @@ async def test_provider_reconnection_preserves_operational_pause(embedding_case)
     assert not case.server.calls
 
 
-@pytest.mark.anyio
 @pytest.mark.parametrize("old_recipe", ["legacy", "tokenizer", "adapter"])
 async def test_persisted_recipe_change_invalidates_old_work(embedding_case, old_recipe):
     case = embedding_case
@@ -551,10 +553,7 @@ async def test_persisted_recipe_change_invalidates_old_work(embedding_case, old_
     selected = await resolve_embedding_configuration(case.scope())
     assert selected is not None
     async with case.sessions.begin() as session:
-        config = await session.get(
-            SearchEmbeddingConfig,
-            (case.scope().organization_id, case.scope().workspace_id, selected.version),
-        )
+        config = await case.saved_configuration(session, selected.version)
         # Simulate the snapshot written by a previous deployment. All persisted
         # provider/model/dimension/input-limit fields remain unchanged.
         config.recipe_revision = (
@@ -566,10 +565,7 @@ async def test_persisted_recipe_change_invalidates_old_work(embedding_case, old_
                 else replace(selected.spec, recipe_version=0)
             )
         )
-        state = await session.get(
-            SearchWorkspaceState,
-            (case.scope().organization_id, case.scope().workspace_id),
-        )
+        state = await case.state(session)
         state.reconciliation_required = False
     assert (await case.service().get()).reindex_required
     with pytest.raises(EmbeddingError) as caught:
@@ -583,7 +579,6 @@ async def test_persisted_recipe_change_invalidates_old_work(embedding_case, old_
     assert (await case.request()).config_version == current.version
 
 
-@pytest.mark.anyio
 @pytest.mark.parametrize(
     "base_url",
     [
@@ -598,9 +593,7 @@ async def test_custom_openai_base_url_never_sends_credentials(embedding_case, ba
     await case.connect("gemini")  # Rejection must not silently switch providers.
     request = await case.request()
     async with case.sessions.begin() as session:
-        secret = await session.scalar(
-            select(OrganizationSecret).where(OrganizationSecret.id == secret_id)
-        )
+        secret = await case.secret(session, secret_id)
         secret.encrypted_keys = encrypted(
             {"OPENAI_API_KEY": "synthetic-proxy-key", "OPENAI_BASE_URL": base_url}
         )
@@ -617,7 +610,6 @@ async def test_custom_openai_base_url_never_sends_credentials(embedding_case, ba
     assert not case.server.calls
 
 
-@pytest.mark.anyio
 @pytest.mark.parametrize(
     "base_url", ["", "https://api.openai.com/v1", "https://api.openai.com/v1/"]
 )
@@ -631,7 +623,6 @@ async def test_standard_openai_base_url_remains_supported(embedding_case, base_u
     assert len(case.server.calls) == 1
 
 
-@pytest.mark.anyio
 @pytest.mark.parametrize(
     "scenario,expected_default",
     [
@@ -699,7 +690,6 @@ async def test_agents_and_search_share_default_model_resolution(
     assert not case.server.calls
 
 
-@pytest.mark.anyio
 async def test_agent_default_lookup_still_requires_agent_read(embedding_case):
     case = embedding_case
     async with case.sessions() as session:
@@ -708,7 +698,6 @@ async def test_agent_default_lookup_still_requires_agent_read(embedding_case):
             await service.get_default_model_selection()
 
 
-@pytest.mark.anyio
 @pytest.mark.parametrize("paused", [False, True])
 @pytest.mark.parametrize("provider_removed", [False, True])
 async def test_retired_model_recovers_or_disables_without_losing_pause(
@@ -718,19 +707,9 @@ async def test_retired_model_recovers_or_disables_without_losing_pause(
     _, secret_id = await case.connect()
     request = await case.request()
     async with case.sessions.begin() as session:
-        config = await session.get(
-            SearchEmbeddingConfig,
-            (
-                case.scope().organization_id,
-                case.scope().workspace_id,
-                request.config_version,
-            ),
-        )
+        config = await case.saved_configuration(session, request.config_version)
         config.model = "retired-embedding-model"
-        state = await session.get(
-            SearchWorkspaceState,
-            (case.scope().organization_id, case.scope().workspace_id),
-        )
+        state = await case.state(session)
         state.state = SearchState.PAUSED if paused else SearchState.ACTIVE
         state.reconciliation_required = False
         if provider_removed:
@@ -746,10 +725,7 @@ async def test_retired_model_recovers_or_disables_without_losing_pause(
         assert selected is not None and selected.version > request.config_version
         assert selected.spec.model == "text-embedding-3-small"
     async with case.sessions() as session:
-        state = await session.get(
-            SearchWorkspaceState,
-            (case.scope().organization_id, case.scope().workspace_id),
-        )
+        state = await case.state(session)
         version = state.current_version
         assert version > request.config_version
         assert state.reconciliation_required
@@ -761,17 +737,13 @@ async def test_retired_model_recovers_or_disables_without_losing_pause(
         assert state.state == expected_state
     await resolve_embedding_configuration(case.scope())
     async with case.sessions() as session:
-        state = await session.get(
-            SearchWorkspaceState,
-            (case.scope().organization_id, case.scope().workspace_id),
-        )
+        state = await case.state(session)
         assert state.current_version == version
     with pytest.raises(EmbeddingError):
         await embed_current(request, case.client)
     assert not case.server.calls
 
 
-@pytest.mark.anyio
 @pytest.mark.parametrize(
     "provider,model",
     [
@@ -823,7 +795,6 @@ async def test_self_hosted_discovery_selection_embedding_and_removal(
     assert caught.value.code == EmbeddingErrorCode.NOT_CONFIGURED
 
 
-@pytest.mark.anyio
 @pytest.mark.parametrize(
     "provider,model",
     [
@@ -858,9 +829,7 @@ async def test_self_hosted_model_access_and_endpoint_versioning(
     assert selected is not None
     assert selected.spec.provider == provider  # Default provider beats cloud fallback.
     async with case.sessions.begin() as session:
-        secret = await session.scalar(
-            select(OrganizationSecret).where(OrganizationSecret.id == secret_id)
-        )
+        secret = await case.secret(session, secret_id)
         secret.encrypted_keys = encrypted(
             {
                 f"{provider.upper()}_BASE_URL": case.base_url,
@@ -870,9 +839,7 @@ async def test_self_hosted_model_access_and_endpoint_versioning(
     rotated = await resolve_embedding_configuration(case.scope())
     assert rotated is not None and rotated.version == selected.version
     async with case.sessions.begin() as session:
-        secret = await session.scalar(
-            select(OrganizationSecret).where(OrganizationSecret.id == secret_id)
-        )
+        secret = await case.secret(session, secret_id)
         secret.encrypted_keys = encrypted(
             {f"{provider.upper()}_BASE_URL": case.base_url.replace("/v1", "/new/v1")}
         )
@@ -890,3 +857,14 @@ async def test_self_hosted_model_access_and_endpoint_versioning(
     assert await resolve_embedding_configuration(case.scope()) is None
     # Another tenant's catalog/credentials never enable this workspace.
     assert await resolve_embedding_configuration(case.scope(1)) is None
+
+
+async def test_unused_corrupt_credentials_do_not_break_selection(embedding_case):
+    case = embedding_case
+    await case.connect("openai")
+    _, secret_id = await case.connect("gemini")
+    async with case.sessions.begin() as session:
+        secret = await case.secret(session, secret_id)
+        secret.encrypted_keys = b"corrupt-lower-priority-credential"
+    selected = await resolve_embedding_configuration(case.scope())
+    assert selected is not None and selected.spec.provider == "openai"

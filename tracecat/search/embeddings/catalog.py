@@ -9,7 +9,7 @@ import base64
 import gzip
 import hashlib
 import re
-from dataclasses import replace
+from dataclasses import asdict, replace
 from functools import cache
 from pathlib import Path
 
@@ -52,14 +52,6 @@ MODELS = (
 )
 
 
-def get_model(provider: str, model: str) -> ModelSpec:
-    """Resolve only an explicitly supported model; never choose a fallback."""
-    for spec in MODELS:
-        if spec.provider == provider and spec.model == model:
-            return spec
-    raise EmbeddingError(EmbeddingErrorCode.CONFIGURATION_INVALID)
-
-
 @cache
 def _load_encoding() -> tiktoken.Encoding:
     """Load the pinned vocabulary locally; never download on a request thread."""
@@ -98,6 +90,14 @@ class EmbeddingTokenCounter:
     def count_tokens(self, text: str) -> int:
         """Count the exact labeled input, including literal special-token text."""
         return len(self._encoding.encode_ordinary(text))
+
+
+API_KEY_FIELDS = {
+    "openai": "OPENAI_API_KEY",
+    "gemini": "GEMINI_API_KEY",
+    "ollama": "OLLAMA_API_KEY",
+    "vllm": "VLLM_API_KEY",
+}
 
 
 PROVIDER_ORDER: tuple[EmbeddingProvider, ...] = (
@@ -149,18 +149,7 @@ def recipe_revision(spec: ModelSpec) -> str:
     Tokenizer/input limits affect chunk boundaries. Adapter task or preprocessing
     changes require bumping recipe_version, even if the model name stays the same.
     """
-    return hashlib.sha256(
-        orjson.dumps(
-            {
-                "provider": spec.provider,
-                "model": spec.model,
-                "endpoint": spec.endpoint,
-                "dimensions": spec.dimensions,
-                "tokenizer": spec.tokenizer,
-                "input_token_limit": spec.input_token_limit,
-                "input_character_limit": spec.input_character_limit,
-                "recipe_version": spec.recipe_version,
-            },
-            option=orjson.OPT_SORT_KEYS,
-        )
-    ).hexdigest()
+    recipe = asdict(spec)
+    for field in ("batch_size_limit", "batch_token_limit"):
+        recipe.pop(field)
+    return hashlib.sha256(orjson.dumps(recipe, option=orjson.OPT_SORT_KEYS)).hexdigest()

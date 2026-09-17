@@ -1,78 +1,63 @@
 """Resolve existing provider settings and pin embedding semantics per workspace."""
 
-import hashlib
 from dataclasses import replace
 
-from pydantic import SecretStr
 from sqlalchemy import exists, or_, select
 
 from tracecat.agent.default_model import resolve_org_default_model
-from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.db.models import (
     AgentCatalog,
     AgentModelAccess,
     OrganizationSecret,
+    SearchEmbeddingConfig,
     SearchWorkspaceState,
     Workspace,
 )
-from tracecat.search.embeddings.catalog import (
-    PROVIDER_ORDER,
-    default_model,
-    get_model,
-    recipe_revision,
-)
-from tracecat.search.embeddings.self_hosted import select_self_hosted_model
+from tracecat.search.embeddings.catalog import PROVIDER_ORDER
+from tracecat.search.embeddings.selection import select_configuration
 from tracecat.search.embeddings.types import (
     EmbeddingError,
     EmbeddingErrorCode,
     PinnedConfiguration,
+    ProviderConnection,
     ResolvedCredential,
 )
 from tracecat.search.service import SearchStorage
 from tracecat.search.types import SearchState
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
-from tracecat.secrets.encryption import decrypt_keyvalues
+
+
+def configuration_matches(
+    saved: SearchEmbeddingConfig | None, selected: PinnedConfiguration | None
+) -> bool:
+    """Compare saved semantics directly; credential rotation is intentionally ignored."""
+    if saved is None or selected is None:
+        return saved is None and selected is None
+    spec = selected.spec
+    return (
+        saved.recipe_revision == selected.recipe_revision
+        and saved.provider == spec.provider
+        and saved.model == spec.model
+        and (saved.endpoint or "") == spec.endpoint
+        and saved.dimensions == spec.dimensions
+        and saved.input_token_limit == spec.input_token_limit
+    )
 
 
 class EmbeddingSettingsStorage(SearchStorage):
     """Internal boundary for trusted indexing/query scopes, never caller-picked secrets."""
 
-    async def current(self) -> tuple[int, SearchState, PinnedConfiguration | None]:
-        """Read the saved pointer without creating state."""
+    async def current(self) -> tuple[int, SearchState, SearchEmbeddingConfig | None]:
+        """Read the saved pointer and record without reconstructing a live model."""
         state = await self.session.scalar(
             select(SearchWorkspaceState).where(self._scope(SearchWorkspaceState))
         )
         if state is None:
             return 0, SearchState.DISABLED, None
-        config = await self._configuration(state.current_version)
-        if config is None:
-            return state.current_version, SearchState(state.state), None
-        try:
-            spec = get_model(config.provider, config.model)
-        except EmbeddingError as exc:
-            if exc.code != EmbeddingErrorCode.CONFIGURATION_INVALID:
-                raise
-            # A removed catalog entry is stale, not an unrecoverable workspace.
-            # Preserve the pointer/state so synchronization can replace or disable it.
-            return state.current_version, SearchState(state.state), None
-        # Restore persisted fields and carry the saved recipe revision separately.
-        # synchronize() replaces stale/unknown revisions before any embedding call.
-        spec = replace(
-            spec,
-            endpoint=config.endpoint or "",
-            dimensions=config.dimensions,
-            input_token_limit=config.input_token_limit,
-        )
         return (
-            config.version,
+            state.current_version,
             SearchState(state.state),
-            PinnedConfiguration(
-                config.version,
-                spec,
-                config.credential_id,
-                config.credential_environment,
-                config.recipe_revision,
-            ),
+            await self._configuration(state.current_version),
         )
 
     async def reconciliation_pending(self) -> bool:
@@ -85,18 +70,21 @@ class EmbeddingSettingsStorage(SearchStorage):
             )
         )
 
-    async def _preferred_provider(self) -> str | None:
-        entry = await resolve_org_default_model(
+    async def available(self) -> tuple[PinnedConfiguration, ResolvedCredential] | None:
+        """Load permitted connections and select a recipe without provider calls."""
+        connections = await self._load_connections()
+        if not connections:
+            return None
+        default = await resolve_org_default_model(
             self.session, self.scope.organization_id
         )
-        return entry.model_provider if entry else None
+        return select_configuration(
+            connections,
+            default.model_provider if default else None,
+        )
 
-    async def available(self) -> tuple[PinnedConfiguration, ResolvedCredential] | None:
-        """Choose only configured, permitted providers, independent of workflow secrets.
-
-        Workspace model access overrides org access, as in the agent service.
-        A malformed chosen credential fails explicitly; it never selects a fallback.
-        """
+    async def _load_connections(self) -> list[ProviderConnection]:
+        """Load effective workspace model access and lock candidate secrets together."""
         live = await self.session.scalar(
             select(Workspace.id).where(
                 Workspace.id == self.scope.workspace_id,
@@ -137,80 +125,35 @@ class EmbeddingSettingsStorage(SearchStorage):
             .tuples()
             .all()
         )
-        preferred = await self._preferred_provider()
-        providers = sorted(
-            PROVIDER_ORDER, key=lambda p: (p != preferred, PROVIDER_ORDER.index(p))
-        )
-        for provider in providers:
-            allowed_models = {name for source, name in allowed if source == provider}
-            if not allowed_models:
-                continue
-            secret = await self.session.scalar(
-                select(OrganizationSecret)
-                .where(
-                    OrganizationSecret.organization_id == self.scope.organization_id,
-                    OrganizationSecret.name == f"agent-{provider}-credentials",
-                    OrganizationSecret.environment == DEFAULT_SECRETS_ENVIRONMENT,
-                    OrganizationSecret.type == "custom",
-                )
-                .with_for_update(read=True)
+        models = {
+            provider: frozenset(name for source, name in allowed if source == provider)
+            for provider in PROVIDER_ORDER
+        }
+        secrets = await self.session.scalars(
+            select(OrganizationSecret)
+            .where(
+                OrganizationSecret.organization_id == self.scope.organization_id,
+                OrganizationSecret.name.in_(
+                    [f"agent-{p}-credentials" for p in models if models[p]]
+                ),
+                OrganizationSecret.environment == DEFAULT_SECRETS_ENVIRONMENT,
+                OrganizationSecret.type == "custom",
             )
-            if secret is None:
-                continue
-            try:
-                keys = decrypt_keyvalues(
-                    secret.encrypted_keys, key=get_db_encryption_key()
-                )
-                values = {item.key: item.value.get_secret_value() for item in keys}
-                key_name = {
-                    "openai": "OPENAI_API_KEY",
-                    "gemini": "GEMINI_API_KEY",
-                    "bedrock": "AWS_BEARER_TOKEN_BEDROCK",
-                    "ollama": "OLLAMA_API_KEY",
-                    "vllm": "VLLM_API_KEY",
-                }[provider]
-                if (
-                    provider in {"openai", "gemini"}
-                    and not values.get(key_name, "").strip()
-                ):
-                    raise ValueError("Missing provider key")
-                if provider == "bedrock" and not (
-                    values.get("AWS_ROLE_ARN")
-                    or values.get("AWS_BEARER_TOKEN_BEDROCK")
-                    or (
-                        values.get("AWS_ACCESS_KEY_ID")
-                        and values.get("AWS_SECRET_ACCESS_KEY")
-                    )
-                ):
-                    raise ValueError("Missing Bedrock credentials")
-                # A proxy key must never be sent to the public OpenAI endpoint.
-                # Custom embedding endpoints are outside the supported catalog.
-                if provider == "openai" and (
-                    base_url := values.get("OPENAI_BASE_URL", "").strip()
-                ):
-                    if base_url.rstrip("/") != "https://api.openai.com/v1":
-                        raise EmbeddingError(EmbeddingErrorCode.CONFIGURATION_INVALID)
-                if provider in {"ollama", "vllm"}:
-                    spec = select_self_hosted_model(provider, allowed_models, values)
-                    if spec is None:
-                        continue
-                else:
-                    spec = default_model(provider, values.get("AWS_REGION"))
-                credential = ResolvedCredential(
-                    SecretStr(values.get(key_name, "")),
-                    hashlib.sha256(secret.encrypted_keys).digest(),
-                    values,
-                )
-            except EmbeddingError as exc:
-                error = EmbeddingError(exc.code)
-            except Exception:
-                error = EmbeddingError(EmbeddingErrorCode.CREDENTIAL_INVALID)
-            else:
-                return PinnedConfiguration(
-                    0, spec, secret.id, secret.environment, recipe_revision(spec)
-                ), credential
-            raise error
-        return None
+            .order_by(OrganizationSecret.id)
+            .with_for_update(read=True)
+        )
+        by_name = {secret.name: secret for secret in secrets}
+        return [
+            ProviderConnection(
+                provider,
+                models[provider],
+                secret.id,
+                secret.environment,
+                secret.encrypted_keys,
+            )
+            for provider in PROVIDER_ORDER
+            if (secret := by_name.get(f"agent-{provider}-credentials")) is not None
+        ]
 
     async def synchronize(
         self,
@@ -218,11 +161,8 @@ class EmbeddingSettingsStorage(SearchStorage):
         """Pin automatic selection before work; callers commit before provider I/O."""
         await self.lock_scope()
         selected = await self.available()
-        version, state, current = await self.current()
+        _, state, saved = await self.current()
         if selected is None:
-            # A retired model still has a saved configuration even though current()
-            # cannot reconstruct it. Invalidate its pointer exactly once.
-            saved = await self._configuration(version) if version else None
             if saved is not None:
                 await self.set_state(SearchState.REINDEX_REQUIRED)
                 await self.set_state(
@@ -232,12 +172,8 @@ class EmbeddingSettingsStorage(SearchStorage):
                 )
             return None
         candidate, credential = selected
-        if (
-            current is None
-            or current.recipe_revision != candidate.recipe_revision
-            or recipe_revision(current.spec) != candidate.recipe_revision
-        ):
-            record = await self.save_configuration(
+        if not configuration_matches(saved, candidate):
+            saved = await self.save_configuration(
                 provider=candidate.spec.provider,
                 model=candidate.spec.model,
                 endpoint=candidate.spec.endpoint,
@@ -247,16 +183,10 @@ class EmbeddingSettingsStorage(SearchStorage):
                 input_token_limit=candidate.spec.input_token_limit,
                 recipe_revision=candidate.recipe_revision,
             )
-            current = replace(candidate, version=record.version)
-        elif (
-            current.credential_id != candidate.credential_id
-            or current.credential_environment != candidate.credential_environment
-        ):
-            record = await self._configuration(current.version)
-            assert record is not None
-            record.credential_id = candidate.credential_id
-            record.credential_environment = candidate.credential_environment
-            current = replace(candidate, version=current.version)
+        else:
+            assert saved is not None
+            saved.credential_id = candidate.credential_id
+            saved.credential_environment = candidate.credential_environment
         if state != SearchState.PAUSED:
             await self.set_state(SearchState.ACTIVE)
-        return current, credential
+        return replace(candidate, version=saved.version), credential
