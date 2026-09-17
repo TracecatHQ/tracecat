@@ -80,7 +80,6 @@ const createUserAssignment = jest.fn()
 const updateUserAssignment = jest.fn()
 const deleteUserAssignment = jest.fn()
 const onOpenChange = jest.fn()
-const onRemoveMember = jest.fn()
 const onSavingChange = jest.fn()
 const operationOrder: string[] = []
 
@@ -111,7 +110,6 @@ async function renderDialog(onCloseAutoFocus?: (event: Event) => void) {
           member={member}
           onCloseAutoFocus={onCloseAutoFocus}
           onOpenChange={onOpenChange}
-          onRemoveMember={onRemoveMember}
           onSavingChange={onSavingChange}
         />
       </Dialog>
@@ -311,7 +309,7 @@ it("refreshes cached workspace member lists after saving organization roles", as
   expect(client.getQueryState(workspaceKey)?.isInvalidated).toBe(false)
 })
 
-it("uses the member-removal confirmation for the final direct role, before any writes", async () => {
+it("saves an empty final set and warns the member stays on the baseline", async () => {
   savedAssignments = [workspaceRole]
   const { user } = await renderDialog()
   await user.click(
@@ -321,8 +319,17 @@ it("uses the member-removal confirmation for the final direct role, before any w
   )
   expect(screen.queryByRole("alert")).not.toBeInTheDocument()
   await user.click(screen.getByRole("button", { name: "Done" }))
-  await waitFor(() => expect(onRemoveMember).toHaveBeenCalledTimes(1))
+  const confirmation = screen.getByRole("alertdialog")
+  expect(confirmation).toHaveTextContent(
+    "This leaves the user with no roles. They stay a member with baseline access. Use Remove member to remove them."
+  )
   expect(operationOrder).toEqual([])
+  await user.click(
+    within(confirmation).getByRole("button", { name: "Confirm changes" })
+  )
+  await waitFor(() =>
+    expect(rbacReplaceUserAssignments).toHaveBeenCalledTimes(1)
+  )
 })
 
 it("keeps a baseline-only member unchanged when Done has no edits", async () => {
@@ -330,7 +337,6 @@ it("keeps a baseline-only member unchanged when Done has no edits", async () => 
   const { user } = await renderDialog()
   await user.click(screen.getByRole("button", { name: "Done" }))
   expect(onOpenChange).toHaveBeenCalledWith(false)
-  expect(onRemoveMember).not.toHaveBeenCalled()
   expect(operationOrder).toEqual([])
 })
 
@@ -364,10 +370,9 @@ it("confirms removal after Done; Cancel preserves the draft without writes", asy
   await waitFor(() =>
     expect(rbacReplaceUserAssignments).toHaveBeenCalledTimes(1)
   )
-  expect(onRemoveMember).not.toHaveBeenCalled()
 })
 
-it("rechecks group access after confirming a pending removal", async () => {
+it("surfaces a conflict when group access changes during the save", async () => {
   setupGroup()
   const { user } = await renderDialog()
   await screen.findByText("via Operators")
@@ -385,7 +390,6 @@ it("rechecks group access after confirming a pending removal", async () => {
   )
   expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
   expect(operationOrder).toEqual([])
-  expect(onRemoveMember).not.toHaveBeenCalled()
 })
 
 it("confirms organization-role removal while workspace access remains", async () => {
@@ -406,10 +410,9 @@ it("confirms organization-role removal while workspace access remains", async ()
   await waitFor(() =>
     expect(rbacReplaceUserAssignments).toHaveBeenCalledTimes(1)
   )
-  expect(onRemoveMember).not.toHaveBeenCalled()
 })
 
-it("requires member-remove permission for the final role", async () => {
+it("clears the final role without member-remove permission", async () => {
   savedAssignments = [workspaceRole]
   jest
     .mocked(useScopeCheck)
@@ -420,10 +423,8 @@ it("requires member-remove permission for the final role", async () => {
       name: "Remove Workspace Editor from Workspace A",
     })
   )
-  expect(screen.getByRole("button", { name: "Done" })).toBeDisabled()
-  expect(screen.getByRole("alert")).toHaveTextContent(
-    "You do not have permission to remove organization members"
-  )
+  // Clearing roles is not a removal, so it needs only the delete scope.
+  expect(screen.getByRole("button", { name: "Done" })).toBeEnabled()
 })
 
 it("rejects a stale draft when group access changes before Done", async () => {
@@ -435,11 +436,12 @@ it("rejects a stale draft when group access changes before Done", async () => {
     })
   )
   setupGroup()
+  jest.mocked(rbacReplaceUserAssignments).mockRejectedValueOnce({ status: 409 })
   await user.click(screen.getByRole("button", { name: "Done" }))
+  await user.click(screen.getByRole("button", { name: "Confirm changes" }))
   expect(await screen.findByRole("alert")).toHaveTextContent(
     "Roles or group access changed while this dialog was open"
   )
-  expect(onRemoveMember).not.toHaveBeenCalled()
   expect(operationOrder).toEqual([])
 })
 
@@ -458,7 +460,7 @@ it("rejects a stale draft when direct assignments change before Done", async () 
   expect(operationOrder).toEqual([])
 })
 
-it("blocks final-role removal when group membership cannot be loaded", async () => {
+it("still saves the final role removal when group membership cannot be loaded", async () => {
   savedAssignments = [workspaceRole]
   setupGroup()
   jest.mocked(rbacListAssignments).mockRejectedValue(new Error("Unavailable"))
@@ -475,10 +477,7 @@ it("blocks final-role removal when group membership cannot be loaded", async () 
       name: "Remove Workspace Editor from Workspace A",
     })
   )
-  expect(screen.getByRole("alert")).toHaveTextContent(
-    "Use Remove from organization to revoke all access"
-  )
-  expect(screen.getByRole("button", { name: "Done" })).toBeDisabled()
+  expect(screen.getByRole("button", { name: "Done" })).toBeEnabled()
 })
 
 it("reloads current state after a failed save without retrying automatically", async () => {
@@ -517,7 +516,6 @@ it("undoes a staged baseline promotion without deleting its persisted source", a
   expect(screen.queryByRole("alert")).not.toBeInTheDocument()
   await user.click(screen.getByRole("button", { name: "Done" }))
   expect(operationOrder).toEqual([])
-  expect(onRemoveMember).not.toHaveBeenCalled()
 })
 
 it("allows undoing newly staged additions without delete permission", async () => {
@@ -576,11 +574,10 @@ it("does not infer absent group paths without RBAC addons", async () => {
       name: "Remove Workspace Editor from Workspace A",
     })
   )
-  expect(screen.getByRole("button", { name: "Done" })).toBeDisabled()
-  expect(screen.getByRole("alert")).toHaveTextContent(
+  expect(screen.getByRole("button", { name: "Done" })).toBeEnabled()
+  expect(screen.getByRole("status")).toHaveTextContent(
     "Group access cannot be checked"
   )
-  expect(onRemoveMember).not.toHaveBeenCalled()
 })
 
 it("refreshes group paths when initial group loading finishes after editing starts", async () => {
@@ -601,17 +598,17 @@ it("refreshes group paths when initial group loading finishes after editing star
       name: "Remove Workspace Editor from Workspace A",
     })
   )
-  expect(screen.getByRole("button", { name: "Done" })).toBeDisabled()
   await act(async () => finishGroupRead({ items: [], total: 0 }))
   await waitFor(() =>
     expect(screen.getByRole("button", { name: "Done" })).toBeEnabled()
   )
   setupGroup()
+  jest.mocked(rbacReplaceUserAssignments).mockRejectedValueOnce({ status: 409 })
   await user.click(screen.getByRole("button", { name: "Done" }))
+  await user.click(screen.getByRole("button", { name: "Confirm changes" }))
   expect(await screen.findByRole("alert")).toHaveTextContent(
     "Roles or group access changed"
   )
-  expect(onRemoveMember).not.toHaveBeenCalled()
   expect(operationOrder).toEqual([])
 })
 
@@ -627,7 +624,6 @@ it("does not depend on another group read when saving ordinary role changes", as
   await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
   expect(rbacListAssignments).toHaveBeenCalledTimes(1)
   expect(rbacReplaceUserAssignments).toHaveBeenCalledTimes(1)
-  expect(onRemoveMember).not.toHaveBeenCalled()
 })
 
 test("returns focus to the surviving menu button when the dialog unmounts", async () => {

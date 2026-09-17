@@ -18,7 +18,6 @@ from tracecat.authz.controls import (
 )
 from tracecat.authz.enums import ScopeSource
 from tracecat.authz.membership import (
-    audit_evicted_members,
     drop_workspace_membership_mirror,
     lock_role_changes,
     mirror_workspace_membership,
@@ -359,20 +358,6 @@ class RBACService(BaseOrgService):
             self.session, self.role, self.organization_id, role_id
         )
 
-    async def _group_user_ids(self, group_id: UUID) -> Sequence[UUID]:
-        stmt = select(GroupMember.user_id).where(GroupMember.group_id == group_id)
-        return (await self.session.execute(stmt)).scalars().all()
-
-    async def _commit_role_changes(self, user_ids: Sequence[UUID]) -> None:
-        """Commit role-path writes, then audit whoever the database evicted."""
-        await self.session.commit()
-        await audit_evicted_members(
-            self.session,
-            organization_id=self.organization_id,
-            user_ids=user_ids,
-            actor=self.role,
-        )
-
     async def _ensure_group_membership_assignable(self, group_id: UUID) -> None:
         """Reject membership grants containing scopes the caller does not hold."""
         stmt = (
@@ -465,9 +450,8 @@ class RBACService(BaseOrgService):
         """Delete a group."""
         await lock_role_changes(self.session, self.organization_id)
         group = await self.get_group(group_id)
-        user_ids = await self._group_user_ids(group_id)
         await self.session.delete(group)
-        await self._commit_role_changes(user_ids)
+        await self.session.commit()
 
     @require_scope("org:rbac:update")
     @audit_log(
@@ -499,7 +483,7 @@ class RBACService(BaseOrgService):
             organization_id=self.organization_id,
         )
         self.session.add(member)
-        await self._commit_role_changes([user_id])
+        await self.session.commit()
 
     @require_scope("org:rbac:update")
     @audit_log(
@@ -523,7 +507,7 @@ class RBACService(BaseOrgService):
             raise TracecatNotFoundError("Group member not found")
 
         await self.session.delete(member)
-        await self._commit_role_changes([user_id])
+        await self.session.commit()
 
     async def list_group_members(
         self, group_id: UUID
@@ -641,7 +625,7 @@ class RBACService(BaseOrgService):
             assigned_by=self.role.user_id,
         )
         self.session.add(assignment)
-        await self._commit_role_changes(await self._group_user_ids(group_id))
+        await self.session.commit()
         await self.session.refresh(assignment, ["group", "role", "workspace"])
         return assignment
 
@@ -665,7 +649,7 @@ class RBACService(BaseOrgService):
         await self._ensure_role_assignable(role_id)
 
         assignment.role_id = role_id
-        await self._commit_role_changes(await self._group_user_ids(assignment.group_id))
+        await self.session.commit()
         await self.session.refresh(assignment, ["group", "role", "workspace"])
         return assignment
 
@@ -679,9 +663,8 @@ class RBACService(BaseOrgService):
         """Delete a group assignment."""
         await lock_role_changes(self.session, self.organization_id)
         assignment = await self.get_group_role_assignment(assignment_id)
-        user_ids = await self._group_user_ids(assignment.group_id)
         await self.session.delete(assignment)
-        await self._commit_role_changes(user_ids)
+        await self.session.commit()
 
     # =========================================================================
     # User Role Assignment Management
@@ -787,7 +770,7 @@ class RBACService(BaseOrgService):
                     )
             for assignment in removed:
                 await self.session.delete(assignment)
-            await self._commit_role_changes([params.user_id])
+            await self.session.commit()
         except Exception:
             await self.session.rollback()
             raise
@@ -863,7 +846,7 @@ class RBACService(BaseOrgService):
             )
         self.session.add(assignment)
         try:
-            await self._commit_role_changes([user_id])
+            await self.session.commit()
         except IntegrityError as e:
             await self.session.rollback()
             raise TracecatValidationError(
@@ -892,7 +875,7 @@ class RBACService(BaseOrgService):
         await self._ensure_role_assignable(role_id)
 
         assignment.role_id = role_id
-        await self._commit_role_changes([assignment.user_id])
+        await self.session.commit()
         await self.session.refresh(assignment, ["user", "role", "workspace"])
         return assignment
 
@@ -914,7 +897,7 @@ class RBACService(BaseOrgService):
                 user_id=assignment.user_id,
                 workspace_ids=[assignment.workspace_id],
             )
-        await self._commit_role_changes([assignment.user_id])
+        await self.session.commit()
 
     async def get_user_role_scopes(
         self,
