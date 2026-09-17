@@ -12,7 +12,13 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.db.models import LegacyMembership, OrganizationMembership
-from tracecat.db.rls import set_rls_context, set_rls_context_from_role
+from tracecat.db.rls import (
+    _RLS_CONTEXT_INFO_KEY,
+    _apply_rls_context_async,
+    _cache_rls_context,
+    _RLSContext,
+    set_rls_context,
+)
 
 
 async def ensure_member(
@@ -93,8 +99,19 @@ async def drop_workspace_membership_mirror(
 
 async def _with_rls_bypass(session: AsyncSession, statement: Executable) -> None:
     """Run a statement under the RLS bypass, restoring the caller's context."""
-    await set_rls_context(session, org_id=None, workspace_id=None, bypass=True)
+    previous_context = session.sync_session.info.get(_RLS_CONTEXT_INFO_KEY)
+    restore_context = (
+        previous_context
+        if isinstance(previous_context, _RLSContext)
+        else _RLSContext(org_id=None, workspace_id=None, user_id=None, bypass=False)
+    )
     try:
+        await set_rls_context(session, org_id=None, workspace_id=None, bypass=True)
         await session.execute(statement)
     finally:
-        await set_rls_context_from_role(session)
+        # Restore the cache before issuing SQL, including if the transaction failed.
+        if previous_context is None:
+            session.sync_session.info.pop(_RLS_CONTEXT_INFO_KEY, None)
+        else:
+            _cache_rls_context(session, restore_context)
+        await _apply_rls_context_async(session, restore_context)

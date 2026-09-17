@@ -126,7 +126,10 @@ def _install_membership_token_revoker(conn: Any) -> None:
             AS $$
             BEGIN
                 UPDATE mcp_personal_access_token
-                SET revoked_at = now()
+                SET revoked_at = now(),
+                    revoked_by = NULLIF(
+                        current_setting('app.current_user_id', true), ''
+                    )::uuid
                 WHERE user_id = OLD.user_id
                   AND organization_id = OLD.organization_id
                   AND revoked_at IS NULL;
