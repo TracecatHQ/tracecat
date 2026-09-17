@@ -1,0 +1,21 @@
+packages/tracecat-registry/tracecat_registry/core/duckdb.py
+  s_aec75c9ec30bfa::t_3598740dfe0490 2,21-27,53-64,70,72,74-77,82,95,112,139,152,178-184,194
+tests/registry/test_core_duckdb.py
+  s_aec75c9ec30bfa::t_9701f413fe76e4 2-3,7-12,52-143
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "331a41af53f8b13614bee1703143d32e2e55ba67",
+  "prompts": {},
+  "sessions": {
+    "s_aec75c9ec30bfa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2ca67a7a-9a5e-4438-af4e-87763d16382d",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
