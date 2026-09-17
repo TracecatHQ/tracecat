@@ -528,8 +528,10 @@ def _build_output_type_context() -> dict[str, Any]:
             },
         },
         "notes": [
-            "Use a literal string output_type for simple primitive responses.",
-            "Use a JSON Schema object when you want structured agent output.",
+            "Set an output_type only when the user explicitly asks for "
+            "structured output. Otherwise leave it unset.",
+            "When the user does ask: use a literal string output_type for a "
+            "primitive response, or a JSON Schema object for structured output.",
             "Prefer no output_type at all. The agent's side effects — cases "
             "opened, messages sent, rows written — are its output.",
             "Define an output_type only when a downstream deterministic step "
@@ -2199,6 +2201,8 @@ show candidate integrations first.
 `core.script.run_python` unless a specific integration is requested.
 - For `ai.agent`, prefer the `model` object. Use legacy top-level \
 `model_name`/`model_provider` only when requested.
+- For `ai.preset_agent`, tools come from the preset and its skills; the \
+`actions` input swaps the preset's registry actions for one run.
 
 ## Expression syntax (used in action `args:` values)
 - `${{ TRIGGER.<field> }}` — workflow trigger input
@@ -2693,6 +2697,17 @@ actions:
 ```
 Use top-level `model_name` and `model_provider` only when explicitly requested.
 
+### AI Preset Agent
+Tools come from the preset and its skills.
+```yaml
+actions:
+  - ref: triage
+    action: ai.preset_agent
+    args:
+      preset: security-analyst
+      user_prompt: "Triage ${{ TRIGGER.alert }}"
+```
+
 ### For-each Syntax (Avoid by Default)
 Avoid `for_each` unless the list is known and bounded and the user explicitly
 needs separate workflow action runs per item. `for_each` creates per-item
@@ -2973,6 +2988,16 @@ helpers call Tracecat APIs.
 3. `list_actions` / `get_action_context` — choose exact tools and schemas
 4. `create_agent_preset` or `update_agent_preset`
 5. `list_agent_presets`, `get_agent_preset`, or `run_agent_preset` as needed
+
+### Where tools live
+- Preset tools: registry `actions`, plus MCP integrations attached via
+`mcp_integration_ids`.
+- A skill's `metadata.tools` (registry actions or `mcp.<slug>` references) fits a
+group of tools several agents share.
+- The `actions` input on an `ai.preset_agent` action swaps the preset's registry
+actions for one run — MCP tools stay, an empty list is ignored — which is handy
+for a test or an eval.
+- Set an `output_type` only when the user explicitly asks for structured output.
 """
 
 
@@ -8447,6 +8472,9 @@ async def create_agent_preset(
     """Create an agent preset in the selected workspace.
 
     Use `skills` to attach published skills. Each binding contains `skill_id`.
+
+    Attach tools via `actions`, `mcp_integration_ids`, or a skill's
+    `metadata.tools`.
     """
 
     try:
@@ -8531,6 +8559,9 @@ async def update_agent_preset(
     Use `skills` to replace attached published skills. Each binding contains
     `skill_id`. Omit `skills` to leave bindings unchanged, or pass an empty list
     to detach all skills.
+
+    Attach tools via `actions`, `mcp_integration_ids`, or a skill's
+    `metadata.tools`.
 
     Set `clear_output_type=true` to remove an existing `output_type` (agent
     returns plain text). Omitting `output_type` leaves it unchanged.
@@ -9137,6 +9168,8 @@ async def prepare_skill_upload(
     Upload every file to its short-lived URL with the returned method and
     headers, then call `complete_skill_upload` with the returned `skill_id`,
     `base_revision`, paths, and upload IDs.
+
+    Declare the skill's tools in its SKILL.md frontmatter `metadata.tools`.
     """
 
     try:
@@ -9460,7 +9493,8 @@ async def run_agent_preset(
     """Run an agent preset with a prompt and return text or approval status.
 
     Creates an ephemeral session, triggers the agent workflow, and waits
-    for the response. The agent has access to all tools configured on the preset.
+    for the response. The agent has access to all tools configured on the preset
+    and its skills.
 
     Args:
         workspace_id: The workspace ID (from list_workspaces).

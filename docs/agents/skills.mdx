@@ -41,6 +41,49 @@ Write the body as instructions the agent can follow during a run.
 
 ![Skill editor](/img/agents/skill-editor.png)
 
+## Declare tools in frontmatter
+
+A skill can carry its own tools under `metadata.tools` in the `SKILL.md` frontmatter.
+
+```md
+---
+name: threat-intel
+description: Enrich indicators and summarize threat intelligence findings.
+metadata:
+  tools:
+    - core.http_request
+    - tools.virustotal.lookup_ip_address
+    - mcp.greynoise
+---
+
+# threat-intel
+
+Use this skill when you need to enrich IP addresses, domains, URLs, or file
+hashes during alert triage.
+```
+
+Each entry is a registry action name (`core.http_request`) or an MCP reference
+(`mcp.<slug>` for the whole server, `mcp.<slug>.<tool>` for one tool).
+Per-tool references work for HTTP integrations; a stdio integration is granted whole
+with `mcp.<slug>`.
+A skill can declare at most 64 tools.
+
+When the skill is attached to a preset agent, its tools are added to the preset's own
+`Tools` selection. The agent's effective tool set is the union of the preset's registry
+actions, the MCP integrations attached to the preset, and the tools declared by every
+attached skill.
+
+<Note>
+  If the preset restricts `namespaces`, that filter also applies to the registry
+  actions a skill declares. A skill's registry action outside the allowed namespaces
+  is dropped from the run and reported under `tool_policy.blocked_tools`. MCP tools are
+  not filtered by `namespaces`, whether a skill declares them or the preset attaches the
+  integration directly.
+</Note>
+
+Skill tools are granted when the preset configuration is resolved, whether or not the
+agent ever opens the skill. Only the skill instructions and files load on demand.
+
 ## Add files
 
 Add supporting files when the agent needs more than instructions.
@@ -66,20 +109,27 @@ Publishing requires:
 ## Attach skills to a preset agent
 
 Open the preset agent, then use the `Skills` tab to attach published skills.
-Each attachment pins one published skill version.
+An attachment records the skill version that was current when you attached it.
 
 ![Attach skills to a preset agent](/img/agents/agent-preset-editor.png)
 
 Only published skills can be attached.
-When you publish a new skill version, update the preset if you want future runs to use it.
+When a preset agent runs, Tracecat resolves each attached skill to that skill's current
+published version, so publishing a new version takes effect on the next run without
+editing the preset.
 
 ## How agents load skills
 
-When a preset agent runs, Tracecat stages the pinned skill versions into the agent runtime.
+When a preset agent runs, Tracecat stages the resolved skill versions into the agent runtime.
 The agent can discover the skill by its `SKILL.md` metadata and use the bundled files during the run.
 
 Use skills for reusable agent behavior.
 Use preset instructions for behavior that belongs only to one preset agent.
+
+A skill's `metadata.tools` fits a group of tools that several agents share, so the
+instructions and the tools travel together. Tools only one agent needs fit on the preset.
+See [Where tools come from](/agents/ai-preset-agent#where-tools-come-from) for the full
+picture, including what the `ai.preset_agent` `actions` input does to a skill's tools.
 
 ## Related pages
 
