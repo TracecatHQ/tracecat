@@ -644,9 +644,14 @@ export function useUpdateWebhook(workspaceId: string, workflowId: string) {
   return mutation
 }
 
-export function useCaseTrigger(workspaceId: string, workflowId: string) {
+export function useCaseTrigger(
+  workspaceId: string,
+  workflowId: string,
+  options?: { enabled?: boolean }
+) {
   return useQuery<CaseTriggerRead | null, ApiError>({
     queryKey: ["case-trigger", workspaceId, workflowId],
+    enabled: options?.enabled ?? true,
     queryFn: async () => {
       try {
         return await triggersGetCaseTrigger({ workspaceId, workflowId })
