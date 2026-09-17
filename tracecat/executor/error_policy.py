@@ -10,6 +10,7 @@ from tracecat.exceptions import (
     ExecutionError,
     LoopExecutionError,
     ScopeDeniedError,
+    TracecatExpressionError,
 )
 from tracecat.executor.registry_artifacts import (
     RegistryArtifactCacheCapacityError,
@@ -202,6 +203,13 @@ def classify_execute_action_error(
         return RuntimeErrorClassification.user(
             kind=RuntimeErrorKind.TENANT_ENTITLEMENT_DENIED,
             message=str(error),
+            retry_disposition=RetryDisposition.NON_RETRYABLE,
+            cause=error,
+        )
+    if isinstance(error, TracecatExpressionError):
+        return RuntimeErrorClassification.user(
+            kind=RuntimeErrorKind.WORKFLOW_EXPRESSION_INVALID,
+            message="The workflow expression could not be evaluated",
             retry_disposition=RetryDisposition.NON_RETRYABLE,
             cause=error,
         )
