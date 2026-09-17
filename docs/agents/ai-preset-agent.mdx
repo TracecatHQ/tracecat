@@ -19,24 +19,31 @@ Use the `Tools` tab to select the model, allowed Tracecat actions, and MCP integ
 
 ## Where tools come from
 
-There are three places a tool can come from, and each suits a different job.
+Three sources on the preset side make up what the agent can call, and each suits a
+different job.
 
-Tools in the preset's `Tools` tab belong to that one agent. This is the usual home for
-tools only this agent needs.
+The preset's own registry actions, chosen in the `Tools` tab, belong to that one agent.
+This is the usual home for actions only this agent needs.
+
+MCP integrations attached to the preset, also in the `Tools` tab, bring a connector's
+tools straight to the agent. An MCP integration does not need to go through a skill to
+reach a preset.
 
 Tools in a skill's [`metadata.tools`](/agents/skills#declare-tools-in-frontmatter)
 frontmatter travel with the skill's instructions, so a group of tools that several agents
-reuse stays in one place. Attaching the skill brings both.
+reuse stays in one place. A skill can declare registry actions and MCP references alike,
+and attaching the skill brings the instructions and the tools together.
 
-An agent's effective tool set is the union of the two, which is also what it has in chat.
-A `namespaces` restriction on the preset filters the registry actions in that set; MCP
-tools a skill declares are not filtered by it.
+An agent's effective tool set is the union of the three, which is also what it has in
+chat. A `namespaces` restriction on the preset filters the registry actions in that set;
+MCP tools are not filtered by it.
 
-The `actions` argument on the `ai.preset_agent` workflow action is the third place. It
-replaces the preset's registry actions for that one run instead of adding to them, so
-tools a skill contributed are dropped for the run; MCP tools from the preset and its
-skills stay attached, and an empty list changes nothing. Use it when you want to run a
-preset with a different tool set in a single workflow, for example in a test or an eval.
+A workflow can add a fourth source for one run. The `actions` argument on the
+`ai.preset_agent` action replaces the preset's registry actions for that run instead of
+adding to them, so registry actions a skill contributed are dropped for the run; MCP
+tools, whether attached to the preset or declared by a skill, stay attached, and an empty
+list changes nothing. Use it when you want to run a preset with a different tool set in a
+single workflow, for example in a test or an eval.
 
 Leave `output_type` unset unless you specifically need structured output for a downstream step.
 

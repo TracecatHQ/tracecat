@@ -116,7 +116,7 @@ async def agent(
     default_title="Run agent preset",
     description=(
         "Run an AI agent using a saved agent preset. Tools come from the preset's "
-        "actions and its attached skills."
+        "actions and MCP integrations and from its attached skills."
     ),
     display_group="AI",
     namespace="ai",
@@ -146,10 +146,11 @@ async def preset_agent(
         list[str] | None,
         Doc(
             "Optional. Replaces the preset's registry actions for this run instead of "
-            "adding to them; MCP tools from the preset and its skills are unaffected, "
-            "and an empty list changes nothing. Handy for trying a preset with a "
-            "different tool set in a test or an eval. For tools the agent should "
-            "normally have, add them to the preset or to a skill."
+            "adding to them; MCP tools are unaffected, whether the preset attaches the "
+            "integration or a skill declares it, and an empty list changes nothing. "
+            "Handy for trying a preset with a different tool set in a test or an eval. "
+            "For tools the agent should normally have, add them to the preset or to a "
+            "skill."
         ),
         ActionType(multiple=True),
     ] = None,
