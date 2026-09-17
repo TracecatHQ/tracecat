@@ -5,7 +5,7 @@ on:
     inputs:
       tag:
         description: >-
-          Version to release (e.g. 0.20.0, 0.20.0-beta.0).
+          Version to release (e.g. 1.1.0, 1.1.0-alpha.1).
           Leave empty to auto-increment the patch version.
         required: false
         type: string

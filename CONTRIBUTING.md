@@ -196,7 +196,22 @@ Routine bumps and Low, Moderate, or High severity advisories are `build(deps):`.
 
 Tracecat loosely follows the [Semantic Versioning](https://semver.org/) specification for releases.
 
-We are currently on the `1.0.0-beta.xyz` version series.
+Release tags use one of three forms:
+
+```
+<major>.<minor>.<patch>                      stable
+<major>.<minor>.<patch>-<label>.<N>          prerelease, label is alpha or beta
+<major>.<minor>.<patch>-<label>.<N>.<M>      hotfix on top of that prerelease
+```
+
+The base is always the next stable version, so the first prerelease after
+`1.0.0` is `1.1.0-alpha.1`. Series numbers start at 1, and a prerelease sorts
+before its stable release: `1.1.0-alpha.2 < 1.1.0-alpha.2.1 < 1.1.0-alpha.3 <
+1.1.0-beta.1 < 1.1.0`.
+
+Python package metadata uses the PEP 440 equivalent, written to
+`__pep440_version__`: `-alpha.N` becomes `aN`, `-beta.N` becomes `bN`, and a
+`.M` hotfix becomes `.postM` (`1.1.0-alpha.2.6` becomes `1.1.0a2.post6`).
 
 ## License
 
