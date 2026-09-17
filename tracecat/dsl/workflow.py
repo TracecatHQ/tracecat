@@ -1685,7 +1685,10 @@ class DSLWorkflow:
         self._set_logical_time_context()
         key = return_key(str(self.workspace_id), self.wf_exec_id)
         operand = self.context
-        if self.dependency_plan is not None:
+        if (
+            self.dependency_plan is not None
+            and not self.dependency_plan.use_full_context
+        ):
             operand = self.context.copy()
             operand["ACTIONS"] = {
                 ref: self.context["ACTIONS"][ref]

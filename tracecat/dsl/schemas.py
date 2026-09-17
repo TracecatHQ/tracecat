@@ -42,6 +42,8 @@ class DSLDependencyPlan(BaseModel):
 
     actions: dict[str, list[str]]
     returns: list[str]
+    use_full_context: bool = Field(default=False)
+    """Skip dependency filtering when compilation could not safely select refs."""
 
 
 class ExecutionContext(TypedDict):

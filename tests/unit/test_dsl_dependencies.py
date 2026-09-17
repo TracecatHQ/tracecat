@@ -111,8 +111,8 @@ async def test_compile_activity_falls_back_for_unsupported_references(
     returns: str,
 ) -> None:
     assert (
-        await DSLActivities.compile_dsl_dependencies_activity(make_dsl(returns)) is None
-    )
+        await DSLActivities.compile_dsl_dependencies_activity(make_dsl(returns))
+    ).use_full_context
 
 
 @pytest.mark.anyio
@@ -121,10 +121,8 @@ async def test_compile_activity_fails_open_on_unexpected_compiler_error() -> Non
         "tracecat.dsl.action.compile_dsl_dependencies",
         side_effect=RuntimeError("synthetic compiler failure"),
     ):
-        assert (
-            await DSLActivities.compile_dsl_dependencies_activity(make_dsl(None))
-            is None
-        )
+        plan = await DSLActivities.compile_dsl_dependencies_activity(make_dsl(None))
+    assert plan.use_full_context
 
 
 @pytest.mark.anyio
@@ -145,8 +143,7 @@ async def test_compiler_fallback_does_not_suppress_invalid_return(
     expression = "${{ ACTIONS.first.result + }}"
     assert (
         await DSLActivities.compile_dsl_dependencies_activity(make_dsl(expression))
-        is None
-    )
+    ).use_full_context
     with pytest.raises(ApplicationError) as exc:
         await to_thread(
             DSLActivities.resolve_return_expression_activity,
@@ -363,6 +360,78 @@ def test_plan_selects_live_stream_results_without_parsing(
         )
         updated = scheduler.build_stream_aware_context(task, child)
         assert updated["ACTIONS"]["first"].result == InlineObject(data="next-iteration")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("nested", [False, True])
+async def test_compiler_fallback_preserves_full_action_context(
+    context: ExecutionContext, nested: bool
+) -> None:
+    expression = "${{ ACTIONS.first.`parent`.second.result.value }}"
+    dsl = make_dsl(None)
+    task = dsl.actions[-1]
+    task.args = {"value": expression}
+    scheduler = object.__new__(DSLScheduler)
+    scheduler.dependency_plan = await DSLActivities.compile_dsl_dependencies_activity(
+        dsl
+    )
+    assert scheduler.dependency_plan.use_full_context
+    scheduler._root_context = context
+    scheduler.streams = {ROOT_STREAM: context}
+    scheduler.stream_hierarchy = {ROOT_STREAM: None}
+    stream_id = ROOT_STREAM
+    if nested:
+        parent, stream_id, sibling = map(StreamID, ("parent", "child", "sibling"))
+        scheduler.streams[parent] = ExecutionContext(
+            ACTIONS={"second": TaskResult.from_result({"value": 13})}, TRIGGER=None
+        )
+        scheduler.streams[stream_id] = ExecutionContext(
+            ACTIONS={"first": TaskResult.from_result({"value": 17})}, TRIGGER=None
+        )
+        scheduler.streams[sibling] = ExecutionContext(
+            ACTIONS={"sibling_only": TaskResult.from_result(19)}, TRIGGER=None
+        )
+        scheduler.stream_hierarchy.update(
+            {parent: ROOT_STREAM, stream_id: parent, sibling: parent}
+        )
+    workflow = object.__new__(DSLWorkflow)
+    workflow.scheduler = scheduler
+    with patch(
+        "tracecat.dsl.scheduler.extract_expressions",
+        side_effect=AssertionError("fallback must not run the legacy extractor"),
+    ):
+        operand = workflow._build_action_context(task, stream_id)
+        assert scheduler._build_collection_context(task, stream_id) == operand
+    assert set(operand["ACTIONS"]) == {"first", "second", "unused"}
+    assert operand["ACTIONS"]["unused"] is context["ACTIONS"]["unused"]
+    assert operand["TRIGGER"] is context["TRIGGER"]
+    assert operand.get("VARS") is context.get("VARS")
+    assert eval_templated_object(
+        expression, operand=await materialize_context(operand)
+    ) == (13 if nested else 7)
+    assert operand["ACTIONS"]["first"].result == InlineObject(
+        data={"value": 17 if nested else 3}
+    )
+    assert context["ACTIONS"]["second"].result == InlineObject(data={"value": 7})
+
+
+def test_legacy_action_context_still_uses_sparse_extraction(
+    context: ExecutionContext,
+) -> None:
+    scheduler = object.__new__(DSLScheduler)
+    scheduler.dependency_plan = None
+    scheduler.logger = get_workflow_logger()
+    scheduler._root_context = context
+    scheduler.streams = {ROOT_STREAM: context}
+    scheduler.stream_hierarchy = {ROOT_STREAM: None}
+    task = ActionStatement(
+        ref="consumer",
+        action="core.noop",
+        args={"value": "${{ ACTIONS.first.result }}"},
+    )
+    assert set(scheduler.build_stream_aware_context(task, ROOT_STREAM)["ACTIONS"]) == {
+        "first"
+    }
 
 
 @pytest.mark.anyio
