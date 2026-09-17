@@ -80,6 +80,8 @@ POST_RLS_WORKSPACE_SCOPED_TABLES = (
     "agent_preset_version",
     "agent_folder",
     "agent_tag",
+    "skill_folder",
+    "skill_tag",
     "skill",
     "skill_blob",
     "skill_upload",
@@ -108,7 +110,12 @@ POST_RLS_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES = (
 )
 
 SPECIAL_TENANT_POLICY_TABLES = frozenset(
-    {"agent_tag_link", "service_account_api_key", "service_account_scope"}
+    {
+        "agent_tag_link",
+        "skill_tag_link",
+        "service_account_api_key",
+        "service_account_scope",
+    }
 )
 
 # Workspace and oauth_state carry custom policy SQL. scope and agent_catalog
@@ -403,6 +410,52 @@ def disable_agent_tag_link_table_rls() -> str:
     return f"""
         DROP POLICY IF EXISTS {policy_name("agent_tag_link")} ON "agent_tag_link";
         ALTER TABLE "agent_tag_link" DISABLE ROW LEVEL SECURITY;
+    """
+
+
+def _skill_tag_link_workspace_condition() -> str:
+    return """
+                EXISTS (
+                    SELECT 1
+                    FROM skill_tag
+                    WHERE skill_tag.id = skill_tag_link.tag_id
+                      AND skill_tag.workspace_id = NULLIF(current_setting('app.current_workspace_id', true), '')::uuid
+                )
+                AND EXISTS (
+                    SELECT 1
+                    FROM skill
+                    WHERE skill.id = skill_tag_link.skill_id
+                      AND skill.workspace_id = NULLIF(current_setting('app.current_workspace_id', true), '')::uuid
+                )
+    """
+
+
+def enable_skill_tag_link_table_rls() -> str:
+    workspace_condition = _skill_tag_link_workspace_condition()
+    return f"""
+        ALTER TABLE "skill_tag_link" ENABLE ROW LEVEL SECURITY;
+
+        CREATE POLICY {policy_name("skill_tag_link")} ON "skill_tag_link"
+            FOR ALL
+            USING (
+                current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}'
+                OR (
+{workspace_condition}
+                )
+            )
+            WITH CHECK (
+                current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}'
+                OR (
+{workspace_condition}
+                )
+            );
+    """
+
+
+def disable_skill_tag_link_table_rls() -> str:
+    return f"""
+        DROP POLICY IF EXISTS {policy_name("skill_tag_link")} ON "skill_tag_link";
+        ALTER TABLE "skill_tag_link" DISABLE ROW LEVEL SECURITY;
     """
 
 

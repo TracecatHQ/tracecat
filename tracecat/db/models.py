@@ -501,6 +501,16 @@ class Workspace(OrganizationModel):
         back_populates="workspace",
         cascade="all, delete",
     )
+    skill_folders: Mapped[list[SkillFolder]] = relationship(
+        "SkillFolder",
+        back_populates="workspace",
+        cascade="all, delete",
+    )
+    skill_tags: Mapped[list[SkillTag]] = relationship(
+        "SkillTag",
+        back_populates="workspace",
+        cascade="all, delete",
+    )
     skills: Mapped[list[Skill]] = relationship(
         "Skill",
         back_populates="workspace",
@@ -3732,6 +3742,47 @@ class AgentTagLink(Base):
     )
 
 
+class SkillFolder(WorkspaceModel):
+    """Folder for organizing workspace skills."""
+
+    __tablename__ = "skill_folder"
+    __table_args__ = (
+        UniqueConstraint("path", "workspace_id", name="uq_skill_folder_path_workspace"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    path: Mapped[str] = mapped_column(
+        String, index=True, nullable=False, doc="Full materialized path: /parent/child/"
+    )
+
+    workspace: Mapped[Workspace] = relationship(back_populates="skill_folders")
+    skills: Mapped[list[Skill]] = relationship(
+        "Skill",
+        back_populates="folder",
+    )
+
+
+class SkillTagLink(Base):
+    """Link table for workspace skills and skill tags."""
+
+    __tablename__ = "skill_tag_link"
+    __table_args__ = (PrimaryKeyConstraint("tag_id", "skill_id"),)
+
+    tag_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("skill_tag.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    skill_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("skill.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+
 class AgentPreset(SoftDeleteMixin, WorkspaceModel):
     """Database model for storing reusable agent preset configurations."""
 
@@ -4014,6 +4065,7 @@ class Skill(SoftDeleteMixin, WorkspaceModel):
             # re-backfills deleted_at and narrows this to deleted_at only.
             postgresql_where=text("deleted_at IS NULL AND archived_at IS NULL"),
         ),
+        Index("ix_skill_workspace_folder", "workspace_id", "folder_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -4067,7 +4119,18 @@ class Skill(SoftDeleteMixin, WorkspaceModel):
             "until the contract release drops this column."
         ),
     )
+    folder_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("skill_folder.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     workspace: Mapped[Workspace] = relationship(back_populates="skills")
+    folder: Mapped[SkillFolder | None] = relationship(back_populates="skills")
+    tags: Mapped[list[SkillTag]] = relationship(
+        "SkillTag",
+        secondary=SkillTagLink.__table__,
+        back_populates="skills",
+    )
     current_version: Mapped[SkillVersion | None] = relationship(
         "SkillVersion",
         foreign_keys=[current_version_id],
@@ -4621,6 +4684,30 @@ class AgentTag(WorkspaceModel):
     presets: Mapped[list[AgentPreset]] = relationship(
         "AgentPreset",
         secondary=AgentTagLink.__table__,
+        back_populates="tags",
+    )
+
+
+class SkillTag(WorkspaceModel):
+    """A tag for organizing and filtering workspace skills."""
+
+    __tablename__ = "skill_tag"
+    __table_args__ = (
+        UniqueConstraint("name", "workspace_id", name="uq_skill_tag_name_workspace"),
+        UniqueConstraint("ref", "workspace_id", name="uq_skill_tag_ref_workspace"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    name: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    ref: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    color: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    workspace: Mapped[Workspace] = relationship(back_populates="skill_tags")
+    skills: Mapped[list[Skill]] = relationship(
+        "Skill",
+        secondary=SkillTagLink.__table__,
         back_populates="tags",
     )
 

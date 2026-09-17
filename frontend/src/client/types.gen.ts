@@ -3587,8 +3587,56 @@ export type CursorPaginatedResponse_ServiceAccountRead_ = {
   total_estimate?: number | null
 }
 
+export type CursorPaginatedResponse_SkillFolderRead_ = {
+  items: Array<SkillFolderRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
 export type CursorPaginatedResponse_SkillReadMinimal_ = {
   items: Array<SkillReadMinimal>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+export type CursorPaginatedResponse_SkillTagRead_ = {
+  items: Array<SkillTagRead>
   /**
    * Cursor for next page
    */
@@ -7620,6 +7668,22 @@ export type SkillCreate = {
 }
 
 /**
+ * Skill as a directory item.
+ */
+export type SkillDirectoryItem = {
+  type: "skill"
+  id: string
+  name: string
+  slug: string
+  description: string | null
+  current_version_id: string | null
+  folder_id: string | null
+  tags: Array<TagRead>
+  created_at: string
+  updated_at: string
+}
+
+/**
  * Attach a finalized staged upload to a draft path.
  */
 export type SkillDraftAttachUploadedBlobOp = {
@@ -7709,6 +7773,50 @@ export type SkillFileEntry = {
   content_type: string
 }
 
+export type SkillFolderCreate = {
+  name: string
+  parent_path?: string
+}
+
+export type SkillFolderDelete = {
+  recursive?: boolean
+}
+
+export type SkillFolderDirectoryItem = {
+  id: string
+  name: string
+  path: string
+  workspace_id: string
+  created_at: string
+  updated_at: string
+  type: "folder"
+  num_items: number
+}
+
+export type SkillFolderMove = {
+  new_parent_path?: string | null
+}
+
+export type SkillFolderRead = {
+  id: string
+  name: string
+  path: string
+  workspace_id: string
+  created_at: string
+  updated_at: string
+}
+
+export type SkillFolderUpdate = {
+  name?: string | null
+}
+
+/**
+ * Payload for moving a skill into a folder.
+ */
+export type SkillMoveToFolder = {
+  folder_path?: string | null
+}
+
 /**
  * Full response model for a workspace skill.
  */
@@ -7720,6 +7828,8 @@ export type SkillRead = {
   slug: string
   description?: string | null
   current_version_id?: string | null
+  folder_id?: string | null
+  tags?: Array<TagRead>
   draft_revision: number
   created_at: string
   updated_at: string
@@ -7745,9 +7855,28 @@ export type SkillReadMinimal = {
   slug: string
   description?: string | null
   current_version_id?: string | null
+  folder_id?: string | null
+  tags?: Array<TagRead>
   created_at: string
   updated_at: string
   deleted_at?: string | null
+}
+
+/**
+ * Payload for adding a tag to a skill.
+ */
+export type SkillTagCreate = {
+  tag_id: string
+}
+
+/**
+ * Tag data.
+ */
+export type SkillTagRead = {
+  id: string
+  name: string
+  ref: string
+  color: string | null
 }
 
 /**
@@ -12272,6 +12401,14 @@ export type AgentSkillsArchiveSkillData = {
 
 export type AgentSkillsArchiveSkillResponse = void
 
+export type AgentSkillsMoveSkillData = {
+  requestBody: SkillMoveToFolder
+  skillId: string
+  workspaceId: string
+}
+
+export type AgentSkillsMoveSkillResponse = void
+
 export type AgentSkillsGetSkillDraftData = {
   skillId: string
   workspaceId: string
@@ -12345,6 +12482,136 @@ export type AgentSkillsRestoreSkillVersionData = {
 }
 
 export type AgentSkillsRestoreSkillVersionResponse = SkillReadMinimal
+
+export type SkillFoldersGetDirectoryData = {
+  /**
+   * Folder path
+   */
+  path?: string
+  workspaceId: string
+}
+
+export type SkillFoldersGetDirectoryResponse = Array<
+  SkillDirectoryItem | SkillFolderDirectoryItem
+>
+
+export type SkillFoldersListFoldersData = {
+  cursor?: string | null
+  limit?: number
+  /**
+   * Parent folder path
+   */
+  parentPath?: string
+  reverse?: boolean
+  workspaceId: string
+}
+
+export type SkillFoldersListFoldersResponse =
+  CursorPaginatedResponse_SkillFolderRead_
+
+export type SkillFoldersCreateFolderData = {
+  requestBody: SkillFolderCreate
+  workspaceId: string
+}
+
+export type SkillFoldersCreateFolderResponse = SkillFolderRead
+
+export type SkillFoldersGetFolderData = {
+  folderId: string
+  workspaceId: string
+}
+
+export type SkillFoldersGetFolderResponse = SkillFolderRead
+
+export type SkillFoldersUpdateFolderData = {
+  folderId: string
+  requestBody: SkillFolderUpdate
+  workspaceId: string
+}
+
+export type SkillFoldersUpdateFolderResponse = SkillFolderRead
+
+export type SkillFoldersDeleteFolderData = {
+  folderId: string
+  requestBody?: SkillFolderDelete | null
+  workspaceId: string
+}
+
+export type SkillFoldersDeleteFolderResponse = void
+
+export type SkillFoldersMoveFolderData = {
+  folderId: string
+  requestBody: SkillFolderMove
+  workspaceId: string
+}
+
+export type SkillFoldersMoveFolderResponse = SkillFolderRead
+
+export type SkillTagsListSkillTagsData = {
+  cursor?: string | null
+  limit?: number
+  reverse?: boolean
+  workspaceId: string
+}
+
+export type SkillTagsListSkillTagsResponse =
+  CursorPaginatedResponse_SkillTagRead_
+
+export type SkillTagsCreateSkillTagData = {
+  requestBody: TagCreate
+  workspaceId: string
+}
+
+export type SkillTagsCreateSkillTagResponse = SkillTagRead
+
+export type SkillTagsGetSkillTagData = {
+  tagId: string
+  workspaceId: string
+}
+
+export type SkillTagsGetSkillTagResponse = SkillTagRead
+
+export type SkillTagsUpdateSkillTagData = {
+  requestBody: TagUpdate
+  tagId: string
+  workspaceId: string
+}
+
+export type SkillTagsUpdateSkillTagResponse = SkillTagRead
+
+export type SkillTagsDeleteSkillTagData = {
+  tagId: string
+  workspaceId: string
+}
+
+export type SkillTagsDeleteSkillTagResponse = void
+
+export type AgentSkillsListSkillTagsData = {
+  cursor?: string | null
+  limit?: number
+  reverse?: boolean
+  skillId: string
+  workspaceId: string
+}
+
+export type AgentSkillsListSkillTagsResponse =
+  CursorPaginatedResponse_SkillTagRead_
+
+export type AgentSkillsAddSkillTagData = {
+  requestBody: SkillTagCreate
+  skillId: string
+  workspaceId: string
+}
+
+export type AgentSkillsAddSkillTagResponse = unknown
+
+export type AgentSkillsRemoveSkillTagData = {
+  skillId: string
+  tagId: string
+  workspaceId: string
+}
+
+export type AgentSkillsRemoveSkillTagResponse = void
 
 export type AgentSessionsCreateSessionData = {
   requestBody: AgentSessionCreate
@@ -17597,6 +17864,21 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workspaces/{workspace_id}/agent/skills/{skill_id}/move": {
+    post: {
+      req: AgentSkillsMoveSkillData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workspaces/{workspace_id}/agent/skills/{skill_id}/draft": {
     get: {
       req: AgentSkillsGetSkillDraftData
@@ -17723,6 +18005,217 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: SkillReadMinimal
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/skill-folders/directory": {
+    get: {
+      req: SkillFoldersGetDirectoryData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<SkillDirectoryItem | SkillFolderDirectoryItem>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/skill-folders": {
+    get: {
+      req: SkillFoldersListFoldersData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_SkillFolderRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: SkillFoldersCreateFolderData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: SkillFolderRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/skill-folders/{folder_id}": {
+    get: {
+      req: SkillFoldersGetFolderData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SkillFolderRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: SkillFoldersUpdateFolderData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SkillFolderRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: SkillFoldersDeleteFolderData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/skill-folders/{folder_id}/move": {
+    post: {
+      req: SkillFoldersMoveFolderData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SkillFolderRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/skill-tags": {
+    get: {
+      req: SkillTagsListSkillTagsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_SkillTagRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: SkillTagsCreateSkillTagData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: SkillTagRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/skill-tags/{tag_id}": {
+    get: {
+      req: SkillTagsGetSkillTagData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SkillTagRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: SkillTagsUpdateSkillTagData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SkillTagRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: SkillTagsDeleteSkillTagData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/skills/{skill_id}/tags": {
+    get: {
+      req: AgentSkillsListSkillTagsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_SkillTagRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: AgentSkillsAddSkillTagData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/skills/{skill_id}/tags/{tag_id}": {
+    delete: {
+      req: AgentSkillsRemoveSkillTagData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
         /**
          * Validation Error
          */

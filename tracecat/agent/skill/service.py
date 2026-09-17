@@ -99,6 +99,7 @@ from tracecat.pagination import (
 )
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.storage import blob
+from tracecat.tags.schemas import TagRead
 
 INLINE_TEXT_LIMIT_BYTES = 256 * 1024
 DEFAULT_UPLOAD_TTL_SECONDS = 15 * 60
@@ -1817,6 +1818,10 @@ class SkillService(SkillBindingService):
             slug=skill.slug or skill.name,
             description=skill.description,
             current_version_id=skill.current_version_id,
+            folder_id=skill.folder_id,
+            tags=[
+                TagRead.model_validate(tag, from_attributes=True) for tag in skill.tags
+            ],
             draft_revision=skill.draft_revision,
             created_at=skill.created_at,
             updated_at=skill.updated_at,
@@ -1840,6 +1845,10 @@ class SkillService(SkillBindingService):
             slug=skill.slug or skill.name,
             description=skill.description,
             current_version_id=skill.current_version_id,
+            folder_id=skill.folder_id,
+            tags=[
+                TagRead.model_validate(tag, from_attributes=True) for tag in skill.tags
+            ],
             created_at=skill.created_at,
             updated_at=skill.updated_at,
             deleted_at=skill.deleted_at or skill.archived_at,
@@ -2015,7 +2024,7 @@ class SkillService(SkillBindingService):
             predicates.extend((Skill.deleted_at.is_(None), Skill.archived_at.is_(None)))
         stmt = (
             select(Skill)
-            .options(selectinload(Skill.current_version))
+            .options(selectinload(Skill.current_version), selectinload(Skill.tags))
             .where(*predicates)
         )
         if include_archived:
@@ -2054,7 +2063,7 @@ class SkillService(SkillBindingService):
         # wins; ties order like the backfill migration (created_at, id).
         stmt = (
             select(Skill)
-            .options(selectinload(Skill.current_version))
+            .options(selectinload(Skill.current_version), selectinload(Skill.tags))
             .where(
                 Skill.workspace_id == self.workspace_id,
                 sa.or_(
@@ -2221,10 +2230,14 @@ class SkillService(SkillBindingService):
         """List workspace skills with cursor pagination."""
 
         paginator = BaseCursorPaginator(self.session)
-        stmt = select(Skill).where(
-            Skill.workspace_id == self.workspace_id,
-            Skill.deleted_at.is_(None),
-            Skill.archived_at.is_(None),
+        stmt = (
+            select(Skill)
+            .where(
+                Skill.workspace_id == self.workspace_id,
+                Skill.deleted_at.is_(None),
+                Skill.archived_at.is_(None),
+            )
+            .options(selectinload(Skill.tags))
         )
         if params.cursor:
             try:
