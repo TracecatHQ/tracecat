@@ -47,28 +47,15 @@ def configuration_matches(
 class EmbeddingSettingsStorage(SearchStorage):
     """Internal boundary for trusted indexing/query scopes, never caller-picked secrets."""
 
-    async def current(self) -> tuple[int, SearchState, SearchEmbeddingConfig | None]:
-        """Read the saved pointer and record without reconstructing a live model."""
+    async def current(
+        self,
+    ) -> tuple[SearchWorkspaceState | None, SearchEmbeddingConfig | None]:
+        """Read the current workspace state and its saved configuration together."""
         state = await self.session.scalar(
             select(SearchWorkspaceState).where(self._scope(SearchWorkspaceState))
         )
-        if state is None:
-            return 0, SearchState.DISABLED, None
-        return (
-            state.current_version,
-            SearchState(state.state),
-            await self._configuration(state.current_version),
-        )
-
-    async def reconciliation_pending(self) -> bool:
-        """Report durable rebuild work, including after selection has been pinned."""
-        return bool(
-            await self.session.scalar(
-                select(SearchWorkspaceState.reconciliation_required).where(
-                    self._scope(SearchWorkspaceState)
-                )
-            )
-        )
+        saved = await self._configuration(state.current_version) if state else None
+        return state, saved
 
     async def available(self) -> tuple[PinnedConfiguration, ResolvedCredential] | None:
         """Load permitted connections and select a recipe without provider calls."""
@@ -161,14 +148,13 @@ class EmbeddingSettingsStorage(SearchStorage):
         """Pin automatic selection before work; callers commit before provider I/O."""
         await self.lock_scope()
         selected = await self.available()
-        _, state, saved = await self.current()
+        workspace, saved = await self.current()
+        paused = workspace is not None and workspace.state == SearchState.PAUSED
         if selected is None:
             if saved is not None:
                 await self.set_state(SearchState.REINDEX_REQUIRED)
                 await self.set_state(
-                    SearchState.PAUSED
-                    if state == SearchState.PAUSED
-                    else SearchState.DISABLED
+                    SearchState.PAUSED if paused else SearchState.DISABLED
                 )
             return None
         candidate, credential = selected
@@ -187,6 +173,6 @@ class EmbeddingSettingsStorage(SearchStorage):
             assert saved is not None
             saved.credential_id = candidate.credential_id
             saved.credential_environment = candidate.credential_environment
-        if state != SearchState.PAUSED:
+        if not paused:
             await self.set_state(SearchState.ACTIVE)
         return replace(candidate, version=saved.version), credential

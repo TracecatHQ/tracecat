@@ -1,7 +1,6 @@
 """Automatic provider selection against PostgreSQL and a local HTTP provider."""
 
 import asyncio
-import hashlib
 import ipaddress
 import threading
 import uuid
@@ -17,6 +16,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from tests.database import TEST_DB_CONFIG
+from tests.embedding_helpers import configuration_for, request_for, wire_response
 from tracecat import config
 from tracecat.agent.service import AgentManagementService
 from tracecat.auth.secrets import get_db_encryption_key
@@ -42,7 +42,6 @@ from tracecat.search.embeddings.service import (
 )
 from tracecat.search.embeddings.types import EmbeddingError, EmbeddingErrorCode
 from tracecat.search.types import (
-    EmbeddingInput,
     EmbeddingRequest,
     SearchScope,
     SearchState,
@@ -85,31 +84,18 @@ def provider_server():
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             if self.path.endswith("/api/embed"):
-                assert data["truncate"] is False
-                payload = {
-                    "model": data["model"],
-                    "embeddings": [[1.0] * 384 for _ in data["input"]],
-                    "prompt_eval_count": 8,
-                }
+                provider, count = "ollama", len(data["input"])
             elif "batchEmbedContents" in self.path:
-                payload = {
-                    "embeddings": [{"values": [1.0] * 3072} for _ in data["requests"]]
-                }
+                provider, count = "gemini", len(data["requests"])
             elif "invoke" in self.path:
-                payload = {"embedding": [1.0] * 1024, "inputTextTokenCount": 8}
+                provider, count = "bedrock", 1
             else:
-                payload = {
-                    "model": data["model"],
-                    "data": [
-                        {
-                            "index": i,
-                            "embedding": [1.0]
-                            * (384 if "MiniLM" in data["model"] else 1536),
-                        }
-                        for i in reversed(range(len(data["input"])))
-                    ],
-                    "usage": {"prompt_tokens": 8, "total_tokens": 8},
-                }
+                provider = "vllm" if "MiniLM" in data["model"] else "openai"
+                count = len(data["input"])
+            configuration = configuration_for(provider)
+            payload = wire_response(
+                configuration, [[1.0] * configuration.spec.dimensions] * count
+            )
             self.wfile.write(orjson.dumps(payload))
 
         def log_message(self, format, *args):
@@ -194,13 +180,7 @@ class ConfigurationCase:
         scope = self.scope(index)
         selected = await resolve_embedding_configuration(scope)
         assert selected is not None
-        text = "synthetic passage"
-        return EmbeddingRequest(
-            scope,
-            selected.version,
-            selected.spec.dimensions,
-            (EmbeddingInput(0, hashlib.sha256(text.encode()).hexdigest(), text),),
-        )
+        return replace(request_for(selected, ("synthetic passage",)), scope=scope)
 
     async def connect(self, provider="openai", index=0, values=None):
         scope = self.scope(index)
@@ -239,6 +219,14 @@ class ConfigurationCase:
             await session.flush()
             return catalog.id, secret.id
 
+    def setting(self, key, value, index=0):
+        return OrganizationSetting(
+            organization_id=self.scope(index).organization_id,
+            key=key,
+            value=orjson.dumps(value),
+            value_type="json",
+        )
+
     async def prefer(self, catalog_id, index=0):
         async with self.sessions.begin() as session:
             await session.execute(
@@ -249,19 +237,12 @@ class ConfigurationCase:
                 )
             )
             session.add(
-                OrganizationSetting(
-                    organization_id=self.scope(index).organization_id,
-                    key="agent_default_model_catalog_id",
-                    value=orjson.dumps(str(catalog_id)),
-                    value_type="json",
-                )
+                self.setting("agent_default_model_catalog_id", str(catalog_id), index)
             )
 
 
 @pytest.fixture
-async def embedding_case(
-    monkeypatch, provider_server
-) -> AsyncIterator[ConfigurationCase]:
+async def case(monkeypatch, provider_server) -> AsyncIterator[ConfigurationCase]:
     monkeypatch.setattr(config, "TRACECAT__DB_URI", TEST_DB_CONFIG.test_url)
     monkeypatch.setattr(
         config,
@@ -331,10 +312,7 @@ async def embedding_case(
 @pytest.mark.parametrize(
     "provider,dimensions", [("openai", 1536), ("gemini", 3072), ("bedrock", 1024)]
 )
-async def test_automatically_reuses_existing_provider(
-    embedding_case, provider, dimensions
-):
-    case = embedding_case
+async def test_automatically_reuses_existing_provider(case, provider, dimensions):
     await case.connect(provider)
     status = await case.service().get()
     assert status.available and status.configuration.provider == provider
@@ -348,9 +326,8 @@ async def test_automatically_reuses_existing_provider(
 
 
 async def test_no_supported_provider_is_unavailable_without_network_or_state(
-    embedding_case,
+    case,
 ):
-    case = embedding_case
     await case.connect("anthropic")
     assert not (await case.service().get()).available
     async with case.sessions() as session:
@@ -370,8 +347,7 @@ async def test_no_supported_provider_is_unavailable_without_network_or_state(
     assert not case.server.calls
 
 
-async def test_default_provider_and_fixed_fallback_order(embedding_case):
-    case = embedding_case
+async def test_default_provider_and_fixed_fallback_order(case):
     gemini, _ = await case.connect("gemini")
     await case.connect("openai")
     first = await resolve_embedding_configuration(case.scope())
@@ -387,8 +363,7 @@ async def test_default_provider_and_fixed_fallback_order(embedding_case):
         assert state.reconciliation_required
 
 
-async def test_workspace_access_overrides_and_cross_org_isolation(embedding_case):
-    case = embedding_case
+async def test_workspace_access_overrides_and_cross_org_isolation(case):
     await case.connect("openai")
     gemini, _ = await case.connect("gemini")
     assert not (await case.service(1).get()).available
@@ -413,8 +388,7 @@ async def test_workspace_access_overrides_and_cross_org_isolation(embedding_case
     assert not (await case.service(1).get()).available
 
 
-async def test_credential_rotation_keeps_version_and_removal_disables(embedding_case):
-    case = embedding_case
+async def test_credential_rotation_keeps_version_and_removal_disables(case):
     _, secret_id = await case.connect()
     request = await case.request()
     async with case.sessions.begin() as session:
@@ -441,10 +415,7 @@ async def test_credential_rotation_keeps_version_and_removal_disables(embedding_
 
 
 @pytest.mark.parametrize("status", [401, 429, 503])
-async def test_provider_failure_does_not_select_another_provider(
-    embedding_case, status
-):
-    case = embedding_case
+async def test_provider_failure_does_not_select_another_provider(case, status):
     await case.connect("openai")
     await case.connect("gemini")
     request = await case.request()
@@ -456,10 +427,7 @@ async def test_provider_failure_does_not_select_another_provider(
 
 
 @pytest.mark.parametrize("change", ["remove", "preference", "region"])
-async def test_changes_during_provider_call_reject_stale_results(
-    embedding_case, change
-):
-    case = embedding_case
+async def test_changes_during_provider_call_reject_stale_results(case, change):
     _, secret_id = await case.connect("bedrock" if change == "region" else "openai")
     gemini, _ = await case.connect("gemini")
     if change == "region":
@@ -504,8 +472,7 @@ async def test_changes_during_provider_call_reject_stale_results(
     assert caught.value.code == EmbeddingErrorCode.CONFIGURATION_CHANGED
 
 
-async def test_invalid_preferred_credential_does_not_fall_back(embedding_case):
-    case = embedding_case
+async def test_invalid_preferred_credential_does_not_fall_back(case):
     await case.connect("openai", values={"OPENAI_API_KEY": ""})
     await case.connect("gemini")
     with pytest.raises(EmbeddingError) as caught:
@@ -514,8 +481,7 @@ async def test_invalid_preferred_credential_does_not_fall_back(embedding_case):
     assert not case.server.calls
 
 
-async def test_status_requires_workspace_read_but_not_secret_read(embedding_case):
-    case = embedding_case
+async def test_status_requires_workspace_read_but_not_secret_read(case):
     await case.connect()
     assert (await case.service().get()).available
     role = case.roles[0].model_copy(update={"scopes": frozenset()})
@@ -523,8 +489,7 @@ async def test_status_requires_workspace_read_but_not_secret_read(embedding_case
         await WorkspaceEmbeddingService(role).get()
 
 
-async def test_provider_reconnection_preserves_operational_pause(embedding_case):
-    case = embedding_case
+async def test_provider_reconnection_preserves_operational_pause(case):
     _, secret_id = await case.connect()
     await case.request()
     async with case.sessions.begin() as session:
@@ -545,40 +510,6 @@ async def test_provider_reconnection_preserves_operational_pause(embedding_case)
     assert not case.server.calls
 
 
-@pytest.mark.parametrize("old_recipe", ["legacy", "tokenizer", "adapter"])
-async def test_persisted_recipe_change_invalidates_old_work(embedding_case, old_recipe):
-    case = embedding_case
-    await case.connect()
-    old_request = await case.request()
-    selected = await resolve_embedding_configuration(case.scope())
-    assert selected is not None
-    async with case.sessions.begin() as session:
-        config = await case.saved_configuration(session, selected.version)
-        # Simulate the snapshot written by a previous deployment. All persisted
-        # provider/model/dimension/input-limit fields remain unchanged.
-        config.recipe_revision = (
-            None
-            if old_recipe == "legacy"
-            else recipe_revision(
-                replace(selected.spec, tokenizer="previous-tokenizer")
-                if old_recipe == "tokenizer"
-                else replace(selected.spec, recipe_version=0)
-            )
-        )
-        state = await case.state(session)
-        state.reconciliation_required = False
-    assert (await case.service().get()).reindex_required
-    with pytest.raises(EmbeddingError) as caught:
-        await embed_current(old_request, case.client)
-    assert caught.value.code == EmbeddingErrorCode.CONFIGURATION_CHANGED
-    assert not case.server.calls
-    current = await resolve_embedding_configuration(case.scope())
-    assert current is not None and current.version > selected.version
-    assert current.recipe_revision == recipe_revision(current.spec)
-    assert (await case.service().get()).reindex_required
-    assert (await case.request()).config_version == current.version
-
-
 @pytest.mark.parametrize(
     "base_url",
     [
@@ -587,8 +518,7 @@ async def test_persisted_recipe_change_invalidates_old_work(embedding_case, old_
         "http://api.openai.com/v1",
     ],
 )
-async def test_custom_openai_base_url_never_sends_credentials(embedding_case, base_url):
-    case = embedding_case
+async def test_custom_openai_base_url_never_sends_credentials(case, base_url):
     _, secret_id = await case.connect()
     await case.connect("gemini")  # Rejection must not silently switch providers.
     request = await case.request()
@@ -613,8 +543,7 @@ async def test_custom_openai_base_url_never_sends_credentials(embedding_case, ba
 @pytest.mark.parametrize(
     "base_url", ["", "https://api.openai.com/v1", "https://api.openai.com/v1/"]
 )
-async def test_standard_openai_base_url_remains_supported(embedding_case, base_url):
-    case = embedding_case
+async def test_standard_openai_base_url_remains_supported(case, base_url):
     await case.connect(
         values={"OPENAI_API_KEY": "synthetic-openai", "OPENAI_BASE_URL": base_url}
     )
@@ -634,33 +563,15 @@ async def test_standard_openai_base_url_remains_supported(embedding_case, base_u
     ],
 )
 async def test_agents_and_search_share_default_model_resolution(
-    embedding_case, scenario, expected_default
+    case, scenario, expected_default
 ):
-    case = embedding_case
     openai_id, _ = await case.connect("openai")
     gemini_id, _ = await case.connect("gemini")
     async with case.sessions.begin() as session:
-        session.add(
-            OrganizationSetting(
-                organization_id=case.scope().organization_id,
-                key="agent_default_model",
-                value=orjson.dumps("synthetic-gemini-chat"),
-                value_type="json",
-                is_encrypted=False,
-            )
-        )
+        session.add(case.setting("agent_default_model", "synthetic-gemini-chat"))
         if scenario in {"canonical", "malformed_id", "disabled_id"}:
-            session.add(
-                OrganizationSetting(
-                    organization_id=case.scope().organization_id,
-                    key="agent_default_model_catalog_id",
-                    value=orjson.dumps(
-                        "invalid-id" if scenario == "malformed_id" else str(gemini_id)
-                    ),
-                    value_type="json",
-                    is_encrypted=False,
-                )
-            )
+            catalog_id = "invalid-id" if scenario == "malformed_id" else str(gemini_id)
+            session.add(case.setting("agent_default_model_catalog_id", catalog_id))
         if scenario == "disabled_id":
             await session.execute(
                 delete(AgentModelAccess).where(AgentModelAccess.catalog_id == gemini_id)
@@ -690,25 +601,35 @@ async def test_agents_and_search_share_default_model_resolution(
     assert not case.server.calls
 
 
-async def test_agent_default_lookup_still_requires_agent_read(embedding_case):
-    case = embedding_case
+async def test_agent_default_lookup_still_requires_agent_read(case):
     async with case.sessions() as session:
         service = AgentManagementService(session, role=case.roles[0])
         with pytest.raises(ScopeDeniedError):
             await service.get_default_model_selection()
 
 
-@pytest.mark.parametrize("paused", [False, True])
-@pytest.mark.parametrize("provider_removed", [False, True])
-async def test_retired_model_recovers_or_disables_without_losing_pause(
-    embedding_case, paused, provider_removed
+@pytest.mark.parametrize(
+    "change,paused,provider_removed",
+    [
+        ("legacy_recipe", False, False),
+        ("old_recipe", False, False),
+        ("retired_model", False, False),
+        ("retired_model", True, False),
+        ("retired_model", False, True),
+        ("retired_model", True, True),
+    ],
+)
+async def test_saved_configuration_change_rebuilds_or_disables(
+    case, change, paused, provider_removed
 ):
-    case = embedding_case
     _, secret_id = await case.connect()
     request = await case.request()
     async with case.sessions.begin() as session:
         config = await case.saved_configuration(session, request.config_version)
-        config.model = "retired-embedding-model"
+        if change == "retired_model":
+            config.model = "retired-embedding-model"
+        else:
+            config.recipe_revision = None if change == "legacy_recipe" else "old-recipe"
         state = await case.state(session)
         state.state = SearchState.PAUSED if paused else SearchState.ACTIVE
         state.reconciliation_required = False
@@ -716,14 +637,16 @@ async def test_retired_model_recovers_or_disables_without_losing_pause(
             await session.execute(
                 delete(OrganizationSecret).where(OrganizationSecret.id == secret_id)
             )
-    # Availability must remain readable even when the saved model is retired.
-    assert (await case.service().get()).available is not provider_removed
+    status = await case.service().get()
+    assert status.available is not provider_removed
+    assert status.reindex_required
     selected = await resolve_embedding_configuration(case.scope())
     if provider_removed:
         assert selected is None
     else:
         assert selected is not None and selected.version > request.config_version
         assert selected.spec.model == "text-embedding-3-small"
+        assert selected.recipe_revision == recipe_revision(selected.spec)
     async with case.sessions() as session:
         state = await case.state(session)
         version = state.current_version
@@ -739,8 +662,14 @@ async def test_retired_model_recovers_or_disables_without_losing_pause(
     async with case.sessions() as session:
         state = await case.state(session)
         assert state.current_version == version
-    with pytest.raises(EmbeddingError):
+    with pytest.raises(EmbeddingError) as caught:
         await embed_current(request, case.client)
+    assert caught.value.code == (
+        EmbeddingErrorCode.NOT_CONFIGURED
+        if paused or provider_removed
+        else EmbeddingErrorCode.CONFIGURATION_CHANGED
+    )
+    assert (await case.service().get()).reindex_required
     assert not case.server.calls
 
 
@@ -752,9 +681,8 @@ async def test_retired_model_recovers_or_disables_without_losing_pause(
     ],
 )
 async def test_self_hosted_discovery_selection_embedding_and_removal(
-    embedding_case, provider, model, monkeypatch
+    case, provider, model, monkeypatch
 ):
-    case = embedding_case
     await case.connect(provider, values={f"{provider.upper()}_BASE_URL": case.base_url})
     assert not (await case.service().get()).available  # Chat alone is insufficient.
     case.server.models = (model, "synthetic-chat")
@@ -802,10 +730,7 @@ async def test_self_hosted_discovery_selection_embedding_and_removal(
         ("vllm", "sentence-transformers/all-MiniLM-L6-v2"),
     ],
 )
-async def test_self_hosted_model_access_and_endpoint_versioning(
-    embedding_case, provider, model
-):
-    case = embedding_case
+async def test_self_hosted_model_access_and_endpoint_versioning(case, provider, model):
     chat_id, secret_id = await case.connect(
         provider, values={f"{provider.upper()}_BASE_URL": case.base_url}
     )
@@ -859,8 +784,7 @@ async def test_self_hosted_model_access_and_endpoint_versioning(
     assert await resolve_embedding_configuration(case.scope(1)) is None
 
 
-async def test_unused_corrupt_credentials_do_not_break_selection(embedding_case):
-    case = embedding_case
+async def test_unused_corrupt_credentials_do_not_break_selection(case):
     await case.connect("openai")
     _, secret_id = await case.connect("gemini")
     async with case.sessions.begin() as session:

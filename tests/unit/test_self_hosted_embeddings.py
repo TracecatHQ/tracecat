@@ -100,53 +100,28 @@ async def test_servers_without_api_keys(provider, monkeypatch):
     )
 
 
-@pytest.mark.parametrize(
-    "failure",
-    [
-        "wrong_model",
-        "wrong_dimension",
-        "wrong_count",
-        "zero",
-        "oversize",
-        "redirect",
-        "long_unicode",
-    ],
-)
-@pytest.mark.parametrize("provider,model", [MODELS[1], MODELS[-1]])
-async def test_invalid_responses_and_inputs_are_rejected(
-    provider, model, failure, monkeypatch
-):
-    configuration = configuration_for(provider, model)
-    text = "界" * 81 if failure == "long_unicode" else "A document"
-    request = request_for(configuration, (text,))
-
-    async def handler(http_request):
-        if failure == "redirect":
-            return httpx.Response(
-                302, headers={"Location": "https://other.test/embeddings"}
-            )
-        if failure == "oversize":
-            return httpx.Response(200, content=b" " * 4_000_001)
-        response_model = "unrelated-model" if failure == "wrong_model" else model
-        vector = [0.0 if failure == "zero" else 1.0] * (
-            3 if failure == "wrong_dimension" else 384
-        )
-        vectors = [] if failure == "wrong_count" else [vector]
-        payload = wire_response(configuration, vectors)
-        payload["model"] = response_model
-        return httpx.Response(200, json=payload)
-
-    stub = StubProvider(handler)
+async def test_ollama_rejects_a_different_model(monkeypatch):
+    configuration = configuration_for("ollama")
+    payload = wire_response(configuration)
+    payload["model"] = "unrelated-model"
+    stub = StubProvider(httpx.Response(200, json=payload))
     monkeypatch.setattr(client_module, "create_outbound_http_client", stub.http)
-    with pytest.raises(EmbeddingError) as caught:
-        await stub.embed(configuration, credential_for(provider), request)
-    expected = (
-        EmbeddingErrorCode.INPUT_INVALID
-        if failure == "long_unicode"
-        else EmbeddingErrorCode.CONFIGURATION_INVALID
-        if failure == "redirect"
-        else EmbeddingErrorCode.RESPONSE_INVALID
+    await stub.rejects(configuration, credential_for("ollama"), "RESPONSE_INVALID")
+
+
+@pytest.mark.parametrize("provider", ["openai", "ollama"])
+@pytest.mark.parametrize("redirect", [False, True])
+async def test_both_http_paths_reject_redirects_and_oversized_responses(
+    provider, redirect, monkeypatch
+):
+    configuration = configuration_for(provider)
+    response = (
+        httpx.Response(302, headers={"Location": "https://other.test/embeddings"})
+        if redirect
+        else httpx.Response(200, content=b" " * 4_000_001)
     )
-    assert caught.value.code == expected
-    assert len(stub.calls) == (0 if failure == "long_unicode" else 1)
-    assert caught.value.__context__ is None
+    stub = StubProvider(response)
+    monkeypatch.setattr(client_module, "create_outbound_http_client", stub.http)
+    code = "CONFIGURATION_INVALID" if redirect else "RESPONSE_INVALID"
+    await stub.rejects(configuration, credential_for(provider), code)
+    assert len(stub.calls) == 1

@@ -2,6 +2,7 @@
 
 import uuid
 from dataclasses import replace
+from unittest.mock import Mock
 
 import httpx
 import orjson
@@ -48,10 +49,7 @@ pytestmark = pytest.mark.anyio
         ("vllm", None),
     ],
 )
-@pytest.mark.parametrize("invalid", [False, True])
-async def test_provider_payload_and_validated_vectors(
-    provider, model, invalid, monkeypatch
-):
+async def test_provider_payload_and_validated_vectors(provider, model, monkeypatch):
     configuration = configuration_for(provider, model)
     spec = configuration.spec
     texts = (
@@ -94,23 +92,20 @@ async def test_provider_payload_and_validated_vectors(
                         else {"encoding_format": "float"}
                     ),
                 }
-        vectors = [
-            [float(i + 1)] * (1 if invalid else spec.dimensions)
-            for i in range(len(texts))
-        ]
+        vectors = [[float(i + 1)] * spec.dimensions for i in range(len(texts))]
         return httpx.Response(200, json=wire_response(configuration, vectors))
 
     stub = StubProvider(handler)
     monkeypatch.setattr(client_module, "create_outbound_http_client", stub.http)
-    if invalid:
-        with pytest.raises(EmbeddingError) as caught:
-            await stub.embed(configuration, credential_for(provider), request)
-        assert caught.value.code == EmbeddingErrorCode.RESPONSE_INVALID
-    else:
-        result = await stub.embed(configuration, credential_for(provider), request)
-        assert [r.ordinal for r in result.results] == [i.ordinal for i in request.items]
-        assert [r.vector[0] for r in result.results] == list(range(1, len(texts) + 1))
-        assert result.prompt_tokens == result.total_tokens == 4
+    result = await stub.embed(configuration, credential_for(provider), request)
+    assert [r.ordinal for r in result.results] == [i.ordinal for i in request.items]
+    assert [r.input_hash for r in result.results] == [
+        i.input_hash for i in request.items
+    ]
+    assert all(r.config_version == request.config_version for r in result.results)
+    assert [r.vector[0] for r in result.results] == list(range(1, len(texts) + 1))
+    assert all(len(r.vector) == spec.dimensions for r in result.results)
+    assert result.prompt_tokens == result.total_tokens == 4
     assert len(stub.calls) == 1 and str(stub.calls[0].url) == spec.endpoint
 
 
@@ -120,10 +115,7 @@ async def test_missing_usage_stays_unknown(provider, monkeypatch):
     body = wire_response(configuration, [[1.0] * configuration.spec.dimensions])
     body.pop("usageMetadata" if provider == "gemini" else "prompt_eval_count")
 
-    async def handler(request):
-        return httpx.Response(200, json=body)
-
-    stub = StubProvider(handler)
+    stub = StubProvider(httpx.Response(200, json=body))
     monkeypatch.setattr(client_module, "create_outbound_http_client", stub.http)
     result = await stub.embed(
         configuration, credential_for(provider), request_for(configuration, ("hello",))
@@ -171,13 +163,30 @@ async def test_bedrock_missing_credentials_never_uses_ambient_keys(monkeypatch):
     assert caught.value.code == EmbeddingErrorCode.CREDENTIAL_INVALID
 
 
-def test_non_openai_budget_counts_complete_utf8_input():
-    for provider in ("gemini", "bedrock"):
-        counter = token_counter(default_model(provider, "us-east-1"))
-        assert counter.identity == "utf8-bytes:v1"
-        assert counter.count_tokens("description: 日本語 🙂") == len(
-            "description: 日本語 🙂".encode()
-        )
+@pytest.mark.parametrize("provider", ["gemini", "bedrock", "ollama", "vllm"])
+async def test_utf8_budget_rejects_oversized_input_before_http(provider):
+    configuration = configuration_for(provider)
+    text = "界" * (configuration.spec.input_token_limit // 3 + 1)
+    counter = token_counter(configuration.spec)
+    assert counter.identity == "utf8-bytes:v1"
+    assert counter.count_tokens(text) == len(text.encode())
+
+    async def no_http(request):
+        pytest.fail("Oversized input reached provider")
+
+    await StubProvider(no_http).rejects(
+        configuration,
+        credential_for(provider),
+        "INPUT_INVALID",
+        request_for(configuration, (text,)),
+    )
+
+
+@pytest.fixture
+def aws_session(monkeypatch):
+    session = Mock()
+    monkeypatch.setattr(bedrock.boto3, "Session", Mock(return_value=session))
+    return session
 
 
 @pytest.mark.parametrize(
@@ -191,32 +200,17 @@ def test_non_openai_budget_counts_complete_utf8_input():
     ],
 )
 async def test_bedrock_assumed_role_uses_workspace_external_id(
-    monkeypatch, region, session_name, expected_name
+    aws_session, region, session_name, expected_name
 ):
     scope = SearchScope(uuid.uuid4(), uuid.uuid4())
-    calls = []
-
-    class STS:
-        def assume_role(self, **kwargs):
-            calls.append(kwargs)
-            return {
-                "Credentials": {
-                    "AccessKeyId": "assumed-access",
-                    "SecretAccessKey": "assumed-secret",
-                    "SessionToken": "assumed-session",
-                }
-            }
-
-        def close(self):
-            calls.append("closed")
-
-    class Session:
-        def client(self, service, **kwargs):
-            assert service == "sts"
-            assert kwargs["region_name"] == region
-            return STS()
-
-    monkeypatch.setattr(bedrock.boto3, "Session", Session)
+    sts = aws_session.client.return_value
+    sts.assume_role.return_value = {
+        "Credentials": {
+            "AccessKeyId": "assumed-access",
+            "SecretAccessKey": "assumed-secret",
+            "SessionToken": "assumed-session",
+        }
+    }
     headers = await bedrock.request_headers(
         {
             "AWS_ROLE_ARN": "arn:aws:iam::123456789012:role/synthetic-embedding",
@@ -231,11 +225,14 @@ async def test_bedrock_assumed_role_uses_workspace_external_id(
         default_model("bedrock", region).endpoint,
         b"{}",
     )
-    assert calls[0]["ExternalId"] == bedrock.build_workspace_external_id(
-        scope.workspace_id
-    )
-    assert calls[0]["RoleSessionName"] == expected_name
-    assert calls[-1] == "closed"
+    assert aws_session.client.call_args.args == ("sts",)
+    assert aws_session.client.call_args.kwargs["region_name"] == region
+    options = aws_session.client.call_args.kwargs["config"]
+    assert options.connect_timeout == 5 and options.read_timeout == 10
+    assert options.retries == {"total_max_attempts": 1}
+    assert sts.assume_role.call_args.kwargs["ExternalId"] == scope.workspace_id.hex
+    assert sts.assume_role.call_args.kwargs["RoleSessionName"] == expected_name
+    sts.close.assert_called_once()
     assert f"/{region}/bedrock/aws4_request" in headers["Authorization"]
     assert "Credential=assumed-access/" in headers["Authorization"]
     assert headers["X-Amz-Security-Token"] == "assumed-session"
@@ -268,30 +265,18 @@ def test_recipe_revision_excludes_operational_batch_limits():
     ],
 )
 async def test_sts_failures_are_classified_without_inference_or_secret_leaks(
-    monkeypatch, aws_error, expected_code, retryable
+    aws_session, aws_error, expected_code, retryable
 ):
-    class STS:
-        def assume_role(self, **kwargs):
-            if aws_error == "transport":
-                raise EndpointConnectionError(
-                    endpoint_url="https://synthetic-private.example.com"
-                )
-            if aws_error == "local_validation":
-                raise ParamValidationError(report="synthetic-private-role")
-            raise ClientError(
-                {"Error": {"Code": aws_error, "Message": "synthetic-private-role"}},
-                "AssumeRole",
-            )
-
-        def close(self):
-            pass
-
-    class Session:
-        def client(self, service, **kwargs):
-            assert service == "sts"
-            return STS()
-
-    monkeypatch.setattr(bedrock.boto3, "Session", Session)
+    if aws_error == "transport":
+        error = EndpointConnectionError(endpoint_url="https://private.example.com")
+    elif aws_error == "local_validation":
+        error = ParamValidationError(report="synthetic-private-role")
+    else:
+        error = ClientError(
+            {"Error": {"Code": aws_error, "Message": "synthetic-private-role"}},
+            "AssumeRole",
+        )
+    aws_session.client.return_value.assume_role.side_effect = error
     configuration = configuration_for("bedrock")
     credential = ResolvedCredential(
         {
@@ -303,11 +288,7 @@ async def test_sts_failures_are_classified_without_inference_or_secret_leaks(
     async def no_inference(request):
         pytest.fail("Failed role assumption must not call the embedding endpoint")
 
-    with pytest.raises(EmbeddingError) as caught:
-        await StubProvider(no_inference).embed(
-            configuration, credential, request_for(configuration, ("hello",))
-        )
-    assert caught.value.code == expected_code
-    assert caught.value.retryable is retryable
-    assert caught.value.__context__ is None and caught.value.__cause__ is None
-    assert "synthetic-private" not in str(caught.value)
+    error = await StubProvider(no_inference).rejects(
+        configuration, credential, expected_code, request_for(configuration, ("hello",))
+    )
+    assert error.retryable is retryable

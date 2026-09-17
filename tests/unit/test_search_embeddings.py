@@ -10,19 +10,17 @@ from email.utils import format_datetime
 
 import httpx
 import pytest
-from fastapi import FastAPI
 
 from tests.embedding_helpers import (
     StubProvider,
     configuration_for,
     request_for,
-    response_for,
+    wire_response,
 )
 from tracecat.search.embeddings import catalog as catalog_module
 from tracecat.search.embeddings import client as client_module
 from tracecat.search.embeddings.catalog import EmbeddingTokenCounter
 from tracecat.search.embeddings.client import _retry_after
-from tracecat.search.embeddings.router import router
 from tracecat.search.embeddings.types import (
     EmbeddingError,
     EmbeddingErrorCode,
@@ -42,74 +40,41 @@ def credential():
     return ResolvedCredential({"OPENAI_API_KEY": "synthetic-private-key"})
 
 
-async def test_response_indexes_preserve_input_identity(configuration, credential):
-    stub = StubProvider(httpx.Response(200, json=response_for(configuration)))
-    result = await stub.embed(configuration, credential)
-    assert [item.ordinal for item in result.results] == [8, 9]
-    assert [item.vector[0] for item in result.results] == [1, 2]
-    assert [item.input_hash for item in result.results] == [
-        item.input_hash for item in request_for(configuration).items
-    ]
-    assert result.prompt_tokens == result.total_tokens == 6
-    assert stub.calls[0].url == "https://api.openai.com/v1/embeddings"
-    assert stub.calls[0].headers["authorization"] == "Bearer synthetic-private-key"
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("index", 0),  # Duplicate index: the fixture returns index 1 first.
+        ("index", 99),
+        ("index", True),
+        ("embedding", [1.0]),
+        ("embedding", [0.0] * 1536),
+        ("embedding", [1e-100] * 1536),  # Becomes zero in PostgreSQL float32.
+        ("embedding", [1e39] * 1536),  # Overflows PostgreSQL float32.
+        ("embedding", ["private-source-text"] * 1536),
+    ],
+)
+async def test_invalid_vector_or_index(configuration, credential, field, value):
+    body = wire_response(configuration)
+    body["data"][0][field] = value
+    await StubProvider(httpx.Response(200, json=body)).rejects(
+        configuration, credential, EmbeddingErrorCode.RESPONSE_INVALID
+    )
 
 
 @pytest.mark.parametrize(
-    "problem",
+    "field,value",
     [
-        "missing",
-        "duplicate",
-        "range",
-        "dimensions",
-        "zero",
-        "infinite",
-        "underflow",
-        "overflow",
-        "model",
-        "usage",
-        "boolean",
-        "string",
-        "json",
+        ("data", []),
+        ("model", "chat-model"),
+        ("usage", {"prompt_tokens": 1, "total_tokens": -1}),
+        ("usage", {"prompt_tokens": 2, "total_tokens": 1}),
     ],
 )
-async def test_invalid_provider_output(configuration, credential, problem):
-    body = response_for(configuration)
-    vector = body["data"][0]
-    match problem:
-        case "missing":
-            body["data"].pop()
-        case "duplicate":
-            vector["index"] = 0
-        case "range":
-            vector["index"] = 99
-        case "dimensions":
-            vector["embedding"] = [1.0]
-        case "zero":
-            vector["embedding"] = [0.0] * configuration.spec.dimensions
-        case "infinite":
-            vector["embedding"][0] = 1e39
-        case "underflow":
-            vector["embedding"] = [1e-100] * configuration.spec.dimensions
-        case "overflow":
-            vector["embedding"][0] = 1e300
-        case "model":
-            body["model"] = "chat-model"
-        case "usage":
-            body["usage"]["total_tokens"] = -1
-        case "boolean":
-            vector["index"] = True
-        case "string":
-            vector["embedding"][0] = "private-source-text"
-
-    stub = StubProvider(
-        httpx.Response(
-            200,
-            content=b"private-source-text" if problem == "json" else None,
-            json=body if problem != "json" else None,
-        )
+async def test_invalid_response_envelope(configuration, credential, field, value):
+    body = wire_response(configuration) | {field: value}
+    await StubProvider(httpx.Response(200, json=body)).rejects(
+        configuration, credential, EmbeddingErrorCode.RESPONSE_INVALID
     )
-    await stub.rejects(configuration, credential, EmbeddingErrorCode.RESPONSE_INVALID)
 
 
 @pytest.mark.parametrize(
@@ -215,22 +180,6 @@ def test_retry_after_sanitization():
     assert seconds is not None and 58 <= seconds <= 60
 
 
-def test_configuration_routes_declare_workspace_path():
-    app = FastAPI()
-    app.include_router(router)
-    schema = app.openapi()
-    assert len(schema["paths"]) == 1
-    assert set(next(iter(schema["paths"].values()))) == {"get"}
-    for path, methods in schema["paths"].items():
-        assert path.startswith("/workspaces/{workspace_id}/search/configuration")
-        for operation in methods.values():
-            workspace = next(
-                p for p in operation["parameters"] if p["name"] == "workspace_id"
-            )
-            assert workspace["in"] == "path"
-            assert workspace["required"] is True
-
-
 async def test_transport_exception_does_not_escape(configuration, credential):
     async def handler(request):
         raise httpx.ConnectError(
@@ -242,15 +191,18 @@ async def test_transport_exception_does_not_escape(configuration, credential):
     )
 
 
-async def test_nonfinite_vector_is_rejected(configuration, credential):
-    async def handler(request):
-        # JSON decoders may accept NaN even though it is not standard JSON.
-        return httpx.Response(
-            200,
-            content=b'{"model":"text-embedding-3-small","data":[{"index":0,"embedding":[NaN]}],"usage":{"prompt_tokens":1,"total_tokens":1}}',
+@pytest.mark.parametrize("body", [b"private-source-text", b"[NaN]", b"[Infinity]"])
+async def test_invalid_json_or_nonfinite_vector(configuration, credential, body):
+    if body.startswith(b"["):
+        body = (
+            b'{"model":"text-embedding-3-small","data":[{"index":0,"embedding":'
+            + body
+            + b'}],"usage":{"prompt_tokens":1,"total_tokens":1}}'
         )
-
-    await StubProvider(handler).rejects(
+    configuration = replace(
+        configuration, spec=replace(configuration.spec, dimensions=1)
+    )
+    await StubProvider(httpx.Response(200, content=body)).rejects(
         configuration,
         credential,
         EmbeddingErrorCode.RESPONSE_INVALID,

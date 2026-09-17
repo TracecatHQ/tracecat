@@ -31,17 +31,6 @@ def request_for(configuration, texts=("summary: alpha", "summary: beta")):
     )
 
 
-def response_for(configuration, count=2):
-    return {
-        "model": configuration.spec.model,
-        "data": [
-            {"index": i, "embedding": [float(i + 1)] * configuration.spec.dimensions}
-            for i in reversed(range(count))
-        ],
-        "usage": {"prompt_tokens": 6, "total_tokens": 6},
-    }
-
-
 @dataclass
 class StubProvider:
     """Supply a response or handler and record calls to the real embedding client."""
@@ -108,8 +97,10 @@ def credential_for(provider, key="synthetic-key"):
     return ResolvedCredential({f"{provider.upper()}_API_KEY": key})
 
 
-def wire_response(configuration, vectors, *, tokens=4):
+def wire_response(configuration, vectors=None, *, tokens=4):
     """Representative API responses; the decoder under test never builds fixtures."""
+    if vectors is None:
+        vectors = [[float(i + 1)] * configuration.spec.dimensions for i in range(2)]
     provider, model = configuration.spec.provider, configuration.spec.model
     if provider == "gemini":
         return {

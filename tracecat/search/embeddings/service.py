@@ -35,24 +35,25 @@ class WorkspaceEmbeddingService:
         """Read availability without writes, remote probes, or secret metadata."""
         async with EmbeddingSettingsStorage.with_session(scope=self.scope) as store:
             selected = await store.available()
-            version, state, current = await store.current()
-            pending = await store.reconciliation_pending()
+            workspace, saved = await store.current()
+            spec = selected[0].spec if selected else None
             changed = not configuration_matches(
-                current, selected[0] if selected else None
+                saved, selected[0] if selected else None
             )
-        spec = selected[0].spec if selected else None
-        configuration = (
-            EmbeddingModelRead.model_validate(spec, from_attributes=True)
-            if spec
-            else None
-        )
-        return EmbeddingConfigurationRead(
-            available=spec is not None,
-            version=version,
-            state=SearchState.DISABLED if spec is None else state,
-            configuration=configuration,
-            reindex_required=changed or pending,
-        )
+            return EmbeddingConfigurationRead(
+                available=spec is not None,
+                version=workspace.current_version if workspace else 0,
+                state=SearchState(workspace.state)
+                if workspace and spec
+                else SearchState.DISABLED,
+                configuration=(
+                    EmbeddingModelRead.model_validate(spec, from_attributes=True)
+                    if spec
+                    else None
+                ),
+                reindex_required=changed
+                or bool(workspace and workspace.reconciliation_required),
+            )
 
 
 async def resolve_embedding_configuration(
@@ -79,9 +80,10 @@ async def embed_current(
     """
     async with EmbeddingSettingsStorage.with_session(scope=request.scope) as store:
         selected = await store.synchronize()
-        _, state, _ = await store.current()
+        workspace, _ = await store.current()
+        active = workspace is not None and workspace.state == SearchState.ACTIVE
         await store.session.commit()
-    if selected is None or state != SearchState.ACTIVE:
+    if selected is None or not active:
         raise EmbeddingError(EmbeddingErrorCode.NOT_CONFIGURED)
     current, credential = selected
     if current.version != request.config_version:
@@ -89,12 +91,9 @@ async def embed_current(
     result = await client.embed(current, credential, request)
     async with EmbeddingSettingsStorage.with_session(scope=request.scope) as store:
         selected = await store.synchronize()
-        _, state, _ = await store.current()
+        workspace, _ = await store.current()
+        active = workspace is not None and workspace.state == SearchState.ACTIVE
         await store.session.commit()
-    if (
-        selected is None
-        or selected[0].version != request.config_version
-        or state != SearchState.ACTIVE
-    ):
+    if selected is None or selected[0].version != request.config_version or not active:
         raise EmbeddingError(EmbeddingErrorCode.CONFIGURATION_CHANGED)
     return result
