@@ -11,7 +11,12 @@ from tracecat_ee.admin.organizations.schemas import OrgDomainCreate, OrgDomainUp
 from tracecat_ee.admin.organizations.service import AdminOrgService
 
 from tracecat.auth.types import PlatformRole
-from tracecat.db.models import Organization, OrganizationSecret, Workspace
+from tracecat.db.models import (
+    Organization,
+    OrganizationSecret,
+    OrganizationSecretStore,
+    Workspace,
+)
 from tracecat.exceptions import TracecatValidationError
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -185,7 +190,14 @@ async def test_delete_organization_cleans_restrict_children(
         encrypted_keys=b"encrypted",
         environment="default",
     )
-    session.add_all([workspace, org_secret])
+    store = OrganizationSecretStore(
+        organization_id=org_a.id,
+        name="store",
+        role_arn="arn:aws:iam::123456789012:role/reader",
+        region="us-east-1",
+        external_id="external-id",
+    )
+    session.add_all([workspace, org_secret, store])
     await session.commit()
 
     service = AdminOrgService(session, role=platform_role)
@@ -200,6 +212,12 @@ async def test_delete_organization_cleans_restrict_children(
     secret_result = await session.execute(
         select(OrganizationSecret).where(OrganizationSecret.organization_id == org_a.id)
     )
+    store_result = await session.execute(
+        select(OrganizationSecretStore).where(
+            OrganizationSecretStore.organization_id == org_a.id
+        )
+    )
     assert org_result.scalar_one_or_none() is None
     assert workspace_result.scalars().all() == []
     assert secret_result.scalars().all() == []
+    assert store_result.scalars().all() == []

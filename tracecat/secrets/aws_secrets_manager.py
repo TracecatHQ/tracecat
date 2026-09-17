@@ -14,6 +14,7 @@ import asyncio
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any
+from uuid import UUID
 
 import aioboto3
 import orjson
@@ -218,14 +219,14 @@ async def resolve_aws_secret_references(
 ) -> dict[str, dict[str, str]]:
     """Resolve AWS-backed aliases to ``{alias: {key: value}}``.
 
-    Remote reads are deduplicated per (role ARN, secret ARN) within this call
+    Remote reads are deduplicated per (store ID, secret reference) within this call
     and never cached across calls. Any failure raises a sanitized
     :class:`AwsSecretResolutionError` with no chained cause.
     """
     if not references:
         return {}
 
-    unique: dict[tuple[str, str], AwsSecretReference] = {}
+    unique: dict[tuple[UUID, str], AwsSecretReference] = {}
     for reference in references:
         unique.setdefault(reference.fetch_key, reference)
 

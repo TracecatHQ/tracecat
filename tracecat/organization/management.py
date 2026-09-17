@@ -25,6 +25,7 @@ from tracecat.db.models import (
     Organization,
     OrganizationMembership,
     OrganizationSecret,
+    OrganizationSecretStore,
     Ownership,
     RegistryAction,
     RegistryIndex,
@@ -243,6 +244,11 @@ async def delete_organization_with_cleanup(
     await session.execute(
         delete(OrganizationSecret).where(
             OrganizationSecret.organization_id == organization.id
+        )
+    )
+    await session.execute(
+        delete(OrganizationSecretStore).where(
+            OrganizationSecretStore.organization_id == organization.id
         )
     )
     await session.execute(

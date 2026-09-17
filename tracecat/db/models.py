@@ -736,7 +736,19 @@ class Secret(WorkspaceModel, BaseSecret):
     """
 
     __tablename__ = "secret"
-    __table_args__ = (UniqueConstraint("name", "environment", "workspace_id"),)
+    __table_args__ = (
+        UniqueConstraint("name", "environment", "workspace_id"),
+        # A reference can only exist while its workspace authorization exists.
+        ForeignKeyConstraint(
+            ["workspace_id", "store_id"],
+            [
+                "workspace_secret_store_authorization.workspace_id",
+                "workspace_secret_store_authorization.store_id",
+            ],
+            ondelete="RESTRICT",
+            name="fk_secret_store_authorization",
+        ),
+    )
 
     source: Mapped[str] = mapped_column(
         String(64), nullable=False, default="local", server_default=text("'local'")

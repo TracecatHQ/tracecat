@@ -7,7 +7,7 @@ from typing import Protocol, TypeGuard
 from cryptography.fernet import InvalidToken
 from pydantic import SecretStr, ValidationError
 from sqlalchemy import select
-from sqlalchemy.exc import MultipleResultsFound, NoResultFound
+from sqlalchemy.exc import IntegrityError, MultipleResultsFound, NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -504,8 +504,20 @@ class SecretsService(BaseOrgService):
             remote_key_mapping=params.key_mapping.model_dump(mode="json"),
         )
         self.session.add(secret)
-        await self.session.commit()
+        await self._commit_reference()
         return secret
+
+    async def _commit_reference(self) -> None:
+        """Commit, mapping a lost store authorization to an authorization error."""
+        try:
+            await self.session.commit()
+        except IntegrityError as e:
+            if "fk_secret_store_authorization" not in str(e):
+                raise
+            await self.session.rollback()
+            raise TracecatAuthorizationError(
+                "This workspace is not authorized to use the selected secret store."
+            ) from e
 
     @require_scope("secret:update")
     @audit_log(resource_type="secret", action="update")
@@ -536,7 +548,7 @@ class SecretsService(BaseOrgService):
         for field, value in set_fields.items():
             setattr(secret, field, value)
         self.session.add(secret)
-        await self.session.commit()
+        await self._commit_reference()
 
     @require_scope("secret:read")
     async def check_aws_secret_reference(
