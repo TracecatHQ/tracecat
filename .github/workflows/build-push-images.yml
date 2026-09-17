@@ -20,10 +20,16 @@ env:
 
 permissions:
   contents: read
-  packages: write
+
+concurrency:
+  group: publish-images-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   build-and-push-api:
+    permissions:
+      contents: read
+      packages: write
     if: >-
       github.event_name != 'workflow_dispatch' ||
       github.actor == 'github-actions[bot]' ||
@@ -66,6 +72,8 @@ jobs:
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
           images: ghcr.io/tracecathq/tracecat
+          # Keep hotfix publication from moving the floating latest tag.
+          flavor: latest=false
           tags: |
             type=sha
             type=ref,event=branch
@@ -105,6 +113,9 @@ jobs:
           retention-days: 1
 
   merge-api:
+    permissions:
+      contents: read
+      packages: write
     if: >-
       github.event_name != 'workflow_dispatch' ||
       github.actor == 'github-actions[bot]' ||
@@ -142,6 +153,8 @@ jobs:
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
           images: ghcr.io/tracecathq/tracecat
+          # Keep hotfix publication from moving the floating latest tag.
+          flavor: latest=false
           tags: |
             type=sha
             type=ref,event=branch
@@ -154,17 +167,18 @@ jobs:
       - name: Create manifest list and push
         working-directory: /tmp/digests
         run: |
-          docker buildx imagetools create \
-            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf 'ghcr.io/tracecathq/tracecat@sha256:%s ' *) \
-            ${{ (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && !startsWith(github.ref, 'refs/tags/nightly-')) && '-t ghcr.io/tracecathq/tracecat:latest' || '' }} \
-            ${{ (github.event_name == 'workflow_dispatch' && inputs.tag != '' && !startsWith(inputs.tag, 'nightly-')) && '-t ghcr.io/tracecathq/tracecat:latest' || '' }}
+          mapfile -t tag_args < <(jq -r '.tags[] | "-t", .' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+          mapfile -t image_refs < <(printf 'ghcr.io/tracecathq/tracecat@sha256:%s\n' *)
+          docker buildx imagetools create "${tag_args[@]}" "${image_refs[@]}"
 
       - name: Inspect image
         run: |
           docker buildx imagetools inspect ghcr.io/tracecathq/tracecat:${{ steps.meta.outputs.version }}
 
   build-and-push-ui:
+    permissions:
+      contents: read
+      packages: write
     if: >-
       github.event_name != 'workflow_dispatch' ||
       github.actor == 'github-actions[bot]' ||
@@ -208,6 +222,8 @@ jobs:
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
           images: ghcr.io/tracecathq/tracecat-ui
+          # Keep hotfix publication from moving the floating latest tag.
+          flavor: latest=false
           tags: |
             type=sha
             type=ref,event=branch
@@ -259,6 +275,9 @@ jobs:
           retention-days: 1
 
   merge-ui:
+    permissions:
+      contents: read
+      packages: write
     if: >-
       github.event_name != 'workflow_dispatch' ||
       github.actor == 'github-actions[bot]' ||
@@ -296,6 +315,8 @@ jobs:
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
           images: ghcr.io/tracecathq/tracecat-ui
+          # Keep hotfix publication from moving the floating latest tag.
+          flavor: latest=false
           tags: |
             type=sha
             type=ref,event=branch
@@ -308,11 +329,9 @@ jobs:
       - name: Create manifest list and push
         working-directory: /tmp/digests
         run: |
-          docker buildx imagetools create \
-            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf 'ghcr.io/tracecathq/tracecat-ui@sha256:%s ' *) \
-            ${{ (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && !startsWith(github.ref, 'refs/tags/nightly-')) && '-t ghcr.io/tracecathq/tracecat-ui:latest' || '' }} \
-            ${{ (github.event_name == 'workflow_dispatch' && inputs.tag != '' && !startsWith(inputs.tag, 'nightly-')) && '-t ghcr.io/tracecathq/tracecat-ui:latest' || '' }}
+          mapfile -t tag_args < <(jq -r '.tags[] | "-t", .' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+          mapfile -t image_refs < <(printf 'ghcr.io/tracecathq/tracecat-ui@sha256:%s\n' *)
+          docker buildx imagetools create "${tag_args[@]}" "${image_refs[@]}"
 
       - name: Inspect image
         run: |
