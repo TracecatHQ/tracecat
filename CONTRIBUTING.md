@@ -194,9 +194,38 @@ Routine bumps and Low, Moderate, or High severity advisories are `build(deps):`.
 
 ## Release Process
 
-Tracecat loosely follows the [Semantic Versioning](https://semver.org/) specification for releases.
+Tracecat follows [Semantic Versioning](https://semver.org/). Version numbers are release trains, not a measure of how much changed: every regular release bumps the minor, and the release-notes sections say what is inside.
 
-We are currently on the `1.0.0-beta.xyz` version series.
+### Version shapes
+
+| Tag | What it is | Cut from |
+|-----|------------|----------|
+| `1.X.0-alpha.N` | A build of `main` before the train is frozen. Features still land between alphas. Nothing is promised. | `main` |
+| `1.X.0-rc.N` | The train is frozen and only fixes may land. Used when a change needs validation outside Tracecat Cloud before it ships. Most trains skip this stage. | `release/1.X` |
+| `1.X.0` | The stable train. | `release/1.X` |
+| `1.X.Y` | A hotfix on a shipped train: cherry-picked fixes only, no new migrations or registry actions. | `release/1.X` |
+| `2.0.0-alpha.N`, `2.0.0` | A major. Same shape as a minor. | as above |
+
+Tags are bare versions with no leading `v`. Ordering follows semver:
+
+```
+1.1.0-alpha.1 < 1.1.0-rc.1 < 1.1.0 < 1.1.1 < 1.2.0-alpha.1
+```
+
+### Rules
+
+- **Prerelease suffixes only hang off a `.0`.** Alphas and release candidates exist for the next minor or major. A patch goes out directly with no prerelease, because it is a small, already-reviewed fix on a validated train. If a patch feels risky enough to want an rc, it belongs in the next train instead.
+- **`main` only ever produces alphas.** The moment `1.X.0` is cut, `main` is `1.(X+1).0-alpha.N` in progress. Stable minors and every patch on them come from the release branch.
+- **One long-lived branch per train.** `release/1.X` carries the alphas after freeze, the stable tag, and every `1.X.Y`. It is never deleted, and it is never merged back; fixes land on `main` first and are cherry-picked onto the branch.
+- **Alphas are what Tracecat Cloud runs.** They are deployed to our own environments before the train is frozen. Self-hosted deployments should track stable tags.
+- **Breaking changes decide the next number.** A `!` in a pull request title marks a change that breaks a self-hoster without a deprecation path, such as dropping a migration chain, changing the Compose topology in a way that needs manual steps, or removing an API without the three-step deprecation above. Any such change in a train makes it the next major. Deprecations announced under that process ride minors.
+
+### Cutting a release
+
+- `.github/workflows/create-release.yml` opens the version-bump pull request for a stable release, and `publish-release.yml` tags the merge commit and publishes the GitHub release.
+- Prereleases and hotfixes are tagged on the release branch directly. The tag points at a `release: <version>` commit produced by `just update-version <version>`, which writes the public tag to `__version__` and the PEP 440 equivalent (`1.1.0-alpha.1` becomes `1.1.0a1`) to `__pep440_version__` for Python package builds.
+- Pushing any `*.*.*` tag builds and publishes `ghcr.io/tracecathq/tracecat:<tag>` and `ghcr.io/tracecathq/tracecat-ui:<tag>`. Only a stable tag is also published as `latest`.
+- Release notes cover the range from the previous tag of the same train, or from the previous stable tag for the first alpha of a new train, and use the sections in `.github/release-drafter.yml`.
 
 ## License
 
