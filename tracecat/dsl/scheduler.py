@@ -1793,6 +1793,18 @@ class DSLScheduler:
         self, task: ActionStatement, stream_id: StreamID
     ) -> ExecutionContext:
         """Build a context that is aware of the stream hierarchy."""
+        if self.dependency_plan is not None and self.dependency_plan.use_full_context:
+            all_actions: dict[str, TaskResult] = {}
+            current_stream: StreamID | None = stream_id
+            while current_stream is not None:
+                if context := self.streams.get(current_stream):
+                    for ref, result in context.get("ACTIONS", {}).items():
+                        # The nearest stream wins when a parent has the same ref.
+                        all_actions.setdefault(ref, result)
+                current_stream = self.stream_hierarchy.get(current_stream)
+            full_context = self._root_context.copy()
+            full_context.update(ACTIONS=all_actions)
+            return full_context
         # Only pre-compilation histories extract dependencies in the workflow.
         if self.dependency_plan is None:
             action_refs = extract_expressions(task.model_dump())[ExprContext.ACTIONS]

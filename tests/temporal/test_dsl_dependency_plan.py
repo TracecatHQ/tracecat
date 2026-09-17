@@ -45,9 +45,11 @@ async def _disable_limits() -> bool:
 @activity.defn(name="execute_action_activity")
 async def _produce_result(input: RunActionInput, _role: Role) -> StoredObject:
     if input.task.ref == "summary":
-        assert set(input.exec_context["ACTIONS"]) == {"step_0"}
+        operand = await materialize_context(input.exec_context)
+        assert eval_templated_object(input.task.args["input"], operand=operand) == (
+            "x" * (100 * 1024)
+        )
         return InlineObject(data={"count": input.task.args["count"]})
-    assert input.exec_context["ACTIONS"] == {}
     return InlineObject(data="x" * (100 * 1024))
 
 
@@ -108,19 +110,30 @@ def _run_args(count: int) -> DSLRunArgs:
     )
 
 
-@pytest.mark.parametrize("compiled", [True, False])
 @pytest.mark.parametrize(
-    ("expression", "optimizable"),
+    ("compiled", "expression", "optimizable", "action_expression"),
     [
-        ("${{ ACTIONS.summary.result.count }}", True),
-        ("${{ ACTIONS['summary'].result.count }}", False),
-        ("${{ ACTIONS.*.result.count }}", False),
-        ("${{ ACTIONS..count }}", False),
-        ("${{ ACTIONS.step_0.`parent`.summary.result.count }}", False),
+        *[
+            (compiled, expression, optimizable, None)
+            for compiled in (True, False)
+            for expression, optimizable in (
+                ("${{ ACTIONS.summary.result.count }}", True),
+                ("${{ ACTIONS['summary'].result.count }}", False),
+                ("${{ ACTIONS.*.result.count }}", False),
+                ("${{ ACTIONS..count }}", False),
+                ("${{ ACTIONS.step_0.`parent`.summary.result.count }}", False),
+            )
+        ],
+        (
+            True,
+            "${{ ACTIONS.summary.result.count }}",
+            False,
+            "${{ ACTIONS.step_0.`parent`.step_1.result }}",
+        ),
     ],
 )
 async def test_dependency_plan_activity_payloads_and_replay(
-    compiled: bool, expression: str, optimizable: bool
+    compiled: bool, expression: str, optimizable: bool, action_expression: str | None
 ) -> None:
     # New runs exceed 2 MiB of accumulated inline data. Keep old runs below the
     # activity limit so we can capture a successful pre-patch return history.
@@ -129,6 +142,9 @@ async def test_dependency_plan_activity_payloads_and_replay(
     args = _run_args(count)
     assert args.dsl is not None
     args.dsl.returns = expression
+    if action_expression is not None:
+        summary = args.dsl.actions[-1]
+        summary.args = {**summary.args, "input": action_expression}
     task_queue = f"dependency-plan-{uuid4()}"
     workflow_class = DSLWorkflow if compiled else _BeforeDependencyCompilationWorkflow
     converter = get_data_converter(compression_enabled=False)
@@ -177,6 +193,22 @@ async def test_dependency_plan_activity_payloads_and_replay(
             if event.activity_type.name == "compile_dsl_dependencies_activity"
         ]
         assert len(compile_calls) == int(compiled)
+        action_calls = [
+            event
+            for event in scheduled
+            if event.activity_type.name == "execute_action_activity"
+        ]
+        assert len(action_calls) == count + 1
+        for index, event in enumerate(action_calls):
+            action_input, _ = await converter.decode(
+                event.input.payloads, [RunActionInput, Role]
+            )
+            expected_refs = (
+                {f"step_{i}" for i in range(index)}
+                if compiled and not optimizable
+                else ({"step_0"} if index == count else set())
+            )
+            assert set(action_input.exec_context["ACTIONS"]) == expected_refs
         return_call = next(
             event
             for event in scheduled
