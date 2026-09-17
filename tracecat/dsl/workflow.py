@@ -91,12 +91,12 @@ with workflow.unsafe.imports_passed_through():
         resolve_time_anchor_activity,
         resolve_workflow_concurrency_limits_enabled_activity,
     )
-    from tracecat.dsl.return_context import build_return_context
     from tracecat.dsl.scheduler import DSLScheduler, PlatformExecutionError
     from tracecat.dsl.schemas import (
         ROOT_STREAM,
         ActionStatement,
         DSLConfig,
+        DSLDependencyPlan,
         DSLEnvironment,
         ExecutionContext,
         RunActionInput,
@@ -269,6 +269,7 @@ class DSLWorkflow:
     dep_list: dict[str, list[str]]
     scheduler: DSLScheduler
     workspace_id: identifiers.WorkspaceID
+    dependency_plan: DSLDependencyPlan | None = None
 
     # Tier limit tracking
     _tier_limits: EffectiveLimits | None = None
@@ -644,6 +645,7 @@ class DSLWorkflow:
         ctx_run.set(self.run_context)
 
         self.dep_list = {task.ref: task.depends_on for task in self.dsl.actions}
+        await self._compile_dependencies()
 
         self.logger.info(
             "Running DSL task workflow",
@@ -655,6 +657,7 @@ class DSLWorkflow:
         self.scheduler = DSLScheduler(
             executor=self.execute_task,
             dsl=self.dsl,
+            dependency_plan=self.dependency_plan,
             max_pending_tasks=config.TRACECAT__DSL_SCHEDULER_MAX_PENDING_TASKS,
             context=self.context,
             role=self.role,
@@ -1650,6 +1653,22 @@ class DSLWorkflow:
             return_exceptions=True,
         )
 
+    async def _compile_dependencies(self) -> None:
+        """Record dependencies once; old histories retain their original commands."""
+        if not workflow.patched(WorkflowPatch.COMPILE_DSL_DEPENDENCIES):
+            return
+        try:
+            self.dependency_plan = await workflow.execute_activity(
+                DSLActivities.compile_dsl_dependencies_activity,
+                arg=self.dsl,
+                start_to_close_timeout=self.start_to_close_timeout,
+                retry_policy=RETRY_POLICIES["activity:fail_slow"],
+            )
+        except ActivityError as error:
+            if isinstance(error.cause, ApplicationError):
+                raise error.cause from error
+            raise
+
     async def _handle_return(self) -> StoredObject:
         self.logger.debug("Handling return", context=self.context)
         if self.dsl.returns is None:
@@ -1665,7 +1684,14 @@ class DSLWorkflow:
         self.logger.trace("Returning value from expression")
         self._set_logical_time_context()
         key = return_key(str(self.workspace_id), self.wf_exec_id)
-        operand = build_return_context(self.dsl.returns, self.context)
+        operand = self.context
+        if self.dependency_plan is not None:
+            operand = self.context.copy()
+            operand["ACTIONS"] = {
+                ref: self.context["ACTIONS"][ref]
+                for ref in self.dependency_plan.returns
+                if ref in self.context["ACTIONS"]
+            }
         return await workflow.execute_activity(
             DSLActivities.resolve_return_expression_activity,
             arg=EvaluateTemplatedObjectActivityInput(

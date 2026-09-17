@@ -63,6 +63,7 @@ from tracecat.db.models import (
     PlatformRegistryVersion,
     Workspace,
 )
+from tracecat.dsl.action import DSLActivities
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.interceptor import RuntimeErrorAttributionInterceptor
 from tracecat.dsl.worker import get_activities, new_sandbox_runner
@@ -1957,6 +1958,10 @@ async def test_worker_factory(
         """Create a worker with the same configuration as production."""
 
         activities = get_activities() if activities is None else activities
+        # DSL workers always need the dependency compilation bootstrap activity.
+        compile_activity = DSLActivities.compile_dsl_dependencies_activity
+        if compile_activity not in activities:
+            activities = [*activities, compile_activity]
         return Worker(
             client=client,
             task_queue=task_queue or os.environ["TEMPORAL__CLUSTER_QUEUE"],
