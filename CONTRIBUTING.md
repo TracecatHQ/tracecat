@@ -217,7 +217,7 @@ Tags are bare versions with no leading `v`. Ordering follows semver:
 - **Prerelease suffixes only hang off a `.0`.** Alphas and release candidates exist for the next minor or major. A patch goes out directly with no prerelease, because it is a small, already-reviewed fix on a validated train. If a patch feels risky enough to want an rc, it belongs in the next train instead.
 - **`main` only ever produces alphas.** The moment `1.X.0` is cut, `main` is `1.(X+1).0-alpha.N` in progress. Stable minors and every patch on them come from the release branch.
 - **One long-lived branch per train.** `release/1.X` carries the alphas after freeze, the stable tag, and every `1.X.Y`. It is never deleted, and it is never merged back; fixes land on `main` first and are cherry-picked onto the branch.
-- **Alphas are what Tracecat Cloud runs.** They are deployed to our own environments before the train is frozen. Self-hosted deployments should track stable tags.
+- **Alpha releases are deployed to Tracecat’s own environments ahead of stable releases. Self-hosted deployments should use stable version tags.
 - **Breaking changes decide the next number.** A `!` in a pull request title marks a change that breaks a self-hoster without a deprecation path, such as dropping a migration chain, changing the Compose topology in a way that needs manual steps, or removing an API without the three-step deprecation above. Any such change in a train makes it the next major. Deprecations announced under that process ride minors.
 
 ### Cutting a release
