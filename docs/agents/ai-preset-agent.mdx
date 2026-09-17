@@ -29,9 +29,8 @@ Three sources on the preset side make up what the agent can call:
   takes registry actions and MCP references alike. Tools declared here travel with the
   skill's instructions, so a group several agents reuse stays in one place.
 
-The effective tool set is the union of the three, and it is what the agent has in chat as
-well as in workflows. A `namespaces` restriction on the preset filters the registry
-actions in that set; MCP tools are not filtered by it.
+The effective tool set is the union of the three. A `namespaces` restriction on the preset
+filters the registry actions in that set; MCP tools are not filtered by it.
 
 A workflow run can swap one piece out. The `actions` input on the `ai.preset_agent` action
 replaces the preset's registry actions for that run instead of adding to them, so registry
