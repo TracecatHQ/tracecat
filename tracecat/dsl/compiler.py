@@ -11,6 +11,8 @@ from tracecat.exceptions import TracecatExpressionError
 from tracecat.expressions.core import Expression, ExprExtractor
 from tracecat.parse import traverse_expressions
 
+_ACTION_REF_PATTERN = re.compile(r"^\.([a-z0-9_]+)(?=\.|\[|$)")
+
 
 class _ActionRefExtractor(ExprExtractor[set[str]]):
     def __init__(self) -> None:
@@ -22,7 +24,7 @@ class _ActionRefExtractor(ExprExtractor[set[str]]):
     def actions(self, node: Tree[Token]) -> None:
         path = node.children[0]
         if not isinstance(path, Token) or not (
-            match := re.match(r"^\.([a-z0-9_]+)(?=\.|\[|$)", path)
+            match := _ACTION_REF_PATTERN.match(path)
         ):
             raise TracecatExpressionError(
                 "Action references must use ACTIONS.<action_ref> syntax"
