@@ -2375,9 +2375,8 @@ mcp.add_middleware(
 _DSL_REFERENCE_TEXT = """\
 # Tracecat Workflow DSL Reference
 
-This resource covers workflow YAML/DSL syntax and examples. It is not the source
-of truth for MCP tool arguments; use each MCP tool schema and docstring for calls
-such as workflow updates, table management, and case field changes.
+This resource covers workflow YAML/DSL syntax and examples. For MCP arguments,
+use each tool schema and docstring.
 
 ## Workflow YAML Structure
 
