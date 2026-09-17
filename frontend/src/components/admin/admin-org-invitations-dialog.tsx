@@ -51,7 +51,6 @@ import {
 import { toast } from "@/components/ui/use-toast"
 import { useAdminOrgInvitations } from "@/hooks/use-admin"
 import { getApiErrorDetail, type TracecatApiError } from "@/lib/errors"
-import { getRelativeTime } from "@/lib/event-history"
 
 type PlatformRoleSlug = NonNullable<AdminOrgInvitationCreate["role_slug"]>
 
@@ -347,9 +346,9 @@ export function AdminOrgInvitationsDialog({
                           </Badge>
                           {invitation.last_emailed_at && (
                             <div className="mt-1 text-xs text-muted-foreground">
-                              {`Emailed ${getRelativeTime(
-                                new Date(invitation.last_emailed_at)
-                              )}`}
+                              {`Emailed ${new Date(
+                                invitation.last_emailed_at
+                              ).toLocaleString()}`}
                             </div>
                           )}
                         </TableCell>
