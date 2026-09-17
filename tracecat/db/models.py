@@ -5422,6 +5422,15 @@ class Invitation(InvitationMixin, TimestampMixin, Base):
             unique=True,
             postgresql_where=text("status = 'PENDING'"),
         ),
+        # Poller scans deliverable rows oldest-first; must match the migration
+        # and the consumer's MAX_EMAIL_ATTEMPTS, or the planner drops the index.
+        Index(
+            "ix_invitation_email_unclaimed",
+            "created_at",
+            postgresql_where=text(
+                "email_claimed_at IS NULL AND status = 'PENDING' AND email_attempts < 3"
+            ),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
@@ -5434,6 +5443,23 @@ class Invitation(InvitationMixin, TimestampMixin, Base):
         default=False,
         server_default=text("false"),
         doc="Whether the invitation was created by a platform admin",
+    )
+    # The invitation row is its own delivery outbox: a NULL claim means unsent
+    # and eligible, and claiming before sending makes delivery at-most-once.
+    email_claimed_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        doc="When a poller claimed this row for delivery",
+    )
+    email_sent_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        doc="When the invitation email was delivered",
+    )
+    email_attempts: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default=text("0"),
+        doc="Number of delivery attempts made",
     )
 
     # Relationships

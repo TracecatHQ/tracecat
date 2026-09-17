@@ -137,6 +137,7 @@ import {
   integrationsTestConnection,
   integrationsUpdateIntegration,
   invitationsCreateInvitation,
+  invitationsResendInvitation,
   invitationsRevokeInvitation,
   listCatalog,
   listCustomProviders,
@@ -167,7 +168,6 @@ import {
   organizationDeleteSession,
   organizationListOrgMembers,
   organizationListSessions,
-  organizationResendInvitation,
   organizationSecretsCreateOrgSecret,
   organizationSecretsDeleteOrgSecretById,
   organizationSecretsListOrgSecrets,
@@ -2343,7 +2343,7 @@ export function useOrgMembers() {
     isPending: resendInvitationIsPending,
   } = useMutation({
     mutationFn: async (invitationId: string) =>
-      await organizationResendInvitation({ invitationId }),
+      await invitationsResendInvitation({ invitationId }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["org-members"] })
     },
