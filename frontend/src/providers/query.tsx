@@ -28,6 +28,11 @@ export const DefaultQueryClientProvider = ({
           if (query.meta?.suppressErrorToast === true) {
             return
           }
+          // Reads are not user-initiated; a forbidden read (missing scope or
+          // entitlement) is a gating signal the UI renders inline, not a toast.
+          if (error instanceof ApiError && error.status === 403) {
+            return
+          }
           if (handleGlobalError(error)) {
             return
           }
