@@ -4,6 +4,7 @@ import uuid
 from collections.abc import Sequence
 from typing import Protocol, TypeGuard
 
+from asyncpg import ForeignKeyViolationError
 from cryptography.fernet import InvalidToken
 from pydantic import SecretStr, ValidationError
 from sqlalchemy import select
@@ -38,7 +39,6 @@ from tracecat.secrets.aws_secrets_manager import (
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.encryption import decrypt_keyvalues, encrypt_keyvalues
 from tracecat.secrets.enums import (
-    AwsSecretMappingMode,
     AwsSecretResolutionErrorCode,
     SecretSource,
     SecretType,
@@ -57,7 +57,7 @@ from tracecat.secrets.schemas import (
     validate_mtls_key_values,
     validate_ssh_key_values,
 )
-from tracecat.secrets.types import AwsSecretJsonFieldSelector, AwsSecretReference
+from tracecat.secrets.types import AwsSecretReference
 from tracecat.service import BaseOrgService
 
 
@@ -96,16 +96,6 @@ def build_aws_secret_reference(secret: Secret) -> AwsSecretReference:
         raise TracecatCredentialsError(
             f"AWS-backed secret {secret.name!r} is missing its store or reference"
         )
-    mapping = AwsSecretKeyMapping.model_validate(secret.remote_key_mapping or {})
-    whole_string_key: str | None = None
-    json_fields: tuple[AwsSecretJsonFieldSelector, ...] = ()
-    if mapping.mode == AwsSecretMappingMode.WHOLE_STRING:
-        whole_string_key = mapping.keys[0]
-    else:
-        json_fields = tuple(
-            AwsSecretJsonFieldSelector(key=entry.key, field=entry.field)
-            for entry in mapping.fields
-        )
     return AwsSecretReference(
         secret_id=secret.id,
         alias=secret.name,
@@ -116,9 +106,7 @@ def build_aws_secret_reference(secret: Secret) -> AwsSecretReference:
         external_id=secret.store.external_id,
         region=secret.store.region,
         secret_arn=secret.remote_reference,
-        mapping_mode=mapping.mode,
-        whole_string_key=whole_string_key,
-        json_fields=json_fields,
+        mapping=AwsSecretKeyMapping.model_validate(secret.remote_key_mapping or {}),
     )
 
 
@@ -512,7 +500,9 @@ class SecretsService(BaseOrgService):
         try:
             await self.session.commit()
         except IntegrityError as e:
-            if "fk_secret_store_authorization" not in str(e):
+            # Any FK failure on this commit means the grant or store vanished.
+            cause = e.orig.__cause__ if e.orig else None
+            if not isinstance(cause, ForeignKeyViolationError):
                 raise
             await self.session.rollback()
             raise TracecatAuthorizationError(

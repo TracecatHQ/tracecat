@@ -25,8 +25,6 @@ from tracecat.exceptions import (
 )
 from tracecat.secrets.enums import AwsSecretMappingMode, SecretSource
 from tracecat.secrets.schemas import (
-    AwsSecretJsonField,
-    AwsSecretKeyMapping,
     AwsSecretReferenceCreate,
     AwsSecretReferenceUpdate,
     SecretCreate,
@@ -40,6 +38,7 @@ from tracecat.secrets.store_service import (
     SecretStoresService,
     generate_store_external_id,
 )
+from tracecat.secrets.types import AwsSecretJsonField, AwsSecretKeyMapping
 
 pytestmark = pytest.mark.usefixtures("db")
 

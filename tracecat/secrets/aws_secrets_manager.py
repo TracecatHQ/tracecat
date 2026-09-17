@@ -189,10 +189,9 @@ def project_secret_string(
     strings. Returns an error code instead of raising so no payload-bearing
     exception is ever created.
     """
-    if reference.mapping_mode == AwsSecretMappingMode.WHOLE_STRING:
-        if reference.whole_string_key is None:
-            return AwsSecretResolutionErrorCode.INVALID_MAPPING
-        return {reference.whole_string_key: secret_string}
+    mapping = reference.mapping
+    if mapping.mode == AwsSecretMappingMode.WHOLE_STRING:
+        return {mapping.keys[0]: secret_string}
 
     try:
         parsed: Any = orjson.loads(secret_string)
@@ -202,14 +201,12 @@ def project_secret_string(
         return AwsSecretResolutionErrorCode.MALFORMED_JSON
 
     projected: dict[str, str] = {}
-    for selector in reference.json_fields:
+    for selector in mapping.fields:
         if selector.field not in parsed:
             return AwsSecretResolutionErrorCode.MISSING_FIELD
         field_value = parsed[selector.field]
         if not isinstance(field_value, str):
             return AwsSecretResolutionErrorCode.NON_STRING_FIELD
-        if selector.key in projected:
-            return AwsSecretResolutionErrorCode.INVALID_MAPPING
         projected[selector.key] = field_value
     return projected
 
@@ -299,5 +296,5 @@ def collect_output_keys(references: Iterable[AwsSecretReference]) -> list[str]:
     """Return declared output keys across references without AWS access."""
     keys: list[str] = []
     for reference in references:
-        keys.extend(reference.output_keys())
+        keys.extend(reference.mapping.output_keys())
     return keys

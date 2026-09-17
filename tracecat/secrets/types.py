@@ -3,17 +3,58 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Annotated
 from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from tracecat.secrets.enums import AwsSecretMappingMode
 
+SecretKey = Annotated[str, StringConstraints(pattern=r"[a-zA-Z0-9_]+")]
 
-@dataclass(frozen=True, slots=True)
-class AwsSecretJsonFieldSelector:
-    """Output key populated from a top-level JSON field."""
 
-    key: str
-    field: str
+class AwsSecretJsonField(BaseModel):
+    """One declared output key sourced from a top-level JSON field."""
+
+    model_config = ConfigDict(frozen=True)
+
+    key: SecretKey = Field(..., min_length=1, max_length=255)
+    field: str = Field(..., min_length=1, max_length=255)
+
+
+class AwsSecretKeyMapping(BaseModel):
+    """Declares how a remote AWS secret value maps onto output keys.
+
+    ``whole_string`` maps the entire ``SecretString`` onto exactly one key.
+    ``json`` maps selected top-level string fields onto declared keys.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    mode: AwsSecretMappingMode
+    keys: list[SecretKey] = Field(default_factory=list, max_length=100)
+    fields: list[AwsSecretJsonField] = Field(default_factory=list, max_length=100)
+
+    @model_validator(mode="after")
+    def validate_mapping(self) -> AwsSecretKeyMapping:
+        if self.mode == AwsSecretMappingMode.WHOLE_STRING:
+            if len(self.keys) != 1 or self.fields:
+                raise ValueError(
+                    "whole_string mappings declare exactly one output key and no fields"
+                )
+            return self
+        if not self.fields or self.keys:
+            raise ValueError("json mappings declare at least one field and no keys")
+        output_keys = [entry.key for entry in self.fields]
+        if len(set(output_keys)) != len(output_keys):
+            raise ValueError("Output keys must be unique")
+        return self
+
+    def output_keys(self) -> list[str]:
+        """Return the declared output key names without touching AWS."""
+        if self.mode == AwsSecretMappingMode.WHOLE_STRING:
+            return list(self.keys)
+        return [entry.key for entry in self.fields]
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,17 +74,9 @@ class AwsSecretReference:
     external_id: str
     region: str
     secret_arn: str
-    mapping_mode: AwsSecretMappingMode
-    whole_string_key: str | None
-    json_fields: tuple[AwsSecretJsonFieldSelector, ...]
+    mapping: AwsSecretKeyMapping
 
     @property
     def fetch_key(self) -> tuple[UUID, str]:
         """Deduplication key for one remote read within an operation."""
         return (self.store_id, self.secret_arn)
-
-    def output_keys(self) -> list[str]:
-        """Return declared output key names without touching AWS."""
-        if self.mapping_mode == AwsSecretMappingMode.WHOLE_STRING:
-            return [self.whole_string_key] if self.whole_string_key else []
-        return [selector.key for selector in self.json_fields]
