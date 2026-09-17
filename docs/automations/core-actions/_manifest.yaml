@@ -403,6 +403,7 @@ pages:
         examples:
           - sql-duckdb-query
           - sql-duckdb-s3
+          - sql-duckdb-s3-cross-account
 
   - slug: request-actions/ssh
     title: SSH
