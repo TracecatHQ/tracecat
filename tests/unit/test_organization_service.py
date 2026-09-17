@@ -389,6 +389,40 @@ class TestOrganizationServiceDeleteMember:
         )
 
     @pytest.mark.anyio
+    async def test_delete_member_removes_group_links_without_organization_id(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        user_in_org1: User,
+        admin_in_org1: User,
+    ):
+        """Group links written by N-1 pods carry no organization_id to cascade on."""
+        group = Group(
+            id=uuid.uuid4(), name=f"grp-{uuid.uuid4().hex[:8]}", organization_id=org1.id
+        )
+        session.add(group)
+        await session.commit()
+        session.add(
+            GroupMember(
+                user_id=user_in_org1.id, group_id=group.id, organization_id=None
+            )
+        )
+        await session.commit()
+
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        await OrgService(session, role=role).delete_member(user_in_org1.id)
+
+        assert (
+            await session.scalar(
+                select(GroupMember).where(
+                    GroupMember.user_id == user_in_org1.id,
+                    GroupMember.group_id == group.id,
+                )
+            )
+            is None
+        )
+
+    @pytest.mark.anyio
     async def test_delete_member_is_org_scoped_and_revokes_sessions(
         self,
         session: AsyncSession,
