@@ -33,8 +33,8 @@ def role_acl_app(monkeypatch: pytest.MonkeyPatch) -> Generator[FastAPI, None, No
     )
     monkeypatch.setattr(credentials, "set_rls_context", AsyncMock())
     monkeypatch.setattr(credentials, "set_rls_context_from_role", AsyncMock())
-    # Keep request-time enforcement active without opening real DB connections
-    # from TestClient's separate event loop in these authentication unit tests.
+    # Keep allowlist enforcement active without sharing DB connections across
+    # the separate event loops created by TestClient requests.
     monkeypatch.setattr(
         ip_allowlist_enforcement,
         "get_org_ip_allowlist",

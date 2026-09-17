@@ -88,7 +88,11 @@ async def resolve_agent_preset_config_activity(
                 preset_version=args.preset_version,
             ) as config:
                 return agent_config_to_payload(config)
-    except (TracecatNotFoundError, TracecatValidationError) as exc:
+    except (
+        TracecatAuthorizationError,
+        TracecatNotFoundError,
+        TracecatValidationError,
+    ) as exc:
         raise_application_error_from_classification(invalid_agent_configuration(exc))
 
 
@@ -129,7 +133,11 @@ async def resolve_agents_config_activity(
         raise_application_error_from_classification(
             agent_preparation_failed(exc, retryable=False)
         )
-    except (TracecatNotFoundError, TracecatValidationError) as exc:
+    except (
+        TracecatAuthorizationError,
+        TracecatNotFoundError,
+        TracecatValidationError,
+    ) as exc:
         raise_application_error_from_classification(invalid_agent_configuration(exc))
 
 

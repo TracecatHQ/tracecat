@@ -1037,7 +1037,9 @@ class SandboxedAgentExecutor:
                     session_id=self.input.session_id,
                 )
                 await broker.cancel_turn(str(self.input.session_id))
-                raise
+                # A missed shutdown deadline does not change the cancelled
+                # outcome into an executor failure. Preserve any runtime error
+                # already recorded by the handler below.
             except asyncio.CancelledError:
                 await broker.cancel_turn(str(self.input.session_id))
                 raise

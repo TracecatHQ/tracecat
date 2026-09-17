@@ -233,7 +233,11 @@ Default: `null`.
 
 ### `ai.preset_agent`
 
-Run an AI agent using a saved agent preset.
+Run an AI agent using a saved agent preset. Tools come from the preset and its skills.
+
+<Note>
+The `actions` input replaces the preset's registry actions for a single run rather than adding to them. See [AI preset agent](/agents/ai-preset-agent#where-tools-come-from).
+</Note>
 
 #### Inputs
 
@@ -251,7 +255,7 @@ User prompt to the agent.
 
 <ParamField path="actions" type="array[string] | null">
 
-Optional override for the actions (e.g. 'tools.slack.post_message') that the agent should be allowed to call.
+Optional. Swaps the preset's registry actions for this run (MCP tools stay; an empty list is ignored). Handy for tests and evals; tools the agent normally needs fit better on the preset or a skill.
 
 Default: `null`.
 
@@ -259,7 +263,7 @@ Default: `null`.
 
 <ParamField path="instructions" type="string | null">
 
-Additional instructions to append to the preset instructions for this run.
+Appended to the preset instructions for this run; durable instructions fit better on the preset.
 
 Default: `null`.
 

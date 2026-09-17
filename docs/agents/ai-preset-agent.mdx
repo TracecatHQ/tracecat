@@ -17,6 +17,29 @@ Use the `Tools` tab to select the model, allowed Tracecat actions, and MCP integ
 
 ![Agent preset tools](/img/agents/agent-preset-tools.png)
 
+## Where tools come from
+
+Three sources on the preset side make up what the agent can call:
+
+- **Registry actions** on the preset, chosen in the `Tools` tab. The usual home for
+  actions only this agent needs.
+- **MCP integrations** attached to the preset, also in the `Tools` tab. An MCP
+  integration reaches a preset directly and does not need to go through a skill.
+- **A skill's [`metadata.tools`](/agents/skills#declare-tools-in-frontmatter)**, which
+  takes registry actions and MCP references alike. Tools declared here travel with the
+  skill's instructions, so a group several agents reuse stays in one place.
+
+The effective tool set is the union of the three. A `namespaces` restriction on the preset
+filters the registry actions in that set; MCP tools are not filtered by it.
+
+A workflow run can swap one piece out. The `actions` input on the `ai.preset_agent` action
+replaces the preset's registry actions for that run instead of adding to them, so registry
+actions a skill contributed are dropped for the run. MCP tools stay either way, and an
+empty list is ignored. It is handy for running a preset with a different tool set in a
+test or an eval.
+
+Leave `output_type` unset unless you specifically need structured output for a downstream step.
+
 ## Availability
 
 Open source includes presets, [skills](/agents/skills), [secrets and variables](/agents/secrets-variables) in preset instructions, and the MCP catalog connectors.

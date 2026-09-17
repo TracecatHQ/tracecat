@@ -14,12 +14,26 @@
   Get metadata for a specific workflow.
 </ResponseField>
 
+<ResponseField name="list_workflow_actions" type="tool">
+  List the actions in a draft workflow as a compact index-and-ref table.
+
+  Use this instead of `get_workflow` when you only need to know which actions exist, their order, their `depends_on` wiring, or the current array index of a ref for `edit_workflow`. It returns one small row per action and no `args`, so it stays cheap on large workflows. Follow up with `get_workflow_action` to read one action in full, or `get_workflow` when you need the whole `draft_document`.
+</ResponseField>
+
+<ResponseField name="get_workflow_action" type="tool">
+  Get one action from a draft workflow by its `ref`.
+
+  Use this instead of `get_workflow` when you need the full definition of a single action (its `args`, `run_if`, `for_each`, retry policy, and so on) without loading the whole `draft_document`. Pair it with `list_workflow_actions` to discover refs. Edit the action afterwards with `edit_workflow` using `/definition/actions/@<ref>/...` paths.
+</ResponseField>
+
 <ResponseField name="edit_workflow" type="tool">
   Edit a draft workflow using RFC 6902 JSON Patch.
 
   Prefer this tool over `update_workflow` for focused edits to an existing workflow. If the latest `draft_document` and `draft_revision` are already in the context window, reuse them and build the smallest patch that changes the intended fields. Call `get_workflow` only when the latest draft is missing, stale, or a revision conflict says the draft changed.
 
-  Patch paths are rooted at `draft_document`, so action edits use `/definition/actions/N/...`, not `/actions/N/...`. RFC 6902 array rules apply: `/-` appends, and indexes shift after array edits.
+  Patch paths are rooted at `draft_document`, so action edits use `/definition/actions/...`, not `/actions/...`.
+
+  Address actions by ref, not index: `/definition/actions/@<ref>` (with any suffix, e.g. `/definition/actions/@build_alert/args/url`) and `/layout/actions/@<ref>` resolve to the action's current index when each op runs, so you never need to `test` an index first or track how earlier ops shifted the array. `add` to `/definition/actions/@<ref>` appends a new action when the ref does not exist yet (the value's `ref` must match); `remove` on `/definition/actions/@<ref>` deletes that action. An unknown ref fails the whole patch and names the known refs. Numeric paths (`/definition/actions/N/...`) still work with RFC 6902 array rules (`/-` appends, indexes shift after array edits), but the server re-sorts actions by ref on save, so prefer `@<ref>`.
 </ResponseField>
 
 <ResponseField name="update_workflow" type="tool">
@@ -133,6 +147,14 @@
   Get status and details of a specific workflow execution.
 
   Returns execution metadata (status, timing) and a compact event timeline showing each action's status, timing, and any errors. Use this to debug failed runs or check the progress of running workflows.
+
+  Each event's `result` is inlined only when its JSON is short; longer results appear as a cut-off `result_truncated` preview. To read one action's complete result at any size, call `get_execution_action_result`.
+</ResponseField>
+
+<ResponseField name="get_execution_action_result" type="tool">
+  Get the full stored result of one action in a workflow execution.
+
+  Use this when `get_workflow_execution` shows `result_truncated` for an action, or when the result was offloaded to blob storage, and you need the whole value (a findings list, a classification summary, an API payload). The result is returned as JSON text in byte windows: read `total_bytes`, and if `truncated` is true call again with `offset=next_offset` until `next_offset` is null. Concatenate the `result` strings in order to rebuild the JSON.
 </ResponseField>
 
 <ResponseField name="get_webhook" type="tool">
@@ -415,12 +437,18 @@
   Create an agent preset in the selected workspace.
 
   Use `skills` to attach published skills. Each binding contains `skill_id`.
+
+  Attach tools via `actions`, `mcp_integration_ids`, or a skill's `metadata.tools`.
 </ResponseField>
 
 <ResponseField name="update_agent_preset" type="tool">
   Update an existing agent preset in the selected workspace.
 
   Use `skills` to replace attached published skills. Each binding contains `skill_id`. Omit `skills` to leave bindings unchanged, or pass an empty list to detach all skills.
+
+  Attach tools via `actions`, `mcp_integration_ids`, or a skill's `metadata.tools`.
+
+  Set `clear_output_type=true` to remove an existing `output_type` (agent returns plain text). Omitting `output_type` leaves it unchanged.
 </ResponseField>
 
 <ResponseField name="list_agent_tree" type="tool">
@@ -473,6 +501,8 @@
   This is the preferred local-directory upload path. Pass file paths, SHA-256 digests, sizes, and content types only; never inline file contents or base64. Omit `skill_id` and provide `name` to create a skill, or provide `skill_id` and omit `name`/`description` to replace an existing draft.
 
   Upload every file to its short-lived URL with the returned method and headers, then call `complete_skill_upload` with the returned `skill_id`, `base_revision`, paths, and upload IDs.
+
+  Declare the skill's tools in its SKILL.md frontmatter `metadata.tools`.
 </ResponseField>
 
 <ResponseField name="complete_skill_upload" type="tool">
@@ -500,5 +530,5 @@
 <ResponseField name="run_agent_preset" type="tool">
   Run an agent preset with a prompt and return text or approval status.
 
-  Creates an ephemeral session, triggers the agent workflow, and waits for the response. The agent has access to all tools configured on the preset.
+  Creates an ephemeral session, triggers the agent workflow, and waits for the response. The agent has access to all tools configured on the preset and its skills.
 </ResponseField>

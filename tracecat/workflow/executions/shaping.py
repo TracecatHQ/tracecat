@@ -11,7 +11,8 @@ wraps the same events in its legacy status envelope).
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
+from dataclasses import dataclass
 from typing import Any
 
 from temporalio.client import WorkflowExecution, WorkflowExecutionStatus
@@ -19,6 +20,11 @@ from temporalio.client import WorkflowExecution, WorkflowExecutionStatus
 from tracecat.dsl.common import (
     get_execution_type_from_search_attr,
     get_trigger_type_from_search_attr,
+)
+from tracecat.workflow.executions.constants import (
+    WF_COMPLETED_REF,
+    WF_FAILURE_REF,
+    WF_TRIGGER_REF,
 )
 from tracecat.workflow.executions.schemas import (
     WorkflowExecutionEventCompact,
@@ -30,6 +36,13 @@ from tracecat.workflow.executions.schemas import (
 # Action results larger than this are returned as a truncated string instead of
 # the raw value, to keep tool payloads within model context budgets.
 MAX_EVENT_RESULT_CHARS = 2000
+
+# Byte-window limits for paging one action's full result.
+DEFAULT_ACTION_RESULT_WINDOW_BYTES = 64 * 1024
+MAX_ACTION_RESULT_WINDOW_BYTES = 1024 * 1024
+
+# Synthetic workflow-level events that every filtered timeline keeps.
+_ALWAYS_KEPT_REFS = frozenset({WF_TRIGGER_REF, WF_COMPLETED_REF, WF_FAILURE_REF})
 
 
 def format_temporal_status(status: WorkflowExecutionStatus | None) -> str | None:
@@ -117,3 +130,63 @@ def build_execution_events(
 ) -> list[WorkflowExecutionEventResponse]:
     """Shape a compact event history into the tool-facing event timeline."""
     return [build_execution_event(event) for event in events]
+
+
+def select_execution_events(
+    events: Iterable[WorkflowExecutionEventCompact[Any, Any, Any]],
+    *,
+    action_refs: Collection[str] | None,
+) -> list[WorkflowExecutionEventCompact[Any, Any, Any]]:
+    """Keep events for ``action_refs`` plus the synthetic workflow-level events.
+
+    ``None`` keeps everything.
+    """
+    if action_refs is None:
+        return list(events)
+    wanted = set(action_refs) | _ALWAYS_KEPT_REFS
+    return [event for event in events if event.action_ref in wanted]
+
+
+def strip_event_results(
+    events: Iterable[WorkflowExecutionEventResponse],
+) -> list[WorkflowExecutionEventResponse]:
+    """Drop result payloads so a timeline carries only status, timing, and errors."""
+    return [
+        event.model_copy(update={"result": None, "result_truncated": None})
+        for event in events
+    ]
+
+
+@dataclass(frozen=True, slots=True)
+class ResultWindow:
+    """A byte window over JSON text."""
+
+    result: str
+    total_bytes: int
+    offset: int
+    truncated: bool
+    next_offset: int | None
+
+
+def window_result_text(text: str, *, offset: int, max_bytes: int) -> ResultWindow:
+    """Slice ``text`` to at most ``max_bytes`` UTF-8 bytes starting at ``offset``.
+
+    The window end never splits a multi-byte character, so ``next_offset``
+    always lands on a character boundary. ``offset`` is clamped to the text.
+    """
+    data = text.encode("utf-8")
+    total = len(data)
+    start = max(0, min(offset, total))
+    end = min(start + max(max_bytes, 0), total)
+    # Back off while ``end`` points at a UTF-8 continuation byte.
+    while start < end < total and (data[end] & 0xC0) == 0x80:
+        end -= 1
+    chunk = data[start:end].decode("utf-8", errors="replace")
+    truncated = end < total
+    return ResultWindow(
+        result=chunk,
+        total_bytes=total,
+        offset=start,
+        truncated=truncated,
+        next_offset=end if truncated else None,
+    )
