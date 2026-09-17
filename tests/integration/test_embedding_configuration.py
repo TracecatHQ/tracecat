@@ -551,3 +551,51 @@ async def test_persisted_recipe_change_invalidates_old_work(embedding_case, old_
     assert current.recipe_revision == recipe_revision(current.spec)
     assert (await case.service().get()).reindex_required
     assert (await case.request()).config_version == current.version
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "https://proxy.example.com/v1",
+        "https://api.openai.com/v1/proxy",
+        "http://api.openai.com/v1",
+    ],
+)
+async def test_custom_openai_base_url_never_sends_credentials(embedding_case, base_url):
+    case = embedding_case
+    _, secret_id = await case.connect()
+    await case.connect("gemini")  # Rejection must not silently switch providers.
+    request = await case.request()
+    async with case.sessions.begin() as session:
+        secret = await session.scalar(
+            select(OrganizationSecret).where(OrganizationSecret.id == secret_id)
+        )
+        secret.encrypted_keys = encrypted(
+            {"OPENAI_API_KEY": "synthetic-proxy-key", "OPENAI_BASE_URL": base_url}
+        )
+    for operation in (
+        case.service().get(),
+        resolve_embedding_configuration(case.scope()),
+        embed_current(request, case.client),
+    ):
+        with pytest.raises(EmbeddingError) as caught:
+            await operation
+        assert caught.value.code == EmbeddingErrorCode.CONFIGURATION_INVALID
+        assert caught.value.__context__ is None
+        assert "synthetic-proxy-key" not in str(caught.value)
+    assert not case.server.calls
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "base_url", ["", "https://api.openai.com/v1", "https://api.openai.com/v1/"]
+)
+async def test_standard_openai_base_url_remains_supported(embedding_case, base_url):
+    case = embedding_case
+    await case.connect(
+        values={"OPENAI_API_KEY": "synthetic-openai", "OPENAI_BASE_URL": base_url}
+    )
+    result = await embed_current(await case.request(), case.client)
+    assert len(result.results[0].vector) == 1536
+    assert len(case.server.calls) == 1

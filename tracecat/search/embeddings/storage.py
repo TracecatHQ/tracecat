@@ -198,12 +198,21 @@ class EmbeddingSettingsStorage(SearchStorage):
                     )
                 ):
                     raise ValueError("Missing Bedrock credentials")
+                # A proxy key must never be sent to the public OpenAI endpoint.
+                # Custom embedding endpoints are outside the supported catalog.
+                if provider == "openai" and (
+                    base_url := values.get("OPENAI_BASE_URL", "").strip()
+                ):
+                    if base_url.rstrip("/") != "https://api.openai.com/v1":
+                        raise EmbeddingError(EmbeddingErrorCode.CONFIGURATION_INVALID)
                 spec = default_model(provider, values.get("AWS_REGION"))
                 credential = ResolvedCredential(
                     SecretStr(values.get(key_name, "")),
                     hashlib.sha256(secret.encrypted_keys).digest(),
                     values,
                 )
+            except EmbeddingError as exc:
+                error = EmbeddingError(exc.code)
             except Exception:
                 error = EmbeddingError(EmbeddingErrorCode.CREDENTIAL_INVALID)
             else:
