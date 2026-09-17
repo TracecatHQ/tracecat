@@ -43,7 +43,10 @@ import { useMutation, useQuery, useQueryClient } from "@/lib/query"
  * @example
  * const { skills } = useSkills(workspaceId)
  */
-export function useSkills(workspaceId?: string) {
+export function useSkills(
+  workspaceId?: string,
+  options: { enabled?: boolean } = {}
+) {
   const query = useQuery<SkillReadMinimal[], TracecatApiError>({
     queryKey: ["skills", workspaceId],
     queryFn: async () => {
@@ -65,7 +68,7 @@ export function useSkills(workspaceId?: string) {
 
       return items
     },
-    enabled: Boolean(workspaceId),
+    enabled: Boolean(workspaceId) && (options.enabled ?? true),
     retry: retryHandler,
   })
 
