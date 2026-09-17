@@ -201,11 +201,6 @@ TRACECAT__EXECUTOR_REGISTRY_CACHE_DIR = os.environ.get(
 )
 """Directory for caching extracted registry tarballs in subprocess mode. Uses /tmp for ephemeral storage."""
 
-TRACECAT__EXECUTOR_REGISTRY_CACHE_REMOTE = env_bool(
-    "TRACECAT__EXECUTOR_REGISTRY_CACHE_REMOTE", default=False
-)
-"""Use a cache manager with the registry cache volume mounted read-only."""
-
 TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED = env_bool(
     "TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED", default=True
 )

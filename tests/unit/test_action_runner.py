@@ -25,10 +25,7 @@ from tracecat.dsl.common import create_default_execution_context
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
 from tracecat.executor import action_runner
 from tracecat.executor.action_runner import ActionRunner
-from tracecat.executor.registry_artifacts import (
-    RegistryArtifactCache,
-    compute_registry_artifact_cache_key,
-)
+from tracecat.executor.registry_artifacts import compute_registry_artifact_cache_key
 from tracecat.executor.schemas import (
     ActionImplementation,
     ExecutorActionErrorInfo,
@@ -405,10 +402,6 @@ class TestActionRunner:
             env = kwargs.get("env")
             assert isinstance(env, dict)
             captured_env.update(env)
-            scratch = Path(kwargs["cwd"])
-            assert scratch.is_dir()
-            assert env["HOME"] == env["TMPDIR"] == str(scratch)
-            (scratch / "action-output.txt").write_text("temporary output")
 
             mock_proc = AsyncMock()
             mock_proc.returncode = 0
@@ -429,7 +422,6 @@ class TestActionRunner:
             )
 
         assert result == {"data": "test"}
-        assert not Path(captured_env["TMPDIR"]).exists()
         assert captured_env["TRACECAT__API_URL"] == config.TRACECAT__API_URL
         assert captured_env["TRACECAT__WORKSPACE_ID"] == resolved_context.workspace_id
         assert captured_env["TRACECAT__WORKFLOW_ID"] == resolved_context.workflow_id
@@ -845,12 +837,11 @@ class TestActionRunner:
     ) -> None:
         """The artifact stays pinned until the action subprocess has exited."""
         runner = ActionRunner(cache_dir=temp_cache_dir)
-        cache = runner.registry_artifacts
-        assert isinstance(cache, RegistryArtifactCache)
         artifact_uri = "s3://bucket/execute.tar.gz"
         cache_key = compute_registry_artifact_cache_key(artifact_uri)
-        entry_dir = cache._paths_for(cache_key).tarball_target_dir
+        entry_dir = runner.registry_artifacts._paths_for(cache_key).tarball_target_dir
         entry_dir.mkdir(parents=True)
+        await runner.registry_artifacts.ensure_swept()
 
         monkeypatch.setattr(
             action_runner.config, "TRACECAT__EXECUTOR_SANDBOX_ENABLED", False
@@ -876,7 +867,7 @@ class TestActionRunner:
         )
 
         async def create_subprocess_exec_side_effect(*args, **kwargs):  # noqa: ARG001
-            refcounts.append(cache._refcount(cache_key))
+            refcounts.append(runner.registry_artifacts._refcount(cache_key))
             env = kwargs.get("env")
             assert isinstance(env, dict)
             registry_paths.append(env["PYTHONPATH"])
@@ -886,22 +877,31 @@ class TestActionRunner:
             mock_proc.communicate = AsyncMock(return_value=(success_response, b""))
             return mock_proc
 
-        with patch(
-            "asyncio.create_subprocess_exec",
-            side_effect=create_subprocess_exec_side_effect,
+        with (
+            patch(
+                "asyncio.create_subprocess_exec",
+                side_effect=create_subprocess_exec_side_effect,
+            ),
+            patch.object(
+                runner.registry_artifacts,
+                "_scan_cache_snapshot",
+                side_effect=AssertionError(
+                    "warm direct actions must not scan the cache"
+                ),
+            ),
         ):
-            result = await runner.execute_action(
-                input=mock_run_action_input,
-                role=mock_role,
-                resolved_context=resolved_context,
-                artifact_uris=[artifact_uri],
-                timeout=10.0,
-            )
-
-        assert result == {"data": "test"}
-        assert refcounts == [1]
+            for _ in range(3):
+                result = await runner.execute_action(
+                    input=mock_run_action_input,
+                    role=mock_role,
+                    resolved_context=resolved_context,
+                    artifact_uris=[artifact_uri],
+                    timeout=10.0,
+                )
+                assert result == {"data": "test"}
+        assert refcounts == [1, 1, 1]
         assert registry_paths[0].startswith(str(entry_dir))
-        assert cache._refcount(cache_key) == 0
+        assert runner.registry_artifacts._refcount(cache_key) == 0
 
     @pytest.mark.anyio
     async def test_cancelled_action_reaps_child_before_releasing_mounted_artifact(
@@ -920,7 +920,6 @@ class TestActionRunner:
         """
         runner = ActionRunner(cache_dir=temp_cache_dir)
         cache = runner.registry_artifacts
-        assert isinstance(cache, RegistryArtifactCache)
         artifact_uri = "s3://bucket/cancelled-action.squashfs"
         cache_key = compute_registry_artifact_cache_key(artifact_uri)
         paths = cache._paths_for(cache_key)

@@ -36,7 +36,6 @@ from tracecat.executor.backends.direct import DirectBackend
 from tracecat.executor.backends.ephemeral import EphemeralBackend
 from tracecat.executor.registry_artifacts import (
     SQUASHFS_MOUNT_OPTIONS,
-    RegistryArtifactCache,
     RegistryArtifactFormat,
     SquashfsArtifact,
     TarballArtifact,
@@ -702,7 +701,6 @@ async def _run_executor_action_smoke_case(
             _skip_smoke(reason)
 
     runner = ActionRunner(cache_dir=cache_dir)
-    assert isinstance(runner.registry_artifacts, RegistryArtifactCache)
     cache_key = compute_registry_artifact_cache_key(_SMOKE_URI)
     cache_paths = runner.registry_artifacts._paths_for(cache_key)
     mount_dir = cache_paths.squashfs_mount_dir

@@ -34,7 +34,6 @@ from tracecat.executor.action_gateway.config import (
     action_gateway_socket_path,
 )
 from tracecat.executor.registry_artifacts import RegistryArtifactCache
-from tracecat.executor.registry_cache_manager import RegistryCacheClient
 from tracecat.executor.schemas import (
     ExecutorActionErrorInfo,
     ResolvedContext,
@@ -167,11 +166,7 @@ class ActionRunner:
 
     def __init__(self, cache_dir: Path | None = None):
         self.cache_dir = cache_dir or Path(config.TRACECAT__EXECUTOR_REGISTRY_CACHE_DIR)
-        self.registry_artifacts = (
-            RegistryCacheClient(self.cache_dir)
-            if config.TRACECAT__EXECUTOR_REGISTRY_CACHE_REMOTE
-            else RegistryArtifactCache(self.cache_dir)
-        )
+        self.registry_artifacts = RegistryArtifactCache(self.cache_dir)
         logger.info("ActionRunner initialized", cache_dir=str(self.cache_dir))
 
     async def execute_action(
@@ -204,8 +199,7 @@ class ActionRunner:
         """
         timeout = timeout or config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT
 
-        # Direct subprocesses receive host paths and can modify extracted
-        # artifacts. NsJail exposes the same paths through read-only bind mounts.
+        # Both execution modes treat registry artifacts as shared import inputs.
         use_sandbox = force_sandbox or (
             config.TRACECAT__EXECUTOR_SANDBOX_ENABLED and _is_sandbox_available()
         )
@@ -213,10 +207,7 @@ class ActionRunner:
         # Materialize each registry artifact, collect paths in deterministic order.
         # The lease is held for the whole subprocess execution so cache eviction
         # cannot delete a directory the subprocess is still importing from.
-        async with self.registry_artifacts.lease(
-            artifact_uris,
-            paths_may_be_modified=not use_sandbox,
-        ) as registry_paths:
+        async with self.registry_artifacts.lease(artifact_uris) as registry_paths:
             logger.debug(
                 "Using sandbox execution",
                 use_sandbox=use_sandbox,
@@ -476,53 +467,43 @@ class ActionRunner:
             timeout=timeout,
         )
 
-        with tempfile.TemporaryDirectory(prefix="action-") as scratch:
-            env.update(
-                HOME=scratch,
-                TMPDIR=scratch,
-                TMP=scratch,
-                TEMP=scratch,
-                XDG_CACHE_HOME=f"{scratch}/.cache",
-                UV_CACHE_DIR=f"{scratch}/.cache/uv",
-            )
-            start_time = time.monotonic()
-            proc = await asyncio.create_subprocess_exec(
-                *command,
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env=env,
-                cwd=scratch,
-                start_new_session=True,
-            )
+        start_time = time.monotonic()
+        proc = await asyncio.create_subprocess_exec(
+            *command,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+            start_new_session=True,
+        )
 
-            try:
-                stdout, stderr = await communicate_process_group(
-                    proc,
-                    input=input_json,
-                    timeout=timeout,
-                    terminate=terminate_supervised_process,
-                )
-                elapsed_ms = (time.monotonic() - start_time) * 1000
-                logger.info(
-                    "Subprocess execution completed",
-                    action=input.task.action,
-                    elapsed_ms=f"{elapsed_ms:.1f}",
-                    returncode=proc.returncode,
-                )
-            except TimeoutError:
-                logger.error(
-                    "Action execution timed out, killing subprocess",
-                    action=input.task.action,
-                    timeout=timeout,
-                )
-                return ExecutorActionErrorInfo(
-                    type="TimeoutError",
-                    message=f"Action execution timed out after {timeout}s",
-                    action_name=input.task.action,
-                    filename="<subprocess>",
-                    function="execute_action",
-                )
+        try:
+            stdout, stderr = await communicate_process_group(
+                proc,
+                input=input_json,
+                timeout=timeout,
+                terminate=terminate_supervised_process,
+            )
+            elapsed_ms = (time.monotonic() - start_time) * 1000
+            logger.info(
+                "Subprocess execution completed",
+                action=input.task.action,
+                elapsed_ms=f"{elapsed_ms:.1f}",
+                returncode=proc.returncode,
+            )
+        except TimeoutError:
+            logger.error(
+                "Action execution timed out, killing subprocess",
+                action=input.task.action,
+                timeout=timeout,
+            )
+            return ExecutorActionErrorInfo(
+                type="TimeoutError",
+                message=f"Action execution timed out after {timeout}s",
+                action_name=input.task.action,
+                filename="<subprocess>",
+                function="execute_action",
+            )
         # Check for subprocess crash
         if proc.returncode != 0:
             logger.error(
