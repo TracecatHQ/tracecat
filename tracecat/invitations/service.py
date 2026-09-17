@@ -97,35 +97,26 @@ async def create_invitation_row(
             f"{email} is already a member of this organization"
         )
 
-    existing = (
-        (
-            await session.execute(
-                select(Invitation)
-                .where(
-                    Invitation.organization_id == organization_id,
-                    func.lower(Invitation.email) == email.lower(),
-                )
-                .options(selectinload(Invitation.grants))
+    # The partial unique index covers pending rows alone, so at most one exists;
+    # settled rows are history the admin listing exposes and are left untouched.
+    pending = (
+        await session.execute(
+            select(Invitation)
+            .where(
+                Invitation.organization_id == organization_id,
+                func.lower(Invitation.email) == email.lower(),
+                Invitation.status == InvitationStatus.PENDING,
             )
+            .options(selectinload(Invitation.grants))
         )
-        .scalars()
-        .all()
-    )
+    ).scalar_one_or_none()
     now = datetime.now(UTC)
-    replaced = False
-    for row in existing:
-        if row.status != InvitationStatus.PENDING:
-            # Accepted and revoked rows are history the admin listing exposes.
-            continue
-        if row.expires_at >= now and row.grants:
+    if pending is not None:
+        if pending.expires_at >= now and pending.grants:
             raise TracecatValidationError(
                 f"An invitation already exists for {email} in this organization"
             )
-        # Only a pending row that confers nothing is replaced; the partial
-        # unique index covers pending rows alone, so settled rows may stay.
-        await session.delete(row)
-        replaced = True
-    if replaced:
+        await session.delete(pending)
         await session.flush()
 
     invitation = Invitation(
