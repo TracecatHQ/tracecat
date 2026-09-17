@@ -13,6 +13,7 @@ from dataclasses import replace
 from functools import cache
 from pathlib import Path
 
+import orjson
 import tiktoken
 
 from tracecat.search.embeddings.types import (
@@ -130,3 +131,26 @@ class ByteTokenCounter:
 def token_counter(spec: ModelSpec) -> EmbeddingTokenCounter | ByteTokenCounter:
     """Return the pinned counter used by both chunk preparation and embedding."""
     return EmbeddingTokenCounter() if spec.provider == "openai" else ByteTokenCounter()
+
+
+def recipe_revision(spec: ModelSpec) -> str:
+    """Fingerprint persisted semantics, excluding operational batch limits.
+
+    Tokenizer/input limits affect chunk boundaries. Adapter task or preprocessing
+    changes require bumping recipe_version, even if the model name stays the same.
+    """
+    return hashlib.sha256(
+        orjson.dumps(
+            {
+                "provider": spec.provider,
+                "model": spec.model,
+                "endpoint": spec.endpoint,
+                "dimensions": spec.dimensions,
+                "tokenizer": spec.tokenizer,
+                "input_token_limit": spec.input_token_limit,
+                "input_character_limit": spec.input_character_limit,
+                "recipe_version": spec.recipe_version,
+            },
+            option=orjson.OPT_SORT_KEYS,
+        )
+    ).hexdigest()

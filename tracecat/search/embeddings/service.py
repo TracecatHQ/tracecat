@@ -49,7 +49,8 @@ class WorkspaceEmbeddingService:
                 batch_token_limit=spec.batch_token_limit,
             )
         )
-        changed = spec != (current.spec if current else None)
+        selected_revision = selected[0].recipe_revision if selected else None
+        changed = selected_revision != (current.recipe_revision if current else None)
         return EmbeddingConfigurationRead(
             available=spec is not None,
             version=version,

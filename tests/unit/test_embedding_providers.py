@@ -2,6 +2,7 @@
 
 import hashlib
 import uuid
+from dataclasses import replace
 
 import httpx
 import orjson
@@ -9,7 +10,11 @@ import pytest
 from pydantic import SecretStr
 
 from tracecat.search.embeddings import bedrock
-from tracecat.search.embeddings.catalog import default_model, token_counter
+from tracecat.search.embeddings.catalog import (
+    default_model,
+    recipe_revision,
+    token_counter,
+)
 from tracecat.search.embeddings.client import EmbeddingClient
 from tracecat.search.embeddings.types import (
     EmbeddingError,
@@ -179,3 +184,14 @@ async def test_bedrock_assumed_role_uses_workspace_external_id(monkeypatch):
     assert calls[-1] == "closed"
     assert "Credential=assumed-access/" in headers["Authorization"]
     assert headers["X-Amz-Security-Token"] == "assumed-session"
+
+
+def test_recipe_revision_excludes_operational_batch_limits():
+    spec = default_model("openai")
+    assert recipe_revision(spec) == recipe_revision(
+        replace(spec, batch_size_limit=1, batch_token_limit=1000)
+    )
+    assert recipe_revision(spec) != recipe_revision(
+        replace(spec, tokenizer="next-tokenizer")
+    )
+    assert recipe_revision(spec) != recipe_revision(replace(spec, recipe_version=2))

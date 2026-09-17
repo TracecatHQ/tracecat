@@ -17,7 +17,12 @@ from tracecat.db.models import (
     SearchWorkspaceState,
     Workspace,
 )
-from tracecat.search.embeddings.catalog import PROVIDER_ORDER, default_model, get_model
+from tracecat.search.embeddings.catalog import (
+    PROVIDER_ORDER,
+    default_model,
+    get_model,
+    recipe_revision,
+)
 from tracecat.search.embeddings.types import (
     EmbeddingError,
     EmbeddingErrorCode,
@@ -44,14 +49,14 @@ class EmbeddingSettingsStorage(SearchStorage):
         if config is None:
             return state.current_version, SearchState(state.state), None
         spec = get_model(config.provider, config.model)
-        if config.provider == "bedrock":
-            spec = replace(spec, endpoint=config.endpoint or "")
-        if (
-            config.dimensions != spec.dimensions
-            or config.input_token_limit != spec.input_token_limit
-            or config.endpoint != spec.endpoint
-        ):
-            raise EmbeddingError(EmbeddingErrorCode.CONFIGURATION_INVALID)
+        # Restore persisted fields and carry the saved recipe revision separately.
+        # synchronize() replaces stale/unknown revisions before any embedding call.
+        spec = replace(
+            spec,
+            endpoint=config.endpoint or "",
+            dimensions=config.dimensions,
+            input_token_limit=config.input_token_limit,
+        )
         return (
             config.version,
             SearchState(state.state),
@@ -60,6 +65,7 @@ class EmbeddingSettingsStorage(SearchStorage):
                 spec,
                 config.credential_id,
                 config.credential_environment,
+                config.recipe_revision,
             ),
         )
 
@@ -202,7 +208,7 @@ class EmbeddingSettingsStorage(SearchStorage):
                 error = EmbeddingError(EmbeddingErrorCode.CREDENTIAL_INVALID)
             else:
                 return PinnedConfiguration(
-                    0, spec, secret.id, secret.environment
+                    0, spec, secret.id, secret.environment, recipe_revision(spec)
                 ), credential
             raise error
         return None
@@ -224,7 +230,11 @@ class EmbeddingSettingsStorage(SearchStorage):
                 )
             return None
         candidate, credential = selected
-        if current is None or current.spec != candidate.spec:
+        if (
+            current is None
+            or current.recipe_revision != candidate.recipe_revision
+            or recipe_revision(current.spec) != candidate.recipe_revision
+        ):
             record = await self.save_configuration(
                 provider=candidate.spec.provider,
                 model=candidate.spec.model,
@@ -233,6 +243,7 @@ class EmbeddingSettingsStorage(SearchStorage):
                 credential_environment=candidate.credential_environment,
                 dimensions=candidate.spec.dimensions,
                 input_token_limit=candidate.spec.input_token_limit,
+                recipe_revision=candidate.recipe_revision,
             )
             current = replace(candidate, version=record.version)
         elif (

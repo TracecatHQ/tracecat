@@ -5764,6 +5764,8 @@ class SearchEmbeddingConfig(TimestampMixin, Base):
     credential_environment: Mapped[str] = mapped_column(Text)
     dimensions: Mapped[int] = mapped_column(Integer)
     input_token_limit: Mapped[int] = mapped_column(Integer)
+    # NULL identifies configurations written before recipe pinning.
+    recipe_revision: Mapped[str | None] = mapped_column(Text)
 
 
 class SearchCollection(TimestampMixin, Base):

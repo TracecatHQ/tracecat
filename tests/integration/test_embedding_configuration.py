@@ -5,7 +5,7 @@ import hashlib
 import threading
 import uuid
 from collections.abc import AsyncIterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import httpx
@@ -31,6 +31,7 @@ from tracecat.db.models import (
     Workspace,
 )
 from tracecat.exceptions import ScopeDeniedError
+from tracecat.search.embeddings.catalog import recipe_revision
 from tracecat.search.embeddings.client import EmbeddingClient
 from tracecat.search.embeddings.service import (
     WorkspaceEmbeddingService,
@@ -509,3 +510,44 @@ async def test_provider_reconnection_preserves_operational_pause(embedding_case)
         await embed_current(request, case.client)
     assert caught.value.code == EmbeddingErrorCode.NOT_CONFIGURED
     assert not case.server.calls
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("old_recipe", ["legacy", "tokenizer", "adapter"])
+async def test_persisted_recipe_change_invalidates_old_work(embedding_case, old_recipe):
+    case = embedding_case
+    await case.connect()
+    old_request = await case.request()
+    selected = await resolve_embedding_configuration(case.scope())
+    assert selected is not None
+    async with case.sessions.begin() as session:
+        config = await session.get(
+            SearchEmbeddingConfig,
+            (case.scope().organization_id, case.scope().workspace_id, selected.version),
+        )
+        # Simulate the snapshot written by a previous deployment. All persisted
+        # provider/model/dimension/input-limit fields remain unchanged.
+        config.recipe_revision = (
+            None
+            if old_recipe == "legacy"
+            else recipe_revision(
+                replace(selected.spec, tokenizer="previous-tokenizer")
+                if old_recipe == "tokenizer"
+                else replace(selected.spec, recipe_version=0)
+            )
+        )
+        state = await session.get(
+            SearchWorkspaceState,
+            (case.scope().organization_id, case.scope().workspace_id),
+        )
+        state.reconciliation_required = False
+    assert (await case.service().get()).reindex_required
+    with pytest.raises(EmbeddingError) as caught:
+        await embed_current(old_request, case.client)
+    assert caught.value.code == EmbeddingErrorCode.CONFIGURATION_CHANGED
+    assert not case.server.calls
+    current = await resolve_embedding_configuration(case.scope())
+    assert current is not None and current.version > selected.version
+    assert current.recipe_revision == recipe_revision(current.spec)
+    assert (await case.service().get()).reindex_required
+    assert (await case.request()).config_version == current.version

@@ -63,6 +63,8 @@ class ModelSpec:
     batch_size_limit: int = 32
     batch_token_limit: int = 16000
     input_character_limit: int = 131072
+    # Bump when adapter preprocessing or task parameters change vector meaning.
+    recipe_version: int = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,6 +75,7 @@ class PinnedConfiguration:
     spec: ModelSpec
     credential_id: uuid.UUID
     credential_environment: str
+    recipe_revision: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
