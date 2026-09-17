@@ -64,7 +64,7 @@ describe("DefaultQueryClientProvider error handling", () => {
     expect(mockToast).not.toHaveBeenCalled()
   })
 
-  it("routes query permission failures through the global handler", async () => {
+  it("swallows query permission failures without a toast", async () => {
     const { result } = renderHook(() => useQueryClient(), { wrapper })
     const error = Object.assign(new Error("Forbidden"), {
       status: 403,
@@ -83,12 +83,7 @@ describe("DefaultQueryClientProvider error handling", () => {
       ).rejects.toBe(error)
     })
 
-    expect(mockToast).toHaveBeenCalledTimes(1)
-    expect(mockToast).toHaveBeenCalledWith({
-      title: "Permission denied",
-      description: "Missing workflow:read scope",
-      variant: "destructive",
-    })
+    expect(mockToast).not.toHaveBeenCalled()
   })
 
   it("skips the fallback for queries that opt out through meta", async () => {

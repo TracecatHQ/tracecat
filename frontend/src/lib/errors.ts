@@ -113,23 +113,15 @@ function getErrorStatus(error: unknown): number | null {
 }
 
 const GLOBAL_ERROR_HANDLERS: GlobalErrorHandler[] = [
-  (error) => {
-    if (getErrorStatus(error) !== 403) {
-      return false
-    }
-    toast({
-      title: "Permission denied",
-      description: getApiErrorDetail(error) ?? undefined,
-      variant: "destructive",
-    })
-    return true
-  },
+  // Forbidden responses signal missing scopes or entitlements. The UI gates
+  // those surfaces inline, so they are swallowed rather than toasted.
+  (error) => getErrorStatus(error) === 403,
 ]
 
 /**
  * Run application-wide error handlers in priority order.
  *
- * @returns Whether a handler displayed user-facing feedback for the error.
+ * @returns Whether a handler consumed the error, suppressing fallback feedback.
  */
 export function handleGlobalError(error: unknown): boolean {
   return GLOBAL_ERROR_HANDLERS.some((handler) => handler(error))
