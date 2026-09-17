@@ -25,11 +25,12 @@ from tracecat.auth.users import (
     get_user_manager_context,
 )
 from tracecat.authz.controls import has_scope, require_scope
-from tracecat.authz.membership import ensure_member
+from tracecat.authz.membership import drop_workspace_membership_mirror, ensure_member
 from tracecat.authz.service import resolve_grantable_role
 from tracecat.db.models import (
     AccessToken,
-    LegacyMembership,
+    Group,
+    GroupMember,
     Organization,
     OrganizationInvitation,
     OrganizationMembership,
@@ -299,10 +300,18 @@ class OrgService(BaseOrgService):
         workspace_ids = select(Workspace.id).where(
             Workspace.organization_id == self.organization_id
         )
+        await drop_workspace_membership_mirror(
+            self.session, user_id=user.id, workspace_ids=workspace_ids
+        )
+        # Rows written by older app versions carry no organization_id, so the
+        # composite-FK cascade below cannot reach them.
+        group_ids = select(Group.id).where(
+            Group.organization_id == self.organization_id
+        )
         await self.session.execute(
-            delete(LegacyMembership).where(
-                LegacyMembership.user_id == user.id,
-                LegacyMembership.workspace_id.in_(workspace_ids),
+            delete(GroupMember).where(
+                GroupMember.user_id == user.id,
+                GroupMember.group_id.in_(group_ids),
             )
         )
         # Deleting the aggregate root cascades assignments and group members.

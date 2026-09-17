@@ -8,7 +8,6 @@ from datetime import UTC, datetime, timedelta
 from pydantic import UUID4
 from sqlalchemy import bindparam, cast, func, select, update
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import load_only, noload, selectinload
 
@@ -16,13 +15,12 @@ from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
 from tracecat.authz.controls import has_scope, require_scope
 from tracecat.authz.enums import OwnerType
-from tracecat.authz.membership import ensure_member
+from tracecat.authz.membership import ensure_member, mirror_workspace_membership
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.authz.service import resolve_grantable_role
 from tracecat.cases.service import CaseFieldsService
 from tracecat.db.models import (
     Invitation,
-    LegacyMembership,
     Membership,
     Organization,
     OrganizationMembership,
@@ -562,12 +560,8 @@ class WorkspaceService(BaseOrgService):
         await ensure_member(self.session, organization_id, user_id)
 
         # Legacy workspace table is still written for app versions that read it.
-        await self.session.execute(
-            pg_insert(LegacyMembership)
-            .values(user_id=user_id, workspace_id=invitation.workspace_id)
-            .on_conflict_do_nothing(
-                index_elements=[LegacyMembership.user_id, LegacyMembership.workspace_id]
-            )
+        await mirror_workspace_membership(
+            self.session, user_id=user_id, workspace_id=invitation.workspace_id
         )
 
         # Create RBAC role assignment for the workspace

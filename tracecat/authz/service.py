@@ -4,20 +4,22 @@ from collections.abc import Sequence
 from uuid import UUID
 
 from sqlalchemy import delete, literal, or_, select, union_all
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.sql.elements import ColumnElement
 
 from tracecat.auth.types import Role
 from tracecat.authz.controls import ensure_can_grant_scopes, require_scope
+from tracecat.authz.membership import (
+    drop_workspace_membership_mirror,
+    mirror_workspace_membership,
+)
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import SupportsExecute
 from tracecat.db.models import (
     Group,
     GroupMember,
     GroupRoleAssignment,
-    LegacyMembership,
     Membership,
     OrganizationMembership,
     RoleScope,
@@ -311,12 +313,8 @@ class MembershipService(BaseService):
             raise TracecatNotFoundError("User not found in organization")
 
         # Legacy workspace table is still written for app versions that read it.
-        await self.session.execute(
-            pg_insert(LegacyMembership)
-            .values(user_id=params.user_id, workspace_id=workspace_id)
-            .on_conflict_do_nothing(
-                index_elements=[LegacyMembership.user_id, LegacyMembership.workspace_id]
-            )
+        await mirror_workspace_membership(
+            self.session, user_id=params.user_id, workspace_id=workspace_id
         )
         self.session.add(
             UserRoleAssignment(
@@ -365,11 +363,8 @@ class MembershipService(BaseService):
                 "Remove them from the group first."
             )
 
-        await self.session.execute(
-            delete(LegacyMembership).where(
-                LegacyMembership.workspace_id == workspace_id,
-                LegacyMembership.user_id == user_id,
-            )
+        await drop_workspace_membership_mirror(
+            self.session, user_id=user_id, workspace_ids=[workspace_id]
         )
         await self.session.execute(
             delete(UserRoleAssignment).where(

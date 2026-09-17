@@ -4,12 +4,15 @@ The membership row is the aggregate root for a user's presence in an
 organization; children hang off it by composite foreign key.
 """
 
+from collections.abc import Sequence
 from uuid import UUID
 
+from sqlalchemy import Executable, Select, delete
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.db.models import OrganizationMembership
+from tracecat.db.models import LegacyMembership, OrganizationMembership
+from tracecat.db.rls import set_rls_context, set_rls_context_from_role
 
 
 async def ensure_member(
@@ -37,3 +40,61 @@ async def ensure_member(
             ]
         )
     )
+
+
+async def mirror_workspace_membership(
+    session: AsyncSession,
+    *,
+    user_id: UUID,
+    workspace_id: UUID,
+) -> None:
+    """Mirror a workspace grant into the legacy `membership` table.
+
+    Args:
+        session: Database session to execute the upsert on.
+        user_id: User gaining workspace access.
+        workspace_id: Workspace the user is mirrored into.
+    """
+    # `membership` is workspace-RLS but written from org context, which has no
+    # workspace GUC; the bypass is what lets the statement see its own rows.
+    await _with_rls_bypass(
+        session,
+        pg_insert(LegacyMembership)
+        .values(user_id=user_id, workspace_id=workspace_id)
+        .on_conflict_do_nothing(
+            index_elements=[LegacyMembership.user_id, LegacyMembership.workspace_id]
+        ),
+    )
+
+
+async def drop_workspace_membership_mirror(
+    session: AsyncSession,
+    *,
+    user_id: UUID,
+    workspace_ids: Sequence[UUID] | Select,
+) -> None:
+    """Drop legacy `membership` mirror rows for a user.
+
+    Args:
+        session: Database session to execute the delete on.
+        user_id: User losing workspace access.
+        workspace_ids: Workspaces to clear, or a subquery selecting them.
+    """
+    # `membership` is workspace-RLS but written from org context, which has no
+    # workspace GUC; without the bypass the delete silently matches no rows.
+    await _with_rls_bypass(
+        session,
+        delete(LegacyMembership).where(
+            LegacyMembership.user_id == user_id,
+            LegacyMembership.workspace_id.in_(workspace_ids),
+        ),
+    )
+
+
+async def _with_rls_bypass(session: AsyncSession, statement: Executable) -> None:
+    """Run a statement under the RLS bypass, restoring the caller's context."""
+    await set_rls_context(session, org_id=None, workspace_id=None, bypass=True)
+    try:
+        await session.execute(statement)
+    finally:
+        await set_rls_context_from_role(session)
