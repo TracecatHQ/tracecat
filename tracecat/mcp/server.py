@@ -2594,9 +2594,12 @@ Require/Python: `core.require`, `core.script.run_python`
 AI: `ai.action`, `ai.agent`, `ai.preset_agent`, `ai.agent.create_preset`,
 `ai.agent.delete_preset`, `ai.agent.get_preset`, `ai.agent.list_presets`,
 `ai.agent.update_preset`, `ai.skill.archive_skill`, `ai.skill.create_skill`,
-`ai.skill.get_skill`, `ai.skill.get_skill_version`,
+`ai.skill.get_skill`, `ai.skill.get_skill_draft`,
+`ai.skill.get_skill_draft_file`, `ai.skill.get_skill_version`,
 `ai.skill.list_skill_versions`, `ai.skill.list_skills`,
-`ai.skill.publish_skill_version`, `ai.skill.restore_skill_version`
+`ai.skill.publish_skill_draft`, `ai.skill.publish_skill_version`,
+`ai.skill.restore_skill_version`, `ai.skill.update_skill`,
+`ai.skill.update_skill_draft`
 
 ## Third-Party Integration Action Syntax
 

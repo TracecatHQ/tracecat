@@ -108,6 +108,33 @@ class _AgentsAsync:
         *,
         skill_uuid: str | uuid.UUID | None = ...,
     ) -> None: ...
+    async def get_skill_draft(
+        self,
+        skill_id: str,
+        *,
+        skill_uuid: str | uuid.UUID | None = ...,
+    ) -> dict[str, Any]: ...
+    async def get_skill_draft_file(
+        self,
+        *,
+        skill_id: str,
+        path: str,
+        skill_uuid: str | uuid.UUID | None = ...,
+    ) -> dict[str, Any]: ...
+    async def patch_skill_draft(
+        self,
+        *,
+        skill_id: str,
+        base_revision: int,
+        operations: list[dict[str, Any]],
+        skill_uuid: str | uuid.UUID | None = ...,
+    ) -> dict[str, Any]: ...
+    async def publish_skill_draft(
+        self,
+        skill_id: str,
+        *,
+        skill_uuid: str | uuid.UUID | None = ...,
+    ) -> dict[str, Any]: ...
 
 class _Agents:
     @property
@@ -204,6 +231,33 @@ class _Agents:
         *,
         skill_uuid: str | uuid.UUID | None = ...,
     ) -> None: ...
+    def get_skill_draft(
+        self,
+        skill_id: str,
+        *,
+        skill_uuid: str | uuid.UUID | None = ...,
+    ) -> dict[str, Any]: ...
+    def get_skill_draft_file(
+        self,
+        *,
+        skill_id: str,
+        path: str,
+        skill_uuid: str | uuid.UUID | None = ...,
+    ) -> dict[str, Any]: ...
+    def patch_skill_draft(
+        self,
+        *,
+        skill_id: str,
+        base_revision: int,
+        operations: list[dict[str, Any]],
+        skill_uuid: str | uuid.UUID | None = ...,
+    ) -> dict[str, Any]: ...
+    def publish_skill_draft(
+        self,
+        skill_id: str,
+        *,
+        skill_uuid: str | uuid.UUID | None = ...,
+    ) -> dict[str, Any]: ...
 
 class _CasesAsync:
     async def aggregate_cases(
