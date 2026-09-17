@@ -4,6 +4,34 @@ Revision ID: fa922accd060
 Revises: a7c3e9f1b2d4
 Create Date: 2026-09-16 00:00:00.000000
 
+Makes ``organization_membership`` the parent of everything a user holds in an
+organization. Expand only: no table is dropped and the previous app version
+keeps working (it writes the membership row before any child and deletes
+children before the parent, so the new cascades are no-ops for it).
+
+Steps, in order:
+
+1. ``group_member.organization_id`` is added nullable and filled from ``group``.
+   It stays nullable this release because old pods insert without it; NULL in a
+   composite foreign key is unchecked, so those rows are admitted.
+2. Missing membership rows are backfilled from existing ``user_role_assignment``
+   and ``group_member`` rows, so every existing grant has a parent.
+3. ``service_account.owner_user_id`` is set to NULL where the owner holds no
+   membership row. Removal never cleared this pointer before, and ownership
+   metadata must not become membership.
+4. Composite foreign keys ``(organization_id, user_id)`` are added from
+   ``user_role_assignment`` and ``group_member`` with ``ON DELETE CASCADE``,
+   each as ``NOT VALID`` then ``VALIDATE`` so the table is never scanned under
+   an exclusive lock.
+5. The owner foreign key on ``service_account`` is moved from ``user`` to the
+   membership row with ``ON DELETE SET NULL (owner_user_id)``, so removing the
+   owner nulls only that column and the organization keeps the account.
+6. A row trigger on ``organization_membership`` revokes the user's MCP personal
+   access tokens and refresh tokens for that organization on delete. They are
+   revoked, not cascaded, so the rows keep ``user_id`` for attribution.
+
+Downgrade reverses 6, 5, 4 and 1. The backfilled membership rows and nulled
+owners are left in place; both are valid under the previous schema.
 """
 
 from collections.abc import Sequence
