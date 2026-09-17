@@ -20,6 +20,7 @@ from sqlalchemy import ColumnElement, and_, delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from tracecat.audit.logger import audit_log
+from tracecat.audit.service import AuditService
 from tracecat.authz.controls import require_scope
 from tracecat.authz.enums import ScimConnectionStatus
 from tracecat.authz.membership import ensure_member
@@ -753,8 +754,25 @@ class SCIMService(BaseOrgService):
         await self.session.flush()
 
     async def _purge_manual_members(self, group_id: UUID) -> None:
-        """Drop hand-added rows from a group the IdP now owns."""
-        await self.session.execute(
-            delete(GroupMember).where(GroupMember.group_id == group_id)
-        )
+        """Drop hand-added rows from a group the IdP now owns.
+
+        Each removal is audited on its own: this revokes access an admin
+        granted by hand, so one event per group is not enough to answer who
+        lost what.
+        """
+        removed = (
+            await self.session.execute(
+                delete(GroupMember)
+                .where(GroupMember.group_id == group_id)
+                .returning(GroupMember.user_id)
+            )
+        ).scalars()
+        audit = AuditService(self.session, self.role)
+        for user_id in removed:
+            await audit.create_event(
+                resource_type="rbac_group_member",
+                action="delete",
+                resource_id=group_id,
+                data={"user_id": str(user_id), "reason": "idp_mapping_created"},
+            )
         await self.session.flush()
