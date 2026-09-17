@@ -19,6 +19,7 @@ from tracecat.db.models import (
 )
 from tracecat.exceptions import (
     TracecatAuthorizationError,
+    TracecatConflictError,
     TracecatNotFoundError,
     TracecatValidationError,
 )
@@ -250,6 +251,35 @@ async def revoke_invitation(
         ) from e
     except TracecatAuthorizationError as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
+
+
+@router.post("/{invitation_id}/resend", response_model=InvitationRead)
+@require_scope("org:member:invite")
+async def resend_invitation(
+    *,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+    invitation_id: UUID,
+) -> InvitationRead:
+    """Queue another delivery of a pending invitation email."""
+    service = InvitationService(session, role=role)
+    try:
+        invitation = await service.resend_invitation(invitation_id)
+    except NoResultFound as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Invitation not found"
+        ) from e
+    except TracecatConflictError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Invitation email was sent less than a minute ago",
+        ) from e
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
+
+    return InvitationRead.model_validate(invitation)
 
 
 @router.get("/{invitation_id}/token", response_model=InvitationTokenRead)

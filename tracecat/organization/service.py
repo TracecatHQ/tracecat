@@ -2,11 +2,10 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
 from typing import Any
 from typing import cast as type_cast
 
-from sqlalchemy import and_, cast, delete, select, update
+from sqlalchemy import and_, cast, delete, select
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import contains_eager
 

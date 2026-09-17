@@ -3,21 +3,54 @@
 from __future__ import annotations
 
 import asyncio
+import uuid
 from typing import Final
 
 from sqlalchemy import bindparam, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
-from tracecat.db.models import Organization, OrganizationInvitation
+from tracecat.db.models import (
+    Invitation,
+    InvitationGrant,
+    Organization,
+    Role,
+    Workspace,
+)
 from tracecat.email.transport import EmailDeliveryError, SMTPTransport
-from tracecat.invitations.email import invitation_email
+from tracecat.invitations.email import InvitationGrantLine, invitation_email
 from tracecat.invitations.enums import InvitationStatus
 from tracecat.logger import logger
 
 POLL_INTERVAL_SECONDS: Final = 2.0
 CLAIM_BATCH_SIZE: Final = 20
 MAX_EMAIL_ATTEMPTS: Final = 3
+
+
+async def load_invitation_grants(
+    session: AsyncSession, invitation_id: uuid.UUID
+) -> list[InvitationGrantLine]:
+    """Resolve one invitation's grants into workspace and role display names.
+
+    Args:
+        session: The session to query.
+        invitation_id: The invitation whose grants to load.
+
+    Returns:
+        One line per grant, org-wide grants first, then workspaces by name.
+    """
+    result = await session.execute(
+        select(Workspace.name, Role.name)
+        .select_from(InvitationGrant)
+        .join(Role, Role.id == InvitationGrant.role_id)
+        .outerjoin(Workspace, Workspace.id == InvitationGrant.workspace_id)
+        .where(InvitationGrant.invitation_id == invitation_id)
+        .order_by(Workspace.name.nulls_first())
+    )
+    return [
+        InvitationGrantLine(workspace_name=workspace_name, role_name=role_name)
+        for workspace_name, role_name in result.tuples()
+    ]
 
 
 async def deliver_next_invitation(
@@ -29,37 +62,37 @@ async def deliver_next_invitation(
     One row is claimed per send, so a crash strands at most that row, never a batch.
     """
     next_id = (
-        select(OrganizationInvitation.id)
+        select(Invitation.id)
         .where(
-            OrganizationInvitation.email_claimed_at.is_(None),
+            Invitation.email_claimed_at.is_(None),
             # Rendered inline so a generic plan can still prove the partial index.
-            OrganizationInvitation.status
+            Invitation.status
             == bindparam("pending", InvitationStatus.PENDING, literal_execute=True),
-            OrganizationInvitation.expires_at > func.now(),
-            OrganizationInvitation.email_attempts
+            Invitation.expires_at > func.now(),
+            Invitation.email_attempts
             < bindparam("attempt_cap", MAX_EMAIL_ATTEMPTS, literal_execute=True),
         )
-        .order_by(OrganizationInvitation.created_at)
+        .order_by(Invitation.created_at)
         .limit(1)
         .with_for_update(skip_locked=True)
         .scalar_subquery()
     )
     claimed = await session.execute(
-        update(OrganizationInvitation)
+        update(Invitation)
         .execution_options(synchronize_session=False)
         .where(
-            OrganizationInvitation.id == next_id,
-            Organization.id == OrganizationInvitation.organization_id,
+            Invitation.id == next_id,
+            Organization.id == Invitation.organization_id,
         )
         .values(
             email_claimed_at=func.now(),
-            email_attempts=OrganizationInvitation.email_attempts + 1,
+            email_attempts=Invitation.email_attempts + 1,
         )
         .returning(
-            OrganizationInvitation.id,
-            OrganizationInvitation.email,
-            OrganizationInvitation.token,
-            OrganizationInvitation.email_attempts,
+            Invitation.id,
+            Invitation.email,
+            Invitation.token,
+            Invitation.email_attempts,
             Organization.name,
         )
     )
@@ -71,8 +104,14 @@ async def deliver_next_invitation(
         return False
 
     invitation_id, email, token, attempts, organization_name = row.tuple()
+    grants = await load_invitation_grants(session, invitation_id)
+    # The grants read opened a transaction; close it so SMTP starts with none.
+    await session.commit()
     message = invitation_email(
-        to=email, organization_name=organization_name, token=token
+        to=email,
+        organization_name=organization_name,
+        token=token,
+        grants=grants,
     )
     try:
         await transport.send(message)
@@ -83,8 +122,8 @@ async def deliver_next_invitation(
             )
             return True
         await session.execute(
-            update(OrganizationInvitation)
-            .where(OrganizationInvitation.id == invitation_id)
+            update(Invitation)
+            .where(Invitation.id == invitation_id)
             .values(email_claimed_at=None)
         )
         await session.commit()
@@ -97,8 +136,8 @@ async def deliver_next_invitation(
         return False
 
     await session.execute(
-        update(OrganizationInvitation)
-        .where(OrganizationInvitation.id == invitation_id)
+        update(Invitation)
+        .where(Invitation.id == invitation_id)
         # Cooldown starts when sending finishes, not when the transaction began.
         .values(email_sent_at=func.clock_timestamp())
     )
