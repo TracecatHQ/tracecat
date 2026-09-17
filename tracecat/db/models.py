@@ -54,7 +54,7 @@ from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.approvals.types import PersistedApprovalDecision
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.secrets import get_signing_secret
-from tracecat.authz.enums import ScopeSource
+from tracecat.authz.enums import ScimConnectionStatus, ScopeSource
 from tracecat.cases.agent_invocations.types import CaseCommentAgentInvocationError
 from tracecat.cases.durations.schemas import CaseDurationAnchorSelection
 from tracecat.cases.enums import (
@@ -1228,6 +1228,13 @@ class ScimConnection(RecordModel):
     hashed: Mapped[str] = mapped_column(String(128), nullable=False)
     salt: Mapped[str] = mapped_column(String(64), nullable=False)
     preview: Mapped[str] = mapped_column(String(32), nullable=False)
+    # Pending until an admin reviews what arrived; nothing is admitted before.
+    status: Mapped[ScimConnectionStatus] = mapped_column(
+        String(32),
+        nullable=False,
+        default=ScimConnectionStatus.PENDING,
+        server_default=ScimConnectionStatus.PENDING,
+    )
     last_used_at: Mapped[datetime | None] = mapped_column(
         TIMESTAMP(timezone=True), nullable=True
     )
@@ -5934,7 +5941,9 @@ class ExternalUser(Base, TimestampMixin):
     external_id: Mapped[str] = mapped_column(String(255))
     # Deprovisioned users keep their row so re-activation relinks the same
     # resource id; no FK to organization_membership, which the row outlives.
-    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
 
 
 class ExternalGroup(Base, TimestampMixin):
