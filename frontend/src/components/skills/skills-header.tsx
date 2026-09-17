@@ -8,6 +8,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock3,
+  FolderIcon,
+  ListIcon,
   SearchIcon,
   TypeIcon,
 } from "lucide-react"
@@ -29,6 +31,8 @@ export interface SkillsSortValue {
   field: SkillsSortField
   direction: SkillsSortDirection
 }
+
+export type SkillsViewMode = "folders" | "list"
 
 export const DEFAULT_SKILL_SORT: SkillsSortValue = {
   field: "updated_at",
@@ -121,6 +125,9 @@ interface SkillsHeaderProps {
   onSearchChange: (query: string) => void
   sortBy: SkillsSortValue
   onSortByChange: (value: SkillsSortValue) => void
+  view: SkillsViewMode
+  onViewChange: (view: SkillsViewMode) => void
+  viewSwitchEnabled?: boolean
   totalCount: number
   countLabel: string
   limit: number
@@ -134,14 +141,17 @@ interface SkillsHeaderProps {
 
 /**
  * List header for the skills dashboard. Mirrors the workflows header layout
- * with a slimmed control set (no view toggle, tags, webhooks, schedules, or
- * case-trigger filters).
+ * with a slimmed control set (no tags, webhooks, schedules, or case-trigger
+ * filters).
  */
 export function SkillsHeader({
   searchQuery,
   onSearchChange,
   sortBy,
   onSortByChange,
+  view,
+  onViewChange,
+  viewSwitchEnabled = true,
   totalCount,
   countLabel,
   limit,
@@ -219,6 +229,27 @@ export function SkillsHeader({
       </header>
 
       <div className="flex flex-wrap items-center gap-2 px-4 py-2">
+        {viewSwitchEnabled ? (
+          <Select
+            value={view}
+            onValueChange={(nextView) =>
+              onViewChange(nextView as SkillsViewMode)
+            }
+          >
+            <SelectTrigger className="h-6 w-[105px] gap-1.5 rounded-md px-2 text-xs font-medium">
+              {view === "folders" ? (
+                <FolderIcon className="size-3.5 text-muted-foreground" />
+              ) : (
+                <ListIcon className="size-3.5 text-muted-foreground" />
+              )}
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent align="start">
+              <SelectItem value="list">List</SelectItem>
+              <SelectItem value="folders">Folders</SelectItem>
+            </SelectContent>
+          </Select>
+        ) : null}
         <SortBySelect value={sortBy} onChange={onSortByChange} />
 
         {hasFilters && (
