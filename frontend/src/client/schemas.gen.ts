@@ -19130,6 +19130,108 @@ export const $McpIntegrationMappingSelection = {
     "User-selected local MCP integration for one source integration reference.",
 } as const
 
+export const $MemberAccessExplain = {
+  properties: {
+    user_id: {
+      type: "string",
+      format: "uuid",
+      title: "User Id",
+    },
+    paths: {
+      items: {
+        $ref: "#/components/schemas/MemberAccessPath",
+      },
+      type: "array",
+      title: "Paths",
+    },
+  },
+  type: "object",
+  required: ["user_id", "paths"],
+  title: "MemberAccessExplain",
+  description:
+    'Every path a member holds, for answering "why does she have this?".',
+} as const
+
+export const $MemberAccessPath = {
+  properties: {
+    source: {
+      $ref: "#/components/schemas/PathSource",
+    },
+    workspace_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workspace Id",
+    },
+    role_id: {
+      type: "string",
+      format: "uuid",
+      title: "Role Id",
+    },
+    role_name: {
+      type: "string",
+      title: "Role Name",
+    },
+    group_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Group Id",
+    },
+    group_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Group Name",
+    },
+    external_group_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "External Group Id",
+    },
+    external_group_display_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "External Group Display Name",
+    },
+  },
+  type: "object",
+  required: ["source", "workspace_id", "role_id", "role_name"],
+  title: "MemberAccessPath",
+  description:
+    "One route by which a member holds a role, with the rows behind it.",
+} as const
+
 export const $MentionTargetType = {
   type: "string",
   enum: ["agent"],
@@ -20284,6 +20386,11 @@ export const $OutputType = {
       type: "object",
     },
   ],
+} as const
+
+export const $PathSource = {
+  type: "string",
+  enum: ["direct", "group", "idp_group"],
 } as const
 
 export const $PayloadChangedEventRead = {
@@ -24179,6 +24286,52 @@ export const $ScheduleUpdate = {
   title: "ScheduleUpdate",
 } as const
 
+export const $ScimActivationRequest = {
+  properties: {
+    mappings: {
+      items: {
+        $ref: "#/components/schemas/ExternalGroupMappingCreate",
+      },
+      type: "array",
+      title: "Mappings",
+    },
+  },
+  type: "object",
+  title: "ScimActivationRequest",
+  description: "Mappings to install as the connection is activated.",
+} as const
+
+export const $ScimActivationReviewRead = {
+  properties: {
+    users: {
+      items: {
+        $ref: "#/components/schemas/ScimDirectoryUserRead",
+      },
+      type: "array",
+      title: "Users",
+    },
+    groups: {
+      items: {
+        $ref: "#/components/schemas/ExternalGroupRead",
+      },
+      type: "array",
+      title: "Groups",
+    },
+    plans: {
+      items: {
+        $ref: "#/components/schemas/ScimMappingPlanRead",
+      },
+      type: "array",
+      title: "Plans",
+    },
+  },
+  type: "object",
+  required: ["users", "groups", "plans"],
+  title: "ScimActivationReviewRead",
+  description:
+    "What arrived while the connection was pending, and the effect of each mapping.",
+} as const
+
 export const $ScimConnectionRead = {
   properties: {
     id: {
@@ -24252,6 +24405,32 @@ export const $ScimConnectionTokenRead = {
   title: "ScimConnectionTokenRead",
   description:
     "A freshly issued token. The raw value is returned exactly once.",
+} as const
+
+export const $ScimDirectoryUserRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    email: {
+      type: "string",
+      title: "Email",
+    },
+    external_id: {
+      type: "string",
+      title: "External Id",
+    },
+    active: {
+      type: "boolean",
+      title: "Active",
+    },
+  },
+  type: "object",
+  required: ["id", "email", "external_id", "active"],
+  title: "ScimDirectoryUserRead",
+  description: "A user the provider has pushed into this organization.",
 } as const
 
 export const $ScimEmail = {
@@ -24450,6 +24629,66 @@ export const $ScimListResponse = {
   required: ["totalResults", "startIndex", "itemsPerPage"],
   title: "ScimListResponse",
   description: "The envelope every SCIM query returns, paginated 1-based.",
+} as const
+
+export const $ScimMappingPlanRead = {
+  properties: {
+    external_group_id: {
+      type: "string",
+      format: "uuid",
+      title: "External Group Id",
+    },
+    external_group_display_name: {
+      type: "string",
+      title: "External Group Display Name",
+    },
+    group_id: {
+      type: "string",
+      format: "uuid",
+      title: "Group Id",
+    },
+    group_name: {
+      type: "string",
+      title: "Group Name",
+    },
+    manual_members_purged: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      title: "Manual Members Purged",
+    },
+    users_gaining_access: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      title: "Users Gaining Access",
+    },
+    users_losing_access: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      title: "Users Losing Access",
+    },
+  },
+  type: "object",
+  required: [
+    "external_group_id",
+    "external_group_display_name",
+    "group_id",
+    "group_name",
+    "manual_members_purged",
+    "users_gaining_access",
+    "users_losing_access",
+  ],
+  title: "ScimMappingPlanRead",
+  description:
+    "What activating one proposed mapping would do to a Tracecat group.",
 } as const
 
 export const $ScimMeta = {

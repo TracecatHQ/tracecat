@@ -11,7 +11,12 @@ from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tests.support.membership import grant_org_membership, seed_external_user
+from tests.support.membership import (
+    grant_org_membership,
+    seed_external_group,
+    seed_external_group_members,
+    seed_external_user,
+)
 from tracecat import config
 from tracecat.auth.api_keys import ORG_API_KEY_PREFIX, generate_managed_api_key
 from tracecat.auth.schemas import UserRole
@@ -24,8 +29,10 @@ from tracecat.authz.seeding import (
 )
 from tracecat.db.models import (
     AccessToken,
+    ExternalGroupMapping,
     Group,
     GroupMember,
+    GroupRoleAssignment,
     Invitation,
     MCPRefreshToken,
     Membership,
@@ -2132,3 +2139,141 @@ class TestOrganizationScimInviteWarning:
         )
 
         assert response.warning is None
+
+
+@pytest.mark.anyio
+class TestOrganizationServiceExplainMemberAccess:
+    """`explain_member_access` reports one entry per role path the user holds."""
+
+    async def test_explain_covers_all_three_arms(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        user_in_org1: User,
+        admin_in_org1: User,
+    ):
+        """Direct, manual-group and IdP-group paths each appear once."""
+        await seed_system_roles_for_org(session, org1.id)
+        group_role = (
+            await session.execute(
+                select(DBRole.id).where(
+                    DBRole.organization_id == org1.id,
+                    DBRole.slug == "organization-member",
+                )
+            )
+        ).scalar_one()
+
+        manual_group = Group(
+            id=uuid.uuid4(), name="manual-grp", organization_id=org1.id
+        )
+        idp_group = Group(id=uuid.uuid4(), name="idp-grp", organization_id=org1.id)
+        session.add_all([manual_group, idp_group])
+        await session.flush()
+        for group in (manual_group, idp_group):
+            session.add(
+                GroupRoleAssignment(
+                    organization_id=org1.id,
+                    group_id=group.id,
+                    workspace_id=None,
+                    role_id=group_role,
+                )
+            )
+        session.add(
+            GroupMember(
+                group_id=manual_group.id,
+                user_id=user_in_org1.id,
+                organization_id=org1.id,
+            )
+        )
+        await session.flush()
+
+        external_user_id = await seed_external_user(
+            session, organization_id=org1.id, user_id=user_in_org1.id
+        )
+        external_group = await seed_external_group(
+            session, organization_id=org1.id, external_id="idp-explain"
+        )
+        await seed_external_group_members(
+            session,
+            external_group_id=external_group.id,
+            external_user_ids=[external_user_id],
+        )
+        session.add(
+            ExternalGroupMapping(
+                id=uuid.uuid4(),
+                organization_id=org1.id,
+                external_group_id=external_group.id,
+                group_id=idp_group.id,
+            )
+        )
+        await session.flush()
+
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        explained = await OrgService(session, role=role).explain_member_access(
+            user_in_org1.id
+        )
+
+        by_source = {p.source for p in explained.paths}
+        assert by_source == {"direct", "group", "idp_group"}
+        idp_path = next(p for p in explained.paths if p.source == "idp_group")
+        assert idp_path.group_name == "idp-grp"
+        assert idp_path.external_group_id == external_group.id
+        manual_path = next(p for p in explained.paths if p.source == "group")
+        assert manual_path.group_name == "manual-grp"
+        assert manual_path.external_group_id is None
+
+    async def test_inactive_external_user_drops_the_idp_path(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        user_in_org1: User,
+        admin_in_org1: User,
+    ):
+        """Deprovisioning removes the IdP path without touching the direct one."""
+        await seed_system_roles_for_org(session, org1.id)
+        group_role = (
+            await session.execute(
+                select(DBRole.id).where(
+                    DBRole.organization_id == org1.id,
+                    DBRole.slug == "organization-member",
+                )
+            )
+        ).scalar_one()
+        idp_group = Group(id=uuid.uuid4(), name="idp-only", organization_id=org1.id)
+        session.add(idp_group)
+        await session.flush()
+        session.add(
+            GroupRoleAssignment(
+                organization_id=org1.id,
+                group_id=idp_group.id,
+                workspace_id=None,
+                role_id=group_role,
+            )
+        )
+        external_user_id = await seed_external_user(
+            session, organization_id=org1.id, user_id=user_in_org1.id, active=False
+        )
+        external_group = await seed_external_group(
+            session, organization_id=org1.id, external_id="idp-inactive"
+        )
+        await seed_external_group_members(
+            session,
+            external_group_id=external_group.id,
+            external_user_ids=[external_user_id],
+        )
+        session.add(
+            ExternalGroupMapping(
+                id=uuid.uuid4(),
+                organization_id=org1.id,
+                external_group_id=external_group.id,
+                group_id=idp_group.id,
+            )
+        )
+        await session.flush()
+
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        explained = await OrgService(session, role=role).explain_member_access(
+            user_in_org1.id
+        )
+
+        assert {p.source for p in explained.paths} == {"direct"}

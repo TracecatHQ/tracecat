@@ -525,6 +525,8 @@ import type {
   OrganizationDeleteOrgMemberResponse,
   OrganizationDeleteSessionData,
   OrganizationDeleteSessionResponse,
+  OrganizationExplainOrgMemberAccessData,
+  OrganizationExplainOrgMemberAccessResponse,
   OrganizationGetCurrentOrgMemberResponse,
   OrganizationGetOrganizationEntitlementsResponse,
   OrganizationGetOrganizationResponse,
@@ -658,6 +660,8 @@ import type {
   SchedulesSearchSchedulesResponse,
   SchedulesUpdateScheduleData,
   SchedulesUpdateScheduleResponse,
+  ScimActivateScimConnectionData,
+  ScimActivateScimConnectionResponse,
   ScimCreateGroupData,
   ScimCreateGroupResponse,
   ScimCreateScimMappingData,
@@ -691,6 +695,8 @@ import type {
   ScimReplaceUserData,
   ScimReplaceUserResponse,
   ScimResourceTypesResponse,
+  ScimReviewScimActivationData,
+  ScimReviewScimActivationResponse,
   ScimRevokeScimTokenResponse,
   ScimSchemasDocumentResponse,
   ScimServiceProviderConfigResponse,
@@ -4228,6 +4234,29 @@ export const organizationListOrgMembers =
       url: "/organization/members",
     })
   }
+
+/**
+ * Explain Org Member Access
+ * List every path by which a member holds a role.
+ * @param data The data for the request.
+ * @param data.userId
+ * @returns MemberAccessExplain Successful Response
+ * @throws ApiError
+ */
+export const organizationExplainOrgMemberAccess = (
+  data: OrganizationExplainOrgMemberAccessData
+): CancelablePromise<OrganizationExplainOrgMemberAccessResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/organization/members/{user_id}/access",
+    path: {
+      user_id: data.userId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
 
 /**
  * Delete Org Member
@@ -13453,6 +13482,52 @@ export const scimListExternalGroups =
       url: "/scim/external-groups",
     })
   }
+
+/**
+ * Review Scim Activation
+ * Report what the provider pushed and what activating would change.
+ *
+ * A read: the returned plan is not stored, so activation recomputes it.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns ScimActivationReviewRead Successful Response
+ * @throws ApiError
+ */
+export const scimReviewScimActivation = (
+  data: ScimReviewScimActivationData
+): CancelablePromise<ScimReviewScimActivationResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/scim/activation/review",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Activate Scim Connection
+ * Admit the pushed directory and install the reviewed mappings.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const scimActivateScimConnection = (
+  data: ScimActivateScimConnectionData
+): CancelablePromise<ScimActivateScimConnectionResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/scim/activation",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
 
 /**
  * List Scim Mappings
