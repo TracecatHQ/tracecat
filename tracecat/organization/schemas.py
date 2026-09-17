@@ -90,6 +90,7 @@ class OrgInvitationRead(BaseModel):
     expires_at: datetime
     created_at: datetime
     accepted_at: datetime | None
+    last_emailed_at: datetime | None = None
 
 
 class OrgInvitationReadMinimal(BaseModel):
