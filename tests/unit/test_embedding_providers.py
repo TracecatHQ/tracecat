@@ -150,7 +150,19 @@ def test_non_openai_budget_counts_complete_utf8_input():
 
 
 @pytest.mark.anyio
-async def test_bedrock_assumed_role_uses_workspace_external_id(monkeypatch):
+@pytest.mark.parametrize(
+    "region,session_name,expected_name",
+    [
+        ("us-east-1", "  synthetic-session  ", "synthetic-session"),
+        ("us-gov-west-1", "   ", "tracecat-search"),
+        ("cn-north-1", "", "tracecat-search"),
+        ("us-east-2", "synthetic-session", "synthetic-session"),
+        ("us-west-2", None, "tracecat-search"),
+    ],
+)
+async def test_bedrock_assumed_role_uses_workspace_external_id(
+    monkeypatch, region, session_name, expected_name
+):
     scope = SearchScope(uuid.uuid4(), uuid.uuid4())
     calls = []
 
@@ -171,22 +183,30 @@ async def test_bedrock_assumed_role_uses_workspace_external_id(monkeypatch):
     class Session:
         def client(self, service, **kwargs):
             assert service == "sts"
+            assert kwargs["region_name"] == region
             return STS()
 
     monkeypatch.setattr(bedrock.boto3, "Session", Session)
     headers = await bedrock.request_headers(
         {
             "AWS_ROLE_ARN": "arn:aws:iam::123456789012:role/synthetic-embedding",
-            "AWS_REGION": "us-east-1",
+            "AWS_REGION": region,
+            **(
+                {"AWS_ROLE_SESSION_NAME": session_name}
+                if session_name is not None
+                else {}
+            ),
         },
         scope,
-        default_model("bedrock", "us-east-1").endpoint,
+        default_model("bedrock", region).endpoint,
         b"{}",
     )
     assert calls[0]["ExternalId"] == bedrock.build_workspace_external_id(
         scope.workspace_id
     )
+    assert calls[0]["RoleSessionName"] == expected_name
     assert calls[-1] == "closed"
+    assert f"/{region}/bedrock/aws4_request" in headers["Authorization"]
     assert "Credential=assumed-access/" in headers["Authorization"]
     assert headers["X-Amz-Security-Token"] == "assumed-session"
 

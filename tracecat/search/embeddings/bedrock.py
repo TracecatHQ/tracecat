@@ -26,6 +26,7 @@ def _assume_role(values: dict[str, str], scope: SearchScope) -> dict[str, str]:
     with closing(
         boto3.Session().client(
             "sts",
+            region_name=values["AWS_REGION"],
             config=Config(
                 connect_timeout=5,
                 read_timeout=10,
@@ -35,7 +36,8 @@ def _assume_role(values: dict[str, str], scope: SearchScope) -> dict[str, str]:
     ) as sts:
         response = sts.assume_role(
             RoleArn=values["AWS_ROLE_ARN"],
-            RoleSessionName=values.get("AWS_ROLE_SESSION_NAME") or "tracecat-search",
+            RoleSessionName=values.get("AWS_ROLE_SESSION_NAME", "").strip()
+            or "tracecat-search",
             ExternalId=build_workspace_external_id(scope.workspace_id),
         )
     credentials = response["Credentials"]
