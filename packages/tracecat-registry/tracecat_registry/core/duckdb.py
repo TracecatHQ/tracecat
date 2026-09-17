@@ -1,5 +1,4 @@
 import os
-import resource
 from typing import Annotated, Any
 
 import duckdb
@@ -10,6 +9,11 @@ import tracecat_registry.integrations.aws_boto3 as aws_boto3
 from tracecat_registry import SecretNotFoundError, registry, secrets
 from tracecat_registry.config import TRACECAT__DUCKDB_EXTENSION_DIRECTORY
 from tracecat_registry.integrations.amazon_s3 import s3_secret
+
+try:
+    import resource
+except ImportError:  # Windows has no resource module; the direct backend runs there.
+    resource = None
 
 # Directory the Docker images preinstall DuckDB extensions into. Used as a
 # fallback when TRACECAT__DUCKDB_EXTENSION_DIRECTORY is not set in the process
@@ -55,6 +59,8 @@ def _thread_limit() -> int | None:
 
     Queries can still lower or raise it with ``SET threads``.
     """
+    if resource is None:
+        return None
     soft_limit, _ = resource.getrlimit(resource.RLIMIT_AS)
     if soft_limit == resource.RLIM_INFINITY:
         return None

@@ -141,3 +141,10 @@ def test_connect_applies_thread_limit(monkeypatch: pytest.MonkeyPatch) -> None:
         assert con.execute("SELECT current_setting('threads')").fetchone() == (2,)
     finally:
         con.close()
+
+
+def test_thread_limit_none_without_resource_module(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(duckdb_action, "resource", None)
+    assert _thread_limit() is None
