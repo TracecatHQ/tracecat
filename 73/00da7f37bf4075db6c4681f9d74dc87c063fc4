@@ -1,0 +1,19 @@
+docs/agents/ai-preset-agent.mdx
+  s_a2fa1c36407f85::t_ef035f33177253 32-33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "7300da7f37bf4075db6c4681f9d74dc87c063fc4",
+  "prompts": {},
+  "sessions": {
+    "s_a2fa1c36407f85": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abaf6dac-3ba4-47cb-a03f-254a5b04d4f4",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
