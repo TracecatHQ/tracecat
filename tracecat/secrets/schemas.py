@@ -29,12 +29,12 @@ from tracecat.db.models import (
 from tracecat.identifiers import OrganizationID, SecretID, WorkspaceID
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.enums import (
-    AwsSecretMappingMode,
     AwsSecretResolutionErrorCode,
     SecretSource,
     SecretStoreProvider,
     SecretType,
 )
+from tracecat.secrets.types import AwsSecretKeyMapping
 
 AWS_SECRET_ARN_PATTERN = (
     r"^arn:aws(?:-[a-z]+)*:secretsmanager:(?P<region>[a-z0-9-]+):\d{12}:secret:[^\s]+$"
@@ -52,7 +52,6 @@ AWS_REGION_PATTERN = r"^[a-z]{2}(?:-[a-z]+)+-\d$"
 SecretName = Annotated[str, StringConstraints(pattern=r"[a-z0-9_]+")]
 """Validator for a secret name. e.g. 'aws_access_key_id'"""
 
-SecretKey = Annotated[str, StringConstraints(pattern=r"[a-zA-Z0-9_]+")]
 """Validator for a secret key. e.g. 'access_key_id'"""
 
 SSHKeyTarget = Literal["registry"]
@@ -369,46 +368,6 @@ class SecretRead(SecretReadBase):
 
 
 # === External secret stores (AWS Secrets Manager) ===
-
-
-class AwsSecretJsonField(BaseModel):
-    """One declared output key sourced from a top-level JSON field."""
-
-    key: SecretKey = Field(..., min_length=1, max_length=255)
-    field: str = Field(..., min_length=1, max_length=255)
-
-
-class AwsSecretKeyMapping(BaseModel):
-    """Declares how a remote AWS secret value maps onto output keys.
-
-    ``whole_string`` maps the entire ``SecretString`` onto exactly one key.
-    ``json`` maps selected top-level string fields onto declared keys.
-    """
-
-    mode: AwsSecretMappingMode
-    keys: list[SecretKey] = Field(default_factory=list, max_length=100)
-    fields: list[AwsSecretJsonField] = Field(default_factory=list, max_length=100)
-
-    @model_validator(mode="after")
-    def validate_mapping(self) -> AwsSecretKeyMapping:
-        if self.mode == AwsSecretMappingMode.WHOLE_STRING:
-            if len(self.keys) != 1 or self.fields:
-                raise ValueError(
-                    "whole_string mappings declare exactly one output key and no fields"
-                )
-            return self
-        if not self.fields or self.keys:
-            raise ValueError("json mappings declare at least one field and no keys")
-        output_keys = [entry.key for entry in self.fields]
-        if len(set(output_keys)) != len(output_keys):
-            raise ValueError("Output keys must be unique")
-        return self
-
-    def output_keys(self) -> list[str]:
-        """Return the declared output key names without touching AWS."""
-        if self.mode == AwsSecretMappingMode.WHOLE_STRING:
-            return list(self.keys)
-        return [entry.key for entry in self.fields]
 
 
 class SecretStoreCreate(BaseModel):

@@ -21,7 +21,11 @@ from tracecat.secrets.aws_secrets_manager import (
     resolve_aws_secret_references,
 )
 from tracecat.secrets.enums import AwsSecretMappingMode, AwsSecretResolutionErrorCode
-from tracecat.secrets.types import AwsSecretJsonFieldSelector, AwsSecretReference
+from tracecat.secrets.types import (
+    AwsSecretJsonField,
+    AwsSecretKeyMapping,
+    AwsSecretReference,
+)
 
 pytestmark = pytest.mark.anyio
 
@@ -36,8 +40,8 @@ def make_reference(
     *,
     alias: str = "api",
     mode: AwsSecretMappingMode = AwsSecretMappingMode.WHOLE_STRING,
-    whole_string_key: str | None = "TOKEN",
-    json_fields: tuple[AwsSecretJsonFieldSelector, ...] = (),
+    whole_string_key: str = "TOKEN",
+    fields: tuple[AwsSecretJsonField, ...] = (),
     secret_arn: str = SECRET_ARN,
     region: str = REGION,
     store_enabled: bool = True,
@@ -52,9 +56,13 @@ def make_reference(
         external_id=EXTERNAL_ID,
         region=region,
         secret_arn=secret_arn,
-        mapping_mode=mode,
-        whole_string_key=whole_string_key if mode == "whole_string" else None,
-        json_fields=json_fields,
+        mapping=AwsSecretKeyMapping(
+            mode=mode,
+            keys=[whole_string_key]
+            if mode == AwsSecretMappingMode.WHOLE_STRING
+            else [],
+            fields=list(fields),
+        ),
     )
 
 
@@ -159,9 +167,9 @@ async def test_json_mapping_selects_declared_fields(
     }
     ref = make_reference(
         mode=AwsSecretMappingMode.JSON,
-        json_fields=(
-            AwsSecretJsonFieldSelector(key="USER", field="username"),
-            AwsSecretJsonFieldSelector(key="PASS", field="password"),
+        fields=(
+            AwsSecretJsonField(key="USER", field="username"),
+            AwsSecretJsonField(key="PASS", field="password"),
         ),
     )
 
@@ -184,7 +192,7 @@ def test_json_projection_failures(
 ) -> None:
     ref = make_reference(
         mode=AwsSecretMappingMode.JSON,
-        json_fields=(AwsSecretJsonFieldSelector(key="USER", field="username"),),
+        fields=(AwsSecretJsonField(key="USER", field="username"),),
     )
     assert project_secret_string(ref, secret_string) == expected
 
@@ -298,7 +306,7 @@ async def test_failure_message_never_contains_payload(
     fake_aws.sm_response = {"SecretString": "super-secret-payload"}
     ref = make_reference(
         mode=AwsSecretMappingMode.JSON,
-        json_fields=(AwsSecretJsonFieldSelector(key="K", field="k"),),
+        fields=(AwsSecretJsonField(key="K", field="k"),),
     )
     with pytest.raises(AwsSecretResolutionError) as exc_info:
         await resolve_aws_secret_references([ref])
@@ -316,12 +324,12 @@ async def test_reads_deduplicated_per_store_and_reference(
     first = make_reference(
         alias="alpha",
         mode=AwsSecretMappingMode.JSON,
-        json_fields=(AwsSecretJsonFieldSelector(key="A", field="a"),),
+        fields=(AwsSecretJsonField(key="A", field="a"),),
     )
     second = make_reference(
         alias="beta",
         mode=AwsSecretMappingMode.JSON,
-        json_fields=(AwsSecretJsonFieldSelector(key="B", field="b"),),
+        fields=(AwsSecretJsonField(key="B", field="b"),),
     )
     other_arn = SECRET_ARN.replace("app/api", "app/other")
     third = make_reference(alias="gamma", secret_arn=other_arn)
@@ -382,7 +390,7 @@ async def test_check_reference_returns_keys_only(
     fake_aws.sm_response = {"SecretString": '{"username": "u"}'}
     ref = make_reference(
         mode=AwsSecretMappingMode.JSON,
-        json_fields=(AwsSecretJsonFieldSelector(key="USER", field="username"),),
+        fields=(AwsSecretJsonField(key="USER", field="username"),),
     )
     ok, code, aws_code, keys = await check_aws_secret_reference(ref)
     assert (ok, code, aws_code, keys) == (True, None, None, ["USER"])
@@ -397,10 +405,10 @@ async def test_check_reference_returns_keys_only(
 def test_output_keys_are_metadata_only() -> None:
     ref = make_reference(
         mode=AwsSecretMappingMode.JSON,
-        json_fields=(
-            AwsSecretJsonFieldSelector(key="USER", field="username"),
-            AwsSecretJsonFieldSelector(key="PASS", field="password"),
+        fields=(
+            AwsSecretJsonField(key="USER", field="username"),
+            AwsSecretJsonField(key="PASS", field="password"),
         ),
     )
-    assert ref.output_keys() == ["USER", "PASS"]
-    assert make_reference().output_keys() == ["TOKEN"]
+    assert ref.mapping.output_keys() == ["USER", "PASS"]
+    assert make_reference().mapping.output_keys() == ["TOKEN"]
