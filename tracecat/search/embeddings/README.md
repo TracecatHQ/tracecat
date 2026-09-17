@@ -18,6 +18,12 @@ literal search and ordinary table operations remain available.
 | Ollama | `all-minilm:22m`, then `all-minilm:latest`, then `all-minilm` | 384 |
 | vLLM | `sentence-transformers/all-MiniLM-L6-v2` | 384 |
 
+Bedrock role authentication reuses temporary STS credentials in a bounded,
+process-local cache until five minutes before expiry. Organizations, workspaces,
+roles, regions and session names have separate entries. Concurrent chunks share
+one refresh; failed refreshes never fall back to old credentials. Each embedding
+request is still signed separately.
+
 ## Using Ollama or vLLM
 
 The server must already serve one of the supported embedding models. Tracecat

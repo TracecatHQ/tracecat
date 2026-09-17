@@ -1,7 +1,10 @@
 """Provider wire contracts and explicit Bedrock authentication."""
 
+import asyncio
+import threading
 import uuid
 from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from unittest.mock import Mock
 
 import httpx
@@ -186,7 +189,17 @@ async def test_utf8_budget_rejects_oversized_input_before_http(provider):
 def aws_session(monkeypatch):
     session = Mock()
     monkeypatch.setattr(bedrock.boto3, "Session", Mock(return_value=session))
-    return session
+    session.client.return_value.assume_role.return_value = {
+        "Credentials": {
+            "AccessKeyId": "assumed-access",
+            "SecretAccessKey": "assumed-secret",
+            "SessionToken": "assumed-session",
+            "Expiration": datetime.now(UTC) + timedelta(hours=1),
+        }
+    }
+    bedrock._assume_role.cache_clear()
+    yield session
+    bedrock._assume_role.cache_clear()
 
 
 @pytest.mark.parametrize(
@@ -204,27 +217,18 @@ async def test_bedrock_assumed_role_uses_workspace_external_id(
 ):
     scope = SearchScope(uuid.uuid4(), uuid.uuid4())
     sts = aws_session.client.return_value
-    sts.assume_role.return_value = {
-        "Credentials": {
-            "AccessKeyId": "assumed-access",
-            "SecretAccessKey": "assumed-secret",
-            "SessionToken": "assumed-session",
-        }
+    values = {
+        "AWS_ROLE_ARN": "arn:aws:iam::123456789012:role/synthetic-embedding",
+        "AWS_REGION": region,
+        **({"AWS_ROLE_SESSION_NAME": session_name} if session_name is not None else {}),
     }
-    headers = await bedrock.request_headers(
-        {
-            "AWS_ROLE_ARN": "arn:aws:iam::123456789012:role/synthetic-embedding",
-            "AWS_REGION": region,
-            **(
-                {"AWS_ROLE_SESSION_NAME": session_name}
-                if session_name is not None
-                else {}
-            ),
-        },
-        scope,
-        default_model("bedrock", region).endpoint,
-        b"{}",
+    endpoint = default_model("bedrock", region).endpoint
+    headers = await bedrock.request_headers(values, scope, endpoint, b"{}")
+    changed = await bedrock.request_headers(
+        values, scope, endpoint, b'{"inputText":"new"}'
     )
+    sts.assume_role.assert_called_once()
+    assert headers["Authorization"] != changed["Authorization"]
     assert aws_session.client.call_args.args == ("sts",)
     assert aws_session.client.call_args.kwargs["region_name"] == region
     options = aws_session.client.call_args.kwargs["config"]
@@ -292,3 +296,82 @@ async def test_sts_failures_are_classified_without_inference_or_secret_leaks(
         configuration, credential, expected_code, request_for(configuration, ("hello",))
     )
     assert error.retryable is retryable
+
+
+async def test_concurrent_chunks_share_one_sts_call(aws_session):
+    entered, release = threading.Event(), threading.Event()
+    sts = aws_session.client.return_value
+    response = sts.assume_role.return_value
+
+    def assume(**kwargs):
+        entered.set()
+        assert release.wait(3)
+        return response
+
+    sts.assume_role.side_effect = assume
+    args = (
+        "synthetic-role",
+        "us-east-1",
+        "search",
+        SearchScope(uuid.uuid4(), uuid.uuid4()),
+    )
+    tasks = [
+        asyncio.create_task(asyncio.to_thread(bedrock._assume_role, *args))
+        for _ in range(8)
+    ]
+    try:
+        assert await asyncio.to_thread(entered.wait, 3)
+        # Keep STS in flight while the other callers reach the same cache key.
+        await asyncio.sleep(0.05)
+    finally:
+        release.set()
+    results = await asyncio.gather(*tasks)
+    sts.assume_role.assert_called_once()
+    assert all(result is results[0] for result in results)
+    assert "assumed-secret" not in repr(results[0])
+
+
+@pytest.mark.parametrize(
+    "field", ["role", "region", "session", "organization_id", "workspace_id"]
+)
+def test_role_cache_separates_authentication_contexts(aws_session, field):
+    scope = SearchScope(uuid.uuid4(), uuid.uuid4())
+    bedrock._assume_role("role", "us-east-1", "session", scope)
+    other_scope = (
+        replace(scope, **{field: uuid.uuid4()}) if field.endswith("_id") else scope
+    )
+    bedrock._assume_role(
+        "other-role" if field == "role" else "role",
+        "us-west-2" if field == "region" else "us-east-1",
+        "other-session" if field == "session" else "session",
+        other_scope,
+    )
+    assert aws_session.client.return_value.assume_role.call_count == 2
+
+
+def test_role_cache_refresh_failure_and_recovery(aws_session, monkeypatch):
+    sts = aws_session.client.return_value
+    credentials = sts.assume_role.return_value["Credentials"]
+    expiry = credentials["Expiration"].timestamp()
+    now = [expiry - 3600]
+    monkeypatch.setattr(bedrock, "time", lambda: now[0])
+    args = ("role", "us-east-1", "session", SearchScope(uuid.uuid4(), uuid.uuid4()))
+    first = bedrock._assume_role(*args)
+    now[0] = expiry - 301
+    assert bedrock._assume_role(*args) is first
+    sts.assume_role.assert_called_once()
+    now[0] = expiry - 300
+    sts.assume_role.side_effect = ClientError(
+        {"Error": {"Code": "AccessDenied"}}, "AssumeRole"
+    )
+    with pytest.raises(ClientError):
+        bedrock._assume_role(*args)  # Never serve stale credentials on refresh failure.
+    sts.assume_role.side_effect = None
+    credentials["Expiration"] = datetime.fromtimestamp(now[0] + 3600, UTC)
+    assert bedrock._assume_role(*args) is not first
+    assert sts.assume_role.call_count == 3
+    bedrock._assume_role.cache_clear()
+    credentials["Expiration"] = datetime.fromtimestamp(now[0] + 30, UTC)
+    with pytest.raises(EmbeddingError) as caught:
+        bedrock._assume_role(*args)
+    assert caught.value.code == EmbeddingErrorCode.UNAVAILABLE

@@ -2,6 +2,8 @@
 
 import asyncio
 from contextlib import closing
+from threading import Condition
+from time import time
 
 import boto3
 from botocore.auth import SigV4Auth
@@ -14,19 +16,35 @@ from botocore.exceptions import (
     ParamValidationError,
     PartialCredentialsError,
 )
+from cachetools import TLRUCache, cached
 
 from tracecat.integrations.aws_assume_role import build_workspace_external_id
-from tracecat.search.embeddings.types import EmbeddingError, EmbeddingErrorCode
+from tracecat.search.embeddings.types import (
+    AssumedRoleCredential,
+    EmbeddingError,
+    EmbeddingErrorCode,
+)
 from tracecat.search.types import SearchScope
 
+# Retain only temporary STS keys, never the input secret. Refresh five minutes
+# early; the condition coalesces same-key calls without serializing other roles.
+_ROLE_CREDENTIALS = TLRUCache[tuple[str, str, str, SearchScope], AssumedRoleCredential](
+    maxsize=256,
+    ttu=lambda _key, value, _now: value.expires_at - 300,
+    timer=lambda: time(),
+)
 
-def _assume_role(values: dict[str, str], scope: SearchScope) -> dict[str, str]:
+
+@cached(_ROLE_CREDENTIALS, condition=Condition())
+def _assume_role(
+    role_arn: str, region: str, session_name: str, scope: SearchScope
+) -> AssumedRoleCredential:
     # Ambient workload credentials are only the STS caller for an explicitly
     # configured role, matching the existing Bedrock provider's trust model.
     with closing(
         boto3.Session().client(
             "sts",
-            region_name=values["AWS_REGION"],
+            region_name=region,
             config=Config(
                 connect_timeout=5,
                 read_timeout=10,
@@ -35,17 +53,22 @@ def _assume_role(values: dict[str, str], scope: SearchScope) -> dict[str, str]:
         )
     ) as sts:
         response = sts.assume_role(
-            RoleArn=values["AWS_ROLE_ARN"],
-            RoleSessionName=values.get("AWS_ROLE_SESSION_NAME", "").strip()
-            or "tracecat-search",
+            RoleArn=role_arn,
+            RoleSessionName=session_name,
             ExternalId=build_workspace_external_id(scope.workspace_id),
         )
     credentials = response["Credentials"]
-    return values | {
-        "AWS_ACCESS_KEY_ID": credentials["AccessKeyId"],
-        "AWS_SECRET_ACCESS_KEY": credentials["SecretAccessKey"],
-        "AWS_SESSION_TOKEN": credentials["SessionToken"],
-    }
+    expires_at = credentials["Expiration"].timestamp()
+    if expires_at <= time() + 30:
+        raise EmbeddingError(EmbeddingErrorCode.UNAVAILABLE)
+    return AssumedRoleCredential(
+        values={
+            "AWS_ACCESS_KEY_ID": credentials["AccessKeyId"],
+            "AWS_SECRET_ACCESS_KEY": credentials["SecretAccessKey"],
+            "AWS_SESSION_TOKEN": credentials["SessionToken"],
+        },
+        expires_at=expires_at,
+    )
 
 
 async def request_headers(
@@ -54,7 +77,14 @@ async def request_headers(
     """Sign using the configured role/static keys, or use the configured API key."""
     if values.get("AWS_ROLE_ARN"):
         try:
-            values = await asyncio.to_thread(_assume_role, values, scope)
+            assumed = await asyncio.to_thread(
+                _assume_role,
+                values["AWS_ROLE_ARN"],
+                values["AWS_REGION"],
+                values.get("AWS_ROLE_SESSION_NAME", "").strip() or "tracecat-search",
+                scope,
+            )
+            values = values | assumed.values
         except ClientError as exc:
             # STS uses HTTP 400 for some transient errors too. Classify its typed
             # error code, never the status alone or a potentially sensitive message.

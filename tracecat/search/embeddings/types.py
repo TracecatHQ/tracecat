@@ -88,6 +88,14 @@ class ResolvedCredential:
 
 
 @dataclass(frozen=True, slots=True)
+class AssumedRoleCredential:
+    """Process-local STS credentials with their absolute expiration time."""
+
+    values: dict[str, str] = field(repr=False)
+    expires_at: float
+
+
+@dataclass(frozen=True, slots=True)
 class EmbeddingBatch:
     """Mapped results and provider-reported token usage for one bounded call."""
 
