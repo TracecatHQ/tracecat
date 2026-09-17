@@ -215,6 +215,29 @@ async def test_expired_non_pending_and_claimed_are_never_claimed(
 
 
 @pytest.mark.anyio
+async def test_grantless_invitation_is_never_claimed(
+    session: AsyncSession, org: Organization, inviter: User
+) -> None:
+    """A row whose grants cascaded away has no usable link, so it is not sent."""
+    session.add(
+        Invitation(
+            id=uuid.uuid4(),
+            organization_id=org.id,
+            email=f"orphan-{uuid.uuid4().hex[:8]}@example.com",
+            status=InvitationStatus.PENDING,
+            invited_by=inviter.id,
+            token=uuid.uuid4().hex,
+            expires_at=datetime.now(UTC) + timedelta(days=7),
+        )
+    )
+    await session.commit()
+
+    transport = AsyncMock(spec=SMTPTransport)
+    assert not await deliver_next_invitation(session, transport)
+    transport.send.assert_not_awaited()
+
+
+@pytest.mark.anyio
 async def test_unconfigured_smtp_claims_nothing(
     session: AsyncSession,
     org: Organization,

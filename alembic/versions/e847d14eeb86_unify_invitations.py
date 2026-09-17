@@ -230,6 +230,19 @@ def upgrade() -> None:
     op.execute(
         "DELETE FROM invitation WHERE status = 'PENDING' AND expires_at <= now()"
     )
+    # Old pods keep polling the legacy outbox during the rollout. Unsent rows
+    # are claimed here, in this transaction, so they never send; the copy below
+    # is left unclaimed so the new outbox sends each exactly once. now() is
+    # constant within the transaction, which is what tells the two apart.
+    op.execute(
+        """
+        UPDATE organization_invitation
+        SET email_claimed_at = now()
+        WHERE status = 'PENDING'
+          AND expires_at > now()
+          AND email_claimed_at IS NULL
+        """
+    )
     op.execute(
         """
         INSERT INTO invitation (
@@ -241,7 +254,9 @@ def upgrade() -> None:
         SELECT oi.id, oi.organization_id, oi.email, oi.status,
                oi.invited_by, oi.token, oi.expires_at, oi.accepted_at,
                oi.created_by_platform_admin, oi.created_at, oi.updated_at,
-               oi.email_claimed_at, oi.email_sent_at, oi.email_attempts
+               CASE WHEN oi.email_claimed_at = now() THEN NULL
+                    ELSE oi.email_claimed_at END,
+               oi.email_sent_at, oi.email_attempts
         FROM organization_invitation AS oi
         WHERE (
                 (oi.status = 'PENDING' AND oi.expires_at > now())
