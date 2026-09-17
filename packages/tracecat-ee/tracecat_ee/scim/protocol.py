@@ -386,9 +386,13 @@ async def delete_user(
     The service keeps raising ``NoResultFound``; idempotency is a property of
     this transport, not of deprovisioning.
     """
-    external_user, _ = await _linked_user(
-        session, organization_id=_organization_id(role), resource_id=resource_id
-    )
+    try:
+        external_user, _ = await _linked_user(
+            session, organization_id=_organization_id(role), resource_id=resource_id
+        )
+    except TracecatNotFoundError:
+        # A resource this tenant never had is already in the desired state.
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
     await _apply_active(session, role=role, external_user=external_user, active=False)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -432,10 +436,11 @@ async def _get_group(
 async def _resolve_member_ids(
     session: AsyncSession, *, organization_id: UUID, members: list[ScimGroupMemberRef]
 ) -> list[UUID]:
-    """Keep only members this organization's provider actually owns.
+    """Keep only the member refs this organization's provider actually owns.
 
-    A reference to a user outside the tenant is dropped rather than failing the
-    whole push: the provider often sends members before provisioning them.
+    A reference is the /Users resource id, which is ``external_user.id``. One
+    outside the tenant is dropped rather than failing the whole push: the
+    provider often sends members before provisioning them.
     """
     candidates: list[UUID] = []
     for member in members:
@@ -445,9 +450,9 @@ async def _resolve_member_ids(
             continue
     if not candidates:
         return []
-    stmt = select(ExternalUser.user_id).where(
+    stmt = select(ExternalUser.id).where(
         ExternalUser.organization_id == organization_id,
-        ExternalUser.user_id.in_(candidates),
+        ExternalUser.id.in_(candidates),
     )
     return list((await session.execute(stmt)).scalars())
 
@@ -503,10 +508,10 @@ async def create_group(
     )
     await session.flush()
     if params.members is not None:
-        user_ids = await _resolve_member_ids(
+        external_user_ids = await _resolve_member_ids(
             session, organization_id=organization_id, members=params.members
         )
-        await service.replace_external_group_members(group.id, user_ids)
+        await service.replace_external_group_members(group.id, external_user_ids)
     await session.commit()
     return _group_resource(group, members=await _group_members(session, group.id))
 
@@ -539,10 +544,10 @@ async def replace_group(
     await service.upsert_external_group(
         external_id=group.external_id, display_name=params.display_name
     )
-    user_ids = await _resolve_member_ids(
+    external_user_ids = await _resolve_member_ids(
         session, organization_id=organization_id, members=params.members or []
     )
-    await service.replace_external_group_members(group.id, user_ids)
+    await service.replace_external_group_members(group.id, external_user_ids)
     await session.commit()
     return _group_resource(group, members=await _group_members(session, group.id))
 

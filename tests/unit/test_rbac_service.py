@@ -18,6 +18,7 @@ from tests.support.membership import (
     grant_org_membership,
     grant_org_membership_via_group,
     grant_workspace_membership,
+    seed_external_group,
 )
 from tracecat.auth.types import Role
 from tracecat.authz.enums import ScopeSource
@@ -30,6 +31,7 @@ from tracecat.authz.seeding import seed_system_roles_for_org, seed_system_scopes
 from tracecat.authz.service import query_effective_scopes
 from tracecat.db.models import (
     AccessToken,
+    ExternalGroupMapping,
     Group,
     GroupMember,
     GroupRoleAssignment,
@@ -927,6 +929,34 @@ class TestRBACServiceUserAssignments:
             )
         )
         assert result.scalar_one_or_none() is not None
+
+    async def test_group_member_edits_rejected_on_mapped_group(
+        self,
+        session: AsyncSession,
+        role: Role,
+        org: Organization,
+        user: User,
+    ):
+        """A mapping hands the group to the provider; hand edits then conflict."""
+        service = RBACService(session, role=role)
+        group = await service.create_group(name="IdP Owned")
+        external = await seed_external_group(
+            session, organization_id=org.id, external_id="idp-owned"
+        )
+        session.add(
+            ExternalGroupMapping(
+                id=uuid.uuid4(),
+                organization_id=org.id,
+                external_group_id=external.id,
+                group_id=group.id,
+            )
+        )
+        await session.flush()
+
+        with pytest.raises(TracecatConflictError):
+            await service.add_group_member(group.id, user.id)
+        with pytest.raises(TracecatConflictError):
+            await service.remove_group_member(group.id, user.id)
 
     async def test_delete_org_wide_assignment_with_workspace_path(
         self,

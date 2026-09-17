@@ -16,7 +16,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from uuid import UUID
 
-from sqlalchemy import ColumnElement, delete, func, select, update
+from sqlalchemy import ColumnElement, and_, delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from tracecat.audit.logger import audit_log
@@ -30,6 +30,7 @@ from tracecat.db.models import (
     ExternalUser,
     Group,
     GroupMember,
+    OrganizationMembership,
     ScimConnection,
 )
 from tracecat.exceptions import TracecatNotFoundError
@@ -503,6 +504,9 @@ class SCIMService(BaseOrgService):
         Losing its last mapping would otherwise revoke every member's access at
         once; the admin keeps the membership and can edit it by hand again.
         """
+        # Joined through the membership row: it is the aggregate root the
+        # group_member insert below hangs off, and a user the provider pushed
+        # while the connection was pending has none.
         members = (
             select(ExternalUser.user_id)
             .join(
@@ -513,6 +517,14 @@ class SCIMService(BaseOrgService):
                 ExternalGroupMapping,
                 ExternalGroupMapping.external_group_id
                 == ExternalGroupMember.external_group_id,
+            )
+            .join(
+                OrganizationMembership,
+                and_(
+                    OrganizationMembership.user_id == ExternalUser.user_id,
+                    OrganizationMembership.organization_id
+                    == ExternalUser.organization_id,
+                ),
             )
             .where(
                 ExternalGroupMapping.group_id == group_id,

@@ -11,6 +11,7 @@ from tracecat.authz.enums import ScopeSource
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import (
     TracecatAuthorizationError,
+    TracecatConflictError,
     TracecatNotFoundError,
     TracecatValidationError,
 )
@@ -521,6 +522,8 @@ async def add_group_member(
     try:
         await service.add_group_member(group_id, params.user_id)
         return {"message": "Member added successfully"}
+    except TracecatConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
     except TracecatValidationError as e:
@@ -553,6 +556,8 @@ async def remove_group_member(
     service = RBACService(session, role=role)
     try:
         await service.remove_group_member(group_id, user_id)
+    except TracecatConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 

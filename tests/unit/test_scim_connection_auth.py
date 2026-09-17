@@ -148,7 +148,7 @@ async def test_malformed_token_rejected() -> None:
 
 
 @pytest.mark.anyio
-async def test_unknown_key_id_rejected() -> None:
+async def test_unknown_key_id_rejected(auth_session: None) -> None:
     token = f"{SCIM_API_KEY_PREFIX}{uuid.uuid4().hex[:12]}_{uuid.uuid4().hex}"
     with pytest.raises(HTTPException) as exc:
         await authenticate_scim_connection(_bearer(token))

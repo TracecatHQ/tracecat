@@ -196,7 +196,7 @@ async def test_user_driven_removal_is_still_attributed_to_the_user(
     token = ctx_role.set(admin_role)
     try:
         await OrgService(session, role=admin_role).delete_member(
-            member.id, allow_scim_managed=True
+            member.id, allow_idp_managed=True
         )
     finally:
         ctx_role.reset(token)
@@ -307,7 +307,9 @@ async def test_scim_writes_emit_their_audit_events(
         external = await scim.upsert_external_group(
             external_id=f"eg-{uuid.uuid4().hex[:8]}", display_name="Engineering"
         )
-        await scim.replace_external_group_members(external.id, [provisioned.user.id])
+        await scim.replace_external_group_members(
+            external.id, [provisioned.external_user.id]
+        )
         mapping = await scim.create_mapping(
             external_group_id=external.id, group_id=group.id
         )
