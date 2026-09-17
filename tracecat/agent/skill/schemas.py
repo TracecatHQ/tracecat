@@ -18,6 +18,7 @@ from pydantic import (
 from tracecat.agent.skill.types import SkillOrigin
 from tracecat.core.schemas import Schema
 from tracecat.identifiers import WorkspaceID
+from tracecat.tags.schemas import TagRead
 
 
 def _validate_skill_name(value: str) -> str:
@@ -76,6 +77,8 @@ class SkillRead(Schema):
     slug: str
     description: str | None = Field(default=None)
     current_version_id: uuid.UUID | None = Field(default=None)
+    folder_id: uuid.UUID | None = Field(default=None)
+    tags: list[TagRead] = Field(default_factory=list)
     draft_revision: int
     created_at: datetime
     updated_at: datetime
@@ -103,9 +106,17 @@ class SkillReadMinimal(Schema):
     slug: str
     description: str | None = Field(default=None)
     current_version_id: uuid.UUID | None = Field(default=None)
+    folder_id: uuid.UUID | None = Field(default=None)
+    tags: list[TagRead] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
     deleted_at: datetime | None = Field(default=None)
+
+
+class SkillMoveToFolder(Schema):
+    """Payload for moving a skill into a folder."""
+
+    folder_path: str | None = Field(default=None)
 
 
 class SkillCreate(Schema):
