@@ -649,8 +649,8 @@ function ManageUserRolesDialog({
     setWorkspaceId("org-wide")
   }
 
-  // Removing an org-wide role can drop the user from the member list, so
-  // confirm it; workspace-scoped removals stay one click.
+  // An org-wide role carries org permissions, so confirm its removal;
+  // workspace-scoped removals stay one click.
   const handleRemoveRole = async (assignmentId: string) => {
     const assignment = userAssignments.find((a) => a.id === assignmentId)
     if (assignment?.workspace_id == null) {
@@ -803,9 +803,8 @@ function ManageUserRolesDialog({
           <AlertDialogHeader>
             <AlertDialogTitle>Remove organization role?</AlertDialogTitle>
             <AlertDialogDescription>
-              {member.email} will no longer be listed as an organization member
-              unless a group grants them an organization role. Workspace roles
-              are kept.
+              {member.email} loses this organization role and its permissions.
+              They stay an organization member, and workspace roles are kept.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
