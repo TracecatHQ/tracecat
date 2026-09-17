@@ -258,7 +258,12 @@ async def publish_skill_draft(
 )
 async def update_skill(
     skill_id: Annotated[str, Doc("Skill slug in kebab-case.")],
-    files: list[dict[str, Any]] | None = None,
+    files: Annotated[
+        list[dict[str, Any]] | None,
+        Doc(
+            "Files to add or replace. Each file requires path and content_base64, with optional content_type."
+        ),
+    ] = None,
     delete_paths: Annotated[
         list[str] | None, Doc("File paths to remove from the current version.")
     ] = None,
