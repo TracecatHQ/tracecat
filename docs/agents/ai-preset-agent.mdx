@@ -17,6 +17,23 @@ Use the `Tools` tab to select the model, allowed Tracecat actions, and MCP integ
 
 ![Agent preset tools](/img/agents/agent-preset-tools.png)
 
+## Where tools come from
+
+An agent's tools come from the preset and its skills, not from the workflow that calls it.
+Put job-specific tools in the preset's `Tools` tab.
+Put a group of tools that several agents reuse in a skill's [`metadata.tools`](/agents/skills#declare-tools-in-frontmatter)
+frontmatter, so the instructions and the tools travel together.
+The effective tool set is the union of the two, filtered by any `namespaces` restriction on the preset.
+
+Leave `output_type` unset unless you specifically need structured output for a downstream step.
+
+### Testing with extra tools
+
+The `ai.preset_agent` action takes an `actions` argument for ad hoc testing and evals, such as trying
+the preset with an extra tool in a scratch workflow.
+It replaces the preset's and its skills' entire tool set for that run rather than adding to it.
+Remove it before the workflow ships and add the tool to the preset or a skill instead.
+
 ## Availability
 
 Open source includes presets, [skills](/agents/skills), [secrets and variables](/agents/secrets-variables) in preset instructions, and the MCP catalog connectors.

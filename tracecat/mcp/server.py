@@ -528,8 +528,10 @@ def _build_output_type_context() -> dict[str, Any]:
             },
         },
         "notes": [
-            "Use a literal string output_type for simple primitive responses.",
-            "Use a JSON Schema object when you want structured agent output.",
+            "Set an output_type only when the user explicitly asks for "
+            "structured output. Otherwise leave it unset.",
+            "When the user does ask: use a literal string output_type for a "
+            "primitive response, or a JSON Schema object for structured output.",
             "Prefer no output_type at all. The agent's side effects — cases "
             "opened, messages sent, rows written — are its output.",
             "Define an output_type only when a downstream deterministic step "
@@ -2199,6 +2201,10 @@ show candidate integrations first.
 `core.script.run_python` unless a specific integration is requested.
 - For `ai.agent`, prefer the `model` object. Use legacy top-level \
 `model_name`/`model_provider` only when requested.
+- For `ai.preset_agent`, pass only `preset` and `user_prompt` (plus at most an \
+`instructions` append). Tools live on the preset's `actions` or on an attached \
+skill's `metadata.tools`; the action's `actions` argument is for testing and \
+evals only and replaces the whole tool set for that run.
 
 ## Expression syntax (used in action `args:` values)
 - `${{ TRIGGER.<field> }}` — workflow trigger input
@@ -2675,7 +2681,9 @@ actions:
       output_type: 'list[{"finding": "str", "severity": "str"}]'
 ```
 
-### AI Agent (With Tool Calling)
+### AI Agent (Inline, Non-Preset Tool Calling)
+Use `ai.agent` when the agent is defined inline in the workflow, with its model,
+instructions, and tools listed on the action itself.
 ```yaml
 actions:
   - ref: investigate
@@ -2692,6 +2700,22 @@ actions:
       max_tool_calls: 10
 ```
 Use top-level `model_name` and `model_provider` only when explicitly requested.
+
+### AI Preset Agent (Saved Configuration)
+Pass only `preset` and `user_prompt`. The tools come from the preset's own
+`actions` and from the `metadata.tools` frontmatter of the skills attached to it,
+so the workflow action does not list any. Add at most an `instructions` append
+for run-specific context. The action's `actions` argument is for ad hoc testing
+and evals only: it replaces the preset's and its skills' entire tool set for that
+run and should not be left in a workflow that ships.
+```yaml
+actions:
+  - ref: triage
+    action: ai.preset_agent
+    args:
+      preset: security-analyst
+      user_prompt: "Triage this alert: ${{ TRIGGER.alert }}"
+```
 
 ### For-each Syntax (Avoid by Default)
 Avoid `for_each` unless the list is known and bounded and the user explicitly
@@ -2973,6 +2997,24 @@ helpers call Tracecat APIs.
 3. `list_actions` / `get_action_context` — choose exact tools and schemas
 4. `create_agent_preset` or `update_agent_preset`
 5. `list_agent_presets`, `get_agent_preset`, or `run_agent_preset` as needed
+
+### Where tools live
+- Always add tools to the agent preset (its `actions`) or to a skill (SKILL.md
+frontmatter `metadata.tools`). Prefer a skill when the tools group naturally and
+are reused across agents.
+- The effective tool set is the preset's `actions` plus every attached skill's
+`metadata.tools`, then filtered by the preset's `namespaces`. A `namespaces`
+filter silently drops skill tools outside it.
+- Skill tools are granted whenever the preset config is resolved, whether or not
+the model opens the skill. Only the skill instructions load on demand.
+- Set an `output_type` only when the user explicitly asks for structured output.
+
+### Calling a preset from a workflow
+- An `ai.preset_agent` action carries `preset` and `user_prompt`, plus at most an
+`instructions` append. Tools come from the preset and its skills.
+- The `actions` argument on `ai.preset_agent` is for ad hoc testing and evals
+only. It replaces the preset's and its skills' entire tool set for that run
+rather than adding to it, and should never be left in a workflow that ships.
 """
 
 
@@ -8447,6 +8489,10 @@ async def create_agent_preset(
     """Create an agent preset in the selected workspace.
 
     Use `skills` to attach published skills. Each binding contains `skill_id`.
+
+    Tools are attached here via `actions`, or via an attached skill's SKILL.md
+    frontmatter `metadata.tools` when the same tools are reused across agents.
+    Workflows that call this preset should not override its tools.
     """
 
     try:
@@ -8531,6 +8577,10 @@ async def update_agent_preset(
     Use `skills` to replace attached published skills. Each binding contains
     `skill_id`. Omit `skills` to leave bindings unchanged, or pass an empty list
     to detach all skills.
+
+    Tools belong here via `actions`, or on an attached skill via its SKILL.md
+    frontmatter `metadata.tools` when the same tools are reused across agents.
+    Workflows that call this preset should not override its tools.
 
     Set `clear_output_type=true` to remove an existing `output_type` (agent
     returns plain text). Omitting `output_type` leaves it unchanged.
@@ -9137,6 +9187,10 @@ async def prepare_skill_upload(
     Upload every file to its short-lived URL with the returned method and
     headers, then call `complete_skill_upload` with the returned `skill_id`,
     `base_revision`, paths, and upload IDs.
+
+    Declare the skill's tools in its SKILL.md frontmatter `metadata.tools`. Those
+    tools are granted to every preset the skill is attached to, alongside the
+    preset's own `actions`.
     """
 
     try:
@@ -9304,7 +9358,9 @@ async def publish_skill(
 ) -> SkillVersionRead:
     """Publish a skill draft into an immutable skill version.
 
-    Only published skill versions can be attached to agent presets.
+    Only published skill versions can be attached to agent presets. A skill's
+    SKILL.md frontmatter `metadata.tools` grants those tools to every preset the
+    skill is attached to, on top of the preset's own `actions`.
     """
 
     try:
@@ -9460,7 +9516,10 @@ async def run_agent_preset(
     """Run an agent preset with a prompt and return text or approval status.
 
     Creates an ephemeral session, triggers the agent workflow, and waits
-    for the response. The agent has access to all tools configured on the preset.
+    for the response. The agent has access to the tools configured on the preset
+    (its `actions`) plus the tools declared in the `metadata.tools` frontmatter
+    of its attached skills. Tools cannot be overridden here; change the preset or
+    its skills instead.
 
     Args:
         workspace_id: The workspace ID (from list_workspaces).

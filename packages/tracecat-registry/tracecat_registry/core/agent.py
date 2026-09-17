@@ -114,7 +114,10 @@ async def agent(
 
 @registry.register(
     default_title="Run agent preset",
-    description="Run an AI agent using a saved agent preset.",
+    description=(
+        "Run an AI agent using a saved agent preset. Tools come from the preset's "
+        "actions and its attached skills, not from this action."
+    ),
     display_group="AI",
     namespace="ai",
 )
@@ -142,14 +145,18 @@ async def preset_agent(
     actions: Annotated[
         list[str] | None,
         Doc(
-            "Optional override for the actions (e.g. 'tools.slack.post_message') that the agent should be allowed to call."
+            "For ad hoc testing and evals only. Replaces the preset's and its skills' "
+            "entire tool set for this run; it does not add to it. For anything that "
+            "ships, add tools to the agent preset, or to a skill when the same tools "
+            "are reused across agents."
         ),
         ActionType(multiple=True),
     ] = None,
     instructions: Annotated[
         str | None,
         Doc(
-            "Additional instructions to append to the preset instructions for this run."
+            "Appended to the preset instructions for this run. Put durable instructions "
+            "on the preset."
         ),
         TextArea(),
     ] = None,

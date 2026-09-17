@@ -437,12 +437,16 @@
   Create an agent preset in the selected workspace.
 
   Use `skills` to attach published skills. Each binding contains `skill_id`.
+
+  Tools are attached here via `actions`, or via an attached skill's SKILL.md frontmatter `metadata.tools` when the same tools are reused across agents. Workflows that call this preset should not override its tools.
 </ResponseField>
 
 <ResponseField name="update_agent_preset" type="tool">
   Update an existing agent preset in the selected workspace.
 
   Use `skills` to replace attached published skills. Each binding contains `skill_id`. Omit `skills` to leave bindings unchanged, or pass an empty list to detach all skills.
+
+  Tools belong here via `actions`, or on an attached skill via its SKILL.md frontmatter `metadata.tools` when the same tools are reused across agents. Workflows that call this preset should not override its tools.
 
   Set `clear_output_type=true` to remove an existing `output_type` (agent returns plain text). Omitting `output_type` leaves it unchanged.
 </ResponseField>
@@ -497,6 +501,8 @@
   This is the preferred local-directory upload path. Pass file paths, SHA-256 digests, sizes, and content types only; never inline file contents or base64. Omit `skill_id` and provide `name` to create a skill, or provide `skill_id` and omit `name`/`description` to replace an existing draft.
 
   Upload every file to its short-lived URL with the returned method and headers, then call `complete_skill_upload` with the returned `skill_id`, `base_revision`, paths, and upload IDs.
+
+  Declare the skill's tools in its SKILL.md frontmatter `metadata.tools`. Those tools are granted to every preset the skill is attached to, alongside the preset's own `actions`.
 </ResponseField>
 
 <ResponseField name="complete_skill_upload" type="tool">
@@ -508,7 +514,7 @@
 <ResponseField name="publish_skill" type="tool">
   Publish a skill draft into an immutable skill version.
 
-  Only published skill versions can be attached to agent presets.
+  Only published skill versions can be attached to agent presets. A skill's SKILL.md frontmatter `metadata.tools` grants those tools to every preset the skill is attached to, on top of the preset's own `actions`.
 </ResponseField>
 
 <ResponseField name="list_agent_presets" type="tool">
@@ -524,5 +530,5 @@
 <ResponseField name="run_agent_preset" type="tool">
   Run an agent preset with a prompt and return text or approval status.
 
-  Creates an ephemeral session, triggers the agent workflow, and waits for the response. The agent has access to all tools configured on the preset.
+  Creates an ephemeral session, triggers the agent workflow, and waits for the response. The agent has access to the tools configured on the preset (its `actions`) plus the tools declared in the `metadata.tools` frontmatter of its attached skills. Tools cannot be overridden here; change the preset or its skills instead.
 </ResponseField>

@@ -233,7 +233,11 @@ Default: `null`.
 
 ### `ai.preset_agent`
 
-Run an AI agent using a saved agent preset.
+Run an AI agent using a saved agent preset. Tools come from the preset's actions and its attached skills, not from this action.
+
+<Warning>
+The `actions` input is for ad hoc testing and evals only. It replaces the preset's and its skills' entire tool set for the run. See [AI preset agent](/agents/ai-preset-agent#where-tools-come-from).
+</Warning>
 
 #### Inputs
 
@@ -251,7 +255,7 @@ User prompt to the agent.
 
 <ParamField path="actions" type="array[string] | null">
 
-Optional override for the actions (e.g. 'tools.slack.post_message') that the agent should be allowed to call.
+For ad hoc testing and evals only. Replaces the preset's and its skills' entire tool set for this run; it does not add to it. For anything that ships, add tools to the agent preset, or to a skill when the same tools are reused across agents.
 
 Default: `null`.
 
@@ -259,7 +263,7 @@ Default: `null`.
 
 <ParamField path="instructions" type="string | null">
 
-Additional instructions to append to the preset instructions for this run.
+Appended to the preset instructions for this run. Put durable instructions on the preset.
 
 Default: `null`.
 

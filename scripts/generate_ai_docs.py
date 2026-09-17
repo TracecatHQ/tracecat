@@ -275,6 +275,12 @@ PAGES: list[dict[str, Any]] = [
             },
             {
                 "id": "ai.preset_agent",
+                "warning": (
+                    "The `actions` input is for ad hoc testing and evals only. It "
+                    "replaces the preset's and its skills' entire tool set for the "
+                    "run. See "
+                    "[AI preset agent](/agents/ai-preset-agent#where-tools-come-from)."
+                ),
                 "examples": ["preset_agent_run"],
             },
         ],
