@@ -270,8 +270,6 @@ class DSLWorkflow:
     scheduler: DSLScheduler
     workspace_id: identifiers.WorkspaceID
     dependency_plan: DSLDependencyPlan | None = None
-    dependency_compilation_failed: bool = False
-    """Distinguish a failed compilation from histories that never compiled."""
 
     # Tier limit tracking
     _tier_limits: EffectiveLimits | None = None
@@ -660,7 +658,6 @@ class DSLWorkflow:
             executor=self.execute_task,
             dsl=self.dsl,
             dependency_plan=self.dependency_plan,
-            dependency_compilation_failed=self.dependency_compilation_failed,
             max_pending_tasks=config.TRACECAT__DSL_SCHEDULER_MAX_PENDING_TASKS,
             context=self.context,
             role=self.role,
@@ -1667,7 +1664,6 @@ class DSLWorkflow:
                 start_to_close_timeout=self.start_to_close_timeout,
                 retry_policy=RETRY_POLICIES["activity:fail_slow"],
             )
-            self.dependency_compilation_failed = self.dependency_plan is None
         except ActivityError as error:
             if isinstance(error.cause, ApplicationError):
                 raise error.cause from error

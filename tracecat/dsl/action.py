@@ -693,14 +693,14 @@ class DSLActivities:
     async def compile_dsl_dependencies_activity(
         dsl: DSLInput,
     ) -> DSLDependencyPlan | None:
-        """Compile optional dependencies, falling back to the original context."""
+        """Compile optional dependencies, falling back to legacy context selection."""
         try:
             return compile_dsl_dependencies(dsl)
         except Exception as error:
             # Dependency selection is an optimization. Leave expression validation
             # to normal evaluation and do not log potentially sensitive operands.
             logger.warning(
-                "Dependency compilation failed; using the original workflow context",
+                "Dependency compilation failed; using legacy context selection",
                 error_type=type(error).__name__,
             )
             return None

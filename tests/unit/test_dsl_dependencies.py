@@ -272,7 +272,6 @@ async def test_compilation_is_patch_gated(enabled: bool, failed: bool) -> None:
         patch("tracecat.dsl.workflow.workflow.execute_activity", new=execute),
     ):
         await workflow._compile_dependencies()
-    assert workflow.dependency_compilation_failed is (enabled and failed)
     patched.assert_called_once_with(WorkflowPatch.COMPILE_DSL_DEPENDENCIES)
     if enabled:
         assert workflow.dependency_plan is plan
@@ -335,7 +334,6 @@ def test_plan_selects_live_stream_results_without_parsing(
     context: ExecutionContext,
 ) -> None:
     scheduler = object.__new__(DSLScheduler)
-    scheduler.dependency_compilation_failed = False
     scheduler.dependency_plan = DSLDependencyPlan(
         actions={"consumer": ["first", "second", "skipped"]}, returns=[]
     )
@@ -368,19 +366,23 @@ def test_plan_selects_live_stream_results_without_parsing(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("nested", [False, True])
-async def test_compiler_fallback_preserves_full_action_context(
+async def test_compiler_fallback_preserves_legacy_action_context(
     context: ExecutionContext, nested: bool
 ) -> None:
-    expression = "${{ ACTIONS.first.`parent`.second.result.value }}"
+    expression = "${{ ACTIONS.first.result.value + ACTIONS.second.result.value }}"
     dsl = make_dsl(None)
     task = dsl.actions[-1]
     task.args = {"value": expression}
     scheduler = object.__new__(DSLScheduler)
-    scheduler.dependency_plan = await DSLActivities.compile_dsl_dependencies_activity(
-        dsl
-    )
+    with patch(
+        "tracecat.dsl.action.compile_dsl_dependencies",
+        side_effect=RuntimeError("synthetic compiler failure"),
+    ):
+        scheduler.dependency_plan = (
+            await DSLActivities.compile_dsl_dependencies_activity(dsl)
+        )
     assert scheduler.dependency_plan is None
-    scheduler.dependency_compilation_failed = True
+    scheduler.logger = get_workflow_logger()
     scheduler._root_context = context
     scheduler.streams = {ROOT_STREAM: context}
     scheduler.stream_hierarchy = {ROOT_STREAM: None}
@@ -401,19 +403,13 @@ async def test_compiler_fallback_preserves_full_action_context(
         )
     workflow = object.__new__(DSLWorkflow)
     workflow.scheduler = scheduler
-    with patch(
-        "tracecat.dsl.scheduler.extract_expressions",
-        side_effect=AssertionError("fallback must not run the legacy extractor"),
-    ):
-        operand = workflow._build_action_context(task, stream_id)
-        assert scheduler._build_collection_context(task, stream_id) == operand
-    assert set(operand["ACTIONS"]) == {"first", "second", "unused"}
-    assert operand["ACTIONS"]["unused"] is context["ACTIONS"]["unused"]
+    operand = workflow._build_action_context(task, stream_id)
+    assert set(operand["ACTIONS"]) == {"first", "second"}
     assert operand["TRIGGER"] is context["TRIGGER"]
     assert operand.get("VARS") is context.get("VARS")
     assert eval_templated_object(
         expression, operand=await materialize_context(operand)
-    ) == (13 if nested else 7)
+    ) == (30 if nested else 10)
     assert operand["ACTIONS"]["first"].result == InlineObject(
         data={"value": 17 if nested else 3}
     )
@@ -424,7 +420,6 @@ def test_legacy_action_context_still_uses_sparse_extraction(
     context: ExecutionContext,
 ) -> None:
     scheduler = object.__new__(DSLScheduler)
-    scheduler.dependency_compilation_failed = False
     scheduler.dependency_plan = None
     scheduler.logger = get_workflow_logger()
     scheduler._root_context = context
@@ -447,7 +442,6 @@ async def test_collection_activity_inputs_use_consumer_dependencies(
     context: ExecutionContext, kind: str, compiled: bool
 ) -> None:
     scheduler = object.__new__(DSLScheduler)
-    scheduler.dependency_compilation_failed = False
     scheduler.logger = get_workflow_logger()
     scheduler.role = Role(
         type="service", service_id="tracecat-runner", workspace_id=UUID(int=1)
