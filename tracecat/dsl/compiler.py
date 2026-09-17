@@ -29,6 +29,12 @@ class _ActionRefExtractor(ExprExtractor[set[str]]):
             raise TracecatExpressionError(
                 "Action references must use ACTIONS.<action_ref> syntax"
             )
+        # Named JSONPath operators can leave the selected action (e.g. `parent`).
+        # Conservatively skip compilation rather than omit cross-action reads.
+        if "`" in path:
+            raise TracecatExpressionError(
+                "Named JSONPath operators require the original action context"
+            )
         self._refs.add(match[1])
 
 

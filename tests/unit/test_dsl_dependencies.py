@@ -1,4 +1,4 @@
-from asyncio import CancelledError
+from asyncio import CancelledError, to_thread
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import AsyncMock, patch
@@ -100,14 +100,60 @@ def test_compile_return_dependencies(returns: Any, expected_refs: list[str]) -> 
         "${{ ACTIONS.*.result }}",
         "${{ ACTIONS..value }}",
         "${{ ACTIONS['first'].result }}",
+        "${{ ACTIONS.first.`parent`.second.result }}",
+        "${{ ACTIONS.first.result.`parent`.`parent`.second.result }}",
         "${{ ACTIONS.missing.result }}",
         "${{ ACTIONS.first.result + }}",
     ],
 )
 @pytest.mark.anyio
-async def test_compile_activity_rejects_invalid_references(returns: str) -> None:
+async def test_compile_activity_falls_back_for_unsupported_references(
+    returns: str,
+) -> None:
+    assert (
+        await DSLActivities.compile_dsl_dependencies_activity(make_dsl(returns)) is None
+    )
+
+
+@pytest.mark.anyio
+async def test_compile_activity_fails_open_on_unexpected_compiler_error() -> None:
+    with patch(
+        "tracecat.dsl.action.compile_dsl_dependencies",
+        side_effect=RuntimeError("synthetic compiler failure"),
+    ):
+        assert (
+            await DSLActivities.compile_dsl_dependencies_activity(make_dsl(None))
+            is None
+        )
+
+
+@pytest.mark.anyio
+async def test_compile_activity_preserves_cancellation() -> None:
+    with (
+        patch(
+            "tracecat.dsl.action.compile_dsl_dependencies", side_effect=CancelledError
+        ),
+        pytest.raises(CancelledError),
+    ):
+        await DSLActivities.compile_dsl_dependencies_activity(make_dsl(None))
+
+
+@pytest.mark.anyio
+async def test_compiler_fallback_does_not_suppress_invalid_return(
+    context: ExecutionContext,
+) -> None:
+    expression = "${{ ACTIONS.first.result + }}"
+    assert (
+        await DSLActivities.compile_dsl_dependencies_activity(make_dsl(expression))
+        is None
+    )
     with pytest.raises(ApplicationError) as exc:
-        await DSLActivities.compile_dsl_dependencies_activity(make_dsl(returns))
+        await to_thread(
+            DSLActivities.resolve_return_expression_activity,
+            EvaluateTemplatedObjectActivityInput(
+                obj=expression, operand=context, key="test/invalid-return"
+            ),
+        )
     classification = extract_error_classification(exc.value)
     assert classification is not None
     assert classification.owner is RuntimeErrorOwner.USER

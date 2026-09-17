@@ -109,11 +109,26 @@ def _run_args(count: int) -> DSLRunArgs:
 
 
 @pytest.mark.parametrize("compiled", [True, False])
-async def test_dependency_plan_activity_payloads_and_replay(compiled: bool) -> None:
+@pytest.mark.parametrize(
+    ("expression", "optimizable"),
+    [
+        ("${{ ACTIONS.summary.result.count }}", True),
+        ("${{ ACTIONS['summary'].result.count }}", False),
+        ("${{ ACTIONS.*.result.count }}", False),
+        ("${{ ACTIONS..count }}", False),
+        ("${{ ACTIONS.step_0.`parent`.summary.result.count }}", False),
+    ],
+)
+async def test_dependency_plan_activity_payloads_and_replay(
+    compiled: bool, expression: str, optimizable: bool
+) -> None:
     # New runs exceed 2 MiB of accumulated inline data. Keep old runs below the
     # activity limit so we can capture a successful pre-patch return history.
-    count = 24 if compiled else 3
+    filtered = compiled and optimizable
+    count = 24 if filtered else 3
     args = _run_args(count)
+    assert args.dsl is not None
+    args.dsl.returns = expression
     task_queue = f"dependency-plan-{uuid4()}"
     workflow_class = DSLWorkflow if compiled else _BeforeDependencyCompilationWorkflow
     converter = get_data_converter(compression_enabled=False)
@@ -147,7 +162,7 @@ async def test_dependency_plan_activity_payloads_and_replay(compiled: bool) -> N
                 execution_timeout=timedelta(seconds=60),
                 result_type=InlineObject,
             )
-            assert await handle.result() == InlineObject(data={"count": count})
+            assert await handle.result() == InlineObject(data=count)
         history = await handle.fetch_history()
         patch_ids = await recorded_patch_ids(env.client, history)
         assert (WorkflowPatch.COMPILE_DSL_DEPENDENCIES in patch_ids) is compiled
@@ -171,9 +186,9 @@ async def test_dependency_plan_activity_payloads_and_replay(compiled: bool) -> N
             return_call.input.payloads, [EvaluateTemplatedObjectActivityInput]
         )
         assert set(return_input.operand["ACTIONS"]) == (
-            {"summary"} if compiled else {"summary", "step_0", "step_1", "step_2"}
+            {"summary"} if filtered else {"summary", "step_0", "step_1", "step_2"}
         )
-        if compiled:
+        if filtered:
             assert return_call.input.ByteSize() < 2048
         else:
             assert return_call.input.ByteSize() > 300 * 1024
