@@ -11,7 +11,6 @@ from sqlalchemy.sql.elements import ColumnElement
 from tracecat.auth.types import Role
 from tracecat.authz.controls import ensure_can_grant_scopes, require_scope
 from tracecat.authz.membership import (
-    audit_evicted_members,
     drop_workspace_membership_mirror,
     lock_role_changes,
     mirror_workspace_membership,
@@ -411,21 +410,10 @@ class MembershipService(BaseService):
         await drop_workspace_membership_mirror(
             self.session, user_id=user_id, workspace_ids=[workspace_id]
         )
-        removed_user_id = (
-            await self.session.execute(
-                delete(UserRoleAssignment)
-                .where(
-                    UserRoleAssignment.workspace_id == workspace_id,
-                    UserRoleAssignment.user_id == user_id,
-                )
-                .returning(UserRoleAssignment.user_id)
+        await self.session.execute(
+            delete(UserRoleAssignment).where(
+                UserRoleAssignment.workspace_id == workspace_id,
+                UserRoleAssignment.user_id == user_id,
             )
-        ).scalar_one_or_none()
+        )
         await self.session.commit()
-        if removed_user_id is not None and self.role is not None:
-            await audit_evicted_members(
-                self.session,
-                organization_id=organization_id,
-                user_ids=[user_id],
-                actor=self.role,
-            )

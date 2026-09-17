@@ -1615,6 +1615,23 @@ class TestReplaceToEmptyKeepsPresence:
             await query_effective_scopes(session, member.id, org.id, None)
         ).issuperset(ORG_MEMBER_FLOOR_SCOPES)
 
+    async def test_empty_set_without_any_group_link_keeps_the_row(
+        self, session: AsyncSession, role: Role, org: Organization, workspace: Workspace
+    ):
+        """Membership is explicit: losing every role path is not a removal."""
+        member = await _workspace_only_user(session, org, workspace)
+        await session.commit()
+
+        service = RBACService(session, role=role)
+        params = await _replacement(service, member.id)
+        params.assignments = []
+        await service.replace_user_assignments(params)
+
+        assert await _org_membership_row(session, member.id, org.id) is not None
+        assert (
+            await query_effective_scopes(session, member.id, org.id, None)
+        ).issuperset(ORG_MEMBER_FLOOR_SCOPES)
+
 
 @pytest.mark.anyio
 class TestImplicitMemberRoleIsHidden:
