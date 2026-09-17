@@ -79,6 +79,8 @@ from tracecat.db.models import (
     Skill,
     SkillBlob,
     SkillDraftFile,
+    SkillTag,
+    SkillTagLink,
     SkillVersion,
     SkillVersionFile,
     SkillVersionMcpTool,
@@ -1790,6 +1792,21 @@ class SkillService(SkillBindingService):
         """Build the summary response for a skill."""
 
         draft = await self._build_draft_read(skill)
+        tags = (
+            (
+                await self.session.execute(
+                    select(SkillTag)
+                    .join(SkillTagLink, SkillTagLink.tag_id == SkillTag.id)
+                    .where(
+                        SkillTagLink.skill_id == skill.id,
+                        SkillTag.workspace_id == skill.workspace_id,
+                    )
+                    .order_by(SkillTag.name)
+                )
+            )
+            .scalars()
+            .all()
+        )
         current_version_summary = None
         current_version = None
         if skill.current_version_id is not None:
@@ -1819,9 +1836,7 @@ class SkillService(SkillBindingService):
             description=skill.description,
             current_version_id=skill.current_version_id,
             folder_id=skill.folder_id,
-            tags=[
-                TagRead.model_validate(tag, from_attributes=True) for tag in skill.tags
-            ],
+            tags=[TagRead.model_validate(tag, from_attributes=True) for tag in tags],
             draft_revision=skill.draft_revision,
             created_at=skill.created_at,
             updated_at=skill.updated_at,
