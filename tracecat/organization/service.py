@@ -30,8 +30,6 @@ from tracecat.authz.service import resolve_grantable_role
 from tracecat.db.models import (
     AccessToken,
     LegacyMembership,
-    MCPPersonalAccessToken,
-    MCPRefreshToken,
     Organization,
     OrganizationInvitation,
     OrganizationMembership,
@@ -280,10 +278,10 @@ class OrgService(BaseOrgService):
 
         This method removes a specified member from the current organization
         without deleting the global user record, so memberships in other
-        organizations are preserved. It revokes global app sessions and
-        organization-scoped MCP tokens so removed members lose stale access
-        immediately. It raises an authorization error for superusers, as
-        superusers cannot be removed.
+        organizations are preserved. It revokes global app sessions; deleting
+        the membership row cascades the user's role paths and fires the trigger
+        that revokes their organization-scoped MCP tokens. It raises an
+        authorization error for superusers, as superusers cannot be removed.
 
         Args:
             user_id (UserID): The unique identifier of the user to be removed.
@@ -298,25 +296,6 @@ class OrgService(BaseOrgService):
         await self.session.execute(
             delete(AccessToken).where(type_cast(Any, AccessToken.user_id) == user.id)
         )
-        await self.session.execute(
-            update(MCPRefreshToken)
-            .where(
-                MCPRefreshToken.user_id == user.id,
-                MCPRefreshToken.organization_id == self.organization_id,
-                MCPRefreshToken.status != "revoked",
-            )
-            .values(status="revoked")
-        )
-        await self.session.execute(
-            update(MCPPersonalAccessToken)
-            .where(
-                MCPPersonalAccessToken.user_id == user.id,
-                MCPPersonalAccessToken.organization_id == self.organization_id,
-                MCPPersonalAccessToken.revoked_at.is_(None),
-            )
-            .values(revoked_at=datetime.now(UTC), revoked_by=self.role.user_id)
-        )
-
         workspace_ids = select(Workspace.id).where(
             Workspace.organization_id == self.organization_id
         )
