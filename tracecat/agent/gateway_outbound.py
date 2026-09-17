@@ -61,13 +61,25 @@ def _create_guarded_transport(
     return OutboundHTTPTransport(verify=True if verify is None else verify)
 
 
+def _create_guarded_proxy_mounts(
+    transport: object, verify: object, cert: object
+) -> Mapping[str, httpx.AsyncHTTPTransport | None]:
+    """Keep environment proxy transports from bypassing the socket policy."""
+    del transport, verify, cert
+    return {}
+
+
 def install_outbound_http_policy() -> None:
     """Guard LiteLLM's async HTTP and OpenAI SDK factories before serving.
 
     LiteLLM's async Chat-to-Responses bridge drops request-scoped clients.
     Its HTTP handlers and OpenAI/Azure SDK factories share this transport
     factory, so installing here also protects protocol switches and streams.
-    HTTPX disables environment proxy mounts when given an explicit transport.
+    Disable LiteLLM's explicit environment proxy mounts too: those transports
+    would take precedence over the guarded default transport.
     This compatibility shim is covered against the pinned LiteLLM version.
     """
     AsyncHTTPHandler._create_async_transport = staticmethod(_create_guarded_transport)
+    AsyncHTTPHandler._create_httpx_proxy_mounts = staticmethod(
+        _create_guarded_proxy_mounts
+    )

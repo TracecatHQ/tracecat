@@ -19,6 +19,7 @@ from litellm.proxy.common_utils.user_api_key_cache import UserApiKeyCache
 from litellm.proxy.utils import ProxyLogging
 from openai import AsyncOpenAI
 from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 from tracecat.agent.gateway import TracecatCallbackHandler
 from tracecat.agent.sandbox.llm_proxy import _http_error_classification
@@ -41,7 +42,7 @@ def gateway_callbacks(monkeypatch: pytest.MonkeyPatch) -> None:
 
 async def _anthropic_failure(
     error: Exception, monkeypatch: pytest.MonkeyPatch
-) -> ProxyException:
+) -> JSONResponse:
     monkeypatch.setattr(
         "litellm.proxy.anthropic_endpoints.endpoints._read_request_body",
         AsyncMock(return_value={"model": "synthetic-model", "stream": True}),
@@ -54,9 +55,9 @@ async def _anthropic_failure(
     request = Request(
         {"type": "http", "method": "POST", "path": "/v1/messages", "headers": []}
     )
-    with pytest.raises(ProxyException) as failure:
-        await anthropic_response(Response(), request, UserAPIKeyAuth())
-    return failure.value
+    response = await anthropic_response(Response(), request, UserAPIKeyAuth())
+    assert isinstance(response, JSONResponse)
+    return response
 
 
 @pytest.mark.anyio
@@ -78,8 +79,8 @@ async def test_anthropic_endpoint_preserves_provider_auth_classification(
 
     failure = await _anthropic_failure(error, monkeypatch)
 
-    assert failure.code == str(status_code)
-    body = orjson.dumps({"error": failure.to_dict()})
+    assert failure.status_code == status_code
+    body = bytes(failure.body)
     classification = _http_error_classification(
         status_code, route_is_direct=False, body=body
     )
@@ -116,8 +117,8 @@ async def test_anthropic_endpoint_distinguishes_provider_quota_from_throttling(
 
     failure = await _anthropic_failure(error, monkeypatch)
 
-    assert failure.code == "429"
-    body = orjson.dumps({"error": failure.to_dict()})
+    assert failure.status_code == 429
+    body = bytes(failure.body)
     classification = _http_error_classification(429, route_is_direct=False, body=body)
     if quota_exceeded:
         assert classification.kind is RuntimeErrorKind.AGENT_LLM_BUDGET_EXCEEDED
@@ -181,12 +182,51 @@ async def test_retry_does_not_inherit_an_earlier_provider_quota_failure(
 
     assert calls == 2
     failure = await _anthropic_failure(retry_failure.value, monkeypatch)
-    assert failure.code == "429"
+    assert failure.status_code == 429
     classification = _http_error_classification(
         429,
         route_is_direct=False,
-        body=orjson.dumps({"error": failure.to_dict()}),
+        body=bytes(failure.body),
     )
     assert classification.kind is RuntimeErrorKind.AGENT_LLM_RATE_LIMITED
     assert classification.owner is RuntimeErrorOwner.PLATFORM
     assert classification.retry_disposition is RetryDisposition.RETRYABLE
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "error_type,status_code,expected_kind",
+    [
+        (
+            "tracecat_llm_token_invalid",
+            401,
+            RuntimeErrorKind.AGENT_LLM_GATEWAY_AUTH_FAILED,
+        ),
+        (
+            "tracecat_llm_provider_auth_failed",
+            401,
+            RuntimeErrorKind.AGENT_LLM_PROVIDER_AUTH_FAILED,
+        ),
+        ("budget_exceeded", 429, RuntimeErrorKind.AGENT_LLM_BUDGET_EXCEEDED),
+    ],
+)
+async def test_anthropic_endpoint_preserves_gateway_error_codes(
+    monkeypatch: pytest.MonkeyPatch,
+    error_type: str,
+    status_code: int,
+    expected_kind: RuntimeErrorKind,
+) -> None:
+    error = ProxyException(
+        message="Synthetic gateway failure",
+        type=error_type,
+        param=None,
+        code=status_code,
+    )
+    response = await _anthropic_failure(error, monkeypatch)
+    assert response.status_code == status_code
+    body = bytes(response.body)
+    assert orjson.loads(body)["error"]["type"] == error_type
+    assert (
+        _http_error_classification(status_code, route_is_direct=False, body=body).kind
+        is expected_kind
+    )

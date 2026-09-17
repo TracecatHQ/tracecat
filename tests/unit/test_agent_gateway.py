@@ -915,7 +915,13 @@ async def test_throttling_callback_uses_safe_message_without_provider_response(
     assert result.status_code == 429
     assert result.detail == "LLM provider rate limit exceeded; retry later"
     assert error.type == "throttling_error"
-    assert error.message == "LLM provider rate limit exceeded; retry later"
+    assert json.loads(error.message) == {
+        "type": "error",
+        "error": {
+            "type": "throttling_error",
+            "message": "LLM provider rate limit exceeded; retry later",
+        },
+    }
     wire_body = json.dumps(
         {
             "error": {

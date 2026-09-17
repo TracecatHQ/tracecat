@@ -9,6 +9,7 @@ from urllib.parse import parse_qsl, urlencode
 
 import boto3
 import httpx
+import orjson
 from aiocache import Cache
 from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import HTTPException, Request
@@ -427,6 +428,13 @@ def _is_provider_quota_exceeded(error: BaseException) -> bool:
     return False
 
 
+def _anthropic_error_message(error_type: str, message: str) -> str:
+    """Preserve gateway error codes through LiteLLM's Anthropic serializer."""
+    return orjson.dumps(
+        {"type": "error", "error": {"type": error_type, "message": message}}
+    ).decode()
+
+
 class TracecatCallbackHandler(CustomLogger):
     """LiteLLM callback handler that injects provider credentials per request."""
 
@@ -443,6 +451,16 @@ class TracecatCallbackHandler(CustomLogger):
     ) -> HTTPException | None:
         """Label typed provider failures without copying provider details."""
         del request_data, user_api_key_dict, traceback_str
+        if isinstance(original_exception, ProxyException):
+            if original_exception.type in {
+                "tracecat_llm_token_invalid",
+                "tracecat_llm_provider_auth_failed",
+                "budget_exceeded",
+            }:
+                original_exception.message = _anthropic_error_message(
+                    original_exception.type, original_exception.message
+                )
+            return None
         if isinstance(original_exception, AuthenticationError | PermissionDeniedError):
             replacement = _ProviderAuthHTTPException(
                 status_code=original_exception.status_code,
@@ -463,11 +481,14 @@ class TracecatCallbackHandler(CustomLogger):
         else:
             return None
 
-        # LiteLLM's /v1/messages handler ignores the returned replacement and
-        # serializes the original exception. Normalize its wire fields too;
-        # other endpoints still use the bounded replacement above.
+        # /v1/messages ignores the replacement and normalizes the original
+        # message into an Anthropic envelope. Supply that envelope explicitly
+        # so its status-based mapping cannot erase auth origin or quota codes.
+        # Other endpoints use the bounded replacement above.
         original_exception.type = replacement.type
-        original_exception.message = str(replacement.detail)
+        original_exception.message = _anthropic_error_message(
+            replacement.type, str(replacement.detail)
+        )
         return replacement
 
     async def async_pre_call_hook(
