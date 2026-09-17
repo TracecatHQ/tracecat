@@ -2201,10 +2201,10 @@ show candidate integrations first.
 `core.script.run_python` unless a specific integration is requested.
 - For `ai.agent`, prefer the `model` object. Use legacy top-level \
 `model_name`/`model_provider` only when requested.
-- For `ai.preset_agent`, pass only `preset` and `user_prompt` (plus at most an \
-`instructions` append). Tools live on the preset's `actions` or on an attached \
-skill's `metadata.tools`; the action's `actions` argument is for testing and \
-evals only and replaces the whole tool set for that run.
+- For `ai.preset_agent`, `preset` and `user_prompt` are normally enough: tools \
+come from the preset's `actions` and its attached skills. The `actions` argument \
+here replaces the preset's registry actions for that one run (MCP tools are \
+unaffected), which suits a test or an eval.
 
 ## Expression syntax (used in action `args:` values)
 - `${{ TRIGGER.<field> }}` — workflow trigger input
@@ -2681,9 +2681,7 @@ actions:
       output_type: 'list[{"finding": "str", "severity": "str"}]'
 ```
 
-### AI Agent (Inline, Non-Preset Tool Calling)
-Use `ai.agent` when the agent is defined inline in the workflow, with its model,
-instructions, and tools listed on the action itself.
+### AI Agent (With Tool Calling)
 ```yaml
 actions:
   - ref: investigate
@@ -2701,20 +2699,15 @@ actions:
 ```
 Use top-level `model_name` and `model_provider` only when explicitly requested.
 
-### AI Preset Agent (Saved Configuration)
-Pass only `preset` and `user_prompt`. The tools come from the preset's own
-`actions` and from the `metadata.tools` frontmatter of the skills attached to it,
-so the workflow action does not list any. Add at most an `instructions` append
-for run-specific context. The action's `actions` argument is for ad hoc testing
-and evals only: it replaces the preset's and its skills' entire tool set for that
-run and should not be left in a workflow that ships.
+### AI Preset Agent
+Tools come from the preset and its attached skills.
 ```yaml
 actions:
   - ref: triage
     action: ai.preset_agent
     args:
       preset: security-analyst
-      user_prompt: "Triage this alert: ${{ TRIGGER.alert }}"
+      user_prompt: "Triage ${{ TRIGGER.alert }}"
 ```
 
 ### For-each Syntax (Avoid by Default)
@@ -2999,22 +2992,27 @@ helpers call Tracecat APIs.
 5. `list_agent_presets`, `get_agent_preset`, or `run_agent_preset` as needed
 
 ### Where tools live
-- Always add tools to the agent preset (its `actions`) or to a skill (SKILL.md
-frontmatter `metadata.tools`). Prefer a skill when the tools group naturally and
-are reused across agents.
+- Tools usually go on the agent preset (its `actions`) or on a skill (SKILL.md
+frontmatter `metadata.tools`). A skill is the better home when the tools group
+naturally with the instructions and are reused across agents; the preset is the
+simpler home when only this one agent needs them.
 - The effective tool set is the preset's `actions` plus every attached skill's
-`metadata.tools`, then filtered by the preset's `namespaces`. A `namespaces`
-filter silently drops skill tools outside it.
+`metadata.tools`. A `namespaces` filter on the preset applies to the registry
+actions in that set — skill-declared MCP tools are not filtered by it.
 - Skill tools are granted whenever the preset config is resolved, whether or not
 the model opens the skill. Only the skill instructions load on demand.
 - Set an `output_type` only when the user explicitly asks for structured output.
 
 ### Calling a preset from a workflow
-- An `ai.preset_agent` action carries `preset` and `user_prompt`, plus at most an
-`instructions` append. Tools come from the preset and its skills.
-- The `actions` argument on `ai.preset_agent` is for ad hoc testing and evals
-only. It replaces the preset's and its skills' entire tool set for that run
-rather than adding to it, and should never be left in a workflow that ships.
+- An `ai.preset_agent` action normally carries just `preset` and `user_prompt`;
+an `instructions` string is appended to the preset's instructions for the run.
+Tools come from the preset and its skills.
+- The `actions` argument on `ai.preset_agent` replaces the preset's registry
+actions for that one run instead of adding to them. MCP tools from the preset and
+its skills are unaffected, and an empty list changes nothing. It is a good fit
+for trying a preset with a different tool set in a test or an eval; tools the
+agent should have in every run belong on the preset or on a skill, which also
+gives it those tools in chat.
 """
 
 
@@ -8492,7 +8490,8 @@ async def create_agent_preset(
 
     Tools are attached here via `actions`, or via an attached skill's SKILL.md
     frontmatter `metadata.tools` when the same tools are reused across agents.
-    Workflows that call this preset should not override its tools.
+    Tools attached this way are what the agent has in chat and in every workflow
+    that calls it.
     """
 
     try:
@@ -8578,9 +8577,10 @@ async def update_agent_preset(
     `skill_id`. Omit `skills` to leave bindings unchanged, or pass an empty list
     to detach all skills.
 
-    Tools belong here via `actions`, or on an attached skill via its SKILL.md
+    Tools go here via `actions`, or on an attached skill via its SKILL.md
     frontmatter `metadata.tools` when the same tools are reused across agents.
-    Workflows that call this preset should not override its tools.
+    Tools attached this way are what the agent has in chat and in every workflow
+    that calls it.
 
     Set `clear_output_type=true` to remove an existing `output_type` (agent
     returns plain text). Omitting `output_type` leaves it unchanged.
@@ -9518,8 +9518,8 @@ async def run_agent_preset(
     Creates an ephemeral session, triggers the agent workflow, and waits
     for the response. The agent has access to the tools configured on the preset
     (its `actions`) plus the tools declared in the `metadata.tools` frontmatter
-    of its attached skills. Tools cannot be overridden here; change the preset or
-    its skills instead.
+    of its attached skills. This tool takes no tool overrides, so change the
+    preset or its skills to change what the agent can call.
 
     Args:
         workspace_id: The workspace ID (from list_workspaces).

@@ -275,10 +275,9 @@ PAGES: list[dict[str, Any]] = [
             },
             {
                 "id": "ai.preset_agent",
-                "warning": (
-                    "The `actions` input is for ad hoc testing and evals only. It "
-                    "replaces the preset's and its skills' entire tool set for the "
-                    "run. See "
+                "note": (
+                    "The `actions` input replaces the preset's registry actions for a "
+                    "single run rather than adding to them. See "
                     "[AI preset agent](/agents/ai-preset-agent#where-tools-come-from)."
                 ),
                 "examples": ["preset_agent_run"],
@@ -566,6 +565,9 @@ def _render_action_section(action_entry: dict[str, Any], action: Any) -> list[st
 
     if warning := action_entry.get("warning"):
         lines.extend(["<Warning>", str(warning).strip(), "</Warning>", ""])
+
+    if note := action_entry.get("note"):
+        lines.extend(["<Note>", str(note).strip(), "</Note>", ""])
 
     lines.extend(["#### Inputs", ""])
     lines.extend(_render_input_fields(expects_schema))

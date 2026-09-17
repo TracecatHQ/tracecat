@@ -438,7 +438,7 @@
 
   Use `skills` to attach published skills. Each binding contains `skill_id`.
 
-  Tools are attached here via `actions`, or via an attached skill's SKILL.md frontmatter `metadata.tools` when the same tools are reused across agents. Workflows that call this preset should not override its tools.
+  Tools are attached here via `actions`, or via an attached skill's SKILL.md frontmatter `metadata.tools` when the same tools are reused across agents. Tools attached this way are what the agent has in chat and in every workflow that calls it.
 </ResponseField>
 
 <ResponseField name="update_agent_preset" type="tool">
@@ -446,7 +446,7 @@
 
   Use `skills` to replace attached published skills. Each binding contains `skill_id`. Omit `skills` to leave bindings unchanged, or pass an empty list to detach all skills.
 
-  Tools belong here via `actions`, or on an attached skill via its SKILL.md frontmatter `metadata.tools` when the same tools are reused across agents. Workflows that call this preset should not override its tools.
+  Tools go here via `actions`, or on an attached skill via its SKILL.md frontmatter `metadata.tools` when the same tools are reused across agents. Tools attached this way are what the agent has in chat and in every workflow that calls it.
 
   Set `clear_output_type=true` to remove an existing `output_type` (agent returns plain text). Omitting `output_type` leaves it unchanged.
 </ResponseField>
@@ -530,5 +530,5 @@
 <ResponseField name="run_agent_preset" type="tool">
   Run an agent preset with a prompt and return text or approval status.
 
-  Creates an ephemeral session, triggers the agent workflow, and waits for the response. The agent has access to the tools configured on the preset (its `actions`) plus the tools declared in the `metadata.tools` frontmatter of its attached skills. Tools cannot be overridden here; change the preset or its skills instead.
+  Creates an ephemeral session, triggers the agent workflow, and waits for the response. The agent has access to the tools configured on the preset (its `actions`) plus the tools declared in the `metadata.tools` frontmatter of its attached skills. This tool takes no tool overrides, so change the preset or its skills to change what the agent can call.
 </ResponseField>

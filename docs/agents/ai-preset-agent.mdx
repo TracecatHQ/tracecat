@@ -19,20 +19,26 @@ Use the `Tools` tab to select the model, allowed Tracecat actions, and MCP integ
 
 ## Where tools come from
 
-An agent's tools come from the preset and its skills, not from the workflow that calls it.
-Put job-specific tools in the preset's `Tools` tab.
-Put a group of tools that several agents reuse in a skill's [`metadata.tools`](/agents/skills#declare-tools-in-frontmatter)
-frontmatter, so the instructions and the tools travel together.
-The effective tool set is the union of the two, filtered by any `namespaces` restriction on the preset.
+There are three places a tool can come from, and each suits a different job.
+
+Tools in the preset's `Tools` tab belong to that one agent. This is the usual home for
+tools only this agent needs.
+
+Tools in a skill's [`metadata.tools`](/agents/skills#declare-tools-in-frontmatter)
+frontmatter travel with the skill's instructions, so a group of tools that several agents
+reuse stays in one place. Attaching the skill brings both.
+
+An agent's effective tool set is the union of the two, which is also what it has in chat.
+A `namespaces` restriction on the preset filters the registry actions in that set; MCP
+tools a skill declares are not filtered by it.
+
+The `actions` argument on the `ai.preset_agent` workflow action is the third place. It
+replaces the preset's registry actions for that one run instead of adding to them, so
+tools a skill contributed are dropped for the run; MCP tools from the preset and its
+skills stay attached, and an empty list changes nothing. Use it when you want to run a
+preset with a different tool set in a single workflow, for example in a test or an eval.
 
 Leave `output_type` unset unless you specifically need structured output for a downstream step.
-
-### Testing with extra tools
-
-The `ai.preset_agent` action takes an `actions` argument for ad hoc testing and evals, such as trying
-the preset with an extra tool in a scratch workflow.
-It replaces the preset's and its skills' entire tool set for that run rather than adding to it.
-Remove it before the workflow ships and add the tool to the preset or a skill instead.
 
 ## Availability
 

@@ -116,7 +116,7 @@ async def agent(
     default_title="Run agent preset",
     description=(
         "Run an AI agent using a saved agent preset. Tools come from the preset's "
-        "actions and its attached skills, not from this action."
+        "actions and its attached skills."
     ),
     display_group="AI",
     namespace="ai",
@@ -145,18 +145,19 @@ async def preset_agent(
     actions: Annotated[
         list[str] | None,
         Doc(
-            "For ad hoc testing and evals only. Replaces the preset's and its skills' "
-            "entire tool set for this run; it does not add to it. For anything that "
-            "ships, add tools to the agent preset, or to a skill when the same tools "
-            "are reused across agents."
+            "Optional. Replaces the preset's registry actions for this run instead of "
+            "adding to them; MCP tools from the preset and its skills are unaffected, "
+            "and an empty list changes nothing. Handy for trying a preset with a "
+            "different tool set in a test or an eval. For tools the agent should "
+            "normally have, add them to the preset or to a skill."
         ),
         ActionType(multiple=True),
     ] = None,
     instructions: Annotated[
         str | None,
         Doc(
-            "Appended to the preset instructions for this run. Put durable instructions "
-            "on the preset."
+            "Appended to the preset instructions for this run. Instructions the agent "
+            "needs on every run fit better on the preset itself."
         ),
         TextArea(),
     ] = None,

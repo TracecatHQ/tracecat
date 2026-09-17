@@ -71,9 +71,10 @@ When the skill is attached to a preset agent, its tools are added to the preset'
 the tools declared by every attached skill.
 
 <Note>
-  If the preset restricts `namespaces`, that filter also applies to skill tools.
-  A skill tool outside the allowed namespaces is silently dropped from the run and
-  reported under `tool_policy.blocked_tools`.
+  If the preset restricts `namespaces`, that filter also applies to the registry
+  actions a skill declares. A skill's registry action outside the allowed namespaces
+  is dropped from the run and reported under `tool_policy.blocked_tools`. MCP tools a
+  skill declares are not filtered by `namespaces`.
 </Note>
 
 Skill tools are granted when the preset configuration is resolved, whether or not the
@@ -126,9 +127,12 @@ Use preset instructions for behavior that belongs only to one preset agent.
 - Preset `actions`: tools that only this one agent needs.
 - Skill `metadata.tools`: a group of tools that belong together and are reused across
   several agents. Attaching the skill brings the instructions and the tools together.
-- The `actions` argument on the `ai.preset_agent` workflow action: ad hoc testing and
-  evals only. It replaces the preset's and its skills' entire tool set for that run rather
-  than adding to it, so it should never be left in a workflow that ships.
+- The `actions` argument on the `ai.preset_agent` workflow action: replaces the preset's
+  registry actions for a single run instead of adding to them, so the registry actions a
+  skill contributed are dropped for that run. MCP tools from the preset and its skills
+  stay attached, and an empty list changes nothing. It fits a test or an eval that needs a
+  different tool set; the preset or a skill is the better home for tools the agent should
+  have on every run, including in chat.
 
 ## Related pages
 
