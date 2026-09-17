@@ -25,6 +25,7 @@ from tracecat.authz.membership import (
 from tracecat.authz.scopes import ORG_MEMBER_ROLE_SLUG, PRESET_ROLE_SCOPES
 from tracecat.authz.service import resolve_grantable_role, resolve_granter_scopes
 from tracecat.db.models import (
+    ExternalGroupMapping,
     Group,
     GroupMember,
     GroupRoleAssignment,
@@ -372,6 +373,27 @@ class RBACService(BaseOrgService):
         result = await self.session.execute(stmt)
         await self._ensure_can_grant_scopes(result.scalars().all())
 
+    async def _reject_if_idp_managed(self, group_id: UUID) -> None:
+        """Reject hand-editing a group whose membership the provider owns.
+
+        Raises:
+            TracecatConflictError: A mapping projects members into the group.
+        """
+        mapped = await self.session.scalar(
+            select(
+                select(ExternalGroupMapping.id)
+                .where(
+                    ExternalGroupMapping.group_id == group_id,
+                    ExternalGroupMapping.organization_id == self.organization_id,
+                )
+                .exists()
+            )
+        )
+        if mapped:
+            raise TracecatConflictError(
+                "This group's membership is managed by the identity provider."
+            )
+
     # =========================================================================
     # Group Management
     # =========================================================================
@@ -462,6 +484,7 @@ class RBACService(BaseOrgService):
         await lock_role_changes(self.session, self.organization_id)
         # Verify group exists
         await self._assert_group_exists(group_id)
+        await self._reject_if_idp_managed(group_id)
         await self._ensure_group_membership_assignable(group_id)
 
         # Verify user belongs to this organization
@@ -492,6 +515,7 @@ class RBACService(BaseOrgService):
     async def remove_group_member(self, group_id: UUID, user_id: UUID) -> None:
         """Remove a user from a group."""
         await lock_role_changes(self.session, self.organization_id)
+        await self._reject_if_idp_managed(group_id)
         stmt = (
             select(GroupMember)
             .join(Group, Group.id == GroupMember.group_id)
