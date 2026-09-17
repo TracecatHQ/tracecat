@@ -1,0 +1,41 @@
+tracecat/agent/preset/prompts.py
+  s_a2fa1c36407f85::t_70bcb419df484d 42-45
+packages/tracecat-registry/tracecat_registry/core/agent.py
+  s_a2fa1c36407f85::t_9e159ebd788918 157-158
+  s_a2fa1c36407f85::t_b2891580560e06 118-119
+  s_a2fa1c36407f85::t_f2c46eb72e89c9 148-150
+docs/agents/ai-preset-agent.mdx
+  s_a2fa1c36407f85::t_bb80c8c3447cea 22-40
+tracecat/mcp/server.py
+  s_a2fa1c36407f85::t_6b7e75c8c2b893 2204-2205
+  s_a2fa1c36407f85::t_6c49a89d2faca7 2701
+  s_a2fa1c36407f85::t_9f2aa37cc08aaa 2993-2999
+  s_a2fa1c36407f85::t_c20ec1ec5fa788 8476-8477
+  s_a2fa1c36407f85::t_1025ae623e4341 9172
+  s_a2fa1c36407f85::t_682a8366968276 9496-9497
+  s_a2fa1c36407f85::t_b90fae80bf80f7 8563-8564
+  s_a2fa1c36407f85::t_7f8503712259a3 9340
+docs/agents/skills.mdx
+  s_a2fa1c36407f85::t_95571633f1f961 67-68
+  s_a2fa1c36407f85::t_9639c0fb741316 129-132
+docs/agents/ai-agent.mdx
+  s_a2fa1c36407f85::t_c8997439a36aa7 236,258,266
+docs/snippets/mcp-tools.mdx
+  s_a2fa1c36407f85::t_455065c20765c6 441,449,505,517,533
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "66d35b652bfd37e18dbba068660f848ff166dc76",
+  "prompts": {},
+  "sessions": {
+    "s_a2fa1c36407f85": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abaf6dac-3ba4-47cb-a03f-254a5b04d4f4",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
