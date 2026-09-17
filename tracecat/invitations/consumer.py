@@ -6,7 +6,7 @@ import asyncio
 import uuid
 from typing import Final
 
-from sqlalchemy import bindparam, func, select, update
+from sqlalchemy import bindparam, exists, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
@@ -71,6 +71,9 @@ async def deliver_next_invitation(
             Invitation.expires_at > func.now(),
             Invitation.email_attempts
             < bindparam("attempt_cap", MAX_EMAIL_ATTEMPTS, literal_execute=True),
+            # A deleted role or workspace cascades the grants away; the link
+            # would 404, so the row is never emailed.
+            exists().where(InvitationGrant.invitation_id == Invitation.id),
         )
         .order_by(Invitation.created_at)
         .limit(1)
