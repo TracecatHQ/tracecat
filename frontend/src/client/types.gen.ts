@@ -5970,6 +5970,28 @@ export type McpIntegrationMappingSelection = {
 }
 
 /**
+ * Every path a member holds, for answering "why does she have this?".
+ */
+export type MemberAccessExplain = {
+  user_id: string
+  paths: Array<MemberAccessPath>
+}
+
+/**
+ * One route by which a member holds a role, with the rows behind it.
+ */
+export type MemberAccessPath = {
+  source: PathSource
+  workspace_id: string | null
+  role_id: string
+  role_name: string
+  group_id?: string | null
+  group_name?: string | null
+  external_group_id?: string | null
+  external_group_display_name?: string | null
+}
+
+/**
  * Polymorphic target kind for a parsed case-comment mention.
  *
  * Only ``AGENT`` is supported today. The finite set lives here (rather than
@@ -6265,6 +6287,8 @@ export type OutputType =
   | {
       [key: string]: unknown
     }
+
+export type PathSource = "direct" | "group" | "idp_group"
 
 /**
  * Event for when a case payload is changed.
@@ -7501,6 +7525,22 @@ export type ScheduleUpdate = {
 }
 
 /**
+ * Mappings to install as the connection is activated.
+ */
+export type ScimActivationRequest = {
+  mappings?: Array<ExternalGroupMappingCreate>
+}
+
+/**
+ * What arrived while the connection was pending, and the effect of each mapping.
+ */
+export type ScimActivationReviewRead = {
+  users: Array<ScimDirectoryUserRead>
+  groups: Array<ExternalGroupRead>
+  plans: Array<ScimMappingPlanRead>
+}
+
+/**
  * Status of an organization's SCIM connection. Never carries the token.
  */
 export type ScimConnectionRead = {
@@ -7519,6 +7559,16 @@ export type ScimConnectionRead = {
 export type ScimConnectionTokenRead = {
   connection: ScimConnectionRead
   token: string
+}
+
+/**
+ * A user the provider has pushed into this organization.
+ */
+export type ScimDirectoryUserRead = {
+  id: string
+  email: string
+  external_id: string
+  active: boolean
 }
 
 /**
@@ -7571,6 +7621,19 @@ export type ScimListResponse = {
   Resources?: Array<{
     [key: string]: unknown
   }>
+}
+
+/**
+ * What activating one proposed mapping would do to a Tracecat group.
+ */
+export type ScimMappingPlanRead = {
+  external_group_id: string
+  external_group_display_name: string
+  group_id: string
+  group_name: string
+  manual_members_purged: Array<string>
+  users_gaining_access: Array<string>
+  users_losing_access: Array<string>
 }
 
 /**
@@ -12166,6 +12229,12 @@ export type OrganizationGetCurrentOrgMemberResponse = OrgMemberDetail
 
 export type OrganizationListOrgMembersResponse = Array<OrgMemberRead>
 
+export type OrganizationExplainOrgMemberAccessData = {
+  userId: string
+}
+
+export type OrganizationExplainOrgMemberAccessResponse = MemberAccessExplain
+
 export type OrganizationDeleteOrgMemberData = {
   userId: string
 }
@@ -15235,6 +15304,18 @@ export type ScimRevokeScimTokenResponse = void
 
 export type ScimListExternalGroupsResponse = Array<ExternalGroupRead>
 
+export type ScimReviewScimActivationData = {
+  requestBody: ScimActivationRequest
+}
+
+export type ScimReviewScimActivationResponse = ScimActivationReviewRead
+
+export type ScimActivateScimConnectionData = {
+  requestBody: ScimActivationRequest
+}
+
+export type ScimActivateScimConnectionResponse = void
+
 export type ScimListScimMappingsResponse = Array<ExternalGroupMappingRead>
 
 export type ScimCreateScimMappingData = {
@@ -17171,6 +17252,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: Array<OrgMemberRead>
+      }
+    }
+  }
+  "/organization/members/{user_id}/access": {
+    get: {
+      req: OrganizationExplainOrgMemberAccessData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: MemberAccessExplain
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
       }
     }
   }
@@ -22590,6 +22686,36 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: Array<ExternalGroupRead>
+      }
+    }
+  }
+  "/scim/activation/review": {
+    post: {
+      req: ScimReviewScimActivationData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ScimActivationReviewRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/scim/activation": {
+    post: {
+      req: ScimActivateScimConnectionData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
       }
     }
   }

@@ -16,6 +16,8 @@ from tracecat_ee.scim.schemas import (
     ExternalGroupMappingCreate,
     ExternalGroupMappingRead,
     ExternalGroupRead,
+    ScimActivationRequest,
+    ScimActivationReviewRead,
     ScimConnectionRead,
     ScimConnectionTokenRead,
 )
@@ -105,6 +107,37 @@ async def list_external_groups(
 ) -> list[ExternalGroupRead]:
     """List synced IdP groups available as mapping sources."""
     return await SCIMService(session, role=role).list_external_groups()
+
+
+@mappings_router.post("/activation/review", response_model=ScimActivationReviewRead)
+async def review_scim_activation(
+    *,
+    role: OrgActorRole,
+    session: AsyncDBSession,
+    params: ScimActivationRequest,
+) -> ScimActivationReviewRead:
+    """Report what the provider pushed and what activating would change.
+
+    A read: the returned plan is not stored, so activation recomputes it.
+    """
+    try:
+        return await SCIMService(session, role=role).review_activation(params.mappings)
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+
+
+@mappings_router.post("/activation", status_code=status.HTTP_204_NO_CONTENT)
+async def activate_scim_connection(
+    *,
+    role: OrgActorRole,
+    session: AsyncDBSession,
+    params: ScimActivationRequest,
+) -> None:
+    """Admit the pushed directory and install the reviewed mappings."""
+    try:
+        await SCIMService(session, role=role).activate(params.mappings)
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
 @mappings_router.get("/mappings", response_model=list[ExternalGroupMappingRead])

@@ -30,13 +30,23 @@ from tracecat.db.models import (
     ExternalUser,
     Group,
     GroupMember,
+    Invitation,
     OrganizationMembership,
     ScimConnection,
+    User,
 )
 from tracecat.exceptions import TracecatNotFoundError
+from tracecat.invitations.enums import InvitationStatus
 from tracecat.organization.service import OrgService
 from tracecat.service import BaseOrgService
-from tracecat_ee.scim.schemas import ExternalGroupMappingRead, ExternalGroupRead
+from tracecat_ee.scim.schemas import (
+    ExternalGroupMappingCreate,
+    ExternalGroupMappingRead,
+    ExternalGroupRead,
+    ScimActivationReviewRead,
+    ScimDirectoryUserRead,
+    ScimMappingPlanRead,
+)
 
 
 class SCIMService(BaseOrgService):
@@ -365,6 +375,194 @@ class SCIMService(BaseOrgService):
             await self._freeze_idp_members_as_manual(group_id)
         await self.session.delete(mapping)
         await self.session.flush()
+
+    # =========================================================================
+    # Activation review
+    # =========================================================================
+
+    @require_scope("org:rbac:read")
+    async def review_activation(
+        self, proposed: Sequence[ExternalGroupMappingCreate]
+    ) -> ScimActivationReviewRead:
+        """Report what the provider pushed and what activating would do.
+
+        A plain read: nothing about the returned plan is stored, so a stale
+        review can only be acted on by re-running the activation itself.
+
+        Args:
+            proposed: The mappings the admin intends to install.
+
+        Returns:
+            The pushed users and groups, plus one plan per proposed mapping.
+        """
+        users = await self._directory_users()
+        groups = await self.list_external_groups()
+        plans = [
+            await self._mapping_plan(
+                external_group_id=m.external_group_id, group_id=m.group_id
+            )
+            for m in proposed
+        ]
+        return ScimActivationReviewRead(users=users, groups=groups, plans=plans)
+
+    @require_scope("org:rbac:update")
+    @audit_log(resource_type="scim_connection", action="update")
+    async def activate(self, proposed: Sequence[ExternalGroupMappingCreate]) -> None:
+        """Admit the pushed directory and install the reviewed mappings.
+
+        One transaction: admission, mappings and the status flip land together,
+        so a failure cannot leave the connection active with nothing admitted.
+
+        Args:
+            proposed: The mappings to install as part of activation.
+
+        Raises:
+            TracecatNotFoundError: No connection exists, or a mapping side is
+                not in this organization.
+        """
+        connection = (
+            await self.session.execute(
+                select(ScimConnection)
+                .where(ScimConnection.organization_id == self.organization_id)
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if connection is None:
+            raise TracecatNotFoundError("SCIM connection not found")
+
+        # Status first: admission and mapping installation below read it.
+        connection.status = ScimConnectionStatus.ACTIVE
+        self.session.add(connection)
+        await self.session.flush()
+
+        await self._admit_pushed_users()
+        for mapping in proposed:
+            await self.create_mapping(
+                external_group_id=mapping.external_group_id,
+                group_id=mapping.group_id,
+            )
+        await self.session.commit()
+
+    async def _admit_pushed_users(self) -> None:
+        """Admit every active external user the provider pushed."""
+        rows = (
+            await self.session.execute(
+                select(ExternalUser.user_id, User.email)  # pyright: ignore[reportArgumentType, reportCallIssue]
+                .join(User, User.id == ExternalUser.user_id)  # pyright: ignore[reportArgumentType]
+                .where(
+                    ExternalUser.organization_id == self.organization_id,
+                    ExternalUser.active,
+                )
+            )
+        ).tuples()
+        for user_id, email in rows:
+            await self._revoke_pending_invitation(email)
+            await ensure_member(self.session, self.organization_id, user_id)
+        await self.session.flush()
+
+    async def _revoke_pending_invitation(self, email: str) -> None:
+        """Revoke a live invitation whose role could outrank what SCIM grants."""
+        await self.session.execute(
+            update(Invitation)
+            .where(
+                Invitation.organization_id == self.organization_id,
+                func.lower(Invitation.email) == email.lower(),
+                Invitation.status == InvitationStatus.PENDING,
+            )
+            .values(status=InvitationStatus.REVOKED)
+        )
+
+    async def _directory_users(self) -> list[ScimDirectoryUserRead]:
+        """The users the provider has pushed into this organization."""
+        rows = (
+            await self.session.execute(
+                select(  # pyright: ignore[reportCallIssue]
+                    ExternalUser.id,
+                    User.email,  # pyright: ignore[reportArgumentType]
+                    ExternalUser.external_id,
+                    ExternalUser.active,
+                )
+                .join(User, User.id == ExternalUser.user_id)  # pyright: ignore[reportArgumentType]
+                .where(ExternalUser.organization_id == self.organization_id)
+                .order_by(User.email)
+            )
+        ).tuples()
+        return [
+            ScimDirectoryUserRead(
+                id=row_id, email=email, external_id=external_id, active=active
+            )
+            for row_id, email, external_id, active in rows
+        ]
+
+    async def _mapping_plan(
+        self, *, external_group_id: UUID, group_id: UUID
+    ) -> ScimMappingPlanRead:
+        """What installing one mapping would change for a Tracecat group."""
+        external_group = await self._get_external_group(external_group_id)
+        group_name = (
+            await self.session.execute(
+                select(Group.name).where(
+                    Group.id == group_id,
+                    Group.organization_id == self.organization_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if group_name is None:
+            raise TracecatNotFoundError("Group not found")
+
+        manual = await self._manual_member_ids(group_id)
+        incoming = await self._external_group_user_ids(external_group_id)
+        already = await self._idp_member_ids(group_id)
+        return ScimMappingPlanRead(
+            external_group_id=external_group_id,
+            external_group_display_name=external_group.display_name,
+            group_id=group_id,
+            group_name=group_name,
+            manual_members_purged=sorted(manual, key=str),
+            users_gaining_access=sorted(incoming - manual - already, key=str),
+            users_losing_access=sorted(manual - incoming - already, key=str),
+        )
+
+    async def _manual_member_ids(self, group_id: UUID) -> set[UUID]:
+        """Users held by a stored group_member row."""
+        stmt = select(GroupMember.user_id).where(GroupMember.group_id == group_id)
+        return set((await self.session.execute(stmt)).scalars())
+
+    async def _external_group_user_ids(self, external_group_id: UUID) -> set[UUID]:
+        """Active users the provider lists in one external group."""
+        stmt = (
+            select(ExternalUser.user_id)
+            .join(
+                ExternalGroupMember,
+                ExternalGroupMember.external_user_id == ExternalUser.id,
+            )
+            .where(
+                ExternalGroupMember.external_group_id == external_group_id,
+                ExternalUser.active,
+            )
+        )
+        return set((await self.session.execute(stmt)).scalars())
+
+    async def _idp_member_ids(self, group_id: UUID) -> set[UUID]:
+        """Users an already-installed mapping projects into the group."""
+        stmt = (
+            select(ExternalUser.user_id)
+            .join(
+                ExternalGroupMember,
+                ExternalGroupMember.external_user_id == ExternalUser.id,
+            )
+            .join(
+                ExternalGroupMapping,
+                ExternalGroupMapping.external_group_id
+                == ExternalGroupMember.external_group_id,
+            )
+            .where(
+                ExternalGroupMapping.group_id == group_id,
+                ExternalGroupMapping.organization_id == self.organization_id,
+                ExternalUser.active,
+            )
+        )
+        return set((await self.session.execute(stmt)).scalars())
 
     # =========================================================================
     # Deprovisioning
