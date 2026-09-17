@@ -560,7 +560,9 @@ class InvitationService(BaseOrgService):
             organization_id=self.organization_id,
             params=params,
             invited_by=self.role.user_id,
-            created_by_platform_admin=self.role.is_platform_superuser,
+            # Only the control-plane create path is platform-created; its listing
+            # serializes one org-wide grant and this path allows any grant shape.
+            created_by_platform_admin=False,
         )
         await self.session.commit()
         return invitation

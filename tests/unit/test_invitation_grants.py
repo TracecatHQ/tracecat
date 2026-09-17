@@ -362,10 +362,10 @@ class TestCreateInvitationGrants:
             )
 
     @pytest.mark.anyio
-    async def test_platform_admin_invite_flags_row(
+    async def test_superuser_org_invite_is_not_platform_created(
         self, session: AsyncSession, org: Organization, admin: User
     ):
-        """A superuser-created invitation is flagged as platform-created."""
+        """The org path never flags rows; only the control-plane path does."""
         superuser_role = Role(
             type="user",
             user_id=admin.id,
@@ -384,7 +384,7 @@ class TestCreateInvitationGrants:
             )
         )
 
-        assert invitation.created_by_platform_admin is True
+        assert invitation.created_by_platform_admin is False
 
 
 class TestAcceptInvitationGrants:
