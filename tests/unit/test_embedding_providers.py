@@ -7,6 +7,11 @@ from dataclasses import replace
 import httpx
 import orjson
 import pytest
+from botocore.exceptions import (
+    ClientError,
+    EndpointConnectionError,
+    ParamValidationError,
+)
 from pydantic import SecretStr
 
 from tracecat.search.embeddings import bedrock
@@ -195,3 +200,73 @@ def test_recipe_revision_excludes_operational_batch_limits():
         replace(spec, tokenizer="next-tokenizer")
     )
     assert recipe_revision(spec) != recipe_revision(replace(spec, recipe_version=2))
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "aws_error, expected_code, retryable",
+    [
+        ("AccessDenied", "CREDENTIAL_INVALID", False),
+        ("ValidationError", "CREDENTIAL_INVALID", False),
+        ("InvalidClientTokenId", "CREDENTIAL_INVALID", False),
+        ("Throttling", "RATE_LIMITED", True),
+        ("ThrottlingException", "RATE_LIMITED", True),
+        ("InternalFailure", "UNAVAILABLE", True),
+        ("ExpiredToken", "UNAVAILABLE", True),
+        ("unknown", "UNAVAILABLE", True),
+        ("transport", "UNAVAILABLE", True),
+        ("local_validation", "CREDENTIAL_INVALID", False),
+    ],
+)
+async def test_sts_failures_are_classified_without_inference_or_secret_leaks(
+    monkeypatch, aws_error, expected_code, retryable
+):
+    class STS:
+        def assume_role(self, **kwargs):
+            if aws_error == "transport":
+                raise EndpointConnectionError(
+                    endpoint_url="https://synthetic-private.example.com"
+                )
+            if aws_error == "local_validation":
+                raise ParamValidationError(report="synthetic-private-role")
+            raise ClientError(
+                {"Error": {"Code": aws_error, "Message": "synthetic-private-role"}},
+                "AssumeRole",
+            )
+
+        def close(self):
+            pass
+
+    class Session:
+        def client(self, service, **kwargs):
+            assert service == "sts"
+            return STS()
+
+    monkeypatch.setattr(bedrock.boto3, "Session", Session)
+    spec = default_model("bedrock", "us-east-1")
+    configuration = PinnedConfiguration(1, spec, uuid.uuid4(), "default")
+    credential = ResolvedCredential(
+        SecretStr(""),
+        b"fingerprint",
+        {
+            "AWS_REGION": "us-east-1",
+            "AWS_ROLE_ARN": "arn:aws:iam::123456789012:role/synthetic-role",
+        },
+    )
+    request = EmbeddingRequest(
+        SearchScope(uuid.uuid4(), uuid.uuid4()),
+        1,
+        spec.dimensions,
+        (EmbeddingInput(0, hashlib.sha256(b"hello").hexdigest(), "hello"),),
+    )
+
+    async def no_inference(request):
+        pytest.fail("Failed role assumption must not call the embedding endpoint")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(no_inference)) as http:
+        with pytest.raises(EmbeddingError) as caught:
+            await EmbeddingClient(http).embed(configuration, credential, request)
+    assert caught.value.code == expected_code
+    assert caught.value.retryable is retryable
+    assert caught.value.__context__ is None and caught.value.__cause__ is None
+    assert "synthetic-private" not in str(caught.value)

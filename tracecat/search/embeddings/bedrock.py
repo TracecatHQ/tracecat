@@ -8,6 +8,12 @@ from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.config import Config
 from botocore.credentials import Credentials
+from botocore.exceptions import (
+    ClientError,
+    NoCredentialsError,
+    ParamValidationError,
+    PartialCredentialsError,
+)
 
 from tracecat.integrations.aws_assume_role import build_workspace_external_id
 from tracecat.search.embeddings.types import EmbeddingError, EmbeddingErrorCode
@@ -45,7 +51,40 @@ async def request_headers(
 ) -> dict[str, str]:
     """Sign using the configured role/static keys, or use the configured API key."""
     if values.get("AWS_ROLE_ARN"):
-        values = await asyncio.to_thread(_assume_role, values, scope)
+        try:
+            values = await asyncio.to_thread(_assume_role, values, scope)
+        except ClientError as exc:
+            # STS uses HTTP 400 for some transient errors too. Classify its typed
+            # error code, never the status alone or a potentially sensitive message.
+            match exc.response.get("Error", {}).get("Code"):
+                case (
+                    "AccessDenied"
+                    | "AccessDeniedException"
+                    | "ValidationError"
+                    | "ValidationException"
+                    | "InvalidClientTokenId"
+                    | "SignatureDoesNotMatch"
+                    | "UnrecognizedClientException"
+                ):
+                    code = EmbeddingErrorCode.CREDENTIAL_INVALID
+                case (
+                    "Throttling"
+                    | "ThrottlingException"
+                    | "TooManyRequestsException"
+                    | "RequestLimitExceeded"
+                ):
+                    code = EmbeddingErrorCode.RATE_LIMITED
+                case _:
+                    # Includes expired ambient credentials, which may refresh.
+                    code = EmbeddingErrorCode.UNAVAILABLE
+            error = EmbeddingError(code)
+        except (NoCredentialsError, PartialCredentialsError, ParamValidationError):
+            error = EmbeddingError(EmbeddingErrorCode.CREDENTIAL_INVALID)
+        else:
+            error = None
+        # Do not retain the SDK exception or its credential-bearing context.
+        if error is not None:
+            raise error
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
     access, secret = (
         values.get("AWS_ACCESS_KEY_ID"),
