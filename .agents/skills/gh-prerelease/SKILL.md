@@ -17,25 +17,50 @@ Full argument string: `$ARGUMENTS`.
 
 Split `$ARGUMENTS` on whitespace into tokens:
 
-- Token 1 → `<tag>` (optional). Semver-style version with a prerelease suffix, e.g. `0.20.0-rc.1`, `1.0.0-beta.48-rc.5`. Do not include a leading `v` — tags in this repo are bare versions.
+- Token 1 → `<tag>` (optional). A prerelease tag in the convention below, e.g. `1.1.0-alpha.1`, `1.1.0-beta.3`, `1.1.0-alpha.2.6`. Do not include a leading `v` — tags in this repo are bare versions.
 - Token 2 → `<commit>` (optional, default `HEAD`). Anything `git rev-parse` accepts: a SHA, branch, `HEAD`, `HEAD~3`, `origin/main`, etc.
 
 Do not rely on `$1`, `$2` — only `$ARGUMENTS` is reliably substituted in skill markdown.
 
 ## Version format
 
-Keep `<tag>` in Tracecat's public release/image tag convention. `just update-version <tag>` writes that value to `__version__`, and writes a separate PEP 440-compatible value to `__pep440_version__` for Hatchling package metadata. This lets Git branches, GitHub releases, and image tags stay as `1.0.0-beta.48-rc.5` while Python builds use `1.0.0b48+rc.5`.
+Keep `<tag>` in Tracecat's public release/image tag convention. The grammar is:
 
-Examples:
+```
+<major>.<minor>.<patch>                      stable
+<major>.<minor>.<patch>-<label>.<N>          prerelease, label in {alpha, beta}, N >= 1
+<major>.<minor>.<patch>-<label>.<N>.<M>      hotfix on top of that prerelease, M >= 1
+```
+
+The base is always the **next** stable version, so the first prerelease after
+`1.0.0` is `1.1.0-alpha.1` (or `1.0.1-alpha.1` for a patch series). Series
+numbers start at 1. The pre-1.0 chained form (`1.0.0-beta.52-rc.22`) and the
+`rc` label are retired.
+
+Ordering:
+
+```
+1.1.0-alpha.2 < 1.1.0-alpha.2.1 < 1.1.0-alpha.2.6 < 1.1.0-alpha.3 < 1.1.0-beta.1 < 1.1.0
+```
+
+`just update-version <tag>` writes the public tag to `__version__`, and writes a
+separate PEP 440-compatible value to `__pep440_version__` for Hatchling package
+metadata. This lets Git branches, GitHub releases, and image tags stay as
+`1.1.0-alpha.2.6` while Python builds use `1.1.0a2.post6`.
 
 | Public `<tag>` | Python package version |
 |----------------|------------------------|
-| `1.0.0-alpha.1` | `1.0.0a1` |
-| `1.0.0-beta.48` | `1.0.0b48` |
-| `1.0.0-rc.5` | `1.0.0rc5` |
-| `1.0.0-beta.48-rc.5` | `1.0.0b48+rc.5` |
-| `1.0.0-dev.3` | `1.0.0.dev3` |
-| `1.0.0-post.1` | `1.0.0.post1` |
+| `1.1.0-alpha.2` | `1.1.0a2` |
+| `1.1.0-beta.3` | `1.1.0b3` |
+| `1.1.0-alpha.2.6` | `1.1.0a2.post6` |
+| `1.1.0` | `1.1.0` |
+
+**Hotfixes.** A `<label>.<N>.<M>` tag is a hotfix on an already-cut prerelease.
+Cut it from the existing `release/<base>-<label>.<N>` branch (or from
+`release/<base>-<label>.<N>.<M-1>` for a follow-up hotfix) by passing that
+branch as `<commit>`. `update-version.sh --hotfix` implements the same
+semantics: `1.1.0-alpha.2` gives `1.1.0-alpha.2.1`, and `1.1.0-alpha.2.1` gives
+`1.1.0-alpha.2.2`.
 
 After running `just update-version <tag>`, verify both fields:
 
@@ -50,24 +75,32 @@ Version(sys.argv[1])
 PY
 ```
 
-If `<tag>` is missing, suggest the next logical RC tag by inspecting recent tags:
+If `<tag>` is missing, suggest the next logical tag from the most recently created tag. Sort by creation date, not `v:refname`: version sort ranks `1.0.0-beta.52` above `1.0.0`, so it would suggest a new beta on an already-shipped base.
 
 ```sh
 git fetch --tags --prune
-LATEST_RC=$(git tag --sort=-v:refname | rg -m1 -- '-rc\.[0-9]+$' || true)
+LATEST=$(git tag --sort=-creatordate | rg -m1 -- '^[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta)\.[0-9]+(\.[0-9]+)?)?$' || true)
 ```
 
-- If `LATEST_RC` matches `<base>-rc.<N>`, the suggested tag is `<base>-rc.<N+1>`. For example, `1.0.0-beta.48-rc.4` → `1.0.0-beta.48-rc.5`.
+- If `LATEST` is a prerelease, bump its **last numeric component**:
+  `1.1.0-alpha.2` gives `1.1.0-alpha.3`, and `1.1.0-alpha.2.6` gives `1.1.0-alpha.2.7`.
   ```sh
-  BASE="${LATEST_RC%-rc.*}"
-  N="${LATEST_RC##*-rc.}"
-  SUGGESTED="${BASE}-rc.$((N + 1))"
+  PREFIX="${LATEST%.*}"
+  LAST="${LATEST##*.}"
+  SUGGESTED="${PREFIX}.$((LAST + 1))"
   ```
-- If no `-rc.<N>` tag exists, stop and ask — there is no unambiguous "next" without a precedent.
+- If `LATEST` is a stable release, offer the next minor's first alpha:
+  `1.0.0` gives `1.1.0-alpha.1`.
+  ```sh
+  MAJOR="${LATEST%%.*}"
+  MINOR="${LATEST#*.}"; MINOR="${MINOR%%.*}"
+  SUGGESTED="${MAJOR}.$((MINOR + 1)).0-alpha.1"
+  ```
+- If no tag matches, stop and ask — there is no unambiguous "next" without a precedent.
 
 Present the suggestion in one line and wait for explicit confirmation (`y` to accept, or have the user supply an alternative). Do not proceed silently. If the user accepts, use the suggestion as `<tag>` for the rest of the workflow.
 
-Validate `<tag>` against `^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z]+\.[0-9]+){1,2}$`. If it is a stable release (e.g. plain `0.20.0`), refuse and point the user at `.github/workflows/create-release.yml` — this skill is for prereleases only.
+Validate `<tag>` against `^[0-9]+\.[0-9]+\.[0-9]+-(alpha|beta)\.[0-9]+(\.[0-9]+)?$`. If it is a stable release (e.g. plain `1.1.0`), refuse and point the user at `.github/workflows/create-release.yml` — this skill is for prereleases only.
 
 ## Workflow
 
@@ -137,7 +170,7 @@ yes | just update-version <tag>
 
 `update-version.sh` prompts before overwriting files; `yes |` answers `y`.
 
-Important: pass the public release tag, e.g. `1.0.0-beta.48-rc.5`. `update-version.sh` keeps that value in `__version__` and writes the PEP 440 equivalent, e.g. `1.0.0b48+rc.5`, to `__pep440_version__` for Python package builds.
+Important: pass the public release tag, e.g. `1.1.0-alpha.2`. `update-version.sh` keeps that value in `__version__` and writes the PEP 440 equivalent, e.g. `1.1.0a2`, to `__pep440_version__` for Python package builds.
 
 Sanity-check the result:
 
@@ -313,7 +346,7 @@ Print:
 
 ## Rules
 
-- Refuse if `<tag>` is a stable release (no prerelease suffix). Stable releases go through `create-release.yml` → PR → `publish-release.yml`.
+- Refuse if `<tag>` is a stable release (no `-alpha.<N>` or `-beta.<N>` suffix). Stable releases go through `create-release.yml` → PR → `publish-release.yml`.
 - Wait for explicit `y` at step 2. Never push branches or tags before confirmation.
 - Never force-push the tag or branch. If something is wrong post-push, stop and ask — do not `--force`.
 - Never use `git add -A` or `git add .`. Stage paths individually.
