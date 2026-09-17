@@ -6,7 +6,6 @@ from collections.abc import Sequence
 from uuid import UUID
 
 from sqlalchemy import delete, func, select
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
@@ -17,13 +16,16 @@ from tracecat.authz.controls import (
     validate_scope_string,
 )
 from tracecat.authz.enums import ScopeSource
+from tracecat.authz.membership import (
+    drop_workspace_membership_mirror,
+    mirror_workspace_membership,
+)
 from tracecat.authz.scopes import PRESET_ROLE_SCOPES
 from tracecat.authz.service import resolve_grantable_role, resolve_granter_scopes
 from tracecat.db.models import (
     Group,
     GroupMember,
     GroupRoleAssignment,
-    LegacyMembership,
     Membership,
     OrganizationMembership,
     RoleScope,
@@ -747,15 +749,8 @@ class RBACService(BaseOrgService):
         )
         if workspace_id is not None:
             # Legacy workspace table is still written for app versions reading it.
-            await self.session.execute(
-                pg_insert(LegacyMembership)
-                .values(user_id=user_id, workspace_id=workspace_id)
-                .on_conflict_do_nothing(
-                    index_elements=[
-                        LegacyMembership.user_id,
-                        LegacyMembership.workspace_id,
-                    ]
-                )
+            await mirror_workspace_membership(
+                self.session, user_id=user_id, workspace_id=workspace_id
             )
         self.session.add(assignment)
         try:
@@ -803,11 +798,10 @@ class RBACService(BaseOrgService):
         await self.session.delete(assignment)
         # Org presence outlives the assignment; only the workspace mirror follows it.
         if assignment.workspace_id is not None:
-            await self.session.execute(
-                delete(LegacyMembership).where(
-                    LegacyMembership.user_id == assignment.user_id,
-                    LegacyMembership.workspace_id == assignment.workspace_id,
-                )
+            await drop_workspace_membership_mirror(
+                self.session,
+                user_id=assignment.user_id,
+                workspace_ids=[assignment.workspace_id],
             )
         await self.session.commit()
 
