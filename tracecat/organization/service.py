@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 from typing import cast as type_cast
 
-from sqlalchemy import and_, cast, delete, select
+from sqlalchemy import Select, String, and_, cast, delete, literal, select
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import contains_eager
 
@@ -23,14 +23,20 @@ from tracecat.authz.membership import (
 )
 from tracecat.db.models import (
     AccessToken,
+    ExternalGroup,
+    ExternalGroupMapping,
+    ExternalGroupMember,
     ExternalUser,
     Group,
     GroupMember,
+    GroupRoleAssignment,
     Organization,
     OrganizationMembership,
     User,
+    UserRoleAssignment,
     Workspace,
 )
+from tracecat.db.models import Role as DBRole
 from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatConflictError,
@@ -40,6 +46,11 @@ from tracecat.identifiers import SessionID, UserID
 from tracecat.organization.management import (
     delete_organization_with_cleanup,
     validate_organization_delete_confirmation,
+)
+from tracecat.organization.schemas import (
+    MemberAccessExplain,
+    MemberAccessPath,
+    PathSource,
 )
 from tracecat.service import BaseOrgService
 
@@ -195,6 +206,116 @@ class OrgService(BaseOrgService):
         )
         if commit:
             await self.session.commit()
+
+    @require_scope("org:member:read")
+    async def explain_member_access(self, user_id: UserID) -> MemberAccessExplain:
+        """List every path by which a member holds a role.
+
+        One query per role-path arm, mirroring the union in ``_role_paths``:
+        direct assignments, manual group membership, and IdP group membership
+        through a mapping.
+
+        Args:
+            user_id: The member whose access is being explained.
+
+        Returns:
+            The member and one entry per path, with the rows behind it.
+        """
+        direct = (
+            select(
+                UserRoleAssignment.workspace_id,
+                DBRole.id,
+                DBRole.name,
+                literal(None, type_=UUID).label("group_id"),
+                literal(None, type_=String).label("group_name"),
+                literal(None, type_=UUID).label("external_group_id"),
+                literal(None, type_=String).label("external_group_display_name"),
+            )
+            .join(DBRole, DBRole.id == UserRoleAssignment.role_id)
+            .where(
+                UserRoleAssignment.user_id == user_id,
+                UserRoleAssignment.organization_id == self.organization_id,
+            )
+        )
+        via_group = (
+            select(
+                GroupRoleAssignment.workspace_id,
+                DBRole.id,
+                DBRole.name,
+                Group.id.label("group_id"),
+                Group.name.label("group_name"),
+                literal(None, type_=UUID).label("external_group_id"),
+                literal(None, type_=String).label("external_group_display_name"),
+            )
+            .join(DBRole, DBRole.id == GroupRoleAssignment.role_id)
+            .join(Group, Group.id == GroupRoleAssignment.group_id)
+            .join(GroupMember, GroupMember.group_id == GroupRoleAssignment.group_id)
+            .where(
+                GroupMember.user_id == user_id,
+                GroupRoleAssignment.organization_id == self.organization_id,
+            )
+        )
+        via_idp = (
+            select(
+                GroupRoleAssignment.workspace_id,
+                DBRole.id,
+                DBRole.name,
+                Group.id.label("group_id"),
+                Group.name.label("group_name"),
+                ExternalGroup.id.label("external_group_id"),
+                ExternalGroup.display_name.label("external_group_display_name"),
+            )
+            .join(DBRole, DBRole.id == GroupRoleAssignment.role_id)
+            .join(Group, Group.id == GroupRoleAssignment.group_id)
+            .join(
+                ExternalGroupMapping,
+                ExternalGroupMapping.group_id == GroupRoleAssignment.group_id,
+            )
+            .join(
+                ExternalGroup,
+                ExternalGroup.id == ExternalGroupMapping.external_group_id,
+            )
+            .join(
+                ExternalGroupMember,
+                ExternalGroupMember.external_group_id == ExternalGroup.id,
+            )
+            .join(ExternalUser, ExternalUser.id == ExternalGroupMember.external_user_id)
+            .where(
+                ExternalUser.user_id == user_id,
+                ExternalUser.active,
+                GroupRoleAssignment.organization_id == self.organization_id,
+            )
+        )
+        arms: tuple[tuple[PathSource, Select[Any]], ...] = (
+            ("direct", direct),
+            ("group", via_group),
+            ("idp_group", via_idp),
+        )
+        paths: list[MemberAccessPath] = []
+        for source, stmt in arms:
+            rows = (await self.session.execute(stmt)).tuples().all()
+            paths.extend(
+                MemberAccessPath(
+                    source=source,
+                    workspace_id=workspace_id,
+                    role_id=role_id,
+                    role_name=role_name,
+                    group_id=group_id,
+                    group_name=group_name,
+                    external_group_id=external_group_id,
+                    external_group_display_name=external_group_display_name,
+                )
+                for (
+                    workspace_id,
+                    role_id,
+                    role_name,
+                    group_id,
+                    group_name,
+                    external_group_id,
+                    external_group_display_name,
+                ) in rows
+            )
+        return MemberAccessExplain(user_id=user_id, paths=paths)
 
     @require_scope("org:member:update")
     @audit_log(resource_type="organization_member", action="update")

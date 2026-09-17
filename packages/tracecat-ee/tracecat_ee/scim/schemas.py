@@ -66,6 +66,41 @@ class ExternalGroupMappingCreate(BaseModel):
     group_id: UUID
 
 
+class ScimDirectoryUserRead(Schema):
+    """A user the provider has pushed into this organization."""
+
+    id: UUID
+    email: str
+    external_id: str
+    active: bool
+
+
+class ScimMappingPlanRead(Schema):
+    """What activating one proposed mapping would do to a Tracecat group."""
+
+    external_group_id: UUID
+    external_group_display_name: str
+    group_id: UUID
+    group_name: str
+    manual_members_purged: list[UUID]
+    users_gaining_access: list[UUID]
+    users_losing_access: list[UUID]
+
+
+class ScimActivationReviewRead(Schema):
+    """What arrived while the connection was pending, and the effect of each mapping."""
+
+    users: list[ScimDirectoryUserRead]
+    groups: list[ExternalGroupRead]
+    plans: list[ScimMappingPlanRead]
+
+
+class ScimActivationRequest(BaseModel):
+    """Mappings to install as the connection is activated."""
+
+    mappings: list[ExternalGroupMappingCreate] = Field(default_factory=list)
+
+
 # =============================================================================
 # SCIM 2.0 protocol
 # =============================================================================

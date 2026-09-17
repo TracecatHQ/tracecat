@@ -1,10 +1,11 @@
 from datetime import datetime
 from enum import StrEnum
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, EmailStr
 
-from tracecat.identifiers import OrganizationID, UserID
+from tracecat.identifiers import OrganizationID, UserID, WorkspaceID
 from tracecat.invitations.schemas import InvitationGrant
 
 # Members
@@ -45,6 +46,29 @@ class OrgMemberDetail(BaseModel):
     is_active: bool
     is_verified: bool
     last_login_at: datetime | None
+
+
+type PathSource = Literal["direct", "group", "idp_group"]
+
+
+class MemberAccessPath(BaseModel):
+    """One route by which a member holds a role, with the rows behind it."""
+
+    source: PathSource
+    workspace_id: WorkspaceID | None
+    role_id: UUID
+    role_name: str
+    group_id: UUID | None = None
+    group_name: str | None = None
+    external_group_id: UUID | None = None
+    external_group_display_name: str | None = None
+
+
+class MemberAccessExplain(BaseModel):
+    """Every path a member holds, for answering "why does she have this?"."""
+
+    user_id: UserID
+    paths: list[MemberAccessPath]
 
 
 # Organization

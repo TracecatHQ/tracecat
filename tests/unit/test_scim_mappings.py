@@ -8,6 +8,7 @@ from collections.abc import Iterator
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from tracecat_ee.scim.schemas import ExternalGroupMappingCreate
 from tracecat_ee.scim.service import SCIMService
 
 from tests.support.membership import (
@@ -15,8 +16,10 @@ from tests.support.membership import (
     seed_external_group,
     seed_external_group_members,
     seed_external_user,
+    seed_group_member,
 )
 from tracecat.auth.types import Role
+from tracecat.authz.enums import ScimConnectionStatus
 from tracecat.db.models import (
     ExternalGroupMapping,
     ExternalGroupMember,
@@ -24,6 +27,8 @@ from tracecat.db.models import (
     Group,
     GroupMember,
     Organization,
+    OrganizationMembership,
+    ScimConnection,
     User,
 )
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
@@ -494,3 +499,87 @@ async def test_deleting_requires_the_delete_scope(
 
     with pytest.raises(TracecatAuthorizationError):
         await without_delete.delete_mapping(mapping.id)
+
+
+# =============================================================================
+# Activation
+# =============================================================================
+
+
+@pytest.mark.anyio
+async def test_activation_admits_pushed_users_and_installs_mappings(
+    session: AsyncSession, org: Organization
+) -> None:
+    """Activation admits the collected directory and applies the mappings."""
+    connection = ScimConnection(
+        id=uuid.uuid4(),
+        organization_id=org.id,
+        key_id=uuid.uuid4().hex[:16],
+        hashed="x",
+        salt="y",
+        preview="scim_...",
+        status=ScimConnectionStatus.PENDING,
+    )
+    session.add(connection)
+    user = User(
+        id=uuid.uuid4(),
+        email=f"pending-{uuid.uuid4().hex[:8]}@example.com",
+        hashed_password="test",
+    )
+    session.add(user)
+    await session.flush()
+    external_user_id = await seed_external_user(
+        session, organization_id=org.id, user_id=user.id
+    )
+    external = await seed_external_group(
+        session, organization_id=org.id, external_id="idp-activate"
+    )
+    await seed_external_group_members(
+        session, external_group_id=external.id, external_user_ids=[external_user_id]
+    )
+    group = await _make_group(session, org)
+    # Nothing is admitted while the connection is pending.
+    assert not await _is_member(session, user_id=user.id, organization_id=org.id)
+
+    role = _role(org, "org:rbac:read", "org:rbac:create", "org:rbac:update")
+    await SCIMService(session, role).activate(
+        [ExternalGroupMappingCreate(external_group_id=external.id, group_id=group.id)]
+    )
+
+    assert await _is_member(session, user_id=user.id, organization_id=org.id)
+    assert await _idp_members(session, group.id) == {user.id}
+    await session.refresh(connection)
+    assert connection.status == ScimConnectionStatus.ACTIVE
+
+
+@pytest.mark.anyio
+async def test_activation_review_reports_the_plan_without_storing_it(
+    session: AsyncSession, org: Organization, service: SCIMService
+) -> None:
+    """The review names the manual rows a mapping would purge, and changes nothing."""
+    member = await _make_user(session, org)
+    group = await _make_group(session, org)
+    await seed_group_member(session, group_id=group.id, user_id=member.id)
+    external = await seed_external_group(
+        session, organization_id=org.id, external_id="idp-review"
+    )
+
+    review = await service.review_activation(
+        [ExternalGroupMappingCreate(external_group_id=external.id, group_id=group.id)]
+    )
+
+    assert [p.manual_members_purged for p in review.plans] == [[member.id]]
+    assert [p.users_losing_access for p in review.plans] == [[member.id]]
+    # A review is a read: the manual row and the absent mapping both survive.
+    assert await _manual_members(session, group.id) == {member.id}
+    assert await service.list_mappings() == []
+
+
+async def _is_member(
+    session: AsyncSession, *, user_id: uuid.UUID, organization_id: uuid.UUID
+) -> bool:
+    stmt = select(OrganizationMembership).where(
+        OrganizationMembership.user_id == user_id,
+        OrganizationMembership.organization_id == organization_id,
+    )
+    return (await session.execute(stmt)).scalar_one_or_none() is not None
