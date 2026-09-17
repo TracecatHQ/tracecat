@@ -1,0 +1,23 @@
+docs/automations/core-actions/_examples.yaml
+  s_aec75c9ec30bfa::t_8a70581fa0fd14 321-341
+docs/automations/core-actions/_manifest.yaml
+  s_aec75c9ec30bfa::t_0ef4a22930e808 406
+docs/automations/core-actions/request-actions/sql.mdx
+  s_aec75c9ec30bfa::t_dd3dbc94dfe273 85-124,154-174
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2d59b760d1b21a8f8738eb60f0c343a00ff04deb",
+  "prompts": {},
+  "sessions": {
+    "s_aec75c9ec30bfa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2ca67a7a-9a5e-4438-af4e-87763d16382d",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
