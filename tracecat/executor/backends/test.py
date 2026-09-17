@@ -304,10 +304,7 @@ class TestBackend(ExecutorBackend):
         for artifact_uri in artifact_uris:
             try:
                 artifact_paths = await leases.enter_async_context(
-                    registry_artifacts.lease(
-                        [artifact_uri],
-                        paths_may_be_modified=True,
-                    )
+                    registry_artifacts.lease([artifact_uri])
                 )
             except Exception as e:
                 logger.warning(
