@@ -13,10 +13,15 @@ from tracecat import config
 from tracecat.auth import discovery as auth_discovery_module
 from tracecat.auth.discovery import AuthDiscoveryMethod, AuthDiscoveryService
 from tracecat.auth.enums import AuthType
+from tracecat.authz.enums import ScimConnectionStatus
 from tracecat.db.models import (
+    ExternalUser,
     Invitation,
     Organization,
     OrganizationDomain,
+    OrganizationMembership,
+    ScimConnection,
+    User,
 )
 from tracecat.exceptions import TracecatValidationError
 from tracecat.invitations.enums import InvitationStatus
@@ -411,3 +416,76 @@ async def test_discovery_ignores_invitation_in_another_org(
     response = await service.discover("frank@cross-org.com")
 
     assert response.method == AuthDiscoveryMethod.SAML
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "admitted,managed,enforced,basic,pending",
+    [
+        (True, False, False, True, False),
+        (False, False, False, False, False),
+        (True, True, False, False, False),
+        (True, False, True, False, False),
+        (True, True, False, True, True),
+    ],
+)
+async def test_accepted_invitation_login_route(
+    session: AsyncSession,
+    organization: Organization,
+    monkeypatch: pytest.MonkeyPatch,
+    admitted: bool,
+    managed: bool,
+    enforced: bool,
+    basic: bool,
+    pending: bool,
+) -> None:
+    email = "accepted@example.com"
+    user = User(id=uuid.uuid4(), email=email, hashed_password="unused")
+    session.add(user)
+    await session.flush()
+    if admitted:
+        session.add(
+            OrganizationMembership(organization_id=organization.id, user_id=user.id)
+        )
+    if managed:
+        session.add(
+            ScimConnection(
+                organization_id=organization.id,
+                key_id=uuid.uuid4().hex,
+                hashed="x",
+                salt="x",
+                preview="scim_test",
+                status=ScimConnectionStatus.PENDING
+                if pending
+                else ScimConnectionStatus.ACTIVE,
+            )
+        )
+        session.add(
+            ExternalUser(
+                organization_id=organization.id,
+                user_id=user.id,
+                external_id="accepted-idp",
+                active=True,
+            )
+        )
+    await _create_invitation(
+        session,
+        organization.id,
+        email,
+        status=InvitationStatus.ACCEPTED,
+        expires_in=timedelta(days=-1),
+    )
+    monkeypatch.setattr(config, "TRACECAT__AUTH_TYPES", {AuthType.BASIC, AuthType.SAML})
+
+    async def setting(key: str, **kwargs: object) -> bool:
+        return enforced if key == "saml_enforced" else True
+
+    monkeypatch.setattr(
+        auth_discovery_module, "get_setting_from_bypass_session", setting
+    )
+    response = await AuthDiscoveryService(session).discover(
+        email, org_slug=organization.slug
+    )
+    assert response.method == (
+        AuthDiscoveryMethod.BASIC if basic else AuthDiscoveryMethod.SAML
+    )
