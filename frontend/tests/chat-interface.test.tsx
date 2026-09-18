@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { ChatInterface } from "@/components/chat/chat-interface"
+import { useSessionBackends } from "@/hooks/use-chat"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
 
 jest.mock("@/components/chat/chat-session-pane", () => ({
@@ -24,6 +25,7 @@ jest.mock("@/hooks/use-entitlements", () => ({
   }),
 }))
 jest.mock("@/hooks/use-chat", () => ({
+  useSessionBackends: jest.fn(),
   useListChats: () => ({ chats: [], chatsLoading: false, chatsError: null }),
   useCreateChat: () => ({
     createChat: jest.fn(),
@@ -73,6 +75,14 @@ const mockUseScopeCheck = useScopeCheck as jest.MockedFunction<
   typeof useScopeCheck
 >
 
+const mockUseSessionBackends = jest.mocked(useSessionBackends)
+
+beforeEach(() => {
+  mockUseSessionBackends.mockReturnValue({
+    backends: [{ id: "v1", name: "Standard", supports_fork: true }],
+  })
+})
+
 /** Drive `useScopeCheck` per scope so a single missing scope can be tested. */
 function setScopeResult(scope: string, result: boolean | undefined) {
   mockUseScopeCheck.mockImplementation((requested) =>
@@ -120,5 +130,30 @@ describe("ChatInterface MCP gating", () => {
     setScopeResult("integration:read", undefined)
     renderChat()
     expect(mcpEnabled()).toBe("false")
+  })
+})
+
+describe("ChatInterface mode selection", () => {
+  it("hides the selector when only the built-in mode is available", () => {
+    setScopeResult("integration:read", true)
+    renderChat()
+    expect(
+      screen.queryByRole("combobox", { name: "Chat mode" })
+    ).not.toBeInTheDocument()
+  })
+
+  it("shows a product label when another backend is installed", () => {
+    setScopeResult("integration:read", true)
+    mockUseSessionBackends.mockReturnValue({
+      backends: [
+        { id: "v1", name: "Standard", supports_fork: true },
+        { id: "v2", name: "Advanced", supports_fork: false },
+      ],
+    })
+    renderChat()
+    const selectors = screen.getAllByRole("combobox", { name: "Chat mode" })
+    expect(selectors.length).toBeGreaterThan(0)
+    expect(selectors[0]).toHaveTextContent("Standard")
+    expect(screen.queryByText("claude_code")).not.toBeInTheDocument()
   })
 })
