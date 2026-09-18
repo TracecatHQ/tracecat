@@ -174,13 +174,8 @@ gh release create '<tag>' --verify-tag --prerelease --latest=false \
 Run only the command for the approved release type. If the range contains no
 changes, state `No changes since <PREV_TAG>.` rather than reusing older notes.
 
-Stable GitHub publication triggers `notify-release.yml`, which requests the
-existing Kubernetes version-bump automation. Prereleases do not trigger that
-notification. Verify the notification run separately from image publication;
-its success does not prove a deployment occurred.
-
 Report the branch, immutable tag/commit, GitHub release URL, image-build run,
-manifest verification, and notification status when applicable. Never delete
+and manifest verification. Never delete
 the train branch, force-push, amend existing release commits, or deploy as part
 of this skill. If signing or a publication step fails, stop and report the
 concrete state before attempting further external mutations.
