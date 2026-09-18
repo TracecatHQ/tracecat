@@ -247,6 +247,8 @@ class Organization(Base, TimestampMixin):
         "OrganizationTier",
         back_populates="organization",
         uselist=False,
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
     domains: Mapped[list[OrganizationDomain]] = relationship(
         "OrganizationDomain",
