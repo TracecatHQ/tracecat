@@ -11,12 +11,7 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 
 from alembic import op
-from tracecat.db.tenant_rls import (
-    disable_external_group_member_table_rls,
-    disable_org_table_rls,
-    enable_external_group_member_table_rls,
-    enable_org_table_rls,
-)
+from tracecat.db.tenant_rls import disable_org_table_rls, enable_org_table_rls
 
 # revision identifiers, used by Alembic.
 revision: str = "a667d946cca1"
@@ -105,6 +100,11 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_external_user")),
         sa.UniqueConstraint(
+            "id",
+            "organization_id",
+            name=op.f("uq_external_user_id_organization_id"),
+        ),
+        sa.UniqueConstraint(
             "organization_id",
             "external_id",
             name=op.f("uq_external_user_organization_id_external_id"),
@@ -190,18 +190,30 @@ def upgrade() -> None:
     )
     op.create_table(
         "external_group_member",
+        sa.Column("organization_id", sa.UUID(), nullable=False),
         sa.Column("external_group_id", sa.UUID(), nullable=False),
         sa.Column("external_user_id", sa.UUID(), nullable=False),
+        # Group and user must belong to the membership's own tenant.
         sa.ForeignKeyConstraint(
-            ["external_group_id"],
-            ["external_group.id"],
-            name=op.f("fk_external_group_member_external_group_id_external_group"),
+            ["external_group_id", "organization_id"],
+            ["external_group.id", "external_group.organization_id"],
+            name=op.f(
+                "fk_external_group_member_external_group_id_organization_id_external_group"
+            ),
             ondelete="CASCADE",
         ),
         sa.ForeignKeyConstraint(
-            ["external_user_id"],
-            ["external_user.id"],
-            name=op.f("fk_external_group_member_external_user_id_external_user"),
+            ["external_user_id", "organization_id"],
+            ["external_user.id", "external_user.organization_id"],
+            name=op.f(
+                "fk_external_group_member_external_user_id_organization_id_external_user"
+            ),
+            ondelete="CASCADE",
+        ),
+        sa.ForeignKeyConstraint(
+            ["organization_id"],
+            ["organization.id"],
+            name=op.f("fk_external_group_member_organization_id_organization"),
             ondelete="CASCADE",
         ),
         sa.PrimaryKeyConstraint(
@@ -217,11 +229,21 @@ def upgrade() -> None:
         ["external_user_id"],
         unique=False,
     )
+    op.create_index(
+        op.f("ix_external_group_member_organization_id"),
+        "external_group_member",
+        ["organization_id"],
+        unique=False,
+    )
 
     # Tenant isolation is enforced in the database, not only in the registry.
-    for table in ("external_user", "external_group", "external_group_mapping"):
+    for table in (
+        "external_user",
+        "external_group",
+        "external_group_mapping",
+        "external_group_member",
+    ):
         op.execute(enable_org_table_rls(table))
-    op.execute(enable_external_group_member_table_rls())
 
     op.create_table(
         "scim_connection",
@@ -295,10 +317,18 @@ def downgrade() -> None:
     op.drop_index(op.f("ix_scim_connection_id"), table_name="scim_connection")
     op.drop_table("scim_connection")
 
-    op.execute(disable_external_group_member_table_rls())
-    for table in ("external_group_mapping", "external_group", "external_user"):
+    for table in (
+        "external_group_member",
+        "external_group_mapping",
+        "external_group",
+        "external_user",
+    ):
         op.execute(disable_org_table_rls(table))
 
+    op.drop_index(
+        op.f("ix_external_group_member_organization_id"),
+        table_name="external_group_member",
+    )
     op.drop_index(
         op.f("ix_external_group_member_external_user_id"),
         table_name="external_group_member",
