@@ -1,7 +1,6 @@
 ---
 name: gh-release
 description: Cut a stable GitHub release or prerelease directly from a Tracecat release branch, including the version bump, tag, image verification, and categorized release notes.
-disable-model-invocation: true
 argument-hint: "[<tag>] [<commit>]"
 ---
 
