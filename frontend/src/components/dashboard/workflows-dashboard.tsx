@@ -695,7 +695,7 @@ function FolderMetadataBadges({ item }: { item: FolderDirectoryItem }) {
 
       <Badge variant="secondary" className="h-5 px-2 text-[10px] font-normal">
         <WorkflowIcon className="mr-1 size-3" />
-        {item.num_items} workflows
+        {item.num_items} {item.num_items === 1 ? "item" : "items"}
       </Badge>
     </div>
   )
