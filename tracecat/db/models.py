@@ -6166,60 +6166,6 @@ class SearchChunk(TimestampMixin, Base):
     embedding: Mapped[NDArray[np.float32] | None] = mapped_column(Vector())
     state: Mapped[str] = mapped_column(Text, server_default="prepared")
     error_code: Mapped[str | None] = mapped_column(Text)
-
-
-# Workspace membership is derived, never stored: a user is present in a
-# workspace iff they hold a role path there, directly or through a group.
-# type_coerce strips the source columns' foreign keys: the composite one to
-# organization_membership would otherwise propagate into the subquery and the
-# mapper would try to resolve it as a real table.
-role_paths = union_all(
-    select(
-        type_coerce(UserRoleAssignment.user_id, UUID).label("user_id"),
-        type_coerce(UserRoleAssignment.organization_id, UUID).label("organization_id"),
-        type_coerce(UserRoleAssignment.workspace_id, UUID).label("workspace_id"),
-    ),
-    select(
-        type_coerce(GroupMember.user_id, UUID).label("user_id"),
-        type_coerce(GroupRoleAssignment.organization_id, UUID).label("organization_id"),
-        type_coerce(GroupRoleAssignment.workspace_id, UUID).label("workspace_id"),
-    ).join_from(
-        GroupRoleAssignment,
-        GroupMember,
-        GroupMember.group_id == GroupRoleAssignment.group_id,
-    ),
-).subquery("role_paths")
-
-# Workspace rows only: org presence is the stored OrganizationMembership row.
-membership_select = (
-    select(
-        role_paths.c.user_id,
-        role_paths.c.organization_id,
-        role_paths.c.workspace_id,
-    )
-    .where(role_paths.c.workspace_id.is_not(None))
-    .distinct()
-    .subquery("membership_derived")
-)
-
-
-class Membership(Base):
-    """Read-only workspace membership derived from role assignments."""
-
-    __table__ = membership_select
-    __mapper_args__ = {
-        "primary_key": [
-            membership_select.c.user_id,
-            membership_select.c.organization_id,
-            membership_select.c.workspace_id,
-        ]
-    }
-
-    user_id: Mapped[uuid.UUID]
-    organization_id: Mapped[uuid.UUID]
-    workspace_id: Mapped[uuid.UUID]
-
-
 # Organization presence is stored: `organization_membership` is the aggregate
 # root and children hang off it by composite foreign key.
 class OrganizationMembership(Base, TimestampMixin):
@@ -6352,6 +6298,58 @@ class ExternalGroupMapping(Base, TimestampMixin):
     )
     external_group_id: Mapped[uuid.UUID] = mapped_column(UUID, index=True)
     group_id: Mapped[uuid.UUID] = mapped_column(UUID, index=True)
+
+
+# Workspace membership is derived, never stored: a user is present in a
+# workspace iff they hold a role path there, directly or through a group.
+# type_coerce strips the source columns' foreign keys: the composite one to
+# organization_membership would otherwise propagate into the subquery and the
+# mapper would try to resolve it as a real table.
+_role_paths = union_all(
+    select(
+        type_coerce(UserRoleAssignment.user_id, UUID).label("user_id"),
+        type_coerce(UserRoleAssignment.organization_id, UUID).label("organization_id"),
+        type_coerce(UserRoleAssignment.workspace_id, UUID).label("workspace_id"),
+    ),
+    select(
+        type_coerce(GroupMember.user_id, UUID).label("user_id"),
+        type_coerce(GroupRoleAssignment.organization_id, UUID).label("organization_id"),
+        type_coerce(GroupRoleAssignment.workspace_id, UUID).label("workspace_id"),
+    ).join_from(
+        GroupRoleAssignment,
+        GroupMember,
+        GroupMember.group_id == GroupRoleAssignment.group_id,
+    ),
+).subquery("role_paths")
+
+# Workspace rows only: org presence is the stored OrganizationMembership row.
+membership_select = (
+    select(
+        _role_paths.c.user_id,
+        _role_paths.c.organization_id,
+        _role_paths.c.workspace_id,
+    )
+    .where(_role_paths.c.workspace_id.is_not(None))
+    .distinct()
+    .subquery("membership_derived")
+)
+
+
+class Membership(Base):
+    """Read-only workspace membership derived from role assignments."""
+
+    __table__ = membership_select
+    __mapper_args__ = {
+        "primary_key": [
+            membership_select.c.user_id,
+            membership_select.c.organization_id,
+            membership_select.c.workspace_id,
+        ]
+    }
+
+    user_id: Mapped[uuid.UUID]
+    organization_id: Mapped[uuid.UUID]
+    workspace_id: Mapped[uuid.UUID]
 
 
 # Physical workspace link table the app no longer reads. Writers keep it in
