@@ -93,6 +93,7 @@ async def test_list_current_user_organization_memberships(
     compiled = stmt.compile()
     sql = str(compiled)
 
+    # Org presence is stored; the filter lands on the membership table.
     assert "organization_membership.user_id = " in sql
     assert "organization.is_active" in sql
     assert test_admin_role.user_id in compiled.params.values()

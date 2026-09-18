@@ -115,6 +115,55 @@ def pytest_xdist_auto_num_workers(config: pytest.Config) -> int:
 # Default ports are for cluster 1, override with PG_PORT, TEMPORAL_PORT, MINIO_PORT, REDIS_PORT
 
 
+def _install_membership_token_revoker(conn: Any) -> None:
+    """Mirror the production trigger that revokes MCP tokens on member removal."""
+    conn.execute(
+        text(
+            """
+            CREATE OR REPLACE FUNCTION revoke_mcp_tokens_on_membership_delete()
+            RETURNS trigger
+            LANGUAGE plpgsql
+            AS $$
+            BEGIN
+                UPDATE mcp_personal_access_token
+                SET revoked_at = now(),
+                    revoked_by = NULLIF(
+                        current_setting('app.current_user_id', true), ''
+                    )::uuid
+                WHERE user_id = OLD.user_id
+                  AND organization_id = OLD.organization_id
+                  AND revoked_at IS NULL;
+
+                UPDATE mcp_refresh_token
+                SET status = 'revoked'
+                WHERE user_id = OLD.user_id
+                  AND organization_id = OLD.organization_id
+                  AND status = 'active';
+
+                RETURN OLD;
+            END;
+            $$;
+            """
+        )
+    )
+    conn.execute(
+        text(
+            "DROP TRIGGER IF EXISTS trg_organization_membership_revoke_mcp_tokens "
+            "ON organization_membership"
+        )
+    )
+    conn.execute(
+        text(
+            """
+            CREATE TRIGGER trg_organization_membership_revoke_mcp_tokens
+            AFTER DELETE ON organization_membership
+            FOR EACH ROW
+            EXECUTE FUNCTION revoke_mcp_tokens_on_membership_delete()
+            """
+        )
+    )
+
+
 def _install_case_number_allocator(conn: Any) -> None:
     """Mirror the production trigger used to allocate workspace-local case numbers."""
     conn.execute(
@@ -419,6 +468,7 @@ def db() -> Iterator[None]:
             logger.info("Creating all tables")
             Base.metadata.create_all(conn)
             _install_case_number_allocator(conn)
+            _install_membership_token_revoker(conn)
         yield
     finally:
         if test_engine is not None:
@@ -454,6 +504,7 @@ def default_org(db: None, env_sandbox: None) -> Iterator[None]:
             _lock_test_db_setup(conn, sync_db_uri)
             Base.metadata.create_all(conn)
             _install_case_number_allocator(conn)
+            _install_membership_token_revoker(conn)
 
         with Session(sync_engine) as session:
             base_org_slug = f"test-org-{TEST_ORG_ID.hex[:8]}"
