@@ -118,16 +118,23 @@ def test_branch_and_scheduled_builds_do_not_promote_latest(
     assert output == {"tag": "", "latest": "false"}
 
 
-def test_every_image_publisher_uses_the_shared_latest_guard() -> None:
+def test_only_serialized_promotion_can_publish_latest() -> None:
     workflow = yaml.safe_load(IMAGE_WORKFLOW.read_text())
+    promotion = workflow["jobs"]["promote-latest"]
+    assert set(promotion["needs"]) == {"validate", "merge-api", "merge-ui"}
+    # The implicit success() gate must require both manifest jobs to succeed.
+    assert promotion["if"] == "needs.validate.outputs.latest == 'true'"
+    assert promotion["concurrency"] == {
+        "group": "publish-images-latest",
+        "queue": "max",
+        "cancel-in-progress": False,
+    }
     for name in ("build-and-push-api", "build-and-push-ui", "merge-api", "merge-ui"):
         job = workflow["jobs"][name]
         assert "validate" in job["needs"]
         metadata = next(step for step in job["steps"] if step.get("id") == "meta")
         assert metadata["with"]["flavor"] == "latest=false"
-        assert metadata["with"]["tags"].splitlines()[0] == (
-            "type=raw,value=latest,enable=${{ needs.validate.outputs.latest == 'true' }}"
-        )
+        assert "latest" not in metadata["with"]["tags"]
         for step in job["steps"]:
             # Manifest creation must not append tags outside metadata-action.
             assert ":latest" not in step.get("run", "")
@@ -138,12 +145,10 @@ def test_every_image_publisher_uses_the_shared_latest_guard() -> None:
 def test_manifest_publishes_exactly_the_validated_tags(
     tmp_path: Path, image: str, version: str
 ) -> None:
-    result, output = run_image_guard(tmp_path, ref=version)
+    result, _ = run_image_guard(tmp_path, ref=version)
     assert result.returncode == 0
     repository = f"ghcr.io/tracecathq/{image}"
     tags = [f"{repository}:{version}"]
-    if output["latest"] == "true":
-        tags.append(f"{repository}:latest")
 
     workflow = yaml.safe_load(IMAGE_WORKFLOW.read_text())
     job = workflow["jobs"]["merge-api" if image == "tracecat" else "merge-ui"]
@@ -182,4 +187,50 @@ def test_manifest_publishes_exactly_the_validated_tags(
         *(argument for tag in tags for argument in ("-t", tag)),
         f"{repository}@sha256:{'a' * 64}",
         f"{repository}@sha256:{'b' * 64}",
+    ]
+
+
+@pytest.mark.parametrize("version", ["1.2.1", "1.3.0"])
+@pytest.mark.parametrize("fail_api", [False, True])
+def test_promotion_updates_both_images_from_the_same_stable_tag(
+    tmp_path: Path, version: str, fail_api: bool
+) -> None:
+    workflow = yaml.safe_load(IMAGE_WORKFLOW.read_text())
+    step = workflow["jobs"]["promote-latest"]["steps"][-1]
+    assert step["env"]["VERSION"] == "${{ needs.validate.outputs.tag }}"
+    docker = tmp_path / "docker"
+    docker.write_text(
+        '#!/bin/bash\nprintf "%s\\n" "$@" >> "$CAPTURE_ARGS"\n'
+        'if [[ "$FAIL_API" == true && "$*" == *"/tracecat:latest"* ]]; then\n'
+        "  exit 1\n"
+        "fi\n"
+    )
+    docker.chmod(0o755)
+    args_file = tmp_path / "args"
+    result = subprocess.run(
+        ["bash", "-euo", "pipefail", "-c", step["run"]],
+        env={
+            **os.environ,
+            "PATH": f"{tmp_path}:{os.environ['PATH']}",
+            "CAPTURE_ARGS": str(args_file),
+            "VERSION": version,
+            "FAIL_API": str(fail_api).lower(),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert (result.returncode != 0) == fail_api, result.stderr
+    images = ["tracecat"] if fail_api else ["tracecat", "tracecat-ui"]
+    assert args_file.read_text().splitlines() == [
+        arg
+        for image in images
+        for arg in (
+            "buildx",
+            "imagetools",
+            "create",
+            "--tag",
+            f"ghcr.io/tracecathq/{image}:latest",
+            f"ghcr.io/tracecathq/{image}:{version}",
+        )
     ]

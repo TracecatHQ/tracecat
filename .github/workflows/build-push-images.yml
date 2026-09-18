@@ -131,7 +131,6 @@ jobs:
           images: ghcr.io/tracecathq/tracecat
           flavor: latest=false
           tags: |
-            type=raw,value=latest,enable=${{ needs.validate.outputs.latest == 'true' }}
             type=sha
             type=ref,event=branch
             type=semver,pattern={{version}}
@@ -213,7 +212,6 @@ jobs:
           images: ghcr.io/tracecathq/tracecat
           flavor: latest=false
           tags: |
-            type=raw,value=latest,enable=${{ needs.validate.outputs.latest == 'true' }}
             type=sha
             type=ref,event=branch
             type=semver,pattern={{version}}
@@ -290,7 +288,6 @@ jobs:
           images: ghcr.io/tracecathq/tracecat-ui
           flavor: latest=false
           tags: |
-            type=raw,value=latest,enable=${{ needs.validate.outputs.latest == 'true' }}
             type=sha
             type=ref,event=branch
             type=semver,pattern={{version}}
@@ -384,7 +381,6 @@ jobs:
           images: ghcr.io/tracecathq/tracecat-ui
           flavor: latest=false
           tags: |
-            type=raw,value=latest,enable=${{ needs.validate.outputs.latest == 'true' }}
             type=sha
             type=ref,event=branch
             type=semver,pattern={{version}}
@@ -408,3 +404,39 @@ jobs:
       - name: Inspect image
         run: |
           docker buildx imagetools inspect ghcr.io/tracecathq/tracecat-ui:${{ steps.meta.outputs.version }}
+
+  promote-latest:
+    needs: [validate, merge-api, merge-ui]
+    if: needs.validate.outputs.latest == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    # Hold one lock across both updates, including releases from other trains.
+    concurrency:
+      group: publish-images-latest
+      queue: max
+      cancel-in-progress: false
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Log in to Container registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Promote both stable manifests to latest
+        env:
+          VERSION: ${{ needs.validate.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for image in tracecat tracecat-ui; do
+            docker buildx imagetools create \
+              --tag "ghcr.io/tracecathq/$image:latest" \
+              "ghcr.io/tracecathq/$image:$VERSION"
+          done
