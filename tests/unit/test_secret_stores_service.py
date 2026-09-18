@@ -8,10 +8,10 @@ from pydantic import SecretStr
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from tracecat_ee.secrets.aws_secrets_manager import generate_store_external_id
-from tracecat_ee.secrets.backends import parse_store_config
-from tracecat_ee.secrets.service import ExternalSecretsService
-from tracecat_ee.secrets.store_service import SecretStoresService
+from tracecat_ee.secrets.providers.aws_secrets_manager import generate_store_external_id
+from tracecat_ee.secrets.references.service import SecretReferencesService
+from tracecat_ee.secrets.stores.backends import parse_store_config
+from tracecat_ee.secrets.stores.service import SecretStoresService
 
 from tracecat import config
 from tracecat.auth.types import Role
@@ -63,8 +63,8 @@ async def stores(session: AsyncSession, svc_admin_role: Role) -> SecretStoresSer
 @pytest.fixture
 async def secrets(
     session: AsyncSession, svc_admin_role: Role
-) -> ExternalSecretsService:
-    return ExternalSecretsService(session=session, role=svc_admin_role)
+) -> SecretReferencesService:
+    return SecretReferencesService(session=session, role=svc_admin_role)
 
 
 def whole_string_mapping(key: str = "API_TOKEN") -> AwsSecretKeyMapping:
@@ -92,7 +92,7 @@ def test_external_id_is_opaque_and_unique() -> None:
 @pytest.mark.anyio
 async def test_store_collections_paginate_without_skips(
     stores: SecretStoresService,
-    secrets: ExternalSecretsService,
+    secrets: SecretReferencesService,
     svc_workspace: Workspace,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -171,7 +171,7 @@ async def test_store_lookup_is_scoped_to_organization(
 @pytest.mark.anyio
 async def test_reference_requires_workspace_authorization(
     stores: SecretStoresService,
-    secrets: ExternalSecretsService,
+    secrets: SecretReferencesService,
     svc_workspace: Workspace,
 ) -> None:
     store = await stores.create_store(
@@ -216,7 +216,7 @@ async def test_authorize_rejects_workspace_outside_organization(
 @pytest.mark.anyio
 async def test_reference_region_must_match_store(
     stores: SecretStoresService,
-    secrets: ExternalSecretsService,
+    secrets: SecretReferencesService,
     svc_workspace: Workspace,
 ) -> None:
     store = await stores.create_store(
@@ -235,7 +235,7 @@ async def test_reference_region_must_match_store(
 @pytest.mark.anyio
 async def test_name_uniqueness_spans_local_and_aws_rows(
     stores: SecretStoresService,
-    secrets: ExternalSecretsService,
+    secrets: SecretReferencesService,
     svc_workspace: Workspace,
 ) -> None:
     store = await stores.create_store(
@@ -260,7 +260,7 @@ async def test_name_uniqueness_spans_local_and_aws_rows(
 @pytest.mark.anyio
 async def test_aws_reference_rejects_local_value_updates(
     stores: SecretStoresService,
-    secrets: ExternalSecretsService,
+    secrets: SecretReferencesService,
     svc_workspace: Workspace,
 ) -> None:
     store = await stores.create_store(
@@ -300,7 +300,7 @@ async def test_aws_reference_rejects_local_value_updates(
 @pytest.mark.anyio
 async def test_store_and_authorization_lifecycle_guards(
     stores: SecretStoresService,
-    secrets: ExternalSecretsService,
+    secrets: SecretReferencesService,
     svc_workspace: Workspace,
     session: AsyncSession,
 ) -> None:
@@ -340,7 +340,7 @@ async def test_store_and_authorization_lifecycle_guards(
 @pytest.mark.parametrize("loaded", [False, True])
 async def test_delete_preserves_references_missed_by_preflight(
     stores: SecretStoresService,
-    secrets: ExternalSecretsService,
+    secrets: SecretReferencesService,
     svc_workspace: Workspace,
     session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
@@ -368,7 +368,7 @@ async def test_delete_preserves_references_missed_by_preflight(
 @pytest.mark.anyio
 async def test_reference_guards_with_enforced_rls_and_org_only_context(
     stores: SecretStoresService,
-    secrets: ExternalSecretsService,
+    secrets: SecretReferencesService,
     svc_workspace: Workspace,
     session: AsyncSession,
 ) -> None:

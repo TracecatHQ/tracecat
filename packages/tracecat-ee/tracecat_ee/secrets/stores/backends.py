@@ -20,7 +20,7 @@ from tracecat.secrets.types import (
     CheckResult,
     ExternalSecretReference,
 )
-from tracecat_ee.secrets.aws_secrets_manager import AwsSecretsManagerBackend
+from tracecat_ee.secrets.providers.aws_secrets_manager import AwsSecretsManagerBackend
 
 
 class SecretStoreBackend(Protocol):

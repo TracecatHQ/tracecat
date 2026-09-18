@@ -18,8 +18,8 @@ from pydantic_core import to_jsonable_python
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.admin.router import router as admin_router
 from tracecat_ee.agent.approvals.router import router as approvals_router
-from tracecat_ee.secrets.router import org_store_router as org_secret_stores_router
-from tracecat_ee.secrets.router import router as external_secrets_router
+from tracecat_ee.secrets.references.router import router as external_secrets_router
+from tracecat_ee.secrets.stores.router import router as org_secret_stores_router
 from tracecat_ee.watchtower.router import router as watchtower_router
 
 from tracecat import __version__ as APP_VERSION

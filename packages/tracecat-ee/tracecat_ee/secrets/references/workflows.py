@@ -13,7 +13,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.tiers.entitlements import check_entitlement
     from tracecat.tiers.enums import Entitlement
-    from tracecat_ee.secrets.service import ExternalSecretsService
+    from tracecat_ee.secrets.references.service import SecretReferencesService
 
 
 @activity.defn
@@ -22,7 +22,7 @@ async def check_secret_reference_activity(
 ) -> SecretReferenceCheckResult:
     """Resolve in the executor; never put remote values or exceptions in history."""
     try:
-        async with ExternalSecretsService.with_session(role=request.role) as service:
+        async with SecretReferencesService.with_session(role=request.role) as service:
             await check_entitlement(
                 service.session, request.role, Entitlement.EXTERNAL_SECRET_STORES
             )

@@ -1,4 +1,4 @@
-"""Workspace secrets whose values live in an external secret store."""
+"""Workspace secret references: secrets whose values live in an external store."""
 
 from __future__ import annotations
 
@@ -32,10 +32,10 @@ from tracecat.secrets.service import (
     build_external_secret_reference,
     is_external_reference,
 )
-from tracecat_ee.secrets.backends import get_backend, parse_store_config
+from tracecat_ee.secrets.stores.backends import get_backend, parse_store_config
 
 
-class ExternalSecretsService(SecretsService):
+class SecretReferencesService(SecretsService):
     """Create, update, and verify workspace secrets backed by an external store."""
 
     service_name = "external_secrets"
