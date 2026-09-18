@@ -15,7 +15,11 @@ from tracecat_ee.workspace_chat.policy import (
 
 from tracecat import config
 from tracecat.agent.adapter import vercel
-from tracecat.agent.session.backends.registry import get_session_backends
+from tracecat.agent.session.backends.registry import (
+    find_session_backend,
+    get_session_backends,
+    session_backend_available,
+)
 from tracecat.agent.session.backends.types import SessionDispatchUncertain
 from tracecat.agent.session.schemas import (
     AgentSessionArtifactsRead,
@@ -251,7 +255,16 @@ async def get_session(
             workspace_id=agent_session.workspace_id,
             title=agent_session.title,
             created_by=agent_session.created_by,
-            is_readonly=is_session_readonly(role, agent_session.created_by),
+            is_readonly=is_session_readonly(role, agent_session.created_by)
+            or not session_backend_available(
+                agent_session.backend_id, agent_session.harness_type
+            ),
+            backend_id=agent_session.backend_id,
+            backend_available=session_backend_available(
+                agent_session.backend_id, agent_session.harness_type
+            ),
+            history_available=find_session_backend(agent_session.backend_id)
+            is not None,
             entity_type=AgentSessionEntity(agent_session.entity_type),
             entity_id=agent_session.entity_id,
             channel_context=agent_session.channel_context,
@@ -335,7 +348,16 @@ async def get_session_vercel(
             workspace_id=agent_session.workspace_id,
             title=agent_session.title,
             created_by=agent_session.created_by,
-            is_readonly=is_session_readonly(role, agent_session.created_by),
+            is_readonly=is_session_readonly(role, agent_session.created_by)
+            or not session_backend_available(
+                agent_session.backend_id, agent_session.harness_type
+            ),
+            backend_id=agent_session.backend_id,
+            backend_available=session_backend_available(
+                agent_session.backend_id, agent_session.harness_type
+            ),
+            history_available=find_session_backend(agent_session.backend_id)
+            is not None,
             entity_type=AgentSessionEntity(agent_session.entity_type),
             entity_id=agent_session.entity_id,
             channel_context=agent_session.channel_context,

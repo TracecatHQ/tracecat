@@ -9,9 +9,16 @@ from uuid import uuid4
 import pytest
 from temporalio.client import WorkflowExecutionStatus
 from temporalio.common import TypedSearchAttributes
+from temporalio.exceptions import ApplicationError
+from tracecat_ee.agent.approvals.service import ApprovalService
+from tracecat_ee.inbox.providers.agent_runs import AgentRunsInboxProvider
 
+from tracecat.agent.session.activities import (
+    CreateSessionInput,
+    create_session_activity,
+)
 from tracecat.agent.session.backends import registry
-from tracecat.agent.session.backends.claude import ClaudeSessionBackend
+from tracecat.agent.session.backends.durable import DurableSessionBackend
 from tracecat.agent.session.backends.types import (
     SessionDispatchUncertain,
     SessionTurnContext,
@@ -38,14 +45,14 @@ def entry(name: str, factory: object) -> SimpleNamespace:
 
 
 def test_discovery_loads_factories_once_and_rejects_unknown_backends():
-    provider = ClaudeSessionBackend()
+    provider = DurableSessionBackend()
     factory = Mock(return_value=provider)
     with patch.object(
         registry, "entry_points", return_value=[entry("external", factory)]
     ):
         assert registry.get_session_backend("external") is provider
         assert registry.get_session_backend("external") is provider
-        assert isinstance(registry.get_session_backend(None), ClaudeSessionBackend)
+        assert isinstance(registry.get_session_backend(None), DurableSessionBackend)
         factory.assert_called_once_with()
         with pytest.raises(TracecatValidationError, match="unavailable"):
             registry.get_session_backend("missing")
@@ -54,16 +61,16 @@ def test_discovery_loads_factories_once_and_rejects_unknown_backends():
 @pytest.mark.parametrize(
     "entries, error",
     [
-        ([entry("claude_code", ClaudeSessionBackend)], ValueError),
+        ([entry("v1", DurableSessionBackend)], ValueError),
         (
             [
-                entry("external", ClaudeSessionBackend),
-                entry("external", ClaudeSessionBackend),
+                entry("external", DurableSessionBackend),
+                entry("external", DurableSessionBackend),
             ],
             ValueError,
         ),
-        ([entry("invalid.name", ClaudeSessionBackend)], ValueError),
-        ([entry("x" * 51, ClaudeSessionBackend)], ValueError),
+        ([entry("invalid.name", DurableSessionBackend)], ValueError),
+        ([entry("x" * 51, DurableSessionBackend)], ValueError),
         ([entry("external", object())], TypeError),
         ([entry("external", lambda: object())], TypeError),
     ],
@@ -77,7 +84,7 @@ def test_invalid_plugins_fail_closed(entries, error):
 
 
 def test_disabled_plugins_cannot_be_selected():
-    provider = ClaudeSessionBackend()
+    provider = DurableSessionBackend()
     with (
         patch.object(provider, "is_enabled", return_value=False),
         patch.object(
@@ -101,10 +108,11 @@ def context() -> SessionTurnContext:
         title="Test",
         entity_type=AgentSessionEntity.WORKSPACE_CHAT.value,
         entity_id=role.workspace_id,
-        harness_type="external",
+        backend_id="external",
+        harness_type="claude_code",
     )
     return SessionTurnContext(
-        db=AsyncMock(),
+        db=AsyncMock(add=Mock()),
         session=session,
         role=role,
         config=AgentConfig(model_name="test", model_provider="anthropic"),
@@ -121,15 +129,16 @@ async def test_builtin_dispatch_preserves_workflow_contract():
     assert isinstance(ctx.db, AsyncMock)
     client = AsyncMock()
     with patch(
-        "tracecat.agent.session.backends.claude.get_temporal_client",
+        "tracecat.agent.session.backends.durable.get_temporal_client",
         return_value=client,
     ):
-        await ClaudeSessionBackend().start_turn(ctx)
+        await DurableSessionBackend().start_turn(ctx)
     assert ctx.session.curr_run_id == ctx.run_id
     assert ctx.session.active_stream_id == ctx.stream_id
     ctx.db.commit.assert_awaited_once()
     call = client.start_workflow.await_args
     assert call.args[0] == "DurableAgentWorkflow"
+    assert call.args[1].harness_type == "claude_code"
     assert call.args[1].agent_args.active_stream_id == ctx.stream_id
     assert call.kwargs["id"] == f"agent/{ctx.run_id}"
     assert call.kwargs["search_attributes"] == ctx.search_attributes
@@ -140,7 +149,7 @@ async def test_service_dispatches_resolved_config_and_propagates_uncertainty():
     ctx = context()
     assert isinstance(ctx.db, AsyncMock)
     service = AgentSessionService(ctx.db, ctx.role)
-    provider = Mock(spec=ClaudeSessionBackend)
+    provider = Mock(spec=DurableSessionBackend)
     provider.start_turn = AsyncMock(side_effect=SessionDispatchUncertain("uncertain"))
 
     @contextlib.asynccontextmanager
@@ -161,7 +170,7 @@ async def test_service_dispatches_resolved_config_and_propagates_uncertainty():
             active_stream_id=ctx.stream_id,
             is_first_prompt=False,
         )
-    resolve.assert_called_once_with("external")
+    resolve.assert_called_once_with("external", harness_type="claude_code")
     submitted = provider.start_turn.await_args.args[0]
     assert submitted.prompt == "Hello"
     assert submitted.stream_id == ctx.stream_id
@@ -181,12 +190,12 @@ async def test_session_creation_and_backend_changes_fail_before_database_writes(
             AgentSessionCreate(
                 entity_type=AgentSessionEntity.WORKSPACE_CHAT,
                 entity_id=uuid4(),
-                harness_type="missing",
+                backend_id="missing",
             )
         )
     with pytest.raises(TracecatValidationError):
         await service.update_session(
-            ctx.session, params=AgentSessionUpdate(harness_type="claude_code")
+            ctx.session, params=AgentSessionUpdate(backend_id="v1")
         )
     with pytest.raises(TracecatValidationError):
         await service.update_session(
@@ -201,7 +210,7 @@ async def test_lifecycle_and_cancel_use_selected_backend():
     assert isinstance(ctx.db, AsyncMock)
     ctx.session.curr_run_id = ctx.run_id
     service = AgentSessionService(ctx.db, ctx.role)
-    provider = Mock(spec=ClaudeSessionBackend)
+    provider = Mock(spec=DurableSessionBackend)
     provider.workflow_id.return_value = f"external/{ctx.run_id}"
     provider.cancel = AsyncMock()
     handle = SimpleNamespace(
@@ -215,6 +224,9 @@ async def test_lifecycle_and_cancel_use_selected_backend():
         patch.object(service, "require_entitlement", return_value=None),
         patch(
             "tracecat.agent.session.service.get_session_backend", return_value=provider
+        ),
+        patch(
+            "tracecat.agent.session.service.find_session_backend", return_value=provider
         ),
         patch(
             "tracecat.agent.session.service.get_temporal_client", return_value=client
@@ -232,7 +244,7 @@ async def test_backend_capabilities_guard_fork_and_caller_owned_dispatch():
     ctx = context()
     assert isinstance(ctx.db, AsyncMock)
     service = AgentSessionService(ctx.db, ctx.role)
-    provider = Mock(spec=ClaudeSessionBackend)
+    provider = Mock(spec=DurableSessionBackend)
     provider.supports_fork = False
     provider.supports_caller_owned_workflows = False
     with (
@@ -247,3 +259,143 @@ async def test_backend_capabilities_guard_fork_and_caller_owned_dispatch():
         with pytest.raises(TracecatValidationError, match="caller-owned"):
             await service.prepare_new_turn(ctx.session.id, "Hello")
     ctx.db.commit.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_backend_and_harness_are_independent_and_defaults_resolve_internally():
+    ctx = context()
+    service = AgentSessionService(ctx.db, ctx.role)
+    provider = DurableSessionBackend()
+    provider.default_harness = "custom_harness"
+    provider.supported_harnesses = frozenset({"custom_harness", "another_harness"})
+    with patch.object(
+        registry, "entry_points", return_value=[entry("v2", lambda: provider)]
+    ):
+        created = await service.create_session(
+            AgentSessionCreate(
+                backend_id="v2",
+                entity_type=AgentSessionEntity.WORKSPACE_CHAT,
+                entity_id=uuid4(),
+            )
+        )
+        assert created.backend_id == "v2"
+        assert created.harness_type == "custom_harness"
+        assert (
+            registry.get_session_backend("v2", harness_type="another_harness")
+            is provider
+        )
+        with pytest.raises(TracecatValidationError, match="unsupported"):
+            registry.get_session_backend("v1", harness_type="custom_harness")
+        with pytest.raises(TracecatValidationError):
+            await service.update_session(
+                created, params=AgentSessionUpdate(backend_id=None)
+            )
+        with pytest.raises(TracecatValidationError):
+            await service.update_session(
+                created, params=AgentSessionUpdate(harness_type="another_harness")
+            )
+
+
+@pytest.mark.anyio
+async def test_builtin_lost_ack_retains_ownership_without_raw_exception_context():
+    ctx = context()
+    client = AsyncMock()
+    client.start_workflow.side_effect = TimeoutError("private SDK details")
+    with patch(
+        "tracecat.agent.session.backends.durable.get_temporal_client",
+        return_value=client,
+    ):
+        with pytest.raises(SessionDispatchUncertain) as caught:
+            await DurableSessionBackend().start_turn(ctx)
+    assert caught.value.__context__ is None
+    assert ctx.session.curr_run_id == ctx.run_id
+    assert ctx.session.active_stream_id == ctx.stream_id
+
+
+@pytest.mark.anyio
+async def test_missing_backend_history_and_lifecycle_remain_readable():
+    ctx = context()
+    ctx.session.curr_run_id = ctx.run_id
+    service = AgentSessionService(ctx.db, ctx.role)
+    result = Mock()
+    result.scalars.return_value.all.return_value = []
+    assert isinstance(ctx.db, AsyncMock)
+    ctx.db.execute.return_value = result
+    with patch.object(service, "get_session", return_value=ctx.session):
+        assert await service.list_messages(ctx.session.id) == []
+        lifecycle = await service.get_turn_lifecycle(ctx.session)
+        assert lifecycle.lifecycle == TurnLifecycle.UNAVAILABLE
+        assert lifecycle.run_id == ctx.run_id
+        with pytest.raises(TracecatValidationError, match="unavailable"):
+            await service.validate_turn_request(
+                ctx.session.id, BasicChatRequest(message="Hello")
+            )
+    ctx.db.commit.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_disabled_backend_keeps_history_projection():
+    ctx = context()
+    service = AgentSessionService(ctx.db, ctx.role)
+    provider = Mock(spec=DurableSessionBackend)
+    provider.is_enabled.return_value = False
+    provider.history = Mock(load=AsyncMock(return_value=[]))
+    result = Mock()
+    result.scalars.return_value.all.return_value = []
+    assert isinstance(ctx.db, AsyncMock)
+    ctx.db.execute.return_value = result
+    with (
+        patch.object(service, "get_session", return_value=ctx.session),
+        patch.object(
+            registry, "get_session_backends", return_value={"external": provider}
+        ),
+    ):
+        assert not registry.session_backend_available("external", "claude_code")
+        assert await service.list_messages(ctx.session.id) == []
+        provider.history.load.assert_awaited_once()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "backend_id,harness", [("v2", "claude_code"), ("v1", "other_harness")]
+)
+async def test_durable_activity_rejects_existing_session_with_different_identity(
+    backend_id, harness
+):
+    ctx = context()
+    ctx.session.backend_id = backend_id
+    ctx.session.harness_type = harness
+    service = AsyncMock()
+    service.get_session.return_value = ctx.session
+    manager = AsyncMock()
+    manager.__aenter__.return_value = service
+    with patch.object(AgentSessionService, "with_session", return_value=manager):
+        with pytest.raises(ApplicationError):
+            await create_session_activity(
+                CreateSessionInput(
+                    role=ctx.role,
+                    session_id=ctx.session.id,
+                    require_existing=True,
+                    entity_type=AgentSessionEntity.WORKSPACE_CHAT,
+                    entity_id=uuid4(),
+                    curr_run_id=uuid4(),
+                )
+            )
+    service.session.commit.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_legacy_workflow_views_do_not_target_another_backend():
+    ctx = context()
+    assert isinstance(ctx.db, AsyncMock)
+    ctx.db.scalar.return_value = "v2"
+    approvals = ApprovalService(ctx.db, ctx.role)
+    with patch.object(approvals, "handle", new_callable=AsyncMock) as handle:
+        assert await approvals.get_session(ctx.session.id) is None
+        handle.assert_not_awaited()
+    inbox = AgentRunsInboxProvider(ctx.db, ctx.role)
+    ctx.db.scalar.return_value = 0
+    assert await inbox.count_pending_items() == 0
+    query = ctx.db.scalar.await_args.args[0]
+    compiled = query.compile(compile_kwargs={"literal_binds": True})
+    assert "agent_session.backend_id = 'v1'" in str(compiled)

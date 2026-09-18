@@ -68,7 +68,11 @@ from tracecat.agent.runtime.claude_code.session_lines import (
     session_line_uuid,
 )
 from tracecat.agent.service import AgentManagementService
-from tracecat.agent.session.backends.registry import get_session_backend
+from tracecat.agent.session.backends.registry import (
+    find_session_backend,
+    get_session_backend,
+    session_backend_available,
+)
 from tracecat.agent.session.backends.schemas import WorkflowApprovalSubmission
 from tracecat.agent.session.backends.types import (
     SessionHistoryAdapter,
@@ -518,7 +522,7 @@ class AgentSessionService(BaseWorkspaceService):
         Returns:
             The created AgentSession model.
         """
-        get_session_backend(args.harness_type)
+        backend = get_session_backend(args.backend_id, harness_type=args.harness_type)
         # Apply default tools based on entity type if tools not provided.
         # Workspace chat merges its always-on defaults at runtime instead, so
         # ``tools`` stores only the extras the user added (never the defaults).
@@ -566,7 +570,8 @@ class AgentSessionService(BaseWorkspaceService):
             agent_preset_version_id=pinned_preset_version_id,
             agents_binding=resolved_agents_binding,
             # Harness
-            harness_type=args.harness_type,
+            backend_id=args.backend_id,
+            harness_type=args.harness_type or backend.default_harness,
         )
         # Use provided ID if given, otherwise DB default generates one
         if args.id:
@@ -894,7 +899,12 @@ class AgentSessionService(BaseWorkspaceService):
         items: list[AgentSessionRead | ChatReadMinimal] = [
             AgentSessionRead.model_validate(s, from_attributes=True).model_copy(
                 update={
-                    "is_readonly": is_session_readonly(self.role, s.created_by),
+                    "is_readonly": is_session_readonly(self.role, s.created_by)
+                    or not session_backend_available(s.backend_id, s.harness_type),
+                    "backend_available": session_backend_available(
+                        s.backend_id, s.harness_type
+                    ),
+                    "history_available": find_session_backend(s.backend_id) is not None,
                 }
             )
             for s in sessions
@@ -922,6 +932,11 @@ class AgentSessionService(BaseWorkspaceService):
         Returns:
             The updated AgentSession.
         """
+        if (
+            "backend_id" in params.model_fields_set
+            and params.backend_id != agent_session.backend_id
+        ):
+            raise TracecatValidationError("Start a new chat to change its backend")
         if (
             "harness_type" in params.model_fields_set
             and params.harness_type != agent_session.harness_type
@@ -1926,9 +1941,12 @@ class AgentSessionService(BaseWorkspaceService):
             session_id,
             BasicChatRequest(message=prompt),
         )
-        if not get_session_backend(
-            agent_session.harness_type
-        ).supports_caller_owned_workflows:
+        if (
+            agent_session.backend_id != "v1"
+            or not get_session_backend(
+                agent_session.backend_id, harness_type=agent_session.harness_type
+            ).supports_caller_owned_workflows
+        ):
             raise TracecatValidationError(
                 "This backend does not support caller-owned workflows"
             )
@@ -2065,7 +2083,9 @@ class AgentSessionService(BaseWorkspaceService):
             # stale-turn overwrite race).
             stream_id = active_stream_id or uuid.uuid4()
 
-            backend = get_session_backend(agent_session.harness_type)
+            backend = get_session_backend(
+                agent_session.backend_id, harness_type=agent_session.harness_type
+            )
             await backend.start_turn(
                 SessionTurnContext(
                     db=self.session,
@@ -2122,8 +2142,10 @@ class AgentSessionService(BaseWorkspaceService):
         if curr_run_id is None:
             return TurnLifecycleResult(TurnLifecycle.NONE, None)
 
+        backend = find_session_backend(agent_session.backend_id)
+        if backend is None:
+            return TurnLifecycleResult(TurnLifecycle.UNAVAILABLE, curr_run_id)
         client = await get_temporal_client()
-        backend = get_session_backend(agent_session.harness_type)
         handle = client.get_workflow_handle(backend.workflow_id(curr_run_id))
         try:
             description = await handle.describe()
@@ -2207,6 +2229,9 @@ class AgentSessionService(BaseWorkspaceService):
         if not agent_session:
             raise TracecatNotFoundError(f"Session with ID {session_id} not found")
 
+        get_session_backend(
+            agent_session.backend_id, harness_type=agent_session.harness_type
+        )
         match request:
             case ContinueRunRequest():
                 if agent_session.curr_run_id is None:
@@ -2327,7 +2352,9 @@ class AgentSessionService(BaseWorkspaceService):
 
         try:
             resumed = await handle.execute_update(
-                get_session_backend(agent_session.harness_type).approval_update_name,
+                get_session_backend(
+                    agent_session.backend_id, harness_type=agent_session.harness_type
+                ).approval_update_name,
                 WorkflowApprovalSubmission(
                     approvals=validated.approval_map,
                     approved_by=self.role.user_id,
@@ -2401,7 +2428,9 @@ class AgentSessionService(BaseWorkspaceService):
         # Resolve the workflow handle first. These operations do not mutate
         # continuation state, so failures here should not suppress a later retry.
         client = await get_temporal_client()
-        backend = get_session_backend(agent_session.harness_type)
+        backend = get_session_backend(
+            agent_session.backend_id, harness_type=agent_session.harness_type
+        )
         workflow_id = backend.workflow_id(curr_run_id)
         handle = client.get_workflow_handle(workflow_id)
 
@@ -2547,9 +2576,9 @@ class AgentSessionService(BaseWorkspaceService):
             )
 
         client = await get_temporal_client()
-        await get_session_backend(agent_session.harness_type).cancel(
-            client, curr_run_id
-        )
+        await get_session_backend(
+            agent_session.backend_id, harness_type=agent_session.harness_type
+        ).cancel(client, curr_run_id)
 
         return AgentSessionCancelResponse(
             session_id=session_id,
@@ -2900,7 +2929,10 @@ class AgentSessionService(BaseWorkspaceService):
             approval.tool_call_id: approval
             for approval in approval_result.scalars().all()
         }
-        history = get_session_backend(agent_session.harness_type).history
+        backend = find_session_backend(agent_session.backend_id)
+        if backend is None:
+            return []
+        history = backend.history
         if history is not None:
             entries = await history.load(
                 self.session,
@@ -3442,7 +3474,9 @@ class AgentSessionService(BaseWorkspaceService):
                 f"Parent session with ID {parent_session_id} not found"
             )
 
-        if not get_session_backend(parent.harness_type).supports_fork:
+        if not get_session_backend(
+            parent.backend_id, harness_type=parent.harness_type
+        ).supports_fork:
             raise TracecatValidationError("This backend does not support session forks")
 
         # Forked sessions are read-only "reviewer" sessions.
@@ -3458,6 +3492,7 @@ class AgentSessionService(BaseWorkspaceService):
             agent_preset_id=None,
             work_dir_snapshot=copy.deepcopy(parent.work_dir_snapshot),
             # Harness - inherit from parent
+            backend_id=parent.backend_id,
             harness_type=parent.harness_type,
             # Fork reference
             parent_session_id=parent_session_id,

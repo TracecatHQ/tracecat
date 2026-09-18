@@ -1031,9 +1031,13 @@ export type AgentSessionCreate = {
    */
   agent_preset_version_id?: string | null
   /**
-   * Registered session backend
+   * Opaque session backend identifier
    */
-  harness_type?: string
+  backend_id?: string
+  /**
+   * Execution harness; defaults to the selected backend's harness
+   */
+  harness_type?: string | null
 }
 
 /**
@@ -1089,6 +1093,15 @@ export type AgentSessionRead = {
   agent_preset_id: string | null
   agent_preset_version_id: string | null
   agents_binding?: ResolvedAgentsConfig | null
+  backend_id?: string
+  /**
+   * Whether this session can execute; unavailable sessions remain readable
+   */
+  backend_available?: boolean
+  /**
+   * Whether the installed backend can project this session's history
+   */
+  history_available?: boolean
   harness_type: string | null
   last_error?: string | null
   last_stream_id?: string | null
@@ -1120,6 +1133,15 @@ export type AgentSessionReadVercel = {
   agent_preset_id: string | null
   agent_preset_version_id: string | null
   agents_binding?: ResolvedAgentsConfig | null
+  backend_id?: string
+  /**
+   * Whether this session can execute; unavailable sessions remain readable
+   */
+  backend_available?: boolean
+  /**
+   * Whether the installed backend can project this session's history
+   */
+  history_available?: boolean
   harness_type: string | null
   last_error?: string | null
   last_stream_id?: string | null
@@ -1155,6 +1177,15 @@ export type AgentSessionReadWithMessages = {
   agent_preset_id: string | null
   agent_preset_version_id: string | null
   agents_binding?: ResolvedAgentsConfig | null
+  backend_id?: string
+  /**
+   * Whether this session can execute; unavailable sessions remain readable
+   */
+  backend_available?: boolean
+  /**
+   * Whether the installed backend can project this session's history
+   */
+  history_available?: boolean
   harness_type: string | null
   last_error?: string | null
   last_stream_id?: string | null
@@ -1193,7 +1224,11 @@ export type AgentSessionUpdate = {
    */
   agent_preset_version_id?: string | null
   /**
-   * Registered session backend
+   * Immutable session backend identifier
+   */
+  backend_id?: string | null
+  /**
+   * Immutable execution harness
    */
   harness_type?: string | null
 }

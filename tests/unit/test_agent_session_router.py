@@ -76,6 +76,7 @@ def _agent_session_stub(**overrides: Any) -> SimpleNamespace:
         "agent_preset_id": uuid.uuid4(),
         "agent_preset_version_id": uuid.uuid4(),
         "agents_binding": {},
+        "backend_id": "v1",
         "harness_type": HarnessType.CLAUDE_CODE,
         "created_at": now,
         "updated_at": now,
@@ -1872,3 +1873,31 @@ async def test_stream_session_events_requires_entitlement_for_legacy_workspace_c
             )
 
     fake_stream.sse.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_missing_backend_session_stays_readable_and_reports_unavailability() -> (
+    None
+):
+    session_stub = _agent_session_stub(
+        backend_id="uninstalled", harness_type="custom_harness"
+    )
+    fake_svc = SimpleNamespace(
+        get_session=AsyncMock(return_value=session_stub),
+        list_messages=AsyncMock(return_value=[]),
+        list_artifacts=Mock(return_value=[]),
+    )
+    with patch(
+        "tracecat.agent.session.router.AgentSessionService", return_value=fake_svc
+    ):
+        response = await cast(Any, get_session_vercel).__wrapped__(
+            session_id=session_stub.id,
+            role=_read_role(session_stub.workspace_id),
+            session=AsyncMock(),
+        )
+    data = response.model_dump()
+    assert data["backend_id"] == "uninstalled"
+    assert data["is_readonly"] is True
+    assert data["backend_available"] is False
+    assert data["history_available"] is False
+    assert data["messages"] == []

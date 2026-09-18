@@ -4046,14 +4046,30 @@ export const $AgentSessionCreate = {
       description:
         "Pinned preset version used for this session. If null, the session follows the preset's current version.",
     },
-    harness_type: {
+    backend_id: {
       type: "string",
       maxLength: 50,
       minLength: 1,
       pattern: "^[a-z][a-z0-9_]*$",
+      title: "Backend Id",
+      description: "Opaque session backend identifier",
+      default: "v1",
+    },
+    harness_type: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 50,
+          minLength: 1,
+          pattern: "^[a-z][a-z0-9_]*$",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Harness Type",
-      description: "Registered session backend",
-      default: "claude_code",
+      description:
+        "Execution harness; defaults to the selected backend's harness",
     },
   },
   type: "object",
@@ -4221,6 +4237,25 @@ export const $AgentSessionRead = {
           type: "null",
         },
       ],
+    },
+    backend_id: {
+      type: "string",
+      title: "Backend Id",
+      default: "v1",
+    },
+    backend_available: {
+      type: "boolean",
+      title: "Backend Available",
+      description:
+        "Whether this session can execute; unavailable sessions remain readable",
+      default: true,
+    },
+    history_available: {
+      type: "boolean",
+      title: "History Available",
+      description:
+        "Whether the installed backend can project this session's history",
+      default: true,
     },
     harness_type: {
       anyOf: [
@@ -4421,6 +4456,25 @@ export const $AgentSessionReadVercel = {
           type: "null",
         },
       ],
+    },
+    backend_id: {
+      type: "string",
+      title: "Backend Id",
+      default: "v1",
+    },
+    backend_available: {
+      type: "boolean",
+      title: "Backend Available",
+      description:
+        "Whether this session can execute; unavailable sessions remain readable",
+      default: true,
+    },
+    history_available: {
+      type: "boolean",
+      title: "History Available",
+      description:
+        "Whether the installed backend can project this session's history",
+      default: true,
     },
     harness_type: {
       anyOf: [
@@ -4630,6 +4684,25 @@ export const $AgentSessionReadWithMessages = {
         },
       ],
     },
+    backend_id: {
+      type: "string",
+      title: "Backend Id",
+      default: "v1",
+    },
+    backend_available: {
+      type: "boolean",
+      title: "Backend Available",
+      description:
+        "Whether this session can execute; unavailable sessions remain readable",
+      default: true,
+    },
+    history_available: {
+      type: "boolean",
+      title: "History Available",
+      description:
+        "Whether the installed backend can project this session's history",
+      default: true,
+    },
     harness_type: {
       anyOf: [
         {
@@ -4796,6 +4869,21 @@ export const $AgentSessionUpdate = {
       description:
         "Pinned preset version to use for this session. Set null to follow the preset's current version.",
     },
+    backend_id: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 50,
+          minLength: 1,
+          pattern: "^[a-z][a-z0-9_]*$",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Backend Id",
+      description: "Immutable session backend identifier",
+    },
     harness_type: {
       anyOf: [
         {
@@ -4809,7 +4897,7 @@ export const $AgentSessionUpdate = {
         },
       ],
       title: "Harness Type",
-      description: "Registered session backend",
+      description: "Immutable execution harness",
     },
   },
   type: "object",

@@ -129,7 +129,7 @@ export function ChatInterface({
   const [selectedChatId, setSelectedChatId] = useState<string | undefined>(
     chatId
   )
-  const [newChatBackend, setNewChatBackend] = useState<string>("claude_code")
+  const [newChatBackend, setNewChatBackend] = useState<string>("v1")
   const [newChatDialogOpen, setNewChatDialogOpen] = useState(false)
   const [autoCreateAttempted, setAutoCreateAttempted] = useState(false)
   const [isDraftChat, setIsDraftChat] = useState(false)
@@ -159,13 +159,10 @@ export function ChatInterface({
     chatId: selectedChatId,
     workspaceId,
   })
-  const currentBackendId =
-    chat && "harness_type" in chat
-      ? (chat.harness_type ?? "claude_code")
-      : "claude_code"
+  const currentBackendId = chat && "backend_id" in chat ? chat.backend_id : "v1"
   const currentBackendName =
     backends.find((backend) => backend.id === currentBackendId)?.name ??
-    (currentBackendId === "claude_code" ? "Claude Code" : currentBackendId)
+    (currentBackendId === "v1" ? "Standard" : "Unavailable")
   const { updateChat, isUpdating } = useUpdateChat(workspaceId)
 
   useEffect(() => {
@@ -264,7 +261,7 @@ export function ChatInterface({
         title: "Chat 1",
         entity_type: entityType,
         entity_id: entityId,
-        harness_type: newChatBackend,
+        backend_id: newChatBackend,
       })
         .then((newChat) => {
           setSelectedChatId(newChat.id)
@@ -305,7 +302,7 @@ export function ChatInterface({
         title: `Chat ${(chats?.length || 0) + 1}`,
         entity_type: entityType,
         entity_id: entityId,
-        harness_type: newChatBackend,
+        backend_id: newChatBackend,
       })
       setSelectedChatId(newChat.id)
       onChatSelect?.(newChat.id)
@@ -332,7 +329,7 @@ export function ChatInterface({
         title: `Chat ${(chats?.length || 0) + 1}`,
         entity_type: entityType,
         entity_id: entityId,
-        harness_type: newChatBackend,
+        backend_id: newChatBackend,
         tools: selectedTools,
         mcp_integrations: selectedMcpIntegrations,
         agent_preset_id: pendingPreset.presetId,
@@ -453,6 +450,16 @@ export function ChatInterface({
             ) : null}
           </div>
 
+          {chat && "history_available" in chat && !chat.history_available ? (
+            <span className="text-xs text-muted-foreground">
+              History is unavailable until this chat mode is restored.
+            </span>
+          ) : null}
+          {chat && "backend_available" in chat && !chat.backend_available ? (
+            <span className="text-xs text-muted-foreground">
+              Chat mode unavailable
+            </span>
+          ) : null}
           {/* Right-side actions */}
           <div className="flex items-center gap-1">
             {headerActions}
@@ -566,7 +573,7 @@ function BackendSelect({
         if (backends.some((backend) => backend.id === next)) onChange(next)
       }}
     >
-      <SelectTrigger aria-label="Chat backend" className="w-36">
+      <SelectTrigger aria-label="Chat mode" className="w-36">
         <SelectValue />
       </SelectTrigger>
       <SelectContent>

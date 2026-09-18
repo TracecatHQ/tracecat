@@ -26,7 +26,7 @@ from tracecat.agent.types import (
 )
 from tracecat.auth.types import Role
 from tracecat.common import all_activities
-from tracecat.db.models import Approval, User, Workflow
+from tracecat.db.models import AgentSession, Approval, User, Workflow
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import AgentActionMemo
 from tracecat.identifiers import WorkflowID
@@ -283,6 +283,17 @@ class ApprovalService(BaseWorkspaceService):
 
     async def get_session(self, session_id: uuid.UUID) -> SessionDescription | None:
         """Get a session by ID."""
+
+        # This legacy view parses durable-workflow metadata. Other backends use
+        # the shared session approval API and must never be looked up as v1.
+        backend_id = await self.session.scalar(
+            select(AgentSession.backend_id).where(
+                AgentSession.id == session_id,
+                AgentSession.workspace_id == self.workspace_id,
+            )
+        )
+        if backend_id is not None and backend_id != "v1":
+            return None
 
         # Query workflow executions using the agent session key
         agent_wf_id = AgentWorkflowID(session_id)
