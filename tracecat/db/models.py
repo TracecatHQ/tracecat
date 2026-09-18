@@ -6258,6 +6258,8 @@ class ExternalUser(Base, TimestampMixin):
     __table_args__ = (
         UniqueConstraint("organization_id", "user_id"),
         UniqueConstraint("organization_id", "external_id"),
+        # Tenant-qualified target for composite foreign keys into this table.
+        UniqueConstraint("id", "organization_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
@@ -6303,14 +6305,24 @@ class ExternalGroupMember(Base):
     __tablename__ = "external_group_member"
     __table_args__ = (
         Index("ix_external_group_member_external_user_id", "external_user_id"),
+        # Group and user must belong to the membership's own tenant.
+        ForeignKeyConstraint(
+            ["external_group_id", "organization_id"],
+            ["external_group.id", "external_group.organization_id"],
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["external_user_id", "organization_id"],
+            ["external_user.id", "external_user.organization_id"],
+            ondelete="CASCADE",
+        ),
     )
 
-    external_group_id: Mapped[uuid.UUID] = mapped_column(
-        UUID, ForeignKey("external_group.id", ondelete="CASCADE"), primary_key=True
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("organization.id", ondelete="CASCADE"), index=True
     )
-    external_user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID, ForeignKey("external_user.id", ondelete="CASCADE"), primary_key=True
-    )
+    external_group_id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True)
+    external_user_id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True)
 
 
 class ExternalGroupMapping(Base, TimestampMixin):

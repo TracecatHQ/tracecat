@@ -261,9 +261,10 @@ def test_deleting_external_group_cascades_to_members_and_mappings(
             conn.execute(
                 text(
                     "INSERT INTO external_group_member "
-                    "(external_group_id, external_user_id) VALUES (:eg, :eu)"
+                    "(organization_id, external_group_id, external_user_id) "
+                    "VALUES (:org, :eg, :eu)"
                 ),
-                {"eg": external_id, "eu": external_user_id},
+                {"org": org_id, "eg": external_id, "eu": external_user_id},
             )
             conn.execute(
                 text(
@@ -347,6 +348,56 @@ def test_mapping_rejects_cross_organization_references(migration_db: str) -> Non
             assert (
                 conn.execute(
                     text("SELECT count(*) FROM external_group_mapping")
+                ).scalar_one()
+                == 1
+            )
+    finally:
+        engine.dispose()
+
+
+def test_member_rejects_cross_organization_references(migration_db: str) -> None:
+    """A membership may only join an external group and user from its own tenant."""
+    engine = _engine(migration_db)
+    try:
+        with engine.begin() as conn:
+            attacker_org = _seed_org(conn)
+            victim_org = _seed_org(conn)
+            attacker_external = _seed_external_group(conn, attacker_org)
+            victim_external = _seed_external_group(conn, victim_org)
+            attacker_user = _seed_external_user(
+                conn, attacker_org, _seed_user(conn), "idp-subject-1"
+            )
+            victim_user = _seed_external_user(
+                conn, victim_org, _seed_user(conn), "idp-subject-1"
+            )
+
+        def insert_member(
+            org_id: uuid.UUID, external_group_id: uuid.UUID, external_user_id: uuid.UUID
+        ) -> None:
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "INSERT INTO external_group_member "
+                        "(organization_id, external_group_id, external_user_id) "
+                        "VALUES (:org, :eg, :eu)"
+                    ),
+                    {"org": org_id, "eg": external_group_id, "eu": external_user_id},
+                )
+
+        # Another tenant's directory user in our own group.
+        with pytest.raises(IntegrityError):
+            insert_member(attacker_org, attacker_external, victim_user)
+
+        # Our own directory user in another tenant's group.
+        with pytest.raises(IntegrityError):
+            insert_member(attacker_org, victim_external, attacker_user)
+
+        # The same-tenant membership still works.
+        insert_member(attacker_org, attacker_external, attacker_user)
+        with engine.connect() as conn:
+            assert (
+                conn.execute(
+                    text("SELECT count(*) FROM external_group_member")
                 ).scalar_one()
                 == 1
             )

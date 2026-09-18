@@ -102,6 +102,7 @@ POST_RLS_ORG_SCOPED_TABLES = (
     "external_user",
     "external_group",
     "external_group_mapping",
+    "external_group_member",
     "scim_connection",
 )
 
@@ -120,7 +121,6 @@ SPECIAL_TENANT_POLICY_TABLES = frozenset(
         "skill_tag_link",
         "service_account_api_key",
         "service_account_scope",
-        "external_group_member",
     }
 )
 
@@ -403,44 +403,6 @@ def disable_service_account_child_table_rls(table: str) -> str:
     return f"""
         DROP POLICY IF EXISTS {policy_name(table)} ON "{table}";
         ALTER TABLE "{table}" DISABLE ROW LEVEL SECURITY;
-    """
-
-
-def enable_external_group_member_table_rls() -> str:
-    # No tenant column of its own, so isolation goes through the parent row.
-    # external_group is org-scoped only; there is no workspace dimension.
-    org_condition = """
-                EXISTS (
-                    SELECT 1
-                    FROM external_group
-                    WHERE external_group.id = "external_group_member".external_group_id
-                      AND external_group.organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid
-                )
-    """
-    return f"""
-        ALTER TABLE "external_group_member" ENABLE ROW LEVEL SECURITY;
-
-        CREATE POLICY {policy_name("external_group_member")} ON "external_group_member"
-            FOR ALL
-            USING (
-                current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}'
-                OR (
-{org_condition}
-                )
-            )
-            WITH CHECK (
-                current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}'
-                OR (
-{org_condition}
-                )
-            );
-    """
-
-
-def disable_external_group_member_table_rls() -> str:
-    return f"""
-        DROP POLICY IF EXISTS {policy_name("external_group_member")} ON "external_group_member";
-        ALTER TABLE "external_group_member" DISABLE ROW LEVEL SECURITY;
     """
 
 
