@@ -8,9 +8,15 @@ from uuid import uuid4
 
 import pytest
 from temporalio.client import WorkflowExecutionStatus
-from temporalio.common import TypedSearchAttributes
+from temporalio.common import (
+    Priority,
+    SearchAttributeKey,
+    SearchAttributePair,
+    TypedSearchAttributes,
+)
 from temporalio.exceptions import ApplicationError
 from tracecat_ee.agent.approvals.service import ApprovalService
+from tracecat_ee.agent.types import AgentWorkflowID
 from tracecat_ee.inbox.providers.agent_runs import AgentRunsInboxProvider
 
 from tracecat.agent.session.activities import (
@@ -24,11 +30,15 @@ from tracecat.agent.session.backends.types import (
     SessionTurnContext,
 )
 from tracecat.agent.session.schemas import AgentSessionCreate, AgentSessionUpdate
-from tracecat.agent.session.service import AgentSessionService
+from tracecat.agent.session.service import (
+    AgentSessionService,
+    ApprovalContinuationAttempt,
+)
 from tracecat.agent.session.types import AgentSessionEntity, TurnLifecycle
 from tracecat.agent.types import AgentConfig
+from tracecat.agent.workflow_id import agent_workflow_id
 from tracecat.auth.types import Role
-from tracecat.chat.schemas import BasicChatRequest
+from tracecat.chat.schemas import ApprovalDecision, BasicChatRequest, ContinueRunRequest
 from tracecat.db.models import AgentSession
 from tracecat.exceptions import TracecatValidationError
 
@@ -119,7 +129,17 @@ def context() -> SessionTurnContext:
         prompt="Hello",
         run_id=uuid4(),
         stream_id=uuid4(),
-        search_attributes=TypedSearchAttributes.empty,
+        search_attributes=TypedSearchAttributes(
+            [
+                SearchAttributePair(
+                    SearchAttributeKey.for_keyword("WorkspaceId"),
+                    str(role.workspace_id),
+                ),
+                SearchAttributePair(
+                    SearchAttributeKey.for_keyword("CorrelationId"), str(session.id)
+                ),
+            ]
+        ),
     )
 
 
@@ -142,6 +162,8 @@ async def test_builtin_dispatch_preserves_workflow_contract():
     assert call.args[1].agent_args.active_stream_id == ctx.stream_id
     assert call.kwargs["id"] == f"agent/{ctx.run_id}"
     assert call.kwargs["search_attributes"] == ctx.search_attributes
+    assert call.kwargs["priority"] == Priority(priority_key=1)
+    assert call.kwargs["retry_policy"].maximum_attempts == 1
 
 
 @pytest.mark.anyio
@@ -211,7 +233,6 @@ async def test_lifecycle_and_cancel_use_selected_backend():
     ctx.session.curr_run_id = ctx.run_id
     service = AgentSessionService(ctx.db, ctx.role)
     provider = Mock(spec=DurableSessionBackend)
-    provider.workflow_id.return_value = f"external/{ctx.run_id}"
     provider.cancel = AsyncMock()
     handle = SimpleNamespace(
         describe=AsyncMock(
@@ -235,7 +256,7 @@ async def test_lifecycle_and_cancel_use_selected_backend():
         result = await service.get_turn_lifecycle(ctx.session)
         assert result.lifecycle == TurnLifecycle.RUNNING
         await service.request_cancel(ctx.session.id)
-    client.get_workflow_handle.assert_called_with(f"external/{ctx.run_id}")
+    client.get_workflow_handle.assert_called_with(f"agent/{ctx.run_id}")
     provider.cancel.assert_awaited_once_with(client, ctx.run_id)
 
 
@@ -399,3 +420,63 @@ async def test_legacy_workflow_views_do_not_target_another_backend():
     query = ctx.db.scalar.await_args.args[0]
     compiled = query.compile(compile_kwargs={"literal_binds": True})
     assert "agent_session.backend_id = 'v1'" in str(compiled)
+
+
+def test_workflow_identity_is_shared_with_existing_durable_ids():
+    run_id = uuid4()
+    assert agent_workflow_id(run_id) == f"agent/{run_id}"
+    assert agent_workflow_id(run_id) == AgentWorkflowID(run_id)
+
+
+@pytest.mark.anyio
+async def test_builtin_cancel_targets_shared_run_identity():
+    ctx = context()
+    handle = Mock(execute_update=AsyncMock())
+    client = Mock(get_workflow_handle=Mock(return_value=handle))
+    with patch(
+        "tracecat.agent.session.backends.durable.signal_turn_cancel",
+        new_callable=AsyncMock,
+    ):
+        await DurableSessionBackend().cancel(client, ctx.run_id)
+    client.get_workflow_handle.assert_called_once_with(f"agent/{ctx.run_id}")
+    assert handle.execute_update.await_args.args[0] == "request_cancel"
+
+
+@pytest.mark.anyio
+async def test_approvals_use_shared_identity_with_backend_specific_update():
+    ctx = context()
+    ctx.session.curr_run_id = ctx.run_id
+    service = AgentSessionService(ctx.db, ctx.role)
+    provider = Mock(spec=DurableSessionBackend)
+    provider.approval_update_name = "approve"
+    handle = Mock(execute_update=AsyncMock(return_value=True))
+    client = Mock(get_workflow_handle=Mock(return_value=handle))
+    attempt = ApprovalContinuationAttempt(
+        stream_id=ctx.stream_id,
+        previous_stream_id=None,
+        stream=Mock(),
+    )
+    with (
+        patch.object(service, "get_session", return_value=ctx.session),
+        patch.object(
+            service, "_pending_approval_tool_call_ids", return_value={"call-1"}
+        ),
+        patch.object(service, "_settled_approval_decisions", return_value={}),
+        patch.object(
+            service, "_existing_approval_continuation_attempt", return_value=attempt
+        ),
+        patch(
+            "tracecat.agent.session.service.get_session_backend", return_value=provider
+        ),
+        patch(
+            "tracecat.agent.session.service.get_temporal_client", return_value=client
+        ),
+    ):
+        await service._continue_with_approvals(
+            ctx.session.id,
+            ContinueRunRequest(
+                decisions=[ApprovalDecision(tool_call_id="call-1", action="approve")]
+            ),
+        )
+    client.get_workflow_handle.assert_called_once_with(f"agent/{ctx.run_id}")
+    assert handle.execute_update.await_args.args[0] == "approve"

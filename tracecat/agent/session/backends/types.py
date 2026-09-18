@@ -56,6 +56,8 @@ class SessionBackend(Protocol):
 
     Factories return process-wide, stateless providers. Request-scoped database
     sessions and identities are passed explicitly and must never be retained.
+    All backends use tracecat.agent.workflow_id.agent_workflow_id for Temporal
+    identity and preserve the context search attributes when dispatching.
     """
 
     @property
@@ -82,7 +84,5 @@ class SessionBackend(Protocol):
     def is_enabled(self) -> bool: ...
 
     async def start_turn(self, context: SessionTurnContext) -> None: ...
-
-    def workflow_id(self, run_id: UUID) -> str: ...
 
     async def cancel(self, client: Client, run_id: UUID) -> None: ...

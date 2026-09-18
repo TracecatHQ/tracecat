@@ -108,6 +108,7 @@ from tracecat.agent.types import (
     ToolApproved,
     ToolDenied,
 )
+from tracecat.agent.workflow_id import agent_workflow_id
 from tracecat.artifacts.bindings import ArtifactSideEffect
 from tracecat.artifacts.schemas import Artifact, ArtifactAdapter, ArtifactType
 from tracecat.audit.logger import audit_log
@@ -2146,7 +2147,7 @@ class AgentSessionService(BaseWorkspaceService):
         if backend is None:
             return TurnLifecycleResult(TurnLifecycle.UNAVAILABLE, curr_run_id)
         client = await get_temporal_client()
-        handle = client.get_workflow_handle(backend.workflow_id(curr_run_id))
+        handle = client.get_workflow_handle(agent_workflow_id(curr_run_id))
         try:
             description = await handle.describe()
         except RPCError:
@@ -2428,10 +2429,10 @@ class AgentSessionService(BaseWorkspaceService):
         # Resolve the workflow handle first. These operations do not mutate
         # continuation state, so failures here should not suppress a later retry.
         client = await get_temporal_client()
-        backend = get_session_backend(
+        get_session_backend(
             agent_session.backend_id, harness_type=agent_session.harness_type
         )
-        workflow_id = backend.workflow_id(curr_run_id)
+        workflow_id = agent_workflow_id(curr_run_id)
         handle = client.get_workflow_handle(workflow_id)
 
         logger.info(

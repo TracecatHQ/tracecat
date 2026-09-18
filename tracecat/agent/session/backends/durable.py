@@ -18,6 +18,7 @@ from tracecat.agent.session.backends.types import (
     SessionTurnContext,
 )
 from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.workflow_id import agent_workflow_id
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import RETRY_POLICIES
 from tracecat.logger import logger
@@ -36,9 +37,6 @@ class DurableSessionBackend:
 
     def is_enabled(self) -> bool:
         return True
-
-    def workflow_id(self, run_id: UUID) -> str:
-        return f"agent/{run_id}"
 
     async def start_turn(self, context: SessionTurnContext) -> None:
         session = context.session
@@ -70,7 +68,7 @@ class DurableSessionBackend:
             await client.start_workflow(
                 "DurableAgentWorkflow",
                 workflow_args,
-                id=self.workflow_id(context.run_id),
+                id=agent_workflow_id(context.run_id),
                 task_queue=config.TRACECAT__AGENT_QUEUE,
                 retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                 priority=Priority(priority_key=1),
@@ -90,6 +88,6 @@ class DurableSessionBackend:
             await signal_turn_cancel(str(run_id), reason="user_cancel")
         except Exception:
             logger.warning("Failed to write turn cancel signal", run_id=str(run_id))
-        await client.get_workflow_handle(self.workflow_id(run_id)).execute_update(
+        await client.get_workflow_handle(agent_workflow_id(run_id)).execute_update(
             "request_cancel", WorkflowCancelRequest(reason="user_cancel")
         )
