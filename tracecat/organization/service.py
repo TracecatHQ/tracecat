@@ -17,6 +17,7 @@ from tracecat.auth.users import (
     get_user_manager_context,
 )
 from tracecat.authz.controls import has_scope, require_scope
+from tracecat.authz.enums import ScimConnectionStatus
 from tracecat.authz.membership import (
     drop_workspace_membership_mirror,
     lock_role_changes,
@@ -32,6 +33,7 @@ from tracecat.db.models import (
     GroupRoleAssignment,
     Organization,
     OrganizationMembership,
+    ScimConnection,
     User,
     UserRoleAssignment,
     Workspace,
@@ -164,7 +166,12 @@ class OrgService(BaseOrgService):
         idp_managed = await self.session.scalar(
             select(
                 select(ExternalUser.id)
+                .join(
+                    ScimConnection,
+                    ScimConnection.organization_id == ExternalUser.organization_id,
+                )
                 .where(
+                    ScimConnection.status == ScimConnectionStatus.ACTIVE,
                     ExternalUser.user_id == user_id,
                     ExternalUser.organization_id == self.organization_id,
                     ExternalUser.active,
