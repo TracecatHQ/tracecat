@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from uuid import UUID
 
-from sqlalchemy import delete, exists, func, literal, or_, select, union_all
+from sqlalchemy import and_, delete, exists, func, literal, or_, select, union_all
 from sqlalchemy.dialects.postgresql import array as pg_array
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -20,6 +20,9 @@ from tracecat.authz.scopes import ORG_MEMBER_FLOOR_SCOPES, ORG_MEMBER_ROLE_SLUG
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import SupportsExecute
 from tracecat.db.models import (
+    ExternalGroupMapping,
+    ExternalGroupMember,
+    ExternalUser,
     Group,
     GroupMember,
     GroupRoleAssignment,
@@ -30,6 +33,7 @@ from tracecat.db.models import (
     User,
     UserRoleAssignment,
     Workspace,
+    effective_group_members,
 )
 from tracecat.db.models import Role as DBRole
 from tracecat.exceptions import (
@@ -101,6 +105,37 @@ async def query_effective_scopes(
         )
     )
 
+    # IdP group assignments: active external user → mapping → group role
+    idp_group_scopes = (
+        select(Scope.name)
+        .join(RoleScope, RoleScope.scope_id == Scope.id)
+        .join(DBRole, DBRole.id == RoleScope.role_id)
+        .join(GroupRoleAssignment, GroupRoleAssignment.role_id == DBRole.id)
+        .join(
+            ExternalGroupMapping,
+            ExternalGroupMapping.group_id == GroupRoleAssignment.group_id,
+        )
+        .join(
+            ExternalGroupMember,
+            ExternalGroupMember.external_group_id
+            == ExternalGroupMapping.external_group_id,
+        )
+        .join(ExternalUser, ExternalUser.id == ExternalGroupMember.external_user_id)
+        .join(
+            OrganizationMembership,
+            and_(
+                OrganizationMembership.user_id == ExternalUser.user_id,
+                OrganizationMembership.organization_id == ExternalUser.organization_id,
+            ),
+        )
+        .where(
+            ExternalUser.user_id == user_id,
+            ExternalUser.active,
+            GroupRoleAssignment.organization_id == organization_id,
+            group_workspace_condition,
+        )
+    )
+
     # Presence alone carries a scope floor; same statement as the role paths so
     # a concurrent removal is never read half-applied.
     floor_scopes = select(func.unnest(pg_array(sorted(ORG_MEMBER_FLOOR_SCOPES)))).where(
@@ -109,7 +144,7 @@ async def query_effective_scopes(
             OrganizationMembership.organization_id == organization_id,
         )
     )
-    combined = user_scopes.union(group_scopes, floor_scopes)
+    combined = user_scopes.union(group_scopes, idp_group_scopes, floor_scopes)
     result = await session.execute(combined)
     return frozenset(result.scalars().all())
 
@@ -225,14 +260,14 @@ class MembershipService(BaseService):
                 literal(0).label("via_group"),
             ).where(UserRoleAssignment.workspace_id == workspace_id),
             select(
-                GroupMember.user_id,
+                effective_group_members.c.user_id,
                 GroupRoleAssignment.role_id,
                 literal(1).label("via_group"),
             )
             .join_from(
                 GroupRoleAssignment,
-                GroupMember,
-                GroupMember.group_id == GroupRoleAssignment.group_id,
+                effective_group_members,
+                effective_group_members.c.group_id == GroupRoleAssignment.group_id,
             )
             .where(GroupRoleAssignment.workspace_id == workspace_id),
         ).subquery("paths")

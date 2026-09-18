@@ -79,6 +79,10 @@ AuditResourceType = Literal[
     "service_account",
     "service_account_api_key",
     "mcp_personal_access_token",
+    "scim_connection",
+    "scim_user",
+    "scim_group_mapping",
+    "scim_directory",
     # RBAC resources
     "rbac_scope",
     "rbac_role",

@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from tracecat.api.app import (
+    _install_scim_exception_handlers,
     authorization_exception_handler,
     scope_denied_exception_handler,
 )
@@ -32,7 +33,7 @@ from tracecat.query.errors import (
 )
 
 
-def _build_app(exc: Exception) -> FastAPI:
+def _build_app(exc: Exception, path: str = "/boom") -> FastAPI:
     """Build an app registering the same handlers as the real API.
 
     Mirrors create_app() so subtype dispatch is exercised as in production:
@@ -57,7 +58,7 @@ def _build_app(exc: Exception) -> FastAPI:
     async def boom() -> None:
         raise exc
 
-    app.add_api_route("/boom", boom, methods=["GET"])
+    app.add_api_route(path, boom, methods=["GET"])
     return app
 
 
@@ -192,3 +193,36 @@ def test_query_error_handlers_are_registered_in_both_api_apps() -> None:
             app.exception_handlers[TracecatQueryOverflowError]
             is query_overflow_exception_handler
         )
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        TracecatAuthorizationError("Cannot delete superuser"),
+        ScopeDeniedError(
+            required_scopes=["org:member:remove"], missing_scopes=["org:member:remove"]
+        ),
+        TracecatRLSViolationError(
+            "Internal denial", table="secret", operation="SELECT"
+        ),
+    ],
+)
+@pytest.mark.parametrize("scim", [False, True])
+def test_scim_authorization_envelope_preserves_opaque_denials(
+    exc: Exception, scim: bool
+) -> None:
+    path = "/scim/v2/Users/protected" if scim else "/boom"
+    app = _build_app(exc, path)
+    _install_scim_exception_handlers(app)
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get(path)
+    assert response.status_code == 403
+    if scim:
+        assert response.headers["content-type"] == "application/scim+json"
+        assert response.json() == {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:Error"],
+            "status": "403",
+            "detail": "Forbidden",
+        }
+    else:
+        assert response.json() == _get(exc).json()

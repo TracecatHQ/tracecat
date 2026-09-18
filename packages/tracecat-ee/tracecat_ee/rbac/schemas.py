@@ -132,7 +132,7 @@ class GroupMemberRead(BaseModel):
     email: str
     first_name: str | None = None
     last_name: str | None = None
-    added_at: datetime
+    added_at: datetime | None
 
 
 class GroupRead(BaseModel):
@@ -154,6 +154,7 @@ class GroupReadWithMembers(GroupRead):
 
     members: list[GroupMemberRead] = Field(default_factory=list)
     member_count: int = 0
+    is_idp_managed: bool = False
 
 
 class GroupCreate(BaseModel):

@@ -250,3 +250,17 @@ async def test_no_cookie_no_memberships_raises_400(session: AsyncSession) -> Non
         await _resolve_org_for_regular_user(request, session, user)
     assert exc.value.status_code == status.HTTP_400_BAD_REQUEST
     assert "no organization memberships" in exc.value.detail
+
+
+@pytest.mark.anyio
+async def test_browser_encoded_cookie_overrides_legacy_selection(
+    session: AsyncSession,
+) -> None:
+    user = await _seed_user(session)
+    org_a = await _seed_org(session, "encoded-a")
+    org_b = await _seed_org(session, "encoded-b")
+    for org in (org_a, org_b):
+        await _add_membership(session, user_id=user.id, organization_id=org.id)
+    request = _request_with_cookie(str(org_a.id))
+    request.cookies["tracecat%3Aactive-org-id"] = str(org_b.id)
+    assert await _resolve_org_for_regular_user(request, session, user) == org_b.id

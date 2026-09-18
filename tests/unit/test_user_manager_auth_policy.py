@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import uuid
 from contextlib import asynccontextmanager
+from unittest.mock import AsyncMock
 
 import pytest
 from cryptography.fernet import Fernet
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi_users.db import SQLAlchemyUserDatabase
 from fastapi_users.password import PasswordHelper
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.support.membership import (
@@ -20,10 +22,14 @@ from tracecat import config
 from tracecat.api.common import bootstrap_role
 from tracecat.auth.enums import AuthType
 from tracecat.auth.users import UserManager
+from tracecat.authz.enums import ScimConnectionStatus
 from tracecat.db.models import (
+    ExternalUser,
     OAuthAccount,
     Organization,
     OrganizationDomain,
+    OrganizationMembership,
+    ScimConnection,
     User,
     Workspace,
 )
@@ -355,3 +361,186 @@ async def test_authenticate_rejects_password_for_workspace_only_saml_org(
     )
 
     assert authenticated_user is None
+
+
+async def _link_external_user(
+    session: AsyncSession, *, user: User, organization: Organization
+) -> ExternalUser:
+    external_user = ExternalUser(
+        id=uuid.uuid4(),
+        organization_id=organization.id,
+        user_id=user.id,
+        external_id=uuid.uuid4().hex,
+    )
+    session.add(external_user)
+    session.add(
+        ScimConnection(
+            organization_id=organization.id,
+            key_id=uuid.uuid4().hex,
+            hashed="x",
+            salt="x",
+            preview="scim_test",
+            status=ScimConnectionStatus.ACTIVE,
+        )
+    )
+    await session.commit()
+    return external_user
+
+
+@pytest.mark.anyio
+async def test_authenticate_rejects_password_for_scim_provisioned_user(
+    session: AsyncSession,
+    user_manager: UserManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user, organization = await _create_user_with_org_membership(
+        session,
+        email="user@acme-scim.com",
+        password="password-123456",
+        saml_enforced=False,
+    )
+    await _link_external_user(session, user=user, organization=organization)
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__AUTH_TYPES",
+        {AuthType.BASIC, AuthType.SAML},
+    )
+
+    authenticated_user = await user_manager.authenticate(
+        OAuth2PasswordRequestForm(
+            username=user.email,
+            password="password-123456",
+        )
+    )
+
+    assert authenticated_user is None
+
+
+@pytest.mark.anyio
+async def test_authenticate_allows_password_without_external_user_row(
+    session: AsyncSession,
+    user_manager: UserManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user, _ = await _create_user_with_org_membership(
+        session,
+        email="user@acme-no-scim.com",
+        password="password-123456",
+        saml_enforced=False,
+    )
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__AUTH_TYPES",
+        {AuthType.BASIC, AuthType.SAML},
+    )
+
+    authenticated_user = await user_manager.authenticate(
+        OAuth2PasswordRequestForm(
+            username=user.email,
+            password="password-123456",
+        )
+    )
+
+    assert authenticated_user is not None
+    assert authenticated_user.id == user.id
+
+
+@pytest.mark.anyio
+async def test_forgot_password_blocked_for_scim_provisioned_user(
+    session: AsyncSession,
+    user_manager: UserManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user, organization = await _create_user_with_org_membership(
+        session,
+        email="user@acme-scim-reset.com",
+        password="password-123456",
+        saml_enforced=False,
+    )
+    await _link_external_user(session, user=user, organization=organization)
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__AUTH_TYPES",
+        {AuthType.BASIC, AuthType.SAML},
+    )
+    on_after = AsyncMock()
+    monkeypatch.setattr(user_manager, "on_after_forgot_password", on_after)
+
+    await user_manager.forgot_password(user)
+
+    on_after.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_forgot_password_allowed_without_external_user_row(
+    session: AsyncSession,
+    user_manager: UserManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user, _ = await _create_user_with_org_membership(
+        session,
+        email="user@acme-no-scim-reset.com",
+        password="password-123456",
+        saml_enforced=False,
+    )
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__AUTH_TYPES",
+        {AuthType.BASIC, AuthType.SAML},
+    )
+    on_after = AsyncMock()
+    monkeypatch.setattr(user_manager, "on_after_forgot_password", on_after)
+
+    await user_manager.forgot_password(user)
+
+    on_after.assert_awaited_once()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("state", ["pending", "inactive", "unadmitted"])
+async def test_historical_scim_link_does_not_block_password_or_reset(
+    session: AsyncSession,
+    user_manager: UserManager,
+    monkeypatch: pytest.MonkeyPatch,
+    state: str,
+) -> None:
+    user, org = await _create_user_with_org_membership(
+        session,
+        email="historical@example.com",
+        password="password-123456",
+        saml_enforced=False,
+    )
+    external = await _link_external_user(session, user=user, organization=org)
+    peer = Organization(
+        id=uuid.uuid4(), name="Basic auth peer", slug=f"peer-{uuid.uuid4().hex}"
+    )
+    session.add(peer)
+    await session.flush()
+    await grant_org_membership(session, user_id=user.id, organization_id=peer.id)
+    if state == "pending":
+        connection = (
+            await session.execute(
+                select(ScimConnection).where(ScimConnection.organization_id == org.id)
+            )
+        ).scalar_one()
+        connection.status = ScimConnectionStatus.PENDING
+    elif state == "inactive":
+        external.active = False
+    else:
+        await session.execute(
+            delete(OrganizationMembership).where(
+                OrganizationMembership.organization_id == org.id
+            )
+        )
+    await session.commit()
+    monkeypatch.setattr(config, "TRACECAT__AUTH_TYPES", {AuthType.BASIC, AuthType.SAML})
+    assert (
+        await user_manager.authenticate(
+            OAuth2PasswordRequestForm(username=user.email, password="password-123456")
+        )
+        is not None
+    )
+    after_reset = AsyncMock()
+    monkeypatch.setattr(user_manager, "on_after_forgot_password", after_reset)
+    await user_manager.forgot_password(user)
+    after_reset.assert_awaited_once()

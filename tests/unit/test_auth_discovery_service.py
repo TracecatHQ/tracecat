@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock
 
 import pytest
@@ -12,8 +13,18 @@ from tracecat import config
 from tracecat.auth import discovery as auth_discovery_module
 from tracecat.auth.discovery import AuthDiscoveryMethod, AuthDiscoveryService
 from tracecat.auth.enums import AuthType
-from tracecat.db.models import Organization, OrganizationDomain
+from tracecat.authz.enums import ScimConnectionStatus
+from tracecat.db.models import (
+    ExternalUser,
+    Invitation,
+    Organization,
+    OrganizationDomain,
+    OrganizationMembership,
+    ScimConnection,
+    User,
+)
 from tracecat.exceptions import TracecatValidationError
+from tracecat.invitations.enums import InvitationStatus
 from tracecat.organization.domains import normalize_domain
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -251,3 +262,230 @@ async def test_discovery_rejects_invalid_org_hint_without_fallback(
         await service.discover("user@acme.com", org_slug="does-not-exist")
 
     assert str(exc.value) == "Invalid organization"
+
+
+async def _create_invitation(
+    session: AsyncSession,
+    organization_id: uuid.UUID,
+    email: str,
+    *,
+    status: InvitationStatus = InvitationStatus.PENDING,
+    expires_in: timedelta = timedelta(days=7),
+) -> Invitation:
+    # Discovery reads status and expiry only, so the invitation needs no grant.
+    invitation = Invitation(
+        id=uuid.uuid4(),
+        organization_id=organization_id,
+        email=email,
+        token=uuid.uuid4().hex,
+        expires_at=datetime.now(UTC) + expires_in,
+        status=status,
+    )
+    session.add(invitation)
+    await session.commit()
+    return invitation
+
+
+@pytest.fixture
+def saml_org_auth_types(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__AUTH_TYPES",
+        {AuthType.BASIC, AuthType.OIDC, AuthType.SAML},
+    )
+    monkeypatch.setattr(
+        auth_discovery_module,
+        "get_setting_from_bypass_session",
+        AsyncMock(return_value=True),
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("saml_org_auth_types")
+async def test_discovery_offers_basic_for_pending_invitation_in_saml_org(
+    session: AsyncSession,
+    organization: Organization,
+) -> None:
+    await _create_domain(session, organization.id, "invite-basic.com")
+    await _create_invitation(session, organization.id, "alice@invite-basic.com")
+    service = AuthDiscoveryService(session)
+
+    response = await service.discover("alice@invite-basic.com")
+
+    assert response.method == AuthDiscoveryMethod.BASIC
+    assert response.next_url is None
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("saml_org_auth_types")
+async def test_discovery_keeps_saml_without_invitation(
+    session: AsyncSession,
+    organization: Organization,
+) -> None:
+    await _create_domain(session, organization.id, "no-invite.com")
+    service = AuthDiscoveryService(session)
+
+    response = await service.discover("bob@no-invite.com")
+
+    assert response.method == AuthDiscoveryMethod.SAML
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("saml_org_auth_types")
+async def test_discovery_keeps_saml_for_expired_invitation(
+    session: AsyncSession,
+    organization: Organization,
+) -> None:
+    await _create_domain(session, organization.id, "expired-invite.com")
+    await _create_invitation(
+        session,
+        organization.id,
+        "carol@expired-invite.com",
+        expires_in=timedelta(days=-1),
+    )
+    service = AuthDiscoveryService(session)
+
+    response = await service.discover("carol@expired-invite.com")
+
+    assert response.method == AuthDiscoveryMethod.SAML
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("saml_org_auth_types")
+async def test_discovery_keeps_saml_for_revoked_invitation(
+    session: AsyncSession,
+    organization: Organization,
+) -> None:
+    await _create_domain(session, organization.id, "revoked-invite.com")
+    await _create_invitation(
+        session,
+        organization.id,
+        "dave@revoked-invite.com",
+        status=InvitationStatus.REVOKED,
+    )
+    service = AuthDiscoveryService(session)
+
+    response = await service.discover("dave@revoked-invite.com")
+
+    assert response.method == AuthDiscoveryMethod.SAML
+
+
+@pytest.mark.anyio
+async def test_discovery_keeps_saml_when_basic_disabled(
+    session: AsyncSession,
+    organization: Organization,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _create_domain(session, organization.id, "basic-off.com")
+    await _create_invitation(session, organization.id, "erin@basic-off.com")
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__AUTH_TYPES",
+        {AuthType.OIDC, AuthType.SAML},
+    )
+    monkeypatch.setattr(
+        auth_discovery_module,
+        "get_setting_from_bypass_session",
+        AsyncMock(return_value=True),
+    )
+    service = AuthDiscoveryService(session)
+
+    response = await service.discover("erin@basic-off.com")
+
+    assert response.method == AuthDiscoveryMethod.SAML
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("saml_org_auth_types")
+async def test_discovery_ignores_invitation_in_another_org(
+    session: AsyncSession,
+    organization: Organization,
+) -> None:
+    other_org = Organization(
+        id=uuid.uuid4(),
+        name="Other",
+        slug=f"other-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    session.add(other_org)
+    await session.commit()
+    await _create_domain(session, organization.id, "cross-org.com")
+    await _create_invitation(session, other_org.id, "frank@cross-org.com")
+    service = AuthDiscoveryService(session)
+
+    response = await service.discover("frank@cross-org.com")
+
+    assert response.method == AuthDiscoveryMethod.SAML
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "admitted,managed,enforced,basic,pending",
+    [
+        (True, False, False, True, False),
+        (False, False, False, False, False),
+        (True, True, False, False, False),
+        (True, False, True, False, False),
+        (True, True, False, True, True),
+    ],
+)
+async def test_accepted_invitation_login_route(
+    session: AsyncSession,
+    organization: Organization,
+    monkeypatch: pytest.MonkeyPatch,
+    admitted: bool,
+    managed: bool,
+    enforced: bool,
+    basic: bool,
+    pending: bool,
+) -> None:
+    email = "accepted@example.com"
+    user = User(id=uuid.uuid4(), email=email, hashed_password="unused")
+    session.add(user)
+    await session.flush()
+    if admitted:
+        session.add(
+            OrganizationMembership(organization_id=organization.id, user_id=user.id)
+        )
+    if managed:
+        session.add(
+            ScimConnection(
+                organization_id=organization.id,
+                key_id=uuid.uuid4().hex,
+                hashed="x",
+                salt="x",
+                preview="scim_test",
+                status=ScimConnectionStatus.PENDING
+                if pending
+                else ScimConnectionStatus.ACTIVE,
+            )
+        )
+        session.add(
+            ExternalUser(
+                organization_id=organization.id,
+                user_id=user.id,
+                external_id="accepted-idp",
+                active=True,
+            )
+        )
+    await _create_invitation(
+        session,
+        organization.id,
+        email,
+        status=InvitationStatus.ACCEPTED,
+        expires_in=timedelta(days=-1),
+    )
+    monkeypatch.setattr(config, "TRACECAT__AUTH_TYPES", {AuthType.BASIC, AuthType.SAML})
+
+    async def setting(key: str, **kwargs: object) -> bool:
+        return enforced if key == "saml_enforced" else True
+
+    monkeypatch.setattr(
+        auth_discovery_module, "get_setting_from_bypass_session", setting
+    )
+    response = await AuthDiscoveryService(session).discover(
+        email, org_slug=organization.slug
+    )
+    assert response.method == (
+        AuthDiscoveryMethod.BASIC if basic else AuthDiscoveryMethod.SAML
+    )

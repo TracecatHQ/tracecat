@@ -32,6 +32,7 @@ from tracecat.db.models import (
     Invitation,
     InvitationGrant,
     OrganizationMembership,
+    ScimConnection,
     User,
     UserRoleAssignment,
     Workspace,
@@ -319,6 +320,9 @@ async def accept_invitation_for_user(
         )
 
     try:
+        # SCIM activation locks the organization before revoking invitations.
+        # Match that order before claiming the invitation to avoid deadlocks.
+        await lock_role_changes(session, invitation.organization_id)
         await _claim_pending(session, invitation)
         await _apply_grants(
             session,
@@ -516,6 +520,18 @@ class InvitationService(BaseOrgService):
         )
         await self.session.commit()
         return invitation
+
+    async def is_scim_connected(self) -> bool:
+        """Check whether an identity provider provisions this organization."""
+        return bool(
+            await self.session.scalar(
+                select(
+                    select(ScimConnection.id)
+                    .where(ScimConnection.organization_id == self.organization_id)
+                    .exists()
+                )
+            )
+        )
 
     async def list_invitations(
         self, *, status: InvitationStatus | None = None
