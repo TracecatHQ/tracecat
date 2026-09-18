@@ -237,6 +237,28 @@ async def resolve_aws_secret_references(
     if not references:
         return {}
 
+    resolved, error = await _fetch_and_project(references)
+    if error is not None:
+        logger.warning(
+            "AWS-backed secret resolution failed",
+            alias=error.alias,
+            environment=error.environment,
+            error_code=error.code.value,
+            aws_error_code=error.aws_error_code,
+        )
+        raise error
+    return resolved
+
+
+async def _fetch_and_project(
+    references: Sequence[ExternalSecretReference],
+) -> tuple[dict[str, dict[str, str]], AwsSecretResolutionError | None]:
+    """Fetch and map every reference, returning ``(resolved, error)``.
+
+    Never raises. On failure the returned mapping is empty, so the frame that
+    raises the sanitized error holds no fetched or partially projected values
+    in its locals.
+    """
     unique: dict[tuple[UUID, str], ExternalSecretReference] = {}
     for reference in references:
         unique.setdefault(reference.fetch_key, reference)
@@ -252,36 +274,22 @@ async def resolve_aws_secret_references(
     fetched = dict(zip(unique.keys(), outcomes, strict=True))
 
     resolved: dict[str, dict[str, str]] = {}
-    error: AwsSecretResolutionError | None = None
     for reference in references:
         outcome = fetched[reference.fetch_key]
         if outcome.failure is not None or outcome.value is None:
-            error = AwsSecretResolutionError(
+            return {}, AwsSecretResolutionError(
                 outcome.failure or AwsSecretResolutionErrorCode.UNKNOWN,
                 alias=reference.alias,
                 environment=reference.environment,
                 aws_error_code=outcome.aws_error_code,
             )
-            break
         projected = project_secret_string(reference, outcome.value)
         if isinstance(projected, AwsSecretResolutionErrorCode):
-            error = AwsSecretResolutionError(
+            return {}, AwsSecretResolutionError(
                 projected, alias=reference.alias, environment=reference.environment
             )
-            break
         resolved.setdefault(reference.alias, {}).update(projected)
-
-    fetched.clear()
-    if error is not None:
-        logger.warning(
-            "AWS-backed secret resolution failed",
-            alias=error.alias,
-            environment=error.environment,
-            error_code=error.code.value,
-            aws_error_code=error.aws_error_code,
-        )
-        raise error
-    return resolved
+    return resolved, None
 
 
 async def check_aws_secret_reference(
