@@ -127,6 +127,31 @@ def user_agent_execution_failed(
     )
 
 
+def agent_llm_provider_rejected_request(
+    *,
+    status_code: int,
+    model: str | None,
+    error_type: str | None,
+    error_code: str | None,
+    retryable: bool = False,
+) -> RuntimeErrorClassification:
+    """Classify a provider HTTP error with its safe machine-readable facts."""
+    message = f"LLM provider rejected the request (HTTP {status_code}"
+    detail = error_code or error_type
+    if detail is not None:
+        message += f", {detail}"
+    message += ")"
+    if model is not None:
+        message += f" for model {model}"
+    return RuntimeErrorClassification.user(
+        kind=RuntimeErrorKind.AGENT_EXECUTION_FAILED,
+        message=message,
+        retry_disposition=(
+            RetryDisposition.RETRYABLE if retryable else RetryDisposition.NON_RETRYABLE
+        ),
+    )
+
+
 def agent_llm_read_timeout(
     error: BaseException | None = None,
 ) -> RuntimeErrorClassification:
