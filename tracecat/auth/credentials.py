@@ -524,7 +524,10 @@ async def _resolve_org_for_regular_user(
     Raises:
         HTTPException(400): If user has no org memberships.
     """
-    if cookie_value := request.cookies.get(ACTIVE_ORG_COOKIE):
+    if cookie_value := (
+        request.cookies.get("tracecat%3Aactive-org-id")
+        or request.cookies.get(ACTIVE_ORG_COOKIE)
+    ):
         try:
             cookie_org_id = uuid.UUID(cookie_value)
         except ValueError:
