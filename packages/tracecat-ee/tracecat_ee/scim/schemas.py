@@ -8,6 +8,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from tracecat.authz.enums import ScimConnectionStatus
 from tracecat.core.schemas import Schema
 
 # =============================================================================
@@ -21,6 +22,7 @@ class ScimConnectionRead(Schema):
     id: UUID
     organization_id: UUID
     preview: str
+    status: ScimConnectionStatus
     last_used_at: datetime | None = None
     revoked_at: datetime | None = None
     created_at: datetime

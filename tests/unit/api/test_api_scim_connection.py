@@ -27,6 +27,7 @@ def _connection(org_id: uuid.UUID) -> SimpleNamespace:
         preview=f"{SCIM_API_KEY_PREFIX}...abcd",
         last_used_at=None,
         revoked_at=None,
+        status="pending",
         created_at=now,
         updated_at=now,
     )
@@ -84,6 +85,7 @@ async def test_get_never_returns_the_token(
     assert "token" not in body
     assert body["preview"] == connection.preview
     assert body["revoked_at"] is None
+    assert body["status"] == "pending"
 
 
 @pytest.mark.anyio

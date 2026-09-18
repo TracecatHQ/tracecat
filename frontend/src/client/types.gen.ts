@@ -5017,7 +5017,7 @@ export type GroupMemberRead = {
   email: string
   first_name?: string | null
   last_name?: string | null
-  added_at: string
+  added_at: string | null
 }
 
 /**
@@ -5033,6 +5033,7 @@ export type GroupReadWithMembers = {
   created_by?: string | null
   members?: Array<GroupMemberRead>
   member_count?: number
+  is_idp_managed?: boolean
 }
 
 /**
@@ -7806,11 +7807,17 @@ export type ScimConnectionRead = {
   id: string
   organization_id: string
   preview: string
+  status: ScimConnectionStatus
   last_used_at?: string | null
   revoked_at?: string | null
   created_at: string
   updated_at: string
 }
+
+/**
+ * Whether the provider's pushes admit users yet.
+ */
+export type ScimConnectionStatus = "pending" | "active" | "disabled"
 
 /**
  * A freshly issued token. The raw value is returned exactly once.

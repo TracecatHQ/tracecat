@@ -304,6 +304,8 @@ async def test_scim_writes_emit_their_audit_events(
             email=f"scim-{uuid.uuid4().hex[:8]}@tracecat.com",
         )
         scim = SCIMService(session, role=admin_role)
+        await ScimConnectionService(session, role=admin_role).issue_token()
+        await scim.activate([])
         external = await scim.upsert_external_group(
             external_id=f"eg-{uuid.uuid4().hex[:8]}", display_name="Engineering"
         )

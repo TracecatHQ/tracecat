@@ -12,6 +12,7 @@ SPEC suite checks.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 from uuid import UUID
 
@@ -20,11 +21,12 @@ from fastapi import APIRouter, Query, Request, Response, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import ORJSONResponse
 from sqlalchemy import func, select
-from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from tracecat import config
 from tracecat.auth.types import Role
+from tracecat.authz.membership import lock_role_changes
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import ExternalGroup, ExternalGroupMember, ExternalUser, User
 from tracecat.exceptions import (
@@ -41,7 +43,6 @@ from tracecat_ee.scim.schemas import (
     SCIM_CONTENT_TYPE,
     SERVICE_PROVIDER_CONFIG_SCHEMA,
     USER_SCHEMA,
-    ScimCount,
     ScimEmail,
     ScimError,
     ScimGroupMemberRef,
@@ -50,7 +51,6 @@ from tracecat_ee.scim.schemas import (
     ScimListResponse,
     ScimMeta,
     ScimPatchOp,
-    ScimStartIndex,
     ScimUserRequest,
     ScimUserResource,
 )
@@ -124,19 +124,21 @@ def scim_validation_exception_handler(
 # =============================================================================
 
 
-def _user_resource(
-    external_user: ExternalUser, user: User, *, active: bool | None = None
-) -> ScimUserResource:
+def _resource_location(kind: str, resource_id: UUID) -> str:
+    return f"{config.TRACECAT__PUBLIC_API_URL.rstrip('/')}{SCIM_PREFIX}/{kind}/{resource_id}"
+
+
+def _user_resource(external_user: ExternalUser, user: User) -> ScimUserResource:
     """Render a provisioned user. The resource id is the external_user row."""
     return ScimUserResource(
         id=str(external_user.id),
         userName=user.email,
         externalId=external_user.external_id,
-        active=external_user.active if active is None else active,
+        active=external_user.active,
         emails=[ScimEmail(value=user.email, primary=True, type="work")],
         meta=ScimMeta(
             resourceType="User",
-            location=f"{SCIM_PREFIX}/Users/{external_user.id}",
+            location=_resource_location("Users", external_user.id),
         ),
     )
 
@@ -153,7 +155,7 @@ def _group_resource(
             resourceType="Group",
             created=group.created_at,
             lastModified=group.updated_at,
-            location=f"{SCIM_PREFIX}/Groups/{group.id}",
+            location=_resource_location("Groups", group.id),
         ),
     )
 
@@ -216,8 +218,8 @@ async def list_users(
     role: ScimConnectionRole,
     session: AsyncDBSession,
     filter: str | None = Query(default=None),
-    startIndex: ScimStartIndex = Query(default=1),
-    count: ScimCount = Query(default=100),
+    startIndex: int = Query(default=1),
+    count: int = Query(default=100),
 ) -> ScimListResponse:
     """List provisioned users, optionally filtered by ``userName``.
 
@@ -225,6 +227,8 @@ async def list_users(
     the directory holds, and a case-sensitive match would make it create a
     duplicate.
     """
+    startIndex = max(1, startIndex)
+    count = min(200, max(0, count))
     organization_id = _organization_id(role)
     username = _parse_username_filter(filter)
 
@@ -275,6 +279,9 @@ async def create_user(
         # The account already existed and is now linked. A 409 here is what
         # makes Entra give up, so the link is reported as a normal creation.
         response.status_code = status.HTTP_201_CREATED
+    response.headers["Location"] = _resource_location(
+        "Users", provisioned.external_user.id
+    )
     return _user_resource(provisioned.external_user, provisioned.user)
 
 
@@ -298,6 +305,7 @@ async def replace_user(
     params: ScimUserRequest,
 ) -> ScimUserResource:
     """Replace a user resource. Only ``active`` changes anything in Tracecat."""
+    await lock_role_changes(session, _organization_id(role))
     organization_id = _organization_id(role)
     external_user, user = await _linked_user(
         session, organization_id=organization_id, resource_id=resource_id
@@ -305,7 +313,7 @@ async def replace_user(
     await _apply_active(
         session, role=role, external_user=external_user, active=params.active
     )
-    return _user_resource(external_user, user, active=params.active)
+    return _user_resource(external_user, user)
 
 
 @router.patch("/Users/{resource_id}")
@@ -317,6 +325,7 @@ async def patch_user(
     params: ScimPatchOp,
 ) -> ScimUserResource:
     """Apply a PatchOp. ``active`` is the operation that matters."""
+    await lock_role_changes(session, _organization_id(role))
     organization_id = _organization_id(role)
     external_user, user = await _linked_user(
         session, organization_id=organization_id, resource_id=resource_id
@@ -324,26 +333,24 @@ async def patch_user(
 
     active = external_user.active
     for operation in params.operations:
-        if (value := _patch_active_value(operation.path, operation.value)) is not None:
-            active = value
+        if operation.op == "remove":
+            raise TracecatValidationError("Removing user attributes is unsupported")
+        path = operation.path.strip().lower() if operation.path is not None else None
+        values = operation.value if path is None else {path: operation.value}
+        if not isinstance(values, dict) or not values:
+            raise TracecatValidationError(
+                "PATCH requires an attribute path or object value"
+            )
+        for key, value in values.items():
+            if key.lower() != "active":
+                raise TracecatValidationError("Unsupported user PATCH path")
+            parsed = _coerce_bool(value)
+            if parsed is None:
+                raise TracecatValidationError("active must be a boolean")
+            active = parsed
 
     await _apply_active(session, role=role, external_user=external_user, active=active)
-    return _user_resource(external_user, user, active=active)
-
-
-def _patch_active_value(path: str | None, value: Any) -> bool | None:
-    """Read ``active`` from a patch operation in either shape it arrives in.
-
-    Okta sends ``path="active"`` with a scalar; Azure sends no path and a
-    dictionary body.
-    """
-    if path is not None and path.strip().lower() == "active":
-        return _coerce_bool(value)
-    if path is None and isinstance(value, dict):
-        for key, item in value.items():
-            if key.lower() == "active":
-                return _coerce_bool(item)
-    return None
+    return _user_resource(external_user, user)
 
 
 def _coerce_bool(value: Any) -> bool | None:
@@ -363,18 +370,15 @@ async def _apply_active(
     session: AsyncSession, *, role: Role, external_user: ExternalUser, active: bool
 ) -> None:
     """Admit or deprovision the user, tolerating a repeat of either."""
-    if active == external_user.active:
-        return
     service = SCIMService(session, role)
     if active:
-        await service.reactivate_external_user(external_user)
-        await session.commit()
-        return
-    try:
+        if not external_user.active:
+            await service.reactivate_external_user(external_user)
+            await session.commit()
+    else:
+        # An inactive flag alone does not prove admission/grants are absent.
         await service.deprovision_user(external_user.user_id)
-    except NoResultFound:
-        # Already gone. Deprovisioning is idempotent to the provider.
-        await session.commit()
+    await session.refresh(external_user)
 
 
 @router.delete("/Users/{resource_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -383,9 +387,10 @@ async def delete_user(
 ) -> Response:
     """Deprovision a user. Already-removed is success, not an error.
 
-    The service keeps raising ``NoResultFound``; idempotency is a property of
-    this transport, not of deprovisioning.
+    Known identities remain addressable and inactive. Unknown resource IDs
+    return the same idempotent success without changing another tenant.
     """
+    await lock_role_changes(session, _organization_id(role))
     try:
         external_user, _ = await _linked_user(
             session, organization_id=_organization_id(role), resource_id=resource_id
@@ -436,25 +441,21 @@ async def _get_group(
 async def _resolve_member_ids(
     session: AsyncSession, *, organization_id: UUID, members: list[ScimGroupMemberRef]
 ) -> list[UUID]:
-    """Keep only the member refs this organization's provider actually owns.
-
-    A reference is the /Users resource id, which is ``external_user.id``. One
-    outside the tenant is dropped rather than failing the whole push: the
-    provider often sends members before provisioning them.
-    """
-    candidates: list[UUID] = []
-    for member in members:
-        try:
-            candidates.append(UUID(member.value))
-        except ValueError:
-            continue
+    """Resolve every reference, rejecting an incomplete or foreign member set."""
+    try:
+        candidates = {UUID(member.value) for member in members}
+    except ValueError as exc:
+        raise TracecatValidationError("Invalid group member reference") from exc
     if not candidates:
         return []
     stmt = select(ExternalUser.id).where(
         ExternalUser.organization_id == organization_id,
         ExternalUser.id.in_(candidates),
     )
-    return list((await session.execute(stmt)).scalars())
+    resolved = set((await session.execute(stmt)).scalars())
+    if resolved != candidates:
+        raise TracecatValidationError("Unknown group member reference")
+    return sorted(resolved, key=str)
 
 
 @router.get("/Groups")
@@ -463,10 +464,12 @@ async def list_groups(
     role: ScimConnectionRole,
     session: AsyncDBSession,
     filter: str | None = Query(default=None),
-    startIndex: ScimStartIndex = Query(default=1),
-    count: ScimCount = Query(default=100),
+    startIndex: int = Query(default=1),
+    count: int = Query(default=100),
 ) -> ScimListResponse:
     """List synced external groups."""
+    startIndex = max(1, startIndex)
+    count = min(200, max(0, count))
     organization_id = _organization_id(role)
     conditions = [ExternalGroup.organization_id == organization_id]
     if filter:
@@ -497,7 +500,11 @@ async def list_groups(
 
 @router.post("/Groups", status_code=status.HTTP_201_CREATED)
 async def create_group(
-    *, role: ScimConnectionRole, session: AsyncDBSession, params: ScimGroupRequest
+    *,
+    role: ScimConnectionRole,
+    session: AsyncDBSession,
+    params: ScimGroupRequest,
+    response: Response,
 ) -> ScimGroupResource:
     """Create or rename a synced external group and set its members."""
     organization_id = _organization_id(role)
@@ -512,8 +519,10 @@ async def create_group(
             session, organization_id=organization_id, members=params.members
         )
         await service.replace_external_group_members(group.id, external_user_ids)
+    result = _group_resource(group, members=await _group_members(session, group.id))
     await session.commit()
-    return _group_resource(group, members=await _group_members(session, group.id))
+    response.headers["Location"] = _resource_location("Groups", group.id)
+    return result
 
 
 @router.get("/Groups/{group_id}")
@@ -536,6 +545,7 @@ async def replace_group(
     params: ScimGroupRequest,
 ) -> ScimGroupResource:
     """Replace a group's name and its complete member list."""
+    await lock_role_changes(session, _organization_id(role))
     organization_id = _organization_id(role)
     group = await _get_group(
         session, organization_id=organization_id, group_id=group_id
@@ -548,8 +558,11 @@ async def replace_group(
         session, organization_id=organization_id, members=params.members or []
     )
     await service.replace_external_group_members(group.id, external_user_ids)
+    await session.flush()
+    await session.refresh(group)
+    result = _group_resource(group, members=await _group_members(session, group.id))
     await session.commit()
-    return _group_resource(group, members=await _group_members(session, group.id))
+    return result
 
 
 @router.patch("/Groups/{group_id}")
@@ -565,6 +578,7 @@ async def patch_group(
     The projection reconciles against a complete member list, so each operation
     is folded into the current set and the result replaces it wholesale.
     """
+    await lock_role_changes(session, _organization_id(role))
     organization_id = _organization_id(role)
     group = await _get_group(
         session, organization_id=organization_id, group_id=group_id
@@ -576,29 +590,55 @@ async def patch_group(
     members_changed = False
 
     for operation in params.operations:
-        path = (operation.path or "").strip().lower()
-        if path.startswith("members"):
-            members_changed = True
-            refs = _member_refs(operation.value)
-            resolved = set(
-                await _resolve_member_ids(
-                    session, organization_id=organization_id, members=refs
+        path = operation.path.strip() if operation.path is not None else None
+        if path is None:
+            if (
+                operation.op == "remove"
+                or not isinstance(operation.value, dict)
+                or not operation.value
+            ):
+                raise TracecatValidationError(
+                    "PATCH requires an attribute path or object value"
                 )
-            )
-            match operation.op:
-                case "add":
-                    current |= resolved
-                case "remove":
-                    # A bare "members" remove with no value clears the group.
-                    current = current - resolved if refs else set()
-                case "replace":
-                    current = resolved
-        elif isinstance(operation.value, dict):
-            for key, item in operation.value.items():
-                if key.lower() == "displayname" and isinstance(item, str):
-                    display_name = item
-        elif path == "displayname" and isinstance(operation.value, str):
-            display_name = operation.value
+            attributes = list(operation.value.items())
+        else:
+            attributes = [(path, operation.value)]
+        for attribute, value in attributes:
+            if attribute.lower() == "displayname":
+                if (
+                    operation.op == "remove"
+                    or not isinstance(value, str)
+                    or not value.strip()
+                ):
+                    raise TracecatValidationError(
+                        "displayName must be a non-empty string"
+                    )
+                display_name = value
+                continue
+            selected = _member_path(attribute)
+            if selected is not None:
+                if operation.op != "remove":
+                    raise TracecatValidationError(
+                        "Filtered members only supports removal"
+                    )
+                current -= selected
+            elif operation.op == "remove" and value is None:
+                current.clear()
+            else:
+                refs = _member_refs(value)
+                resolved = set(
+                    await _resolve_member_ids(
+                        session, organization_id=organization_id, members=refs
+                    )
+                )
+                match operation.op:
+                    case "add":
+                        current |= resolved
+                    case "remove":
+                        current -= resolved
+                    case "replace":
+                        current = resolved
+            members_changed = True
 
     if display_name != group.display_name:
         await service.upsert_external_group(
@@ -606,24 +646,47 @@ async def patch_group(
         )
     if members_changed:
         await service.replace_external_group_members(group.id, sorted(current, key=str))
-    await session.commit()
+    await session.flush()
     await session.refresh(group)
-    return _group_resource(group, members=await _group_members(session, group.id))
+    result = _group_resource(group, members=await _group_members(session, group.id))
+    await session.commit()
+    return result
+
+
+def _member_path(path: str) -> set[UUID] | None:
+    """Parse supported member paths without treating unknown paths as clear-all."""
+    if path.lower() == "members":
+        return None
+    match = re.fullmatch(r"members\[\s*(.*?)\s*\]", path, flags=re.IGNORECASE)
+    if match is None:
+        raise TracecatValidationError("Unsupported PATCH path")
+    selected: set[UUID] = set()
+    for clause in re.split(r"\s+or\s+", match[1], flags=re.IGNORECASE):
+        term = re.fullmatch(
+            r'value\s+eq\s+"([0-9a-fA-F-]+)"', clause.strip(), flags=re.IGNORECASE
+        )
+        if term is None:
+            raise TracecatValidationError("Unsupported member filter")
+        try:
+            selected.add(UUID(term[1]))
+        except ValueError as exc:
+            raise TracecatValidationError("Invalid group member reference") from exc
+    return selected
 
 
 def _member_refs(value: Any) -> list[ScimGroupMemberRef]:
-    """Read member references from either shape a provider sends."""
-    match value:
-        case list():
-            return [
-                ScimGroupMemberRef(value=str(v["value"]), display=v.get("display"))
-                for v in value
-                if isinstance(v, dict) and v.get("value")
-            ]
-        case {"value": member_value}:
-            return [ScimGroupMemberRef(value=str(member_value))]
-        case _:
-            return []
+    """Reject malformed references rather than silently truncating replacements."""
+    values = value if isinstance(value, list) else [value]
+    refs = []
+    for item in values:
+        if (
+            not isinstance(item, dict)
+            or not isinstance(item.get("value"), str)
+            or not item["value"]
+        ):
+            raise TracecatValidationError("Invalid group member reference")
+        refs.append(ScimGroupMemberRef(value=item["value"]))
+    return refs
 
 
 @router.delete("/Groups/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -631,6 +694,7 @@ async def delete_group(
     *, role: ScimConnectionRole, session: AsyncDBSession, group_id: UUID
 ) -> Response:
     """Delete a synced group and drop the membership it supplied."""
+    await lock_role_changes(session, _organization_id(role))
     organization_id = _organization_id(role)
     await _get_group(session, organization_id=organization_id, group_id=group_id)
     await SCIMService(session, role).delete_external_group(group_id)
