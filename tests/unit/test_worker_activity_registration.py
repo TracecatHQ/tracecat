@@ -47,6 +47,7 @@ def _activity_names(activities: Sequence[object]) -> set[str]:
 def test_dsl_worker_registers_preset_version_resolution_activity() -> None:
     names = _activity_names(get_dsl_worker_activities())
     assert _activity_name(resolve_agent_preset_version_ref_activity) in names
+    assert {"discover_search_collections", "index_search_collection"} <= names
 
 
 def test_agent_worker_registers_preset_resolution_activities() -> None:
@@ -229,6 +230,8 @@ async def test_dsl_worker_treats_empty_concurrency_env_vars_as_defaults(
 ) -> None:
     from tracecat.dsl import worker
 
+    schedule = AsyncMock()
+    monkeypatch.setattr(worker, "ensure_search_schedule", schedule)
     captured: dict[str, object] = {}
     shutdown_event = asyncio.Event()
 
@@ -289,6 +292,9 @@ async def test_dsl_worker_treats_empty_concurrency_env_vars_as_defaults(
 
     await worker.main(shutdown_event=shutdown_event)
 
+    schedule.assert_awaited_once()
+    assert schedule.await_args is not None
+    assert schedule.await_args.args[1] == "test-dsl-queue"
     assert captured == {
         "task_queue": "test-dsl-queue",
         "threadpool_max_workers": 100,

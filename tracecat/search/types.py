@@ -4,7 +4,9 @@ import uuid
 from dataclasses import dataclass
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from tracecat.search.chunking_types import ChunkCheckpoint
 
 
 class SearchState(StrEnum):
@@ -94,6 +96,9 @@ class ChunkerSettings(BaseModel):
     overlap_tokens: int = Field(default=128, ge=0)
     normalization: str = Field(default="none")
     label_format: str = Field(default="column_name_newline_v1")
+    provider_input_tokens: int | None = Field(default=None, gt=0)
+    read_size: int = Field(default=4096, ge=2, le=65536)
+    max_label_characters: int = Field(default=256, ge=1, le=4096)
 
 
 class EnumerationCursor(BaseModel):
@@ -103,6 +108,17 @@ class EnumerationCursor(BaseModel):
     column_index: int = Field(default=0, ge=0)
     character_offset: int = Field(default=0, ge=0)
     next_ordinal: int = Field(default=0, ge=0)
+    chunker: ChunkCheckpoint | None = Field(default=None)
+
+    @model_validator(mode="after")
+    def check_chunker_position(self) -> "EnumerationCursor":
+        if self.chunker is not None and (
+            self.column_index != self.chunker.column_index
+            or self.character_offset != self.chunker.character_offset
+            or self.next_ordinal != self.chunker.next_ordinal
+        ):
+            raise ValueError("Chunker checkpoint position mismatch")
+        return self
 
 
 class ChunkManifest(BaseModel):
