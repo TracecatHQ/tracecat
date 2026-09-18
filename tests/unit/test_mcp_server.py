@@ -7634,6 +7634,228 @@ async def test_sync_custom_registry_reports_per_repo_failure(monkeypatch):
     assert payload["results"][0]["error"] == "sync failed"
 
 
+def _patch_workspace_sync_service(monkeypatch) -> AsyncMock:
+    """Wire a workspace role + a mock WorkspaceSyncService into mcp_server."""
+    role = SimpleNamespace(workspace_id=uuid.uuid4())
+
+    async def _resolve(workspace_id):
+        return workspace_id, role
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+
+    svc = AsyncMock()
+
+    async def _for_workspace(*, session, role):
+        svc.created_role = role
+        return svc
+
+    monkeypatch.setattr(
+        mcp_server.WorkspaceSyncService, "for_workspace", _for_workspace
+    )
+    monkeypatch.setattr(
+        mcp_server,
+        "get_async_session_context_manager",
+        lambda: _AsyncContext(MagicMock()),
+    )
+    return svc
+
+
+def test_workspace_sync_tools_are_registered() -> None:
+    for name in (
+        "list_workspace_sync_commits",
+        "preview_workspace_sync_export",
+        "export_workspace_sync",
+        "pull_workspace_sync",
+    ):
+        assert hasattr(mcp_server, name)
+
+
+@pytest.mark.anyio
+async def test_export_workspace_sync_forwards_request(monkeypatch):
+    from tracecat.sync import CommitInfo, PushStatus
+    from tracecat.workspace_sync.enums import SyncResourceType
+    from tracecat.workspace_sync.schemas import (
+        ResourceRef,
+        WorkspaceSyncExportRequest,
+        WorkspaceSyncExportResult,
+    )
+
+    svc = _patch_workspace_sync_service(monkeypatch)
+    svc.export_workspace.return_value = WorkspaceSyncExportResult(
+        commit=CommitInfo(
+            status=PushStatus.COMMITTED,
+            sha="b" * 40,
+            ref="feature",
+            base_ref="main",
+            pr_url="https://example.invalid/pr/1",
+            pr_number=1,
+        ),
+        files=["workflows/wf/definition.yml"],
+    )
+    workflow_id = uuid.uuid4()
+
+    result = await _tool(mcp_server.export_workspace_sync)(
+        workspace_id=uuid.uuid4(),
+        message="Export",
+        branch="feature",
+        create_pr=True,
+        pr_base_branch="main",
+        resources=[
+            ResourceRef(resource_type=SyncResourceType.WORKFLOW, local_id=workflow_id)
+        ],
+    )
+    payload = _payload(result)
+
+    assert payload["commit"]["sha"] == "b" * 40
+    assert payload["files"] == ["workflows/wf/definition.yml"]
+    params = svc.export_workspace.await_args.args[0]
+    assert isinstance(params, WorkspaceSyncExportRequest)
+    assert params.branch == "feature"
+    assert params.create_pr is True
+    assert params.pr_base_branch == "main"
+    assert params.resources is not None
+    assert params.resources[0].local_id == workflow_id
+
+
+@pytest.mark.anyio
+async def test_export_workspace_sync_rejects_blank_message(monkeypatch):
+    svc = _patch_workspace_sync_service(monkeypatch)
+
+    with pytest.raises(ToolError, match="message"):
+        await _tool(mcp_server.export_workspace_sync)(
+            workspace_id=uuid.uuid4(), message="   ", branch="main"
+        )
+    svc.export_workspace.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_preview_workspace_sync_export_forwards_request(monkeypatch):
+    from tracecat.workspace_sync.schemas import (
+        WorkspaceSyncExportPreview,
+        WorkspaceSyncExportPreviewRequest,
+    )
+
+    svc = _patch_workspace_sync_service(monkeypatch)
+    svc.preview_export_workspace.return_value = WorkspaceSyncExportPreview(
+        resource_counts={"workflow": 1}, files=["workflows/wf/definition.yml"]
+    )
+
+    result = await _tool(mcp_server.preview_workspace_sync_export)(
+        workspace_id=uuid.uuid4(), compare_ref="main", include_schedules=True
+    )
+    payload = _payload(result)
+
+    assert payload["resource_counts"] == {"workflow": 1}
+    params = svc.preview_export_workspace.await_args.args[0]
+    assert isinstance(params, WorkspaceSyncExportPreviewRequest)
+    assert params.compare_ref == "main"
+    assert params.include_schedules is True
+
+
+@pytest.mark.anyio
+async def test_pull_workspace_sync_forwards_options(monkeypatch):
+    from tracecat.sync import PullOptions, PullResult
+    from tracecat.workflow.store.schemas import CatalogMappingSelection
+
+    svc = _patch_workspace_sync_service(monkeypatch)
+    svc.pull.return_value = PullResult(
+        success=True,
+        commit_sha="c" * 40,
+        workflows_found=2,
+        workflows_imported=2,
+        diagnostics=[],
+        message="ok",
+    )
+    source_catalog = uuid.uuid4()
+    target_catalog = uuid.uuid4()
+
+    result = await _tool(mcp_server.pull_workspace_sync)(
+        workspace_id=uuid.uuid4(),
+        commit_sha="c" * 40,
+        dry_run=True,
+        sync_schedules=True,
+        catalog_mappings=[
+            CatalogMappingSelection(
+                source_catalog_id=source_catalog, target_catalog_id=target_catalog
+            )
+        ],
+    )
+
+    assert isinstance(result, PullResult)
+    assert result.success is True
+    assert result.workflows_imported == 2
+    kwargs = svc.pull.await_args.kwargs
+    options = kwargs["options"]
+    assert isinstance(options, PullOptions)
+    assert options.commit_sha == "c" * 40
+    assert options.dry_run is True
+    assert options.catalog_mappings == {source_catalog: target_catalog}
+    assert options.mcp_integration_mappings == {}
+    assert kwargs["sync_schedules"] is True
+
+
+@pytest.mark.anyio
+async def test_pull_workspace_sync_rejects_short_commit_sha(monkeypatch):
+    svc = _patch_workspace_sync_service(monkeypatch)
+
+    with pytest.raises(ToolError, match="40-character"):
+        await _tool(mcp_server.pull_workspace_sync)(
+            workspace_id=uuid.uuid4(), commit_sha="abc123"
+        )
+    svc.pull.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_pull_workspace_sync_surfaces_scope_denied(monkeypatch):
+    from tracecat.exceptions import ScopeDeniedError
+
+    svc = _patch_workspace_sync_service(monkeypatch)
+    svc.pull.side_effect = ScopeDeniedError(
+        required_scopes=["workspace_sync:sync"],
+        missing_scopes=["workspace_sync:sync"],
+    )
+
+    with pytest.raises(ToolError, match="workspace_sync:sync"):
+        await _tool(mcp_server.pull_workspace_sync)(
+            workspace_id=uuid.uuid4(), commit_sha="d" * 40
+        )
+
+
+@pytest.mark.anyio
+async def test_list_workspace_sync_commits_forwards_branch(monkeypatch):
+    from tracecat.registry.repositories.schemas import GitCommitInfo
+
+    svc = _patch_workspace_sync_service(monkeypatch)
+    svc.list_commits.return_value = [
+        GitCommitInfo(
+            sha="e" * 40,
+            message="init",
+            author="dev",
+            author_email="dev@example.com",
+            date="2026-01-01T00:00:00Z",
+        )
+    ]
+
+    result = await _tool(mcp_server.list_workspace_sync_commits)(
+        workspace_id=uuid.uuid4(), branch="develop", limit=5
+    )
+    payload = _payload(result)
+
+    assert payload[0]["sha"] == "e" * 40
+    svc.list_commits.assert_awaited_once_with(branch="develop", limit=5)
+
+
+@pytest.mark.anyio
+async def test_list_workspace_sync_commits_rejects_out_of_range_limit(monkeypatch):
+    svc = _patch_workspace_sync_service(monkeypatch)
+
+    with pytest.raises(ToolError, match="limit must be between"):
+        await _tool(mcp_server.list_workspace_sync_commits)(
+            workspace_id=uuid.uuid4(), limit=0
+        )
+    svc.list_commits.assert_not_awaited()
+
+
 @pytest.mark.anyio
 async def test_create_table_routes_to_correct_workspace(monkeypatch):
     """create_table passes the resolved workspace role to TablesService."""
