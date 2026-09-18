@@ -751,7 +751,11 @@ class NsjailExecutor:
             logger.error(
                 "Package installation failed",
                 returncode=returncode,
-                stderr=stderr[:1000],
+                error_code=error_code,
+                stdout_chars=len(stdout),
+                stderr_chars=len(stderr),
+                workload_started=completed.workload_started,
+                execution_time_ms=execution_time_ms,
             )
 
         return SandboxResult(
@@ -1015,17 +1019,15 @@ class NsjailExecutor:
             include_error_code=True,
         )
         if outcome is not None:
-            # Log subprocess stderr for debugging (contains timing info)
-            # Filter out nsjail verbose output, look for Python logs
+            # Keep subprocess diagnostics bounded to metadata. Action logs can
+            # contain resolved secrets and must not cross the sandbox boundary.
             if outcome.valid_envelope and stderr.strip():
-                # Extract lines that look like Python logs (not nsjail [I] lines)
-                python_logs = "\n".join(
-                    line
-                    for line in stderr.split("\n")
-                    if not line.startswith("[I]") and not line.startswith("[W]")
+                logger.debug(
+                    "Subprocess output captured",
+                    stdout_chars=len(stdout),
+                    stderr_chars=len(stderr),
+                    execution_time_ms=execution_time_ms,
                 )
-                if python_logs.strip():
-                    logger.info("Subprocess output", output=python_logs[:2000])
             return outcome.result
 
         error_code = _classify_missing_nsjail_result(
@@ -1038,7 +1040,11 @@ class NsjailExecutor:
             "Action sandbox execution did not produce a usable result",
             error_code=error_code,
             returncode=returncode,
-            stderr=stderr[-2000:],
+            stdout_chars=len(stdout),
+            stderr_chars=len(stderr),
+            workload_started=workload_started,
+            result_file_exists=result_file_exists,
+            execution_time_ms=execution_time_ms,
         )
         return SandboxResult(
             success=False,
