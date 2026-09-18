@@ -4046,10 +4046,30 @@ export const $AgentSessionCreate = {
       description:
         "Pinned preset version used for this session. If null, the session follows the preset's current version.",
     },
+    backend_id: {
+      type: "string",
+      maxLength: 50,
+      minLength: 1,
+      pattern: "^[a-z][a-z0-9_]*$",
+      title: "Backend Id",
+      description: "Opaque session backend identifier",
+      default: "v1",
+    },
     harness_type: {
-      $ref: "#/components/schemas/HarnessType",
-      description: "Agent harness type",
-      default: "claude_code",
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 50,
+          minLength: 1,
+          pattern: "^[a-z][a-z0-9_]*$",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Harness Type",
+      description:
+        "Execution harness; defaults to the selected backend's harness",
     },
   },
   type: "object",
@@ -4217,6 +4237,25 @@ export const $AgentSessionRead = {
           type: "null",
         },
       ],
+    },
+    backend_id: {
+      type: "string",
+      title: "Backend Id",
+      default: "v1",
+    },
+    backend_available: {
+      type: "boolean",
+      title: "Backend Available",
+      description:
+        "Whether this session can execute; unavailable sessions remain readable",
+      default: true,
+    },
+    history_available: {
+      type: "boolean",
+      title: "History Available",
+      description:
+        "Whether the installed backend can project this session's history",
+      default: true,
     },
     harness_type: {
       anyOf: [
@@ -4417,6 +4456,25 @@ export const $AgentSessionReadVercel = {
           type: "null",
         },
       ],
+    },
+    backend_id: {
+      type: "string",
+      title: "Backend Id",
+      default: "v1",
+    },
+    backend_available: {
+      type: "boolean",
+      title: "Backend Available",
+      description:
+        "Whether this session can execute; unavailable sessions remain readable",
+      default: true,
+    },
+    history_available: {
+      type: "boolean",
+      title: "History Available",
+      description:
+        "Whether the installed backend can project this session's history",
+      default: true,
     },
     harness_type: {
       anyOf: [
@@ -4626,6 +4684,25 @@ export const $AgentSessionReadWithMessages = {
         },
       ],
     },
+    backend_id: {
+      type: "string",
+      title: "Backend Id",
+      default: "v1",
+    },
+    backend_available: {
+      type: "boolean",
+      title: "Backend Available",
+      description:
+        "Whether this session can execute; unavailable sessions remain readable",
+      default: true,
+    },
+    history_available: {
+      type: "boolean",
+      title: "History Available",
+      description:
+        "Whether the installed backend can project this session's history",
+      default: true,
+    },
     harness_type: {
       anyOf: [
         {
@@ -4792,16 +4869,35 @@ export const $AgentSessionUpdate = {
       description:
         "Pinned preset version to use for this session. Set null to follow the preset's current version.",
     },
-    harness_type: {
+    backend_id: {
       anyOf: [
         {
-          $ref: "#/components/schemas/HarnessType",
+          type: "string",
+          maxLength: 50,
+          minLength: 1,
+          pattern: "^[a-z][a-z0-9_]*$",
         },
         {
           type: "null",
         },
       ],
-      description: "Agent harness type",
+      title: "Backend Id",
+      description: "Immutable session backend identifier",
+    },
+    harness_type: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 50,
+          minLength: 1,
+          pattern: "^[a-z][a-z0-9_]*$",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Harness Type",
+      description: "Immutable execution harness",
     },
   },
   type: "object",
@@ -15654,13 +15750,6 @@ export const $HTTPValidationError = {
   title: "HTTPValidationError",
 } as const
 
-export const $HarnessType = {
-  type: "string",
-  enum: ["claude_code"],
-  title: "HarnessType",
-  description: "Supported agent harnesses.",
-} as const
-
 export const $HealthResponse = {
   properties: {
     status: {
@@ -25116,6 +25205,27 @@ export const $ServiceAccountUpdate = {
   },
   type: "object",
   title: "ServiceAccountUpdate",
+} as const
+
+export const $SessionBackendRead = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    supports_fork: {
+      type: "boolean",
+      title: "Supports Fork",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "supports_fork"],
+  title: "SessionBackendRead",
+  description: "An enabled installed backend available for session creation.",
 } as const
 
 export const $SessionRead = {

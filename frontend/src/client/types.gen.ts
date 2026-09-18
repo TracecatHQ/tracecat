@@ -1031,9 +1031,13 @@ export type AgentSessionCreate = {
    */
   agent_preset_version_id?: string | null
   /**
-   * Agent harness type
+   * Opaque session backend identifier
    */
-  harness_type?: HarnessType
+  backend_id?: string
+  /**
+   * Execution harness; defaults to the selected backend's harness
+   */
+  harness_type?: string | null
 }
 
 /**
@@ -1089,6 +1093,15 @@ export type AgentSessionRead = {
   agent_preset_id: string | null
   agent_preset_version_id: string | null
   agents_binding?: ResolvedAgentsConfig | null
+  backend_id?: string
+  /**
+   * Whether this session can execute; unavailable sessions remain readable
+   */
+  backend_available?: boolean
+  /**
+   * Whether the installed backend can project this session's history
+   */
+  history_available?: boolean
   harness_type: string | null
   last_error?: string | null
   last_stream_id?: string | null
@@ -1120,6 +1133,15 @@ export type AgentSessionReadVercel = {
   agent_preset_id: string | null
   agent_preset_version_id: string | null
   agents_binding?: ResolvedAgentsConfig | null
+  backend_id?: string
+  /**
+   * Whether this session can execute; unavailable sessions remain readable
+   */
+  backend_available?: boolean
+  /**
+   * Whether the installed backend can project this session's history
+   */
+  history_available?: boolean
   harness_type: string | null
   last_error?: string | null
   last_stream_id?: string | null
@@ -1155,6 +1177,15 @@ export type AgentSessionReadWithMessages = {
   agent_preset_id: string | null
   agent_preset_version_id: string | null
   agents_binding?: ResolvedAgentsConfig | null
+  backend_id?: string
+  /**
+   * Whether this session can execute; unavailable sessions remain readable
+   */
+  backend_available?: boolean
+  /**
+   * Whether the installed backend can project this session's history
+   */
+  history_available?: boolean
   harness_type: string | null
   last_error?: string | null
   last_stream_id?: string | null
@@ -1193,9 +1224,13 @@ export type AgentSessionUpdate = {
    */
   agent_preset_version_id?: string | null
   /**
-   * Agent harness type
+   * Immutable session backend identifier
    */
-  harness_type?: HarnessType | null
+  backend_id?: string | null
+  /**
+   * Immutable execution harness
+   */
+  harness_type?: string | null
 }
 
 export type AgentSettingsRead = {
@@ -4749,11 +4784,6 @@ export type HTTPValidationError = {
   detail?: Array<ValidationError>
 }
 
-/**
- * Supported agent harnesses.
- */
-export type HarnessType = "claude_code"
-
 export type HealthResponse = {
   status: string
 }
@@ -7574,6 +7604,15 @@ export type ServiceAccountUpdate = {
   name?: string | null
   description?: string | null
   scope_ids?: Array<string> | null
+}
+
+/**
+ * An enabled installed backend available for session creation.
+ */
+export type SessionBackendRead = {
+  id: string
+  name: string
+  supports_fork: boolean
 }
 
 export type SessionRead = {
@@ -12355,6 +12394,12 @@ export type AgentSkillsRestoreSkillVersionData = {
 }
 
 export type AgentSkillsRestoreSkillVersionResponse = SkillReadMinimal
+
+export type AgentSessionsListSessionBackendsData = {
+  workspaceId: string
+}
+
+export type AgentSessionsListSessionBackendsResponse = Array<SessionBackendRead>
 
 export type AgentSessionsCreateSessionData = {
   requestBody: AgentSessionCreate
@@ -17755,6 +17800,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: SkillReadMinimal
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/sessions/backends": {
+    get: {
+      req: AgentSessionsListSessionBackendsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<SessionBackendRead>
         /**
          * Validation Error
          */

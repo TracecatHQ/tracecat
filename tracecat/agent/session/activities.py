@@ -168,6 +168,16 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
                     persist_agents_binding=input.enforce_session_agents_binding,
                 )
 
+            # This activity belongs to the built-in durable workflow. Never let
+            # a caller-supplied session ID redirect a different backend's session.
+            if (agent_session.backend_id or "v1") != "v1" or (
+                agent_session.harness_type is not None
+                and agent_session.harness_type != input.harness_type
+            ):
+                raise_application_error_from_classification(
+                    invalid_agent_configuration()
+                )
+
             # Legacy workflows reconcile bindings on pre-existing sessions.
             # New turns bypass this session-wide contract. Chat-created
             # sessions may be inserted before the durable workflow resolves the

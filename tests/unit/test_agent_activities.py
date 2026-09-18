@@ -990,7 +990,10 @@ class TestCreateSessionActivity:
 
         # Set up the mock service
         mock_service = AsyncMock()
-        mock_service.get_or_create_session.return_value = (MagicMock(), True)
+        mock_service.get_or_create_session.return_value = (
+            MagicMock(backend_id="v1", harness_type="claude_code"),
+            True,
+        )
 
         # Set up the context manager's __aenter__ to return the mock service
         mock_ctx = AsyncMock()
@@ -1018,7 +1021,7 @@ class TestCreateSessionActivity:
         )
 
         # Set up the mock service
-        mock_agent_session = MagicMock()
+        mock_agent_session = MagicMock(backend_id="v1", harness_type="claude_code")
         mock_agent_session.agents_binding = None
         mock_agent_session.sdk_session_id = None
         mock_agent_session.parent_session_id = None
@@ -1050,7 +1053,7 @@ class TestCreateSessionActivity:
             agents_binding=agents_binding,
         )
 
-        mock_agent_session = MagicMock()
+        mock_agent_session = MagicMock(backend_id="v1", harness_type="claude_code")
         mock_agent_session.agents_binding = None
         mock_agent_session.sdk_session_id = None
         mock_agent_session.parent_session_id = None
@@ -1186,7 +1189,7 @@ class TestCreateSessionActivity:
             enforce_session_agents_binding=enforce_session_agents_binding,
         )
 
-        mock_agent_session = MagicMock()
+        mock_agent_session = MagicMock(backend_id="v1", harness_type="claude_code")
         mock_agent_session.agents_binding = persisted_agents_binding
         mock_agent_session.sdk_session_id = sdk_session_id
         mock_agent_session.parent_session_id = parent_session_id
@@ -1243,7 +1246,7 @@ class TestCreateSessionActivity:
         )
 
         mock_service = AsyncMock()
-        mock_agent_session = MagicMock()
+        mock_agent_session = MagicMock(backend_id="v1", harness_type="claude_code")
         mock_agent_session.agents_binding = None
         mock_agent_session.sdk_session_id = None
         mock_agent_session.parent_session_id = None
@@ -1309,7 +1312,10 @@ class TestCreateSessionActivity:
 
         # Set up the mock service
         mock_service = AsyncMock()
-        mock_service.get_or_create_session.return_value = (MagicMock(), True)
+        mock_service.get_or_create_session.return_value = (
+            MagicMock(backend_id="v1", harness_type="claude_code"),
+            True,
+        )
 
         # Set up the context manager's __aenter__ to return the mock service
         mock_ctx = AsyncMock()
@@ -1337,7 +1343,7 @@ class TestCreateSessionActivity:
             initial_user_prompt="Investigate login failures",
         )
 
-        mock_agent_session = MagicMock()
+        mock_agent_session = MagicMock(backend_id="v1", harness_type="claude_code")
         mock_agent_session.agents_binding = None
         mock_service = AsyncMock()
         mock_service.get_or_create_session.return_value = (mock_agent_session, True)
@@ -1370,7 +1376,7 @@ class TestCreateSessionActivity:
             initial_user_prompt="Investigate repeated login failures",
         )
 
-        mock_agent_session = MagicMock()
+        mock_agent_session = MagicMock(backend_id="v1", harness_type="claude_code")
         mock_agent_session.agents_binding = None
         mock_agent_session.sdk_session_id = None
         mock_agent_session.parent_session_id = None

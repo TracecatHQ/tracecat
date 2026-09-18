@@ -17,6 +17,7 @@ from tracecat.agent.common.stream_types import (
     StreamEventType,
     UnifiedStreamEvent,
 )
+from tracecat.agent.session.backends.types import SessionDispatchUncertain
 from tracecat.agent.session.router import (
     cancel_session,
     fork_session,
@@ -75,6 +76,7 @@ def _agent_session_stub(**overrides: Any) -> SimpleNamespace:
         "agent_preset_id": uuid.uuid4(),
         "agent_preset_version_id": uuid.uuid4(),
         "agents_binding": {},
+        "backend_id": "v1",
         "harness_type": HarnessType.CLAUDE_CODE,
         "created_at": now,
         "updated_at": now,
@@ -1060,7 +1062,10 @@ async def test_send_message_new_turn_skips_initial_artifact_after_first_prompt()
 
 
 @pytest.mark.anyio
-async def test_send_message_new_turn_clears_stream_when_startup_fails() -> None:
+@pytest.mark.parametrize("uncertain", [False, True])
+async def test_send_message_new_turn_preserves_only_uncertain_dispatch(
+    uncertain: bool,
+) -> None:
     session_id = uuid.uuid4()
     workspace_id = uuid.uuid4()
     agent_session = _agent_session_stub(id=session_id, workspace_id=workspace_id)
@@ -1086,7 +1091,11 @@ async def test_send_message_new_turn_clears_stream_when_startup_fails() -> None:
         is_legacy_session=AsyncMock(return_value=False),
         validate_turn_request=AsyncMock(return_value=agent_session),
         get_session=AsyncMock(return_value=agent_session),
-        run_turn=AsyncMock(side_effect=RuntimeError("temporal unavailable")),
+        run_turn=AsyncMock(
+            side_effect=SessionDispatchUncertain("uncertain")
+            if uncertain
+            else RuntimeError("temporal unavailable")
+        ),
         is_first_prompt_for_session=AsyncMock(return_value=False),
         build_initial_artifact=AsyncMock(return_value=None),
         clear_active_turn=AsyncMock(return_value=None),
@@ -1126,12 +1135,13 @@ async def test_send_message_new_turn_clears_stream_when_startup_fails() -> None:
     # Startup failure surfaces a terminal frame + clears the active-turn pointers.
     fake_stream.error.assert_awaited_once()
     fake_stream.done.assert_awaited_once()
-    fake_svc.clear_active_turn.assert_awaited_once()
-    clear_call = fake_svc.clear_active_turn.await_args
-    assert clear_call.args == (session_id,)
-    # Compare-and-clear: must scope the clear to the per-turn stream id minted at
-    # the HTTP layer so a concurrent newer turn's pointers are not clobbered.
-    assert isinstance(clear_call.kwargs["expected_stream_id"], uuid.UUID)
+    if uncertain:
+        fake_svc.clear_active_turn.assert_not_awaited()
+    else:
+        fake_svc.clear_active_turn.assert_awaited_once()
+        clear_call = fake_svc.clear_active_turn.await_args
+        assert clear_call.args == (session_id,)
+        assert isinstance(clear_call.kwargs["expected_stream_id"], uuid.UUID)
     fake_stream.sse.assert_not_called()
 
 
@@ -1863,3 +1873,31 @@ async def test_stream_session_events_requires_entitlement_for_legacy_workspace_c
             )
 
     fake_stream.sse.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_missing_backend_session_stays_readable_and_reports_unavailability() -> (
+    None
+):
+    session_stub = _agent_session_stub(
+        backend_id="uninstalled", harness_type="custom_harness"
+    )
+    fake_svc = SimpleNamespace(
+        get_session=AsyncMock(return_value=session_stub),
+        list_messages=AsyncMock(return_value=[]),
+        list_artifacts=Mock(return_value=[]),
+    )
+    with patch(
+        "tracecat.agent.session.router.AgentSessionService", return_value=fake_svc
+    ):
+        response = await cast(Any, get_session_vercel).__wrapped__(
+            session_id=session_stub.id,
+            role=_read_role(session_stub.workspace_id),
+            session=AsyncMock(),
+        )
+    data = response.model_dump()
+    assert data["backend_id"] == "uninstalled"
+    assert data["is_readonly"] is True
+    assert data["backend_available"] is False
+    assert data["history_available"] is False
+    assert data["messages"] == []

@@ -8,6 +8,7 @@ import type {
   AgentPresetRead,
   AgentSessionEntity,
   AgentSessionsGetSessionVercelResponse,
+  SessionBackendRead,
 } from "@/client"
 import {
   PromptInput,
@@ -39,6 +40,14 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -51,6 +60,7 @@ import {
   useCreateChat,
   useGetChatVercel,
   useListChats,
+  useSessionBackends,
   useUpdateChat,
 } from "@/hooks/use-chat"
 import { useChatPresetManager } from "@/hooks/use-chat-preset-manager"
@@ -114,9 +124,12 @@ export function ChatInterface({
   const workspaceId = useWorkspaceId()
   const queryClient = useQueryClient()
   const { user } = useAuth()
+  const { backends } = useSessionBackends(workspaceId)
+  const hasBackendChoice = backends.length > 1
   const [selectedChatId, setSelectedChatId] = useState<string | undefined>(
     chatId
   )
+  const [newChatBackend, setNewChatBackend] = useState<string>("v1")
   const [newChatDialogOpen, setNewChatDialogOpen] = useState(false)
   const [autoCreateAttempted, setAutoCreateAttempted] = useState(false)
   const [isDraftChat, setIsDraftChat] = useState(false)
@@ -146,6 +159,10 @@ export function ChatInterface({
     chatId: selectedChatId,
     workspaceId,
   })
+  const currentBackendId = chat && "backend_id" in chat ? chat.backend_id : "v1"
+  const currentBackendName =
+    backends.find((backend) => backend.id === currentBackendId)?.name ??
+    (currentBackendId === "v1" ? "Standard" : "Unavailable")
   const { updateChat, isUpdating } = useUpdateChat(workspaceId)
 
   useEffect(() => {
@@ -244,6 +261,7 @@ export function ChatInterface({
         title: "Chat 1",
         entity_type: entityType,
         entity_id: entityId,
+        backend_id: newChatBackend,
       })
         .then((newChat) => {
           setSelectedChatId(newChat.id)
@@ -263,6 +281,7 @@ export function ChatInterface({
     entityType,
     entityId,
     autoCreateAttempted,
+    newChatBackend,
     isDraftChat,
     inWorkspaceChat,
     deferSessionCreation,
@@ -283,6 +302,7 @@ export function ChatInterface({
         title: `Chat ${(chats?.length || 0) + 1}`,
         entity_type: entityType,
         entity_id: entityId,
+        backend_id: newChatBackend,
       })
       setSelectedChatId(newChat.id)
       onChatSelect?.(newChat.id)
@@ -309,6 +329,7 @@ export function ChatInterface({
         title: `Chat ${(chats?.length || 0) + 1}`,
         entity_type: entityType,
         entity_id: entityId,
+        backend_id: newChatBackend,
         tools: selectedTools,
         mcp_integrations: selectedMcpIntegrations,
         agent_preset_id: pendingPreset.presetId,
@@ -429,9 +450,29 @@ export function ChatInterface({
             ) : null}
           </div>
 
+          {chat && "history_available" in chat && !chat.history_available ? (
+            <span className="text-xs text-muted-foreground">
+              History is unavailable until this chat mode is restored.
+            </span>
+          ) : null}
+          {chat && "backend_available" in chat && !chat.backend_available ? (
+            <span className="text-xs text-muted-foreground">
+              Chat mode unavailable
+            </span>
+          ) : null}
           {/* Right-side actions */}
           <div className="flex items-center gap-1">
             {headerActions}
+            {selectedChatId && chat ? (
+              <Badge variant="outline">{currentBackendName}</Badge>
+            ) : null}
+            {!selectedChatId && hasBackendChoice && (
+              <BackendSelect
+                backends={backends}
+                value={newChatBackend}
+                onChange={setNewChatBackend}
+              />
+            )}
             {/* New chat icon button with tooltip */}
             <AlertDialog
               open={newChatDialogOpen}
@@ -463,6 +504,13 @@ export function ChatInterface({
                       : "This will create a new conversation. Your current chat will remain accessible from the conversations menu."}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
+                {hasBackendChoice && (
+                  <BackendSelect
+                    backends={backends}
+                    value={newChatBackend}
+                    onChange={setNewChatBackend}
+                  />
+                )}
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancel</AlertDialogCancel>
                   <AlertDialogAction onClick={() => void handleCreateChat()}>
@@ -506,6 +554,38 @@ export function ChatInterface({
         />
       </div>
     </div>
+  )
+}
+
+function BackendSelect({
+  backends,
+  value,
+  onChange,
+}: {
+  backends: SessionBackendRead[]
+  value: string
+  onChange: (value: string) => void
+}) {
+  return (
+    <Select
+      value={value}
+      onValueChange={(next) => {
+        if (backends.some((backend) => backend.id === next)) onChange(next)
+      }}
+    >
+      <SelectTrigger aria-label="Chat mode" className="w-36">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectGroup>
+          {backends.map((backend) => (
+            <SelectItem key={backend.id} value={backend.id}>
+              {backend.name}
+            </SelectItem>
+          ))}
+        </SelectGroup>
+      </SelectContent>
+    </Select>
   )
 }
 

@@ -104,7 +104,7 @@ def _mock_approval_continuation_dependencies(
     execute_update: AsyncMock,
 ) -> Iterator[None]:
     temporal_client = SimpleNamespace(
-        get_workflow_handle_for=Mock(
+        get_workflow_handle=Mock(
             return_value=SimpleNamespace(execute_update=execute_update)
         )
     )
@@ -2132,8 +2132,8 @@ async def test_run_turn_continue_without_pending_approvals(
     )
 
     fake_handle = SimpleNamespace(execute_update=AsyncMock(return_value=None))
-    get_workflow_handle_for = Mock(return_value=fake_handle)
-    fake_client = SimpleNamespace(get_workflow_handle_for=get_workflow_handle_for)
+    get_workflow_handle = Mock(return_value=fake_handle)
+    fake_client = SimpleNamespace(get_workflow_handle=get_workflow_handle)
     with patch(
         "tracecat.agent.session.service.get_temporal_client",
         AsyncMock(return_value=fake_client),
@@ -2141,7 +2141,7 @@ async def test_run_turn_continue_without_pending_approvals(
         with expectation:
             assert await service.run_turn(agent_session.id, continuation) is None
 
-    get_workflow_handle_for.assert_not_called()
+    get_workflow_handle.assert_not_called()
     fake_handle.execute_update.assert_not_awaited()
 
 
@@ -2259,7 +2259,7 @@ async def test_run_turn_merges_basic_chat_request_instructions(
             AsyncMock(return_value=None),
         ),
         patch(
-            "tracecat.agent.session.service.get_temporal_client",
+            "tracecat.agent.session.backends.durable.get_temporal_client",
             AsyncMock(return_value=fake_client),
         ),
     ):

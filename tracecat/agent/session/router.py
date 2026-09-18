@@ -15,6 +15,12 @@ from tracecat_ee.workspace_chat.policy import (
 
 from tracecat import config
 from tracecat.agent.adapter import vercel
+from tracecat.agent.session.backends.registry import (
+    find_session_backend,
+    get_session_backends,
+    session_backend_available,
+)
+from tracecat.agent.session.backends.types import SessionDispatchUncertain
 from tracecat.agent.session.schemas import (
     AgentSessionArtifactsRead,
     AgentSessionCancelRequest,
@@ -25,6 +31,7 @@ from tracecat.agent.session.schemas import (
     AgentSessionReadVercel,
     AgentSessionReadWithMessages,
     AgentSessionUpdate,
+    SessionBackendRead,
 )
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import (
@@ -133,6 +140,21 @@ async def _require_workspace_chat_entitlement_for_session_tree(
         current = await svc.get_session(parent_session_id)
 
 
+@router.get("/backends")
+@require_scope("agent:read")
+async def list_session_backends(
+    role: WorkspaceActorRouteRole,
+) -> list[SessionBackendRead]:
+    """List enabled installed backends available to new sessions."""
+    return [
+        SessionBackendRead(
+            id=key, name=backend.name, supports_fork=backend.supports_fork
+        )
+        for key, backend in get_session_backends().items()
+        if backend.is_enabled()
+    ]
+
+
 @router.post("")
 @require_scope("agent:execute")
 async def create_session(
@@ -233,7 +255,16 @@ async def get_session(
             workspace_id=agent_session.workspace_id,
             title=agent_session.title,
             created_by=agent_session.created_by,
-            is_readonly=is_session_readonly(role, agent_session.created_by),
+            is_readonly=is_session_readonly(role, agent_session.created_by)
+            or not session_backend_available(
+                agent_session.backend_id, agent_session.harness_type
+            ),
+            backend_id=agent_session.backend_id,
+            backend_available=session_backend_available(
+                agent_session.backend_id, agent_session.harness_type
+            ),
+            history_available=find_session_backend(agent_session.backend_id)
+            is not None,
             entity_type=AgentSessionEntity(agent_session.entity_type),
             entity_id=agent_session.entity_id,
             channel_context=agent_session.channel_context,
@@ -317,7 +348,16 @@ async def get_session_vercel(
             workspace_id=agent_session.workspace_id,
             title=agent_session.title,
             created_by=agent_session.created_by,
-            is_readonly=is_session_readonly(role, agent_session.created_by),
+            is_readonly=is_session_readonly(role, agent_session.created_by)
+            or not session_backend_available(
+                agent_session.backend_id, agent_session.harness_type
+            ),
+            backend_id=agent_session.backend_id,
+            backend_available=session_backend_available(
+                agent_session.backend_id, agent_session.harness_type
+            ),
+            history_available=find_session_backend(agent_session.backend_id)
+            is not None,
             entity_type=AgentSessionEntity(agent_session.entity_type),
             entity_id=agent_session.entity_id,
             channel_context=agent_session.channel_context,
@@ -610,9 +650,10 @@ async def send_message(
                             f"Failed to start agent turn for session {session_id}"
                         )
                         await stream.done()
-                        await svc.clear_active_turn(
-                            session_id, expected_stream_id=stream_id
-                        )
+                        if not isinstance(turn_exc, SessionDispatchUncertain):
+                            await svc.clear_active_turn(
+                                session_id, expected_stream_id=stream_id
+                            )
                     except Exception as rollback_exc:
                         logger.warning(
                             "Failed to clear stream state after turn startup failure",
