@@ -25,6 +25,8 @@ function ScimSettings() {
       <OrgSettingsScimConnection />
       <OrgSettingsScimMappings
         connected={!connectionIsLoading && Boolean(connection)}
+        status={connection?.status}
+        revoked={Boolean(connection?.revoked_at)}
       />
     </div>
   )
