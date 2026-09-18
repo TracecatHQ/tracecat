@@ -7,9 +7,12 @@ SQLite and the shared unit-test savepoint cannot prove row-lock behavior.
 import asyncio
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from typing import Any
 
 import pytest
+from fastapi_users.db import SQLAlchemyUserDatabase
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
@@ -357,3 +360,63 @@ async def test_source_delete_and_mapping_have_controlled_outcomes(
                 )
             )
         ).scalars().all() == []
+
+
+async def test_duplicate_first_provisioning_links_the_winning_account(
+    cohort: Cohort, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    email = f"duplicate-{uuid.uuid4().hex}@tracecat.com"
+    ready, both_ready = 0, asyncio.Event()
+    original_create = SQLAlchemyUserDatabase.create
+
+    async def create(
+        db: SQLAlchemyUserDatabase[User, uuid.UUID], values: dict[str, Any]
+    ) -> User:
+        nonlocal ready
+        ready += 1
+        if ready == 2:
+            both_ready.set()
+        await asyncio.wait_for(both_ready.wait(), 10)
+        return await original_create(db, values)
+
+    @asynccontextmanager
+    async def auth_session() -> AsyncIterator[AsyncSession]:
+        async with AsyncSession(cohort.engine) as session:
+            yield session
+
+    monkeypatch.setattr(SQLAlchemyUserDatabase, "create", create)
+    monkeypatch.setattr(
+        "tracecat.auth.users.get_async_session_auth_context_manager", auth_session
+    )
+
+    async def provision() -> uuid.UUID:
+        async with AsyncSession(cohort.engine, expire_on_commit=False) as session:
+            result = await ScimProvisioningService(session, cohort.role).provision_user(
+                email=email, external_id="same-idp-user"
+            )
+            await session.commit()
+            return result.user.id
+
+    try:
+        results = await asyncio.wait_for(asyncio.gather(provision(), provision()), 20)
+        assert ready == 2
+        assert results[0] == results[1]
+        async with AsyncSession(cohort.engine) as session:
+            assert (
+                (
+                    await session.execute(
+                        select(ExternalUser).where(ExternalUser.user_id == results[0])
+                    )
+                )
+                .scalars()
+                .one()
+                .active
+            )
+            assert (
+                await session.get(OrganizationMembership, (results[0], cohort.org_id))
+                is not None
+            )
+    finally:
+        async with AsyncSession(cohort.engine) as session:
+            await session.execute(delete(User).where(User.__table__.c.email == email))
+            await session.commit()

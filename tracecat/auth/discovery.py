@@ -14,9 +14,18 @@ from sqlalchemy import func, select
 from tracecat import config
 from tracecat.api.common import get_default_organization_id
 from tracecat.auth.enums import AuthType
+from tracecat.authz.enums import ScimConnectionStatus
 from tracecat.core.schemas import Schema
 from tracecat.db.dependencies import AsyncDBSessionBypass
-from tracecat.db.models import Invitation, Organization, OrganizationDomain
+from tracecat.db.models import (
+    ExternalUser,
+    Invitation,
+    Organization,
+    OrganizationDomain,
+    OrganizationMembership,
+    ScimConnection,
+    User,
+)
 from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers import OrganizationID
 from tracecat.invitations.enums import InvitationStatus
@@ -136,7 +145,10 @@ class AuthDiscoveryService(BaseService):
             if (
                 email is not None
                 and await self._org_basic_enabled(org_id)
-                and await self._has_live_invitation(org_id, email)
+                and (
+                    await self._has_live_invitation(org_id, email)
+                    or await self._is_manual_invitee(org_id, email)
+                )
             ):
                 return AuthDiscoveryMethod.BASIC
             return AuthDiscoveryMethod.SAML
@@ -156,6 +168,47 @@ class AuthDiscoveryService(BaseService):
         )
         result = await self.session.execute(stmt)
         return result.first() is not None
+
+    async def _is_manual_invitee(self, org_id: OrganizationID, email: str) -> bool:
+        """Keep accepted, admitted non-IdP invitees on the basic login route."""
+        stmt = (
+            select(OrganizationMembership.user_id)
+            .select_from(User)
+            .join(OrganizationMembership, OrganizationMembership.user_id == User.id)
+            .where(
+                OrganizationMembership.organization_id == org_id,
+                func.lower(User.email) == email.lower(),
+                select(Invitation.id)
+                .where(
+                    Invitation.organization_id == org_id,
+                    func.lower(Invitation.email) == func.lower(User.email),
+                    Invitation.status == InvitationStatus.ACCEPTED,
+                )
+                .exists(),
+                ~select(ExternalUser.id)
+                .join(
+                    ScimConnection,
+                    ScimConnection.organization_id == ExternalUser.organization_id,
+                )
+                .where(
+                    ScimConnection.status == ScimConnectionStatus.ACTIVE,
+                    ExternalUser.organization_id == org_id,
+                    ExternalUser.user_id == User.id,
+                    ExternalUser.active.is_(True),
+                )
+                .exists(),
+            )
+        )
+        if (await self.session.execute(stmt)).first() is None:
+            return False
+        return not bool(
+            await get_setting_from_bypass_session(
+                "saml_enforced",
+                organization_id=org_id,
+                session=self.session,
+                default=False,
+            )
+        )
 
     async def _org_saml_enabled(self, org_id: OrganizationID) -> bool:
         if AuthType.SAML not in config.TRACECAT__AUTH_TYPES:

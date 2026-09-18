@@ -49,6 +49,7 @@ from tracecat.auth.ip_allowlist_enforcement import (
 from tracecat.auth.schemas import UserCreate, UserUpdate
 from tracecat.auth.secrets import get_user_auth_secret
 from tracecat.auth.types import PlatformRole, Role
+from tracecat.authz.enums import ScimConnectionStatus
 from tracecat.contexts import ctx_request_audit, ctx_role
 from tracecat.db.engine import (
     SupportsExecute,
@@ -62,6 +63,7 @@ from tracecat.db.models import (
     OAuthAccount,
     OrganizationDomain,
     OrganizationMembership,
+    ScimConnection,
     User,
 )
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
@@ -307,7 +309,23 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
 
     async def _is_externally_managed(self, user_id: uuid.UUID) -> bool:
         """Check whether an IdP provisions this user in any organization."""
-        statement = select(ExternalUser.id).where(ExternalUser.user_id == user_id)
+        statement = (
+            select(ExternalUser.id)
+            .join(
+                ScimConnection,
+                ScimConnection.organization_id == ExternalUser.organization_id,
+            )
+            .join(
+                OrganizationMembership,
+                (OrganizationMembership.organization_id == ExternalUser.organization_id)
+                & (OrganizationMembership.user_id == ExternalUser.user_id),
+            )
+            .where(
+                ExternalUser.user_id == user_id,
+                ExternalUser.active.is_(True),
+                ScimConnection.status == ScimConnectionStatus.ACTIVE,
+            )
+        )
         async with get_async_session_auth_context_manager() as session:
             result = await session.execute(statement)
             return result.first() is not None
