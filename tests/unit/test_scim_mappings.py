@@ -30,6 +30,7 @@ from tracecat.db.models import (
     OrganizationMembership,
     ScimConnection,
     User,
+    effective_group_members,
 )
 from tracecat.exceptions import (
     TracecatAuthorizationError,
@@ -625,3 +626,40 @@ async def test_pending_mapping_preserves_manual_members(
         await service.create_mapping(external_group_id=external.id, group_id=group.id)
     assert await _manual_members(session, group.id) == {user.id for user in users}
     assert await service.list_mappings() == []
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("other_source", [False, True])
+async def test_provider_group_deletion_drops_only_its_membership(
+    session: AsyncSession, org: Organization, service: SCIMService, other_source: bool
+) -> None:
+    user = await _make_user(session, org)
+    group = await _make_group(session, org)
+    external_user_id = await seed_external_user(
+        session, organization_id=org.id, user_id=user.id
+    )
+    source = await seed_external_group(
+        session, organization_id=org.id, external_id="deleted-source"
+    )
+    await seed_external_group_members(
+        session, external_group_id=source.id, external_user_ids=[external_user_id]
+    )
+    await service.create_mapping(external_group_id=source.id, group_id=group.id)
+    if other_source:
+        peer = await seed_external_group(
+            session, organization_id=org.id, external_id="surviving-source"
+        )
+        await seed_external_group_members(
+            session, external_group_id=peer.id, external_user_ids=[external_user_id]
+        )
+        await service.create_mapping(external_group_id=peer.id, group_id=group.id)
+    members = select(effective_group_members.c.user_id).where(
+        effective_group_members.c.group_id == group.id
+    )
+    assert set((await session.execute(members)).scalars()) == {user.id}
+    await service.delete_external_group(source.id)
+    assert set((await session.execute(members)).scalars()) == (
+        {user.id} if other_source else set()
+    )
+    assert await _manual_members(session, group.id) == set()
+    assert await _is_member(session, user_id=user.id, organization_id=org.id)
