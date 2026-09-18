@@ -3,6 +3,7 @@
 import { ChevronRightIcon, PlusIcon, Trash2Icon } from "lucide-react"
 import * as React from "react"
 import type { SecretStoreProvider, SecretStoreRead } from "@/client"
+import { ScopeGuard } from "@/components/auth/scope-guard"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { Badge } from "@/components/ui/badge"
@@ -74,9 +75,11 @@ export function OrgSettingsSecretStores() {
           Tracecat reads secret values from your secret manager when needed.
           Values are never stored in Tracecat.
         </p>
-        <CreateSecretStoreDialog
-          onCreated={(storeId) => setStoreOpen(storeId, true)}
-        />
+        <ScopeGuard scope="org:secret:create">
+          <CreateSecretStoreDialog
+            onCreated={(storeId) => setStoreOpen(storeId, true)}
+          />
+        </ScopeGuard>
       </div>
       {!stores || stores.length === 0 ? (
         <div className="space-y-1 rounded-lg border p-6 text-sm">
@@ -255,35 +258,42 @@ function SecretStoreCard({
           </span>
         </CollapsibleTrigger>
         <div className="flex shrink-0 items-center gap-3 pl-7 sm:pl-0">
-          <div className="flex items-center gap-2">
-            <Label
-              htmlFor={`store-enabled-${store.id}`}
-              className="text-xs text-muted-foreground"
-            >
-              {store.enabled ? "Enabled" : "Disabled"}
-            </Label>
-            <Switch
-              id={`store-enabled-${store.id}`}
-              checked={store.enabled}
-              onCheckedChange={(checked) =>
-                updateStore({ storeId: store.id, params: { enabled: checked } })
+          <ScopeGuard scope="org:secret:update">
+            <div className="flex items-center gap-2">
+              <Label
+                htmlFor={`store-enabled-${store.id}`}
+                className="text-xs text-muted-foreground"
+              >
+                {store.enabled ? "Enabled" : "Disabled"}
+              </Label>
+              <Switch
+                id={`store-enabled-${store.id}`}
+                checked={store.enabled}
+                onCheckedChange={(checked) =>
+                  updateStore({
+                    storeId: store.id,
+                    params: { enabled: checked },
+                  })
+                }
+              />
+            </div>
+          </ScopeGuard>
+          <ScopeGuard scope="org:secret:delete">
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-label={`Delete ${store.name}`}
+              disabled={referenceCount > 0}
+              title={
+                referenceCount > 0
+                  ? "Remove all secret references before deleting this store"
+                  : "Delete store"
               }
-            />
-          </div>
-          <Button
-            size="sm"
-            variant="ghost"
-            aria-label={`Delete ${store.name}`}
-            disabled={referenceCount > 0}
-            title={
-              referenceCount > 0
-                ? "Remove all secret references before deleting this store"
-                : "Delete store"
-            }
-            onClick={() => deleteStore(store.id)}
-          >
-            <Trash2Icon className="size-4" />
-          </Button>
+              onClick={() => deleteStore(store.id)}
+            >
+              <Trash2Icon className="size-4" />
+            </Button>
+          </ScopeGuard>
         </div>
       </div>
 
@@ -307,54 +317,61 @@ function SecretStoreCard({
               {authorizedWorkspaces.map((ws) => (
                 <Badge key={ws.id} variant="secondary" className="gap-1">
                   {ws.name}
-                  <button
-                    type="button"
-                    aria-label={`Revoke ${ws.name}`}
-                    className="ml-1 text-muted-foreground hover:text-foreground"
-                    onClick={() =>
-                      revokeWorkspace({ storeId: store.id, workspaceId: ws.id })
-                    }
-                  >
-                    ×
-                  </button>
+                  <ScopeGuard scope="org:secret:update">
+                    <button
+                      type="button"
+                      aria-label={`Revoke ${ws.name}`}
+                      className="ml-1 text-muted-foreground hover:text-foreground"
+                      onClick={() =>
+                        revokeWorkspace({
+                          storeId: store.id,
+                          workspaceId: ws.id,
+                        })
+                      }
+                    >
+                      ×
+                    </button>
+                  </ScopeGuard>
                 </Badge>
               ))}
             </div>
-            <div className="flex items-center gap-2">
-              <Select
-                value={selectedWorkspaceId}
-                onValueChange={setSelectedWorkspaceId}
-              >
-                <SelectTrigger
-                  className="w-64 min-w-0 text-sm"
-                  aria-label="Select a workspace"
+            <ScopeGuard scope="org:secret:update">
+              <div className="flex items-center gap-2">
+                <Select
+                  value={selectedWorkspaceId}
+                  onValueChange={setSelectedWorkspaceId}
                 >
-                  <SelectValue placeholder="Select a workspace" />
-                </SelectTrigger>
-                <SelectContent>
-                  {unauthorizedWorkspaces.map((ws) => (
-                    <SelectItem key={ws.id} value={ws.id}>
-                      {ws.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button
-                size="sm"
-                variant="outline"
-                className="shrink-0 shadow-none"
-                disabled={!selectedWorkspaceId}
-                onClick={async () => {
-                  await authorizeWorkspace({
-                    storeId: store.id,
-                    workspaceId: selectedWorkspaceId,
-                  })
-                  setSelectedWorkspaceId("")
-                }}
-              >
-                Authorize
-              </Button>
-            </div>
+                  <SelectTrigger
+                    className="w-64 min-w-0 text-sm"
+                    aria-label="Select a workspace"
+                  >
+                    <SelectValue placeholder="Select a workspace" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {unauthorizedWorkspaces.map((ws) => (
+                      <SelectItem key={ws.id} value={ws.id}>
+                        {ws.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="shrink-0 shadow-none"
+                  disabled={!selectedWorkspaceId}
+                  onClick={async () => {
+                    await authorizeWorkspace({
+                      storeId: store.id,
+                      workspaceId: selectedWorkspaceId,
+                    })
+                    setSelectedWorkspaceId("")
+                  }}
+                >
+                  Authorize
+                </Button>
+              </div>
+            </ScopeGuard>
           </div>
         </div>
       </CollapsibleContent>

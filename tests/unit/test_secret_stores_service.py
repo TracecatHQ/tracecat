@@ -200,6 +200,32 @@ async def test_reference_requires_workspace_authorization(
 
 
 @pytest.mark.anyio
+async def test_authorize_existing_workspace_preserves_authorization(
+    stores: SecretStoresService,
+    svc_workspace: Workspace,
+) -> None:
+    store = await stores.create_store(
+        SecretStoreCreate(
+            name="idempotent-store",
+            config=AwsSecretsManagerStoreCreate(role_arn=ROLE_ARN, region=REGION),
+        )
+    )
+    first = await stores.authorize_workspace(store, svc_workspace.id)
+    repeated = await stores.authorize_workspace(store, svc_workspace.id)
+    assert repeated.id == first.id
+    assert repeated.created_at == first.created_at
+    count = await stores.session.scalar(
+        select(func.count())
+        .select_from(WorkspaceSecretStoreAuthorization)
+        .where(
+            WorkspaceSecretStoreAuthorization.store_id == store.id,
+            WorkspaceSecretStoreAuthorization.workspace_id == svc_workspace.id,
+        )
+    )
+    assert count == 1
+
+
+@pytest.mark.anyio
 async def test_authorize_rejects_workspace_outside_organization(
     stores: SecretStoresService,
 ) -> None:
