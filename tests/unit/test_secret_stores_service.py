@@ -22,23 +22,26 @@ from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatConflictError,
     TracecatNotFoundError,
+    TracecatValidationError,
 )
+from tracecat.secrets.aws_secrets_manager import generate_store_external_id
+from tracecat.secrets.backends import parse_store_config
 from tracecat.secrets.enums import AwsSecretMappingMode, SecretSource
 from tracecat.secrets.schemas import (
+    AwsSecretJsonField,
+    AwsSecretKeyMapping,
     AwsSecretReferenceCreate,
     AwsSecretReferenceUpdate,
+    AwsSecretsManagerStoreCreate,
+    AwsSecretsManagerStoreUpdate,
     SecretCreate,
     SecretKeyValue,
     SecretStoreCreate,
     SecretStoreUpdate,
     SecretUpdate,
 )
-from tracecat.secrets.service import SecretsService, build_aws_secret_reference
-from tracecat.secrets.store_service import (
-    SecretStoresService,
-    generate_store_external_id,
-)
-from tracecat.secrets.types import AwsSecretJsonField, AwsSecretKeyMapping
+from tracecat.secrets.service import SecretsService, build_external_secret_reference
+from tracecat.secrets.store_service import SecretStoresService
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -85,23 +88,30 @@ async def test_create_store_persists_external_id_across_updates(
     stores: SecretStoresService,
 ) -> None:
     store = await stores.create_store(
-        SecretStoreCreate(name="prod", role_arn=ROLE_ARN, region=REGION)
+        SecretStoreCreate(
+            name="prod",
+            config=AwsSecretsManagerStoreCreate(role_arn=ROLE_ARN, region=REGION),
+        )
     )
-    external_id = store.external_id
+    external_id = parse_store_config(store).external_id
     assert external_id.startswith("tracecat-")
 
     await stores.update_store(
         store,
         SecretStoreUpdate(
             name="renamed",
-            role_arn="arn:aws:iam::123456789012:role/other",
+            config=AwsSecretsManagerStoreUpdate(
+                role_arn="arn:aws:iam::123456789012:role/other"
+            ),
             enabled=False,
         ),
     )
     refreshed = await stores.get_store(store.id)
     assert refreshed.name == "renamed"
     assert refreshed.enabled is False
-    assert refreshed.external_id == external_id
+    refreshed_config = parse_store_config(refreshed)
+    assert refreshed_config.external_id == external_id
+    assert refreshed_config.role_arn == "arn:aws:iam::123456789012:role/other"
 
 
 @pytest.mark.anyio
@@ -119,7 +129,10 @@ async def test_reference_requires_workspace_authorization(
     svc_workspace: Workspace,
 ) -> None:
     store = await stores.create_store(
-        SecretStoreCreate(name="prod", role_arn=ROLE_ARN, region=REGION)
+        SecretStoreCreate(
+            name="prod",
+            config=AwsSecretsManagerStoreCreate(role_arn=ROLE_ARN, region=REGION),
+        )
     )
     assert await secrets.list_authorized_stores() == []
 
@@ -145,7 +158,10 @@ async def test_authorize_rejects_workspace_outside_organization(
     stores: SecretStoresService,
 ) -> None:
     store = await stores.create_store(
-        SecretStoreCreate(name="prod", role_arn=ROLE_ARN, region=REGION)
+        SecretStoreCreate(
+            name="prod",
+            config=AwsSecretsManagerStoreCreate(role_arn=ROLE_ARN, region=REGION),
+        )
     )
     with pytest.raises(TracecatNotFoundError):
         await stores.authorize_workspace(store, uuid.uuid4())
@@ -158,7 +174,10 @@ async def test_reference_region_must_match_store(
     svc_workspace: Workspace,
 ) -> None:
     store = await stores.create_store(
-        SecretStoreCreate(name="prod", role_arn=ROLE_ARN, region=REGION)
+        SecretStoreCreate(
+            name="prod",
+            config=AwsSecretsManagerStoreCreate(role_arn=ROLE_ARN, region=REGION),
+        )
     )
     await stores.authorize_workspace(store, svc_workspace.id)
     params = reference_params(store.id)
@@ -174,7 +193,10 @@ async def test_name_uniqueness_spans_local_and_aws_rows(
     svc_workspace: Workspace,
 ) -> None:
     store = await stores.create_store(
-        SecretStoreCreate(name="prod", role_arn=ROLE_ARN, region=REGION)
+        SecretStoreCreate(
+            name="prod",
+            config=AwsSecretsManagerStoreCreate(role_arn=ROLE_ARN, region=REGION),
+        )
     )
     await stores.authorize_workspace(store, svc_workspace.id)
     await secrets.create_secret(
@@ -196,7 +218,10 @@ async def test_aws_reference_rejects_local_value_updates(
     svc_workspace: Workspace,
 ) -> None:
     store = await stores.create_store(
-        SecretStoreCreate(name="prod", role_arn=ROLE_ARN, region=REGION)
+        SecretStoreCreate(
+            name="prod",
+            config=AwsSecretsManagerStoreCreate(role_arn=ROLE_ARN, region=REGION),
+        )
     )
     await stores.authorize_workspace(store, svc_workspace.id)
     created = await secrets.create_aws_secret_reference(reference_params(store.id))
@@ -220,9 +245,9 @@ async def test_aws_reference_rejects_local_value_updates(
     )
     refreshed = await secrets.get_secret(created.id)
     assert secrets.secret_key_names(refreshed) == ["USER", "PASS"]
-    reference = build_aws_secret_reference(refreshed)
-    assert reference.external_id == store.external_id
-    assert reference.role_arn == ROLE_ARN
+    reference = build_external_secret_reference(refreshed)
+    assert reference.store_config.external_id == parse_store_config(store).external_id
+    assert reference.store_config.role_arn == ROLE_ARN
     assert reference.fetch_key == (store.id, SECRET_ARN)
 
 
@@ -234,7 +259,10 @@ async def test_store_and_authorization_lifecycle_guards(
     session: AsyncSession,
 ) -> None:
     store = await stores.create_store(
-        SecretStoreCreate(name="prod", role_arn=ROLE_ARN, region=REGION)
+        SecretStoreCreate(
+            name="prod",
+            config=AwsSecretsManagerStoreCreate(role_arn=ROLE_ARN, region=REGION),
+        )
     )
     await stores.authorize_workspace(store, svc_workspace.id)
     created = await secrets.create_aws_secret_reference(reference_params(store.id))
@@ -270,7 +298,10 @@ async def test_reference_guards_with_enforced_rls_and_org_only_context(
     session: AsyncSession,
 ) -> None:
     store = await stores.create_store(
-        SecretStoreCreate(name="rls-store", role_arn=ROLE_ARN, region=REGION)
+        SecretStoreCreate(
+            name="rls-store",
+            config=AwsSecretsManagerStoreCreate(role_arn=ROLE_ARN, region=REGION),
+        )
     )
     await stores.authorize_workspace(store, svc_workspace.id)
     await secrets.create_aws_secret_reference(reference_params(store.id))
@@ -286,9 +317,12 @@ async def test_reference_guards_with_enforced_rls_and_org_only_context(
     foreign_store = OrganizationSecretStore(
         organization_id=other_org.id,
         name="foreign-store",
-        role_arn=ROLE_ARN,
-        region=REGION,
-        external_id="foreign-external-id",
+        config={
+            "provider": "aws_secrets_manager",
+            "role_arn": ROLE_ARN,
+            "region": REGION,
+            "external_id": "foreign-external-id",
+        },
     )
     session.add_all([foreign_workspace, foreign_store])
     await session.flush()
@@ -346,3 +380,30 @@ async def test_reference_guards_with_enforced_rls_and_org_only_context(
         assert (await session.execute(select(func.count(Secret.id)))).scalar_one() == 0
     finally:
         await session.execute(text("RESET ROLE"))
+
+
+@pytest.mark.anyio
+async def test_store_config_round_trips_and_rejects_unknown_provider(
+    stores: SecretStoresService,
+) -> None:
+    with pytest.raises(TracecatValidationError):
+        await stores.create_store(
+            SecretStoreCreate.model_construct(
+                name="unknown",
+                description=None,
+                provider="hashicorp_vault",
+                config=AwsSecretsManagerStoreCreate(role_arn=ROLE_ARN, region=REGION),
+                enabled=True,
+            )
+        )
+
+    store = await stores.create_store(
+        SecretStoreCreate(
+            name="round-trip",
+            config=AwsSecretsManagerStoreCreate(role_arn=ROLE_ARN, region=REGION),
+        )
+    )
+    config = parse_store_config(store)
+    assert config.role_arn == ROLE_ARN
+    assert config.region == REGION
+    assert config.external_id.startswith("tracecat-")

@@ -9,7 +9,11 @@ from sqlalchemy import select
 from tracecat.db.models import Secret
 from tracecat.secrets.enums import SecretType
 from tracecat.secrets.schemas import SecretKeyValue
-from tracecat.secrets.service import SecretsService, is_aws_backed, secret_key_names
+from tracecat.secrets.service import (
+    SecretsService,
+    is_external_reference,
+    secret_key_names,
+)
 from tracecat.workspace_sync.adapters.base import (
     EnvironmentScopedManifestAdapter,
     ImportedResource,
@@ -178,9 +182,18 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
             # Pull the current decrypted values so existing keys keep their
             # secret values across the sync; the spec only carries key names.
             existing_values: dict[str, SecretStr] = {}
-            if secret is not None and is_aws_backed(secret):
-                # Never convert an AWS-backed binding into local values: the
-                # spec carries key names only, and AWS owns the values.
+            if secret is not None and is_external_reference(secret):
+                # The store owns the values, so keys and type can only change
+                # in the target. Reject a spec that disagrees instead of
+                # reporting a silent partial import.
+                declared_keys = sorted(secret_key_names(secret_service, secret))
+                spec_type = SecretType(spec.secret_type or SecretType.CUSTOM.value)
+                if sorted(spec.keys) != declared_keys or spec_type != secret.type:
+                    raise ValueError(
+                        f"Secret metadata sync source id {source_id!r} targets an "
+                        f"externally backed secret {secret.name!r}; its keys and "
+                        "type must be changed in the target workspace, not synced."
+                    )
                 secret.name = spec.name
                 secret.environment = spec.environment
                 secret.tags = dict.fromkeys(spec.tags, "") if spec.tags else None

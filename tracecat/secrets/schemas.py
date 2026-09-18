@@ -29,12 +29,12 @@ from tracecat.db.models import (
 from tracecat.identifiers import OrganizationID, SecretID, WorkspaceID
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.enums import (
+    AwsSecretMappingMode,
     AwsSecretResolutionErrorCode,
     SecretSource,
     SecretStoreProvider,
     SecretType,
 )
-from tracecat.secrets.types import AwsSecretKeyMapping
 
 AWS_SECRET_ARN_PATTERN = (
     r"^arn:aws(?:-[a-z]+)*:secretsmanager:(?P<region>[a-z0-9-]+):\d{12}:secret:[^\s]+$"
@@ -46,8 +46,6 @@ AWS_SECRET_ID_PATTERN = (
     r"|[A-Za-z0-9/_+=.@-]{1,512})$"
 )
 """Either a full Secrets Manager ARN or a friendly secret name."""
-AWS_ROLE_ARN_PATTERN = r"^arn:aws(?:-[a-z]+)*:iam::\d{12}:role/[\w+=,.@/-]+$"
-AWS_REGION_PATTERN = r"^[a-z]{2}(?:-[a-z]+)+-\d$"
 
 SecretName = Annotated[str, StringConstraints(pattern=r"[a-z0-9_]+")]
 """Validator for a secret name. e.g. 'aws_access_key_id'"""
@@ -368,28 +366,112 @@ class SecretRead(SecretReadBase):
 
 
 # === External secret stores (AWS Secrets Manager) ===
+SecretKey = Annotated[str, StringConstraints(pattern=r"[a-zA-Z0-9_]+")]
+
+AWS_ROLE_ARN_PATTERN = r"^arn:aws(?:-[a-z]+)*:iam::\d{12}:role/[\w+=,.@/-]+$"
+AWS_REGION_PATTERN = r"^[a-z]{2}(?:-[a-z]+)+-\d$"
 
 
-class SecretStoreCreate(BaseModel):
-    """Create an organization-owned AWS Secrets Manager store."""
+class AwsSecretJsonField(BaseModel):
+    """One declared output key sourced from a top-level JSON field."""
 
-    name: str = Field(..., min_length=1, max_length=100)
-    description: str | None = Field(default=None, max_length=1000)
-    provider: SecretStoreProvider = SecretStoreProvider.AWS_SECRETS_MANAGER
+    model_config = ConfigDict(frozen=True)
+
+    key: SecretKey = Field(..., min_length=1, max_length=255)
+    field: str = Field(..., min_length=1, max_length=255)
+
+
+class AwsSecretKeyMapping(BaseModel):
+    """Declares how a remote AWS secret value maps onto output keys.
+
+    ``whole_string`` maps the entire ``SecretString`` onto exactly one key.
+    ``json`` maps selected top-level string fields onto declared keys.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    mode: AwsSecretMappingMode
+    keys: list[SecretKey] = Field(default_factory=list, max_length=100)
+    fields: list[AwsSecretJsonField] = Field(default_factory=list, max_length=100)
+
+    @model_validator(mode="after")
+    def validate_mapping(self) -> AwsSecretKeyMapping:
+        if self.mode == AwsSecretMappingMode.WHOLE_STRING:
+            if len(self.keys) != 1 or self.fields:
+                raise ValueError(
+                    "whole_string mappings declare exactly one output key and no fields"
+                )
+            return self
+        if not self.fields or self.keys:
+            raise ValueError("json mappings declare at least one field and no keys")
+        output_keys = [entry.key for entry in self.fields]
+        if len(set(output_keys)) != len(output_keys):
+            raise ValueError("Output keys must be unique")
+        return self
+
+    def output_keys(self) -> list[str]:
+        """Return the declared output key names without touching AWS."""
+        if self.mode == AwsSecretMappingMode.WHOLE_STRING:
+            return list(self.keys)
+        return [entry.key for entry in self.fields]
+
+
+class AwsSecretsManagerStoreConfig(BaseModel):
+    """Persisted provider configuration for an AWS Secrets Manager store."""
+
+    model_config = ConfigDict(frozen=True)
+
+    provider: Literal[SecretStoreProvider.AWS_SECRETS_MANAGER] = (
+        SecretStoreProvider.AWS_SECRETS_MANAGER
+    )
     role_arn: str = Field(..., pattern=AWS_ROLE_ARN_PATTERN, max_length=2048)
     region: str = Field(..., pattern=AWS_REGION_PATTERN, max_length=64)
-    enabled: bool = True
+    external_id: str = Field(..., min_length=1, max_length=255)
 
 
-class SecretStoreUpdate(BaseModel):
-    """Update an organization-owned secret store. The external ID is immutable."""
+class AwsSecretsManagerStoreCreate(BaseModel):
+    """Client-supplied fields when creating an AWS Secrets Manager store."""
 
-    name: str | None = Field(default=None, min_length=1, max_length=100)
-    description: str | None = Field(default=None, max_length=1000)
+    provider: Literal[SecretStoreProvider.AWS_SECRETS_MANAGER] = (
+        SecretStoreProvider.AWS_SECRETS_MANAGER
+    )
+    role_arn: str = Field(..., pattern=AWS_ROLE_ARN_PATTERN, max_length=2048)
+    region: str = Field(..., pattern=AWS_REGION_PATTERN, max_length=64)
+
+
+class AwsSecretsManagerStoreUpdate(BaseModel):
+    """Client-supplied fields when updating an AWS Secrets Manager store."""
+
     role_arn: str | None = Field(
         default=None, pattern=AWS_ROLE_ARN_PATTERN, max_length=2048
     )
     region: str | None = Field(default=None, pattern=AWS_REGION_PATTERN, max_length=64)
+
+
+# Becomes a discriminated union on `provider` when a second provider lands.
+SecretStoreConfig = AwsSecretsManagerStoreConfig
+# Becomes a discriminated union on `provider` when a second provider lands.
+SecretStoreCreateConfig = AwsSecretsManagerStoreCreate
+# Becomes a discriminated union on `provider` when a second provider lands.
+SecretStoreUpdateConfig = AwsSecretsManagerStoreUpdate
+
+
+class SecretStoreCreate(BaseModel):
+    """Create an organization-owned external secret store."""
+
+    name: str = Field(..., min_length=1, max_length=100)
+    description: str | None = Field(default=None, max_length=1000)
+    provider: SecretStoreProvider = SecretStoreProvider.AWS_SECRETS_MANAGER
+    config: SecretStoreCreateConfig
+    enabled: bool = True
+
+
+class SecretStoreUpdate(BaseModel):
+    """Update an organization-owned secret store. Server-owned fields are immutable."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    description: str | None = Field(default=None, max_length=1000)
+    config: SecretStoreUpdateConfig | None = None
     enabled: bool | None = None
 
 
@@ -401,9 +483,7 @@ class SecretStoreRead(BaseModel):
     name: str
     description: str | None = None
     provider: SecretStoreProvider
-    role_arn: str
-    region: str
-    external_id: str
+    config: SecretStoreConfig
     enabled: bool
     tracecat_aws_account_id: str | None = None
     tracecat_aws_principal_arn: str | None = None
@@ -427,9 +507,7 @@ class SecretStoreRead(BaseModel):
             name=obj.name,
             description=obj.description,
             provider=SecretStoreProvider(obj.provider),
-            role_arn=obj.role_arn,
-            region=obj.region,
-            external_id=obj.external_id,
+            config=SecretStoreConfig.model_validate(obj.config),
             enabled=obj.enabled,
             tracecat_aws_account_id=tracecat_aws_account_id,
             tracecat_aws_principal_arn=tracecat_aws_principal_arn,
@@ -481,7 +559,7 @@ class WorkspaceSecretStoreRead(BaseModel):
             name=obj.name,
             description=obj.description,
             provider=SecretStoreProvider(obj.provider),
-            region=obj.region,
+            region=SecretStoreConfig.model_validate(obj.config).region,
             enabled=obj.enabled,
         )
 

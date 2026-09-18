@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import secrets
 import uuid
 from collections.abc import Sequence
 
@@ -20,15 +19,9 @@ from tracecat.db.models import (
 from tracecat.db.rls import set_rls_context, set_rls_context_from_role
 from tracecat.exceptions import TracecatConflictError, TracecatNotFoundError
 from tracecat.identifiers import WorkspaceID
+from tracecat.secrets.backends import get_backend, parse_store_config
 from tracecat.secrets.schemas import SecretStoreCreate, SecretStoreUpdate
 from tracecat.service import BaseOrgService
-
-_EXTERNAL_ID_BYTES = 24
-
-
-def generate_store_external_id() -> str:
-    """Generate an opaque, server-owned AssumeRole external ID."""
-    return f"tracecat-{secrets.token_urlsafe(_EXTERNAL_ID_BYTES)}"
 
 
 class SecretStoresService(BaseOrgService):
@@ -100,15 +93,14 @@ class SecretStoresService(BaseOrgService):
     @require_scope("org:secret:create")
     @audit_log(resource_type="organization_secret_store", action="create")
     async def create_store(self, params: SecretStoreCreate) -> OrganizationSecretStore:
-        """Create a store. The external ID is generated and persisted here."""
+        """Create a store. Server-owned config fields are generated here."""
+        config = get_backend(params.provider).new_config(params.config)
         store = OrganizationSecretStore(
             organization_id=self.organization_id,
             name=params.name,
             description=params.description,
             provider=params.provider,
-            role_arn=params.role_arn,
-            region=params.region,
-            external_id=generate_store_external_id(),
+            config=config.model_dump(mode="json"),
             enabled=params.enabled,
         )
         self.session.add(store)
@@ -121,8 +113,15 @@ class SecretStoresService(BaseOrgService):
     async def update_store(
         self, store: OrganizationSecretStore, params: SecretStoreUpdate
     ) -> None:
-        """Update store metadata. The external ID is never changed."""
-        for field, value in params.model_dump(exclude_unset=True).items():
+        """Update store metadata. Server-owned config fields are never changed."""
+        fields = params.model_dump(exclude_unset=True)
+        fields.pop("config", None)
+        if params.config is not None:
+            config = get_backend(store.provider).update_config(
+                parse_store_config(store), params.config
+            )
+            store.config = config.model_dump(mode="json")
+        for field, value in fields.items():
             setattr(store, field, value)
         self.session.add(store)
         await self.session.commit()

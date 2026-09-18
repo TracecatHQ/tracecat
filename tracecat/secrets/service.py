@@ -32,15 +32,13 @@ from tracecat.exceptions import (
 from tracecat.identifiers import SecretID, WorkspaceID
 from tracecat.logger import logger
 from tracecat.registry.constants import REGISTRY_GIT_SSH_KEY_SECRET_NAME
-from tracecat.secrets.aws_secrets_manager import (
-    check_aws_secret_reference,
-    reference_region_matches,
-)
+from tracecat.secrets.backends import get_backend, parse_store_config
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.encryption import decrypt_keyvalues, encrypt_keyvalues
 from tracecat.secrets.enums import (
     AwsSecretResolutionErrorCode,
     SecretSource,
+    SecretStoreProvider,
     SecretType,
 )
 from tracecat.secrets.schemas import (
@@ -57,12 +55,12 @@ from tracecat.secrets.schemas import (
     validate_mtls_key_values,
     validate_ssh_key_values,
 )
-from tracecat.secrets.types import AwsSecretReference
+from tracecat.secrets.types import ExternalSecretReference
 from tracecat.service import BaseOrgService
 
 
-def is_aws_backed(secret: BaseSecret) -> TypeGuard[Secret]:
-    """Return True when a secret row resolves its values from AWS at runtime."""
+def is_external_reference(secret: BaseSecret) -> TypeGuard[Secret]:
+    """Return True when a secret row resolves its values from an external store."""
     return (
         isinstance(secret, Secret) and secret.source == SecretSource.AWS_SECRETS_MANAGER
     )
@@ -80,32 +78,31 @@ def secret_key_names(decryptor: KeyDecryptor, secret: BaseSecret) -> list[str]:
     Local secrets are decrypted synchronously; AWS-backed secrets return the
     declared output keys from their stored mapping.
     """
-    if is_aws_backed(secret):
+    if is_external_reference(secret):
         mapping = AwsSecretKeyMapping.model_validate(secret.remote_key_mapping or {})
         return mapping.output_keys()
     return [kv.key for kv in decryptor.decrypt_keys(secret.encrypted_keys)]
 
 
-def build_aws_secret_reference(secret: Secret) -> AwsSecretReference:
-    """Materialize an immutable AWS descriptor from a loaded ORM row.
+def build_external_secret_reference(secret: Secret) -> ExternalSecretReference:
+    """Materialize an immutable provider-neutral descriptor from a loaded ORM row.
 
     ``secret.store`` must already be loaded; callers release the session
     before handing descriptors to the resolver.
     """
     if secret.store is None or secret.remote_reference is None:
         raise TracecatCredentialsError(
-            f"AWS-backed secret {secret.name!r} is missing its store or reference"
+            f"Externally backed secret {secret.name!r} is missing its store or reference"
         )
-    return AwsSecretReference(
+    return ExternalSecretReference(
         secret_id=secret.id,
         alias=secret.name,
         environment=secret.environment,
         store_id=secret.store.id,
+        provider=SecretStoreProvider(secret.store.provider),
         store_enabled=secret.store.enabled,
-        role_arn=secret.store.role_arn,
-        external_id=secret.store.external_id,
-        region=secret.store.region,
-        secret_arn=secret.remote_reference,
+        store_config=parse_store_config(secret.store),
+        key=secret.remote_reference,
         mapping=AwsSecretKeyMapping.model_validate(secret.remote_key_mapping or {}),
     )
 
@@ -144,7 +141,7 @@ class SecretsService(BaseOrgService):
 
     async def _update_secret(self, secret: BaseSecret, params: SecretUpdate) -> None:
         """Update a base secret."""
-        if is_aws_backed(secret):
+        if is_external_reference(secret):
             if params.keys is not None:
                 raise ValueError(
                     "AWS-backed secrets do not store values in Tracecat. Update the"
@@ -457,13 +454,11 @@ class SecretsService(BaseOrgService):
         return store
 
     @staticmethod
-    def _validate_reference_region(
+    def _validate_reference(
         store: OrganizationSecretStore, remote_reference: str
     ) -> None:
-        if not reference_region_matches(remote_reference, store.region):
-            raise ValueError(
-                f"Secret ARN region must match the store region {store.region!r}."
-            )
+        backend = get_backend(store.provider)
+        backend.validate_reference(parse_store_config(store), remote_reference)
 
     @require_scope("secret:create")
     @audit_log(resource_type="secret", action="create")
@@ -477,7 +472,7 @@ class SecretsService(BaseOrgService):
         """
         workspace_id = self._require_workspace_id()
         store = await self._get_authorized_store(params.store_id)
-        self._validate_reference_region(store, params.remote_reference)
+        self._validate_reference(store, params.remote_reference)
         secret = Secret(
             workspace_id=workspace_id,
             name=params.name,
@@ -515,7 +510,7 @@ class SecretsService(BaseOrgService):
         self, secret: Secret, params: AwsSecretReferenceUpdate
     ) -> None:
         """Update the reference or mapping of an AWS-backed workspace secret."""
-        if not is_aws_backed(secret):
+        if not is_external_reference(secret):
             raise ValueError("Secret is not backed by AWS Secrets Manager.")
         set_fields = params.model_dump(exclude_unset=True)
         set_fields.pop("store_id", None)
@@ -529,7 +524,7 @@ class SecretsService(BaseOrgService):
         effective_reference = params.remote_reference or secret.remote_reference
         if effective_reference is None:
             raise ValueError("A secret ARN is required.")
-        self._validate_reference_region(store, effective_reference)
+        self._validate_reference(store, effective_reference)
 
         secret.store_id = store.id
         secret.remote_reference = effective_reference
@@ -545,13 +540,14 @@ class SecretsService(BaseOrgService):
         self, secret: Secret
     ) -> SecretReferenceCheckResult:
         """Verify an AWS-backed secret resolves. Never returns the value."""
-        if not is_aws_backed(secret):
+        if not is_external_reference(secret):
             raise ValueError("Secret is not backed by AWS Secrets Manager.")
         await self.session.refresh(secret, attribute_names=["store"])
-        reference = build_aws_secret_reference(secret)
+        reference = build_external_secret_reference(secret)
+        backend = get_backend(reference.provider)
         # Release the DB session before the remote call.
         await self.session.commit()
-        ok, error_code, aws_code, keys = await check_aws_secret_reference(reference)
+        ok, error_code, aws_code, keys = await backend.check(reference)
         message: str | None = None
         if not ok:
             code = error_code or AwsSecretResolutionErrorCode.UNKNOWN

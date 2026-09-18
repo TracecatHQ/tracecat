@@ -193,9 +193,12 @@ async def test_delete_organization_cleans_restrict_children(
     store = OrganizationSecretStore(
         organization_id=org_a.id,
         name="store",
-        role_arn="arn:aws:iam::123456789012:role/reader",
-        region="us-east-1",
-        external_id="external-id",
+        config={
+            "provider": "aws_secrets_manager",
+            "role_arn": "arn:aws:iam::123456789012:role/reader",
+            "region": "us-east-1",
+            "external_id": "external-id",
+        },
     )
     session.add_all([workspace, org_secret, store])
     await session.commit()
