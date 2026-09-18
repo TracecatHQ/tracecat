@@ -59,6 +59,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
 import { CreateAwsSecretReferenceForm } from "@/components/workspaces/create-aws-secret-reference-form"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import { useAwsAssumeRoleAccess, useWorkspaceSecrets } from "@/lib/hooks"
 import { cn, copyToClipboard } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -591,6 +592,8 @@ export function CreateCredentialDialog({
     })
   }, [open, selectedTool, methods])
 
+  const { hasEntitlement } = useEntitlements()
+  const externalSecretStoresEnabled = hasEntitlement("external_secret_stores")
   const [credentialSource, setCredentialSource] = React.useState<
     "local" | "aws_secrets_manager"
   >("local")
@@ -914,7 +917,7 @@ export function CreateCredentialDialog({
         </DialogHeader>
 
         <CreateSecretTooltip />
-        {secretType === "custom" && (
+        {secretType === "custom" && externalSecretStoresEnabled && (
           <Tabs
             value={credentialSource}
             onValueChange={(value) =>
@@ -931,6 +934,7 @@ export function CreateCredentialDialog({
           </Tabs>
         )}
         {secretType === "custom" &&
+        externalSecretStoresEnabled &&
         credentialSource === "aws_secrets_manager" ? (
           <CreateAwsSecretReferenceForm
             initialName={selectedTool?.name}

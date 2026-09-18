@@ -19,9 +19,9 @@ from tracecat.db.models import (
 from tracecat.db.rls import set_rls_context, set_rls_context_from_role
 from tracecat.exceptions import TracecatConflictError, TracecatNotFoundError
 from tracecat.identifiers import WorkspaceID
-from tracecat.secrets.backends import get_backend, parse_store_config
 from tracecat.secrets.schemas import SecretStoreCreate, SecretStoreUpdate
 from tracecat.service import BaseOrgService
+from tracecat_ee.secrets.backends import get_backend, parse_store_config
 
 
 class SecretStoresService(BaseOrgService):

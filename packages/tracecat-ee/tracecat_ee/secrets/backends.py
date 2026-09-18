@@ -10,7 +10,6 @@ from typing import Protocol
 
 from tracecat.db.models import OrganizationSecretStore
 from tracecat.exceptions import TracecatValidationError
-from tracecat.secrets.aws_secrets_manager import AwsSecretsManagerBackend
 from tracecat.secrets.enums import SecretStoreProvider
 from tracecat.secrets.schemas import (
     SecretStoreConfig,
@@ -21,6 +20,7 @@ from tracecat.secrets.types import (
     CheckResult,
     ExternalSecretReference,
 )
+from tracecat_ee.secrets.aws_secrets_manager import AwsSecretsManagerBackend
 
 
 class SecretStoreBackend(Protocol):

@@ -4076,6 +4076,10 @@ export type EffectiveEntitlements = {
    * Whether Watchtower agent monitoring is enabled (agent sessions, tool-call telemetry, and controls)
    */
   watchtower?: boolean
+  /**
+   * Whether workspace secrets may reference external secret stores such as AWS Secrets Manager
+   */
+  external_secret_stores?: boolean
 }
 
 /**
@@ -4120,6 +4124,10 @@ export type EntitlementsDict = {
    * Whether Watchtower agent monitoring is enabled (agent sessions, tool-call telemetry, and controls)
    */
   watchtower?: boolean
+  /**
+   * Whether workspace secrets may reference external secret stores such as AWS Secrets Manager
+   */
+  external_secret_stores?: boolean
 }
 
 export type ErrorModel = {
@@ -11309,6 +11317,35 @@ export type WorkflowsPullWorkflowsData = {
 
 export type WorkflowsPullWorkflowsResponse = PullResult
 
+export type SecretsListAuthorizedSecretStoresData = {
+  workspaceId: string
+}
+
+export type SecretsListAuthorizedSecretStoresResponse =
+  Array<WorkspaceSecretStoreRead>
+
+export type SecretsCreateAwsSecretReferenceData = {
+  requestBody: AwsSecretReferenceCreate
+  workspaceId: string
+}
+
+export type SecretsCreateAwsSecretReferenceResponse = unknown
+
+export type SecretsUpdateAwsSecretReferenceData = {
+  requestBody: AwsSecretReferenceUpdate
+  secretId: string
+  workspaceId: string
+}
+
+export type SecretsUpdateAwsSecretReferenceResponse = void
+
+export type SecretsCheckAwsSecretReferenceData = {
+  secretId: string
+  workspaceId: string
+}
+
+export type SecretsCheckAwsSecretReferenceResponse = SecretReferenceCheckResult
+
 export type SecretsSearchSecretsData = {
   environment: string
   /**
@@ -11356,35 +11393,6 @@ export type SecretsGetAwsAssumeRoleAccessData = {
 }
 
 export type SecretsGetAwsAssumeRoleAccessResponse = AwsAssumeRoleAccessRead
-
-export type SecretsListAuthorizedSecretStoresData = {
-  workspaceId: string
-}
-
-export type SecretsListAuthorizedSecretStoresResponse =
-  Array<WorkspaceSecretStoreRead>
-
-export type SecretsCreateAwsSecretReferenceData = {
-  requestBody: AwsSecretReferenceCreate
-  workspaceId: string
-}
-
-export type SecretsCreateAwsSecretReferenceResponse = unknown
-
-export type SecretsUpdateAwsSecretReferenceData = {
-  requestBody: AwsSecretReferenceUpdate
-  secretId: string
-  workspaceId: string
-}
-
-export type SecretsUpdateAwsSecretReferenceResponse = void
-
-export type SecretsCheckAwsSecretReferenceData = {
-  secretId: string
-  workspaceId: string
-}
-
-export type SecretsCheckAwsSecretReferenceResponse = SecretReferenceCheckResult
 
 export type SecretsGetSecretByNameData = {
   secretName: string
@@ -15843,6 +15851,66 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workspaces/{workspace_id}/secrets/stores": {
+    get: {
+      req: SecretsListAuthorizedSecretStoresData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<WorkspaceSecretStoreRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/secrets/aws": {
+    post: {
+      req: SecretsCreateAwsSecretReferenceData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/secrets/aws/{secret_id}": {
+    post: {
+      req: SecretsUpdateAwsSecretReferenceData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/secrets/aws/{secret_id}/check": {
+    post: {
+      req: SecretsCheckAwsSecretReferenceData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SecretReferenceCheckResult
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workspaces/{workspace_id}/secrets/search": {
     get: {
       req: SecretsSearchSecretsData
@@ -15909,66 +15977,6 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: AwsAssumeRoleAccessRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/workspaces/{workspace_id}/secrets/stores": {
-    get: {
-      req: SecretsListAuthorizedSecretStoresData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: Array<WorkspaceSecretStoreRead>
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/workspaces/{workspace_id}/secrets/aws": {
-    post: {
-      req: SecretsCreateAwsSecretReferenceData
-      res: {
-        /**
-         * Successful Response
-         */
-        201: unknown
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/workspaces/{workspace_id}/secrets/aws/{secret_id}": {
-    post: {
-      req: SecretsUpdateAwsSecretReferenceData
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/workspaces/{workspace_id}/secrets/aws/{secret_id}/check": {
-    post: {
-      req: SecretsCheckAwsSecretReferenceData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: SecretReferenceCheckResult
         /**
          * Validation Error
          */

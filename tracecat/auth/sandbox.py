@@ -9,6 +9,7 @@ from types import TracebackType
 from typing import Any, Self
 
 from pydantic import SecretStr
+from tracecat_ee.secrets.backends import get_backend
 
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.auth.types import Role
@@ -16,7 +17,6 @@ from tracecat.contexts import ctx_role
 from tracecat.db.models import BaseSecret
 from tracecat.exceptions import TracecatCredentialsError
 from tracecat.logger import logger
-from tracecat.secrets.backends import get_backend
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.encryption import decrypt_keyvalues
 from tracecat.secrets.enums import SecretStoreProvider

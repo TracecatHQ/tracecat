@@ -7,6 +7,10 @@ from pydantic import SecretStr
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from tracecat_ee.secrets.aws_secrets_manager import generate_store_external_id
+from tracecat_ee.secrets.backends import parse_store_config
+from tracecat_ee.secrets.service import ExternalSecretsService
+from tracecat_ee.secrets.store_service import SecretStoresService
 
 from tracecat.auth.types import Role
 from tracecat.db.models import (
@@ -24,8 +28,6 @@ from tracecat.exceptions import (
     TracecatNotFoundError,
     TracecatValidationError,
 )
-from tracecat.secrets.aws_secrets_manager import generate_store_external_id
-from tracecat.secrets.backends import parse_store_config
 from tracecat.secrets.enums import AwsSecretMappingMode, SecretSource
 from tracecat.secrets.schemas import (
     AwsSecretJsonField,
@@ -40,8 +42,7 @@ from tracecat.secrets.schemas import (
     SecretStoreUpdate,
     SecretUpdate,
 )
-from tracecat.secrets.service import SecretsService, build_external_secret_reference
-from tracecat.secrets.store_service import SecretStoresService
+from tracecat.secrets.service import build_external_secret_reference
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -57,8 +58,10 @@ async def stores(session: AsyncSession, svc_admin_role: Role) -> SecretStoresSer
 
 
 @pytest.fixture
-async def secrets(session: AsyncSession, svc_admin_role: Role) -> SecretsService:
-    return SecretsService(session=session, role=svc_admin_role)
+async def secrets(
+    session: AsyncSession, svc_admin_role: Role
+) -> ExternalSecretsService:
+    return ExternalSecretsService(session=session, role=svc_admin_role)
 
 
 def whole_string_mapping(key: str = "API_TOKEN") -> AwsSecretKeyMapping:
@@ -125,7 +128,7 @@ async def test_store_lookup_is_scoped_to_organization(
 @pytest.mark.anyio
 async def test_reference_requires_workspace_authorization(
     stores: SecretStoresService,
-    secrets: SecretsService,
+    secrets: ExternalSecretsService,
     svc_workspace: Workspace,
 ) -> None:
     store = await stores.create_store(
@@ -170,7 +173,7 @@ async def test_authorize_rejects_workspace_outside_organization(
 @pytest.mark.anyio
 async def test_reference_region_must_match_store(
     stores: SecretStoresService,
-    secrets: SecretsService,
+    secrets: ExternalSecretsService,
     svc_workspace: Workspace,
 ) -> None:
     store = await stores.create_store(
@@ -189,7 +192,7 @@ async def test_reference_region_must_match_store(
 @pytest.mark.anyio
 async def test_name_uniqueness_spans_local_and_aws_rows(
     stores: SecretStoresService,
-    secrets: SecretsService,
+    secrets: ExternalSecretsService,
     svc_workspace: Workspace,
 ) -> None:
     store = await stores.create_store(
@@ -214,7 +217,7 @@ async def test_name_uniqueness_spans_local_and_aws_rows(
 @pytest.mark.anyio
 async def test_aws_reference_rejects_local_value_updates(
     stores: SecretStoresService,
-    secrets: SecretsService,
+    secrets: ExternalSecretsService,
     svc_workspace: Workspace,
 ) -> None:
     store = await stores.create_store(
@@ -254,7 +257,7 @@ async def test_aws_reference_rejects_local_value_updates(
 @pytest.mark.anyio
 async def test_store_and_authorization_lifecycle_guards(
     stores: SecretStoresService,
-    secrets: SecretsService,
+    secrets: ExternalSecretsService,
     svc_workspace: Workspace,
     session: AsyncSession,
 ) -> None:
@@ -293,7 +296,7 @@ async def test_store_and_authorization_lifecycle_guards(
 @pytest.mark.anyio
 async def test_reference_guards_with_enforced_rls_and_org_only_context(
     stores: SecretStoresService,
-    secrets: SecretsService,
+    secrets: ExternalSecretsService,
     svc_workspace: Workspace,
     session: AsyncSession,
 ) -> None:

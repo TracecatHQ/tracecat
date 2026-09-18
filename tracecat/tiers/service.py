@@ -177,4 +177,5 @@ class TierService(BaseService):
             workspace_chat=resolve_entitlement("workspace_chat"),
             multi_workspace=resolve_entitlement("multi_workspace"),
             watchtower=resolve_entitlement("watchtower"),
+            external_secret_stores=resolve_entitlement("external_secret_stores"),
         )

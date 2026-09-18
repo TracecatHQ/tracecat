@@ -3466,6 +3466,108 @@ export const workflowsPullWorkflows = (
 }
 
 /**
+ * List Authorized Secret Stores
+ * List external secret stores this workspace is authorized to reference.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns WorkspaceSecretStoreRead Successful Response
+ * @throws ApiError
+ */
+export const secretsListAuthorizedSecretStores = (
+  data: SecretsListAuthorizedSecretStoresData
+): CancelablePromise<SecretsListAuthorizedSecretStoresResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/secrets/stores",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Aws Secret Reference
+ * Create a custom secret whose values live in AWS Secrets Manager.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const secretsCreateAwsSecretReference = (
+  data: SecretsCreateAwsSecretReferenceData
+): CancelablePromise<SecretsCreateAwsSecretReferenceResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/secrets/aws",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Aws Secret Reference
+ * Update the reference or key mapping of an AWS-backed secret.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.secretId
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const secretsUpdateAwsSecretReference = (
+  data: SecretsUpdateAwsSecretReferenceData
+): CancelablePromise<SecretsUpdateAwsSecretReferenceResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/secrets/aws/{secret_id}",
+    path: {
+      workspace_id: data.workspaceId,
+      secret_id: data.secretId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Check Aws Secret Reference
+ * Verify a saved AWS-backed reference resolves. Values are never returned.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.secretId
+ * @returns SecretReferenceCheckResult Successful Response
+ * @throws ApiError
+ */
+export const secretsCheckAwsSecretReference = (
+  data: SecretsCheckAwsSecretReferenceData
+): CancelablePromise<SecretsCheckAwsSecretReferenceResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/secrets/aws/{secret_id}/check",
+    path: {
+      workspace_id: data.workspaceId,
+      secret_id: data.secretId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Search Secrets
  * Search secrets.
  * @param data The data for the request.
@@ -3590,108 +3692,6 @@ export const secretsGetAwsAssumeRoleAccess = (
     url: "/workspaces/{workspace_id}/secrets/aws-assume-role",
     path: {
       workspace_id: data.workspaceId,
-    },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * List Authorized Secret Stores
- * List external secret stores this workspace is authorized to reference.
- * @param data The data for the request.
- * @param data.workspaceId
- * @returns WorkspaceSecretStoreRead Successful Response
- * @throws ApiError
- */
-export const secretsListAuthorizedSecretStores = (
-  data: SecretsListAuthorizedSecretStoresData
-): CancelablePromise<SecretsListAuthorizedSecretStoresResponse> => {
-  return __request(OpenAPI, {
-    method: "GET",
-    url: "/workspaces/{workspace_id}/secrets/stores",
-    path: {
-      workspace_id: data.workspaceId,
-    },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Create Aws Secret Reference
- * Create a custom secret whose values live in AWS Secrets Manager.
- * @param data The data for the request.
- * @param data.workspaceId
- * @param data.requestBody
- * @returns unknown Successful Response
- * @throws ApiError
- */
-export const secretsCreateAwsSecretReference = (
-  data: SecretsCreateAwsSecretReferenceData
-): CancelablePromise<SecretsCreateAwsSecretReferenceResponse> => {
-  return __request(OpenAPI, {
-    method: "POST",
-    url: "/workspaces/{workspace_id}/secrets/aws",
-    path: {
-      workspace_id: data.workspaceId,
-    },
-    body: data.requestBody,
-    mediaType: "application/json",
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Update Aws Secret Reference
- * Update the reference or key mapping of an AWS-backed secret.
- * @param data The data for the request.
- * @param data.workspaceId
- * @param data.secretId
- * @param data.requestBody
- * @returns void Successful Response
- * @throws ApiError
- */
-export const secretsUpdateAwsSecretReference = (
-  data: SecretsUpdateAwsSecretReferenceData
-): CancelablePromise<SecretsUpdateAwsSecretReferenceResponse> => {
-  return __request(OpenAPI, {
-    method: "POST",
-    url: "/workspaces/{workspace_id}/secrets/aws/{secret_id}",
-    path: {
-      workspace_id: data.workspaceId,
-      secret_id: data.secretId,
-    },
-    body: data.requestBody,
-    mediaType: "application/json",
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Check Aws Secret Reference
- * Verify a saved AWS-backed reference resolves. Values are never returned.
- * @param data The data for the request.
- * @param data.workspaceId
- * @param data.secretId
- * @returns SecretReferenceCheckResult Successful Response
- * @throws ApiError
- */
-export const secretsCheckAwsSecretReference = (
-  data: SecretsCheckAwsSecretReferenceData
-): CancelablePromise<SecretsCheckAwsSecretReferenceResponse> => {
-  return __request(OpenAPI, {
-    method: "POST",
-    url: "/workspaces/{workspace_id}/secrets/aws/{secret_id}/check",
-    path: {
-      workspace_id: data.workspaceId,
-      secret_id: data.secretId,
     },
     errors: {
       422: "Validation Error",

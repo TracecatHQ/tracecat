@@ -13798,6 +13798,13 @@ export const $EffectiveEntitlements = {
         "Whether Watchtower agent monitoring is enabled (agent sessions, tool-call telemetry, and controls)",
       default: false,
     },
+    external_secret_stores: {
+      type: "boolean",
+      title: "External secret stores",
+      description:
+        "Whether workspace secrets may reference external secret stores such as AWS Secrets Manager",
+      default: false,
+    },
   },
   type: "object",
   title: "EffectiveEntitlements",
@@ -13856,6 +13863,12 @@ export const $EntitlementsDict = {
       title: "Watchtower",
       description:
         "Whether Watchtower agent monitoring is enabled (agent sessions, tool-call telemetry, and controls)",
+    },
+    external_secret_stores: {
+      type: "boolean",
+      title: "External secret stores",
+      description:
+        "Whether workspace secrets may reference external secret stores such as AWS Secrets Manager",
     },
   },
   type: "object",
