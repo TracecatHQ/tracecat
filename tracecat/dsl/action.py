@@ -690,10 +690,20 @@ class DSLActivities:
 
     @staticmethod
     @activity.defn
-    async def compile_dsl_dependencies_activity(dsl: DSLInput) -> DSLDependencyPlan:
-        """Compile the DSL once before scheduling consumers of action results."""
-        with activity_error_boundary(_expression_error_classification):
+    async def compile_dsl_dependencies_activity(
+        dsl: DSLInput,
+    ) -> DSLDependencyPlan | None:
+        """Compile optional dependencies, falling back to legacy context selection."""
+        try:
             return compile_dsl_dependencies(dsl)
+        except Exception as error:
+            # Dependency selection is an optimization. Leave expression validation
+            # to normal evaluation and do not log potentially sensitive operands.
+            logger.warning(
+                "Dependency compilation failed; using legacy context selection",
+                error_type=type(error).__name__,
+            )
+            return None
 
     @staticmethod
     @activity.defn
