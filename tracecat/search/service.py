@@ -15,6 +15,7 @@ from datetime import timedelta
 from typing import Self
 
 import numpy as np
+import orjson
 from sqlalchemy import and_, delete, func, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,6 +31,7 @@ from tracecat.db.models import (
     Workspace,
 )
 from tracecat.db.rls import set_rls_context
+from tracecat.search.embeddings.types import EmbeddingErrorCode
 from tracecat.search.schemas import SearchIndexStatus
 from tracecat.search.types import (
     BuildClaim,
@@ -459,7 +461,9 @@ class SearchStorage(BaseService):
     ) -> None:
         """Atomically append a contiguous manifest and persist its source cursor."""
         collection, document = await self._fenced(claim)
-        current = EnumerationCursor.model_validate(document.enumeration_cursor or {})
+        current = EnumerationCursor.model_validate_json(
+            orjson.dumps(document.enumeration_cursor or {})
+        )
         if current == after and document.enumeration_complete == complete:
             existing = (
                 await self.session.scalars(
@@ -491,6 +495,22 @@ class SearchStorage(BaseService):
             raise SearchError(SearchErrorCode.MANIFEST_CONFLICT)
         if document.enumeration_complete or current != before:
             raise SearchError(SearchErrorCode.MANIFEST_CONFLICT)
+        if after.chunker is not None:
+            identity = after.chunker.identity
+            if (
+                identity.organization_id != self.scope.organization_id
+                or identity.workspace_id != self.scope.workspace_id
+                or identity.collection_id != claim.collection_id
+                or identity.document_id != claim.document_id
+                or identity.generation != claim.generation
+                or identity.config_version != claim.config_version
+                or identity.revision != claim.revision
+                or (
+                    before.chunker is not None
+                    and before.chunker.config_hash != after.chunker.config_hash
+                )
+            ):
+                raise SearchError(SearchErrorCode.MANIFEST_CONFLICT)
         if len(chunks) > 32 or after.next_ordinal != before.next_ordinal + len(chunks):
             raise SearchError(SearchErrorCode.MANIFEST_CONFLICT)
         if (after.column_index, after.character_offset) < (
@@ -533,7 +553,7 @@ class SearchStorage(BaseService):
                     input_hash=chunk.input_hash,
                 )
             )
-        document.enumeration_cursor = after.model_dump()
+        document.enumeration_cursor = after.model_dump(mode="json")
         document.enumeration_complete = complete
         document.expected_chunks = after.next_ordinal
         await self.session.flush()
@@ -635,7 +655,7 @@ class SearchStorage(BaseService):
     async def fail(
         self,
         claim: BuildClaim,
-        code: SearchErrorCode,
+        code: SearchErrorCode | EmbeddingErrorCode,
         *,
         retry_seconds: int | None = None,
     ) -> None:
@@ -651,6 +671,16 @@ class SearchStorage(BaseService):
             if retry_seconds is not None
             else None
         )
+        await self.session.flush()
+
+    async def yield_claim(self, claim: BuildClaim) -> None:
+        """Release a successful bounded batch without consuming a failure attempt."""
+        _, document = await self._fenced(claim)
+        document.state = DocumentState.PENDING
+        document.lease_until = None
+        document.next_attempt_at = None
+        document.attempts = 0
+        document.error_code = None
         await self.session.flush()
 
     async def tombstone_collection(self, collection_id: uuid.UUID) -> None:

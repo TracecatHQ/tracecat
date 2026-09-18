@@ -15,7 +15,7 @@ from fastapi_users.db import (
 from fastapi_users_db_sqlalchemy.access_token import SQLAlchemyBaseAccessTokenTableUUID
 from numpy.typing import NDArray
 from pgvector.sqlalchemy import Vector
-from pydantic import GetCoreSchemaHandler
+from pydantic import GetCoreSchemaHandler, JsonValue
 from pydantic_core import CoreSchema, core_schema, to_json
 from sqlalchemy import (
     TIMESTAMP,
@@ -5862,7 +5862,7 @@ class SearchDocument(TimestampMixin, Base):
     build_revision: Mapped[int | None] = mapped_column(BigInteger)
     indexed_revision: Mapped[int | None] = mapped_column(BigInteger)
     state: Mapped[str] = mapped_column(Text, server_default="pending")
-    enumeration_cursor: Mapped[dict[str, int] | None] = mapped_column(JSONB)
+    enumeration_cursor: Mapped[dict[str, JsonValue] | None] = mapped_column(JSONB)
     enumeration_complete: Mapped[bool] = mapped_column(Boolean, server_default="false")
     expected_chunks: Mapped[int] = mapped_column(BigInteger, server_default="0")
     fence: Mapped[int] = mapped_column(BigInteger, server_default="0")
