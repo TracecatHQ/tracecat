@@ -325,6 +325,34 @@ async def test_failure_message_never_contains_payload(
     assert err.__cause__ is None and err.__context__ is None
 
 
+async def test_traceback_frame_locals_never_contain_payload(
+    fake_aws: type[_FakeSession],
+) -> None:
+    """A later reference failing must not leave earlier plaintext in the traceback."""
+    payload = "resolved-plaintext-payload"
+    fake_aws.sm_response = {"SecretString": payload}
+    ok = make_reference(alias="ok", secret_arn=SECRET_ARN)
+    bad = make_reference(
+        alias="bad",
+        secret_arn=SECRET_ARN.replace("api", "creds"),
+        mode=AwsSecretMappingMode.JSON,
+        fields=(AwsSecretJsonField(key="K", field="k"),),
+    )
+    with pytest.raises(AwsSecretResolutionError) as exc_info:
+        await resolve_aws_secret_references([ok, bad])
+
+    tb = exc_info.value.__traceback__
+    while tb is not None:
+        if tb.tb_frame.f_globals.get("__name__") != asm.__name__:
+            tb = tb.tb_next
+            continue
+        for name, value in tb.tb_frame.f_locals.items():
+            assert payload not in repr(value), (
+                f"{tb.tb_frame.f_code.co_name}.{name} retains a fetched value"
+            )
+        tb = tb.tb_next
+
+
 async def test_reads_deduplicated_per_store_and_reference(
     fake_aws: type[_FakeSession],
 ) -> None:
