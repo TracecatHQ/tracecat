@@ -5,6 +5,8 @@ from typing import ClassVar
 
 from pydantic_core import core_schema
 
+from tracecat.agent.workflow_id import agent_workflow_id
+
 
 class AgentWorkflowID(str):
     """
@@ -56,7 +58,7 @@ class AgentWorkflowID(str):
         cls,
         session_id: uuid.UUID,
     ) -> AgentWorkflowID:
-        obj = super().__new__(cls, f"{cls._prefix}{str(session_id)}")
+        obj = super().__new__(cls, agent_workflow_id(session_id))
         obj._session_id = session_id
         return obj
 
