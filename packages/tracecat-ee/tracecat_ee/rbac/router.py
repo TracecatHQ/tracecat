@@ -329,6 +329,8 @@ async def list_groups(
     """
     service = RBACService(session, role=role)
     groups = await service.list_groups()
+    counts = await service.group_member_counts()
+    managed = await service.managed_group_ids()
     return GroupList(
         items=[
             GroupReadWithMembers(
@@ -340,7 +342,8 @@ async def list_groups(
                 updated_at=g.updated_at,
                 created_by=g.created_by,
                 members=[],  # Don't include full member list in list view
-                member_count=len(g.members),
+                member_count=counts.get(g.id, 0),
+                is_idp_managed=g.id in managed,
             )
             for g in groups
         ],
@@ -383,6 +386,7 @@ async def get_group(
                 for user, gm in members
             ],
             member_count=len(members),
+            is_idp_managed=group_id in await service.managed_group_ids(),
         )
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
@@ -466,6 +470,7 @@ async def update_group(
                 for user, gm in members
             ],
             member_count=len(members),
+            is_idp_managed=group_id in await service.managed_group_ids(),
         )
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e

@@ -35,6 +35,7 @@ from tracecat.db.models import (
     User,
     UserRoleAssignment,
     Workspace,
+    effective_group_members,
 )
 from tracecat.db.models import (
     Role as DBRole,
@@ -47,7 +48,7 @@ from tracecat.exceptions import (
 )
 from tracecat.identifiers import WorkspaceID
 from tracecat.service import BaseOrgService
-from tracecat_ee.rbac.schemas import UserRoleAssignmentsReplace
+from tracecat_ee.rbac.schemas import GroupMemberRead, UserRoleAssignmentsReplace
 
 
 class RBACService(BaseOrgService):
@@ -533,22 +534,48 @@ class RBACService(BaseOrgService):
         await self.session.delete(member)
         await self.session.commit()
 
+    async def managed_group_ids(self) -> set[UUID]:
+        """Return mapped targets for ownership labels and membership controls."""
+        stmt = select(ExternalGroupMapping.group_id).where(
+            ExternalGroupMapping.organization_id == self.organization_id
+        )
+        return set((await self.session.execute(stmt)).scalars())
+
+    async def group_member_counts(self) -> dict[UUID, int]:
+        """Count unique effective members across manual and eligible IdP paths."""
+        stmt = (
+            select(effective_group_members.c.group_id, func.count())
+            .join(Group, Group.id == effective_group_members.c.group_id)
+            .where(Group.organization_id == self.organization_id)
+            .group_by(effective_group_members.c.group_id)
+        )
+        return dict((await self.session.execute(stmt)).tuples().all())
+
     async def list_group_members(
         self, group_id: UUID
-    ) -> Sequence[tuple[User, GroupMember]]:
-        """List members of a group with their membership info."""
+    ) -> Sequence[tuple[User, GroupMemberRead]]:
+        """List unique effective members, without inventing shadow timestamps."""
         stmt = (
-            select(User, GroupMember)
-            .join(GroupMember, GroupMember.user_id == User.id)
-            .join(Group, Group.id == GroupMember.group_id)
-            .where(
-                GroupMember.group_id == group_id,
-                Group.organization_id == self.organization_id,
-            )
+            select(User, effective_group_members.c.added_at)
+            .join(effective_group_members, effective_group_members.c.user_id == User.id)
+            .join(Group, Group.id == effective_group_members.c.group_id)
+            .where(Group.id == group_id, Group.organization_id == self.organization_id)
             .order_by(User.email)
         )
-        result = await self.session.execute(stmt)
-        return result.tuples().all()
+        rows = (await self.session.execute(stmt)).tuples().all()
+        return [
+            (
+                user,
+                GroupMemberRead(
+                    user_id=user.id,
+                    email=user.email,
+                    first_name=user.first_name,
+                    last_name=user.last_name,
+                    added_at=added_at,
+                ),
+            )
+            for user, added_at in rows
+        ]
 
     # =========================================================================
     # Group Assignment Management

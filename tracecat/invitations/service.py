@@ -329,6 +329,9 @@ async def accept_invitation_for_user(
         )
 
     try:
+        # SCIM activation locks the organization before revoking invitations.
+        # Match that order before claiming the invitation to avoid deadlocks.
+        await lock_role_changes(session, invitation.organization_id)
         await _claim_pending(session, invitation)
         await _apply_grants(
             session,

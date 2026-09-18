@@ -31,7 +31,11 @@ from tracecat.db.models import (
     ScimConnection,
     User,
 )
-from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
+from tracecat.exceptions import (
+    TracecatAuthorizationError,
+    TracecatConflictError,
+    TracecatNotFoundError,
+)
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -100,6 +104,20 @@ async def _make_user(session: AsyncSession, org: Organization) -> User:
 
 
 async def _make_group(session: AsyncSession, org: Organization) -> Group:
+    if not await session.scalar(
+        select(ScimConnection.id).where(ScimConnection.organization_id == org.id)
+    ):
+        session.add(
+            ScimConnection(
+                id=uuid.uuid4(),
+                organization_id=org.id,
+                key_id=uuid.uuid4().hex[:16],
+                hashed="x",
+                salt="y",
+                preview="scim_...",
+                status=ScimConnectionStatus.ACTIVE,
+            )
+        )
     group = Group(
         id=uuid.uuid4(),
         name=f"scim-group-{uuid.uuid4().hex[:8]}",
@@ -583,3 +601,27 @@ async def _is_member(
         OrganizationMembership.organization_id == organization_id,
     )
     return (await session.execute(stmt)).scalar_one_or_none() is not None
+
+
+@pytest.mark.anyio
+async def test_pending_mapping_preserves_manual_members(
+    session: AsyncSession, org: Organization, service: SCIMService
+) -> None:
+    group = await _make_group(session, org)
+    users = [await _make_user(session, org) for _ in range(2)]
+    for user in users:
+        await seed_group_member(session, group_id=group.id, user_id=user.id)
+    external = await seed_external_group(
+        session, organization_id=org.id, external_id="pending-source"
+    )
+    connection = (
+        await session.execute(
+            select(ScimConnection).where(ScimConnection.organization_id == org.id)
+        )
+    ).scalar_one()
+    connection.status = ScimConnectionStatus.PENDING
+    await session.flush()
+    with pytest.raises(TracecatConflictError):
+        await service.create_mapping(external_group_id=external.id, group_id=group.id)
+    assert await _manual_members(session, group.id) == {user.id for user in users}
+    assert await service.list_mappings() == []

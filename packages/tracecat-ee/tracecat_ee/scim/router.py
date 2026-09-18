@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from tracecat.auth.dependencies import OrgActorRole
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.exceptions import TracecatNotFoundError
+from tracecat.exceptions import TracecatConflictError, TracecatNotFoundError
 from tracecat.tiers.entitlements import check_entitlement
 from tracecat.tiers.enums import Entitlement
 from tracecat_ee.scim.connections import ScimConnectionService
@@ -165,6 +165,8 @@ async def create_scim_mapping(
         )
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except TracecatConflictError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
     await session.commit()
     return await service.get_mapping(mapping.id)
 
