@@ -222,10 +222,17 @@ Tags are bare versions with no leading `v`. Ordering follows semver:
 
 ### Cutting a release
 
-- `.github/workflows/create-release.yml` opens the version-bump pull request for a stable release, and `publish-release.yml` tags the merge commit and publishes the GitHub release.
-- Prereleases and hotfixes are tagged on the release branch directly. The tag points at a `release: <version>` commit produced by `just update-version <version>`, which writes the public tag to `__version__` and the PEP 440 equivalent (`1.1.0-alpha.1` becomes `1.1.0a1`) to `__pep440_version__` for Python package builds.
-- Pushing any `*.*.*` tag builds and publishes `ghcr.io/tracecathq/tracecat:<tag>` and `ghcr.io/tracecathq/tracecat-ui:<tag>`. Only a stable tag is also published as `latest`.
-- Release notes cover the range from the previous tag of the same train, or from the previous stable tag for the first alpha of a new train, and use the sections in `.github/release-drafter.yml`.
+Stable releases, prereleases, and hotfixes all use the same direct branch flow. The [gh-release skill](.agents/skills/gh-release/SKILL.md) covers the checks and commands. Release branches are not merged into `main`, and no release pull request is needed.
+
+1. Choose a merged, validated base commit. For an alpha, create its snapshot branch from `main`. At freeze, create the train branch; for subsequent RCs and patches, reuse its current tip with the reviewed fixes already cherry-picked. The branch must contain the current image-publishing workflow, including the stable-only `latest` guard.
+2. On that branch, run `just update-version <version>`, review the diff, and commit it as `release: <version>`. The command writes the public tag to `__version__` and the PEP 440 equivalent (`1.1.0-alpha.1` becomes `1.1.0a1`) to `__pep440_version__` for Python package builds.
+3. Push the branch, then create and push an annotated version tag on that version-bump commit. Never move an existing release tag. Leave the branch in place.
+4. Wait for `.github/workflows/build-push-images.yml` to succeed for that tag and commit. It publishes `ghcr.io/tracecathq/tracecat:<tag>` and `ghcr.io/tracecathq/tracecat-ui:<tag>`. Only bare stable versions (`MAJOR.MINOR.PATCH`) also update `latest`; alphas, RCs, and nightly builds leave it unchanged. Every stable publication qualifies, including a hotfix on an older train.
+5. Publish the GitHub release for the existing tag after verifying both images. Use `gh release create --verify-tag`, adding `--prerelease --latest=false` for an alpha or RC, or `--latest` for a stable release. Publishing a stable GitHub release triggers `.github/workflows/notify-release.yml` to request the Kubernetes version-bump automation; verify that notification separately from the image build.
+
+A manual image rebuild must use the existing tag as both its ref and its tag input: `gh workflow run build-push-images.yml --ref <tag> --field tag=<tag>`. Dispatching from a branch with a different tag input is rejected.
+
+Release notes cover the range from the previous published version of the same train, or from the preceding stable version for the first release of a new train. They use the sections and formatting in `.github/release-drafter.yml`. Generate notes for the exact tag range; the draft maintained on `main` may contain changes outside the release branch.
 
 ## License
 
