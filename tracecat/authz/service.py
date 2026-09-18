@@ -3,7 +3,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 from uuid import UUID
 
-from sqlalchemy import delete, literal, or_, select, union_all
+from sqlalchemy import delete, exists, func, literal, or_, select, union_all
+from sqlalchemy.dialects.postgresql import array as pg_array
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.sql.elements import ColumnElement
@@ -100,23 +101,17 @@ async def query_effective_scopes(
         )
     )
 
-    # Single atomic query: union both assignment paths
-    combined = user_scopes.union(group_scopes)
-    result = await session.execute(combined)
-    scopes = frozenset(result.scalars().all())
-
-    # Presence alone carries a scope floor, independent of any role.
-    is_member = (
-        await session.execute(
-            select(OrganizationMembership.user_id).where(
-                OrganizationMembership.user_id == user_id,
-                OrganizationMembership.organization_id == organization_id,
-            )
+    # Presence alone carries a scope floor; same statement as the role paths so
+    # a concurrent removal is never read half-applied.
+    floor_scopes = select(func.unnest(pg_array(sorted(ORG_MEMBER_FLOOR_SCOPES)))).where(
+        exists().where(
+            OrganizationMembership.user_id == user_id,
+            OrganizationMembership.organization_id == organization_id,
         )
-    ).scalar_one_or_none() is not None
-    if is_member:
-        return scopes | ORG_MEMBER_FLOOR_SCOPES
-    return scopes
+    )
+    combined = user_scopes.union(group_scopes, floor_scopes)
+    result = await session.execute(combined)
+    return frozenset(result.scalars().all())
 
 
 async def resolve_granter_scopes(
