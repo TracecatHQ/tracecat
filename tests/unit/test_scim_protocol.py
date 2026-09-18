@@ -25,8 +25,10 @@ from tracecat_ee.scim.schemas import ERROR_SCHEMA, SCIM_CONTENT_TYPE
 from tracecat_ee.scim.service import SCIMService
 
 from tests.support.membership import grant_org_membership
+from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.authz.enums import ScimConnectionStatus
+from tracecat.authz.membership import ensure_member
 from tracecat.db.engine import get_async_session
 from tracecat.db.models import (
     ExternalGroupMapping,
@@ -51,7 +53,10 @@ def workflow_bucket() -> Iterator[None]:
 
 @pytest.fixture(autouse=True)
 def auth_session(session: AsyncSession, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Point the auth bulkhead session at the test session."""
+    """Point auth at the test session and allow synthetic provisioning addresses."""
+    monkeypatch.setattr(
+        config, "TRACECAT__AUTH_ALLOWED_DOMAINS", {"tracecat.com", "example.com"}
+    )
 
     @asynccontextmanager
     async def _session_cm() -> AsyncIterator[AsyncSession]:
@@ -749,3 +754,176 @@ async def test_rejection_body_is_a_scim_error(
     response = await unauthenticated_client.get("/scim/v2/Users")
 
     assert response.json()["schemas"] == [ERROR_SCHEMA]
+
+
+@pytest.mark.anyio
+async def test_filtered_removal_preserves_peers(
+    client: httpx.AsyncClient, org: Organization
+) -> None:
+    users = [
+        (
+            await client.post(
+                "/scim/v2/Users", json={"userName": f"filter-{i}@example.com"}
+            )
+        ).json()["id"]
+        for i in range(3)
+    ]
+    group = (
+        await client.post(
+            "/scim/v2/Groups",
+            json={
+                "displayName": "Filtered removal",
+                "members": [{"value": uid} for uid in users],
+            },
+        )
+    ).json()
+    response = await client.patch(
+        f"/scim/v2/Groups/{group['id']}",
+        json={
+            "Operations": [{"op": "remove", "path": f'members[value eq "{users[1]}"]'}]
+        },
+    )
+    assert response.status_code == 200
+    assert {member["value"] for member in response.json()["members"]} == {
+        users[0],
+        users[2],
+    }
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("invalid_position", [0, 1, 2])
+@pytest.mark.parametrize("invalid_kind", ["path", "reference", "shape"])
+async def test_invalid_patch_is_atomic(
+    client: httpx.AsyncClient,
+    org: Organization,
+    invalid_position: int,
+    invalid_kind: str,
+) -> None:
+    users = [
+        (
+            await client.post(
+                "/scim/v2/Users", json={"userName": f"atomic-{i}@example.com"}
+            )
+        ).json()["id"]
+        for i in range(3)
+    ]
+    group = (
+        await client.post(
+            "/scim/v2/Groups",
+            json={"displayName": "Atomic group", "members": [{"value": users[0]}]},
+        )
+    ).json()
+    invalid = {
+        "path": {"op": "replace", "path": "unsupported", "value": "bad"},
+        "reference": {
+            "op": "add",
+            "path": "members",
+            "value": [{"value": str(uuid.uuid4())}],
+        },
+        "shape": {"op": "replace", "path": "members", "value": [{}]},
+    }[invalid_kind]
+    operations = [
+        {"op": "add", "path": "members", "value": [{"value": uid}]} for uid in users[1:]
+    ]
+    operations.insert(invalid_position, invalid)
+    response = await client.patch(
+        f"/scim/v2/Groups/{group['id']}", json={"Operations": operations}
+    )
+    assert response.status_code == 400
+    current = (await client.get(f"/scim/v2/Groups/{group['id']}")).json()
+    assert current["members"] == group["members"]
+
+
+@pytest.mark.anyio
+async def test_pending_deactivation_survives_activation(
+    client: httpx.AsyncClient, org: Organization, session: AsyncSession
+) -> None:
+    connection = (
+        await session.execute(
+            select(ScimConnection).where(ScimConnection.organization_id == org.id)
+        )
+    ).scalar_one()
+    connection.status = ScimConnectionStatus.PENDING
+    await session.commit()
+    user = (
+        await client.post(
+            "/scim/v2/Users", json={"userName": "pending-deactivate@example.com"}
+        )
+    ).json()
+    response = await client.patch(
+        f"/scim/v2/Users/{user['id']}",
+        json={"Operations": [{"op": "replace", "path": "active", "value": False}]},
+    )
+    assert response.status_code == 200
+    assert (await client.get(f"/scim/v2/Users/{user['id']}")).json()["active"] is False
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        organization_id=org.id,
+        scopes=frozenset({"org:rbac:update"}),
+    )
+    await SCIMService(session, role).activate([])
+    external = (
+        await session.execute(
+            select(ExternalUser).where(ExternalUser.id == uuid.UUID(user["id"]))
+        )
+    ).scalar_one()
+    assert await session.get(OrganizationMembership, (external.user_id, org.id)) is None
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("resource", ["Users", "Groups"])
+@pytest.mark.parametrize(
+    "query,index",
+    [("count=-1", 1), ("startIndex=0&count=0", 1), ("startIndex=-10&count=0", 1)],
+)
+async def test_pagination_normalizes_numeric_bounds(
+    client: httpx.AsyncClient, org: Organization, resource: str, query: str, index: int
+) -> None:
+    response = await client.get(f"/scim/v2/{resource}?{query}")
+    assert response.status_code == 200
+    assert response.json()["startIndex"] == index
+    assert response.json()["Resources"] == []
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("resource", ["Users", "Groups"])
+async def test_creation_location_matches_readable_resource(
+    client: httpx.AsyncClient,
+    org: Organization,
+    monkeypatch: pytest.MonkeyPatch,
+    resource: str,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__PUBLIC_API_URL", "http://test")
+    body = (
+        {"userName": "location@example.com"}
+        if resource == "Users"
+        else {"displayName": "Location group"}
+    )
+    response = await client.post(f"/scim/v2/{resource}", json=body)
+    assert response.status_code == 201
+    location = response.headers["Location"]
+    assert response.json()["meta"]["location"] == location
+    read = await client.get(location)
+    assert read.status_code == 200
+    assert read.json()["id"] == response.json()["id"]
+
+
+@pytest.mark.anyio
+async def test_repeated_inactive_push_removes_restored_admission(
+    client: httpx.AsyncClient, org: Organization, session: AsyncSession
+) -> None:
+    user = (
+        await client.post(
+            "/scim/v2/Users", json={"userName": "inactive-replay@example.com"}
+        )
+    ).json()
+    path = f"/scim/v2/Users/{user['id']}"
+    payload = {"Operations": [{"op": "replace", "path": "active", "value": False}]}
+    assert (await client.patch(path, json=payload)).status_code == 200
+    external = await session.get(ExternalUser, uuid.UUID(user["id"]))
+    assert external is not None
+    await ensure_member(session, org.id, external.user_id)
+    await session.commit()
+    assert (await client.patch(path, json=payload)).status_code == 200
+    assert await session.get(OrganizationMembership, (external.user_id, org.id)) is None

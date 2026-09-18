@@ -31,7 +31,7 @@ from tracecat.auth.users import (
     get_user_manager_context,
 )
 from tracecat.authz.enums import ScimConnectionStatus
-from tracecat.authz.membership import ensure_member
+from tracecat.authz.membership import ensure_member, lock_role_changes
 from tracecat.authz.seeding import seed_system_roles_for_org
 from tracecat.db.models import (
     ExternalUser,
@@ -101,6 +101,8 @@ class ScimProvisioningService(BaseOrgService):
             user = existing
             created = False
 
+        # Account creation may commit; acquire the directory lock afterwards.
+        await lock_role_changes(self.session, self.organization_id)
         external_user = await self._link_external_user(
             user_id=user.id, external_id=external_id, active=active
         )

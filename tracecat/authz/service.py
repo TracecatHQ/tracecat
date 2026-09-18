@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from uuid import UUID
 
-from sqlalchemy import delete, exists, func, literal, or_, select, union_all
+from sqlalchemy import and_, delete, exists, func, literal, or_, select, union_all
 from sqlalchemy.dialects.postgresql import array as pg_array
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -33,6 +33,7 @@ from tracecat.db.models import (
     User,
     UserRoleAssignment,
     Workspace,
+    effective_group_members,
 )
 from tracecat.db.models import Role as DBRole
 from tracecat.exceptions import (
@@ -120,6 +121,13 @@ async def query_effective_scopes(
             == ExternalGroupMapping.external_group_id,
         )
         .join(ExternalUser, ExternalUser.id == ExternalGroupMember.external_user_id)
+        .join(
+            OrganizationMembership,
+            and_(
+                OrganizationMembership.user_id == ExternalUser.user_id,
+                OrganizationMembership.organization_id == ExternalUser.organization_id,
+            ),
+        )
         .where(
             ExternalUser.user_id == user_id,
             ExternalUser.active,
@@ -252,14 +260,14 @@ class MembershipService(BaseService):
                 literal(0).label("via_group"),
             ).where(UserRoleAssignment.workspace_id == workspace_id),
             select(
-                GroupMember.user_id,
+                effective_group_members.c.user_id,
                 GroupRoleAssignment.role_id,
                 literal(1).label("via_group"),
             )
             .join_from(
                 GroupRoleAssignment,
-                GroupMember,
-                GroupMember.group_id == GroupRoleAssignment.group_id,
+                effective_group_members,
+                effective_group_members.c.group_id == GroupRoleAssignment.group_id,
             )
             .where(GroupRoleAssignment.workspace_id == workspace_id),
         ).subquery("paths")

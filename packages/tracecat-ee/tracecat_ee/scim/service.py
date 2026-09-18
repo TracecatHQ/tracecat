@@ -23,7 +23,7 @@ from tracecat.audit.logger import audit_log
 from tracecat.audit.service import AuditService
 from tracecat.authz.controls import require_scope
 from tracecat.authz.enums import ScimConnectionStatus
-from tracecat.authz.membership import ensure_member
+from tracecat.authz.membership import ensure_member, lock_role_changes
 from tracecat.db.models import (
     ExternalGroup,
     ExternalGroupMapping,
@@ -36,7 +36,11 @@ from tracecat.db.models import (
     ScimConnection,
     User,
 )
-from tracecat.exceptions import TracecatNotFoundError
+from tracecat.exceptions import (
+    TracecatAuthorizationError,
+    TracecatConflictError,
+    TracecatNotFoundError,
+)
 from tracecat.invitations.enums import InvitationStatus
 from tracecat.organization.service import OrgService
 from tracecat.service import BaseOrgService
@@ -187,6 +191,7 @@ class SCIMService(BaseOrgService):
         Returns:
             The stored external group.
         """
+        await lock_role_changes(self.session, self.organization_id)
         stmt = (
             pg_insert(ExternalGroup)
             .values(
@@ -221,6 +226,7 @@ class SCIMService(BaseOrgService):
         Raises:
             TracecatNotFoundError: The external group is not in this organization.
         """
+        await lock_role_changes(self.session, self.organization_id)
         # Target groups first, then the external group: delete_mapping takes
         # the group lock before touching mapping rows, and the reverse order
         # here would let the two wait on each other.
@@ -260,6 +266,7 @@ class SCIMService(BaseOrgService):
         Raises:
             TracecatNotFoundError: The external group is not in this organization.
         """
+        await lock_role_changes(self.session, self.organization_id)
         # Serializes concurrent replacements: without it two pushes can each
         # delete nothing and insert independently, leaving their union.
         await self._get_external_group(external_group_id, for_update=True)
@@ -315,8 +322,11 @@ class SCIMService(BaseOrgService):
         Raises:
             TracecatNotFoundError: Either side is not in this organization.
         """
+        await lock_role_changes(self.session, self.organization_id)
         await self._get_external_group(external_group_id)
         await self._lock_group(group_id)
+        if not await self._connection_is_active():
+            raise TracecatConflictError("Activate SCIM before creating group mappings")
 
         stmt = (
             pg_insert(ExternalGroupMapping)
@@ -359,6 +369,7 @@ class SCIMService(BaseOrgService):
         Raises:
             TracecatNotFoundError: The mapping is not in this organization.
         """
+        await lock_role_changes(self.session, self.organization_id)
         stmt = select(ExternalGroupMapping).where(
             ExternalGroupMapping.id == mapping_id,
             ExternalGroupMapping.organization_id == self.organization_id,
@@ -422,6 +433,7 @@ class SCIMService(BaseOrgService):
             TracecatNotFoundError: No connection exists, or a mapping side is
                 not in this organization.
         """
+        await lock_role_changes(self.session, self.organization_id)
         connection = (
             await self.session.execute(
                 select(ScimConnection)
@@ -585,18 +597,24 @@ class SCIMService(BaseOrgService):
         Raises:
             TracecatAuthorizationError: The user is a superuser, or the caller
                 lacks ``org:member:remove``.
-            NoResultFound: The user is not a member of this organization.
+            TracecatNotFoundError: The account no longer exists.
         """
-        org_service = OrgService(self.session, self.role)
-        # Resolved first: delete_member's own lookup joins on rows this
-        # deactivation is about to make invisible to the role-path union.
-        member = await org_service.get_member(user_id)
+        await lock_role_changes(self.session, self.organization_id)
+        user = await self.session.get(User, user_id)
+        if user is None:
+            raise TracecatNotFoundError("User not found")
+        if user.is_superuser:
+            raise TracecatAuthorizationError("Cannot delete superuser")
         await self.deactivate_external_user(user_id)
-        # One transaction with the deactivation above, so a failure cannot
-        # leave the user inactive but still admitted.
-        await org_service.delete_member(
-            user_id, allow_idp_managed=True, member=member, commit=False
+        membership = await self.session.get(
+            OrganizationMembership, (user_id, self.organization_id)
         )
+        # An already absent membership must not revoke fresh sessions in other
+        # organizations on every provider retry. Restored admission still needs cleanup.
+        if membership is not None:
+            await OrgService(self.session, self.role).delete_member(
+                user_id, allow_idp_managed=True, member=user, commit=False
+            )
         await self.session.commit()
 
     async def reactivate_external_user(self, external_user: ExternalUser) -> None:
@@ -605,6 +623,7 @@ class SCIMService(BaseOrgService):
         Admission still waits on the connection being active: a pending
         connection collects the directory without granting anything.
         """
+        await lock_role_changes(self.session, self.organization_id)
         await self.session.execute(
             update(ExternalUser)
             .where(ExternalUser.id == external_user.id)
@@ -627,6 +646,7 @@ class SCIMService(BaseOrgService):
 
     async def deactivate_external_user(self, user_id: UUID) -> None:
         """Clear the active flag, keeping the row and its group links."""
+        await lock_role_changes(self.session, self.organization_id)
         await self.session.execute(
             update(ExternalUser)
             .where(

@@ -33,7 +33,9 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    and_,
     func,
+    null,
     select,
     text,
     type_coerce,
@@ -5973,6 +5975,38 @@ class ExternalGroupMapping(Base, TimestampMixin):
     group_id: Mapped[uuid.UUID] = mapped_column(UUID, index=True)
 
 
+# One effective person per target group; shadow membership has no added_at.
+_group_member_paths = union_all(
+    select(GroupMember.group_id, GroupMember.user_id, GroupMember.added_at),
+    select(
+        ExternalGroupMapping.group_id, ExternalUser.user_id, null().label("added_at")
+    )
+    .join_from(
+        ExternalGroupMapping,
+        ExternalGroupMember,
+        ExternalGroupMember.external_group_id == ExternalGroupMapping.external_group_id,
+    )
+    .join(ExternalUser, ExternalUser.id == ExternalGroupMember.external_user_id)
+    .join(
+        OrganizationMembership,
+        and_(
+            OrganizationMembership.user_id == ExternalUser.user_id,
+            OrganizationMembership.organization_id == ExternalUser.organization_id,
+        ),
+    )
+    .where(ExternalUser.active),
+).subquery("group_member_paths")
+effective_group_members = (
+    select(
+        _group_member_paths.c.group_id,
+        _group_member_paths.c.user_id,
+        func.max(_group_member_paths.c.added_at).label("added_at"),
+    )
+    .group_by(_group_member_paths.c.group_id, _group_member_paths.c.user_id)
+    .subquery("effective_group_members")
+)
+
+
 # Workspace membership is derived, never stored: a user is present in a
 # workspace iff they hold a role path there, directly or through a group.
 # type_coerce strips the source columns' foreign keys: the composite one to
@@ -6009,6 +6043,13 @@ _role_paths = union_all(
         ExternalGroupMember.external_group_id == ExternalGroupMapping.external_group_id,
     )
     .join(ExternalUser, ExternalUser.id == ExternalGroupMember.external_user_id)
+    .join(
+        OrganizationMembership,
+        and_(
+            OrganizationMembership.user_id == ExternalUser.user_id,
+            OrganizationMembership.organization_id == ExternalUser.organization_id,
+        ),
+    )
     .where(ExternalUser.active),
 ).subquery("role_paths")
 

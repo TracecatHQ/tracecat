@@ -13720,8 +13720,8 @@ export const scimPatchUser = (
  * Delete User
  * Deprovision a user. Already-removed is success, not an error.
  *
- * The service keeps raising ``NoResultFound``; idempotency is a property of
- * this transport, not of deprovisioning.
+ * Known identities remain addressable and inactive. Unknown resource IDs
+ * return the same idempotent success without changing another tenant.
  * @param data The data for the request.
  * @param data.resourceId
  * @returns void Successful Response

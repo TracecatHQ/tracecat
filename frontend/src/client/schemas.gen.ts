@@ -15459,8 +15459,15 @@ export const $GroupMemberRead = {
       title: "Last Name",
     },
     added_at: {
-      type: "string",
-      format: "date-time",
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Added At",
     },
   },
@@ -15530,6 +15537,11 @@ export const $GroupReadWithMembers = {
       type: "integer",
       title: "Member Count",
       default: 0,
+    },
+    is_idp_managed: {
+      type: "boolean",
+      title: "Is Idp Managed",
+      default: false,
     },
   },
   type: "object",
@@ -24348,6 +24360,9 @@ export const $ScimConnectionRead = {
       type: "string",
       title: "Preview",
     },
+    status: {
+      $ref: "#/components/schemas/ScimConnectionStatus",
+    },
     last_used_at: {
       anyOf: [
         {
@@ -24384,10 +24399,24 @@ export const $ScimConnectionRead = {
     },
   },
   type: "object",
-  required: ["id", "organization_id", "preview", "created_at", "updated_at"],
+  required: [
+    "id",
+    "organization_id",
+    "preview",
+    "status",
+    "created_at",
+    "updated_at",
+  ],
   title: "ScimConnectionRead",
   description:
     "Status of an organization's SCIM connection. Never carries the token.",
+} as const
+
+export const $ScimConnectionStatus = {
+  type: "string",
+  enum: ["pending", "active", "disabled"],
+  title: "ScimConnectionStatus",
+  description: "Whether the provider's pushes admit users yet.",
 } as const
 
 export const $ScimConnectionTokenRead = {
