@@ -23,7 +23,7 @@ from tracecat.identifiers import WorkspaceID
 from tracecat.pagination import Page, PageParams, paginate
 from tracecat.secrets.schemas import SecretStoreCreate, SecretStoreUpdate
 from tracecat.service import BaseOrgService
-from tracecat_ee.secrets.backends import get_backend, parse_store_config
+from tracecat_ee.secrets.stores.backends import get_backend, parse_store_config
 
 
 class SecretStoresService(BaseOrgService):

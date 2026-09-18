@@ -50,7 +50,7 @@ from temporalio.worker.workflow_sandbox import (
 
 with workflow.unsafe.imports_passed_through():
     import uvloop
-    from tracecat_ee.secrets.workflow import (
+    from tracecat_ee.secrets.references.workflows import (
         SecretReferenceCheckWorkflow,
         check_secret_reference_activity,
     )

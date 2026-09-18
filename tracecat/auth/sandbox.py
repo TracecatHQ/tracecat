@@ -9,7 +9,7 @@ from types import TracebackType
 from typing import Any, Self
 
 from pydantic import SecretStr
-from tracecat_ee.secrets.backends import get_backend
+from tracecat_ee.secrets.stores.backends import get_backend
 
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.auth.types import Role

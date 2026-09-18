@@ -12,8 +12,8 @@ from typing import Any, Self
 
 import pytest
 from botocore.exceptions import ClientError, EndpointConnectionError
-from tracecat_ee.secrets import aws_secrets_manager as asm
-from tracecat_ee.secrets.aws_secrets_manager import (
+from tracecat_ee.secrets.providers import aws_secrets_manager as asm
+from tracecat_ee.secrets.providers.aws_secrets_manager import (
     AwsSecretResolutionError,
     check_aws_secret_reference,
     project_secret_string,

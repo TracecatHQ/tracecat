@@ -11,9 +11,9 @@ from pydantic import ValidationError
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from tracecat_ee.secrets import router, workflow
-from tracecat_ee.secrets.service import ExternalSecretsService
-from tracecat_ee.secrets.store_service import SecretStoresService
+from tracecat_ee.secrets.references import router, workflows
+from tracecat_ee.secrets.references.service import SecretReferencesService
+from tracecat_ee.secrets.stores.service import SecretStoresService
 
 from tracecat import config
 from tracecat.agent import service as agent_service
@@ -83,11 +83,11 @@ async def test_check_dispatches_to_executor_without_resolving_in_api(
         id=SecretUUID.new(uuid.uuid4()), source=SecretSource.AWS_SECRETS_MANAGER
     )
     monkeypatch.setattr(
-        ExternalSecretsService, "get_secret", AsyncMock(return_value=secret)
+        SecretReferencesService, "get_secret", AsyncMock(return_value=secret)
     )
     local_check = AsyncMock(side_effect=AssertionError("AWS must run on executor"))
     monkeypatch.setattr(
-        ExternalSecretsService, "check_aws_secret_reference", local_check
+        SecretReferencesService, "check_aws_secret_reference", local_check
     )
     expected = SecretReferenceCheckResult(ok=True, resolved_keys=["TOKEN"])
     client = MagicMock(execute_workflow=AsyncMock(return_value=expected))
@@ -129,10 +129,10 @@ async def test_executor_reloads_reference_and_sanitizes_failures(
         assert role.workspace_id is not None
         yield service
 
-    monkeypatch.setattr(ExternalSecretsService, "with_session", with_session)
+    monkeypatch.setattr(SecretReferencesService, "with_session", with_session)
     entitlement = AsyncMock()
-    monkeypatch.setattr(workflow, "check_entitlement", entitlement)
-    result = await workflow.check_secret_reference_activity(
+    monkeypatch.setattr(workflows, "check_entitlement", entitlement)
+    result = await workflows.check_secret_reference_activity(
         SecretReferenceCheckRequest(role=role, secret_id=secret.id)
     )
     entitlement.assert_awaited_once()
@@ -161,7 +161,7 @@ async def test_collection_queries_are_bounded_and_cursors_are_scoped(
         all=lambda: [(store, timestamp, store.id) for store in stores]
     )
     list_page = (
-        ExternalSecretsService(session, role).list_authorized_stores
+        SecretReferencesService(session, role).list_authorized_stores
         if workspace
         else SecretStoresService(session, role).list_stores
     )
@@ -185,7 +185,7 @@ async def test_collection_queries_are_bounded_and_cursors_are_scoped(
 
     other_role = role.model_copy(update={"organization_id": uuid.uuid4()})
     other_list = (
-        ExternalSecretsService(session, other_role).list_authorized_stores
+        SecretReferencesService(session, other_role).list_authorized_stores
         if workspace
         else SecretStoresService(session, other_role).list_stores
     )
