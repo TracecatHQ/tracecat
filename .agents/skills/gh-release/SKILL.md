@@ -85,15 +85,20 @@ build; for a stable release, verify `latest` points to the new image manifests.
 
 If image publication fails, stop before creating the GitHub release. Report the
 existing branch/tag and failed run; never move the tag or automatically cut a
-replacement. A rebuild uses the existing tag as both ref and input:
+replacement. To rebuild, use a separate trusted, updated `main` checkout and run:
 
 ```sh
-gh workflow run build-push-images.yml --ref '<tag>' --field 'tag=<tag>'
+uv run python scripts/rebuild_release_images.py '<tag>'
 ```
 
-Do not dispatch from `main` with an unrelated tag input. The image workflow
-rejects ref/tag mismatches. For a retry, verify the run ID, event, and release
-commit rather than accepting an older successful run.
+The helper requires the remote tag's workflow to exactly match the committed
+publisher in that checkout before dispatching with the tag as both ref and
+input. An older tag runs its own historical workflow, so guards on `main`
+cannot protect a direct dispatch or rerun. On a mismatch or lookup failure,
+stop; never bypass the helper or move the tag. A new release containing the
+current publisher requires a separately approved release plan. For a retry,
+verify the run ID, event, and release commit rather than accepting an older
+successful run.
 
 ## Release notes
 
