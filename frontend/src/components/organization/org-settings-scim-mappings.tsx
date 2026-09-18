@@ -2,7 +2,14 @@
 
 import { ArrowRightIcon, Loader2, Trash2Icon, UsersIcon } from "lucide-react"
 import { useState } from "react"
+import type {
+  ExternalGroupMappingRead,
+  ScimActivationReviewRead,
+  ScimConnectionStatus,
+} from "@/client"
+import { ConfirmDestructiveDialog } from "@/components/confirm-destructive-dialog"
 import { CenteredSpinner } from "@/components/loading/spinner"
+import { ScimReviewDialog } from "@/components/organization/scim-review-dialog"
 import { Button } from "@/components/ui/button"
 import {
   Empty,
@@ -26,7 +33,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { useScimExternalGroups, useScimMappings } from "@/hooks/use-scim"
+import {
+  useScimActivation,
+  useScimExternalGroups,
+  useScimMappings,
+} from "@/hooks/use-scim"
 import { useRbacGroups } from "@/lib/hooks"
 
 /**
@@ -36,17 +47,41 @@ import { useRbacGroups } from "@/lib/hooks"
  * users without granting them any access. `connected` reflects whether a SCIM
  * token exists; the editor explains that it stays inert until it does.
  */
-export function OrgSettingsScimMappings({ connected }: { connected: boolean }) {
-  const { externalGroups, externalGroupsIsLoading } = useScimExternalGroups()
+export function OrgSettingsScimMappings({
+  connected,
+  status,
+  revoked,
+}: {
+  connected: boolean
+  status?: ScimConnectionStatus
+  revoked: boolean
+}) {
+  const { review, activate } = useScimActivation()
+  const [drafts, setDrafts] = useState<ExternalGroupMappingRead[]>([])
+  const [reviewActivation, setReviewActivation] = useState(false)
+  const [preview, setPreview] = useState<ScimActivationReviewRead | null>(null)
+  const [removing, setRemoving] = useState<ExternalGroupMappingRead | null>(
+    null
+  )
+  const isPending = status === "pending"
+  const canEdit = !revoked && (isPending || status === "active")
+
+  const { externalGroups, externalGroupsIsLoading, externalGroupsError } =
+    useScimExternalGroups()
   const {
     mappings,
     mappingsIsLoading,
+    mappingsError,
     createMapping,
     createMappingIsPending,
     deleteMapping,
     deleteMappingIsPending,
   } = useScimMappings()
-  const { groups, isLoading: groupsIsLoading } = useRbacGroups()
+  const {
+    groups,
+    isLoading: groupsIsLoading,
+    error: groupsError,
+  } = useRbacGroups()
 
   const [externalGroupId, setExternalGroupId] = useState<string>("")
   const [groupId, setGroupId] = useState<string>("")
@@ -55,17 +90,71 @@ export function OrgSettingsScimMappings({ connected }: { connected: boolean }) {
     if (!externalGroupId || !groupId) {
       return
     }
-    await createMapping({ externalGroupId, groupId })
-    setExternalGroupId("")
-    setGroupId("")
+    if (isPending) {
+      const source = externalGroups?.find(
+        (group) => group.id === externalGroupId
+      )
+      const target = groups?.find((group) => group.id === groupId)
+      if (!source || !target) return
+      if (
+        !drafts.some(
+          (item) =>
+            item.external_group_id === externalGroupId &&
+            item.group_id === groupId
+        )
+      ) {
+        setDrafts([
+          ...drafts,
+          {
+            id: `${externalGroupId}-${groupId}`,
+            external_group_id: externalGroupId,
+            group_id: groupId,
+            external_group_external_id: source.external_id,
+            external_group_display_name: source.display_name,
+            group_name: target.name,
+          },
+        ])
+      }
+      setExternalGroupId("")
+      setGroupId("")
+      return
+    }
+    setReviewActivation(false)
+    setPreview(
+      await review.mutateAsync([
+        { external_group_id: externalGroupId, group_id: groupId },
+      ])
+    )
+  }
+
+  async function confirmReview() {
+    if (!preview) return
+    const proposed = preview.plans.map((plan) => ({
+      external_group_id: plan.external_group_id,
+      group_id: plan.group_id,
+    }))
+    if (reviewActivation) {
+      await activate.mutateAsync(proposed)
+      setDrafts([])
+    } else {
+      const mapping = proposed[0]
+      if (!mapping) return
+      await createMapping({
+        externalGroupId: mapping.external_group_id,
+        groupId: mapping.group_id,
+      })
+      setExternalGroupId("")
+      setGroupId("")
+    }
+    setPreview(null)
   }
 
   const header = (
     <div className="space-y-1">
       <h3 className="text-lg font-medium">Group mappings</h3>
       <p className="text-sm text-muted-foreground">
-        Grant membership of a Tracecat group to everyone in a synced identity
-        provider group. Without a mapping, provisioned users receive no access.
+        Grant group access to active, admitted identity provider users. Pending
+        mappings are drafts until activation.
       </p>
     </div>
   )
@@ -99,13 +188,79 @@ export function OrgSettingsScimMappings({ connected }: { connected: boolean }) {
     )
   }
 
+  if (externalGroupsError || mappingsError || groupsError) {
+    return (
+      <p role="alert">Unable to load group mappings. Reload to try again.</p>
+    )
+  }
+
   const availableExternalGroups = externalGroups ?? []
   const availableGroups = groups ?? []
-  const existingMappings = mappings ?? []
+  const existingMappings = isPending ? drafts : (mappings ?? [])
 
   return (
     <div className="space-y-4">
       {header}
+      {revoked && (
+        <p>Rotate the revoked token before changing SCIM configuration.</p>
+      )}
+      {isPending && (
+        <div className="space-y-2">
+          <p className="text-sm">
+            Directory pushes do not admit users until activation. Add optional
+            draft mappings, then review.
+          </p>
+          <Button
+            disabled={!canEdit || review.isPending || activate.isPending}
+            onClick={() => {
+              setReviewActivation(true)
+              void review
+                .mutateAsync(
+                  drafts.map((item) => ({
+                    external_group_id: item.external_group_id,
+                    group_id: item.group_id,
+                  }))
+                )
+                .then(setPreview)
+                .catch(() => {})
+            }}
+          >
+            Review activation
+          </Button>
+        </div>
+      )}
+      {preview && (
+        <ScimReviewDialog
+          review={preview}
+          activation={reviewActivation}
+          pending={activate.isPending || createMappingIsPending}
+          onClose={() => setPreview(null)}
+          onConfirm={confirmReview}
+        />
+      )}
+      {removing && (
+        <ConfirmDestructiveDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setRemoving(null)
+          }}
+          confirmPhrase={removing.group_name}
+          title="Remove mapping"
+          confirmLabel="Remove mapping"
+          isPending={deleteMappingIsPending}
+          description={
+            (mappings ?? []).filter(
+              (item) => item.group_id === removing.group_id
+            ).length === 1
+              ? "This is the final mapping. Current active, admitted IdP members will be retained as manual members. Their group access will remain."
+              : "Other mappings remain. Members supplied only by this mapping will lose this group path; other grants are preserved."
+          }
+          onConfirm={async () => {
+            await deleteMapping(removing.id)
+            setRemoving(null)
+          }}
+        />
+      )}
 
       {availableExternalGroups.length === 0 ? (
         <Empty className="gap-4 rounded-lg border py-12">
@@ -165,20 +320,28 @@ export function OrgSettingsScimMappings({ connected }: { connected: boolean }) {
             </div>
 
             <Button
-              onClick={handleCreate}
-              disabled={!externalGroupId || !groupId || createMappingIsPending}
+              onClick={() => {
+                void handleCreate().catch(() => {})
+              }}
+              disabled={
+                !canEdit ||
+                !externalGroupId ||
+                !groupId ||
+                createMappingIsPending ||
+                review.isPending
+              }
             >
               {createMappingIsPending ? (
                 <Loader2 className="mr-2 size-4 animate-spin" />
               ) : null}
-              Add mapping
+              {isPending ? "Add draft mapping" : "Review mapping"}
             </Button>
           </div>
 
           {existingMappings.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              No mappings yet. Provisioned users stay without access until you
-              add one.
+              No mappings yet. Admitted users retain their existing grants and
+              organization membership.
             </p>
           ) : (
             <Table>
@@ -203,8 +366,16 @@ export function OrgSettingsScimMappings({ connected }: { connected: boolean }) {
                       <Button
                         variant="ghost"
                         size="icon"
-                        disabled={deleteMappingIsPending}
-                        onClick={() => deleteMapping(mapping.id)}
+                        disabled={
+                          !canEdit || deleteMappingIsPending || review.isPending
+                        }
+                        onClick={() => {
+                          if (isPending)
+                            setDrafts(
+                              drafts.filter((item) => item.id !== mapping.id)
+                            )
+                          else setRemoving(mapping)
+                        }}
                         aria-label={`Remove mapping for ${mapping.external_group_display_name}`}
                       >
                         <Trash2Icon className="size-4 text-muted-foreground" />

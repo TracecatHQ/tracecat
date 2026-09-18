@@ -64,11 +64,21 @@ function ConnectionDetails({ connection }: { connection: ScimConnectionRead }) {
       <dt className="text-muted-foreground">Last used</dt>
       <dd>{formatTimestamp(connection.last_used_at)}</dd>
 
-      <dt className="text-muted-foreground">Status</dt>
+      <dt className="text-muted-foreground">Provisioning status</dt>
+      <dd>
+        {
+          {
+            active: "Active",
+            pending: "Pending activation",
+            disabled: "Disabled",
+          }[connection.status]
+        }
+      </dd>
+      <dt className="text-muted-foreground">Token status</dt>
       <dd>
         {connection.revoked_at
           ? `Revoked ${formatTimestamp(connection.revoked_at)}`
-          : "Active"}
+          : "Valid"}
       </dd>
     </dl>
   )
