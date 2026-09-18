@@ -37,6 +37,7 @@ import {
   ItemTitle,
 } from "@/components/ui/item"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { AwsSecretReferenceCheckButton } from "@/components/workspaces/aws-secret-reference-check-button"
 import { CreateCredentialDialog } from "@/components/workspaces/create-credential-dialog"
 import {
   buildCredentialGroups,
@@ -371,6 +372,18 @@ export function WorkspaceCredentialsInventory() {
                                           secret.environment
                                         )}
                                       </span>
+                                      {secret.source ===
+                                      "aws_secrets_manager" ? (
+                                        <Badge
+                                          variant="outline"
+                                          className="text-[10px]"
+                                          title={
+                                            secret.remote_reference ?? undefined
+                                          }
+                                        >
+                                          AWS · {secret.store_name ?? "store"}
+                                        </Badge>
+                                      ) : null}
                                       {secret.is_corrupted ? (
                                         <Badge
                                           variant="secondary"
@@ -399,19 +412,26 @@ export function WorkspaceCredentialsInventory() {
                                     </div>
                                   </ItemContent>
                                   <ItemActions className="ml-auto flex shrink-0 items-center gap-1.5 pl-3">
-                                    <EditCredentialsDialogTrigger asChild>
-                                      <Button
-                                        variant="outline"
-                                        size="sm"
-                                        className="h-6 border-input bg-background px-2.5 text-[11px] text-foreground hover:bg-muted"
-                                        onClick={(event) => {
-                                          event.stopPropagation()
-                                          setSelectedSecret(secret)
-                                        }}
-                                      >
-                                        Edit
-                                      </Button>
-                                    </EditCredentialsDialogTrigger>
+                                    {secret.source === "aws_secrets_manager" ? (
+                                      <AwsSecretReferenceCheckButton
+                                        workspaceId={workspaceId}
+                                        secretId={secret.id}
+                                      />
+                                    ) : (
+                                      <EditCredentialsDialogTrigger asChild>
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          className="h-6 border-input bg-background px-2.5 text-[11px] text-foreground hover:bg-muted"
+                                          onClick={(event) => {
+                                            event.stopPropagation()
+                                            setSelectedSecret(secret)
+                                          }}
+                                        >
+                                          Edit
+                                        </Button>
+                                      </EditCredentialsDialogTrigger>
+                                    )}
                                     <DeleteSecretAlertDialogTrigger asChild>
                                       <Button
                                         variant="outline"

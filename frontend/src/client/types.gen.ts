@@ -1607,6 +1607,108 @@ export type AwsAssumeRoleAccessRead = {
 }
 
 /**
+ * One declared output key sourced from a top-level JSON field.
+ */
+export type AwsSecretJsonField = {
+  key: string
+  field: string
+}
+
+/**
+ * Declares how a remote AWS secret value maps onto output keys.
+ *
+ * ``whole_string`` maps the entire ``SecretString`` onto exactly one key.
+ * ``json`` maps selected top-level string fields onto declared keys.
+ */
+export type AwsSecretKeyMapping = {
+  mode: AwsSecretMappingMode
+  keys?: Array<string>
+  fields?: Array<AwsSecretJsonField>
+}
+
+/**
+ * How an AWS Secrets Manager value maps onto declared secret keys.
+ */
+export type AwsSecretMappingMode = "whole_string" | "json"
+
+/**
+ * Create a workspace custom secret backed by AWS Secrets Manager.
+ */
+export type AwsSecretReferenceCreate = {
+  name: string
+  description?: string | null
+  environment?: string
+  tags?: {
+    [key: string]: string
+  } | null
+  store_id: string
+  remote_reference: string
+  key_mapping: AwsSecretKeyMapping
+}
+
+/**
+ * Update an AWS-backed workspace secret. Values are never accepted.
+ */
+export type AwsSecretReferenceUpdate = {
+  name?: string | null
+  description?: string | null
+  environment?: string | null
+  tags?: {
+    [key: string]: string
+  } | null
+  store_id?: string | null
+  remote_reference?: string | null
+  key_mapping?: AwsSecretKeyMapping | null
+}
+
+/**
+ * Sanitized failure classes for AWS Secrets Manager resolution.
+ */
+export type AwsSecretResolutionErrorCode =
+  | "store_disabled"
+  | "store_not_authorized"
+  | "assume_role_failed"
+  | "access_denied"
+  | "not_found"
+  | "decryption_failed"
+  | "throttled"
+  | "timeout"
+  | "binary_value"
+  | "malformed_json"
+  | "missing_field"
+  | "non_string_field"
+  | "invalid_mapping"
+  | "region_mismatch"
+  | "unknown"
+
+/**
+ * Persisted provider configuration for an AWS Secrets Manager store.
+ */
+export type AwsSecretsManagerStoreConfig = {
+  provider?: "aws_secrets_manager"
+  role_arn: string
+  region: string
+  external_id: string
+}
+
+/**
+ * Client-supplied fields when creating an AWS Secrets Manager store.
+ */
+export type AwsSecretsManagerStoreCreate = {
+  provider?: "aws_secrets_manager"
+  role_arn: string
+  region: string
+}
+
+/**
+ * Client-supplied fields when updating an AWS Secrets Manager store.
+ */
+export type AwsSecretsManagerStoreUpdate = {
+  role_arn?: string | null
+  region?: string | null
+}
+
+/**
  * Azure AI catalog entry.
  */
 export type AzureAICatalogCreate = {
@@ -4078,6 +4180,10 @@ export type EffectiveEntitlements = {
    * Whether Watchtower agent monitoring is enabled (agent sessions, tool-call telemetry, and controls)
    */
   watchtower?: boolean
+  /**
+   * Whether workspace secrets may reference external secret stores such as AWS Secrets Manager
+   */
+  external_secret_stores?: boolean
 }
 
 /**
@@ -4122,6 +4228,10 @@ export type EntitlementsDict = {
    * Whether Watchtower agent monitoring is enabled (agent sessions, tool-call telemetry, and controls)
    */
   watchtower?: boolean
+  /**
+   * Whether workspace secrets may reference external secret stores such as AWS Secrets Manager
+   */
+  external_secret_stores?: boolean
 }
 
 export type ErrorModel = {
@@ -6094,6 +6204,30 @@ export type OutputType =
       [key: string]: unknown
     }
 
+export type Page_SecretStoreRead_ = {
+  items: Array<SecretStoreRead>
+  /**
+   * Next-page cursor
+   */
+  next_cursor?: string | null
+  /**
+   * Previous-page cursor
+   */
+  prev_cursor?: string | null
+}
+
+export type Page_WorkspaceSecretStoreRead_ = {
+  items: Array<WorkspaceSecretStoreRead>
+  /**
+   * Next-page cursor
+   */
+  next_cursor?: string | null
+  /**
+   * Previous-page cursor
+   */
+  prev_cursor?: string | null
+}
+
 /**
  * Event for when a case payload is changed.
  */
@@ -7413,6 +7547,10 @@ export type SecretRead = {
   created_at: string
   updated_at: string
   workspace_id: string
+  source?: SecretSource
+  store_id?: string | null
+  remote_reference?: string | null
+  remote_key_mapping?: AwsSecretKeyMapping | null
 }
 
 export type SecretReadMinimal = {
@@ -7423,6 +7561,84 @@ export type SecretReadMinimal = {
   keys: Array<string>
   environment: string
   is_corrupted?: boolean
+  source?: SecretSource
+  store_id?: string | null
+  store_name?: string | null
+  remote_reference?: string | null
+}
+
+/**
+ * Outcome of a reference check. Never contains the remote value.
+ */
+export type SecretReferenceCheckResult = {
+  ok: boolean
+  error_code?: AwsSecretResolutionErrorCode | null
+  message?: string | null
+  resolved_keys?: Array<string>
+}
+
+/**
+ * Where a workspace secret's values live.
+ */
+export type SecretSource = "local" | "aws_secrets_manager"
+
+/**
+ * Authorize a workspace to reference a store.
+ */
+export type SecretStoreAuthorizationCreate = {
+  workspace_id: string
+}
+
+export type SecretStoreAuthorizationRead = {
+  id: string
+  store_id: string
+  workspace_id: string
+  created_at: string
+}
+
+/**
+ * Create an organization-owned external secret store.
+ */
+export type SecretStoreCreate = {
+  name: string
+  description?: string | null
+  provider?: SecretStoreProvider
+  config: AwsSecretsManagerStoreCreate
+  enabled?: boolean
+}
+
+/**
+ * Supported external secret store providers.
+ */
+export type SecretStoreProvider = "aws_secrets_manager"
+
+/**
+ * Organization view of a secret store, including trust-policy inputs.
+ */
+export type SecretStoreRead = {
+  id: string
+  organization_id: string
+  name: string
+  description?: string | null
+  provider: SecretStoreProvider
+  config: AwsSecretsManagerStoreConfig
+  enabled: boolean
+  tracecat_aws_account_id?: string | null
+  tracecat_aws_principal_arn?: string | null
+  authorized_workspace_ids?: Array<string>
+  reference_count?: number
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Update an organization-owned secret store. Server-owned fields are immutable.
+ */
+export type SecretStoreUpdate = {
+  name?: string | null
+  description?: string | null
+  config?: AwsSecretsManagerStoreUpdate | null
+  enabled?: boolean | null
 }
 
 /**
@@ -10334,6 +10550,18 @@ export type WorkspaceReadMinimal = {
   name: string
 }
 
+/**
+ * Workspace view of an authorized store. Never exposes the external ID.
+ */
+export type WorkspaceSecretStoreRead = {
+  id: string
+  name: string
+  description?: string | null
+  provider: SecretStoreProvider
+  region: string
+  enabled: boolean
+}
+
 export type WorkspaceSettingsRead = {
   git_provider?: VcsProvider | null
   git_repo_url?: string | null
@@ -11402,6 +11630,37 @@ export type WorkflowsPullWorkflowsData = {
 }
 
 export type WorkflowsPullWorkflowsResponse = PullResult
+
+export type SecretsListAuthorizedSecretStoresData = {
+  cursor?: string | null
+  limit?: number
+  workspaceId: string
+}
+
+export type SecretsListAuthorizedSecretStoresResponse =
+  Page_WorkspaceSecretStoreRead_
+
+export type SecretsCreateAwsSecretReferenceData = {
+  requestBody: AwsSecretReferenceCreate
+  workspaceId: string
+}
+
+export type SecretsCreateAwsSecretReferenceResponse = unknown
+
+export type SecretsUpdateAwsSecretReferenceData = {
+  requestBody: AwsSecretReferenceUpdate
+  secretId: string
+  workspaceId: string
+}
+
+export type SecretsUpdateAwsSecretReferenceResponse = void
+
+export type SecretsCheckAwsSecretReferenceData = {
+  secretId: string
+  workspaceId: string
+}
+
+export type SecretsCheckAwsSecretReferenceResponse = SecretReferenceCheckResult
 
 export type SecretsSearchSecretsData = {
   environment: string
@@ -13154,6 +13413,54 @@ export type OrganizationSecretsDeleteOrgSecretByIdData = {
 }
 
 export type OrganizationSecretsDeleteOrgSecretByIdResponse = void
+
+export type OrganizationSecretStoresListSecretStoresData = {
+  cursor?: string | null
+  limit?: number
+}
+
+export type OrganizationSecretStoresListSecretStoresResponse =
+  Page_SecretStoreRead_
+
+export type OrganizationSecretStoresCreateSecretStoreData = {
+  requestBody: SecretStoreCreate
+}
+
+export type OrganizationSecretStoresCreateSecretStoreResponse = SecretStoreRead
+
+export type OrganizationSecretStoresGetSecretStoreData = {
+  storeId: string
+}
+
+export type OrganizationSecretStoresGetSecretStoreResponse = SecretStoreRead
+
+export type OrganizationSecretStoresUpdateSecretStoreData = {
+  requestBody: SecretStoreUpdate
+  storeId: string
+}
+
+export type OrganizationSecretStoresUpdateSecretStoreResponse = void
+
+export type OrganizationSecretStoresDeleteSecretStoreData = {
+  storeId: string
+}
+
+export type OrganizationSecretStoresDeleteSecretStoreResponse = void
+
+export type OrganizationSecretStoresAuthorizeSecretStoreWorkspaceData = {
+  requestBody: SecretStoreAuthorizationCreate
+  storeId: string
+}
+
+export type OrganizationSecretStoresAuthorizeSecretStoreWorkspaceResponse =
+  SecretStoreAuthorizationRead
+
+export type OrganizationSecretStoresRevokeSecretStoreWorkspaceData = {
+  storeId: string
+  workspaceId: string
+}
+
+export type OrganizationSecretStoresRevokeSecretStoreWorkspaceResponse = void
 
 export type TablesListTablesData = {
   workspaceId: string
@@ -15904,6 +16211,66 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: PullResult
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/secrets/stores": {
+    get: {
+      req: SecretsListAuthorizedSecretStoresData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Page_WorkspaceSecretStoreRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/secrets/aws": {
+    post: {
+      req: SecretsCreateAwsSecretReferenceData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/secrets/aws/{secret_id}": {
+    post: {
+      req: SecretsUpdateAwsSecretReferenceData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/secrets/aws/{secret_id}/check": {
+    post: {
+      req: SecretsCheckAwsSecretReferenceData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SecretReferenceCheckResult
         /**
          * Validation Error
          */
@@ -19258,6 +19625,105 @@ export type $OpenApiTs = {
     }
     delete: {
       req: OrganizationSecretsDeleteOrgSecretByIdData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/secret-stores": {
+    get: {
+      req: OrganizationSecretStoresListSecretStoresData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Page_SecretStoreRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: OrganizationSecretStoresCreateSecretStoreData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: SecretStoreRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/secret-stores/{store_id}": {
+    get: {
+      req: OrganizationSecretStoresGetSecretStoreData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SecretStoreRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: OrganizationSecretStoresUpdateSecretStoreData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: OrganizationSecretStoresDeleteSecretStoreData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/secret-stores/{store_id}/authorizations": {
+    post: {
+      req: OrganizationSecretStoresAuthorizeSecretStoreWorkspaceData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: SecretStoreAuthorizationRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/secret-stores/{store_id}/authorizations/{workspace_id}": {
+    delete: {
+      req: OrganizationSecretStoresRevokeSecretStoreWorkspaceData
       res: {
         /**
          * Successful Response

@@ -387,7 +387,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                           {item.badgeCount ? (
                             <SidebarMenuBadge
                               aria-label={item.badgeLabel}
-                              className="top-1/2 -translate-y-1/2 bg-violet-500/10 text-violet-700 peer-data-[size=default]/menu-button:top-1/2 peer-data-[size=lg]/menu-button:top-1/2 peer-data-[size=sm]/menu-button:top-1/2 dark:text-violet-300"
+                              className="bg-violet-500/10 text-violet-700 dark:text-violet-300"
                             >
                               {formatPendingApprovalCount(item.badgeCount)}
                             </SidebarMenuBadge>

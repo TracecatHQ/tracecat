@@ -9,7 +9,11 @@ from sqlalchemy import select
 from tracecat.db.models import Secret
 from tracecat.secrets.enums import SecretType
 from tracecat.secrets.schemas import SecretKeyValue
-from tracecat.secrets.service import SecretsService
+from tracecat.secrets.service import (
+    SecretsService,
+    is_external_reference,
+    secret_key_names,
+)
 from tracecat.workspace_sync.adapters.base import (
     EnvironmentScopedManifestAdapter,
     ImportedResource,
@@ -113,12 +117,10 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
             source_id = assigner.assign_environment(
                 secret.id, secret.environment, secret.name
             )
-            # Decrypt only to read the key NAMES; secret values are never read
-            # back out or serialized into the projected spec.
-            keys = sorted(
-                key_value.key
-                for key_value in secret_service.decrypt_keys(secret.encrypted_keys)
-            )
+            # Only key NAMES are read; secret values are never read back out
+            # or serialized into the projected spec. AWS-backed rows return
+            # their declared keys without any remote call.
+            keys = sorted(secret_key_names(secret_service, secret))
             specs[source_id] = SecretMetadataResourceSpec(
                 id=source_id,
                 name=secret.name,
@@ -180,6 +182,26 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
             # Pull the current decrypted values so existing keys keep their
             # secret values across the sync; the spec only carries key names.
             existing_values: dict[str, SecretStr] = {}
+            if secret is not None and is_external_reference(secret):
+                # The store owns the values, so keys and type can only change
+                # in the target. Reject a spec that disagrees instead of
+                # reporting a silent partial import.
+                declared_keys = sorted(secret_key_names(secret_service, secret))
+                spec_type = SecretType(spec.secret_type or SecretType.CUSTOM.value)
+                if sorted(spec.keys) != declared_keys or spec_type != secret.type:
+                    raise ValueError(
+                        f"Secret metadata sync source id {source_id!r} targets an "
+                        f"externally backed secret {secret.name!r}; its keys and "
+                        "type must be changed in the target workspace, not synced."
+                    )
+                secret.name = spec.name
+                secret.environment = spec.environment
+                secret.tags = dict.fromkeys(spec.tags, "") if spec.tags else None
+                secret.description = spec.description
+                workspace_service.session.add(secret)
+                await workspace_service.session.flush()
+                imported.append(self.imported_resource(source_id, secret.id))
+                continue
             if secret is not None:
                 existing_values = {
                     key_value.key: key_value.value
