@@ -37,9 +37,11 @@ def upgrade() -> None:
         sa.Column("name", sa.String(length=255), nullable=False),
         sa.Column("description", sa.String(length=1000), nullable=True),
         sa.Column("provider", sa.String(length=64), nullable=False),
-        sa.Column("role_arn", sa.String(length=2048), nullable=False),
-        sa.Column("region", sa.String(length=64), nullable=False),
-        sa.Column("external_id", sa.String(length=255), nullable=False),
+        sa.Column(
+            "config",
+            postgresql.JSONB(astext_type=sa.Text()),
+            nullable=False,
+        ),
         sa.Column(
             "enabled",
             sa.Boolean(),

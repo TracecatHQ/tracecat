@@ -6137,6 +6137,103 @@ export const $AwsSecretResolutionErrorCode = {
   description: "Sanitized failure classes for AWS Secrets Manager resolution.",
 } as const
 
+export const $AwsSecretsManagerStoreConfig = {
+  properties: {
+    provider: {
+      type: "string",
+      const: "aws_secrets_manager",
+      title: "Provider",
+      default: "aws_secrets_manager",
+    },
+    role_arn: {
+      type: "string",
+      maxLength: 2048,
+      pattern: "^arn:aws(?:-[a-z]+)*:iam::\\d{12}:role/[\\w+=,.@/-]+$",
+      title: "Role Arn",
+    },
+    region: {
+      type: "string",
+      maxLength: 64,
+      pattern: "^[a-z]{2}(?:-[a-z]+)+-\\d$",
+      title: "Region",
+    },
+    external_id: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "External Id",
+    },
+  },
+  type: "object",
+  required: ["role_arn", "region", "external_id"],
+  title: "AwsSecretsManagerStoreConfig",
+  description:
+    "Persisted provider configuration for an AWS Secrets Manager store.",
+} as const
+
+export const $AwsSecretsManagerStoreCreate = {
+  properties: {
+    provider: {
+      type: "string",
+      const: "aws_secrets_manager",
+      title: "Provider",
+      default: "aws_secrets_manager",
+    },
+    role_arn: {
+      type: "string",
+      maxLength: 2048,
+      pattern: "^arn:aws(?:-[a-z]+)*:iam::\\d{12}:role/[\\w+=,.@/-]+$",
+      title: "Role Arn",
+    },
+    region: {
+      type: "string",
+      maxLength: 64,
+      pattern: "^[a-z]{2}(?:-[a-z]+)+-\\d$",
+      title: "Region",
+    },
+  },
+  type: "object",
+  required: ["role_arn", "region"],
+  title: "AwsSecretsManagerStoreCreate",
+  description:
+    "Client-supplied fields when creating an AWS Secrets Manager store.",
+} as const
+
+export const $AwsSecretsManagerStoreUpdate = {
+  properties: {
+    role_arn: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 2048,
+          pattern: "^arn:aws(?:-[a-z]+)*:iam::\\d{12}:role/[\\w+=,.@/-]+$",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Role Arn",
+    },
+    region: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 64,
+          pattern: "^[a-z]{2}(?:-[a-z]+)+-\\d$",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Region",
+    },
+  },
+  type: "object",
+  title: "AwsSecretsManagerStoreUpdate",
+  description:
+    "Client-supplied fields when updating an AWS Secrets Manager store.",
+} as const
+
 export const $AzureAICatalogCreate = {
   properties: {
     display_name: {
@@ -24351,17 +24448,8 @@ export const $SecretStoreCreate = {
       $ref: "#/components/schemas/SecretStoreProvider",
       default: "aws_secrets_manager",
     },
-    role_arn: {
-      type: "string",
-      maxLength: 2048,
-      pattern: "^arn:aws(?:-[a-z]+)*:iam::\\d{12}:role/[\\w+=,.@/-]+$",
-      title: "Role Arn",
-    },
-    region: {
-      type: "string",
-      maxLength: 64,
-      pattern: "^[a-z]{2}(?:-[a-z]+)+-\\d$",
-      title: "Region",
+    config: {
+      $ref: "#/components/schemas/AwsSecretsManagerStoreCreate",
     },
     enabled: {
       type: "boolean",
@@ -24370,9 +24458,9 @@ export const $SecretStoreCreate = {
     },
   },
   type: "object",
-  required: ["name", "role_arn", "region"],
+  required: ["name", "config"],
   title: "SecretStoreCreate",
-  description: "Create an organization-owned AWS Secrets Manager store.",
+  description: "Create an organization-owned external secret store.",
 } as const
 
 export const $SecretStoreProvider = {
@@ -24412,17 +24500,8 @@ export const $SecretStoreRead = {
     provider: {
       $ref: "#/components/schemas/SecretStoreProvider",
     },
-    role_arn: {
-      type: "string",
-      title: "Role Arn",
-    },
-    region: {
-      type: "string",
-      title: "Region",
-    },
-    external_id: {
-      type: "string",
-      title: "External Id",
+    config: {
+      $ref: "#/components/schemas/AwsSecretsManagerStoreConfig",
     },
     enabled: {
       type: "boolean",
@@ -24480,9 +24559,7 @@ export const $SecretStoreRead = {
     "organization_id",
     "name",
     "provider",
-    "role_arn",
-    "region",
-    "external_id",
+    "config",
     "enabled",
     "created_at",
     "updated_at",
@@ -24519,31 +24596,15 @@ export const $SecretStoreUpdate = {
       ],
       title: "Description",
     },
-    role_arn: {
+    config: {
       anyOf: [
         {
-          type: "string",
-          maxLength: 2048,
-          pattern: "^arn:aws(?:-[a-z]+)*:iam::\\d{12}:role/[\\w+=,.@/-]+$",
+          $ref: "#/components/schemas/AwsSecretsManagerStoreUpdate",
         },
         {
           type: "null",
         },
       ],
-      title: "Role Arn",
-    },
-    region: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 64,
-          pattern: "^[a-z]{2}(?:-[a-z]+)+-\\d$",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Region",
     },
     enabled: {
       anyOf: [
@@ -24560,7 +24621,7 @@ export const $SecretStoreUpdate = {
   type: "object",
   title: "SecretStoreUpdate",
   description:
-    "Update an organization-owned secret store. The external ID is immutable.",
+    "Update an organization-owned secret store. Server-owned fields are immutable.",
 } as const
 
 export const $SecretType = {

@@ -1,8 +1,6 @@
 """Tests for AgentManagementService credential and runtime behavior."""
 
 import uuid
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from typing import cast
 from unittest.mock import AsyncMock
@@ -21,7 +19,6 @@ from tracecat.agent.preset.activities import _load_custom_model_provider_creds
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.types import AgentConfig
-from tracecat.auth import sandbox as auth_sandbox
 from tracecat.auth.types import Role
 from tracecat.db.models import (
     AgentCatalog,
@@ -38,8 +35,7 @@ from tracecat.secrets import secrets_manager
 from tracecat.secrets.encryption import encrypt_keyvalues
 from tracecat.secrets.enums import SecretSource, SecretType
 from tracecat.secrets.schemas import SecretKeyValue
-from tracecat.secrets.service import SecretsService
-from tracecat.secrets.types import AwsSecretReference
+from tracecat.secrets.types import ExternalSecretReference
 
 
 @pytest.fixture
@@ -81,9 +77,13 @@ async def test_workspace_provider_credentials_resolve_source_and_preserve_fallba
             organization_id=role.organization_id,
             name="test-store",
             enabled=True,
-            role_arn="arn:aws:iam::123456789012:role/test-reader",
-            external_id="test-external-id",
-            region="us-east-1",
+            provider="aws_secrets_manager",
+            config={
+                "provider": "aws_secrets_manager",
+                "role_arn": "arn:aws:iam::123456789012:role/test-reader",
+                "region": "us-east-1",
+                "external_id": "test-external-id",
+            },
         )
         secret.remote_reference = "test-provider-key"
         secret.remote_key_mapping = {"mode": "whole_string", "keys": ["OPENAI_API_KEY"]}
@@ -91,24 +91,19 @@ async def test_workspace_provider_credentials_resolve_source_and_preserve_fallba
     search = AsyncMock(return_value=[secret])
     monkeypatch.setattr(service.secrets_service, "search_secrets", search)
 
-    @asynccontextmanager
-    async def with_session(**kwargs: object) -> AsyncIterator[SecretsService]:
-        yield service.secrets_service
+    class _StubBackend:
+        """Local-source secrets must never reach a store backend."""
 
-    monkeypatch.setattr(SecretsService, "with_session", with_session)
-
-    async def resolve(
-        references: list[AwsSecretReference],
-    ) -> dict[str, dict[str, str]]:
-        if source == "aws":
+        async def resolve(
+            self, references: list[ExternalSecretReference]
+        ) -> dict[str, dict[str, str]]:
+            assert source == "aws"
             assert len(references) == 1
             assert secret.store is not None
             assert references[0].store_id == secret.store.id
             return {"openai": {"OPENAI_API_KEY": "remote-key"}}
-        assert references == []
-        return {}
 
-    monkeypatch.setattr(auth_sandbox, "resolve_aws_secret_references", resolve)
+    monkeypatch.setattr(agent_service, "get_backend", lambda provider: _StubBackend())
     assert service.presets is not None
     monkeypatch.setattr(
         service.presets,

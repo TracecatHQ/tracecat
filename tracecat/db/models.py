@@ -769,9 +769,7 @@ class OrganizationSecretStore(OrganizationModel):
     provider: Mapped[str] = mapped_column(
         String(64), nullable=False, default="aws_secrets_manager"
     )
-    role_arn: Mapped[str] = mapped_column(String(2048), nullable=False)
-    region: Mapped[str] = mapped_column(String(64), nullable=False)
-    external_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    config: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default=text("true")
     )

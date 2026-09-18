@@ -1601,6 +1601,33 @@ export type AwsSecretResolutionErrorCode =
   | "unknown"
 
 /**
+ * Persisted provider configuration for an AWS Secrets Manager store.
+ */
+export type AwsSecretsManagerStoreConfig = {
+  provider?: "aws_secrets_manager"
+  role_arn: string
+  region: string
+  external_id: string
+}
+
+/**
+ * Client-supplied fields when creating an AWS Secrets Manager store.
+ */
+export type AwsSecretsManagerStoreCreate = {
+  provider?: "aws_secrets_manager"
+  role_arn: string
+  region: string
+}
+
+/**
+ * Client-supplied fields when updating an AWS Secrets Manager store.
+ */
+export type AwsSecretsManagerStoreUpdate = {
+  role_arn?: string | null
+  region?: string | null
+}
+
+/**
  * Azure AI catalog entry.
  */
 export type AzureAICatalogCreate = {
@@ -7372,14 +7399,13 @@ export type SecretStoreAuthorizationRead = {
 }
 
 /**
- * Create an organization-owned AWS Secrets Manager store.
+ * Create an organization-owned external secret store.
  */
 export type SecretStoreCreate = {
   name: string
   description?: string | null
   provider?: SecretStoreProvider
-  role_arn: string
-  region: string
+  config: AwsSecretsManagerStoreCreate
   enabled?: boolean
 }
 
@@ -7397,9 +7423,7 @@ export type SecretStoreRead = {
   name: string
   description?: string | null
   provider: SecretStoreProvider
-  role_arn: string
-  region: string
-  external_id: string
+  config: AwsSecretsManagerStoreConfig
   enabled: boolean
   tracecat_aws_account_id?: string | null
   tracecat_aws_principal_arn?: string | null
@@ -7410,13 +7434,12 @@ export type SecretStoreRead = {
 }
 
 /**
- * Update an organization-owned secret store. The external ID is immutable.
+ * Update an organization-owned secret store. Server-owned fields are immutable.
  */
 export type SecretStoreUpdate = {
   name?: string | null
   description?: string | null
-  role_arn?: string | null
-  region?: string | null
+  config?: AwsSecretsManagerStoreUpdate | null
   enabled?: boolean | null
 }
 

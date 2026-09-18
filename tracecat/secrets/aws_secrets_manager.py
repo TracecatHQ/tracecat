@@ -11,6 +11,7 @@ exception chains: every failure is re-raised as a sanitized
 from __future__ import annotations
 
 import asyncio
+import secrets as std_secrets
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -23,14 +24,27 @@ from botocore.exceptions import BotoCoreError, ClientError
 
 from tracecat.exceptions import TracecatCredentialsError
 from tracecat.logger import logger
-from tracecat.secrets.enums import AwsSecretMappingMode, AwsSecretResolutionErrorCode
-from tracecat.secrets.types import AwsSecretReference
+from tracecat.secrets.enums import (
+    AwsSecretMappingMode,
+    AwsSecretResolutionErrorCode,
+    SecretStoreProvider,
+)
+from tracecat.secrets.schemas import (
+    AwsSecretsManagerStoreConfig,
+    AwsSecretsManagerStoreCreate,
+    AwsSecretsManagerStoreUpdate,
+)
+from tracecat.secrets.types import (
+    CheckResult,
+    ExternalSecretReference,
+)
 
 _CONNECT_TIMEOUT_SECONDS = 5
 _READ_TIMEOUT_SECONDS = 10
 _MAX_ATTEMPTS = 3
 _ROLE_SESSION_NAME_MAX_LEN = 64
 _AWSCURRENT = "AWSCURRENT"
+_EXTERNAL_ID_BYTES = 24
 
 _STS_CODE_TO_ERROR: dict[str, AwsSecretResolutionErrorCode] = {
     "AccessDenied": AwsSecretResolutionErrorCode.ASSUME_ROLE_FAILED,
@@ -95,7 +109,7 @@ def _client_config() -> AioConfig:
     )
 
 
-def _role_session_name(reference: AwsSecretReference) -> str:
+def _role_session_name(reference: ExternalSecretReference) -> str:
     store_short = str(reference.store_id).replace("-", "")[:12]
     return f"tracecat-secretstore-{store_short}"[:_ROLE_SESSION_NAME_MAX_LEN]
 
@@ -127,7 +141,7 @@ def _classify_client_error(
     return table.get(code, AwsSecretResolutionErrorCode.UNKNOWN), code
 
 
-async def _fetch_secret_string(reference: AwsSecretReference) -> _FetchOutcome:
+async def _fetch_secret_string(reference: ExternalSecretReference) -> _FetchOutcome:
     """Assume the store role and read the AWSCURRENT SecretString.
 
     Returns an outcome instead of raising so the caller can raise the
@@ -135,17 +149,17 @@ async def _fetch_secret_string(reference: AwsSecretReference) -> _FetchOutcome:
     """
     if not reference.store_enabled:
         return _FetchOutcome(failure=AwsSecretResolutionErrorCode.STORE_DISABLED)
-    if not reference_region_matches(reference.secret_arn, reference.region):
+    if not reference_region_matches(reference.key, reference.store_config.region):
         return _FetchOutcome(failure=AwsSecretResolutionErrorCode.REGION_MISMATCH)
 
     config = _client_config()
-    session = aioboto3.Session(region_name=reference.region)
+    session = aioboto3.Session(region_name=reference.store_config.region)
     try:
         async with session.client("sts", config=config) as sts_client:
             assumed = await sts_client.assume_role(
-                RoleArn=reference.role_arn,
+                RoleArn=reference.store_config.role_arn,
                 RoleSessionName=_role_session_name(reference),
-                ExternalId=reference.external_id,
+                ExternalId=reference.store_config.external_id,
             )
     except ClientError as e:
         failure, aws_code = _classify_client_error(e, _STS_CODE_TO_ERROR)
@@ -165,7 +179,7 @@ async def _fetch_secret_string(reference: AwsSecretReference) -> _FetchOutcome:
             aws_session_token=credentials["SessionToken"],
         ) as sm_client:
             response = await sm_client.get_secret_value(
-                SecretId=reference.secret_arn, VersionStage=_AWSCURRENT
+                SecretId=reference.key, VersionStage=_AWSCURRENT
             )
     except ClientError as e:
         failure, aws_code = _classify_client_error(e, _SECRETS_CODE_TO_ERROR)
@@ -180,7 +194,7 @@ async def _fetch_secret_string(reference: AwsSecretReference) -> _FetchOutcome:
 
 
 def project_secret_string(
-    reference: AwsSecretReference, secret_string: str
+    reference: ExternalSecretReference, secret_string: str
 ) -> dict[str, str] | AwsSecretResolutionErrorCode:
     """Map a SecretString onto declared output keys.
 
@@ -212,7 +226,7 @@ def project_secret_string(
 
 
 async def resolve_aws_secret_references(
-    references: Sequence[AwsSecretReference],
+    references: Sequence[ExternalSecretReference],
 ) -> dict[str, dict[str, str]]:
     """Resolve AWS-backed aliases to ``{alias: {key: value}}``.
 
@@ -223,7 +237,7 @@ async def resolve_aws_secret_references(
     if not references:
         return {}
 
-    unique: dict[tuple[UUID, str], AwsSecretReference] = {}
+    unique: dict[tuple[UUID, str], ExternalSecretReference] = {}
     for reference in references:
         unique.setdefault(reference.fetch_key, reference)
 
@@ -271,7 +285,7 @@ async def resolve_aws_secret_references(
 
 
 async def check_aws_secret_reference(
-    reference: AwsSecretReference,
+    reference: ExternalSecretReference,
 ) -> tuple[bool, AwsSecretResolutionErrorCode | None, str | None, list[str]]:
     """Verify a reference resolves. Returns ``(ok, error_code, aws_code, keys)``.
 
@@ -292,9 +306,59 @@ async def check_aws_secret_reference(
     return True, None, None, sorted(projected.keys())
 
 
-def collect_output_keys(references: Iterable[AwsSecretReference]) -> list[str]:
+def collect_output_keys(references: Iterable[ExternalSecretReference]) -> list[str]:
     """Return declared output keys across references without AWS access."""
     keys: list[str] = []
     for reference in references:
         keys.extend(reference.mapping.output_keys())
     return keys
+
+
+def generate_store_external_id() -> str:
+    """Generate an opaque, server-owned AssumeRole external ID."""
+    return f"tracecat-{std_secrets.token_urlsafe(_EXTERNAL_ID_BYTES)}"
+
+
+class AwsSecretsManagerBackend:
+    """AWS Secrets Manager implementation of :class:`SecretStoreBackend`."""
+
+    provider = SecretStoreProvider.AWS_SECRETS_MANAGER
+
+    def new_config(
+        self, params: AwsSecretsManagerStoreCreate
+    ) -> AwsSecretsManagerStoreConfig:
+        """Build a store config with a freshly generated external ID."""
+        return AwsSecretsManagerStoreConfig(
+            role_arn=params.role_arn,
+            region=params.region,
+            external_id=generate_store_external_id(),
+        )
+
+    def update_config(
+        self,
+        config: AwsSecretsManagerStoreConfig,
+        params: AwsSecretsManagerStoreUpdate,
+    ) -> AwsSecretsManagerStoreConfig:
+        """Apply role/region updates. The external ID is never changed."""
+        return config.model_copy(
+            update=params.model_dump(exclude_unset=True, exclude_none=True)
+        )
+
+    def validate_reference(
+        self, config: AwsSecretsManagerStoreConfig, key: str
+    ) -> None:
+        """Reject an ARN whose region disagrees with the store region."""
+        if not reference_region_matches(key, config.region):
+            raise ValueError(
+                f"Secret ARN region must match the store region {config.region!r}."
+            )
+
+    async def resolve(
+        self, references: Sequence[ExternalSecretReference]
+    ) -> dict[str, dict[str, str]]:
+        """Resolve AWS-backed aliases to their declared output keys."""
+        return await resolve_aws_secret_references(references)
+
+    async def check(self, reference: ExternalSecretReference) -> CheckResult:
+        """Verify one AWS-backed reference resolves."""
+        return await check_aws_secret_reference(reference)

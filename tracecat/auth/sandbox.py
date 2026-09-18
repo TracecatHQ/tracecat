@@ -16,16 +16,17 @@ from tracecat.contexts import ctx_role
 from tracecat.db.models import BaseSecret
 from tracecat.exceptions import TracecatCredentialsError
 from tracecat.logger import logger
-from tracecat.secrets.aws_secrets_manager import resolve_aws_secret_references
+from tracecat.secrets.backends import get_backend
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.encryption import decrypt_keyvalues
+from tracecat.secrets.enums import SecretStoreProvider
 from tracecat.secrets.schemas import SecretKeyValue, SecretSearch
 from tracecat.secrets.service import (
     SecretsService,
-    build_aws_secret_reference,
-    is_aws_backed,
+    build_external_secret_reference,
+    is_external_reference,
 )
-from tracecat.secrets.types import AwsSecretReference
+from tracecat.secrets.types import ExternalSecretReference
 
 
 def _run_coroutine_sync[T](coro: Coroutine[Any, Any, T]) -> T:
@@ -64,8 +65,8 @@ class AuthSandbox:
         self._role = role or ctx_role.get()
         self._secret_paths = set(secrets or [])
         self._secret_objs: Sequence[BaseSecret] = []
-        self._aws_references: list[AwsSecretReference] = []
-        self._aws_values: dict[str, dict[str, str]] = {}
+        self._external_references: list[ExternalSecretReference] = []
+        self._external_values: dict[str, dict[str, str]] = {}
         self._context: dict[str, Any] = {}
         self._environment = environment
         self._optional_secrets = set(optional_secrets or [])
@@ -97,18 +98,24 @@ class AuthSandbox:
         return self
 
     async def _load_secrets(self) -> Sequence[BaseSecret]:
-        """Load DB rows, then resolve any AWS-backed aliases remotely.
+        """Load DB rows, then resolve any externally backed aliases remotely.
 
-        The DB session is closed inside ``_get_secrets`` before any AWS call.
-        Configured AWS aliases fail explicitly even when optional.
+        The DB session is closed inside ``_get_secrets`` before any remote call.
+        Configured external aliases fail explicitly even when optional.
         """
         secrets = await self._get_secrets()
-        self._aws_references = [
-            build_aws_secret_reference(secret)
+        self._external_references = [
+            build_external_secret_reference(secret)
             for secret in secrets
-            if is_aws_backed(secret)
+            if is_external_reference(secret)
         ]
-        self._aws_values = await resolve_aws_secret_references(self._aws_references)
+        by_provider: dict[SecretStoreProvider, list[ExternalSecretReference]] = {}
+        for reference in self._external_references:
+            by_provider.setdefault(reference.provider, []).append(reference)
+        self._external_values = {}
+        for provider, references in by_provider.items():
+            resolved = await get_backend(provider).resolve(references)
+            self._external_values.update(resolved)
         return secrets
 
     async def __aexit__(
@@ -128,8 +135,10 @@ class AuthSandbox:
         """Iterate over the secrets."""
         try:
             for secret in self._secret_objs:
-                if is_aws_backed(secret):
-                    for key, value in self._aws_values.get(secret.name, {}).items():
+                if is_external_reference(secret):
+                    for key, value in self._external_values.get(
+                        secret.name, {}
+                    ).items():
                         yield (
                             secret.name,
                             SecretKeyValue(key=key, value=SecretStr(value)),
@@ -160,7 +169,7 @@ class AuthSandbox:
         for secret in self._secret_objs:
             if secret.name in self._context:
                 del self._context[secret.name]
-        self._aws_values.clear()
+        self._external_values.clear()
 
     async def _get_secrets(self) -> Sequence[BaseSecret]:
         """Retrieve secrets from a secrets manager."""

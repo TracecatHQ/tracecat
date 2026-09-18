@@ -42,7 +42,6 @@ from tracecat.agent.schemas import (
     ProviderCredentialConfig,
 )
 from tracecat.agent.types import AgentConfig
-from tracecat.auth.sandbox import AuthSandbox
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
@@ -57,11 +56,21 @@ from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundErro
 from tracecat.integrations.aws_assume_role import build_workspace_external_id
 from tracecat.logger import logger
 from tracecat.secrets import secrets_manager
+from tracecat.secrets.backends import get_backend
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.encryption import decrypt_keyvalues, decrypt_value
 from tracecat.secrets.enums import SecretType
-from tracecat.secrets.schemas import SecretCreate, SecretKeyValue, SecretUpdate
-from tracecat.secrets.service import SecretsService
+from tracecat.secrets.schemas import (
+    SecretCreate,
+    SecretKeyValue,
+    SecretSearch,
+    SecretUpdate,
+)
+from tracecat.secrets.service import (
+    SecretsService,
+    build_external_secret_reference,
+    is_external_reference,
+)
 from tracecat.service import BaseOrgService
 from tracecat.settings.schemas import SettingCreate, SettingUpdate, ValueType
 from tracecat.settings.service import SettingsService
@@ -552,15 +561,23 @@ class AgentManagementService(BaseOrgService):
         self,
         provider: str,
     ) -> dict[str, str] | None:
-        """Resolve local or AWS-backed workspace credentials for an AI provider."""
+        """Resolve local or externally backed workspace credentials for a provider.
+
+        Runs on the caller's session; gateway callers already hold a connection.
+        """
         secret_name = self._get_workspace_credential_secret_name(provider)
-        async with AuthSandbox(
-            role=self.role,
-            secrets=[secret_name],
-            optional_secrets=[secret_name],
-            environment=DEFAULT_SECRETS_ENVIRONMENT,
-        ) as sandbox:
-            return sandbox.secrets.get(secret_name)
+        secrets = await self.secrets_service.search_secrets(
+            SecretSearch(names={secret_name}, environment=DEFAULT_SECRETS_ENVIRONMENT)
+        )
+        if not secrets:
+            return None
+        secret = secrets[0]
+        if is_external_reference(secret):
+            reference = build_external_secret_reference(secret)
+            values = await get_backend(reference.provider).resolve([reference])
+            return values.get(secret_name)
+        decrypted_keys = self.secrets_service.decrypt_keys(secret.encrypted_keys)
+        return {kv.key: kv.value.get_secret_value() for kv in decrypted_keys}
 
     async def _augment_runtime_provider_credentials(
         self, provider: str, credentials: dict[str, str]

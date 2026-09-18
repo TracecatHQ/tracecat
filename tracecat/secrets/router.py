@@ -45,7 +45,11 @@ from tracecat.secrets.schemas import (
     SecretUpdate,
     WorkspaceSecretStoreRead,
 )
-from tracecat.secrets.service import SecretsService, is_aws_backed, secret_key_names
+from tracecat.secrets.service import (
+    SecretsService,
+    is_external_reference,
+    secret_key_names,
+)
 from tracecat.secrets.store_service import SecretStoresService
 
 router = APIRouter(prefix="/secrets", tags=["secrets"])
@@ -64,7 +68,7 @@ def _serialize_secret_read_minimal(
     store_id = None
     store_name = None
     remote_reference = None
-    if is_aws_backed(secret):
+    if is_external_reference(secret):
         source = SecretSource.AWS_SECRETS_MANAGER
         store_id = secret.store_id
         store_name = secret.store.name if secret.store is not None else None

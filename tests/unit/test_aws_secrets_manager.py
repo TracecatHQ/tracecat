@@ -20,12 +20,17 @@ from tracecat.secrets.aws_secrets_manager import (
     project_secret_string,
     resolve_aws_secret_references,
 )
-from tracecat.secrets.enums import AwsSecretMappingMode, AwsSecretResolutionErrorCode
-from tracecat.secrets.types import (
+from tracecat.secrets.enums import (
+    AwsSecretMappingMode,
+    AwsSecretResolutionErrorCode,
+    SecretStoreProvider,
+)
+from tracecat.secrets.schemas import (
     AwsSecretJsonField,
     AwsSecretKeyMapping,
-    AwsSecretReference,
+    AwsSecretsManagerStoreConfig,
 )
+from tracecat.secrets.types import ExternalSecretReference
 
 pytestmark = pytest.mark.anyio
 
@@ -45,17 +50,20 @@ def make_reference(
     secret_arn: str = SECRET_ARN,
     region: str = REGION,
     store_enabled: bool = True,
-) -> AwsSecretReference:
-    return AwsSecretReference(
+    role_arn: str = ROLE_ARN,
+    external_id: str = EXTERNAL_ID,
+) -> ExternalSecretReference:
+    return ExternalSecretReference(
         secret_id=uuid.uuid4(),
         alias=alias,
         environment="default",
         store_id=STORE_ID,
+        provider=SecretStoreProvider.AWS_SECRETS_MANAGER,
         store_enabled=store_enabled,
-        role_arn=ROLE_ARN,
-        external_id=EXTERNAL_ID,
-        region=region,
-        secret_arn=secret_arn,
+        store_config=AwsSecretsManagerStoreConfig(
+            role_arn=role_arn, region=region, external_id=external_id
+        ),
+        key=secret_arn,
         mapping=AwsSecretKeyMapping(
             mode=mode,
             keys=[whole_string_key]
@@ -359,8 +367,11 @@ async def test_stores_use_their_own_region_and_external_id(
         first,
         alias="west",
         store_id=uuid.uuid4(),
-        region="eu-west-1",
-        external_id="tracecat-other-external-id",
+        store_config=AwsSecretsManagerStoreConfig(
+            role_arn=ROLE_ARN,
+            region="eu-west-1",
+            external_id="tracecat-other-external-id",
+        ),
     )
 
     async def get_secret_value(client: _FakeClient, **kwargs: Any) -> dict[str, str]:
@@ -371,8 +382,8 @@ async def test_stores_use_their_own_region_and_external_id(
     resolved = await resolve_aws_secret_references([first, second])
     assert resolved == {"east": {"TOKEN": REGION}, "west": {"TOKEN": "eu-west-1"}}
     assert {call["ExternalId"] for call in fake_aws.sts_calls} == {
-        first.external_id,
-        second.external_id,
+        first.store_config.external_id,
+        second.store_config.external_id,
     }
     assert len(fake_aws.sm_calls) == 2
 
