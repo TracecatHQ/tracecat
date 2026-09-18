@@ -6347,6 +6347,30 @@ export type OutputType =
       [key: string]: unknown
     }
 
+export type Page_SecretStoreRead_ = {
+  items: Array<SecretStoreRead>
+  /**
+   * Next-page cursor
+   */
+  next_cursor?: string | null
+  /**
+   * Previous-page cursor
+   */
+  prev_cursor?: string | null
+}
+
+export type Page_WorkspaceSecretStoreRead_ = {
+  items: Array<WorkspaceSecretStoreRead>
+  /**
+   * Next-page cursor
+   */
+  next_cursor?: string | null
+  /**
+   * Previous-page cursor
+   */
+  prev_cursor?: string | null
+}
+
 /**
  * Event for when a case payload is changed.
  */
@@ -11970,11 +11994,13 @@ export type WorkflowsPullWorkflowsData = {
 export type WorkflowsPullWorkflowsResponse = PullResult
 
 export type SecretsListAuthorizedSecretStoresData = {
+  cursor?: string | null
+  limit?: number
   workspaceId: string
 }
 
 export type SecretsListAuthorizedSecretStoresResponse =
-  Array<WorkspaceSecretStoreRead>
+  Page_WorkspaceSecretStoreRead_
 
 export type SecretsCreateAwsSecretReferenceData = {
   requestBody: AwsSecretReferenceCreate
@@ -13894,8 +13920,13 @@ export type OrganizationSecretsDeleteOrgSecretByIdData = {
 
 export type OrganizationSecretsDeleteOrgSecretByIdResponse = void
 
+export type OrganizationSecretStoresListSecretStoresData = {
+  cursor?: string | null
+  limit?: number
+}
+
 export type OrganizationSecretStoresListSecretStoresResponse =
-  Array<SecretStoreRead>
+  Page_SecretStoreRead_
 
 export type OrganizationSecretStoresCreateSecretStoreData = {
   requestBody: SecretStoreCreate
@@ -16768,7 +16799,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<WorkspaceSecretStoreRead>
+        200: Page_WorkspaceSecretStoreRead_
         /**
          * Validation Error
          */
@@ -20423,11 +20454,16 @@ export type $OpenApiTs = {
   }
   "/organization/secret-stores": {
     get: {
+      req: OrganizationSecretStoresListSecretStoresData
       res: {
         /**
          * Successful Response
          */
-        200: Array<SecretStoreRead>
+        200: Page_SecretStoreRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
       }
     }
     post: {

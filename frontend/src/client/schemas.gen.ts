@@ -6192,7 +6192,7 @@ export const $AwsSecretJsonField = {
       type: "string",
       maxLength: 255,
       minLength: 1,
-      pattern: "[a-zA-Z0-9_]+",
+      pattern: "^[a-zA-Z_][a-zA-Z0-9_]*$",
       title: "Key",
     },
     field: {
@@ -6216,7 +6216,7 @@ export const $AwsSecretKeyMapping = {
     keys: {
       items: {
         type: "string",
-        pattern: "[a-zA-Z0-9_]+",
+        pattern: "^[a-zA-Z_][a-zA-Z0-9_]*$",
       },
       type: "array",
       maxItems: 100,
@@ -20944,6 +20944,84 @@ export const $OutputType = {
       type: "object",
     },
   ],
+} as const
+
+export const $Page_SecretStoreRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/SecretStoreRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Next-page cursor",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Previous-page cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "Page[SecretStoreRead]",
+} as const
+
+export const $Page_WorkspaceSecretStoreRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/WorkspaceSecretStoreRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Next-page cursor",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Previous-page cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "Page[WorkspaceSecretStoreRead]",
 } as const
 
 export const $PayloadChangedEventRead = {

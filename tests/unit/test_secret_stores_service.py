@@ -1,6 +1,7 @@
 """DB-backed tests for organization secret stores and AWS-backed references."""
 
 import uuid
+from unittest.mock import AsyncMock
 
 import pytest
 from pydantic import SecretStr
@@ -12,6 +13,7 @@ from tracecat_ee.secrets.backends import parse_store_config
 from tracecat_ee.secrets.service import ExternalSecretsService
 from tracecat_ee.secrets.store_service import SecretStoresService
 
+from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.db.models import (
     Organization,
@@ -28,6 +30,7 @@ from tracecat.exceptions import (
     TracecatNotFoundError,
     TracecatValidationError,
 )
+from tracecat.pagination import PageParams
 from tracecat.secrets.enums import AwsSecretMappingMode, SecretSource
 from tracecat.secrets.schemas import (
     AwsSecretJsonField,
@@ -87,6 +90,46 @@ def test_external_id_is_opaque_and_unique() -> None:
 
 
 @pytest.mark.anyio
+async def test_store_collections_paginate_without_skips(
+    stores: SecretStoresService,
+    secrets: ExternalSecretsService,
+    svc_workspace: Workspace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__SIGNING_SECRET", "test-pagination-secret")
+    created = []
+    for index in range(3):
+        store = await stores.create_store(
+            SecretStoreCreate(
+                name=f"page-{index}",
+                config=AwsSecretsManagerStoreCreate(role_arn=ROLE_ARN, region=REGION),
+            )
+        )
+        # Exercise the ID tie-breaker with identical timestamps.
+        if created:
+            store.created_at = created[0].created_at
+        created.append(store)
+        await stores.authorize_workspace(store, svc_workspace.id)
+
+    for list_page in (stores.list_stores, secrets.list_authorized_stores):
+        first = await list_page(PageParams(limit=1))
+        assert len(first.items) == 1
+        assert first.next_cursor is not None
+        second = await list_page(PageParams(limit=1, cursor=first.next_cursor))
+        assert second.prev_cursor is not None
+        previous = await list_page(PageParams(limit=1, cursor=second.prev_cursor))
+        assert [s.id for s in previous.items] == [s.id for s in first.items]
+        assert second.next_cursor is not None
+        last = await list_page(PageParams(limit=1, cursor=second.next_cursor))
+        assert last.next_cursor is None
+        assert {s.id for s in first.items + second.items + last.items} == {
+            s.id for s in created
+        }
+        with pytest.raises(TracecatValidationError):
+            await list_page(PageParams(limit=1, cursor="invalid"))
+
+
+@pytest.mark.anyio
 async def test_create_store_persists_external_id_across_updates(
     stores: SecretStoresService,
 ) -> None:
@@ -137,14 +180,14 @@ async def test_reference_requires_workspace_authorization(
             config=AwsSecretsManagerStoreCreate(role_arn=ROLE_ARN, region=REGION),
         )
     )
-    assert await secrets.list_authorized_stores() == []
+    assert (await secrets.list_authorized_stores(PageParams())).items == []
 
     with pytest.raises(TracecatAuthorizationError):
         await secrets.create_aws_secret_reference(reference_params(store.id))
 
     await stores.authorize_workspace(store, svc_workspace.id)
-    authorized = await secrets.list_authorized_stores()
-    assert [s.id for s in authorized] == [store.id]
+    authorized = await secrets.list_authorized_stores(PageParams())
+    assert [s.id for s in authorized.items] == [store.id]
 
     created = await secrets.create_aws_secret_reference(reference_params(store.id))
     assert created.source == SecretSource.AWS_SECRETS_MANAGER
@@ -288,9 +331,38 @@ async def test_store_and_authorization_lifecycle_guards(
     # Deleting the alias only removes Tracecat metadata.
     await secrets.delete_secret(created)
     await stores.revoke_workspace(store, svc_workspace.id)
-    assert await secrets.list_authorized_stores() == []
+    assert (await secrets.list_authorized_stores(PageParams())).items == []
     await stores.delete_store(store)
-    assert await stores.list_stores() == []
+    assert (await stores.list_stores(PageParams())).items == []
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("loaded", [False, True])
+async def test_delete_preserves_references_missed_by_preflight(
+    stores: SecretStoresService,
+    secrets: ExternalSecretsService,
+    svc_workspace: Workspace,
+    session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+    loaded: bool,
+) -> None:
+    store = await stores.create_store(
+        SecretStoreCreate(
+            name="delete-conflict",
+            config=AwsSecretsManagerStoreCreate(role_arn=ROLE_ARN, region=REGION),
+        )
+    )
+    await stores.authorize_workspace(store, svc_workspace.id)
+    reference = await secrets.create_aws_secret_reference(reference_params(store.id))
+    store_id, secret_id = store.id, reference.id
+    if loaded:
+        await session.refresh(store, attribute_names=["secrets"])
+    # Model a reference committed after the count, before the ORM delete.
+    monkeypatch.setattr(stores, "count_references", AsyncMock(return_value={}))
+    with pytest.raises(TracecatConflictError):
+        await stores.delete_store(store)
+    assert (await secrets.get_secret(secret_id)).store_id == store_id
+    assert (await stores.get_store(store_id)).id == store_id
 
 
 @pytest.mark.anyio

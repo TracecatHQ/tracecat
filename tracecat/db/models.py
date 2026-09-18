@@ -793,7 +793,9 @@ class OrganizationSecretStore(OrganizationModel):
         Boolean, nullable=False, default=True, server_default=text("true")
     )
 
-    secrets: Mapped[list[Secret]] = relationship("Secret", back_populates="store")
+    secrets: Mapped[list[Secret]] = relationship(
+        "Secret", back_populates="store", passive_deletes="all"
+    )
     authorizations: Mapped[list[WorkspaceSecretStoreAuthorization]] = relationship(
         "WorkspaceSecretStoreAuthorization",
         back_populates="store",

@@ -27,6 +27,8 @@ from tracecat.secrets.service import (
     is_external_reference,
 )
 from tracecat.secrets.types import ExternalSecretReference
+from tracecat.tiers.entitlements import check_entitlement
+from tracecat.tiers.enums import Entitlement
 
 
 def _run_coroutine_sync[T](coro: Coroutine[Any, Any, T]) -> T:
@@ -192,6 +194,10 @@ class AuthSandbox:
             secrets = await service.search_secrets(
                 SecretSearch(names=unique_secret_names, environment=self._environment)
             )
+            if any(is_external_reference(secret) for secret in secrets):
+                await check_entitlement(
+                    service.session, service.role, Entitlement.EXTERNAL_SECRET_STORES
+                )
 
         # Filter out optional secrets
         unique_req_secret_names = {

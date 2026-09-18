@@ -552,6 +552,7 @@ import type {
   OrganizationSecretStoresDeleteSecretStoreResponse,
   OrganizationSecretStoresGetSecretStoreData,
   OrganizationSecretStoresGetSecretStoreResponse,
+  OrganizationSecretStoresListSecretStoresData,
   OrganizationSecretStoresListSecretStoresResponse,
   OrganizationSecretStoresRevokeSecretStoreWorkspaceData,
   OrganizationSecretStoresRevokeSecretStoreWorkspaceResponse,
@@ -3591,7 +3592,9 @@ export const workflowsPullWorkflows = (
  * List external secret stores this workspace is authorized to reference.
  * @param data The data for the request.
  * @param data.workspaceId
- * @returns WorkspaceSecretStoreRead Successful Response
+ * @param data.limit
+ * @param data.cursor
+ * @returns Page_WorkspaceSecretStoreRead_ Successful Response
  * @throws ApiError
  */
 export const secretsListAuthorizedSecretStores = (
@@ -3602,6 +3605,10 @@ export const secretsListAuthorizedSecretStores = (
     url: "/workspaces/{workspace_id}/secrets/stores",
     path: {
       workspace_id: data.workspaceId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
     },
     errors: {
       422: "Validation Error",
@@ -10048,16 +10055,27 @@ export const organizationSecretsDeleteOrgSecretById = (
 /**
  * List Secret Stores
  * List external secret stores owned by the organization.
- * @returns SecretStoreRead Successful Response
+ * @param data The data for the request.
+ * @param data.limit
+ * @param data.cursor
+ * @returns Page_SecretStoreRead_ Successful Response
  * @throws ApiError
  */
-export const organizationSecretStoresListSecretStores =
-  (): CancelablePromise<OrganizationSecretStoresListSecretStoresResponse> => {
-    return __request(OpenAPI, {
-      method: "GET",
-      url: "/organization/secret-stores",
-    })
-  }
+export const organizationSecretStoresListSecretStores = (
+  data: OrganizationSecretStoresListSecretStoresData = {}
+): CancelablePromise<OrganizationSecretStoresListSecretStoresResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/organization/secret-stores",
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
 
 /**
  * Create Secret Store

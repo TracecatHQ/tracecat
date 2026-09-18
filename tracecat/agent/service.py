@@ -80,6 +80,8 @@ from tracecat.secrets.service import (
 from tracecat.service import BaseOrgService
 from tracecat.settings.schemas import SettingCreate, SettingUpdate, ValueType
 from tracecat.settings.service import SettingsService
+from tracecat.tiers.entitlements import check_entitlement
+from tracecat.tiers.enums import Entitlement
 
 _AWS_ASSUME_ROLE_EXTERNAL_ID_SECRET_KEY = "TRACECAT_AWS_EXTERNAL_ID"
 _VERTEX_BEARER_TOKEN_KEY = "VERTEX_AI_BEARER_TOKEN"
@@ -538,6 +540,9 @@ class AgentManagementService(BaseOrgService):
             return None
         secret = secrets[0]
         if is_external_reference(secret):
+            await check_entitlement(
+                self.session, self.role, Entitlement.EXTERNAL_SECRET_STORES
+            )
             reference = build_external_secret_reference(secret)
             values = await get_backend(reference.provider).resolve([reference])
             return values.get(secret_name)

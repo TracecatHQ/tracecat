@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
 
 from asyncpg import ForeignKeyViolationError
 from sqlalchemy import select
@@ -17,6 +16,7 @@ from tracecat.db.models import (
     WorkspaceSecretStoreAuthorization,
 )
 from tracecat.exceptions import TracecatAuthorizationError
+from tracecat.pagination import Page, PageParams, paginate
 from tracecat.secrets.enums import (
     AwsSecretResolutionErrorCode,
     SecretSource,
@@ -40,7 +40,9 @@ class ExternalSecretsService(SecretsService):
 
     service_name = "external_secrets"
 
-    async def list_authorized_stores(self) -> Sequence[OrganizationSecretStore]:
+    async def list_authorized_stores(
+        self, page: PageParams
+    ) -> Page[OrganizationSecretStore]:
         """List external stores the current workspace may reference."""
         workspace_id = self._require_workspace_id()
         stmt = (
@@ -50,11 +52,20 @@ class ExternalSecretsService(SecretsService):
                 WorkspaceSecretStoreAuthorization.store_id
                 == OrganizationSecretStore.id,
             )
-            .where(WorkspaceSecretStoreAuthorization.workspace_id == workspace_id)
-            .order_by(OrganizationSecretStore.name)
+            .where(
+                WorkspaceSecretStoreAuthorization.workspace_id == workspace_id,
+                OrganizationSecretStore.organization_id == self.organization_id,
+            )
         )
-        result = await self.session.execute(stmt)
-        return result.scalars().all()
+        return await paginate(
+            self.session,
+            stmt,
+            page=page,
+            order_by=(
+                OrganizationSecretStore.created_at.asc(),
+                OrganizationSecretStore.id.asc(),
+            ),
+        )
 
     async def _get_authorized_store(
         self, store_id: uuid.UUID

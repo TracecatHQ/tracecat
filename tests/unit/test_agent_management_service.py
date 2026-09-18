@@ -88,6 +88,7 @@ async def test_workspace_provider_credentials_resolve_source_and_preserve_fallba
         secret.remote_reference = "test-provider-key"
         secret.remote_key_mapping = {"mode": "whole_string", "keys": ["OPENAI_API_KEY"]}
 
+    monkeypatch.setattr(agent_service, "check_entitlement", AsyncMock())
     search = AsyncMock(return_value=[secret])
     monkeypatch.setattr(service.secrets_service, "search_secrets", search)
 
