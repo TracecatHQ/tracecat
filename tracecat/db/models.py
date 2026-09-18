@@ -54,7 +54,7 @@ from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.approvals.types import PersistedApprovalDecision
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.secrets import get_signing_secret
-from tracecat.authz.enums import ScopeSource
+from tracecat.authz.enums import ScimConnectionStatus, ScopeSource
 from tracecat.cases.agent_invocations.types import CaseCommentAgentInvocationError
 from tracecat.cases.durations.schemas import CaseDurationAnchorSelection
 from tracecat.cases.enums import (
@@ -243,6 +243,8 @@ class Organization(Base, TimestampMixin):
         "OrganizationTier",
         back_populates="organization",
         uselist=False,
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
     domains: Mapped[list[OrganizationDomain]] = relationship(
         "OrganizationDomain",
@@ -1193,6 +1195,55 @@ class MCPPersonalAccessToken(RecordModel):
         nullable=True,
     )
     revoked_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("user.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+
+class ScimConnection(RecordModel):
+    """Bearer credential the identity provider uses to reach the SCIM endpoints.
+
+    One connection per organization. It carries no scopes column: the authority
+    is fixed in code by what the SCIM paths write, not configured per row.
+    """
+
+    __tablename__ = "scim_connection"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    organization_id: Mapped[OrganizationID] = mapped_column(
+        UUID,
+        ForeignKey("organization.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    key_id: Mapped[str] = mapped_column(
+        String(32), nullable=False, unique=True, index=True
+    )
+    hashed: Mapped[str] = mapped_column(String(128), nullable=False)
+    salt: Mapped[str] = mapped_column(String(64), nullable=False)
+    preview: Mapped[str] = mapped_column(String(32), nullable=False)
+    # Pending until an admin reviews what arrived; nothing is admitted before.
+    status: Mapped[ScimConnectionStatus] = mapped_column(
+        String(32),
+        nullable=False,
+        default=ScimConnectionStatus.PENDING,
+        server_default=ScimConnectionStatus.PENDING,
+    )
+    last_used_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID,
         ForeignKey("user.id", ondelete="SET NULL"),
         nullable=True,
@@ -5619,7 +5670,11 @@ class Group(Base, TimestampMixin):
     """
 
     __tablename__ = "group"
-    __table_args__ = (UniqueConstraint("organization_id", "name"),)
+    __table_args__ = (
+        UniqueConstraint("organization_id", "name"),
+        # Tenant-qualified target for composite foreign keys into this table.
+        UniqueConstraint("id", "organization_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(128), index=True)
@@ -5784,6 +5839,140 @@ class UserRoleAssignment(Base):
     role: Mapped[Role] = relationship("Role", back_populates="user_assignments")
 
 
+# Organization presence is stored: `organization_membership` is the aggregate
+# root and children hang off it by composite foreign key.
+class OrganizationMembership(Base, TimestampMixin):
+    """Link table for users and organizations (many to many)."""
+
+    __tablename__ = "organization_membership"
+    __table_args__ = (
+        # Index for "get all members of org" queries
+        # (PK index covers user_id lookups, but not org_id alone)
+        Index("ix_org_membership_org_id", "organization_id"),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("user.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("organization.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+
+
+# =============================================================================
+# External Directory Sync (SCIM) Tables
+# =============================================================================
+
+
+class ExternalUser(Base, TimestampMixin):
+    """A user's linkage to the identity provider, per organization.
+
+    SCIM ownership is per-tenant: a row here means this organization's provider
+    manages the user, and says nothing about their other organizations.
+    """
+
+    __tablename__ = "external_user"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "user_id"),
+        UniqueConstraint("organization_id", "external_id"),
+        # Tenant-qualified target for composite foreign keys into this table.
+        UniqueConstraint("id", "organization_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("organization.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("user.id", ondelete="CASCADE"), index=True
+    )
+    external_id: Mapped[str] = mapped_column(String(255))
+    # Deprovisioned users keep their row so re-activation relinks the same
+    # resource id; no FK to organization_membership, which the row outlives.
+    active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
+
+
+class ExternalGroup(Base, TimestampMixin):
+    """A group as pushed by the identity provider.
+
+    Shadow state only: these rows grant nothing on their own. Scopes reach users
+    through an ExternalGroupMapping into a Tracecat Group.
+    """
+
+    __tablename__ = "external_group"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "external_id"),
+        # Tenant-qualified target for composite foreign keys into this table.
+        UniqueConstraint("id", "organization_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("organization.id", ondelete="CASCADE"), index=True
+    )
+    external_id: Mapped[str] = mapped_column(String(255))
+    display_name: Mapped[str] = mapped_column(String(255))
+
+
+class ExternalGroupMember(Base):
+    """An external group's member list exactly as pushed by the provider."""
+
+    __tablename__ = "external_group_member"
+    __table_args__ = (
+        Index("ix_external_group_member_external_user_id", "external_user_id"),
+        # Group and user must belong to the membership's own tenant.
+        ForeignKeyConstraint(
+            ["external_group_id", "organization_id"],
+            ["external_group.id", "external_group.organization_id"],
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["external_user_id", "organization_id"],
+            ["external_user.id", "external_user.organization_id"],
+            ondelete="CASCADE",
+        ),
+    )
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("organization.id", ondelete="CASCADE"), index=True
+    )
+    external_group_id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True)
+    external_user_id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True)
+
+
+class ExternalGroupMapping(Base, TimestampMixin):
+    """Admin-authored M:N link projecting an external group into a Tracecat group."""
+
+    __tablename__ = "external_group_mapping"
+    __table_args__ = (
+        UniqueConstraint("external_group_id", "group_id"),
+        # Both ends must belong to the mapping's own tenant, not merely exist.
+        ForeignKeyConstraint(
+            ["external_group_id", "organization_id"],
+            ["external_group.id", "external_group.organization_id"],
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["group_id", "organization_id"],
+            ["group.id", "group.organization_id"],
+            ondelete="CASCADE",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("organization.id", ondelete="CASCADE"), index=True
+    )
+    external_group_id: Mapped[uuid.UUID] = mapped_column(UUID, index=True)
+    group_id: Mapped[uuid.UUID] = mapped_column(UUID, index=True)
+
+
 # Workspace membership is derived, never stored: a user is present in a
 # workspace iff they hold a role path there, directly or through a group.
 # type_coerce strips the source columns' foreign keys: the composite one to
@@ -5834,30 +6023,6 @@ class Membership(Base):
     user_id: Mapped[uuid.UUID]
     organization_id: Mapped[uuid.UUID]
     workspace_id: Mapped[uuid.UUID]
-
-
-# Organization presence is stored: `organization_membership` is the aggregate
-# root and children hang off it by composite foreign key.
-class OrganizationMembership(Base, TimestampMixin):
-    """Link table for users and organizations (many to many)."""
-
-    __tablename__ = "organization_membership"
-    __table_args__ = (
-        # Index for "get all members of org" queries
-        # (PK index covers user_id lookups, but not org_id alone)
-        Index("ix_org_membership_org_id", "organization_id"),
-    )
-
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        ForeignKey("user.id", ondelete="CASCADE"),
-        primary_key=True,
-    )
-    organization_id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        ForeignKey("organization.id", ondelete="CASCADE"),
-        primary_key=True,
-    )
 
 
 # Physical workspace link table the app no longer reads. Writers keep it in

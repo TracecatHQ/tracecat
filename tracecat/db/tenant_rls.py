@@ -97,6 +97,11 @@ POST_RLS_ORG_SCOPED_TABLES = (
     "watchtower_agent",
     "mcp_refresh_token",
     "agent_custom_provider",
+    "external_user",
+    "external_group",
+    "external_group_mapping",
+    "external_group_member",
+    "scim_connection",
 )
 
 POST_RLS_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES = (
@@ -109,7 +114,11 @@ POST_RLS_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES = (
 )
 
 SPECIAL_TENANT_POLICY_TABLES = frozenset(
-    {"agent_tag_link", "service_account_api_key", "service_account_scope"}
+    {
+        "agent_tag_link",
+        "service_account_api_key",
+        "service_account_scope",
+    }
 )
 
 # Workspace and oauth_state carry custom policy SQL. scope and agent_catalog
