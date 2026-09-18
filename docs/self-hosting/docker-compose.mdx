@@ -219,6 +219,12 @@ For an overview of all services and networking, see [Architecture](/self-hosting
     Run `ip addr` to find your WSL IP address (usually 172.x.x.x).
   </Accordion>
 
+  <Accordion title="Connecting LiteLLM, vLLM, or Ollama fails with 'Host is not allowed'">
+    Tracecat rejects LLM provider and MCP endpoints that resolve to private addresses unless you allow them.
+    Set `TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS` in your `.env` file to the gateway's IP or CIDR, e.g. `TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS=10.0.12.34/32`, then run `docker compose up -d` to restart the services.
+    See [Private endpoints](/agents/llm-providers#private-endpoints).
+  </Accordion>
+
   <Accordion title="I can see the landing page but not the login page">
     This suggests that the Tracecat UI is healthy but is unable to communicate with the Tracecat API.
 

@@ -531,6 +531,12 @@ For Grafana Cloud or other external providers, enable only `tracecat.temporal.me
     Managed services like Amazon Aurora Serverless are recommended for production workloads.
   </Accordion>
 
+  <Accordion title="Connecting an in-cluster LiteLLM, vLLM, or Ollama fails with 'Host is not allowed'">
+    Tracecat rejects LLM provider and MCP endpoints that resolve to private addresses unless you allow them.
+    Set `tracecat.outboundAllowedPrivateCidrs` in your values to the service's cluster IP or CIDR, e.g. `"10.96.0.0/12"`, and upgrade the release.
+    See [Private endpoints](/agents/llm-providers#private-endpoints).
+  </Accordion>
+
   <Accordion title="Does the chart support autoscaling?">
     Yes. The chart includes KEDA `ScaledObject` resources for worker, executor, and agent-executor.
     Set `keda.enabled: true` and `<component>.autoscaling.enabled: true`.
