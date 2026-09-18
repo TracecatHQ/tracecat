@@ -207,7 +207,8 @@ async def test_create_user_provisions_default_org_in_single_tenant(
     )
 
     assert membership_count == 1
-    assert role_slug == "organization-member"
+    # Membership alone carries the scope floor; no org-wide role is written.
+    assert role_slug is None
     assert workspace_membership_count == 0
 
 
