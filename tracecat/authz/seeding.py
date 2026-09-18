@@ -192,11 +192,14 @@ SYSTEM_SCOPE_DEFINITIONS: list[ScopeDefinition] = [
         "remove",
         "Remove users from workspace",
     ),
+    # Deprecated: no route requires this scope; workspace role management is
+    # centralized in org settings. The row stays until custom-role links are
+    # cleared, because deleting a scope cascades through role_scope.
     ScopeDefinition(
         "workspace:member:update",
         "workspace:member",
         "update",
-        "Change member workspace roles",
+        "Deprecated. Change member workspace roles",
     ),
     # Workspace RBAC administration (delegated to workspace admins)
     ScopeDefinition(

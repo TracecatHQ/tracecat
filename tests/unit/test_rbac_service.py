@@ -7,18 +7,29 @@ import uuid
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from tracecat_ee.rbac.schemas import (
+    RoleAssignmentSnapshot,
+    UserRoleAssignmentSpec,
+    UserRoleAssignmentsReplace,
+)
 from tracecat_ee.rbac.service import RBACService
 
 from tests.support.membership import (
+    grant_org_membership,
     grant_org_membership_via_group,
     grant_workspace_membership,
 )
 from tracecat.auth.types import Role
 from tracecat.authz.enums import ScopeSource
 from tracecat.authz.membership import ensure_member
-from tracecat.authz.scopes import ORG_ADMIN_SCOPES
-from tracecat.authz.seeding import seed_system_scopes
+from tracecat.authz.scopes import (
+    ORG_ADMIN_SCOPES,
+    ORG_MEMBER_FLOOR_SCOPES,
+)
+from tracecat.authz.seeding import seed_system_roles_for_org, seed_system_scopes
+from tracecat.authz.service import query_effective_scopes
 from tracecat.db.models import (
+    AccessToken,
     Group,
     GroupMember,
     GroupRoleAssignment,
@@ -33,7 +44,9 @@ from tracecat.db.models import (
 )
 from tracecat.db.models import Role as DBRole
 from tracecat.exceptions import (
+    ScopeDeniedError,
     TracecatAuthorizationError,
+    TracecatConflictError,
     TracecatNotFoundError,
     TracecatValidationError,
 )
@@ -1289,3 +1302,384 @@ class TestRBACServiceScopeComputation:
         # With workspace context, org-wide scopes still apply
         scopes = await service.get_group_scopes(user.id, workspace_id=workspace.id)
         assert admin_assignable_scopes[0].name in scopes
+
+
+async def _org_assignment(
+    session: AsyncSession, user_id: uuid.UUID
+) -> UserRoleAssignment:
+    return (
+        await session.execute(
+            select(UserRoleAssignment).where(
+                UserRoleAssignment.user_id == user_id,
+                UserRoleAssignment.workspace_id.is_(None),
+            )
+        )
+    ).scalar_one()
+
+
+async def _workspace_group(
+    session: AsyncSession,
+    org: Organization,
+    workspace: Workspace,
+    user: User,
+) -> tuple[Group, GroupRoleAssignment]:
+    editor_id = (
+        await session.execute(
+            select(DBRole.id).where(
+                DBRole.organization_id == org.id,
+                DBRole.slug == "workspace-editor",
+            )
+        )
+    ).scalar_one()
+    group = Group(
+        name=f"Workspace access {uuid.uuid4().hex[:8]}", organization_id=org.id
+    )
+    session.add(group)
+    await session.flush()
+    grant = GroupRoleAssignment(
+        group_id=group.id,
+        organization_id=org.id,
+        workspace_id=workspace.id,
+        role_id=editor_id,
+    )
+    session.add_all([grant, GroupMember(group_id=group.id, user_id=user.id)])
+    await session.commit()
+    return group, grant
+
+
+async def _replacement(
+    service: RBACService, user_id: uuid.UUID
+) -> UserRoleAssignmentsReplace:
+    direct = await service.list_user_assignments(user_id=user_id)
+    groups = await service.list_group_role_assignments(user_id=user_id)
+    return UserRoleAssignmentsReplace(
+        user_id=user_id,
+        assignments=[
+            UserRoleAssignmentSpec.model_validate(a, from_attributes=True)
+            for a in direct
+        ],
+        expected_assignments=[
+            RoleAssignmentSnapshot.model_validate(a, from_attributes=True)
+            for a in direct
+        ],
+        expected_group_assignments=[
+            RoleAssignmentSnapshot.model_validate(a, from_attributes=True)
+            for a in groups
+        ],
+    )
+
+
+@pytest.mark.anyio
+class TestAtomicRoleEdits:
+    async def test_move_final_workspace_and_promote_in_one_save(
+        self, session: AsyncSession, role: Role, org: Organization, workspace: Workspace
+    ):
+        member = await _workspace_only_user(session, org, workspace)
+        await grant_org_membership(session, user_id=member.id, organization_id=org.id)
+        other = Workspace(name="Destination", organization_id=org.id)
+        token = AccessToken(token=uuid.uuid4().hex, user_id=member.id)
+        session.add_all([other, token])
+        await session.commit()
+        service = RBACService(session, role=role)
+        params = await _replacement(service, member.id)
+        original_org = next(
+            a for a in params.expected_assignments if a.workspace_id is None
+        )
+        editor = next(a.role_id for a in params.assignments if a.workspace_id)
+        admin = await session.scalar(
+            select(DBRole.id).where(
+                DBRole.organization_id == org.id, DBRole.slug == "organization-admin"
+            )
+        )
+        assert admin
+        params.assignments = [
+            UserRoleAssignmentSpec(role_id=admin),
+            UserRoleAssignmentSpec(role_id=editor, workspace_id=other.id),
+        ]
+        await service.replace_user_assignments(params)
+        assert (await _org_assignment(session, member.id)).id == original_org.id
+        assert (
+            await session.scalar(
+                select(AccessToken.id).where(AccessToken.id == token.id)
+            )
+            is not None
+        )
+        assert "workflow:create" in await query_effective_scopes(
+            session, member.id, org.id, other.id
+        )
+        # Dropping the organization role leaves presence and its scope floor.
+        params = await _replacement(service, member.id)
+        params.assignments = [a for a in params.assignments if a.workspace_id]
+        await service.replace_user_assignments(params)
+        assert (
+            await query_effective_scopes(session, member.id, org.id, None)
+            == ORG_MEMBER_FLOOR_SCOPES
+        )
+
+        assert "workflow:create" not in await query_effective_scopes(
+            session, member.id, org.id, workspace.id
+        )
+
+    @pytest.mark.parametrize(
+        "failure",
+        [
+            "invalid_role",
+            "cross_org_workspace",
+            "duplicate_scope",
+            "grant_ceiling",
+            "missing_permission",
+        ],
+    )
+    async def test_invalid_edit_saves_nothing(
+        self,
+        session: AsyncSession,
+        role: Role,
+        org: Organization,
+        workspace: Workspace,
+        privileged_role: DBRole,
+        failure: str,
+    ):
+        member = await _workspace_only_user(session, org, workspace)
+        await grant_org_membership(session, user_id=member.id, organization_id=org.id)
+        await session.commit()
+        service = RBACService(session, role=role)
+        params = await _replacement(service, member.id)
+        before = params.expected_assignments
+        admin = await session.scalar(
+            select(DBRole.id).where(
+                DBRole.organization_id == org.id, DBRole.slug == "organization-admin"
+            )
+        )
+        assert admin
+        params.assignments = [UserRoleAssignmentSpec(role_id=admin)]
+        error: type[Exception] = TracecatNotFoundError
+        if failure == "invalid_role":
+            params.assignments.append(
+                UserRoleAssignmentSpec(role_id=uuid.uuid4(), workspace_id=workspace.id)
+            )
+        elif failure == "cross_org_workspace":
+            other_org = Organization(name="Other", slug=uuid.uuid4().hex)
+            session.add(other_org)
+            await session.flush()
+            foreign = Workspace(name="Foreign", organization_id=other_org.id)
+            session.add(foreign)
+            await session.commit()
+            params.assignments.append(
+                UserRoleAssignmentSpec(role_id=admin, workspace_id=foreign.id)
+            )
+        elif failure == "duplicate_scope":
+            params.assignments.append(UserRoleAssignmentSpec(role_id=admin))
+            error = TracecatValidationError
+        elif failure == "grant_ceiling":
+            params.assignments.append(
+                UserRoleAssignmentSpec(
+                    role_id=privileged_role.id, workspace_id=workspace.id
+                )
+            )
+            error = TracecatAuthorizationError
+        else:
+            service = RBACService(
+                session,
+                role=role.model_copy(
+                    update={"scopes": frozenset({"org:rbac:read", "org:rbac:update"})}
+                ),
+            )
+            error = ScopeDeniedError
+        with pytest.raises(error):
+            await service.replace_user_assignments(params)
+        assert (
+            await _replacement(service, params.user_id)
+        ).expected_assignments == before
+
+    @pytest.mark.parametrize("group_change", [False, True])
+    async def test_stale_access_rejected_before_writes(
+        self,
+        session: AsyncSession,
+        role: Role,
+        org: Organization,
+        workspace: Workspace,
+        group_change: bool,
+    ):
+        member = await _workspace_only_user(session, org, workspace)
+        await grant_org_membership(session, user_id=member.id, organization_id=org.id)
+        await session.commit()
+        service = RBACService(session, role=role)
+        params = await _replacement(service, member.id)
+        params.assignments = []
+        if group_change:
+            await _workspace_group(session, org, workspace, member)
+        else:
+            assignment = await _org_assignment(session, member.id)
+            assignment.role_id = next(
+                a.role_id for a in params.expected_assignments if a.workspace_id
+            )
+            await session.commit()
+        before = (await _replacement(service, member.id)).expected_assignments
+        with pytest.raises(TracecatConflictError):
+            await service.replace_user_assignments(params)
+        assert (
+            await _replacement(service, params.user_id)
+        ).expected_assignments == before
+
+    async def test_group_filter_excludes_unrelated_members_and_organizations(
+        self,
+        session: AsyncSession,
+        role: Role,
+        org: Organization,
+        workspace: Workspace,
+        user: User,
+    ):
+        member = await _workspace_only_user(session, org, workspace)
+        _, own_grant = await _workspace_group(session, org, workspace, member)
+        await _workspace_group(session, org, workspace, user)
+        other_org = Organization(name="Other", slug=uuid.uuid4().hex)
+        session.add(other_org)
+        await session.flush()
+        await grant_org_membership_via_group(
+            session, user_id=member.id, organization_id=other_org.id
+        )
+        await session.commit()
+        grants = await RBACService(session, role=role).list_group_role_assignments(
+            user_id=member.id
+        )
+        assert [a.id for a in grants] == [own_grant.id]
+
+
+@pytest.mark.anyio
+class TestMembershipScopeFloor:
+    """Presence alone carries a scope floor, independent of any role."""
+
+    async def test_role_less_member_holds_the_floor(
+        self, session: AsyncSession, org: Organization
+    ):
+        member = User(
+            id=uuid.uuid4(),
+            email=f"floor-{uuid.uuid4().hex[:8]}@example.com",
+            hashed_password="test",
+        )
+        session.add(member)
+        await session.flush()
+        await ensure_member(session, org.id, member.id)
+        await session.commit()
+
+        assert (
+            await query_effective_scopes(session, member.id, org.id, None)
+            == ORG_MEMBER_FLOOR_SCOPES
+        )
+
+    async def test_non_member_holds_nothing(
+        self, session: AsyncSession, org: Organization
+    ):
+        outsider = User(
+            id=uuid.uuid4(),
+            email=f"outsider-{uuid.uuid4().hex[:8]}@example.com",
+            hashed_password="test",
+        )
+        session.add(outsider)
+        await session.commit()
+
+        assert await query_effective_scopes(session, outsider.id, org.id, None) == (
+            frozenset()
+        )
+
+    async def test_floor_applies_in_workspace_scope(
+        self, session: AsyncSession, org: Organization, workspace: Workspace
+    ):
+        member = await _workspace_only_user(session, org, workspace)
+
+        scopes = await query_effective_scopes(session, member.id, org.id, workspace.id)
+        assert ORG_MEMBER_FLOOR_SCOPES.issubset(scopes)
+
+
+@pytest.mark.anyio
+class TestReplaceToEmptyKeepsPresence:
+    """An empty role set is a valid save while another path remains."""
+
+    async def test_empty_set_keeps_the_membership_row(
+        self, session: AsyncSession, role: Role, org: Organization, workspace: Workspace
+    ):
+        member = await _workspace_only_user(session, org, workspace)
+        # A group link is a role path, so it outlives the direct assignments.
+        await grant_org_membership_via_group(
+            session, user_id=member.id, organization_id=org.id
+        )
+        await session.commit()
+
+        service = RBACService(session, role=role)
+        params = await _replacement(service, member.id)
+        params.assignments = []
+        await service.replace_user_assignments(params)
+
+        assert await _org_membership_row(session, member.id, org.id) is not None
+        assert (
+            await query_effective_scopes(session, member.id, org.id, None)
+        ).issuperset(ORG_MEMBER_FLOOR_SCOPES)
+
+    async def test_empty_set_without_any_group_link_keeps_the_row(
+        self, session: AsyncSession, role: Role, org: Organization, workspace: Workspace
+    ):
+        """Membership is explicit: losing every role path is not a removal."""
+        member = await _workspace_only_user(session, org, workspace)
+        await session.commit()
+
+        service = RBACService(session, role=role)
+        params = await _replacement(service, member.id)
+        params.assignments = []
+        await service.replace_user_assignments(params)
+
+        assert await _org_membership_row(session, member.id, org.id) is not None
+        assert (
+            await query_effective_scopes(session, member.id, org.id, None)
+        ).issuperset(ORG_MEMBER_FLOOR_SCOPES)
+
+
+@pytest.mark.anyio
+class TestImplicitMemberRoleIsHidden:
+    """``organization-member`` is granted by presence, so it is never offered."""
+
+    async def test_role_listing_excludes_the_slug(
+        self, session: AsyncSession, role: Role, org: Organization
+    ):
+        await seed_system_roles_for_org(session, org.id)
+        await session.commit()
+
+        roles = await RBACService(session, role=role).list_roles()
+
+        assert all(r.slug != "organization-member" for r in roles)
+        assert any(r.slug == "organization-admin" for r in roles)
+
+    async def test_assigning_the_slug_is_rejected(
+        self, session: AsyncSession, role: Role, org: Organization, user: User
+    ):
+        await seed_system_roles_for_org(session, org.id)
+        await session.commit()
+        hidden_id = await session.scalar(
+            select(DBRole.id).where(
+                DBRole.organization_id == org.id,
+                DBRole.slug == "organization-member",
+            )
+        )
+        assert hidden_id is not None
+
+        with pytest.raises(TracecatValidationError, match="granted implicitly"):
+            await RBACService(session, role=role).create_user_assignment(
+                user_id=user.id, role_id=hidden_id
+            )
+
+    async def test_legacy_assignment_still_grants_the_floor(
+        self, session: AsyncSession, org: Organization
+    ):
+        legacy = User(
+            id=uuid.uuid4(),
+            email=f"legacy-{uuid.uuid4().hex[:8]}@example.com",
+            hashed_password="test",
+        )
+        session.add(legacy)
+        await session.flush()
+        # Predates the implicit grant, so the row is data that is never shown.
+        await grant_org_membership(session, user_id=legacy.id, organization_id=org.id)
+        await session.commit()
+
+        assert (
+            await query_effective_scopes(session, legacy.id, org.id, None)
+        ).issuperset(ORG_MEMBER_FLOOR_SCOPES)

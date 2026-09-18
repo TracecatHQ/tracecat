@@ -349,9 +349,8 @@ async def ensure_single_tenant_user_defaults(
     """Ensure single-tenant users are real members of the default organization.
 
     In multi-tenant deployments this is a no-op. In single-tenant deployments,
-    superusers receive the organization-owner role and existing members are
-    repaired to organization-member unless they already have an org-wide
-    assignment.
+    superusers receive the organization-owner role; regular users receive the
+    membership row alone, which carries their scope floor.
 
     Admission is opt-in: pass ``allow_new_members=True`` from provisioning
     paths. Self-service callers keep the default, so registration leaves
@@ -470,14 +469,18 @@ async def ensure_single_tenant_user_defaults_in_session(
     changed = False
     if membership is None:
         await ensure_member(session, organization_id, user_id)
+        # Admission is the change; presence needs no accompanying role.
+        changed = True
 
-    # Single-tenant defaults are intentionally minimal for regular users, while
-    # superusers are granted default-org owner permissions.
-    role_slug = "organization-owner" if is_superuser else "organization-member"
+    # Presence is the membership row, so a regular user needs no org-wide role;
+    # superusers still get default-org owner permissions.
+    if not is_superuser:
+        return changed
+
     role_result = await session.execute(
         select(DBRole).where(
             DBRole.organization_id == organization_id,
-            DBRole.slug == role_slug,
+            DBRole.slug == "organization-owner",
         )
     )
     role = role_result.scalar_one()
@@ -485,40 +488,30 @@ async def ensure_single_tenant_user_defaults_in_session(
     assignment = assignment_row[0] if assignment_row is not None else None
     if assignment is None:
         # There can only be one org-wide assignment per user per organization.
-        # For superusers, a conflict means another request created the same-org
-        # assignment, so upgrade it to owner. Regular users do not update on
-        # insert conflict; existing rows observed by this session are handled by
-        # the normalization branch below.
-        assignment_insert = pg_insert(UserRoleAssignment).values(
-            organization_id=organization_id,
-            user_id=user_id,
-            workspace_id=None,
-            role_id=role.id,
-        )
-        conflict_target = {
-            "index_elements": [
-                UserRoleAssignment.organization_id,
-                UserRoleAssignment.user_id,
-            ],
-            "index_where": UserRoleAssignment.workspace_id.is_(None),
-        }
-        if is_superuser:
-            assignment_insert = assignment_insert.on_conflict_do_update(
-                **conflict_target,
+        # A conflict means another request created the same-org assignment, so
+        # upgrade it to owner.
+        assignment_insert = (
+            pg_insert(UserRoleAssignment)
+            .values(
+                organization_id=organization_id,
+                user_id=user_id,
+                workspace_id=None,
+                role_id=role.id,
+            )
+            .on_conflict_do_update(
+                index_elements=[
+                    UserRoleAssignment.organization_id,
+                    UserRoleAssignment.user_id,
+                ],
+                index_where=UserRoleAssignment.workspace_id.is_(None),
                 set_={"role_id": role.id},
             )
-        else:
-            assignment_insert = assignment_insert.on_conflict_do_nothing(
-                **conflict_target
-            )
+        )
         assignment_result = await session.execute(assignment_insert)
         changed = changed or (assignment_result.rowcount or 0) > 0  # pyright: ignore[reportAttributeAccessIssue]
         return changed
 
-    # At this point a repair is needed: either the membership row was missing,
-    # or a superuser still had a non-owner org-wide role. Keep the org-wide
-    # assignment aligned with the default role for this user type, but skip
-    # no-op writes.
+    # A superuser still holding a non-owner org-wide role is repaired here.
     if assignment.role_id != role.id:
         assignment.role_id = role.id
         changed = True

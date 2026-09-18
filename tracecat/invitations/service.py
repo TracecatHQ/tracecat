@@ -2,8 +2,8 @@
 
 An invitation is anchored to an organization and carries a list of grants. Each
 grant is one role at org scope (``workspace_id`` NULL) or on one workspace.
-Accepting inserts one ``user_role_assignment`` per grant, plus an
-organization-member assignment when the user holds no org-wide role yet.
+Accepting admits the user to the organization and inserts one
+``user_role_assignment`` per grant.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Final
 
-from sqlalchemy import and_, exists, func, or_, select, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,11 +25,10 @@ from tracecat.audit.logger import audit_log
 from tracecat.audit.service import AuditService
 from tracecat.auth.types import Role
 from tracecat.authz.controls import ensure_can_grant_scopes, require_scope
-from tracecat.authz.membership import ensure_member
+from tracecat.authz.membership import ensure_member, lock_role_changes
+from tracecat.authz.scopes import ORG_MEMBER_ROLE_SLUG
 from tracecat.authz.service import resolve_granter_scopes
 from tracecat.db.models import (
-    GroupMember,
-    GroupRoleAssignment,
     Invitation,
     InvitationGrant,
     OrganizationMembership,
@@ -55,7 +54,6 @@ INVITATION_TTL = timedelta(days=7)
 # re-enter a row into the outbox. Must exceed the SMTP send timeout: a claim
 # younger than this may still be in flight, and resetting it would double-send.
 RESEND_COOLDOWN: Final = timedelta(seconds=60)
-ORG_MEMBER_ROLE_SLUG = "organization-member"
 
 
 def _generate_token() -> str:
@@ -184,6 +182,8 @@ async def validate_grants(
     )
     if {granted_role.id for granted_role in granted_roles} != role_ids:
         raise TracecatValidationError("Invalid role ID for this organization")
+    if any(granted_role.slug == ORG_MEMBER_ROLE_SLUG for granted_role in granted_roles):
+        raise TracecatValidationError("organization-member is granted implicitly")
 
     if not role.is_platform_superuser:
         # Read live permissions once for this batch, never the cached Role.scopes.
@@ -208,11 +208,13 @@ async def _apply_grants(
     user_id: UserID,
     grants: Sequence[InvitationGrant],
 ) -> None:
-    """Insert one assignment per grant, then the baseline org role if the user holds none.
+    """Insert one assignment per grant.
 
     Existing assignments are never overwritten: a grant the user already holds
     at that scope is skipped.
     """
+    await lock_role_changes(session, organization_id)
+
     # The membership row is the aggregate root; assignments hang off it.
     await ensure_member(session, organization_id, user_id)
 
@@ -240,52 +242,6 @@ async def _apply_grants(
             )
         await session.execute(stmt)
 
-    # Any org-wide role, direct or via a group, is enough; otherwise grant the baseline.
-    direct = select(UserRoleAssignment.id).where(
-        UserRoleAssignment.user_id == user_id,
-        UserRoleAssignment.organization_id == organization_id,
-        UserRoleAssignment.workspace_id.is_(None),
-    )
-    via_group = (
-        select(GroupRoleAssignment.id)
-        .join(GroupMember, GroupMember.group_id == GroupRoleAssignment.group_id)
-        .where(
-            GroupMember.user_id == user_id,
-            GroupRoleAssignment.organization_id == organization_id,
-            GroupRoleAssignment.workspace_id.is_(None),
-        )
-    )
-    has_org_role = (
-        await session.execute(select(or_(exists(direct), exists(via_group))))
-    ).scalar_one()
-    if has_org_role:
-        return
-
-    org_member_role_id = (
-        select(DBRole.id)
-        .where(
-            DBRole.organization_id == organization_id,
-            DBRole.slug == ORG_MEMBER_ROLE_SLUG,
-        )
-        .scalar_subquery()
-    )
-    await session.execute(
-        pg_insert(UserRoleAssignment)
-        .values(
-            organization_id=organization_id,
-            user_id=user_id,
-            workspace_id=None,
-            role_id=org_member_role_id,
-        )
-        .on_conflict_do_nothing(
-            index_elements=[
-                UserRoleAssignment.organization_id,
-                UserRoleAssignment.user_id,
-            ],
-            index_where=UserRoleAssignment.workspace_id.is_(None),
-        )
-    )
-
 
 async def _claim_pending(session: AsyncSession, invitation: Invitation) -> None:
     """Atomically move pending to accepted, or raise why it is no longer valid."""
@@ -299,6 +255,9 @@ async def _claim_pending(session: AsyncSession, invitation: Invitation) -> None:
         .values(status=InvitationStatus.ACCEPTED, accepted_at=now)
     )
     if update_result.rowcount != 0:  # pyright: ignore[reportAttributeAccessIssue]
+        # The claim may have waited on a row lock past the initial expiry check.
+        if invitation.expires_at < datetime.now(UTC):
+            raise TracecatAuthorizationError("Invitation has expired")
         return
 
     # Status changed between fetch and update - re-fetch for an accurate error

@@ -12,8 +12,10 @@ from tracecat.auth.types import Role
 from tracecat.authz.controls import ensure_can_grant_scopes, require_scope
 from tracecat.authz.membership import (
     drop_workspace_membership_mirror,
+    lock_role_changes,
     mirror_workspace_membership,
 )
+from tracecat.authz.scopes import ORG_MEMBER_FLOOR_SCOPES, ORG_MEMBER_ROLE_SLUG
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import SupportsExecute
 from tracecat.db.models import (
@@ -101,7 +103,20 @@ async def query_effective_scopes(
     # Single atomic query: union both assignment paths
     combined = user_scopes.union(group_scopes)
     result = await session.execute(combined)
-    return frozenset(result.scalars().all())
+    scopes = frozenset(result.scalars().all())
+
+    # Presence alone carries a scope floor, independent of any role.
+    is_member = (
+        await session.execute(
+            select(OrganizationMembership.user_id).where(
+                OrganizationMembership.user_id == user_id,
+                OrganizationMembership.organization_id == organization_id,
+            )
+        )
+    ).scalar_one_or_none() is not None
+    if is_member:
+        return scopes | ORG_MEMBER_FLOOR_SCOPES
+    return scopes
 
 
 async def resolve_granter_scopes(
@@ -173,6 +188,8 @@ async def _resolve_grantable(
     role = (await session.execute(stmt)).scalar_one_or_none()
     if role is None:
         raise TracecatNotFoundError(not_found_message)
+    if role.slug == ORG_MEMBER_ROLE_SLUG:
+        raise TracecatValidationError("organization-member is granted implicitly")
 
     if not granter.is_platform_superuser:
         granter_scopes = await resolve_granter_scopes(session, granter)
@@ -226,7 +243,7 @@ class MembershipService(BaseService):
         ).subquery("paths")
         # One row per member; a direct assignment wins over group grants.
         statement = (
-            select(User, DBRole.name)
+            select(User, DBRole.name, paths.c.via_group)
             .select_from(paths)
             .join(User, User.id == paths.c.user_id)  # pyright: ignore[reportArgumentType]
             .join(DBRole, DBRole.id == paths.c.role_id)
@@ -241,8 +258,9 @@ class MembershipService(BaseService):
                 last_name=user.last_name,
                 email=user.email,
                 role_name=role_name,
+                via_group=bool(via_group),
             )
-            for user, role_name in rows
+            for user, role_name, via_group in rows
         ]
 
     async def get_membership(
@@ -286,6 +304,7 @@ class MembershipService(BaseService):
             raise TracecatAuthorizationError(
                 "Operator context is required to grant workspace membership"
             )
+        await lock_role_changes(self.session, organization_id)
         try:
             granted_role = await resolve_grantable_role_by_slug(
                 self.session, self.role, organization_id, "workspace-editor"
@@ -340,6 +359,14 @@ class MembershipService(BaseService):
             TracecatConflictError: If a workspace-scoped group grant would keep
                 the user in the workspace after the direct assignment is gone.
         """
+        if self.role is None:
+            raise TracecatAuthorizationError("Operator context is required")
+        organization_id = (
+            await self.session.execute(
+                select(Workspace.organization_id).where(Workspace.id == workspace_id)
+            )
+        ).scalar_one()
+        await lock_role_changes(self.session, organization_id)
         # Only workspace-scoped group grants keep workspace presence; org-wide
         # group roles do not.
         group_name = (
