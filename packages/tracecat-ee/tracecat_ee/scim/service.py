@@ -278,6 +278,7 @@ class SCIMService(BaseOrgService):
                 .values(
                     [
                         {
+                            "organization_id": self.organization_id,
                             "external_group_id": external_group_id,
                             "external_user_id": external_user_id,
                         }
