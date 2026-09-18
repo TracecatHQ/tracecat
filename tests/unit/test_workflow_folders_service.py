@@ -376,3 +376,56 @@ class TestWorkflowFolderService:
         workflows_in_folder2 = await folder_service.get_workflows_in_folder(folder2.id)
         assert len(workflows_in_folder2) == 1
         assert workflows_in_folder2[0].id == workflow_id
+
+    async def test_get_directory_items_returns_real_direct_item_counts(
+        self,
+        folder_service: WorkflowFolderService,
+        session: AsyncSession,
+        svc_workspace: Workspace,
+    ) -> None:
+        """Folder rows should report direct child counts, not boolean presence."""
+        parent = await folder_service.create_folder(name="parent", parent_path="/")
+        child_a = await folder_service.create_folder(
+            name="child-a", parent_path="/parent/"
+        )
+        await folder_service.create_folder(name="child-b", parent_path="/parent/")
+        await folder_service.create_folder(
+            name="grandchild", parent_path="/parent/child-a/"
+        )
+
+        session.add_all(
+            [
+                Workflow(
+                    title=f"workflow-{i}",
+                    workspace_id=svc_workspace.id,
+                    description="",
+                    status="active",
+                    folder_id=parent.id,
+                )
+                for i in range(3)
+            ]
+        )
+        session.add(
+            Workflow(
+                title="nested-workflow",
+                workspace_id=svc_workspace.id,
+                description="",
+                status="active",
+                folder_id=child_a.id,
+            )
+        )
+        await session.commit()
+
+        directory_items = await folder_service.get_directory_items("/")
+        parent_item = next(
+            item
+            for item in directory_items
+            if item.type == "folder" and item.id == parent.id
+        )
+        assert parent_item.num_items == 5
+
+        child_items = await folder_service.get_directory_items("/parent/")
+        counts = {
+            item.name: item.num_items for item in child_items if item.type == "folder"
+        }
+        assert counts == {"child-a": 2, "child-b": 0}
