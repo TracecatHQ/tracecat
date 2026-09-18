@@ -4269,6 +4269,7 @@ export type FeatureFlag =
   | "ai-ranking"
   | "workflow-concurrency-limits"
   | "agent-channels"
+  | "agent-runtime"
   | "agent-fs-persistence"
 
 /**
@@ -4752,7 +4753,7 @@ export type HTTPValidationError = {
 /**
  * Supported agent harnesses.
  */
-export type HarnessType = "claude_code"
+export type HarnessType = "claude_code" | "pi_rpc"
 
 export type HealthResponse = {
   status: string

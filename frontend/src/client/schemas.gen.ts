@@ -14314,6 +14314,7 @@ export const $FeatureFlag = {
     "ai-ranking",
     "workflow-concurrency-limits",
     "agent-channels",
+    "agent-runtime",
     "agent-fs-persistence",
   ],
   title: "FeatureFlag",
@@ -15656,7 +15657,7 @@ export const $HTTPValidationError = {
 
 export const $HarnessType = {
   type: "string",
-  enum: ["claude_code"],
+  enum: ["claude_code", "pi_rpc"],
   title: "HarnessType",
   description: "Supported agent harnesses.",
 } as const

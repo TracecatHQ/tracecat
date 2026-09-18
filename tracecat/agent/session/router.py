@@ -610,9 +610,10 @@ async def send_message(
                             f"Failed to start agent turn for session {session_id}"
                         )
                         await stream.done()
-                        await svc.clear_active_turn(
-                            session_id, expected_stream_id=stream_id
-                        )
+                        if agent_session.harness_type != "pi_rpc":
+                            await svc.clear_active_turn(
+                                session_id, expected_stream_id=stream_id
+                            )
                     except Exception as rollback_exc:
                         logger.warning(
                             "Failed to clear stream state after turn startup failure",

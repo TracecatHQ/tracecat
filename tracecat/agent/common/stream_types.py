@@ -83,6 +83,7 @@ class HarnessType(StrEnum):
     """Supported agent harnesses."""
 
     CLAUDE_CODE = "claude_code"
+    PI_RPC = "pi_rpc"
 
 
 class StreamEventType(StrEnum):

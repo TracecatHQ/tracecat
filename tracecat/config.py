@@ -1017,6 +1017,9 @@ TRACECAT__LLM_GATEWAY_STATUS_LOG_INTERVAL_SECONDS = float(
 )
 """Interval between periodic LLM gateway status heartbeat logs in seconds."""
 
+TRACECAT__AGENT_RUNTIME_QUEUE = (
+    os.environ.get("TRACECAT__AGENT_RUNTIME_QUEUE") or "agent-runtime"
+)
 TRACECAT__AGENT_QUEUE = os.environ.get("TRACECAT__AGENT_QUEUE", "shared-agent-queue")
 """Task queue for the AgentWorker (Temporal workflow queue).
 

@@ -588,7 +588,10 @@ export function useVercelChat({
   resume?: boolean
 }) {
   const queryClient = useQueryClient()
-  const [lastError, setLastError] = useState<string | null>(null)
+  const [lastError, setLastError] = useState<{
+    chatId: string | undefined
+    message: string
+  } | null>(null)
 
   // Build the Vercel streaming endpoint URL
   const apiEndpoint = useMemo(() => {
@@ -647,7 +650,7 @@ export function useVercelChat({
     }),
     onError: (error) => {
       const friendlyMessage = parseChatError(error)
-      setLastError(friendlyMessage)
+      setLastError({ chatId, message: friendlyMessage })
       console.error("Error in Vercel chat:", error)
       toast({
         title: "Chat error",
@@ -673,7 +676,8 @@ export function useVercelChat({
 
   return {
     ...chat,
-    lastError,
+    lastError:
+      lastError && lastError.chatId === chatId ? lastError.message : null,
     clearError: useCallback(() => setLastError(null), []),
   }
 }
