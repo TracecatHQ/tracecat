@@ -113,8 +113,19 @@ SPECIAL_TENANT_POLICY_TABLES = frozenset(
 
 # Workspace and oauth_state carry custom policy SQL. scope and agent_catalog
 # both have nullable organization_id and allow shared platform-owned rows.
-SPECIAL_WORKSPACE_POLICY_TABLES = frozenset({"oauth_state"})
-SPECIAL_ORG_POLICY_TABLES = frozenset({"workspace", "scope", "agent_catalog"})
+SEARCH_POLICY_TABLES = frozenset(
+    {
+        "search_workspace_state",
+        "search_embedding_config",
+        "search_collection",
+        "search_document",
+        "search_chunk",
+    }
+)
+SPECIAL_WORKSPACE_POLICY_TABLES = frozenset({"oauth_state"}) | SEARCH_POLICY_TABLES
+SPECIAL_ORG_POLICY_TABLES = (
+    frozenset({"workspace", "scope", "agent_catalog"}) | SEARCH_POLICY_TABLES
+)
 
 CURRENT_WORKSPACE_SCOPED_TABLES = (
     *INITIAL_WORKSPACE_SCOPED_TABLES,
@@ -437,4 +448,25 @@ def disable_workspace_special_rls() -> str:
     return f"""
         DROP POLICY IF EXISTS {policy_name("workspace")} ON "workspace";
         ALTER TABLE "workspace" DISABLE ROW LEVEL SECURITY;
+    """
+
+
+def enable_search_table_rls(table: str) -> str:
+    """Enforce both tenant identities and hide data after workspace deletion."""
+    if table not in SEARCH_POLICY_TABLES:
+        raise ValueError("Unknown search table")
+    predicate = f"""
+        current_setting('app.rls_bypass', true) = 'on'
+        OR (
+            workspace_id = NULLIF(current_setting('app.current_workspace_id', true), '')::uuid
+            AND organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid
+            AND EXISTS (SELECT 1 FROM workspace w
+                        WHERE w.id = "{table}".workspace_id
+                          AND w.organization_id = "{table}".organization_id)
+        )
+    """
+    return f"""
+        ALTER TABLE "{table}" ENABLE ROW LEVEL SECURITY;
+        CREATE POLICY {policy_name(table)} ON "{table}"
+        FOR ALL USING ({predicate}) WITH CHECK ({predicate});
     """

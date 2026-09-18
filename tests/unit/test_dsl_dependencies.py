@@ -1,4 +1,4 @@
-from asyncio import CancelledError
+from asyncio import CancelledError, to_thread
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import AsyncMock, patch
@@ -100,14 +100,58 @@ def test_compile_return_dependencies(returns: Any, expected_refs: list[str]) -> 
         "${{ ACTIONS.*.result }}",
         "${{ ACTIONS..value }}",
         "${{ ACTIONS['first'].result }}",
+        "${{ ACTIONS.first.`parent`.second.result }}",
+        "${{ ACTIONS.first.result.`parent`.`parent`.second.result }}",
         "${{ ACTIONS.missing.result }}",
         "${{ ACTIONS.first.result + }}",
     ],
 )
 @pytest.mark.anyio
-async def test_compile_activity_rejects_invalid_references(returns: str) -> None:
+async def test_compile_activity_falls_back_for_unsupported_references(
+    returns: str,
+) -> None:
+    assert (
+        await DSLActivities.compile_dsl_dependencies_activity(make_dsl(returns)) is None
+    )
+
+
+@pytest.mark.anyio
+async def test_compile_activity_fails_open_on_unexpected_compiler_error() -> None:
+    with patch(
+        "tracecat.dsl.action.compile_dsl_dependencies",
+        side_effect=RuntimeError("synthetic compiler failure"),
+    ):
+        plan = await DSLActivities.compile_dsl_dependencies_activity(make_dsl(None))
+    assert plan is None
+
+
+@pytest.mark.anyio
+async def test_compile_activity_preserves_cancellation() -> None:
+    with (
+        patch(
+            "tracecat.dsl.action.compile_dsl_dependencies", side_effect=CancelledError
+        ),
+        pytest.raises(CancelledError),
+    ):
+        await DSLActivities.compile_dsl_dependencies_activity(make_dsl(None))
+
+
+@pytest.mark.anyio
+async def test_compiler_fallback_does_not_suppress_invalid_return(
+    context: ExecutionContext,
+) -> None:
+    expression = "${{ ACTIONS.first.result + }}"
+    assert (
+        await DSLActivities.compile_dsl_dependencies_activity(make_dsl(expression))
+        is None
+    )
     with pytest.raises(ApplicationError) as exc:
-        await DSLActivities.compile_dsl_dependencies_activity(make_dsl(returns))
+        await to_thread(
+            DSLActivities.resolve_return_expression_activity,
+            EvaluateTemplatedObjectActivityInput(
+                obj=expression, operand=context, key="test/invalid-return"
+            ),
+        )
     classification = extract_error_classification(exc.value)
     assert classification is not None
     assert classification.owner is RuntimeErrorOwner.USER
@@ -214,11 +258,12 @@ async def test_handle_return_does_not_send_unreferenced_inline_results() -> None
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("enabled", [True, False])
-async def test_compilation_is_patch_gated(enabled: bool) -> None:
+@pytest.mark.parametrize("failed", [True, False])
+async def test_compilation_is_patch_gated(enabled: bool, failed: bool) -> None:
     workflow = object.__new__(DSLWorkflow)
     workflow.dsl = make_dsl("${{ ACTIONS.first.result }}")
     workflow.start_to_close_timeout = timedelta(seconds=60)
-    plan = compile_dsl_dependencies(workflow.dsl)
+    plan = None if failed else compile_dsl_dependencies(workflow.dsl)
     execute = AsyncMock(return_value=plan)
     with (
         patch(
@@ -317,6 +362,77 @@ def test_plan_selects_live_stream_results_without_parsing(
         )
         updated = scheduler.build_stream_aware_context(task, child)
         assert updated["ACTIONS"]["first"].result == InlineObject(data="next-iteration")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("nested", [False, True])
+async def test_compiler_fallback_preserves_legacy_action_context(
+    context: ExecutionContext, nested: bool
+) -> None:
+    expression = "${{ ACTIONS.first.result.value + ACTIONS.second.result.value }}"
+    dsl = make_dsl(None)
+    task = dsl.actions[-1]
+    task.args = {"value": expression}
+    scheduler = object.__new__(DSLScheduler)
+    with patch(
+        "tracecat.dsl.action.compile_dsl_dependencies",
+        side_effect=RuntimeError("synthetic compiler failure"),
+    ):
+        scheduler.dependency_plan = (
+            await DSLActivities.compile_dsl_dependencies_activity(dsl)
+        )
+    assert scheduler.dependency_plan is None
+    scheduler.logger = get_workflow_logger()
+    scheduler._root_context = context
+    scheduler.streams = {ROOT_STREAM: context}
+    scheduler.stream_hierarchy = {ROOT_STREAM: None}
+    stream_id = ROOT_STREAM
+    if nested:
+        parent, stream_id, sibling = map(StreamID, ("parent", "child", "sibling"))
+        scheduler.streams[parent] = ExecutionContext(
+            ACTIONS={"second": TaskResult.from_result({"value": 13})}, TRIGGER=None
+        )
+        scheduler.streams[stream_id] = ExecutionContext(
+            ACTIONS={"first": TaskResult.from_result({"value": 17})}, TRIGGER=None
+        )
+        scheduler.streams[sibling] = ExecutionContext(
+            ACTIONS={"sibling_only": TaskResult.from_result(19)}, TRIGGER=None
+        )
+        scheduler.stream_hierarchy.update(
+            {parent: ROOT_STREAM, stream_id: parent, sibling: parent}
+        )
+    workflow = object.__new__(DSLWorkflow)
+    workflow.scheduler = scheduler
+    operand = workflow._build_action_context(task, stream_id)
+    assert set(operand["ACTIONS"]) == {"first", "second"}
+    assert operand["TRIGGER"] is context["TRIGGER"]
+    assert operand.get("VARS") is context.get("VARS")
+    assert eval_templated_object(
+        expression, operand=await materialize_context(operand)
+    ) == (30 if nested else 10)
+    assert operand["ACTIONS"]["first"].result == InlineObject(
+        data={"value": 17 if nested else 3}
+    )
+    assert context["ACTIONS"]["second"].result == InlineObject(data={"value": 7})
+
+
+def test_legacy_action_context_still_uses_sparse_extraction(
+    context: ExecutionContext,
+) -> None:
+    scheduler = object.__new__(DSLScheduler)
+    scheduler.dependency_plan = None
+    scheduler.logger = get_workflow_logger()
+    scheduler._root_context = context
+    scheduler.streams = {ROOT_STREAM: context}
+    scheduler.stream_hierarchy = {ROOT_STREAM: None}
+    task = ActionStatement(
+        ref="consumer",
+        action="core.noop",
+        args={"value": "${{ ACTIONS.first.result }}"},
+    )
+    assert set(scheduler.build_stream_aware_context(task, ROOT_STREAM)["ACTIONS"]) == {
+        "first"
+    }
 
 
 @pytest.mark.anyio

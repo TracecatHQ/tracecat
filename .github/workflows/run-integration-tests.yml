@@ -176,6 +176,9 @@ jobs:
           load: true
           tags: tracecat-ci:integration-${{ github.run_id }}-${{ github.run_attempt }}
 
+      - name: Build PostgreSQL candidate image
+        run: bash scripts/postgres/build-image.sh
+
       - name: Start core Docker services
         env:
           TRACECAT__CI_IMAGE_TAG: integration-${{ github.run_id }}-${{ github.run_attempt }}

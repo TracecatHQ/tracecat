@@ -1793,7 +1793,7 @@ class DSLScheduler:
         self, task: ActionStatement, stream_id: StreamID
     ) -> ExecutionContext:
         """Build a context that is aware of the stream hierarchy."""
-        # Only pre-compilation histories extract dependencies in the workflow.
+        # Old histories and compilation failures use the legacy extractor.
         if self.dependency_plan is None:
             action_refs = extract_expressions(task.model_dump())[ExprContext.ACTIONS]
         else:

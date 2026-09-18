@@ -1,0 +1,60 @@
+---
+title: Set up pgvector
+description: Install pgvector for the Tracecat application database and resolve migration errors.
+---
+
+Tracecat requires pgvector 0.8.0 or newer in the `public` schema of your application database, even when semantic search is disabled. The Temporal database does not need pgvector.
+
+There are two setup steps: install the extension files on the PostgreSQL server, then enable the extension in the application database. Tracecat's migration performs the second step automatically if its database role has permission.
+
+## Install the server files
+
+| Your deployment | What you need to do |
+| --- | --- |
+| Bundled Docker Compose database | The Tracecat PostgreSQL image includes pgvector. Run `docker compose up` as usual. |
+| Your own PostgreSQL server or custom image | Download and install pgvector on the database server using the instructions below. Match your PostgreSQL version, operating system, and CPU architecture. |
+| Managed PostgreSQL, including Amazon RDS | Choose an engine version that supplies pgvector 0.8.0 or newer. Use your provider's extension controls; you do not install operating-system packages yourself. |
+
+For your own server, follow the official pgvector instructions for your installation method:
+
+- [Debian and Ubuntu packages](https://github.com/pgvector/pgvector#apt).
+- [RPM packages](https://github.com/pgvector/pgvector#yum).
+- [Build from source](https://github.com/pgvector/pgvector#installation).
+- [Other installation methods](https://github.com/pgvector/pgvector#additional-installation-methods).
+
+For RDS, follow [AWS's PostgreSQL extension setup guidance](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Appendix.PostgreSQL.CommonDBATasks.Extensions.html). Check that your engine supports the required version and that `rds.allowed_extensions` permits `vector`, if you use an allowlist.
+
+When upgrading an existing database, keep a backup and preserve a compatible PostgreSQL and OS base. Adding pgvector should not silently replace the libraries that your existing indexes depend on.
+
+## Enable the extension
+
+Connect to the Tracecat application database and check what the server provides:
+
+```sql
+SELECT name, default_version, installed_version
+FROM pg_available_extensions
+WHERE name = 'vector';
+```
+
+If the query returns no rows, install the server files or select a managed engine that supports pgvector. A null `installed_version` means the files are available but the extension is not enabled in this database.
+
+Tracecat's migration runs:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;
+```
+
+If your migration role cannot create extensions, have a database administrator run that command in the application database before retrying the migration. You can keep the application role's existing permissions.
+
+## Resolve a migration error
+
+Pgvector setup failures include a link to this page in the migration logs.
+
+| Error | What to do |
+| --- | --- |
+| Extension is not available, or `vector.control` is missing | Install pgvector on the PostgreSQL server using the matching instructions above. |
+| Permission denied to create extension | Ask your database administrator to enable it in the application database. |
+| Version is below 0.8.0 | Follow the [pgvector upgrade instructions](https://github.com/pgvector/pgvector#upgrading), then retry. |
+| Extension is outside `public` | Ask your database administrator to review and correct the extension schema before retrying. |
+
+After correcting the prerequisite, rerun your deployment's migration step. The migration does not upgrade or relocate an existing extension, and downgrading Tracecat retains it.
