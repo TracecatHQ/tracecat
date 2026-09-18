@@ -651,8 +651,9 @@ services:
       - api
 
   postgres_db:
-    image: postgres:16
+    image: ${TRACECAT__PGVECTOR_IMAGE:-ghcr.io/tracecathq/tracecat-postgres:1}
     container_name: postgres_db
+    command: ["postgres"]
     restart: unless-stopped
     networks:
       - core-db
@@ -660,16 +661,17 @@ services:
       - 5432:5432
     shm_size: 128mb
     environment:
+      POSTGRES_DB: postgres
       POSTGRES_USER: ${TRACECAT__POSTGRES_USER}
       POSTGRES_PASSWORD: ${TRACECAT__POSTGRES_PASSWORD}
     volumes:
       - core-db:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d postgres"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d postgres"]
       interval: 5s
       timeout: 5s
       retries: 12
-      start_period: 5s
+      start_period: 180s
 
   migrations:
     build:
