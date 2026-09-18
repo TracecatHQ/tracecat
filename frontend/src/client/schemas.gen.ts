@@ -13755,6 +13755,159 @@ export const $EffectiveEntitlements = {
 Values are resolved from org overrides falling back to tier defaults.`,
 } as const
 
+export const $EmbeddingConfigurationRead = {
+  properties: {
+    available: {
+      type: "boolean",
+      title: "Available",
+    },
+    version: {
+      type: "integer",
+      title: "Version",
+    },
+    state: {
+      $ref: "#/components/schemas/SearchState",
+    },
+    configuration: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/EmbeddingModelRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    reindex_required: {
+      type: "boolean",
+      title: "Reindex Required",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["available", "version", "state"],
+  title: "EmbeddingConfigurationRead",
+  description:
+    "Availability from existing provider settings and current indexing state.",
+} as const
+
+export const $EmbeddingErrorCode = {
+  type: "string",
+  enum: [
+    "CREDENTIAL_INVALID",
+    "CONFIGURATION_INVALID",
+    "CONFIGURATION_CHANGED",
+    "INPUT_INVALID",
+    "RATE_LIMITED",
+    "TIMEOUT",
+    "UNAVAILABLE",
+    "RESPONSE_INVALID",
+    "NOT_CONFIGURED",
+  ],
+  title: "EmbeddingErrorCode",
+  description:
+    "Stable public failures; provider messages must never cross this boundary.",
+} as const
+
+export const $EmbeddingErrorRead = {
+  properties: {
+    code: {
+      $ref: "#/components/schemas/EmbeddingErrorCode",
+    },
+    retryable: {
+      type: "boolean",
+      title: "Retryable",
+    },
+    retry_after: {
+      anyOf: [
+        {
+          type: "number",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Retry After",
+    },
+  },
+  type: "object",
+  required: ["code", "retryable"],
+  title: "EmbeddingErrorRead",
+} as const
+
+export const $EmbeddingErrorResponse = {
+  properties: {
+    detail: {
+      $ref: "#/components/schemas/EmbeddingErrorRead",
+    },
+  },
+  type: "object",
+  required: ["detail"],
+  title: "EmbeddingErrorResponse",
+} as const
+
+export const $EmbeddingModelRead = {
+  properties: {
+    provider: {
+      type: "string",
+      enum: ["openai", "gemini", "bedrock", "ollama", "vllm"],
+      title: "Provider",
+    },
+    model: {
+      type: "string",
+      enum: [
+        "text-embedding-3-small",
+        "text-embedding-3-large",
+        "gemini-embedding-001",
+        "amazon.titan-embed-text-v2:0",
+        "all-minilm",
+        "all-minilm:latest",
+        "all-minilm:22m",
+        "sentence-transformers/all-MiniLM-L6-v2",
+      ],
+      title: "Model",
+    },
+    dimensions: {
+      type: "integer",
+      title: "Dimensions",
+    },
+    tokenizer: {
+      type: "string",
+      title: "Tokenizer",
+    },
+    input_token_limit: {
+      type: "integer",
+      title: "Input Token Limit",
+    },
+    input_character_limit: {
+      type: "integer",
+      title: "Input Character Limit",
+    },
+    batch_size_limit: {
+      type: "integer",
+      title: "Batch Size Limit",
+    },
+    batch_token_limit: {
+      type: "integer",
+      title: "Batch Token Limit",
+    },
+  },
+  type: "object",
+  required: [
+    "provider",
+    "model",
+    "dimensions",
+    "tokenizer",
+    "input_token_limit",
+    "input_character_limit",
+    "batch_size_limit",
+    "batch_token_limit",
+  ],
+  title: "EmbeddingModelRead",
+  description:
+    "Public metadata needed for status and bounded chunk preparation.",
+} as const
+
 export const $EntitlementsDict = {
   properties: {
     custom_registry: {
@@ -24161,6 +24314,13 @@ export const $ScopeSource = {
   enum: ["platform", "custom"],
   title: "ScopeSource",
   description: "Source/ownership of a scope definition.",
+} as const
+
+export const $SearchState = {
+  type: "string",
+  enum: ["disabled", "active", "paused", "reindex_required"],
+  title: "SearchState",
+  description: "Workspace availability states controlling search and indexing.",
 } as const
 
 export const $SecretArtifact = {
