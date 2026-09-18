@@ -5798,7 +5798,7 @@ class SearchCollection(TimestampMixin, Base):
     source_id: Mapped[uuid.UUID] = mapped_column(UUID)
     selected_column_ids: Mapped[list[uuid.UUID]] = mapped_column(ARRAY(UUID))
     generation: Mapped[int] = mapped_column(BigInteger, server_default="1")
-    config_version: Mapped[int] = mapped_column(BigInteger)
+    config_version: Mapped[int | None] = mapped_column(BigInteger)
     chunker_settings: Mapped[dict[str, str | int]] = mapped_column(JSONB)
     enabled: Mapped[bool] = mapped_column(Boolean, server_default="false")
     backfill_cursor: Mapped[uuid.UUID | None] = mapped_column(UUID)

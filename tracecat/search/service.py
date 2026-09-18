@@ -9,13 +9,14 @@ import hashlib
 import math
 import struct
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from datetime import timedelta
 from typing import Self
 
 import numpy as np
 from sqlalchemy import and_, delete, func, select, text
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.db.engine import get_async_session_context_manager
@@ -275,49 +276,88 @@ class SearchStorage(BaseService):
         backfill: bool = False,
     ) -> SearchDocument:
         """Record a source change; backfill preserves current-generation work."""
+        await self.touch_documents(
+            collection_id, [row_id], deleted=deleted, backfill=backfill
+        )
+        return (
+            await self.session.scalars(
+                select(SearchDocument)
+                .execution_options(populate_existing=True)
+                .where(
+                    self._scope(SearchDocument),
+                    SearchDocument.collection_id == collection_id,
+                    SearchDocument.source_row_id == row_id,
+                )
+            )
+        ).one()
+
+    async def touch_documents(
+        self,
+        collection_id: uuid.UUID,
+        row_ids: Sequence[uuid.UUID],
+        *,
+        deleted: bool = False,
+        backfill: bool = False,
+    ) -> None:
+        """Invalidate source revisions in bounded batches under the scope lock.
+
+        Backfill preserves documents already in this generation. Source adapters
+        decide which rows changed; this is the canonical document reset for both
+        single-row and bulk writers.
+        """
         collection = await self.collection(collection_id)
-        document = await self.session.scalar(
-            select(SearchDocument)
-            .execution_options(populate_existing=True)
-            .where(
-                self._scope(SearchDocument),
-                SearchDocument.collection_id == collection_id,
-                SearchDocument.source_row_id == row_id,
+        row_ids = list(dict.fromkeys(row_ids))
+        for offset in range(0, len(row_ids), 1000):
+            # SQL parameter mappings combine literals and SQL expressions; they
+            # are internal statement construction, not a domain data structure.
+            reset = {
+                "generation": collection.generation,
+                "build_revision": None,
+                "indexed_revision": None,
+                "enumeration_cursor": None,
+                "enumeration_complete": False,
+                "expected_chunks": 0,
+                "lease_until": None,
+                "next_attempt_at": None,
+                "attempts": 0,
+                "error_code": None,
+                "state": DocumentState.DELETED if deleted else DocumentState.PENDING,
+                "deleted_at": func.clock_timestamp() if deleted else None,
+            }
+            stmt = insert(SearchDocument).values(
+                [
+                    {
+                        "organization_id": self.scope.organization_id,
+                        "workspace_id": self.scope.workspace_id,
+                        "collection_id": collection.id,
+                        "source_row_id": row_id,
+                        "desired_revision": 1,
+                        "fence": 0,
+                        **reset,
+                    }
+                    for row_id in row_ids[offset : offset + 1000]
+                ]
             )
-        )
-        if document is None:
-            document = SearchDocument(
-                organization_id=self.scope.organization_id,
-                workspace_id=self.scope.workspace_id,
-                collection_id=collection_id,
-                source_row_id=row_id,
-                desired_revision=1,
-                fence=0,
+            await self.session.execute(
+                stmt.on_conflict_do_update(
+                    index_elements=[
+                        SearchDocument.organization_id,
+                        SearchDocument.workspace_id,
+                        SearchDocument.collection_id,
+                        SearchDocument.source_row_id,
+                    ],
+                    set_={
+                        **reset,
+                        "desired_revision": SearchDocument.desired_revision + 1,
+                        "fence": SearchDocument.fence + 1,
+                        "updated_at": func.now(),
+                    },
+                    where=SearchDocument.generation != collection.generation
+                    if backfill
+                    else None,
+                )
             )
-            self.session.add(document)
-        elif backfill and document.generation == collection.generation:
-            return document
-        else:
-            document.desired_revision += 1
-            document.fence += 1
-        document.generation = collection.generation
-        document.build_revision = None
-        document.indexed_revision = None
-        document.enumeration_cursor = None
-        document.enumeration_complete = False
-        document.expected_chunks = 0
-        document.lease_until = None
-        document.next_attempt_at = None
-        document.attempts = 0
-        document.error_code = None
-        document.state = DocumentState.DELETED if deleted else DocumentState.PENDING
-        document.deleted_at = (
-            await self.session.scalar(select(func.clock_timestamp()))
-            if deleted
-            else None
-        )
         await self.session.flush()
-        return document
 
     async def _document(self, document_id: uuid.UUID) -> SearchDocument:
         document = await self.session.scalar(
@@ -374,6 +414,7 @@ class SearchStorage(BaseService):
         document.state = DocumentState.BUILDING
         document.attempts += 1
         await self.session.flush()
+        assert collection.config_version is not None
         return BuildClaim(
             collection_id=collection.id,
             document_id=document.id,
