@@ -89,6 +89,30 @@
   Pulls the latest code from the custom registry repo registered in the caller's organization, builds a versioned tarball, and makes the synced actions available to agents and workflows. Use this after pushing changes to the custom integrations repo, or to roll forward/back to a specific commit. Existing published workflows must be republished to pick up newly synced action versions.
 </ResponseField>
 
+<ResponseField name="list_workspace_sync_commits" type="tool">
+  List recent commits on the workspace's configured Git sync repository.
+
+  Use this to find a `commit_sha` for `pull_workspace_sync`. The repository is read from the workspace's Git sync settings.
+</ResponseField>
+
+<ResponseField name="preview_workspace_sync_export" type="tool">
+  Preview which workspace resources an export would commit to Git.
+
+  Read-only counterpart of `export_workspace_sync`: projects the selected resources (plus their dependency closure) without writing to the repository. Mirrors `POST /workflows/sync/export/preview`.
+</ResponseField>
+
+<ResponseField name="export_workspace_sync" type="tool">
+  Export workspace resources to the configured Git sync repository.
+
+  Commits workflows, agent presets, skills, tables, case configuration, variables, and secret metadata to `branch`, optionally opening a pull request. Mirrors `POST /workflows/sync/export`. Use `preview_workspace_sync_export` first to see what will be written.
+</ResponseField>
+
+<ResponseField name="pull_workspace_sync" type="tool">
+  Pull workspace resources from the configured Git sync repository.
+
+  Imports the workspace spec at `commit_sha` atomically: either every resource is imported or nothing changes. Mirrors `POST /workflows/sync/pull`. Run with `dry_run=true` first to validate and inspect `resource_diffs` before importing.
+</ResponseField>
+
 <ResponseField name="get_action_context" type="tool">
   Get full schema and configuration context for a single action.
 

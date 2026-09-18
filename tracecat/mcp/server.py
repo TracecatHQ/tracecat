@@ -171,6 +171,7 @@ from tracecat.exceptions import (
     ScopeDeniedError,
     TracecatCredentialsNotFoundError,
     TracecatNotFoundError,
+    TracecatSettingsError,
     TracecatValidationError,
 )
 from tracecat.identifiers.workflow import (
@@ -232,7 +233,10 @@ from tracecat.registry.constants import (
     DEFAULT_REGISTRY_ORIGIN,
 )
 from tracecat.registry.lock.types import RegistryLock
-from tracecat.registry.repositories.schemas import RegistryRepositorySync
+from tracecat.registry.repositories.schemas import (
+    GitCommitInfo,
+    RegistryRepositorySync,
+)
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.registry.repository import Repository
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
@@ -243,6 +247,7 @@ from tracecat.storage.object import (
     ExternalObject,
     retrieve_stored_object,
 )
+from tracecat.sync import PullOptions, PullResult
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import (
     TableColumnCreate,
@@ -261,6 +266,7 @@ from tracecat.validation.schemas import (
 )
 from tracecat.validation.service import validate_dsl
 from tracecat.variables.service import VariablesService
+from tracecat.vcs.exceptions import VcsProviderError
 from tracecat.webhooks import service as webhook_service
 from tracecat.webhooks.schemas import WebhookMethod, WebhookRead, WebhookUpdate
 from tracecat.workflow.case_triggers.schemas import (
@@ -314,7 +320,19 @@ from tracecat.workflow.schedules.schemas import (
     ScheduleRead,
 )
 from tracecat.workflow.schedules.service import WorkflowSchedulesService
+from tracecat.workflow.store.schemas import (
+    CatalogMappingSelection,
+    McpIntegrationMappingSelection,
+)
 from tracecat.workflow.tags.service import WorkflowTagsService
+from tracecat.workspace_sync.schemas import (
+    ResourceRef,
+    WorkspaceSyncExportPreview,
+    WorkspaceSyncExportPreviewRequest,
+    WorkspaceSyncExportRequest,
+    WorkspaceSyncExportResult,
+)
+from tracecat.workspace_sync.service import WorkspaceSyncService
 
 type MCPWorkflowUUID = Annotated[
     WorkflowUUID,
@@ -4653,6 +4671,211 @@ async def sync_custom_registry(
     except Exception as e:
         logger.error("Failed to sync custom registry", error=str(e))
         raise ToolError(f"Failed to sync custom registry: {e}") from None
+
+
+_WORKSPACE_SYNC_INPUT_ERRORS = (
+    TracecatNotFoundError,
+    TracecatSettingsError,
+    TracecatValidationError,
+    VcsProviderError,
+    ValueError,
+)
+
+
+def _workspace_sync_tool_error(action: str, error: Exception) -> ToolError:
+    if isinstance(error, ScopeDeniedError):
+        required = ", ".join(error.required_scopes)
+        return ToolError(f"Missing required scope: {required}")
+    if isinstance(error, _WORKSPACE_SYNC_INPUT_ERRORS):
+        return ToolError(str(error))
+    logger.error(f"Failed to {action}", error=str(error))
+    return ToolError(f"Failed to {action}: {error}")
+
+
+@mcp.tool()
+async def list_workspace_sync_commits(
+    workspace_id: uuid.UUID,
+    branch: str = "main",
+    limit: int = config.TRACECAT__LIMIT_COMMITS_DEFAULT,
+) -> list[GitCommitInfo]:
+    """List recent commits on the workspace's configured Git sync repository.
+
+    Use this to find a `commit_sha` for `pull_workspace_sync`. The repository
+    is read from the workspace's Git sync settings.
+
+    Args:
+        workspace_id: The workspace ID.
+        branch: Branch to list commits from. Defaults to `"main"`.
+        limit: Maximum number of commits to return.
+
+    Returns a JSON array of commits with `sha`, `message`, `author`, `date`,
+    and `url`, newest first.
+    """
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        if not (
+            config.TRACECAT__LIMIT_MIN <= limit <= config.TRACECAT__LIMIT_CURSOR_MAX
+        ):
+            raise ValueError(
+                f"limit must be between {config.TRACECAT__LIMIT_MIN} and "
+                f"{config.TRACECAT__LIMIT_CURSOR_MAX}"
+            )
+        async with get_async_session_context_manager() as session:
+            svc = await WorkspaceSyncService.for_workspace(session=session, role=role)
+            return await svc.list_commits(branch=branch, limit=limit)
+    except ToolError:
+        raise
+    except Exception as e:
+        raise _workspace_sync_tool_error("list workspace sync commits", e) from None
+
+
+@mcp.tool()
+async def preview_workspace_sync_export(
+    workspace_id: uuid.UUID,
+    resources: list[ResourceRef] | None = None,
+    include_schedules: bool = False,
+    compare_ref: str | None = None,
+) -> WorkspaceSyncExportPreview:
+    """Preview which workspace resources an export would commit to Git.
+
+    Read-only counterpart of `export_workspace_sync`: projects the selected
+    resources (plus their dependency closure) without writing to the
+    repository. Mirrors `POST /workflows/sync/export/preview`.
+
+    Args:
+        workspace_id: The workspace ID.
+        resources: Specific resources to preview, each with `resource_type`
+            and either `source_id` or `local_id`. Omit to preview all
+            syncable resources.
+        include_schedules: Whether to include workflow schedules.
+        compare_ref: Optional repository ref (branch or commit) to diff the
+            projected export against. When omitted only the manifest
+            summary is returned.
+
+    Returns JSON with `resource_counts`, `files`, `resources`, and
+    `resource_diffs` (only when `compare_ref` is set).
+    """
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        params = WorkspaceSyncExportPreviewRequest(
+            resources=resources,
+            include_schedules=include_schedules,
+            compare_ref=compare_ref,
+        )
+        async with get_async_session_context_manager() as session:
+            svc = await WorkspaceSyncService.for_workspace(session=session, role=role)
+            return await svc.preview_export_workspace(params)
+    except ToolError:
+        raise
+    except Exception as e:
+        raise _workspace_sync_tool_error("preview workspace sync export", e) from None
+
+
+@mcp.tool()
+async def export_workspace_sync(
+    workspace_id: uuid.UUID,
+    message: str,
+    branch: str,
+    create_pr: bool = False,
+    pr_base_branch: str | None = None,
+    resources: list[ResourceRef] | None = None,
+    include_schedules: bool = False,
+) -> WorkspaceSyncExportResult:
+    """Export workspace resources to the configured Git sync repository.
+
+    Commits workflows, agent presets, skills, tables, case configuration,
+    variables, and secret metadata to `branch`, optionally opening a pull
+    request. Mirrors `POST /workflows/sync/export`. Use
+    `preview_workspace_sync_export` first to see what will be written.
+
+    Args:
+        workspace_id: The workspace ID.
+        message: Commit message.
+        branch: Target branch to commit to.
+        create_pr: Whether to open a pull request for the commit.
+        pr_base_branch: Base branch for the pull request when `create_pr` is
+            true.
+        resources: Specific resources to export, each with `resource_type`
+            and either `source_id` or `local_id`. Omit to export all
+            syncable resources.
+        include_schedules: Whether to include workflow schedules.
+
+    Returns JSON with `commit` (`sha`, `ref`, `pr_url`, `pr_number`, ...) and
+    the repository-relative `files` written.
+    """
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        params = WorkspaceSyncExportRequest(
+            message=message,
+            branch=branch,
+            create_pr=create_pr,
+            pr_base_branch=pr_base_branch,
+            resources=resources,
+            include_schedules=include_schedules,
+        )
+        async with get_async_session_context_manager() as session:
+            svc = await WorkspaceSyncService.for_workspace(session=session, role=role)
+            return await svc.export_workspace(params)
+    except ToolError:
+        raise
+    except Exception as e:
+        raise _workspace_sync_tool_error("export workspace sync", e) from None
+
+
+@mcp.tool()
+async def pull_workspace_sync(
+    workspace_id: uuid.UUID,
+    commit_sha: str,
+    dry_run: bool = False,
+    sync_schedules: bool = False,
+    catalog_mappings: list[CatalogMappingSelection] | None = None,
+    mcp_integration_mappings: list[McpIntegrationMappingSelection] | None = None,
+) -> PullResult:
+    """Pull workspace resources from the configured Git sync repository.
+
+    Imports the workspace spec at `commit_sha` atomically: either every
+    resource is imported or nothing changes. Mirrors
+    `POST /workflows/sync/pull`. Run with `dry_run=true` first to validate
+    and inspect `resource_diffs` before importing.
+
+    Args:
+        workspace_id: The workspace ID.
+        commit_sha: Full 40-character commit SHA to pull. Use
+            `list_workspace_sync_commits` to find one.
+        dry_run: Validate and preview only; do not import.
+        sync_schedules: Apply schedule definitions from Git. Defaults off so
+            destination schedules are preserved.
+        catalog_mappings: Explicit source-to-target model catalog choices for
+            ambiguous references reported by a dry run.
+        mcp_integration_mappings: Explicit source-to-target MCP integration
+            choices for unresolved references reported by a dry run.
+
+    Returns JSON with `success`, `commit_sha`, `workflows_found`,
+    `workflows_imported`, `diagnostics`, `message`, `resource_counts`, and
+    (for dry runs) `resource_diffs` and `files`.
+    """
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        if len(commit_sha) != 40:
+            raise ValueError("commit_sha must be a full 40-character commit SHA")
+        options = PullOptions(
+            commit_sha=commit_sha,
+            dry_run=dry_run,
+            catalog_mappings={
+                m.source_catalog_id: m.target_catalog_id for m in catalog_mappings or []
+            },
+            mcp_integration_mappings={
+                m.source_mcp_integration_id: m.target_mcp_integration_id
+                for m in mcp_integration_mappings or []
+            },
+        )
+        async with get_async_session_context_manager() as session:
+            svc = await WorkspaceSyncService.for_workspace(session=session, role=role)
+            return await svc.pull(options=options, sync_schedules=sync_schedules)
+    except ToolError:
+        raise
+    except Exception as e:
+        raise _workspace_sync_tool_error("pull workspace sync", e) from None
 
 
 @mcp.tool()
