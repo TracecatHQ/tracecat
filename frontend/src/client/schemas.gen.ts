@@ -13689,12 +13689,6 @@ export const $EditorParamRead = {
 
 export const $EffectiveEntitlements = {
   properties: {
-    custom_registry: {
-      type: "boolean",
-      title: "Custom Registry",
-      description: "Whether custom registry repositories are enabled",
-      default: false,
-    },
     git_sync: {
       type: "boolean",
       title: "Git Sync",
@@ -13757,11 +13751,6 @@ Values are resolved from org overrides falling back to tier defaults.`,
 
 export const $EntitlementsDict = {
   properties: {
-    custom_registry: {
-      type: "boolean",
-      title: "Custom Registry",
-      description: "Whether custom registry repositories are enabled",
-    },
     git_sync: {
       type: "boolean",
       title: "Git Sync",

@@ -15,7 +15,6 @@ from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import RegistryRepository
 from tracecat.exceptions import (
-    EntitlementRequired,
     RegistryActionValidationError,
     RegistryError,
     RegistryNotFound,
@@ -45,7 +44,6 @@ from tracecat.registry.versions.schemas import VersionDiff
 from tracecat.registry.versions.service import RegistryVersionsService
 from tracecat.settings.service import get_setting
 from tracecat.ssh import ssh_context
-from tracecat.tiers.entitlements import Entitlement, check_entitlement
 
 router = APIRouter(prefix=REGISTRY_REPOS_PATH, tags=["registry-repositories"])
 
@@ -138,7 +136,7 @@ async def sync_registry_repository(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
-    except (EntitlementRequired, HTTPException):
+    except HTTPException:
         raise
     except Exception as e:
         logger.error("Unexpected error while syncing repository", exc=e)
@@ -401,9 +399,6 @@ async def create_registry_repository(
             ),
         )
 
-    # Check entitlement for custom registry (non-system repositories)
-    await check_entitlement(session, role, Entitlement.CUSTOM_REGISTRY)
-
     service = RegistryReposService(session, role=role)
     try:
         created_repository = await service.create_repository(params)
@@ -456,7 +451,6 @@ async def update_registry_repository(
             detail="Registry repository not found",
         ) from e
 
-    # Check entitlement for custom registry repositories.
     # Also gate attempts to mutate a default repo into a custom origin.
     if repository.origin == DEFAULT_REGISTRY_ORIGIN or (
         params.origin is not None and params.origin == DEFAULT_REGISTRY_ORIGIN
@@ -468,8 +462,6 @@ async def update_registry_repository(
                 "Use the admin registry API instead."
             ),
         )
-
-    await check_entitlement(session, role, Entitlement.CUSTOM_REGISTRY)
 
     updated_repository = await repos_service.update_repository(repository, params)
     actions = await actions_service.list_actions_from_index_by_repository(repository_id)
@@ -511,7 +503,6 @@ async def delete_registry_repository(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"The {repository.origin!r} repository cannot be deleted.",
         )
-    await check_entitlement(session, role, Entitlement.CUSTOM_REGISTRY)
     await service.delete_repository(repository)
 
 
@@ -559,10 +550,6 @@ async def promote_registry_version(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Registry repository not found",
         ) from e
-
-    # Check entitlement for custom registry (non-default repositories)
-    if repository.origin != DEFAULT_REGISTRY_ORIGIN:
-        await check_entitlement(session, role, Entitlement.CUSTOM_REGISTRY)
 
     previous_version_id = repository.current_version_id
 
@@ -623,10 +610,6 @@ async def delete_registry_version(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Registry repository not found",
         ) from e
-
-    # Check entitlement for custom registry (non-default repositories)
-    if repository.origin != DEFAULT_REGISTRY_ORIGIN:
-        await check_entitlement(session, role, Entitlement.CUSTOM_REGISTRY)
 
     version = await versions_service.get_version(version_id)
     if version is None:

@@ -116,7 +116,7 @@ jobs:
               --password password1234 \
               --superuser-email test@tracecat.com \
               --superuser-password password1234 \
-              --default-tier-entitlements custom_registry \
+              --default-tier-entitlements none \
               --org-role organization-owner \
               --workspace-role workspace-admin
 

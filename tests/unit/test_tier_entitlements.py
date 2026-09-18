@@ -112,6 +112,24 @@ async def test_specific_tier_entitlements_drive_effective_values(
 
 
 @pytest.mark.anyio
+async def test_stale_custom_registry_key_is_ignored(
+    session: AsyncSession, test_org: Organization
+) -> None:
+    """Persisted custom_registry data must not affect current entitlements."""
+    await _create_org_tier(
+        session,
+        test_org.id,
+        entitlements={"custom_registry": False, "git_sync": True},
+        entitlement_overrides={"custom_registry": False},
+    )
+
+    effective = await TierService(session).get_effective_entitlements(test_org.id)
+
+    assert "custom_registry" not in effective.model_dump()
+    assert effective.git_sync is True
+
+
+@pytest.mark.anyio
 async def test_org_entitlement_overrides_take_precedence_over_tier(
     session: AsyncSession, test_org: Organization
 ) -> None:

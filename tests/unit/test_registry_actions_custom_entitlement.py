@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 from sqlalchemy import delete, select
@@ -144,7 +144,7 @@ async def _seed_org_registry(
 
 
 @pytest.mark.anyio
-async def test_index_list_hides_custom_actions_without_entitlement(
+async def test_index_list_includes_org_actions(
     svc_role: Role,
     session: AsyncSession,
 ) -> None:
@@ -167,21 +167,17 @@ async def test_index_list_hides_custom_actions_without_entitlement(
     )
 
     service = RegistryActionsService(session, role=svc_role)
-    with patch.object(
-        service, "has_entitlement", new=AsyncMock(return_value=False)
-    ) as mock_has_entitlement:
-        entries = await service.list_actions_from_index(namespace="acme.test")
+    entries = await service.list_actions_from_index(namespace="acme.test")
 
     actions_to_origin = {
         f"{entry.namespace}.{entry.name}": origin for entry, origin in entries
     }
-    assert actions_to_origin[shared_action] == DEFAULT_REGISTRY_ORIGIN
-    assert custom_only_action not in actions_to_origin
-    mock_has_entitlement.assert_awaited_once()
+    assert actions_to_origin[shared_action] == custom_origin
+    assert actions_to_origin[custom_only_action] == custom_origin
 
 
 @pytest.mark.anyio
-async def test_get_action_from_index_uses_platform_fallback_without_entitlement(
+async def test_get_action_from_index_prefers_org_registry(
     svc_role: Role,
     session: AsyncSession,
 ) -> None:
@@ -204,17 +200,17 @@ async def test_get_action_from_index_uses_platform_fallback_without_entitlement(
     )
 
     service = RegistryActionsService(session, role=svc_role)
-    with patch.object(service, "has_entitlement", new=AsyncMock(return_value=False)):
-        shared = await service.get_action_from_index(shared_action)
-        custom_only = await service.get_action_from_index(custom_only_action)
+    shared = await service.get_action_from_index(shared_action)
+    custom_only = await service.get_action_from_index(custom_only_action)
 
     assert shared is not None
-    assert shared.origin == DEFAULT_REGISTRY_ORIGIN
-    assert custom_only is None
+    assert shared.origin == custom_origin
+    assert custom_only is not None
+    assert custom_only.origin == custom_origin
 
 
 @pytest.mark.anyio
-async def test_get_actions_from_index_filters_custom_and_keeps_platform_fallback(
+async def test_get_actions_from_index_includes_org_actions(
     svc_role: Role,
     session: AsyncSession,
 ) -> None:
@@ -237,13 +233,11 @@ async def test_get_actions_from_index_filters_custom_and_keeps_platform_fallback
     )
 
     service = RegistryActionsService(session, role=svc_role)
-    with patch.object(service, "has_entitlement", new=AsyncMock(return_value=False)):
-        results = await service.get_actions_from_index(
-            [shared_action, custom_only_action]
-        )
+    results = await service.get_actions_from_index([shared_action, custom_only_action])
 
-    assert set(results.keys()) == {shared_action}
-    assert results[shared_action].origin == DEFAULT_REGISTRY_ORIGIN
+    assert set(results.keys()) == {shared_action, custom_only_action}
+    assert results[shared_action].origin == custom_origin
+    assert results[custom_only_action].origin == custom_origin
 
 
 @pytest.mark.anyio
@@ -350,17 +344,10 @@ async def test_get_actions_from_index_retries_version_replaced_between_queries(
 
                 return await original_load(rows)
 
-            with (
-                patch.object(
-                    service,
-                    "has_entitlement",
-                    new=AsyncMock(return_value=True),
-                ),
-                patch.object(
-                    service,
-                    "_load_action_manifests",
-                    new=replace_version_before_manifest_load,
-                ),
+            with patch.object(
+                service,
+                "_load_action_manifests",
+                new=replace_version_before_manifest_load,
             ):
                 results = await service.get_actions_from_index([action_name])
 
@@ -387,7 +374,7 @@ async def test_get_actions_from_index_retries_version_replaced_between_queries(
 
 
 @pytest.mark.anyio
-async def test_list_actions_from_index_by_repository_returns_empty_for_custom_repo_without_entitlement(
+async def test_list_actions_from_index_by_repository_includes_org_actions(
     svc_role: Role,
     session: AsyncSession,
 ) -> None:
@@ -401,14 +388,14 @@ async def test_list_actions_from_index_by_repository_returns_empty_for_custom_re
     )
 
     service = RegistryActionsService(session, role=svc_role)
-    with patch.object(service, "has_entitlement", new=AsyncMock(return_value=False)):
-        actions = await service.list_actions_from_index_by_repository(custom_repo.id)
+    actions = await service.list_actions_from_index_by_repository(custom_repo.id)
 
-    assert actions == []
+    assert len(actions) == 1
+    assert actions[0].name == "only_action"
 
 
 @pytest.mark.anyio
-async def test_search_actions_from_index_hides_custom_actions_without_entitlement(
+async def test_search_actions_from_index_includes_org_actions(
     svc_role: Role,
     session: AsyncSession,
 ) -> None:
@@ -431,11 +418,10 @@ async def test_search_actions_from_index_hides_custom_actions_without_entitlemen
     )
 
     service = RegistryActionsService(session, role=svc_role)
-    with patch.object(service, "has_entitlement", new=AsyncMock(return_value=False)):
-        entries = await service.search_actions_from_index("acme.search")
+    entries = await service.search_actions_from_index("acme.search")
 
     actions_to_origin = {
         f"{entry.namespace}.{entry.name}": origin for entry, origin in entries
     }
-    assert actions_to_origin[shared_action] == DEFAULT_REGISTRY_ORIGIN
-    assert custom_only_action not in actions_to_origin
+    assert actions_to_origin[shared_action] == custom_origin
+    assert actions_to_origin[custom_only_action] == custom_origin

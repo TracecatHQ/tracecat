@@ -43,9 +43,6 @@ class EffectiveEntitlements(Schema):
     Values are resolved from org overrides falling back to tier defaults.
     """
 
-    custom_registry: bool = Field(
-        default=False, description="Whether custom registry repositories are enabled"
-    )
     git_sync: bool = Field(default=False, description="Whether git sync is enabled")
     agent_addons: bool = Field(
         default=False,

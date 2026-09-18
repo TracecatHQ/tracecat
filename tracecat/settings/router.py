@@ -46,8 +46,6 @@ from tracecat.settings.service import (
     AgentOtelEndpointNotAllowedError,
     SettingsService,
 )
-from tracecat.tiers.entitlements import check_entitlement
-from tracecat.tiers.enums import Entitlement
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -135,7 +133,6 @@ async def get_git_settings(
     role: OrgActorRole,
     session: AsyncDBSession,
 ) -> GitSettingsRead:
-    await check_entitlement(session, role, Entitlement.CUSTOM_REGISTRY)
     service = SettingsService(session, role)
     keys = GitSettingsRead.keys()
     settings = await service.list_org_settings(keys=keys)
@@ -151,7 +148,6 @@ async def update_git_settings(
     session: AsyncDBSession,
     params: GitSettingsUpdate,
 ) -> None:
-    await check_entitlement(session, role, Entitlement.CUSTOM_REGISTRY)
     service = SettingsService(session, role)
     await service.update_git_settings(params)
 

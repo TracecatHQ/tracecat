@@ -407,7 +407,7 @@ class TestBuildToolDefinitionsActivity:
         assert app_error.details[0] == {"origin": "tracecat_registry"}
 
     @pytest.mark.anyio
-    async def test_classifies_custom_registry_entitlement_denial(
+    async def test_classifies_entitlement_denial(
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
@@ -416,7 +416,7 @@ class TestBuildToolDefinitionsActivity:
 
         class _LockService:
             async def resolve_lock_with_bindings(self, _actions: set[str]) -> None:
-                raise EntitlementRequired("custom_registry")
+                raise EntitlementRequired("case_addons")
 
         class _AsyncContext:
             async def __aenter__(self) -> _LockService:

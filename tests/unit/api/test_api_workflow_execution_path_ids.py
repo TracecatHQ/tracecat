@@ -222,7 +222,7 @@ async def test_internal_get_execution_status_unwraps_nested_failure_cause(
             self.cause = cause
 
     root_cause = ApplicationError(
-        "EntitlementRequired: Feature 'custom_registry' requires an upgraded plan"
+        "EntitlementRequired: Feature 'case_addons' requires an upgraded plan"
     )
     activity_wrapper = FakeActivityError("Activity task failed", cause=root_cause)
 
@@ -248,7 +248,7 @@ async def test_internal_get_execution_status_unwraps_nested_failure_cause(
     payload = response.json()
     assert payload["status"] == "FAILED"
     assert payload["error"] is not None
-    assert "custom_registry" in payload["error"]
+    assert "case_addons" in payload["error"]
     assert "Activity task failed" not in payload["error"]
 
 
