@@ -227,11 +227,19 @@ async def seed_external_group_members(
     """Add external users to an external group's shadow member list."""
     if not external_user_ids:
         return
+    organization_id = (
+        await session.execute(
+            select(ExternalGroup.organization_id).where(
+                ExternalGroup.id == external_group_id
+            )
+        )
+    ).scalar_one()
     await session.execute(
         pg_insert(ExternalGroupMember)
         .values(
             [
                 {
+                    "organization_id": organization_id,
                     "external_group_id": external_group_id,
                     "external_user_id": external_user_id,
                 }
