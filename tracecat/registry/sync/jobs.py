@@ -33,9 +33,14 @@ from tracecat.registry.versions.service import PlatformRegistryVersionsService
 
 MAX_SYNC_RETRIES = 3
 PLATFORM_SYNC_LOCK_KEY = derive_lock_key_from_parts("platform_registry_sync")
+# Accepts the current release tag grammar (1.1.0, 1.1.0-alpha.2, 1.1.0-alpha.2.6)
+# and the retired pre-1.0 chained form (1.0.0-beta.52-rc.24) that production
+# databases may still hold. The `sub_stage`/`sub_number` groups exist only to
+# order those legacy chained tags.
 _RELEASE_TAG_PATTERN = re.compile(
     r"^(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)"
     r"(?:-(?P<stage>alpha|a|beta|b|rc|dev|post)\.(?P<number>\d+)"
+    r"(?:\.(?P<hotfix>\d+))?"
     r"(?:-(?P<sub_stage>alpha|a|beta|b|rc|dev|post)\.(?P<sub_number>\d+))?)?$"
 )
 _STAGE_RANK = {
@@ -59,7 +64,7 @@ class _ArtifactBuildRequest:
     expected_current_version_id: UUID | None = None
 
 
-def _release_tag_key(version: str) -> tuple[int, int, int, int, int, int, int]:
+def _release_tag_key(version: str) -> tuple[int, int, int, int, int, int, int, int]:
     """Return a sortable key for Tracecat release/image tag versions."""
     match = _RELEASE_TAG_PATTERN.fullmatch(version)
     if match is None:
@@ -67,6 +72,7 @@ def _release_tag_key(version: str) -> tuple[int, int, int, int, int, int, int]:
 
     stage = match.group("stage") or "final"
     number = int(match.group("number") or 0)
+    hotfix = int(match.group("hotfix") or 0)
     sub_stage = match.group("sub_stage") or "final"
     sub_number = int(match.group("sub_number") or 0)
 
@@ -76,6 +82,7 @@ def _release_tag_key(version: str) -> tuple[int, int, int, int, int, int, int]:
         int(match.group("patch")),
         _STAGE_RANK[stage],
         number,
+        hotfix,
         _STAGE_RANK[sub_stage],
         sub_number,
     )
