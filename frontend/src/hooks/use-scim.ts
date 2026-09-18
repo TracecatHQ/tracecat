@@ -1,16 +1,20 @@
 "use client"
 
 import {
+  type ExternalGroupMappingCreate,
   type ExternalGroupMappingRead,
   type ExternalGroupRead,
+  type ScimActivationReviewRead,
   type ScimConnectionRead,
   type ScimConnectionTokenRead,
+  scimActivateScimConnection,
   scimCreateScimMapping,
   scimDeleteScimMapping,
   scimGetScimConnection,
   scimIssueScimToken,
   scimListExternalGroups,
   scimListScimMappings,
+  scimReviewScimActivation,
   scimRevokeScimToken,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
@@ -147,6 +151,7 @@ export function useScimMappings() {
         }),
       onSuccess: async (mapping) => {
         await queryClient.invalidateQueries({ queryKey: SCIM_MAPPINGS_KEY })
+        await queryClient.invalidateQueries({ queryKey: ["rbac-groups"] })
         toast({
           title: "Mapping created",
           description: `${mapping.external_group_display_name} now grants membership of ${mapping.group_name}.`,
@@ -161,9 +166,11 @@ export function useScimMappings() {
         await scimDeleteScimMapping({ mappingId }),
       onSuccess: async () => {
         await queryClient.invalidateQueries({ queryKey: SCIM_MAPPINGS_KEY })
+        await queryClient.invalidateQueries({ queryKey: ["rbac-groups"] })
         toast({
           title: "Mapping removed",
-          description: "Membership supplied only by this mapping was revoked.",
+          description:
+            "If this was the final mapping, eligible members were retained as manual members. Otherwise, remaining mappings determine membership.",
         })
       },
       onError: (error) => toastScimError("Failed to remove mapping", error),
@@ -178,4 +185,35 @@ export function useScimMappings() {
     deleteMapping,
     deleteMappingIsPending,
   }
+}
+
+/** Review without writing, then activate the proposed mappings atomically. */
+export function useScimActivation() {
+  const queryClient = useQueryClient()
+  const review = useMutation<
+    ScimActivationReviewRead,
+    TracecatApiError,
+    ExternalGroupMappingCreate[]
+  >({
+    mutationFn: (mappings) =>
+      scimReviewScimActivation({ requestBody: { mappings } }),
+    onError: (error) => toastScimError("Failed to review SCIM changes", error),
+  })
+  const activate = useMutation<
+    void,
+    TracecatApiError,
+    ExternalGroupMappingCreate[]
+  >({
+    mutationFn: (mappings) =>
+      scimActivateScimConnection({ requestBody: { mappings } }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries()
+      toast({
+        title: "SCIM activated",
+        description: "Eligible directory users have been admitted.",
+      })
+    },
+    onError: (error) => toastScimError("Failed to activate SCIM", error),
+  })
+  return { review, activate }
 }
