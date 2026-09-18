@@ -12,12 +12,13 @@ SPEC suite checks.
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 from uuid import UUID
 
 import orjson
-from fastapi import APIRouter, Query, Request, Response, status
+from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import ORJSONResponse
 from sqlalchemy import func, select
@@ -94,12 +95,20 @@ def is_scim_path(request: Request) -> bool:
     return request.url.path.startswith(SCIM_PREFIX)
 
 
+class ScimFilterError(HTTPException):
+    """An unsupported or malformed SCIM search filter."""
+
+
 def scim_http_exception_handler(
     request: Request, exc: StarletteHTTPException
 ) -> Response:
     """Rewrite an HTTP error on a SCIM path into the SCIM envelope."""
     detail = exc.detail if isinstance(exc.detail, str) else "Request failed"
-    return scim_error_response(status_code=exc.status_code, detail=detail)
+    return scim_error_response(
+        status_code=exc.status_code,
+        detail=detail,
+        scim_type="invalidFilter" if isinstance(exc, ScimFilterError) else None,
+    )
 
 
 def scim_validation_exception_handler(
@@ -171,18 +180,21 @@ def _list_response(
     )
 
 
-def _parse_username_filter(filter_expr: str | None) -> str | None:
-    """Extract the value from ``userName eq "..."``.
-
-    Okta queries before creating, and this is the only filter it needs. Any
-    other expression is unsupported rather than silently ignored.
-    """
-    if not filter_expr:
+def _parse_equality_filter(filter_expr: str | None, attribute: str) -> str | None:
+    """Accept one equality expression with a JSON string value."""
+    if filter_expr is None:
         return None
-    parts = filter_expr.strip().split(None, 2)
-    if len(parts) != 3 or parts[0].lower() != "username" or parts[1].lower() != "eq":
-        raise TracecatValidationError(f"Unsupported filter: {filter_expr}")
-    return parts[2].strip().strip('"').strip("'").lower()
+    match = re.fullmatch(
+        rf'\s*{attribute}\s+eq\s+("(?:[^"\\]|\\.)*")\s*', filter_expr, re.IGNORECASE
+    )
+    if match is not None:
+        try:
+            return json.loads(match[1]).lower()
+        except ValueError:
+            pass
+    raise ScimFilterError(
+        status_code=400, detail=f"Expected {attribute} eq with a quoted string"
+    )
 
 
 # =============================================================================
@@ -230,7 +242,7 @@ async def list_users(
     startIndex = max(1, startIndex)
     count = min(200, max(0, count))
     organization_id = _organization_id(role)
-    username = _parse_username_filter(filter)
+    username = _parse_equality_filter(filter, "userName")
 
     conditions = [ExternalUser.organization_id == organization_id]
     if username is not None:
@@ -410,19 +422,33 @@ async def delete_user(
 async def _group_members(
     session: AsyncSession, external_group_id: UUID
 ) -> list[ScimGroupMemberRef]:
-    # The member ref is the /Users resource id, which is external_user.id.
+    return (await _group_members_by_group(session, [external_group_id])).get(
+        external_group_id, []
+    )
+
+
+async def _group_members_by_group(
+    session: AsyncSession, group_ids: list[UUID]
+) -> dict[UUID, list[ScimGroupMemberRef]]:
+    if not group_ids:
+        return {}
     stmt = (
-        select(ExternalGroupMember.external_user_id, User.email)  # pyright: ignore[reportArgumentType, reportCallIssue]
+        select(
+            ExternalGroupMember.external_group_id,
+            ExternalGroupMember.external_user_id,
+            User.__table__.c.email,
+        )
         .join(ExternalUser, ExternalUser.id == ExternalGroupMember.external_user_id)
-        .join(User, User.id == ExternalUser.user_id)  # pyright: ignore[reportArgumentType]
-        .where(ExternalGroupMember.external_group_id == external_group_id)
+        .join(User, User.__table__.c.id == ExternalUser.user_id)
+        .where(ExternalGroupMember.external_group_id.in_(group_ids))
         .order_by(User.email)
     )
-    rows = (await session.execute(stmt)).tuples().all()
-    return [
-        ScimGroupMemberRef(value=str(external_user_id), display=email)
-        for external_user_id, email in rows
-    ]
+    members: dict[UUID, list[ScimGroupMemberRef]] = {}
+    for group_id, user_id, email in (await session.execute(stmt)).tuples().all():
+        members.setdefault(group_id, []).append(
+            ScimGroupMemberRef(value=str(user_id), display=email)
+        )
+    return members
 
 
 async def _get_group(
@@ -472,11 +498,9 @@ async def list_groups(
     count = min(200, max(0, count))
     organization_id = _organization_id(role)
     conditions = [ExternalGroup.organization_id == organization_id]
-    if filter:
-        parts = filter.strip().split(None, 2)
-        if len(parts) == 3 and parts[0].lower() == "displayname":
-            wanted = parts[2].strip().strip('"').strip("'").lower()
-            conditions.append(func.lower(ExternalGroup.display_name) == wanted)
+    wanted = _parse_equality_filter(filter, "displayName")
+    if wanted is not None:
+        conditions.append(func.lower(ExternalGroup.display_name) == wanted)
 
     total = await session.scalar(
         select(func.count()).select_from(ExternalGroup).where(*conditions)
@@ -486,15 +510,14 @@ async def list_groups(
             await session.execute(
                 select(ExternalGroup)
                 .where(*conditions)
-                .order_by(ExternalGroup.display_name)
+                .order_by(ExternalGroup.display_name, ExternalGroup.id)
                 .offset(startIndex - 1)
                 .limit(count)
             )
         ).scalars()
     )
-    resources = [
-        _group_resource(g, members=await _group_members(session, g.id)) for g in groups
-    ]
+    members = await _group_members_by_group(session, [g.id for g in groups])
+    resources = [_group_resource(g, members=members.get(g.id, [])) for g in groups]
     return _list_response(resources, total=total or 0, start_index=startIndex)
 
 

@@ -11,7 +11,7 @@ import httpx
 import pytest
 from fastapi import FastAPI, HTTPException, Request, Response, status
 from fastapi.exceptions import RequestValidationError
-from sqlalchemy import func, select
+from sqlalchemy import event, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.scim.credentials import ScimConnectionRole
 from tracecat_ee.scim.protocol import (
@@ -31,6 +31,7 @@ from tracecat.authz.enums import ScimConnectionStatus
 from tracecat.authz.membership import ensure_member
 from tracecat.db.engine import get_async_session
 from tracecat.db.models import (
+    ExternalGroup,
     ExternalGroupMapping,
     ExternalGroupMember,
     ExternalUser,
@@ -927,3 +928,106 @@ async def test_repeated_inactive_push_removes_restored_admission(
     await session.commit()
     assert (await client.patch(path, json=payload)).status_code == 200
     assert await session.get(OrganizationMembership, (external.user_id, org.id)) is None
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "expression",
+    [
+        'displayName ne "Engineering"',
+        'externalId eq "missing"',
+        "displayName eq unquoted",
+        'displayName eq "x" or displayName eq "y"',
+        'displayName eq "unterminated',
+        "",
+    ],
+)
+async def test_group_filter_rejects_unsupported_grammar(
+    client: httpx.AsyncClient, org: Organization, expression: str
+) -> None:
+    response = await client.get("/scim/v2/Groups", params={"filter": expression})
+    assert response.status_code == 400
+    assert response.json()["scimType"] == "invalidFilter"
+
+
+@pytest.mark.anyio
+async def test_group_pages_with_identical_names_are_stable(
+    client: httpx.AsyncClient, org: Organization
+) -> None:
+    ids = []
+    for i in range(3):
+        response = await client.post(
+            "/scim/v2/Groups",
+            json={"displayName": 'Shared "name"', "externalId": f"page-{i}"},
+        )
+        assert response.status_code == 201
+        ids.append(response.json()["id"])
+    pages = []
+    for index in range(1, 4):
+        response = await client.get(
+            "/scim/v2/Groups",
+            params={
+                "count": 1,
+                "startIndex": index,
+                "filter": 'displayName eq "Shared \\"name\\""',
+            },
+        )
+        assert response.status_code == 200
+        pages.append(response.json()["Resources"][0]["id"])
+    assert pages == sorted(ids)
+
+
+@pytest.mark.anyio
+async def test_group_list_batches_memberships(
+    client: httpx.AsyncClient, org: Organization, session: AsyncSession
+) -> None:
+    users = [
+        (await _post_user(client, f"batch-{i}@tracecat.com")).json()["id"]
+        for i in range(2)
+    ]
+    groups = [
+        ExternalGroup(
+            id=uuid.uuid4(),
+            organization_id=org.id,
+            external_id=f"batch-{i}",
+            display_name=f"Batch {i:03}",
+        )
+        for i in range(200)
+    ]
+    session.add_all(groups)
+    await session.flush()
+    for i in range(2):
+        session.add(
+            ExternalGroupMember(
+                organization_id=org.id,
+                external_group_id=groups[i].id,
+                external_user_id=uuid.UUID(users[i]),
+            )
+        )
+    await session.commit()
+    queries: list[str] = []
+
+    def capture(
+        conn: object,
+        cursor: object,
+        statement: str,
+        parameters: object,
+        context: object,
+        executemany: bool,
+    ) -> None:
+        if statement.lstrip().upper().startswith("SELECT"):
+            queries.append(statement)
+
+    bind = session.get_bind()
+    event.listen(bind, "before_cursor_execute", capture)
+    try:
+        response = await client.get("/scim/v2/Groups", params={"count": 200})
+    finally:
+        event.remove(bind, "before_cursor_execute", capture)
+    assert response.status_code == 200
+    resources = response.json()["Resources"]
+    assert len(resources) == 200
+    assert len(queries) == 3
+    assert [m["value"] for m in resources[0]["members"]] == [users[0]]
+    assert [m["value"] for m in resources[1]["members"]] == [users[1]]
+    assert all(not group["members"] for group in resources[2:])

@@ -11,6 +11,7 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.scim.provisioning import ScimProvisioningService
+from tracecat_ee.scim.service import SCIMService
 
 from tracecat.auth.types import Role
 from tracecat.authz.enums import ScimConnectionStatus
@@ -27,8 +28,14 @@ from tracecat.db.models import (
     UserRoleAssignment,
 )
 from tracecat.db.models import Role as DBRole
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import TracecatAuthorizationError, TracecatValidationError
 from tracecat.invitations.enums import InvitationStatus
+from tracecat.invitations.schemas import InvitationCreate
+from tracecat.invitations.schemas import InvitationGrant as InvitationGrantRequest
+from tracecat.invitations.service import (
+    accept_invitation_for_user,
+    create_invitation_row,
+)
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -374,3 +381,72 @@ async def test_pending_connection_links_without_admitting(
     assert not await _is_member(
         session, user_id=provisioned.user.id, organization_id=org.id
     )
+
+
+@pytest.mark.anyio
+async def test_inactive_duplicate_removes_existing_admission(
+    session: AsyncSession,
+    org: Organization,
+    service: ScimProvisioningService,
+    active_connection: None,
+) -> None:
+    first = await service.provision_user(
+        external_id="duplicate", email="duplicate-inactive@tracecat.com"
+    )
+    user_id = first.user.id
+    assert await _is_member(session, user_id=user_id, organization_id=org.id)
+    await service.provision_user(
+        external_id="duplicate", email=first.user.email, active=False
+    )
+    assert not await _is_member(session, user_id=user_id, organization_id=org.id)
+    assert (
+        await session.scalar(
+            select(func.count())
+            .select_from(UserRoleAssignment)
+            .where(
+                UserRoleAssignment.organization_id == org.id,
+                UserRoleAssignment.user_id == user_id,
+            )
+        )
+        == 0
+    )
+
+
+@pytest.mark.anyio
+async def test_reactivation_revokes_invitation_before_it_can_grant_roles(
+    session: AsyncSession,
+    org: Organization,
+    service: ScimProvisioningService,
+    role: Role,
+    active_connection: None,
+) -> None:
+    provisioned = await service.provision_user(
+        external_id="reactivate", email="reactivate-invite@tracecat.com"
+    )
+    user_id, email = provisioned.user.id, provisioned.user.email
+    await SCIMService(session, role).deprovision_user(user_id)
+    role_id = (
+        await session.execute(
+            select(DBRole.id).where(
+                DBRole.organization_id == org.id, DBRole.slug == "organization-admin"
+            )
+        )
+    ).scalar_one()
+    invitation = await create_invitation_row(
+        session,
+        organization_id=org.id,
+        params=InvitationCreate(
+            email=email, grants=[InvitationGrantRequest(role_id=role_id)]
+        ),
+        invited_by=None,
+        created_by_platform_admin=True,
+    )
+    await session.commit()
+    await SCIMService(session, role).reactivate_external_user(provisioned.external_user)
+    await session.commit()
+    await session.refresh(invitation)
+    assert invitation.status == InvitationStatus.REVOKED
+    with pytest.raises(TracecatAuthorizationError):
+        await accept_invitation_for_user(
+            session, user_id=user_id, token=invitation.token
+        )

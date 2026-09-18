@@ -23,6 +23,7 @@ from uuid import UUID
 from fastapi_users.exceptions import InvalidPasswordException
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import IntegrityError
 
 from tracecat.audit.logger import audit_log
 from tracecat.auth.users import (
@@ -44,6 +45,7 @@ from tracecat.db.models import Role as DBRole
 from tracecat.exceptions import TracecatValidationError
 from tracecat.invitations.enums import InvitationStatus
 from tracecat.service import BaseOrgService
+from tracecat_ee.scim.service import SCIMService
 
 ORG_MEMBER_ROLE_SLUG = "organization-member"
 
@@ -95,8 +97,17 @@ class ScimProvisioningService(BaseOrgService):
         existing = await self._user_by_email(normalized)
 
         if existing is None:
-            user = await self._create_user(normalized)
-            created = True
+            try:
+                user = await self._create_user(normalized)
+                created = True
+            except IntegrityError:
+                # Another request may have committed the same global email.
+                await self.session.rollback()
+                winner = await self._user_by_email(normalized)
+                if winner is None:
+                    raise
+                user = winner
+                created = False
         else:
             user = existing
             created = False
@@ -109,7 +120,11 @@ class ScimProvisioningService(BaseOrgService):
 
         # A pending connection collects the directory without granting anything,
         # so an admin can review what arrived before anyone is admitted.
-        if active and await self._connection_is_active():
+        connection_active = await self._connection_is_active()
+        if not active and connection_active:
+            await SCIMService(self.session, self.role).deprovision_user(user.id)
+            await self.session.refresh(external_user)
+        elif active and connection_active:
             # A live invitation carries its own role, possibly above what SCIM
             # grants, so accepting it later would escalate. It is revoked here.
             await self._revoke_pending_invitation(normalized)

@@ -630,6 +630,13 @@ class SCIMService(BaseOrgService):
             .values(active=True)
         )
         if await self._connection_is_active():
+            email = await self.session.scalar(
+                select(User.__table__.c.email).where(
+                    User.__table__.c.id == external_user.user_id
+                )
+            )
+            if email is not None:
+                await self._revoke_pending_invitation(email)
             await ensure_member(
                 self.session, self.organization_id, external_user.user_id
             )
