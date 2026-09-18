@@ -15,6 +15,8 @@ from tracecat_ee.workspace_chat.policy import (
 
 from tracecat import config
 from tracecat.agent.adapter import vercel
+from tracecat.agent.session.backends.registry import get_session_backends
+from tracecat.agent.session.backends.types import SessionDispatchUncertain
 from tracecat.agent.session.schemas import (
     AgentSessionArtifactsRead,
     AgentSessionCancelRequest,
@@ -25,6 +27,7 @@ from tracecat.agent.session.schemas import (
     AgentSessionReadVercel,
     AgentSessionReadWithMessages,
     AgentSessionUpdate,
+    SessionBackendRead,
 )
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import (
@@ -131,6 +134,21 @@ async def _require_workspace_chat_entitlement_for_session_tree(
         if parent_session_id is None:
             return
         current = await svc.get_session(parent_session_id)
+
+
+@router.get("/backends")
+@require_scope("agent:read")
+async def list_session_backends(
+    role: WorkspaceActorRouteRole,
+) -> list[SessionBackendRead]:
+    """List enabled installed backends available to new sessions."""
+    return [
+        SessionBackendRead(
+            id=key, name=backend.name, supports_fork=backend.supports_fork
+        )
+        for key, backend in get_session_backends().items()
+        if backend.is_enabled()
+    ]
 
 
 @router.post("")
@@ -610,9 +628,10 @@ async def send_message(
                             f"Failed to start agent turn for session {session_id}"
                         )
                         await stream.done()
-                        await svc.clear_active_turn(
-                            session_id, expected_stream_id=stream_id
-                        )
+                        if not isinstance(turn_exc, SessionDispatchUncertain):
+                            await svc.clear_active_turn(
+                                session_id, expected_stream_id=stream_id
+                            )
                     except Exception as rollback_exc:
                         logger.warning(
                             "Failed to clear stream state after turn startup failure",

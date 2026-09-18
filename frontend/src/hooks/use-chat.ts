@@ -23,10 +23,12 @@ import {
   agentSessionsDeleteSession,
   agentSessionsGetSession,
   agentSessionsGetSessionVercel,
+  agentSessionsListSessionBackends,
   agentSessionsListSessions,
   agentSessionsRemoveSessionArtifact,
   agentSessionsUpdateSession,
   type ContinueRunRequest,
+  type SessionBackendRead,
   type VercelChatRequest,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
@@ -588,7 +590,10 @@ export function useVercelChat({
   resume?: boolean
 }) {
   const queryClient = useQueryClient()
-  const [lastError, setLastError] = useState<string | null>(null)
+  const [lastError, setLastError] = useState<{
+    chatId: string | undefined
+    message: string
+  } | null>(null)
 
   // Build the Vercel streaming endpoint URL
   const apiEndpoint = useMemo(() => {
@@ -647,7 +652,7 @@ export function useVercelChat({
     }),
     onError: (error) => {
       const friendlyMessage = parseChatError(error)
-      setLastError(friendlyMessage)
+      setLastError({ chatId, message: friendlyMessage })
       console.error("Error in Vercel chat:", error)
       toast({
         title: "Chat error",
@@ -673,7 +678,8 @@ export function useVercelChat({
 
   return {
     ...chat,
-    lastError,
+    lastError:
+      lastError && lastError.chatId === chatId ? lastError.message : null,
     clearError: useCallback(() => setLastError(null), []),
   }
 }
@@ -768,4 +774,18 @@ export function makeContinueMessage(
       } as UIMessage["parts"][number],
     ],
   }
+}
+
+const EMPTY_BACKENDS: SessionBackendRead[] = []
+
+/** Discover enabled backend providers without coupling the UI to their names. */
+export function useSessionBackends(workspaceId?: string) {
+  const { data } = useQuery({
+    queryKey: ["session-backends", workspaceId],
+    queryFn: () =>
+      agentSessionsListSessionBackends({ workspaceId: workspaceId! }),
+    enabled: Boolean(workspaceId),
+    staleTime: 60_000,
+  })
+  return { backends: data ?? EMPTY_BACKENDS }
 }

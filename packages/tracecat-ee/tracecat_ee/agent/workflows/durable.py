@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 from temporalio import workflow
 from temporalio.common import TypedSearchAttributes
 from temporalio.exceptions import (
@@ -69,7 +69,7 @@ with workflow.unsafe.imports_passed_through():
         ResolvedAgentsRuntimeConfig,
         ResolvedSubagentConfig,
     )
-    from tracecat.agent.schemas import AgentOutput, RunAgentArgs, RunUsage, ToolFilters
+    from tracecat.agent.schemas import AgentOutput, RunUsage, ToolFilters
     from tracecat.agent.session.activities import (
         CreateSessionInput,
         FinalizeTurnInput,
@@ -84,6 +84,15 @@ with workflow.unsafe.imports_passed_through():
         load_session_activity,
         load_session_messages_activity,
         reconcile_tool_results_activity,
+    )
+    from tracecat.agent.session.backends.schemas import (
+        AgentWorkflowArgs as AgentWorkflowArgs,
+    )
+    from tracecat.agent.session.backends.schemas import (
+        WorkflowApprovalSubmission as WorkflowApprovalSubmission,
+    )
+    from tracecat.agent.session.backends.schemas import (
+        WorkflowCancelRequest as WorkflowCancelRequest,
     )
     from tracecat.agent.session.types import AgentSessionEntity
     from tracecat.agent.subagents import (
@@ -140,7 +149,7 @@ with workflow.unsafe.imports_passed_through():
         EmitSessionErrorInputs,
         ExecuteRemoteMCPToolArgs,
     )
-    from tracecat_ee.agent.approvals.service import ApprovalManager, ApprovalMap
+    from tracecat_ee.agent.approvals.service import ApprovalManager
     from tracecat_ee.agent.context import AgentContext
     from tracecat_ee.agent.types import AgentWorkflowID
 
@@ -452,64 +461,6 @@ class CompiledAgentRun(BaseModel):
     @property
     def sandbox_subagents(self) -> list[SandboxSubagentConfig]:
         return [subagent.to_sandbox_subagent() for subagent in self.subagents]
-
-
-class AgentWorkflowArgs(BaseModel):
-    """Arguments for starting an agent workflow."""
-
-    # Temporal stores the original workflow input in history. Keep stale keys
-    # replayable after workflow args evolve, including the removed legacy
-    # ``use_workspace_credentials`` flag.
-    model_config = ConfigDict(extra="ignore")
-
-    role: Role
-    agent_args: RunAgentArgs
-    # Session metadata
-    title: str = Field(default="New Chat", description="Session title")
-    entity_type: AgentSessionEntity = Field(
-        ..., description="Type of entity this session is associated with"
-    )
-    entity_id: uuid.UUID = Field(..., description="ID of the associated entity")
-    tools: list[str] | None = Field(
-        default=None, description="Tools available to the agent"
-    )
-    agent_preset_id: uuid.UUID | None = Field(
-        default=None, description="Agent preset used for this session"
-    )
-    agent_preset_version_id: uuid.UUID | None = Field(
-        default=None,
-        description=(
-            "Pinned preset version used for this workflow run. "
-            "If null, the run follows the preset's current version."
-        ),
-    )
-    harness_type: HarnessType | None = Field(
-        default=None,
-        description="Agent harness type. Reserved for future multi-harness support.",
-    )
-    continue_existing_session: bool = Field(
-        default=False,
-        description=("If true, session_id is caller-supplied and must already exist."),
-    )
-
-
-class WorkflowApprovalSubmission(BaseModel):
-    approvals: ApprovalMap
-    approved_by: uuid.UUID | None = None
-    decision_metadata: dict[str, dict[str, Any]] | None = None
-    new_stream_id: uuid.UUID | None = Field(
-        default=None,
-        description=(
-            "Rotated per-turn Redis stream ID. When set, the workflow sends every "
-            "event emitted after approval resumes to this new stream instead of "
-            "the stream that ended at the approval pause, which may already have "
-            "expired."
-        ),
-    )
-
-
-class WorkflowCancelRequest(BaseModel):
-    reason: Literal["user_cancel"] = "user_cancel"
 
 
 def _resolve_agent_output(

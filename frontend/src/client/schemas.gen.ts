@@ -4047,8 +4047,12 @@ export const $AgentSessionCreate = {
         "Pinned preset version used for this session. If null, the session follows the preset's current version.",
     },
     harness_type: {
-      $ref: "#/components/schemas/HarnessType",
-      description: "Agent harness type",
+      type: "string",
+      maxLength: 50,
+      minLength: 1,
+      pattern: "^[a-z][a-z0-9_]*$",
+      title: "Harness Type",
+      description: "Registered session backend",
       default: "claude_code",
     },
   },
@@ -4795,13 +4799,17 @@ export const $AgentSessionUpdate = {
     harness_type: {
       anyOf: [
         {
-          $ref: "#/components/schemas/HarnessType",
+          type: "string",
+          maxLength: 50,
+          minLength: 1,
+          pattern: "^[a-z][a-z0-9_]*$",
         },
         {
           type: "null",
         },
       ],
-      description: "Agent harness type",
+      title: "Harness Type",
+      description: "Registered session backend",
     },
   },
   type: "object",
@@ -15654,13 +15662,6 @@ export const $HTTPValidationError = {
   title: "HTTPValidationError",
 } as const
 
-export const $HarnessType = {
-  type: "string",
-  enum: ["claude_code"],
-  title: "HarnessType",
-  description: "Supported agent harnesses.",
-} as const
-
 export const $HealthResponse = {
   properties: {
     status: {
@@ -25116,6 +25117,27 @@ export const $ServiceAccountUpdate = {
   },
   type: "object",
   title: "ServiceAccountUpdate",
+} as const
+
+export const $SessionBackendRead = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    supports_fork: {
+      type: "boolean",
+      title: "Supports Fork",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "supports_fork"],
+  title: "SessionBackendRead",
+  description: "An enabled installed backend available for session creation.",
 } as const
 
 export const $SessionRead = {

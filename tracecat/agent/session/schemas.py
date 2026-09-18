@@ -63,8 +63,12 @@ class AgentSessionCreate(BaseModel):
         ),
     )
     # Harness fields
-    harness_type: HarnessType = Field(
-        default=HarnessType.CLAUDE_CODE, description="Agent harness type"
+    harness_type: str = Field(
+        default=HarnessType.CLAUDE_CODE.value,
+        description="Registered session backend",
+        min_length=1,
+        max_length=50,
+        pattern=r"^[a-z][a-z0-9_]*$",
     )
 
 
@@ -94,8 +98,12 @@ class AgentSessionUpdate(BaseModel):
             "Set null to follow the preset's current version."
         ),
     )
-    harness_type: HarnessType | None = Field(
-        default=None, description="Agent harness type"
+    harness_type: str | None = Field(
+        default=None,
+        description="Registered session backend",
+        min_length=1,
+        max_length=50,
+        pattern=r"^[a-z][a-z0-9_]*$",
     )
 
 
@@ -197,3 +205,11 @@ class AgentSessionCancelResponse(BaseModel):
     session_id: uuid.UUID
     run_id: uuid.UUID
     reason: str
+
+
+class SessionBackendRead(BaseModel):
+    """An enabled installed backend available for session creation."""
+
+    id: str
+    name: str
+    supports_fork: bool
