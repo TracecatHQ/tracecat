@@ -38,7 +38,16 @@ export function useOrgSecretStores() {
     error,
   } = useQuery<SecretStoreRead[], ApiError>({
     queryKey: ORG_SECRET_STORES_KEY,
-    queryFn: organizationSecretStoresListSecretStores,
+    queryFn: async () => {
+      const stores: SecretStoreRead[] = []
+      let cursor: string | undefined
+      do {
+        const page = await organizationSecretStoresListSecretStores({ cursor })
+        stores.push(...page.items)
+        cursor = page.next_cursor ?? undefined
+      } while (cursor)
+      return stores
+    },
     retry: false,
   })
 
@@ -177,8 +186,19 @@ export function useAuthorizedSecretStores(
     error,
   } = useQuery<WorkspaceSecretStoreRead[], ApiError>({
     queryKey: ["workspace-secret-stores", workspaceId],
-    queryFn: async () =>
-      await secretsListAuthorizedSecretStores({ workspaceId }),
+    queryFn: async () => {
+      const stores: WorkspaceSecretStoreRead[] = []
+      let cursor: string | undefined
+      do {
+        const page = await secretsListAuthorizedSecretStores({
+          workspaceId,
+          cursor,
+        })
+        stores.push(...page.items)
+        cursor = page.next_cursor ?? undefined
+      } while (cursor)
+      return stores
+    },
     enabled: !!workspaceId && (options.enabled ?? true),
     staleTime: 5 * 60 * 1000,
     retry: false,

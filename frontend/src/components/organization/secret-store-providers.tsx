@@ -58,7 +58,8 @@ function buildStoreTrustPolicy(store: SecretStoreRead): string {
  * Minimal read-only permissions the store role needs. No ListSecrets,
  * write, delete, or rotation permissions are requested.
  */
-function buildStorePermissionPolicy(store: SecretStoreRead): string {
+export function buildStorePermissionPolicy(store: SecretStoreRead): string {
+  const partition = store.config.role_arn.split(":")[1]
   return JSON.stringify(
     {
       Version: "2012-10-17",
@@ -66,7 +67,7 @@ function buildStorePermissionPolicy(store: SecretStoreRead): string {
         {
           Effect: "Allow",
           Action: ["secretsmanager:GetSecretValue"],
-          Resource: `arn:aws:secretsmanager:${store.config.region}:*:secret:*`,
+          Resource: `arn:${partition}:secretsmanager:${store.config.region}:*:secret:*`,
         },
         {
           Effect: "Allow",
@@ -74,6 +75,8 @@ function buildStorePermissionPolicy(store: SecretStoreRead): string {
           Resource: "*",
           Condition: {
             StringEquals: {
+              // KMS ViaService uses amazonaws.com in every partition, including China.
+              // https://docs.aws.amazon.com/kms/latest/developerguide/conditions-kms.html#conditions-kms-via-service
               "kms:ViaService": `secretsmanager.${store.config.region}.amazonaws.com`,
             },
           },

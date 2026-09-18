@@ -6,6 +6,7 @@ import uuid
 from collections.abc import Sequence
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from tracecat.audit.logger import audit_log
@@ -19,6 +20,7 @@ from tracecat.db.models import (
 from tracecat.db.rls import set_rls_context, set_rls_context_from_role
 from tracecat.exceptions import TracecatConflictError, TracecatNotFoundError
 from tracecat.identifiers import WorkspaceID
+from tracecat.pagination import Page, PageParams, paginate
 from tracecat.secrets.schemas import SecretStoreCreate, SecretStoreUpdate
 from tracecat.service import BaseOrgService
 from tracecat_ee.secrets.backends import get_backend, parse_store_config
@@ -29,16 +31,22 @@ class SecretStoresService(BaseOrgService):
 
     service_name = "secret_stores"
 
-    async def list_stores(self) -> Sequence[OrganizationSecretStore]:
+    async def list_stores(self, page: PageParams) -> Page[OrganizationSecretStore]:
         """List stores owned by the current organization."""
         stmt = (
             select(OrganizationSecretStore)
             .where(OrganizationSecretStore.organization_id == self.organization_id)
             .options(selectinload(OrganizationSecretStore.authorizations))
-            .order_by(OrganizationSecretStore.name)
         )
-        result = await self.session.execute(stmt)
-        return result.scalars().all()
+        return await paginate(
+            self.session,
+            stmt,
+            page=page,
+            order_by=(
+                OrganizationSecretStore.created_at.asc(),
+                OrganizationSecretStore.id.asc(),
+            ),
+        )
 
     async def get_store(self, store_id: uuid.UUID) -> OrganizationSecretStore:
         """Get a store by ID within the current organization."""
@@ -138,7 +146,7 @@ class SecretStoresService(BaseOrgService):
                 detail={"reference_count": reference_count},
             )
         await self.session.delete(store)
-        await self.session.commit()
+        await self._commit_removal()
 
     @require_scope("org:secret:update")
     @audit_log(resource_type="organization_secret_store", action="update")
@@ -194,4 +202,15 @@ class SecretStoresService(BaseOrgService):
         if authorization is None:
             raise TracecatNotFoundError("Workspace authorization not found")
         await self.session.delete(authorization)
-        await self.session.commit()
+        await self._commit_removal()
+
+    async def _commit_removal(self) -> None:
+        """Turn a reference inserted after the preflight count into a conflict."""
+        try:
+            await self.session.commit()
+        except IntegrityError as exc:
+            await self.session.rollback()
+            raise TracecatConflictError(
+                "Secret store or authorization is still referenced by workspace"
+                " secrets. Remove those references first."
+            ) from exc

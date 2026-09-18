@@ -20,6 +20,7 @@ from pydantic import (
     model_validator,
 )
 
+from tracecat.auth.types import Role
 from tracecat.db.models import (
     OrganizationSecret,
     OrganizationSecretStore,
@@ -366,7 +367,7 @@ class SecretRead(SecretReadBase):
 
 
 # === External secret stores (AWS Secrets Manager) ===
-SecretKey = Annotated[str, StringConstraints(pattern=r"[a-zA-Z0-9_]+")]
+SecretKey = Annotated[str, StringConstraints(pattern=r"^[a-zA-Z_][a-zA-Z0-9_]*$")]
 
 AWS_ROLE_ARN_PATTERN = r"^arn:aws(?:-[a-z]+)*:iam::\d{12}:role/[\w+=,.@/-]+$"
 AWS_REGION_PATTERN = r"^[a-z]{2}(?:-[a-z]+)+-\d$"
@@ -588,6 +589,13 @@ class AwsSecretReferenceUpdate(BaseModel):
         default=None, pattern=AWS_SECRET_ID_PATTERN, max_length=2048
     )
     key_mapping: AwsSecretKeyMapping | None = None
+
+
+class SecretReferenceCheckRequest(BaseModel):
+    """Identifiers and actor context for an executor-side reference check."""
+
+    role: Role
+    secret_id: SecretID
 
 
 class SecretReferenceCheckResult(BaseModel):

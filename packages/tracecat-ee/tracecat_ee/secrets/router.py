@@ -6,26 +6,31 @@ create and verify secrets whose values live in an external store.
 
 from __future__ import annotations
 
-from uuid import UUID
+from datetime import timedelta
+from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError
+from temporalio.client import WorkflowFailureError
 
 from tracecat import config
 from tracecat.auth.dependencies import OrgActorRole, WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import OrganizationSecretStore
+from tracecat.dsl.client import get_temporal_client
 from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatConflictError,
     TracecatNotFoundError,
 )
 from tracecat.identifiers import WorkspaceID
+from tracecat.pagination import Page, PageParams, PaginationError
 from tracecat.secrets.dependencies import AnySecretIDPath
 from tracecat.secrets.schemas import (
     AwsSecretReferenceCreate,
     AwsSecretReferenceUpdate,
+    SecretReferenceCheckRequest,
     SecretReferenceCheckResult,
     SecretStoreAuthorizationCreate,
     SecretStoreAuthorizationRead,
@@ -34,10 +39,14 @@ from tracecat.secrets.schemas import (
     SecretStoreUpdate,
     WorkspaceSecretStoreRead,
 )
+from tracecat.secrets.service import is_external_reference
 from tracecat.tiers.entitlements import check_entitlement
 from tracecat.tiers.enums import Entitlement
 from tracecat_ee.secrets.service import ExternalSecretsService
 from tracecat_ee.secrets.store_service import SecretStoresService
+from tracecat_ee.secrets.workflow import (
+    SecretReferenceCheckWorkflow,
+)
 
 
 async def _require_org_entitlement(
@@ -83,17 +92,32 @@ async def _serialize_store_read(
 # === Workspace external secret references ===
 
 
-@router.get("/stores", response_model=list[WorkspaceSecretStoreRead])
+@router.get("/stores", response_model=Page[WorkspaceSecretStoreRead])
 @require_scope("secret:read")
 async def list_authorized_secret_stores(
     *,
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
-) -> list[WorkspaceSecretStoreRead]:
+    limit: int = Query(
+        config.TRACECAT__LIMIT_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
+    ),
+    cursor: str | None = Query(None, max_length=8192),
+) -> Page[WorkspaceSecretStoreRead]:
     """List external secret stores this workspace is authorized to reference."""
     service = ExternalSecretsService(session, role=role)
-    stores = await service.list_authorized_stores()
-    return [WorkspaceSecretStoreRead.from_database(store) for store in stores]
+    try:
+        stores = await service.list_authorized_stores(
+            PageParams(limit=limit, cursor=cursor)
+        )
+    except PaginationError as exc:
+        raise HTTPException(status_code=400, detail=exc.detail) from exc
+    return Page(
+        items=[WorkspaceSecretStoreRead.from_database(store) for store in stores.items],
+        next_cursor=stores.next_cursor,
+        prev_cursor=stores.prev_cursor,
+    )
 
 
 @router.post("/aws", status_code=status.HTTP_201_CREATED)
@@ -162,7 +186,23 @@ async def check_aws_secret_reference(
     service = ExternalSecretsService(session, role=role)
     try:
         secret = await service.get_secret(secret_id)
-        return await service.check_aws_secret_reference(secret)
+        if not is_external_reference(secret):
+            raise ValueError("Secret is not backed by AWS Secrets Manager.")
+        # Only identifiers and actor context cross Temporal; values stay on the executor.
+        await session.commit()
+        client = await get_temporal_client()
+        return await client.execute_workflow(
+            SecretReferenceCheckWorkflow.run,
+            SecretReferenceCheckRequest(role=role, secret_id=secret_id),
+            id=f"secret-reference-check-{uuid4()}",
+            task_queue=config.TRACECAT__EXECUTOR_QUEUE,
+            execution_timeout=timedelta(seconds=60),
+        )
+    except WorkflowFailureError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Secret reference check could not complete. Try again.",
+        ) from exc
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
@@ -182,22 +222,36 @@ async def list_secret_stores(
     *,
     role: OrgActorRole,
     session: AsyncDBSession,
-) -> list[SecretStoreRead]:
+    limit: int = Query(
+        config.TRACECAT__LIMIT_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
+    ),
+    cursor: str | None = Query(None, max_length=8192),
+) -> Page[SecretStoreRead]:
     """List external secret stores owned by the organization."""
     service = SecretStoresService(session, role=role)
-    stores = await service.list_stores()
-    counts = await service.count_references([store.id for store in stores])
-    return [
-        SecretStoreRead.from_database(
-            store,
-            authorized_workspace_ids=[a.workspace_id for a in store.authorizations],
-            reference_count=counts.get(store.id, 0),
-            tracecat_aws_account_id=config.TRACECAT__AWS_ASSUME_ROLE_ACCOUNT_ID or None,
-            tracecat_aws_principal_arn=config.TRACECAT__AWS_ASSUME_ROLE_PRINCIPAL_ARN
-            or None,
-        )
-        for store in stores
-    ]
+    try:
+        stores = await service.list_stores(PageParams(limit=limit, cursor=cursor))
+    except PaginationError as exc:
+        raise HTTPException(status_code=400, detail=exc.detail) from exc
+    counts = await service.count_references([store.id for store in stores.items])
+    return Page(
+        items=[
+            SecretStoreRead.from_database(
+                store,
+                authorized_workspace_ids=[a.workspace_id for a in store.authorizations],
+                reference_count=counts.get(store.id, 0),
+                tracecat_aws_account_id=config.TRACECAT__AWS_ASSUME_ROLE_ACCOUNT_ID
+                or None,
+                tracecat_aws_principal_arn=config.TRACECAT__AWS_ASSUME_ROLE_PRINCIPAL_ARN
+                or None,
+            )
+            for store in stores.items
+        ],
+        next_cursor=stores.next_cursor,
+        prev_cursor=stores.prev_cursor,
+    )
 
 
 @org_store_router.post("", status_code=status.HTTP_201_CREATED)
