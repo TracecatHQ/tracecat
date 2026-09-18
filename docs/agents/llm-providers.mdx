@@ -28,7 +28,7 @@ Tracecat lists providers in this order in Organization settings > Agent > Config
 | LiteLLM | Optional API key | Required, e.g. `http://litellm:4000/v1` | On |
 | OpenRouter | API key | Defaults to `https://openrouter.ai/api/v1`, optional override | Off |
 
-Ollama, vLLM, and LiteLLM base URLs must include the `/v1` segment and be reachable from the Tracecat services. Inside a container, `localhost` points at the container itself, not your host.
+Ollama, vLLM, and LiteLLM base URLs must include the `/v1` segment and be reachable from the Tracecat services. Inside a container, `localhost` points at the container itself, not your host. Base URLs that resolve to a private address also require `TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS`; see [Private endpoints](#private-endpoints).
 
 <Info>
   Can't find the provider you're using? Add it as a custom source instead. See [Custom LLM providers](/agents/custom-llm-providers) to connect any OpenAI-compatible gateway.
@@ -58,6 +58,20 @@ Ollama, vLLM, and LiteLLM base URLs must include the `/v1` segment and be reacha
 </Steps>
 
 Click Configure on a connected provider to rotate credentials, or expand the row and click Disconnect to remove them.
+
+## Private endpoints
+
+Tracecat resolves every provider base URL before it connects and rejects addresses that are private (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), loopback, link-local, or otherwise non-public. Saving credentials, Test connection, Refresh models, and agent runs against such an endpoint fail with `Failed to discover models: Host is not allowed` or `Host is not allowed`.
+
+On-prem and in-cluster gateways such as `http://litellm:4000/v1`, `http://vllm:8000/v1`, or `http://ollama.example.internal:11434/v1` are private endpoints. Allow them by setting `TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS` on the `api`, `agent-worker`, `litellm`, and `agent-executor` services to a comma-separated list of the exact IPs or narrow CIDRs the gateway resolves to, then restart those services.
+
+| Deployment | Where to set it |
+| --- | --- |
+| Docker Compose | `TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS=10.0.12.34/32` in `.env`; the Compose file passes it to every service that needs it |
+| Kubernetes | `tracecat.outboundAllowedPrivateCidrs: "10.0.12.34/32"` in your Helm values |
+| AWS Fargate | `outbound_allowed_private_cidrs = "10.0.12.34/32"` in your Terraform variables |
+
+The allowlist applies to every workspace and also covers remote MCP servers, so list only endpoints you operate. Container hostnames such as `litellm` or `vllm` resolve to addresses on the Docker Compose `core` network; run `docker compose exec api getent hosts <hostname>` to find the address to allow, or allow that network's subnet from `docker network inspect`.
 
 ## Passthrough
 

@@ -135,6 +135,12 @@ If you are using Temporal Cloud or another external Temporal cluster, set `disab
     - VPC endpoints for S3 and Secrets Manager
   </Accordion>
 
+  <Accordion title="Connecting a VPC-internal LiteLLM, vLLM, or Ollama fails with 'Host is not allowed'">
+    Tracecat rejects LLM provider and MCP endpoints that resolve to private addresses unless you allow them.
+    Set `outbound_allowed_private_cidrs` in your Terraform variables to the endpoint's IP or CIDR, e.g. `"10.0.12.34/32"`, and apply.
+    See [Private endpoints](/agents/llm-providers#private-endpoints).
+  </Accordion>
+
   <Accordion title="What happens if database migrations fail?">
     Migrations run in an init container during the API task startup. The API container only starts if migrations succeed. If migrations fail, the deployment pauses and dependent services (`worker`, `executor`) will not update.
   </Accordion>
