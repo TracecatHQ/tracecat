@@ -1021,6 +1021,11 @@ export const providerIcons: Record<
     </div>
   ),
   jamf: createCatalogIconRenderer("jamf_mcp"),
+  zendesk: ({ className, ...rest }) => (
+    <div className={className}>
+      <ZendeskIcon {...rest} />
+    </div>
+  ),
   slack: ({ className, iconClassName, flairsize: _ignored, ...rest }) => (
     <div className={cn("!rounded-sm", className)}>
       <SlackIcon {...rest} className={cn("size-full", iconClassName)} />
@@ -1238,6 +1243,11 @@ export const secretIcons: Record<
   snowflake: ({ className, ...rest }) => (
     <div className={className}>
       <SnowflakeIcon {...rest} />
+    </div>
+  ),
+  zendesk: ({ className, ...rest }) => (
+    <div className={className}>
+      <ZendeskIcon {...rest} />
     </div>
   ),
   // Default fallback using KeyRound icon
