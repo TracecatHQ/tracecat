@@ -841,6 +841,7 @@ class TestActionRunner:
         cache_key = compute_registry_artifact_cache_key(artifact_uri)
         entry_dir = runner.registry_artifacts._paths_for(cache_key).tarball_target_dir
         entry_dir.mkdir(parents=True)
+        await runner.registry_artifacts.ensure_swept()
 
         monkeypatch.setattr(
             action_runner.config, "TRACECAT__EXECUTOR_SANDBOX_ENABLED", False
@@ -876,20 +877,29 @@ class TestActionRunner:
             mock_proc.communicate = AsyncMock(return_value=(success_response, b""))
             return mock_proc
 
-        with patch(
-            "asyncio.create_subprocess_exec",
-            side_effect=create_subprocess_exec_side_effect,
+        with (
+            patch(
+                "asyncio.create_subprocess_exec",
+                side_effect=create_subprocess_exec_side_effect,
+            ),
+            patch.object(
+                runner.registry_artifacts,
+                "_scan_cache_snapshot",
+                side_effect=AssertionError(
+                    "warm direct actions must not scan the cache"
+                ),
+            ),
         ):
-            result = await runner.execute_action(
-                input=mock_run_action_input,
-                role=mock_role,
-                resolved_context=resolved_context,
-                artifact_uris=[artifact_uri],
-                timeout=10.0,
-            )
-
-        assert result == {"data": "test"}
-        assert refcounts == [1]
+            for _ in range(3):
+                result = await runner.execute_action(
+                    input=mock_run_action_input,
+                    role=mock_role,
+                    resolved_context=resolved_context,
+                    artifact_uris=[artifact_uri],
+                    timeout=10.0,
+                )
+                assert result == {"data": "test"}
+        assert refcounts == [1, 1, 1]
         assert registry_paths[0].startswith(str(entry_dir))
         assert runner.registry_artifacts._refcount(cache_key) == 0
 

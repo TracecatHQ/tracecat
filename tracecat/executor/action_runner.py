@@ -196,8 +196,7 @@ class ActionRunner:
         """
         timeout = timeout or config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT
 
-        # Direct subprocesses receive host paths and can modify extracted
-        # artifacts. NsJail exposes the same paths through read-only bind mounts.
+        # Both execution modes treat registry artifacts as shared import inputs.
         use_sandbox = force_sandbox or (
             config.TRACECAT__EXECUTOR_SANDBOX_ENABLED and _is_sandbox_available()
         )
@@ -205,10 +204,7 @@ class ActionRunner:
         # Materialize each registry artifact, collect paths in deterministic order.
         # The lease is held for the whole subprocess execution so cache eviction
         # cannot delete a directory the subprocess is still importing from.
-        async with self.registry_artifacts.lease(
-            artifact_uris,
-            paths_may_be_modified=not use_sandbox,
-        ) as registry_paths:
+        async with self.registry_artifacts.lease(artifact_uris) as registry_paths:
             logger.debug(
                 "Using sandbox execution",
                 use_sandbox=use_sandbox,
