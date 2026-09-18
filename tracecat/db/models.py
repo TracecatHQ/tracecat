@@ -156,11 +156,6 @@ class InvitationMixin:
         ForeignKey("user.id", ondelete="SET NULL"),
         doc="User who created the invitation",
     )
-    role_id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        ForeignKey("role.id", ondelete="RESTRICT"),
-        doc="RBAC role to assign upon acceptance",
-    )
     token: Mapped[str] = mapped_column(
         String(64), unique=True, doc="Unique token for magic link acceptance"
     )
@@ -5266,8 +5261,8 @@ class WorkflowTag(WorkspaceModel):
     )
 
 
-class OrganizationInvitation(InvitationMixin, TimestampMixin, Base):
-    """Invitation to join an organization."""
+class LegacyOrganizationInvitation(InvitationMixin, TimestampMixin, Base):
+    """Physical table the app no longer reads; kept mapped for RLS coverage."""
 
     __tablename__ = "organization_invitation"
     __table_args__ = (
@@ -5276,6 +5271,66 @@ class OrganizationInvitation(InvitationMixin, TimestampMixin, Base):
         # and the consumer's MAX_EMAIL_ATTEMPTS, or the planner drops the index.
         Index(
             "ix_organization_invitation_email_unclaimed",
+            "created_at",
+            postgresql_where=text(
+                "email_claimed_at IS NULL AND status = 'PENDING' AND email_attempts < 3"
+            ),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("organization.id", ondelete="CASCADE"), index=True
+    )
+    # A deleted role takes its retained legacy invitation rows with it.
+    role_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("role.id", ondelete="CASCADE"),
+        doc="RBAC role to assign upon acceptance",
+    )
+    created_by_platform_admin: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text("false"),
+        doc="Whether the invitation was created by a platform admin",
+    )
+    # The invitation row is its own delivery outbox: a NULL claim means unsent
+    # and eligible, and claiming before sending makes delivery at-most-once.
+    email_claimed_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        doc="When a poller claimed this row for delivery",
+    )
+    email_sent_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        doc="When the invitation email was delivered",
+    )
+    email_attempts: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default=text("0"),
+        doc="Number of delivery attempts made",
+    )
+
+
+class Invitation(InvitationMixin, TimestampMixin, Base):
+    """Invitation to join an organization, carrying the grants it confers."""
+
+    __tablename__ = "invitation"
+    __table_args__ = (
+        # At most one pending invitation per organization and email.
+        Index(
+            "ix_invitation_org_email_pending_unique",
+            "organization_id",
+            text("lower(email)"),
+            unique=True,
+            postgresql_where=text("status = 'PENDING'"),
+        ),
+        # Poller scans deliverable rows oldest-first; must match the migration
+        # and the consumer's MAX_EMAIL_ATTEMPTS, or the planner drops the index.
+        Index(
+            "ix_invitation_email_unclaimed",
             "created_at",
             postgresql_where=text(
                 "email_claimed_at IS NULL AND status = 'PENDING' AND email_attempts < 3"
@@ -5315,24 +5370,49 @@ class OrganizationInvitation(InvitationMixin, TimestampMixin, Base):
     # Relationships
     organization: Mapped[Organization] = relationship("Organization")
     inviter: Mapped[User | None] = relationship("User")
-    role_obj: Mapped[Role] = relationship("Role")
+    grants: Mapped[list[InvitationGrant]] = relationship(
+        "InvitationGrant",
+        back_populates="invitation",
+        cascade="all, delete-orphan",
+    )
 
 
-class Invitation(InvitationMixin, TimestampMixin, Base):
-    """Invitation to join a workspace."""
+class InvitationGrant(Base, TimestampMixin):
+    """One role grant an invitation confers, at org scope or on one workspace."""
 
-    __tablename__ = "invitation"
-    __table_args__ = (UniqueConstraint("workspace_id", "email"),)
+    __tablename__ = "invitation_grant"
+    __table_args__ = (
+        Index(
+            "ix_invitation_grant_org_unique",
+            "invitation_id",
+            unique=True,
+            postgresql_where=text("workspace_id IS NULL"),
+        ),
+        Index(
+            "ix_invitation_grant_workspace_unique",
+            "invitation_id",
+            "workspace_id",
+            unique=True,
+            postgresql_where=text("workspace_id IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
-    workspace_id: Mapped[uuid.UUID] = mapped_column(
-        UUID, ForeignKey("workspace.id", ondelete="CASCADE"), index=True
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("organization.id", ondelete="CASCADE"), index=True
+    )
+    invitation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("invitation.id", ondelete="CASCADE"), index=True
+    )
+    workspace_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, ForeignKey("workspace.id", ondelete="CASCADE")
+    )
+    role_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("role.id", ondelete="CASCADE"), index=True
     )
 
     # Relationships
-    workspace: Mapped[Workspace] = relationship("Workspace")
-    inviter: Mapped[User | None] = relationship("User")
-    role_obj: Mapped[Role] = relationship("Role")
+    invitation: Mapped[Invitation] = relationship("Invitation", back_populates="grants")
 
 
 class Tier(Base, TimestampMixin):

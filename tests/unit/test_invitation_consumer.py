@@ -18,7 +18,7 @@ from tracecat_ee.admin.organizations.service import AdminOrgService
 from tests.database import TEST_DB_CONFIG
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import PlatformRole, Role
-from tracecat.db.models import Organization, OrganizationInvitation, User
+from tracecat.db.models import Invitation, InvitationGrant, Organization, User
 from tracecat.db.models import Role as DBRole
 from tracecat.email.transport import EmailDeliveryError, OutboundEmail, SMTPTransport
 from tracecat.exceptions import TracecatConflictError
@@ -28,8 +28,7 @@ from tracecat.invitations.consumer import (
     run_invitation_email_tick,
 )
 from tracecat.invitations.enums import InvitationStatus
-from tracecat.invitations.service import RESEND_COOLDOWN
-from tracecat.organization.service import OrgService
+from tracecat.invitations.service import RESEND_COOLDOWN, InvitationService
 
 
 class FakeTransport:
@@ -125,29 +124,36 @@ async def _add_invitation(
     expires_in: timedelta = timedelta(days=7),
     email_claimed_at: datetime | None = None,
     email_attempts: int = 0,
-) -> OrganizationInvitation:
-    invitation = OrganizationInvitation(
+) -> Invitation:
+    invitation = Invitation(
         id=uuid.uuid4(),
         organization_id=org.id,
         email=f"invitee-{uuid.uuid4().hex[:8]}@example.com",
         status=status,
         invited_by=inviter.id,
-        role_id=role.id,
         token=uuid.uuid4().hex,
         expires_at=datetime.now(UTC) + expires_in,
         email_claimed_at=email_claimed_at,
         email_attempts=email_attempts,
     )
     session.add(invitation)
+    # The scope and role live on the grant row under the unified model.
+    session.add(
+        InvitationGrant(
+            id=uuid.uuid4(),
+            organization_id=org.id,
+            invitation_id=invitation.id,
+            workspace_id=None,
+            role_id=role.id,
+        )
+    )
     await session.commit()
     return invitation
 
 
-async def _reload(
-    session: AsyncSession, invitation_id: uuid.UUID
-) -> OrganizationInvitation:
+async def _reload(session: AsyncSession, invitation_id: uuid.UUID) -> Invitation:
     result = await session.execute(
-        select(OrganizationInvitation).where(OrganizationInvitation.id == invitation_id)
+        select(Invitation).where(Invitation.id == invitation_id)
     )
     row = result.scalar_one()
     await session.refresh(row)
@@ -202,6 +208,29 @@ async def test_expired_non_pending_and_claimed_are_never_claimed(
     await _add_invitation(
         session, org, org_role, inviter, email_attempts=MAX_EMAIL_ATTEMPTS
     )
+
+    transport = AsyncMock(spec=SMTPTransport)
+    assert not await deliver_next_invitation(session, transport)
+    transport.send.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_grantless_invitation_is_never_claimed(
+    session: AsyncSession, org: Organization, inviter: User
+) -> None:
+    """A row whose grants cascaded away has no usable link, so it is not sent."""
+    session.add(
+        Invitation(
+            id=uuid.uuid4(),
+            organization_id=org.id,
+            email=f"orphan-{uuid.uuid4().hex[:8]}@example.com",
+            status=InvitationStatus.PENDING,
+            invited_by=inviter.id,
+            token=uuid.uuid4().hex,
+            expires_at=datetime.now(UTC) + timedelta(days=7),
+        )
+    )
+    await session.commit()
 
     transport = AsyncMock(spec=SMTPTransport)
     assert not await deliver_next_invitation(session, transport)
@@ -506,7 +535,7 @@ async def test_concurrent_ticks_deliver_each_invitation_once(
 async def resendable_invitation(
     org_factory_session: AsyncSession,
     committed_org: tuple[Organization, DBRole, User],
-) -> AsyncGenerator[OrganizationInvitation, None]:
+) -> AsyncGenerator[Invitation, None]:
     org, role, user = committed_org
     claimed_at = datetime.now(UTC) - RESEND_COOLDOWN * 2
     invitation = await _add_invitation(
@@ -528,7 +557,7 @@ async def resendable_invitation(
 
 async def _resend(
     session: AsyncSession,
-    invitation: OrganizationInvitation,
+    invitation: Invitation,
     *,
     platform_admin: bool,
 ) -> None:
@@ -545,7 +574,7 @@ async def _resend(
             invitation.organization_id, invitation.id
         )
     else:
-        org_service = OrgService(
+        org_service = InvitationService(
             session,
             role=Role(
                 type="user",
@@ -562,7 +591,7 @@ async def _resend(
 @pytest.mark.parametrize("platform_admin", [False, True])
 async def test_stale_resend_cannot_clear_a_new_claim(
     org_factory_session: AsyncSession,
-    resendable_invitation: OrganizationInvitation,
+    resendable_invitation: Invitation,
     smtp_configured: None,
     platform_admin: bool,
 ) -> None:
@@ -570,7 +599,7 @@ async def test_stale_resend_cannot_clear_a_new_claim(
     async with AsyncSession(
         org_factory_session.bind, expire_on_commit=False
     ) as stale_session:
-        stale = await stale_session.get(OrganizationInvitation, invitation.id)
+        stale = await stale_session.get(Invitation, invitation.id)
         assert stale is not None
         old_claim = stale.email_claimed_at
 
@@ -591,7 +620,7 @@ async def test_stale_resend_cannot_clear_a_new_claim(
 @pytest.mark.parametrize("platform_admin", [False, True])
 async def test_resend_is_rejected_while_delivery_is_in_flight(
     org_factory_session: AsyncSession,
-    resendable_invitation: OrganizationInvitation,
+    resendable_invitation: Invitation,
     smtp_configured: None,
     monkeypatch: pytest.MonkeyPatch,
     platform_admin: bool,
