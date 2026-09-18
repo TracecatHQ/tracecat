@@ -239,12 +239,8 @@ class SCIMService(BaseOrgService):
         external_group = await self._get_external_group(
             external_group_id, for_update=True
         )
-        affected = await self._mapped_group_ids(external_group_id)
-        # The cascade takes the mappings with it, so groups whose last mapping
-        # this was would silently lose every member. Freeze them as manual.
-        for group_id in sorted(set(affected), key=str):
-            if await self._is_last_mapping(group_id, external_group_id):
-                await self._freeze_idp_members_as_manual(group_id)
+        # Provider deletion revokes this source's access. Only an explicit
+        # administrator unmapping hands ownership back to manual membership.
         await self.session.delete(external_group)
         await self.session.flush()
 

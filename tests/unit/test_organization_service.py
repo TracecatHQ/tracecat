@@ -21,6 +21,7 @@ from tracecat import config
 from tracecat.auth.api_keys import ORG_API_KEY_PREFIX, generate_managed_api_key
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
+from tracecat.authz.enums import ScimConnectionStatus
 from tracecat.authz.membership import ensure_member
 from tracecat.authz.scopes import ORG_ADMIN_SCOPES, ORG_MEMBER_SCOPES, ORG_OWNER_SCOPES
 from tracecat.authz.seeding import (
@@ -682,33 +683,48 @@ class TestOrganizationServiceDeleteMember:
         assert result.scalar_one_or_none() is not None
 
     @pytest.mark.anyio
-    async def test_delete_scim_managed_member_raises_conflict(
+    @pytest.mark.parametrize(
+        "connection_status,blocked",
+        [
+            (ScimConnectionStatus.ACTIVE, True),
+            (ScimConnectionStatus.PENDING, False),
+            (None, False),
+        ],
+    )
+    async def test_delete_member_requires_an_activated_directory_to_block(
         self,
         session: AsyncSession,
         org1: Organization,
         user_in_org1: User,
         admin_in_org1: User,
-    ):
-        """SCIM owns its members: removing one here would revert on next sync."""
+        connection_status: ScimConnectionStatus | None,
+        blocked: bool,
+    ) -> None:
         await seed_external_user(
             session, organization_id=org1.id, user_id=user_in_org1.id
         )
-
-        role = create_admin_role(org1.id, admin_in_org1.id)
-        service = OrgService(session, role=role)
-
-        with pytest.raises(TracecatConflictError, match="identity provider"):
-            await service.delete_member(user_in_org1.id)
-
-        assert (
-            await session.scalar(
-                select(OrganizationMembership).where(
-                    OrganizationMembership.user_id == user_in_org1.id,
-                    OrganizationMembership.organization_id == org1.id,
+        if connection_status is not None:
+            session.add(
+                ScimConnection(
+                    organization_id=org1.id,
+                    key_id=uuid.uuid4().hex,
+                    hashed="x",
+                    salt="x",
+                    preview="scim_test",
+                    status=connection_status,
                 )
             )
+            await session.flush()
+        service = OrgService(session, role=create_admin_role(org1.id, admin_in_org1.id))
+        if blocked:
+            with pytest.raises(TracecatConflictError, match="identity provider"):
+                await service.delete_member(user_in_org1.id)
+        else:
+            await service.delete_member(user_in_org1.id)
+        assert (
+            await session.get(OrganizationMembership, (user_in_org1.id, org1.id))
             is not None
-        )
+        ) == blocked
 
     @pytest.mark.anyio
     async def test_delete_scim_managed_member_allowed_with_bypass(
@@ -719,6 +735,16 @@ class TestOrganizationServiceDeleteMember:
         admin_in_org1: User,
     ):
         """allow_idp_managed is the SCIM deprovisioning path's own escape hatch."""
+        session.add(
+            ScimConnection(
+                organization_id=org1.id,
+                key_id=uuid.uuid4().hex,
+                hashed="x",
+                salt="x",
+                preview="scim_test",
+                status=ScimConnectionStatus.ACTIVE,
+            )
+        )
         await seed_external_user(
             session, organization_id=org1.id, user_id=user_in_org1.id
         )
@@ -782,6 +808,16 @@ class TestOrganizationServiceDeleteMember:
         admin_in_org1: User,
     ):
         """A linkage in one org must not block removal by another org's admin."""
+        session.add(
+            ScimConnection(
+                organization_id=org2.id,
+                key_id=uuid.uuid4().hex,
+                hashed="x",
+                salt="x",
+                preview="scim_test",
+                status=ScimConnectionStatus.ACTIVE,
+            )
+        )
         await seed_external_user(
             session, organization_id=org2.id, user_id=user_in_org1.id
         )
@@ -808,6 +844,16 @@ class TestOrganizationServiceDeleteMember:
         admin_in_org1: User,
     ):
         """The org holding the linkage is the one refused."""
+        session.add(
+            ScimConnection(
+                organization_id=org1.id,
+                key_id=uuid.uuid4().hex,
+                hashed="x",
+                salt="x",
+                preview="scim_test",
+                status=ScimConnectionStatus.ACTIVE,
+            )
+        )
         await seed_external_user(
             session, organization_id=org1.id, user_id=user_in_org1.id
         )

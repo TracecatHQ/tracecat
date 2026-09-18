@@ -350,6 +350,20 @@ def _install_scim_exception_handlers(app: FastAPI) -> None:
 
         return handler
 
+    def _authorization(request: Request, exc: Exception) -> Response:
+        if is_scim_path(request):
+            return scim_error_response(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
+            )
+        return authorization_exception_handler(request, exc)
+
+    def _scope_denied(request: Request, exc: Exception) -> Response:
+        if is_scim_path(request):
+            return _authorization(request, exc)
+        return scope_denied_exception_handler(request, exc)
+
+    app.add_exception_handler(TracecatAuthorizationError, _authorization)
+    app.add_exception_handler(ScopeDeniedError, _scope_denied)
     app.add_exception_handler(HTTPException, _http_async)
     app.add_exception_handler(RequestValidationError, _validation)
     for exc_type in scim_statuses:
