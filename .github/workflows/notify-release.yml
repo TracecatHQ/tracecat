@@ -1,0 +1,62 @@
+name: Notify Kubernetes of stable release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: notify-release-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  trigger-k8s-version-bump:
+    if: >-
+      github.event.release.prerelease == false &&
+      github.event.release.draft == false &&
+      contains(
+        fromJSON(vars.TRUSTED_CI_ACTORS_JSON || '[]'),
+        github.triggering_actor || github.actor
+      )
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 5
+    environment: release
+    steps:
+      - name: Validate stable release tag
+        env:
+          VERSION: ${{ github.event.release.tag_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo 'Only bare stable version tags may trigger the Kubernetes update.' >&2
+            exit 1
+          fi
+
+      - name: Create cross-repo automation token
+        id: cross-repo-token
+        uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859 # v3
+        with:
+          app-id: ${{ vars.CROSS_REPO_AUTOMATION_APP_ID }}
+          private-key: ${{ secrets.CROSS_REPO_AUTOMATION_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: |
+            k8s
+          permission-contents: write
+
+      - name: Trigger k8s version bump
+        env:
+          VERSION: ${{ github.event.release.tag_name }}
+          GH_TOKEN: ${{ steps.cross-repo-token.outputs.token }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+          SOURCE_RUN_ID: ${{ github.run_id }}
+        run: |
+          gh api \
+            -X POST \
+            repos/TracecatHQ/k8s/dispatches \
+            -f event_type=tracecat-release-published \
+            -f "client_payload[version]=$VERSION" \
+            -f "client_payload[source_repository]=$SOURCE_REPOSITORY" \
+            -f "client_payload[source_run_id]=$SOURCE_RUN_ID"
