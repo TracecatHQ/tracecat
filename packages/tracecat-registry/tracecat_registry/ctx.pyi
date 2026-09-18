@@ -918,6 +918,15 @@ class _Deduplicate:
     ) -> list[bool]: ...
 
 class _TablesAsync:
+    async def search(
+        self,
+        table: str,
+        query: str,
+        *,
+        limit: int = ...,
+        cursor: str | None = ...,
+        allow_partial: bool = ...,
+    ) -> types.SemanticSearchPage: ...
     async def aggregate_rows(
         self, table_name: str, spec: dict[str, Any]
     ) -> types.AggregateResponse: ...
@@ -1029,6 +1038,15 @@ class _TablesAsync:
     ) -> list[dict[str, Any]] | str: ...
 
 class _Tables:
+    def search(
+        self,
+        table: str,
+        query: str,
+        *,
+        limit: int = ...,
+        cursor: str | None = ...,
+        allow_partial: bool = ...,
+    ) -> types.SemanticSearchPage: ...
     def aggregate_rows(
         self, table_name: str, spec: dict[str, Any]
     ) -> types.AggregateResponse: ...
