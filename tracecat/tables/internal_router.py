@@ -23,6 +23,7 @@ from tracecat.expressions.functions import tabulate
 from tracecat.logger import logger
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.query.errors import TracecatQueryOverflowError
+from tracecat.search.router import router as semantic_search_router
 from tracecat.tables.common import coerce_optional_to_utc_datetime
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import (
@@ -42,6 +43,8 @@ from tracecat.tables.service import TablesService, validate_identifier
 router = APIRouter(
     prefix="/internal/tables", tags=["internal-tables"], include_in_schema=False
 )
+
+router.include_router(semantic_search_router)
 
 
 class TableCreateRequest(BaseModel):
