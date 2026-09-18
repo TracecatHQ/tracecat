@@ -18,6 +18,8 @@ from pydantic_core import to_jsonable_python
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.admin.router import router as admin_router
 from tracecat_ee.agent.approvals.router import router as approvals_router
+from tracecat_ee.secrets.router import org_store_router as org_secret_stores_router
+from tracecat_ee.secrets.router import router as external_secrets_router
 from tracecat_ee.watchtower.router import router as watchtower_router
 
 from tracecat import __version__ as APP_VERSION
@@ -159,7 +161,6 @@ from tracecat.registry.repositories.router import router as registry_repos_route
 from tracecat.registry.sync.jobs import sync_platform_registry_on_startup
 from tracecat.search.embeddings.router import router as embedding_configuration_router
 from tracecat.secrets.router import org_router as org_secrets_router
-from tracecat.secrets.router import org_store_router as org_secret_stores_router
 from tracecat.secrets.router import router as secrets_router
 from tracecat.service_accounts.router import (
     org_router as org_service_accounts_router,
@@ -507,6 +508,9 @@ def create_app(**kwargs) -> FastAPI:
     _include_workspace_scoped_router(app, workflow_actions_router)
     _include_workspace_scoped_router(app, workflow_tags_router)
     _include_workspace_scoped_router(app, workflow_store_router)
+    # EE external secret references register before the OSS secrets router so
+    # /secrets/stores wins over /secrets/{secret_name}.
+    _include_workspace_scoped_router(app, external_secrets_router)
     _include_workspace_scoped_router(app, secrets_router)
     _include_workspace_scoped_router(app, variables_router)
     _include_workspace_scoped_router(app, schedules_router)

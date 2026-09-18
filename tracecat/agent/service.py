@@ -17,6 +17,7 @@ from pydantic import SecretStr
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from tracecat_ee.secrets.backends import get_backend
 from tracecat_registry._internal import secrets as registry_secrets
 
 from tracecat.agent.access.service import AgentModelAccessService
@@ -62,7 +63,6 @@ from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundErro
 from tracecat.integrations.aws_assume_role import build_workspace_external_id
 from tracecat.logger import logger
 from tracecat.secrets import secrets_manager
-from tracecat.secrets.backends import get_backend
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.encryption import decrypt_keyvalues, decrypt_value
 from tracecat.secrets.enums import SecretType

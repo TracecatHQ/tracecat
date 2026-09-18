@@ -80,6 +80,12 @@ class EffectiveEntitlements(Schema):
         description="Whether Watchtower agent monitoring is enabled"
         " (agent sessions, tool-call telemetry, and controls)",
     )
+    external_secret_stores: bool = Field(
+        default=False,
+        title="External secret stores",
+        description="Whether workspace secrets may reference external"
+        " secret stores such as AWS Secrets Manager",
+    )
 
 
 class TierRead(Schema):

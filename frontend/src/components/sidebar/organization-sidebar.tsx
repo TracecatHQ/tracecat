@@ -43,6 +43,7 @@ export function OrganizationSidebar({
   const customRegistryEnabled = hasEntitlement("custom_registry")
   const gitSyncEnabled = hasEntitlement("git_sync")
   const serviceAccountsEnabled = hasEntitlement("service_accounts")
+  const externalSecretStoresEnabled = hasEntitlement("external_secret_stores")
 
   // Scope checks for org sidebar items
   const canViewSettings = useScopeCheck("org:settings:read")
@@ -102,7 +103,7 @@ export function OrganizationSidebar({
       icon: VaultIcon,
       isActive: pathname?.includes("/organization/settings/secret-stores"),
       visible: canViewSettings === true,
-      locked: false,
+      locked: !externalSecretStoresEnabled,
     },
     {
       title: "Application",
