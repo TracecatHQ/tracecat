@@ -79,6 +79,8 @@ from tracecat.db.models import (
     Skill,
     SkillBlob,
     SkillDraftFile,
+    SkillTag,
+    SkillTagLink,
     SkillVersion,
     SkillVersionFile,
     SkillVersionMcpTool,
@@ -99,6 +101,7 @@ from tracecat.pagination import (
 )
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.storage import blob
+from tracecat.tags.schemas import TagRead
 
 INLINE_TEXT_LIMIT_BYTES = 256 * 1024
 DEFAULT_UPLOAD_TTL_SECONDS = 15 * 60
@@ -1789,6 +1792,21 @@ class SkillService(SkillBindingService):
         """Build the summary response for a skill."""
 
         draft = await self._build_draft_read(skill)
+        tags = (
+            (
+                await self.session.execute(
+                    select(SkillTag)
+                    .join(SkillTagLink, SkillTagLink.tag_id == SkillTag.id)
+                    .where(
+                        SkillTagLink.skill_id == skill.id,
+                        SkillTag.workspace_id == skill.workspace_id,
+                    )
+                    .order_by(SkillTag.name)
+                )
+            )
+            .scalars()
+            .all()
+        )
         current_version_summary = None
         current_version = None
         if skill.current_version_id is not None:
@@ -1817,6 +1835,8 @@ class SkillService(SkillBindingService):
             slug=skill.slug or skill.name,
             description=skill.description,
             current_version_id=skill.current_version_id,
+            folder_id=skill.folder_id,
+            tags=[TagRead.model_validate(tag, from_attributes=True) for tag in tags],
             draft_revision=skill.draft_revision,
             created_at=skill.created_at,
             updated_at=skill.updated_at,
@@ -1840,6 +1860,10 @@ class SkillService(SkillBindingService):
             slug=skill.slug or skill.name,
             description=skill.description,
             current_version_id=skill.current_version_id,
+            folder_id=skill.folder_id,
+            tags=[
+                TagRead.model_validate(tag, from_attributes=True) for tag in skill.tags
+            ],
             created_at=skill.created_at,
             updated_at=skill.updated_at,
             deleted_at=skill.deleted_at or skill.archived_at,
@@ -2015,7 +2039,7 @@ class SkillService(SkillBindingService):
             predicates.extend((Skill.deleted_at.is_(None), Skill.archived_at.is_(None)))
         stmt = (
             select(Skill)
-            .options(selectinload(Skill.current_version))
+            .options(selectinload(Skill.current_version), selectinload(Skill.tags))
             .where(*predicates)
         )
         if include_archived:
@@ -2054,7 +2078,7 @@ class SkillService(SkillBindingService):
         # wins; ties order like the backfill migration (created_at, id).
         stmt = (
             select(Skill)
-            .options(selectinload(Skill.current_version))
+            .options(selectinload(Skill.current_version), selectinload(Skill.tags))
             .where(
                 Skill.workspace_id == self.workspace_id,
                 sa.or_(
@@ -2221,10 +2245,14 @@ class SkillService(SkillBindingService):
         """List workspace skills with cursor pagination."""
 
         paginator = BaseCursorPaginator(self.session)
-        stmt = select(Skill).where(
-            Skill.workspace_id == self.workspace_id,
-            Skill.deleted_at.is_(None),
-            Skill.archived_at.is_(None),
+        stmt = (
+            select(Skill)
+            .where(
+                Skill.workspace_id == self.workspace_id,
+                Skill.deleted_at.is_(None),
+                Skill.archived_at.is_(None),
+            )
+            .options(selectinload(Skill.tags))
         )
         if params.cursor:
             try:
