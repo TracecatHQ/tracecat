@@ -124,9 +124,12 @@ export function useOrgSecretStores() {
         storeId,
         requestBody: { workspace_id: workspaceId },
       }),
-    onSuccess: () => {
+    onSuccess: (_data, { workspaceId }) => {
       toast({ title: "Workspace authorized" })
       invalidate()
+      return queryClient.invalidateQueries({
+        queryKey: ["workspace-secret-stores", workspaceId],
+      })
     },
     onError: (err: ApiError) => {
       toast({
@@ -148,9 +151,12 @@ export function useOrgSecretStores() {
         storeId,
         workspaceId,
       }),
-    onSuccess: () => {
+    onSuccess: (_data, { workspaceId }) => {
       toast({ title: "Workspace authorization revoked" })
       invalidate()
+      return queryClient.invalidateQueries({
+        queryKey: ["workspace-secret-stores", workspaceId],
+      })
     },
     onError: (err: ApiError) => {
       toast({

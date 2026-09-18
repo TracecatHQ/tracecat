@@ -6,6 +6,7 @@ import uuid
 from collections.abc import Sequence
 
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
@@ -161,19 +162,24 @@ class SecretStoresService(BaseOrgService):
         if (await self.session.execute(workspace_stmt)).scalar_one_or_none() is None:
             raise TracecatNotFoundError("Workspace not found in this organization")
 
-        existing_stmt = select(WorkspaceSecretStoreAuthorization).where(
-            WorkspaceSecretStoreAuthorization.store_id == store.id,
-            WorkspaceSecretStoreAuthorization.workspace_id == workspace_id,
+        stmt = (
+            insert(WorkspaceSecretStoreAuthorization)
+            .values(
+                organization_id=self.organization_id,
+                workspace_id=workspace_id,
+                store_id=store.id,
+            )
+            .on_conflict_do_nothing(index_elements=["workspace_id", "store_id"])
         )
-        if existing := (await self.session.execute(existing_stmt)).scalar_one_or_none():
-            return existing
-
-        authorization = WorkspaceSecretStoreAuthorization(
-            organization_id=self.organization_id,
-            workspace_id=workspace_id,
-            store_id=store.id,
-        )
-        self.session.add(authorization)
+        await self.session.execute(stmt)
+        authorization = (
+            await self.session.execute(
+                select(WorkspaceSecretStoreAuthorization).where(
+                    WorkspaceSecretStoreAuthorization.store_id == store.id,
+                    WorkspaceSecretStoreAuthorization.workspace_id == workspace_id,
+                )
+            )
+        ).scalar_one()
         await self.session.commit()
         return authorization
 

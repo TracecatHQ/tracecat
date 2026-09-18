@@ -46,6 +46,7 @@ export function OrganizationSidebar({
   const externalSecretStoresEnabled = hasEntitlement("external_secret_stores")
 
   // Scope checks for org sidebar items
+  const canViewSecretStores = useScopeCheck("org:secret:read")
   const canViewSettings = useScopeCheck("org:settings:read")
   const canViewServiceAccounts = useScopeCheck("org:service_account:read")
   const canViewMembers = useScopeCheck("org:member:read")
@@ -102,7 +103,7 @@ export function OrganizationSidebar({
       url: "/organization/settings/secret-stores",
       icon: VaultIcon,
       isActive: pathname?.includes("/organization/settings/secret-stores"),
-      visible: canViewSettings === true,
+      visible: canViewSecretStores === true,
       locked: !externalSecretStoresEnabled,
     },
     {
