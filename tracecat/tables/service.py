@@ -160,6 +160,53 @@ class BaseTablesService(BaseWorkspaceService):
             f"Column '{column_name}' does not exist in table '{table.name}'"
         )
 
+    def _lookup_conditions(
+        self,
+        table: Table,
+        columns: Sequence[str],
+        values: Sequence[Any],
+    ) -> list[sa.ColumnElement[bool]]:
+        """Build typed equality predicates for column/value lookups.
+
+        Values arrive as JSON, so strings must be bound with the target column's
+        SQL type (e.g. ``uuid`` for ``id``) or PostgreSQL rejects the comparison.
+        """
+        column_types = {column.name: column.type for column in table.columns}
+        conditions: list[sa.ColumnElement[bool]] = []
+        for index, (column_name, value) in enumerate(zip(columns, values, strict=True)):
+            resolved_name = self._resolve_external_column_name(table, column_name)
+            col = sa.column(self._sanitize_identifier(resolved_name))
+            if value is None:
+                conditions.append(col.is_(None))
+                continue
+            bind_key = f"lookup_{index}"
+            match resolved_name:
+                case "id":
+                    try:
+                        coerced_id = (
+                            value if isinstance(value, UUID) else UUID(str(value))
+                        )
+                    except ValueError as exc:
+                        raise ValueError(
+                            f"Column 'id' expects a UUID, got {value!r}"
+                        ) from exc
+                    param = sa.bindparam(bind_key, coerced_id, type_=sa.Uuid())
+                case "created_at" | "updated_at":
+                    param = sa.bindparam(
+                        bind_key,
+                        coerce_to_utc_datetime(value),
+                        type_=sa.TIMESTAMP(timezone=True),
+                    )
+                case _:
+                    try:
+                        param = to_sql_clause(
+                            value, bind_key, SqlType(column_types[resolved_name])
+                        )
+                    except TypeError as exc:
+                        raise ValueError(str(exc)) from exc
+            conditions.append(col == param)
+        return conditions
+
     def _get_schema_name(self, workspace_id: WorkspaceUUID | None = None) -> str:
         """Generate the schema name for a workspace."""
         ws_id = workspace_id or self.ws_uuid
@@ -1245,27 +1292,15 @@ class BaseTablesService(BaseWorkspaceService):
         if len(values) != len(columns):
             raise ValueError("Values and column names must have the same length")
 
-        table = await self.get_table_by_name(table_name)
         schema_name = self._get_schema_name()
         table = await self.get_table_by_name(table_name)
         sanitized_table_name = self._sanitize_identifier(table.name)
 
-        resolved_columns = [
-            self._resolve_external_column_name(table, column_name)
-            for column_name in columns
-        ]
-        cols = [
-            sa.column(self._sanitize_identifier(column_name))
-            for column_name in resolved_columns
-        ]
+        conditions = self._lookup_conditions(table, columns, values)
         stmt = (
             sa.select(*self._visible_columns(table))
             .select_from(sa.table(sanitized_table_name, schema=schema_name))
-            .where(
-                sa.and_(
-                    *[col == value for col, value in zip(cols, values, strict=True)]
-                )
-            )
+            .where(sa.and_(*conditions))
         )
         if limit is not None:
             stmt = stmt.limit(limit)
@@ -1338,17 +1373,7 @@ class BaseTablesService(BaseWorkspaceService):
         sanitized_table_name = self._sanitize_identifier(table.name)
 
         table_clause = sa.table(sanitized_table_name, schema=schema_name)
-        resolved_columns = [
-            self._resolve_external_column_name(table, column_name)
-            for column_name in columns
-        ]
-        cols = [
-            sa.column(self._sanitize_identifier(column_name))
-            for column_name in resolved_columns
-        ]
-        condition = sa.and_(
-            *[col == value for col, value in zip(cols, values, strict=True)]
-        )
+        condition = sa.and_(*self._lookup_conditions(table, columns, values))
 
         exists_stmt = sa.exists(sa.select(1).select_from(table_clause).where(condition))
         stmt = sa.select(exists_stmt)
