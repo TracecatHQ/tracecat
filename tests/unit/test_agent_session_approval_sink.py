@@ -220,6 +220,81 @@ async def test_has_pending_approvals_reflects_status(
 
 
 @pytest.mark.anyio
+async def test_validate_turn_request_rejects_running_turn(
+    session: AsyncSession,
+    svc_role: Role,
+    external_agent_session: AgentSession,
+) -> None:
+    """A new chat turn on a session whose turn is still RUNNING conflicts."""
+    run_id = uuid.uuid4()
+    external_agent_session.curr_run_id = run_id
+    await session.commit()
+
+    service = AgentSessionService(session=session, role=svc_role)
+    with patch.object(
+        service,
+        "get_turn_lifecycle",
+        AsyncMock(return_value=(TurnLifecycle.RUNNING, run_id)),
+    ):
+        with pytest.raises(TracecatConflictError):
+            await service.validate_turn_request(
+                external_agent_session.id,
+                BasicChatRequest(message="hello again"),
+            )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "lifecycle",
+    [
+        TurnLifecycle.NONE,
+        TurnLifecycle.COMPLETED,
+        TurnLifecycle.FAILED,
+        TurnLifecycle.CANCELLED,
+    ],
+)
+async def test_validate_turn_request_allows_new_turn_when_not_running(
+    session: AsyncSession,
+    svc_role: Role,
+    external_agent_session: AgentSession,
+    lifecycle: TurnLifecycle,
+) -> None:
+    service = AgentSessionService(session=session, role=svc_role)
+    run_id = None if lifecycle is TurnLifecycle.NONE else uuid.uuid4()
+    with patch.object(
+        service,
+        "get_turn_lifecycle",
+        AsyncMock(return_value=(lifecycle, run_id)),
+    ):
+        result = await service.validate_turn_request(
+            external_agent_session.id,
+            BasicChatRequest(message="hello"),
+        )
+
+    assert result.id == external_agent_session.id
+
+
+@pytest.mark.anyio
+async def test_validate_turn_request_allow_running_turn_skips_lifecycle(
+    session: AsyncSession,
+    svc_role: Role,
+    external_agent_session: AgentSession,
+) -> None:
+    """Caller-owned workflow retries may reuse a RUNNING run identity."""
+    service = AgentSessionService(session=session, role=svc_role)
+    lifecycle = AsyncMock(return_value=(TurnLifecycle.RUNNING, uuid.uuid4()))
+    with patch.object(service, "get_turn_lifecycle", lifecycle):
+        result = await service.validate_turn_request(
+            external_agent_session.id,
+            BasicChatRequest(message="hello"),
+            allow_running_turn=True,
+        )
+
+    assert result.id == external_agent_session.id
+    lifecycle.assert_not_awaited()
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     ("continuation_is_open", "expected_live"),
     [(False, False), (True, True)],
