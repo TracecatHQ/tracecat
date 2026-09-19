@@ -19,6 +19,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import orjson
 import pytest
+from claude_agent_sdk import Transport
 
 from tracecat.agent.common.protocol import RuntimeEventEnvelope, RuntimeInitPayload
 from tracecat.agent.common.socket_io import SocketStreamWriter, read_message
@@ -129,7 +130,8 @@ class TestRuntimeSocketCommunication:
                     ),
                 ):
                     runtime = ClaudeAgentRuntime(
-                        socket_writer, transport_factory=lambda _: MagicMock()
+                        socket_writer,
+                        transport_factory=lambda _: MagicMock(spec=Transport),
                     )
                     payload = make_init_payload()
                     await runtime.run(payload)
@@ -257,7 +259,8 @@ class TestRuntimeSocketCommunication:
                     ),
                 ):
                     runtime = ClaudeAgentRuntime(
-                        socket_writer, transport_factory=lambda _: MagicMock()
+                        socket_writer,
+                        transport_factory=lambda _: MagicMock(spec=Transport),
                     )
                     payload = make_init_payload()
                     await runtime.run(payload)
@@ -328,7 +331,8 @@ class TestRuntimeSocketCommunication:
                     pytest.raises(ValueError, match="SDK connection failed"),
                 ):
                     runtime = ClaudeAgentRuntime(
-                        socket_writer, transport_factory=lambda _: MagicMock()
+                        socket_writer,
+                        transport_factory=lambda _: MagicMock(spec=Transport),
                     )
                     payload = make_init_payload()
                     await runtime.run(payload)
