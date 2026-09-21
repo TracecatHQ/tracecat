@@ -29,6 +29,23 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     # Fail rather than discard saved selections that have no provider binding.
+    unconfigured_selection = (
+        op.get_bind()
+        .execute(
+            sa.text(
+                "SELECT 1 FROM search_collection WHERE config_version IS NULL LIMIT 1"
+            )
+        )
+        .first()
+    )
+    if unconfigured_selection is not None:
+        raise NotImplementedError(
+            "Cannot downgrade while providerless search selections exist: "
+            "the previous schema requires a provider binding. Restore the database "
+            "from a backup or snapshot before rolling the application back, or "
+            "explicitly remove the incompatible selections before retrying. "
+            "No selections have been removed by this migration."
+        )
     op.alter_column(
         "search_collection",
         "config_version",
