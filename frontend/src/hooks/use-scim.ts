@@ -60,7 +60,9 @@ export function useScimConnection() {
   const {
     data: connection,
     isLoading: connectionIsLoading,
+    isFetching: connectionIsFetching,
     error: connectionError,
+    refetch: refetchConnection,
   } = useQuery<ScimConnectionRead | null, TracecatApiError>({
     queryKey: SCIM_CONNECTION_KEY,
     queryFn: async () => {
@@ -101,7 +103,9 @@ export function useScimConnection() {
   return {
     connection,
     connectionIsLoading,
+    connectionIsFetching,
     connectionError,
+    refetchConnection,
     issueToken,
     issueTokenIsPending,
     revokeToken,

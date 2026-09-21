@@ -4,12 +4,23 @@ import { EntitlementRequiredEmptyState } from "@/components/entitlement-required
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { OrgSettingsScimConnection } from "@/components/organization/org-settings-scim-connection"
 import { OrgSettingsScimMappings } from "@/components/organization/org-settings-scim-mappings"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Button } from "@/components/ui/button"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useScimConnection } from "@/hooks/use-scim"
 
 function ScimSettings() {
-  const { connection, connectionIsLoading, connectionError } =
-    useScimConnection()
+  const {
+    connection,
+    connectionIsLoading,
+    connectionIsFetching,
+    connectionError,
+    refetchConnection,
+  } = useScimConnection()
+
+  if (connectionIsLoading) {
+    return <CenteredSpinner />
+  }
 
   if (connectionError?.status === 403) {
     return (
@@ -17,6 +28,25 @@ function ScimSettings() {
         title="You lack permission"
         description="Managing SCIM provisioning requires organization administrator access."
       />
+    )
+  }
+
+  if (connectionError) {
+    return (
+      <Alert>
+        <AlertTitle>Could not load SCIM connection</AlertTitle>
+        <AlertDescription>
+          <p>Retry to check your existing connection before making changes.</p>
+          <Button
+            variant="outline"
+            className="mt-3"
+            disabled={connectionIsFetching}
+            onClick={() => void refetchConnection()}
+          >
+            Retry
+          </Button>
+        </AlertDescription>
+      </Alert>
     )
   }
 
