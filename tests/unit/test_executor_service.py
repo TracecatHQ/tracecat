@@ -2,9 +2,11 @@ import uuid
 from collections.abc import Mapping
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from typing import Any, cast
 from uuid import UUID
 
 import pytest
+import sentry_sdk
 from pydantic import SecretStr
 from tracecat_registry import (
     RegistryOAuthSecret,
@@ -18,6 +20,7 @@ from tracecat.dsl.common import create_default_execution_context
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
 from tracecat.exceptions import ExecutionError, TracecatCredentialsError
 from tracecat.executor import service as executor_service
+from tracecat.executor.error_policy import classify_execute_action_error
 from tracecat.executor.schemas import (
     ActionImplementation,
     ExecutorActionErrorInfo,
@@ -31,6 +34,13 @@ from tracecat.identifiers import InternalServiceID
 from tracecat.identifiers.workflow import WorkflowUUID, generate_exec_id
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorKind,
+    RuntimeErrorOwner,
+)
+from tracecat.sandbox.service import SandboxService
+from tracecat.sandbox.types import SandboxErrorCode, SandboxResult
 from tracecat.secrets import secrets_manager
 from tracecat.secrets.common import ctx_unsafe_disable_secret_error_withholding
 from tracecat.secrets.constants import MASK_VALUE
@@ -1702,3 +1712,175 @@ async def test_template_expects_validation_leaves_no_plaintext_in_chain(mocker):
     assert err.__cause__ is None
     assert err.__context__ is None
     assert canary not in str(err)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("use_nsjail", [False, True])
+async def test_invoke_once_sandbox_failure_is_secret_safe(
+    tmp_path, mocker, use_nsjail: bool
+) -> None:
+    """Resolve a secret, run the real sandbox service, and keep failure safe."""
+    action_name = "core.script.run_python"
+    secret = "synthetic-sandbox-secret"
+    derived_secret = "terces-xobdnas-citehtnys"
+    stdout = f"stdout={secret}; derived={derived_secret}"
+    stderr = f"stderr={secret}; derived={derived_secret}"
+    result = SandboxResult(
+        success=False,
+        error=f"ValueError: {secret}",
+        stdout=stdout,
+        stderr=stderr,
+        error_code=SandboxErrorCode.WORKLOAD_FAILURE,
+        exit_code=1,
+        execution_time_ms=12.5,
+    )
+    sandbox_service = SandboxService(cache_dir=str(tmp_path / "sandbox-cache"))
+    sandbox_executor = mocker.Mock()
+    sandbox_executor.execute = mocker.AsyncMock(return_value=result)
+    mocker.patch.object(
+        sandbox_service, "_is_nsjail_available", return_value=use_nsjail
+    )
+    if use_nsjail:
+        sandbox_service._nsjail_executor = cast(Any, sandbox_executor)
+    else:
+        sandbox_service._unsafe_pid_executor = cast(Any, sandbox_executor)
+
+    class SandboxBackend:
+        async def execute(
+            self,
+            *,
+            input: RunActionInput,
+            role: Role,
+            resolved_context: ResolvedContext,
+            timeout: float,
+        ) -> ExecutorResultSuccess:
+            del input, role, timeout
+            args = resolved_context.evaluated_args
+            assert args["inputs"] == {"value": secret}
+            assert args["env_vars"] == {"USER_SECRET": secret}
+            output = await sandbox_service.run_python(
+                script=args["script"],
+                inputs=args.get("inputs"),
+                dependencies=args.get("dependencies"),
+                timeout_seconds=args.get("timeout_seconds"),
+                allow_network=args.get("allow_network", False),
+                env_vars=args.get("env_vars"),
+                python_path_dirs=[],
+                workspace_id=resolved_context.workspace_id,
+            )
+            return ExecutorResultSuccess(result=output)
+
+    mocker.patch.object(
+        executor_service.registry_resolver,
+        "prefetch_lock",
+        new=mocker.AsyncMock(),
+    )
+    mocker.patch.object(
+        executor_service.registry_resolver,
+        "resolve_action",
+        new=mocker.AsyncMock(
+            return_value=ActionImplementation(type="udf", action_name=action_name)
+        ),
+    )
+    mocker.patch.object(
+        executor_service.registry_resolver,
+        "collect_action_secrets_from_manifest",
+        new=mocker.AsyncMock(return_value=set()),
+    )
+    get_action_secrets = mocker.patch.object(
+        executor_service.secrets_manager,
+        "get_action_secrets",
+        new=mocker.AsyncMock(return_value={"runtime": {"TOKEN": secret}}),
+    )
+    mocker.patch.object(
+        executor_service,
+        "get_workspace_variables",
+        new=mocker.AsyncMock(return_value={}),
+    )
+    mocker.patch.object(
+        executor_service,
+        "project_secret_env",
+        new=mocker.AsyncMock(
+            return_value=SecretEnvProjection(env={}, mask_values=set())
+        ),
+    )
+    mocker.patch.object(
+        executor_service,
+        "_mint_action_executor_token",
+        return_value="synthetic-executor-token",
+    )
+    mocker.patch.object(
+        executor_service.config,
+        "TRACECAT__UNSAFE_DISABLE_SM_MASKING",
+        False,
+    )
+
+    action_input = _expression_policy_input(
+        action_name,
+        {
+            "script": "def main(value):\n    raise ValueError(value)\n",
+            "inputs": {"value": "${{ SECRETS.runtime.TOKEN }}"},
+            "env_vars": {"USER_SECRET": "${{ SECRETS.runtime.TOKEN }}"},
+        },
+    )
+    role = _expression_policy_role("tracecat-executor")
+    capture_activity_failure = mocker.spy(executor_service, "capture_activity_failure")
+    capture_exception = mocker.patch.object(sentry_sdk, "capture_exception")
+    records: list[Any] = []
+
+    def collect_record(message: Any) -> None:
+        records.append(message.record)
+
+    sink_id = executor_service.logger.add(collect_record, level="TRACE")
+    try:
+        with pytest.raises(ExecutionError) as exc_info:
+            await executor_service.invoke_once(
+                cast(Any, SandboxBackend()),
+                action_input,
+                executor_service.DispatchActionContext(role),
+            )
+    finally:
+        executor_service.logger.remove(sink_id)
+
+    error = exc_info.value
+    get_action_secrets.assert_awaited_once()
+    assert get_action_secrets.await_args.kwargs["secret_exprs"] == {"runtime.TOKEN"}
+    assert error.info.message == (
+        "The action failed. Details withheld: secrets may be in scope."
+    )
+    assert secret not in str(error)
+    assert derived_secret not in str(error)
+    assert error.__cause__ is None
+    assert error.__context__ is None
+    assert error.sentry_capture is None
+
+    classification = classify_execute_action_error(error, action_name=action_name)
+    assert classification.kind is RuntimeErrorKind.ACTION_EXECUTION_FAILED
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+    assert secret not in classification.model_dump_json()
+    assert derived_secret not in classification.model_dump_json()
+    capture_activity_failure.assert_called_once()
+    assert capture_activity_failure.spy_return is None
+    capture_exception.assert_not_called()
+
+    rendered_records = "\n".join(
+        f"{record['message']} {record['extra']!r}" for record in records
+    )
+    assert secret not in rendered_records
+    assert derived_secret not in rendered_records
+    failure_records = [
+        record
+        for record in records
+        if record["message"]
+        in {
+            "Script execution failed",
+            "Script execution failed (unsafe PID executor)",
+        }
+    ]
+    assert len(failure_records) == 1
+    failure_extra = failure_records[0]["extra"]
+    assert failure_extra["error_code"] is SandboxErrorCode.WORKLOAD_FAILURE
+    assert failure_extra["exit_code"] == 1
+    assert failure_extra["stdout_chars"] == len(stdout)
+    assert failure_extra["stderr_chars"] == len(stderr)
