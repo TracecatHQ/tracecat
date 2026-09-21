@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 from packaging.version import Version
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.client import WorkflowFailureError
 from temporalio.exceptions import ActivityError
@@ -208,19 +208,25 @@ async def test_custom_sync_rejects_actions_that_shadow_builtin_registry(
     )
     await session.flush()
 
-    platform_repo = PlatformRegistryRepository(origin=DEFAULT_REGISTRY_ORIGIN)
-    session.add(platform_repo)
-    await session.flush()
+    platform_repo = await session.scalar(
+        select(PlatformRegistryRepository).where(
+            PlatformRegistryRepository.origin == DEFAULT_REGISTRY_ORIGIN
+        )
+    )
+    if platform_repo is None:
+        platform_repo = PlatformRegistryRepository(origin=DEFAULT_REGISTRY_ORIGIN)
+        session.add(platform_repo)
+        await session.flush()
     builtin_actions = [
         _make_action(repository_id=platform_repo.id, default_title="Builtin")
     ]
     platform_version = PlatformRegistryVersion(
         repository_id=platform_repo.id,
-        version="builtin-1",
+        version=f"builtin-{uuid.uuid4().hex[:8]}",
         manifest=RegistryVersionManifest.from_actions(builtin_actions).model_dump(
             mode="json"
         ),
-        tarball_uri="s3://platform/builtin-1.squashfs",
+        tarball_uri="s3://platform/builtin.squashfs",
     )
     session.add(platform_version)
     await session.flush()
