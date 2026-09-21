@@ -294,24 +294,23 @@ async def _fetch_and_project(
 
 async def check_aws_secret_reference(
     reference: ExternalSecretReference,
-) -> tuple[bool, AwsSecretResolutionErrorCode | None, str | None, list[str]]:
-    """Verify a reference resolves. Returns ``(ok, error_code, aws_code, keys)``.
+) -> CheckResult:
+    """Verify a reference resolves without returning its value.
 
     The fetched value is discarded immediately; only the resolved key names are
     returned.
     """
     outcome = await _fetch_secret_string(reference)
     if outcome.failure is not None or outcome.value is None:
-        return (
-            False,
-            outcome.failure or AwsSecretResolutionErrorCode.UNKNOWN,
-            outcome.aws_error_code,
-            [],
+        return CheckResult(
+            ok=False,
+            error_code=outcome.failure or AwsSecretResolutionErrorCode.UNKNOWN,
+            provider_error_code=outcome.aws_error_code,
         )
     projected = project_secret_string(reference, outcome.value)
     if isinstance(projected, AwsSecretResolutionErrorCode):
-        return False, projected, None, []
-    return True, None, None, sorted(projected.keys())
+        return CheckResult(ok=False, error_code=projected)
+    return CheckResult(ok=True, resolved_keys=sorted(projected.keys()))
 
 
 def collect_output_keys(references: Iterable[ExternalSecretReference]) -> list[str]:

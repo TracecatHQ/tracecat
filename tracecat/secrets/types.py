@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -14,10 +14,15 @@ from tracecat.secrets.enums import (
 if TYPE_CHECKING:
     from tracecat.secrets.schemas import AwsSecretKeyMapping, SecretStoreConfig
 
-type CheckResult = tuple[
-    bool, AwsSecretResolutionErrorCode | None, str | None, list[str]
-]
-"""``(ok, error_code, provider_error_code, resolved_keys)``."""
+
+@dataclass(frozen=True, slots=True)
+class CheckResult:
+    """Outcome of a provider reference check without any remote secret values."""
+
+    ok: bool
+    error_code: AwsSecretResolutionErrorCode | None = None
+    provider_error_code: str | None = None
+    resolved_keys: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)

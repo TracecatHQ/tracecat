@@ -185,13 +185,16 @@ class SecretReferencesService(SecretsService):
         backend = get_backend(reference.provider)
         # Release the DB session before the remote call.
         await self.session.commit()
-        ok, error_code, aws_code, keys = await backend.check(reference)
+        result = await backend.check(reference)
         message: str | None = None
-        if not ok:
-            code = error_code or AwsSecretResolutionErrorCode.UNKNOWN
+        if not result.ok:
+            code = result.error_code or AwsSecretResolutionErrorCode.UNKNOWN
             message = f"Reference check failed: {code.value}"
-            if aws_code:
-                message += f" (AWS error code {aws_code})"
+            if result.provider_error_code:
+                message += f" (AWS error code {result.provider_error_code})"
         return SecretReferenceCheckResult(
-            ok=ok, error_code=error_code, message=message, resolved_keys=keys
+            ok=result.ok,
+            error_code=result.error_code,
+            message=message,
+            resolved_keys=result.resolved_keys,
         )

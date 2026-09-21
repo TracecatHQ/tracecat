@@ -30,7 +30,7 @@ from tracecat.secrets.schemas import (
     AwsSecretKeyMapping,
     AwsSecretsManagerStoreConfig,
 )
-from tracecat.secrets.types import ExternalSecretReference
+from tracecat.secrets.types import CheckResult, ExternalSecretReference
 
 pytestmark = pytest.mark.anyio
 
@@ -431,14 +431,23 @@ async def test_check_reference_returns_keys_only(
         mode=AwsSecretMappingMode.JSON,
         fields=(AwsSecretJsonField(key="USER", field="username"),),
     )
-    ok, code, aws_code, keys = await check_aws_secret_reference(ref)
-    assert (ok, code, aws_code, keys) == (True, None, None, ["USER"])
+    result = await check_aws_secret_reference(ref)
+    assert result == CheckResult(ok=True, resolved_keys=["USER"])
 
     fake_aws.sm_error = _client_error("ResourceNotFoundException")
-    ok, code, aws_code, keys = await check_aws_secret_reference(ref)
-    assert ok is False
-    assert code == AwsSecretResolutionErrorCode.NOT_FOUND
-    assert keys == []
+    result = await check_aws_secret_reference(ref)
+    assert result == CheckResult(
+        ok=False,
+        error_code=AwsSecretResolutionErrorCode.NOT_FOUND,
+        provider_error_code="ResourceNotFoundException",
+    )
+
+    fake_aws.sm_error = None
+    fake_aws.sm_response = {"SecretString": '{"username": 1}'}
+    result = await check_aws_secret_reference(ref)
+    assert result == CheckResult(
+        ok=False, error_code=AwsSecretResolutionErrorCode.NON_STRING_FIELD
+    )
 
 
 def test_output_keys_are_metadata_only() -> None:
