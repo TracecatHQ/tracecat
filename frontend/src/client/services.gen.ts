@@ -9923,7 +9923,7 @@ export const tablesImportCsv = (
 
 /**
  * Get Table Search
- * Read settings and current provider availability without saving credentials.
+ * Read settings and provider availability; requires table:read and workspace:read.
  * @param data The data for the request.
  * @param data.tableId
  * @param data.workspaceId
@@ -9973,7 +9973,7 @@ export const tablesSelectTableSearchColumn = (
     errors: {
       404: "Not Found",
       409: "Conflict",
-      422: "Validation Error",
+      422: "Unprocessable Entity",
     },
   })
 }

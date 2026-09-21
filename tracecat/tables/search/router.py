@@ -18,6 +18,7 @@ from tracecat.tables.search.schemas import (
     TableSearchProgressPage,
     TableSearchRetry,
     TableSearchSelection,
+    TableSearchSelectionErrorResponse,
 )
 from tracecat.tables.search.service import TableSearchService
 
@@ -35,11 +36,11 @@ def search_http_error(exc: SearchError) -> HTTPException:
 
 
 @router.get("")
-@require_scope("table:read")
+@require_scope("table:read", "workspace:read")
 async def get_table_search(
     table_id: TableID, role: WorkspaceActorRouteRole, session: AsyncDBSession
 ) -> TableSearchConfiguration:
-    """Read settings and current provider availability without saving credentials."""
+    """Read settings and provider availability; requires table:read and workspace:read."""
     assert role.organization_id is not None and role.workspace_id is not None
     service = TableSearchService(
         session, SearchScope(role.organization_id, role.workspace_id)
@@ -66,7 +67,9 @@ async def get_table_search(
         raise search_http_error(exc) from exc
 
 
-@router.patch("/selection")
+@router.patch(
+    "/selection", responses={422: {"model": TableSearchSelectionErrorResponse}}
+)
 @require_scope("table:update")
 async def select_table_search_column(
     table_id: TableID,

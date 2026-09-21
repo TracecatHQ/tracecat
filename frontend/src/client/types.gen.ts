@@ -8441,6 +8441,19 @@ export type TableSearchProgressPage = {
 }
 
 /**
+ * Standard FastAPI request validation fields for the selection endpoint.
+ */
+export type TableSearchRequestValidationError = {
+  loc: Array<string | number>
+  msg: string
+  type: string
+  input?: JsonValue
+  ctx?: {
+    [key: string]: JsonValue
+  } | null
+}
+
+/**
  * Retry a bounded explicit set of failed documents in the current generation.
  */
 export type TableSearchRetry = {
@@ -8455,6 +8468,13 @@ export type TableSearchSelection = {
   column_id: string
   enabled: boolean
   expected_generation: number
+}
+
+/**
+ * Invalid column selection or malformed request parameters.
+ */
+export type TableSearchSelectionErrorResponse = {
+  detail: TableSearchErrorRead | Array<TableSearchRequestValidationError>
 }
 
 /**
@@ -19828,9 +19848,9 @@ export type $OpenApiTs = {
          */
         409: TableSearchErrorResponse
         /**
-         * Validation Error
+         * Unprocessable Entity
          */
-        422: HTTPValidationError
+        422: TableSearchSelectionErrorResponse
       }
     }
   }
