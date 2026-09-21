@@ -100,6 +100,7 @@ export function TableSearchProgress() {
             variant="outline"
             disabled={
               search.provider.data?.state !== "active" ||
+              search.provider.data.reindex_required ||
               search.configuration.data?.index?.state !== "active" ||
               search.retry.isPending ||
               search.selection.isPending ||

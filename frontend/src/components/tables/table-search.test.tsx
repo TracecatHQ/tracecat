@@ -21,6 +21,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { toast } from "@/components/ui/use-toast"
+import { invalidateArtifactQueries } from "@/components/workspace-chat/artifacts/artifact-registry"
 import { searchPollInterval, tableSearchKey } from "@/hooks/use-table-search"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
 
@@ -321,16 +322,16 @@ test("long-row progress does not claim ready after backfill and retries only dis
   )
 })
 
-test.each(["provider", "index"] as const)(
-  "failed row retries stay disabled while the %s is paused and recover after refresh",
-  async (pausedSource) => {
+test.each(["provider", "index", "rebuild"] as const)(
+  "failed row retries stay disabled during %s unavailability and recover after refresh",
+  async (blockedSource) => {
     configuration = {
       ...configuration,
       selected_column_ids: [column.id],
       status: "needs_attention",
       index: {
         ...configuration.index,
-        state: pausedSource === "index" ? "paused" : "active",
+        state: blockedSource === "index" ? "paused" : "active",
         failed: 1,
         pending: 0,
         backfill_complete: true,
@@ -338,7 +339,8 @@ test.each(["provider", "index"] as const)(
     }
     jest.mocked(searchGetEmbeddingConfiguration).mockResolvedValue({
       ...available,
-      state: pausedSource === "provider" ? "paused" : "active",
+      state: blockedSource === "provider" ? "paused" : "active",
+      reindex_required: blockedSource === "rebuild",
     })
     jest.mocked(tablesGetTableSearchProgress).mockResolvedValue({
       generation: 2,
@@ -357,12 +359,12 @@ test.each(["provider", "index"] as const)(
       ],
     })
     setup(<TableSearchStatus />)
+    let label = "Semantic search: Needs attention"
+    if (blockedSource === "provider") label = "Semantic search: Unavailable"
+    else if (blockedSource === "rebuild") label = "Semantic search: Updating"
     fireEvent.click(
       await screen.findByRole("button", {
-        name:
-          pausedSource === "provider"
-            ? "Semantic search: Unavailable"
-            : "Semantic search: Needs attention",
+        name: label,
       })
     )
     const retry = await screen.findByRole("button", {
@@ -454,6 +456,51 @@ test("polling runs while chunks remain and stops at ready and on unmount", async
   })
   expect(tablesGetTableSearch).toHaveBeenCalledTimes(calls)
   jest.useRealTimers()
+})
+
+test("table artifact events refresh ready search status and counts", async () => {
+  configuration = {
+    ...configuration,
+    selected_column_ids: [column.id],
+    status: "ready",
+    index: {
+      state: "active",
+      ready: 1,
+      pending: 0,
+      failed: 0,
+      empty: 0,
+      backfill_complete: true,
+      partial: false,
+    },
+  }
+  setup(<TableSearchStatus />)
+  await screen.findByText("Semantic search: Ready")
+  expect(searchPollInterval(configuration, available)).toBe(false)
+  const calls = jest.mocked(tablesGetTableSearch).mock.calls.length
+  configuration = {
+    ...configuration,
+    status: "updating",
+    index: { ...configuration.index, state: "active", ready: 0, pending: 1 },
+  }
+  await act(async () => {
+    invalidateArtifactQueries(client, "workspace-synthetic", {
+      type: "table",
+      id: "other-table-synthetic",
+      title: "Other table",
+    })
+  })
+  expect(tablesGetTableSearch).toHaveBeenCalledTimes(calls)
+  expect(screen.getByText("Semantic search: Ready")).toBeInTheDocument()
+  await act(async () => {
+    invalidateArtifactQueries(client, "workspace-synthetic", {
+      type: "table",
+      id: "table-synthetic",
+      title: "Synthetic table",
+    })
+  })
+  await screen.findByText("Semantic search: Updating")
+  expect(screen.getByText(/0 ready · 1 pending/)).toBeInTheDocument()
+  expect(tablesGetTableSearch).toHaveBeenCalledTimes(calls + 1)
 })
 
 test("deleting a selected column explains the consequence", async () => {
