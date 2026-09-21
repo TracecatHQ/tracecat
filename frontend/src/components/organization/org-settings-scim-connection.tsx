@@ -1,12 +1,13 @@
 "use client"
 
 import { KeyRoundIcon, Loader2 } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import type { ScimConnectionRead } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { ConfirmDestructiveDialog } from "@/components/confirm-destructive-dialog"
 import { CopyButton } from "@/components/copy-button"
 import { CenteredSpinner } from "@/components/loading/spinner"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -35,12 +36,19 @@ function formatTimestamp(value: string | null | undefined): string {
   return new Date(value).toLocaleString()
 }
 
-/** Absolute SCIM base URL an administrator pastes into their IdP. */
-function useScimBaseUrl(): string {
-  const path = `${getBaseUrl().replace(/\/$/, "")}/scim/v2`
-  return typeof window === "undefined"
-    ? path
-    : new URL(path, window.location.origin).href
+/**
+ * Absolute SCIM base URL an administrator pastes into their IdP.
+ *
+ * Resolved after mount: `getBaseUrl()` returns the internal server address
+ * during prerender, which is unreachable from the administrator's browser.
+ */
+function useScimBaseUrl(): string | null {
+  const [baseUrl, setBaseUrl] = useState<string | null>(null)
+  useEffect(() => {
+    const path = `${getBaseUrl().replace(/\/$/, "")}/scim/v2`
+    setBaseUrl(new URL(path, window.location.origin).href)
+  }, [])
+  return baseUrl
 }
 
 function ConnectionDetails({ connection }: { connection: ScimConnectionRead }) {
@@ -51,13 +59,15 @@ function ConnectionDetails({ connection }: { connection: ScimConnectionRead }) {
       <dt className="text-muted-foreground">SCIM base URL</dt>
       <dd className="flex min-w-0 items-center gap-2">
         <code className="min-w-0 truncate font-mono text-foreground/90 select-all">
-          {baseUrl}
+          {baseUrl ?? "Loading…"}
         </code>
-        <CopyButton
-          value={baseUrl}
-          toastMessage="SCIM base URL copied"
-          tooltipMessage="Copy base URL"
-        />
+        {baseUrl && (
+          <CopyButton
+            value={baseUrl}
+            toastMessage="SCIM base URL copied"
+            tooltipMessage="Copy base URL"
+          />
+        )}
       </dd>
 
       <dt className="text-muted-foreground">Token</dt>
@@ -98,6 +108,9 @@ export function OrgSettingsScimConnection() {
   const {
     connection,
     connectionIsLoading,
+    connectionIsFetching,
+    connectionError,
+    refetchConnection,
     issueToken,
     issueTokenIsPending,
     revokeToken,
@@ -142,7 +155,26 @@ export function OrgSettingsScimConnection() {
         </p>
       </div>
 
-      {connection ? (
+      {connectionError && (
+        <Alert>
+          <AlertTitle>Could not load SCIM connection</AlertTitle>
+          <AlertDescription>
+            <p>
+              Retry to check your existing connection before making changes.
+            </p>
+            <Button
+              variant="outline"
+              className="mt-3"
+              disabled={connectionIsFetching}
+              onClick={() => void refetchConnection()}
+            >
+              Retry
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {!connectionError && connection && (
         <div className="space-y-6 rounded-lg border p-6">
           <ConnectionDetails connection={connection} />
           <div className="flex gap-2">
@@ -167,7 +199,9 @@ export function OrgSettingsScimConnection() {
             ) : null}
           </div>
         </div>
-      ) : (
+      )}
+
+      {!connectionError && !connection && (
         <Empty className="gap-4 rounded-lg border py-12">
           <EmptyHeader>
             <EmptyMedia variant="icon">

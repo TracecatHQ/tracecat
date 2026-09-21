@@ -82,8 +82,10 @@ export function useScimConnection() {
   const { mutateAsync: issueToken, isPending: issueTokenIsPending } =
     useMutation<ScimConnectionTokenRead, TracecatApiError, void>({
       mutationFn: async () => await scimIssueScimToken(),
-      onSuccess: async () => {
-        await queryClient.invalidateQueries({ queryKey: SCIM_CONNECTION_KEY })
+      // The API returns the raw token exactly once. Refresh in the background
+      // so a failed refetch cannot block the caller from displaying it.
+      onSuccess: () => {
+        void queryClient.invalidateQueries({ queryKey: SCIM_CONNECTION_KEY })
       },
       onError: (error) => toastScimError("Failed to issue SCIM token", error),
     })
