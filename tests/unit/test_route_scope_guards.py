@@ -10,6 +10,10 @@ from fastapi import HTTPException
 from tracecat.agent.catalog import router as agent_catalog_router
 from tracecat.agent.folders import router as agent_folder_router
 from tracecat.agent.preset import router as agent_preset_router
+from tracecat.agent.skill import router as skill_router
+from tracecat.agent.skill.folders import router as skill_folder_router
+from tracecat.agent.skill.tags import definitions_router as skill_tag_definitions_router
+from tracecat.agent.skill.tags import router as skill_tags_router
 from tracecat.agent.tags import definitions_router as agent_tag_definitions_router
 from tracecat.auth.types import Role
 from tracecat.cases.dropdowns import router as case_dropdowns_router
@@ -219,6 +223,22 @@ async def test_agent_folder_scope_guards(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
+    ("endpoint", "required_scope"),
+    [
+        (skill_folder_router.get_directory, "agent:read"),
+        (skill_router.list_skills, "agent:read"),
+        (skill_router.move_skill, "agent:update"),
+        (skill_tags_router.list_skill_tags, "agent:read"),
+        (skill_tags_router.add_skill_tag, "agent:update"),
+        (skill_tags_router.remove_skill_tag, "agent:update"),
+    ],
+)
+async def test_skill_scope_guards(endpoint: AsyncEndpoint, required_scope: str) -> None:
+    await _assert_endpoint_requires_scope(endpoint, required_scope)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
     "endpoint",
     [
         agent_catalog_router.list_catalog,
@@ -304,6 +324,23 @@ async def test_agent_catalog_reads_reject_workspace_bound_service_accounts() -> 
     ],
 )
 async def test_agent_tag_definition_scope_guards(
+    endpoint: AsyncEndpoint, required_scope: str
+) -> None:
+    await _assert_endpoint_requires_scope(endpoint, required_scope)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("endpoint", "required_scope"),
+    [
+        (skill_tag_definitions_router.list_skill_tags, "agent:read"),
+        (skill_tag_definitions_router.get_skill_tag, "agent:read"),
+        (skill_tag_definitions_router.create_skill_tag, "agent:create"),
+        (skill_tag_definitions_router.update_skill_tag, "agent:update"),
+        (skill_tag_definitions_router.delete_skill_tag, "agent:delete"),
+    ],
+)
+async def test_skill_tag_definition_scope_guards(
     endpoint: AsyncEndpoint, required_scope: str
 ) -> None:
     await _assert_endpoint_requires_scope(endpoint, required_scope)
