@@ -676,7 +676,13 @@ function GroupManageDialog({
           </TabsTrigger>
         </TabsList>
         <TabsContent value="members" className="mt-4 space-y-4">
-          {canManageMembers && (
+          {group.is_idp_managed && (
+            <p className="text-sm text-muted-foreground">
+              Membership is managed by your identity provider. Edit members
+              there.
+            </p>
+          )}
+          {canManageMembers && !group.is_idp_managed && (
             <div className="space-y-2">
               <Label>Add member</Label>
               <div className="flex gap-2">
@@ -735,7 +741,7 @@ function GroupManageDialog({
                           </span>
                         )}
                       </div>
-                      {canManageMembers && (
+                      {canManageMembers && !group.is_idp_managed && (
                         <Button
                           variant="ghost"
                           size="sm"
