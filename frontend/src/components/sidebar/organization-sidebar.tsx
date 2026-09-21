@@ -49,6 +49,7 @@ export function OrganizationSidebar({
   const canViewSettings = useScopeCheck("org:settings:read")
   const canViewServiceAccounts = useScopeCheck("org:service_account:read")
   const canViewMembers = useScopeCheck("org:member:read")
+  const canManageScim = useScopeCheck("org:scim:manage")
 
   const navCustomRegistry = [
     {
@@ -102,7 +103,7 @@ export function OrganizationSidebar({
       url: "/organization/settings/scim",
       icon: RefreshCwIcon,
       isActive: pathname?.includes("/organization/settings/scim"),
-      visible: canViewSettings === true,
+      visible: canManageScim === true,
       locked: !rbacAddonsEnabled,
     },
     {

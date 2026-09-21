@@ -18,6 +18,7 @@ const review = { mutateAsync: jest.fn(), isPending: false }
 const activate = { mutateAsync: jest.fn(), isPending: false }
 const refetchConnection = jest.fn()
 const issueToken = jest.fn()
+const readConnection = jest.fn()
 const initialConnection: ScimConnectionRead = {
   id: "connection",
   organization_id: "org",
@@ -65,14 +66,17 @@ jest.mock("@/hooks/use-scim", () => ({
     fetchNextMappings,
   }),
   useScimActivation: () => ({ review, activate }),
-  useScimConnection: () => ({
-    connection,
-    connectionError,
-    connectionIsFetching,
-    refetchConnection,
-    issueToken,
-    revokeToken: jest.fn(),
-  }),
+  useScimConnection: () => {
+    readConnection()
+    return {
+      connection,
+      connectionError,
+      connectionIsFetching,
+      refetchConnection,
+      issueToken,
+      revokeToken: jest.fn(),
+    }
+  },
 }))
 jest.mock("@/lib/hooks", () => ({
   useRbacGroups: () => ({ groups: [{ id: "target", name: "Target team" }] }),
@@ -126,7 +130,7 @@ beforeEach(() => {
   mappingsHasNextPage = false
   mappingsIsFetchingNextPage = false
   mappingsError = null
-  allowedScopes = null
+  allowedScopes = ["org:scim:manage"]
   connection = initialConnection
   connectionError = null
   connectionIsFetching = false
@@ -309,7 +313,8 @@ test.each([
   { scopes: [] },
   { scopes: ["org:rbac:create"] },
   { scopes: ["org:member:remove"] },
-])("token rotation requires all issuance scopes: %j", ({ scopes }) => {
+  { scopes: ["org:rbac:create", "org:rbac:delete", "org:member:remove"] },
+])("token rotation requires explicit SCIM authority: %j", ({ scopes }) => {
   allowedScopes = scopes
   render(
     <TooltipProvider>
@@ -319,8 +324,14 @@ test.each([
   expect(screen.getByRole("button", { name: "Rotate token" })).toBeDisabled()
 })
 
-test("read-only users cannot create, activate, or remove mappings", () => {
-  allowedScopes = ["org:rbac:read"]
+test("generic RBAC permissions cannot administer mappings", () => {
+  allowedScopes = [
+    "org:rbac:read",
+    "org:rbac:create",
+    "org:rbac:update",
+    "org:rbac:delete",
+    "org:member:remove",
+  ]
   mappings = [
     {
       id: "mapping",
@@ -345,4 +356,21 @@ test("read-only users cannot create, activate, or remove mappings", () => {
   expect(
     screen.getByRole("button", { name: "Review activation" })
   ).toBeDisabled()
+})
+
+test("users without SCIM authority cannot load the directory settings", () => {
+  allowedScopes = ["org:rbac:read", "org:settings:read"]
+  render(<ScimSettingsPage />)
+  expect(screen.getByText("You lack permission")).toBeInTheDocument()
+  expect(readConnection).not.toHaveBeenCalled()
+})
+
+test("SCIM authority alone enables token management", () => {
+  render(
+    <TooltipProvider>
+      <OrgSettingsScimConnection />
+    </TooltipProvider>
+  )
+  expect(screen.getByRole("button", { name: "Rotate token" })).toBeEnabled()
+  expect(screen.getByRole("button", { name: "Revoke token" })).toBeEnabled()
 })

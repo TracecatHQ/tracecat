@@ -66,10 +66,7 @@ export function OrgSettingsScimMappings({
   )
   const isPending = status === "pending"
   const canEdit = !revoked && (isPending || status === "active")
-  const canCreate = useScopeCheck("org:rbac:create")
-  const canActivate = useScopeCheck("org:rbac:update")
-  const canRemoveMembers = useScopeCheck("org:member:remove")
-  const canDelete = useScopeCheck("org:rbac:delete")
+  const canManage = useScopeCheck("org:scim:manage")
 
   const {
     externalGroups,
@@ -231,9 +228,7 @@ export function OrgSettingsScimMappings({
           <Button
             disabled={
               !canEdit ||
-              canActivate !== true ||
-              canRemoveMembers !== true ||
-              (drafts.length > 0 && canCreate !== true) ||
+              canManage !== true ||
               review.isPending ||
               activate.isPending
             }
@@ -358,7 +353,7 @@ export function OrgSettingsScimMappings({
               }}
               disabled={
                 !canEdit ||
-                canCreate !== true ||
+                canManage !== true ||
                 !externalGroupId ||
                 !groupId ||
                 createMappingIsPending ||
@@ -402,9 +397,7 @@ export function OrgSettingsScimMappings({
                         size="icon"
                         disabled={
                           !canEdit ||
-                          (isPending
-                            ? canCreate !== true
-                            : canDelete !== true) ||
+                          canManage !== true ||
                           deleteMappingIsPending ||
                           review.isPending
                         }

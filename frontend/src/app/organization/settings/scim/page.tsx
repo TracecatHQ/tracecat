@@ -1,5 +1,6 @@
 "use client"
 
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { EntitlementRequiredEmptyState } from "@/components/entitlement-required-empty-state"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { OrgSettingsScimConnection } from "@/components/organization/org-settings-scim-connection"
@@ -26,7 +27,7 @@ function ScimSettings() {
     return (
       <EntitlementRequiredEmptyState
         title="You lack permission"
-        description="Managing SCIM provisioning requires organization administrator access."
+        description="You need permission to manage SCIM provisioning."
       />
     )
   }
@@ -64,15 +65,23 @@ function ScimSettings() {
 
 export default function ScimSettingsPage() {
   const { hasEntitlement, isLoading } = useEntitlements()
+  const canManage = useScopeCheck("org:scim:manage")
 
   let body = <ScimSettings />
-  if (isLoading) {
+  if (isLoading || canManage === undefined) {
     body = <CenteredSpinner />
   } else if (!hasEntitlement("rbac_addons")) {
     body = (
       <EntitlementRequiredEmptyState
         title="Not available on your plan"
         description="SCIM provisioning requires the access control add-on. Contact your Tracecat account team to enable it."
+      />
+    )
+  } else if (!canManage) {
+    body = (
+      <EntitlementRequiredEmptyState
+        title="You lack permission"
+        description="You need permission to manage SCIM provisioning."
       />
     )
   }

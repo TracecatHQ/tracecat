@@ -94,10 +94,7 @@ function ConnectionDetails({ connection }: { connection: ScimConnectionRead }) {
  * because the API returns it exactly once and can never return it again.
  */
 export function OrgSettingsScimConnection() {
-  const canCreate = useScopeCheck("org:rbac:create")
-  const canRemoveMembers = useScopeCheck("org:member:remove")
-  const canRevoke = useScopeCheck("org:rbac:delete")
-  const canIssue = canCreate === true && canRemoveMembers === true
+  const canManage = useScopeCheck("org:scim:manage")
   const {
     connection,
     connectionIsLoading,
@@ -152,7 +149,7 @@ export function OrgSettingsScimConnection() {
             <Button
               variant="outline"
               onClick={() => setRotateOpen(true)}
-              disabled={!canIssue || issueTokenIsPending}
+              disabled={canManage !== true || issueTokenIsPending}
             >
               {issueTokenIsPending ? (
                 <Loader2 className="mr-2 size-4 animate-spin" />
@@ -163,7 +160,7 @@ export function OrgSettingsScimConnection() {
               <Button
                 variant="outline"
                 onClick={() => setRevokeOpen(true)}
-                disabled={!canRevoke || revokeTokenIsPending}
+                disabled={canManage !== true || revokeTokenIsPending}
               >
                 Revoke token
               </Button>
@@ -185,7 +182,7 @@ export function OrgSettingsScimConnection() {
           <EmptyContent>
             <Button
               onClick={handleIssue}
-              disabled={!canIssue || issueTokenIsPending}
+              disabled={canManage !== true || issueTokenIsPending}
             >
               {issueTokenIsPending ? (
                 <Loader2 className="mr-2 size-4 animate-spin" />

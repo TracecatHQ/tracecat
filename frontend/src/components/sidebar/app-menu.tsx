@@ -53,6 +53,7 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
   const { organization: activeOrganization } = useOrganization()
   const { organizations } = useOrganizationMemberships()
   const canAdministerOrg = useScopeCheck("org:update")
+  const canManageScim = useScopeCheck("org:scim:manage")
   const canCreateWorkspace = useScopeCheck("workspace:create")
   const {
     hasEntitlement,
@@ -252,10 +253,14 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
             )}
 
             <DropdownMenuSeparator />
-            {canAdministerOrg && (
+            {(canAdministerOrg || canManageScim) && (
               <DropdownMenuItem asChild>
                 <Link
-                  href="/organization"
+                  href={
+                    canAdministerOrg
+                      ? "/organization"
+                      : "/organization/settings/scim"
+                  }
                   className="flex items-center gap-2 py-1 px-2 cursor-default"
                 >
                   <div className="flex size-6 items-center justify-center">

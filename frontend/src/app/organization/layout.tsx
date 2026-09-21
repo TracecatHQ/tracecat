@@ -1,5 +1,6 @@
 "use client"
 
+import { usePathname } from "next/navigation"
 import { Suspense } from "react"
 import { AuthGuard } from "@/components/auth/auth-guard"
 import { CenteredSpinner } from "@/components/loading/spinner"
@@ -12,9 +13,14 @@ export default function OrganizationLayout({
 }: {
   children: React.ReactNode
 }) {
+  const isScimPage = usePathname() === "/organization/settings/scim"
   return (
     <ScopeProvider>
-      <AuthGuard requireAuth requireOrgAdmin>
+      <AuthGuard
+        requireAuth
+        requireOrgAdmin
+        orgAdminScope={isScimPage ? "org:scim:manage" : "org:update"}
+      >
         <SidebarProvider>
           <OrganizationSidebar />
           <SidebarInset>
