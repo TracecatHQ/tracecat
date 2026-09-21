@@ -21,7 +21,12 @@ from tracecat_ee.scim.protocol import (
     scim_http_exception_handler,
     scim_validation_exception_handler,
 )
-from tracecat_ee.scim.schemas import ERROR_SCHEMA, SCIM_CONTENT_TYPE
+from tracecat_ee.scim.schemas import (
+    ERROR_SCHEMA,
+    GROUP_SCHEMA,
+    SCIM_CONTENT_TYPE,
+    USER_SCHEMA,
+)
 from tracecat_ee.scim.service import SCIMService
 
 from tests.support.membership import (
@@ -344,8 +349,16 @@ async def test_malformed_body_returns_scim_error_envelope(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    "attribute", ["active", f"{USER_SCHEMA}:active", f"{USER_SCHEMA}:active".upper()]
+)
+@pytest.mark.parametrize("object_value", [False, True])
 async def test_patch_active_false_deprovisions(
-    client: httpx.AsyncClient, session: AsyncSession, org: Organization
+    client: httpx.AsyncClient,
+    session: AsyncSession,
+    org: Organization,
+    attribute: str,
+    object_value: bool,
 ) -> None:
     """``active=false`` revokes access to this tenant."""
     email = f"erin-{uuid.uuid4().hex[:8]}@tracecat.com"
@@ -359,7 +372,11 @@ async def test_patch_active_false_deprovisions(
         f"/scim/v2/Users/{user_id}",
         json={
             "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
-            "Operations": [{"op": "replace", "path": "active", "value": False}],
+            "Operations": [
+                {"op": "replace", "value": {attribute: False}}
+                if object_value
+                else {"op": "replace", "path": attribute, "value": False}
+            ],
         },
     )
 
@@ -489,8 +506,13 @@ async def test_group_lifecycle(client: httpx.AsyncClient, org: Organization) -> 
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("prefix", ["", f"{GROUP_SCHEMA}:", f"{GROUP_SCHEMA}:".upper()])
 async def test_group_membership_projects_into_tracecat_group(
-    client: httpx.AsyncClient, session: AsyncSession, org: Organization, scim_role: Role
+    client: httpx.AsyncClient,
+    session: AsyncSession,
+    org: Organization,
+    scim_role: Role,
+    prefix: str,
 ) -> None:
     """A mapped IdP group grants membership, and removal revokes it."""
     email = f"judy-{uuid.uuid4().hex[:8]}@tracecat.com"
@@ -522,7 +544,11 @@ async def test_group_membership_projects_into_tracecat_group(
         json={
             "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
             "Operations": [
-                {"op": "add", "path": "members", "value": [{"value": str(user_id)}]}
+                {
+                    "op": "add",
+                    "path": f"{prefix}members",
+                    "value": [{"value": str(user_id)}],
+                }
             ],
         },
     )
@@ -534,7 +560,11 @@ async def test_group_membership_projects_into_tracecat_group(
         json={
             "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
             "Operations": [
-                {"op": "remove", "path": "members", "value": [{"value": str(user_id)}]}
+                {
+                    "op": "remove",
+                    "path": f"{prefix}members",
+                    "value": [{"value": str(user_id)}],
+                }
             ],
         },
     )
@@ -774,8 +804,9 @@ async def test_rejection_body_is_a_scim_error(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("prefix", ["", f"{GROUP_SCHEMA}:", f"{GROUP_SCHEMA}:".upper()])
 async def test_filtered_removal_preserves_peers(
-    client: httpx.AsyncClient, org: Organization
+    client: httpx.AsyncClient, org: Organization, prefix: str
 ) -> None:
     users = [
         (
@@ -797,7 +828,9 @@ async def test_filtered_removal_preserves_peers(
     response = await client.patch(
         f"/scim/v2/Groups/{group['id']}",
         json={
-            "Operations": [{"op": "remove", "path": f'members[value eq "{users[1]}"]'}]
+            "Operations": [
+                {"op": "remove", "path": f'{prefix}members[value eq "{users[1]}"]'}
+            ]
         },
     )
     assert response.status_code == 200
@@ -809,7 +842,7 @@ async def test_filtered_removal_preserves_peers(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("invalid_position", [0, 1, 2])
-@pytest.mark.parametrize("invalid_kind", ["path", "reference", "shape"])
+@pytest.mark.parametrize("invalid_kind", ["path", "reference", "shape", "schema"])
 async def test_invalid_patch_is_atomic(
     client: httpx.AsyncClient,
     org: Organization,
@@ -838,6 +871,7 @@ async def test_invalid_patch_is_atomic(
             "value": [{"value": str(uuid.uuid4())}],
         },
         "shape": {"op": "replace", "path": "members", "value": [{}]},
+        "schema": {"op": "remove", "path": "urn:example:unsupported:members"},
     }[invalid_kind]
     operations = [
         {"op": "add", "path": "members", "value": [{"value": uid}]} for uid in users[1:]
@@ -849,6 +883,54 @@ async def test_invalid_patch_is_atomic(
     assert response.status_code == 400
     current = (await client.get(f"/scim/v2/Groups/{group['id']}")).json()
     assert current["members"] == group["members"]
+
+
+@pytest.mark.anyio
+async def test_schema_qualified_group_object_patch(client: httpx.AsyncClient) -> None:
+    user = (await _post_user(client, "qualified@example.com")).json()
+    group = (
+        await client.post("/scim/v2/Groups", json={"displayName": "Original"})
+    ).json()
+    response = await client.patch(
+        f"/scim/v2/Groups/{group['id']}",
+        json={
+            "Operations": [
+                {
+                    "op": "replace",
+                    "value": {
+                        f"{GROUP_SCHEMA}:displayName": "Updated",
+                        f"{GROUP_SCHEMA}:members": [{"value": user["id"]}],
+                    },
+                }
+            ]
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["displayName"] == "Updated"
+    assert [member["value"] for member in response.json()["members"]] == [user["id"]]
+
+
+@pytest.mark.anyio
+async def test_unknown_user_schema_cannot_deprovision(
+    client: httpx.AsyncClient, session: AsyncSession, org: Organization
+) -> None:
+    user = (await _post_user(client, "unknown-schema@example.com")).json()
+    response = await client.patch(
+        f"/scim/v2/Users/{user['id']}",
+        json={
+            "Operations": [
+                {
+                    "op": "replace",
+                    "path": "urn:example:unsupported:active",
+                    "value": False,
+                }
+            ]
+        },
+    )
+    assert response.status_code == 400
+    assert await _resource_is_member(
+        session, resource_id=uuid.UUID(user["id"]), organization_id=org.id
+    )
 
 
 @pytest.mark.anyio

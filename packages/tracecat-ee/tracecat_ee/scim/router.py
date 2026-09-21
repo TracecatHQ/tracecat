@@ -150,14 +150,22 @@ async def activate_scim_connection(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
-@mappings_router.get("/mappings", response_model=list[ExternalGroupMappingRead])
+@mappings_router.get("/mappings", response_model=Page[ExternalGroupMappingRead])
 async def list_scim_mappings(
     *,
     role: OrgActorRole,
     session: AsyncDBSession,
-) -> list[ExternalGroupMappingRead]:
+    limit: int = Query(
+        default=config.TRACECAT__LIMIT_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
+    ),
+    cursor: str | None = Query(default=None, max_length=8192),
+) -> Page[ExternalGroupMappingRead]:
     """List group mappings with both sides joined in."""
-    return await SCIMService(session, role=role).list_mappings()
+    return await SCIMService(session, role=role).list_mappings(
+        page=PageParams(limit=limit, cursor=cursor)
+    )
 
 
 @mappings_router.post("/mappings", response_model=ExternalGroupMappingRead)

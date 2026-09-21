@@ -242,7 +242,7 @@ async def test_list_mappings_joins_both_sides(
         external_group_id=external.id, group_id=group.id
     )
 
-    listed = await service.list_mappings()
+    listed = (await service.list_mappings(page=PageParams())).items
 
     assert len(listed) == 1
     row = listed[0]
@@ -277,7 +277,7 @@ async def test_list_mappings_excludes_other_organizations(
         _role(other_org, "org:rbac:read", "org:rbac:create"),
     ).create_mapping(external_group_id=their_external.id, group_id=their_group.id)
 
-    listed = await service.list_mappings()
+    listed = (await service.list_mappings(page=PageParams())).items
 
     assert [row.external_group_external_id for row in listed] == ["idp-mine"]
 
@@ -386,7 +386,7 @@ async def test_creating_a_duplicate_mapping_returns_the_existing_row(
     )
 
     assert first.id == second.id
-    assert len(await service.list_mappings()) == 1
+    assert len((await service.list_mappings(page=PageParams())).items) == 1
 
 
 # =============================================================================
@@ -487,7 +487,7 @@ async def test_listing_requires_the_read_scope(
     with pytest.raises(TracecatAuthorizationError):
         await service.list_external_groups(page=PageParams())
     with pytest.raises(TracecatAuthorizationError):
-        await service.list_mappings()
+        await service.list_mappings(page=PageParams())
 
 
 @pytest.mark.anyio
@@ -597,7 +597,7 @@ async def test_activation_review_reports_the_plan_without_storing_it(
     assert [p.users_losing_access for p in review.plans] == [[member.id]]
     # A review is a read: the manual row and the absent mapping both survive.
     assert await _manual_members(session, group.id) == {member.id}
-    assert await service.list_mappings() == []
+    assert (await service.list_mappings(page=PageParams())).items == []
 
 
 async def _is_member(
@@ -631,7 +631,7 @@ async def test_pending_mapping_preserves_manual_members(
     with pytest.raises(TracecatConflictError):
         await service.create_mapping(external_group_id=external.id, group_id=group.id)
     assert await _manual_members(session, group.id) == {user.id for user in users}
-    assert await service.list_mappings() == []
+    assert (await service.list_mappings(page=PageParams())).items == []
 
 
 @pytest.mark.anyio
@@ -836,3 +836,51 @@ async def test_external_groups_pagination_is_bounded_and_scoped(
         await other_service.list_external_groups(
             page=PageParams(cursor=first.next_cursor)
         )
+
+
+@pytest.mark.anyio
+async def test_mapping_pages_are_bounded_stable_and_org_scoped(
+    session: AsyncSession,
+    org: Organization,
+    other_org: Organization,
+    service: SCIMService,
+) -> None:
+    target = await _make_group(session, org)
+    mapping_ids = []
+    for i in range(5):
+        external = await seed_external_group(
+            session,
+            organization_id=org.id,
+            external_id=f"page-{i}",
+            display_name="Same name",
+        )
+        mapping = await service.create_mapping(
+            external_group_id=external.id, group_id=target.id
+        )
+        mapping_ids.append(mapping.id)
+    first = await service.list_mappings(page=PageParams(limit=2))
+    assert first.next_cursor is not None
+    second = await service.list_mappings(
+        page=PageParams(limit=2, cursor=first.next_cursor)
+    )
+    assert second.next_cursor is not None
+    third = await service.list_mappings(
+        page=PageParams(limit=2, cursor=second.next_cursor)
+    )
+    assert [len(page.items) for page in (first, second, third)] == [2, 2, 1]
+    assert third.next_cursor is None
+    assert [row.id for page in (first, second, third) for row in page.items] == sorted(
+        mapping_ids
+    )
+    back = await service.list_mappings(
+        page=PageParams(limit=2, cursor=second.prev_cursor)
+    )
+    assert back.items == first.items
+    assert await service.get_mapping(first.items[0].id) == first.items[0]
+    with pytest.raises(PaginationError):
+        await service.list_mappings(page=PageParams(cursor="invalid"))
+    other_service = SCIMService(session, _role(other_org, "org:rbac:read"))
+    with pytest.raises(PaginationError):
+        await other_service.list_mappings(page=PageParams(cursor=first.next_cursor))
+    with pytest.raises(TracecatNotFoundError):
+        await other_service.get_mapping(first.items[0].id)

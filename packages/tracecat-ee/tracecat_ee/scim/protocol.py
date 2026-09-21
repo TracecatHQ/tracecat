@@ -122,11 +122,13 @@ def scim_http_exception_handler(
         scim_type = "invalidFilter"
     elif isinstance(exc, ScimMutabilityError):
         scim_type = "mutability"
-    return scim_error_response(
+    response = scim_error_response(
         status_code=exc.status_code,
         detail=detail,
         scim_type=scim_type,
     )
+    response.headers.update(exc.headers or {})
+    return response
 
 
 def scim_validation_exception_handler(
@@ -391,7 +393,7 @@ async def patch_user(
                 raise ScimMutabilityError()
             if operation.op == "remove":
                 raise TracecatValidationError("Removing user attributes is unsupported")
-            if key.lower() != "active":
+            if attribute != "active":
                 raise TracecatValidationError("Unsupported user PATCH path")
             parsed = _coerce_bool(value)
             if parsed is None:
@@ -664,7 +666,10 @@ async def patch_group(
         else:
             attributes = [(path, operation.value)]
         for attribute, value in attributes:
-            if attribute.lower() == "displayname":
+            attribute = (
+                attribute.strip().lower().removeprefix(f"{GROUP_SCHEMA.lower()}:")
+            )
+            if attribute == "displayname":
                 if (
                     operation.op == "remove"
                     or not isinstance(value, str)

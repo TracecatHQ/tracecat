@@ -6531,6 +6531,9 @@ export type Page_SecretStoreRead_ = {
    */
   prev_cursor?: string | null
 }
+export type Page_ExternalGroupMappingRead_ = {
+  items: Array<ExternalGroupMappingRead>
+
 export type Page_ExternalGroupRead_ = {
   items: Array<ExternalGroupRead>
 
@@ -15843,7 +15846,12 @@ export type ScimActivateScimConnectionData = {
 
 export type ScimActivateScimConnectionResponse = void
 
-export type ScimListScimMappingsResponse = Array<ExternalGroupMappingRead>
+export type ScimListScimMappingsData = {
+  cursor?: string | null
+  limit?: number
+}
+
+export type ScimListScimMappingsResponse = Page_ExternalGroupMappingRead_
 
 export type ScimCreateScimMappingData = {
   requestBody: ExternalGroupMappingCreate
@@ -23478,11 +23486,16 @@ export type $OpenApiTs = {
   }
   "/scim/mappings": {
     get: {
+      req: ScimListScimMappingsData
       res: {
         /**
          * Successful Response
          */
-        200: Array<ExternalGroupMappingRead>
+        200: Page_ExternalGroupMappingRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
       }
     }
     post: {

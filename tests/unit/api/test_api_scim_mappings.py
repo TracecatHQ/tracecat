@@ -11,12 +11,14 @@ from fastapi import status
 from fastapi.testclient import TestClient
 from tracecat_ee.scim.schemas import ExternalGroupMappingRead, ExternalGroupRead
 
+from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.exceptions import (
     EntitlementRequired,
     ScopeDeniedError,
     TracecatNotFoundError,
 )
+from tracecat.pagination import Page, PageParams
 from tracecat.tiers.enums import Entitlement
 
 EXTERNAL_GROUPS = "/scim/external-groups"
@@ -57,13 +59,13 @@ async def test_list_external_groups_returns_member_counts(
         ),
         patch(
             "tracecat_ee.scim.service.SCIMService.list_external_groups",
-            new=AsyncMock(return_value=groups),
+            new=AsyncMock(return_value=Page(items=groups)),
         ),
     ):
         response = client.get(EXTERNAL_GROUPS)
 
     assert response.status_code == status.HTTP_200_OK
-    body = response.json()
+    body = response.json()["items"]
     assert len(body) == 1
     assert body[0]["external_id"] == "idp-eng"
     assert body[0]["member_count"] == 3
@@ -83,16 +85,39 @@ async def test_list_mappings_returns_joined_detail(
         ),
         patch(
             "tracecat_ee.scim.service.SCIMService.list_mappings",
-            new=AsyncMock(return_value=[mapping]),
-        ),
+            new=AsyncMock(return_value=Page(items=[mapping], next_cursor="next-page")),
+        ) as list_mappings,
     ):
-        response = client.get(MAPPINGS)
+        response = client.get(MAPPINGS, params={"limit": 2, "cursor": "current-page"})
 
     assert response.status_code == status.HTTP_200_OK
-    row = response.json()[0]
+    list_mappings.assert_awaited_once_with(
+        page=PageParams(limit=2, cursor="current-page")
+    )
+    assert response.json()["next_cursor"] == "next-page"
+    row = response.json()["items"][0]
     assert row["external_group_display_name"] == "Engineering"
     assert row["external_group_external_id"] == "idp-eng"
     assert row["group_name"] == "engineers"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("limit", [0, config.TRACECAT__LIMIT_CURSOR_MAX + 1])
+async def test_mapping_page_limit_is_validated(
+    client: TestClient, test_admin_role: Role, limit: int
+) -> None:
+    with (
+        patch(
+            "tracecat_ee.scim.router.check_entitlement",
+            new=AsyncMock(return_value=None),
+        ),
+        patch(
+            "tracecat_ee.scim.service.SCIMService.list_mappings", new=AsyncMock()
+        ) as list_mappings,
+    ):
+        response = client.get(MAPPINGS, params={"limit": limit})
+    assert response.status_code == 422
+    list_mappings.assert_not_awaited()
 
 
 @pytest.mark.anyio
