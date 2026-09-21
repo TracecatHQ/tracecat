@@ -99,15 +99,33 @@ class ScimFilterError(HTTPException):
     """An unsupported or malformed SCIM search filter."""
 
 
+class ScimMutabilityError(HTTPException):
+    """An attempt to change a SCIM user's login identity."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "SCIM username and email changes are not supported. "
+                "Keep userName and emails unchanged for existing users."
+            ),
+        )
+
+
 def scim_http_exception_handler(
     request: Request, exc: StarletteHTTPException
 ) -> Response:
     """Rewrite an HTTP error on a SCIM path into the SCIM envelope."""
     detail = exc.detail if isinstance(exc.detail, str) else "Request failed"
+    scim_type = None
+    if isinstance(exc, ScimFilterError):
+        scim_type = "invalidFilter"
+    elif isinstance(exc, ScimMutabilityError):
+        scim_type = "mutability"
     return scim_error_response(
         status_code=exc.status_code,
         detail=detail,
-        scim_type="invalidFilter" if isinstance(exc, ScimFilterError) else None,
+        scim_type=scim_type,
     )
 
 
@@ -322,6 +340,11 @@ async def replace_user(
     external_user, user = await _linked_user(
         session, organization_id=organization_id, resource_id=resource_id
     )
+    if params.user_name.strip().lower() != user.email.lower() or any(
+        email.value is not None and email.value.strip().lower() != user.email.lower()
+        for email in params.emails
+    ):
+        raise ScimMutabilityError()
     await ScimProvisioningService(session, role).update_external_id(
         external_user, params.external_id
     )
@@ -349,8 +372,6 @@ async def patch_user(
 
     active = external_user.active
     for operation in params.operations:
-        if operation.op == "remove":
-            raise TracecatValidationError("Removing user attributes is unsupported")
         path = operation.path.strip().lower() if operation.path is not None else None
         values = operation.value if path is None else {path: operation.value}
         if not isinstance(values, dict) or not values:
@@ -358,6 +379,18 @@ async def patch_user(
                 "PATCH requires an attribute path or object value"
             )
         for key, value in values.items():
+            attribute = key.strip().lower().removeprefix(f"{USER_SCHEMA.lower()}:")
+            if (
+                attribute == "username"
+                and operation.op != "remove"
+                and isinstance(value, str)
+                and value.strip().lower() == user.email.lower()
+            ):
+                continue
+            if re.match(r"^(username|emails)(?:$|[.\[])", attribute):
+                raise ScimMutabilityError()
+            if operation.op == "remove":
+                raise TracecatValidationError("Removing user attributes is unsupported")
             if key.lower() != "active":
                 raise TracecatValidationError("Unsupported user PATCH path")
             parsed = _coerce_bool(value)
@@ -804,6 +837,10 @@ async def schemas_document() -> ScimListResponse:
                     "uniqueness": "server",
                     "caseExact": False,
                     "multiValued": False,
+                    "mutability": "immutable",
+                    "description": (
+                        "The login email address. Username changes are not supported."
+                    ),
                 },
                 {
                     "name": "active",

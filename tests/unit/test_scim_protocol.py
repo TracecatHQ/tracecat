@@ -683,6 +683,9 @@ async def test_schemas_document(client: httpx.AsyncClient) -> None:
     ids = {r["id"] for r in response.json()["Resources"]}
     assert "urn:ietf:params:scim:schemas:core:2.0:User" in ids
     assert "urn:ietf:params:scim:schemas:core:2.0:Group" in ids
+    user_schema = next(r for r in response.json()["Resources"] if r["name"] == "User")
+    username = next(a for a in user_schema["attributes"] if a["name"] == "userName")
+    assert username["mutability"] == "immutable"
 
 
 def test_is_scim_path_only_matches_the_protocol_surface() -> None:
@@ -1131,3 +1134,121 @@ async def test_put_user_updates_external_id_without_relinking(
     unchanged = (await client.get(f"/scim/v2/Users/{resource_id}")).json()
     assert unchanged["externalId"] == "renamed-user"
     assert unchanged["active"] is True
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"userName": "renamed@example.com"},
+        {"emails": [{"value": "renamed@example.com", "primary": True}]},
+        {"emails": [{"value": "renamed@example.com"}]},
+    ],
+)
+async def test_put_user_rejects_rename_without_partial_updates(
+    client: httpx.AsyncClient,
+    session: AsyncSession,
+    org: Organization,
+    changes: dict[str, Any],
+) -> None:
+    email = f"original-{uuid.uuid4().hex}@example.com"
+    created = await _post_user(client, email, externalId="original-id")
+    resource_id = created.json()["id"]
+    response = await client.put(
+        f"/scim/v2/Users/{resource_id}",
+        json={
+            "userName": email,
+            "externalId": "changed-id",
+            "active": False,
+            **changes,
+        },
+    )
+    assert response.status_code == 400
+    assert response.json()["schemas"] == [ERROR_SCHEMA]
+    assert response.json()["scimType"] == "mutability"
+    assert "username and email changes are not supported" in response.json()["detail"]
+    stored = (await client.get(f"/scim/v2/Users/{resource_id}")).json()
+    assert stored["userName"] == email
+    assert stored["emails"][0]["value"] == email
+    assert stored["externalId"] == "original-id"
+    assert stored["active"] is True
+    assert await _resource_is_member(
+        session, resource_id=uuid.UUID(resource_id), organization_id=org.id
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "operation",
+    [
+        {"op": "replace", "path": "userName", "value": "renamed@example.com"},
+        {"op": "add", "value": {"userName": "renamed@example.com"}},
+        {"op": "remove", "path": "userName"},
+        {
+            "op": "replace",
+            "path": "urn:ietf:params:scim:schemas:core:2.0:User:USERNAME",
+            "value": "renamed@example.com",
+        },
+        {
+            "op": "replace",
+            "path": "emails",
+            "value": [{"value": "renamed@example.com", "primary": True}],
+        },
+        {
+            "op": "replace",
+            "value": {"emails": [{"value": "renamed@example.com"}]},
+        },
+        {
+            "op": "replace",
+            "path": 'emails[type eq "work"].value',
+            "value": "renamed@example.com",
+        },
+        {"op": "remove", "path": "emails.value"},
+    ],
+)
+async def test_patch_user_rejects_rename_without_deprovisioning(
+    client: httpx.AsyncClient,
+    session: AsyncSession,
+    org: Organization,
+    operation: dict[str, Any],
+) -> None:
+    email = f"original-{uuid.uuid4().hex}@example.com"
+    created = await _post_user(client, email)
+    resource_id = created.json()["id"]
+    response = await client.patch(
+        f"/scim/v2/Users/{resource_id}",
+        json={
+            "Operations": [
+                {"op": "replace", "path": "active", "value": False},
+                operation,
+            ]
+        },
+    )
+    assert response.status_code == 400
+    assert response.json()["scimType"] == "mutability"
+    assert "username and email changes are not supported" in response.json()["detail"]
+    stored = (await client.get(f"/scim/v2/Users/{resource_id}")).json()
+    assert stored["userName"] == email
+    assert stored["active"] is True
+    assert await _resource_is_member(
+        session, resource_id=uuid.UUID(resource_id), organization_id=org.id
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("method", ["PUT", "PATCH"])
+async def test_user_update_accepts_unchanged_username_case_insensitively(
+    client: httpx.AsyncClient, method: str
+) -> None:
+    email = f"unchanged-{uuid.uuid4().hex}@example.com"
+    created = await _post_user(client, email)
+    payload = (
+        {"userName": email.upper(), "emails": [{"value": email.upper()}]}
+        if method == "PUT"
+        else {"Operations": [{"op": "replace", "value": {"userName": email.upper()}}]}
+    )
+    response = await client.request(
+        method, f"/scim/v2/Users/{created.json()['id']}", json=payload
+    )
+    assert response.status_code == 200
+    assert response.json()["userName"] == email
