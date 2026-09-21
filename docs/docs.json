@@ -240,6 +240,7 @@
               "tools/ansible",
               "tools/anyrun",
               "tools/aws_boto3",
+              "tools/azure_devops",
               "tools/azure_log_analytics",
               "tools/caldera",
               "tools/censys",
