@@ -241,9 +241,8 @@ async def test_progress_uses_flat_shared_query_contract(
 ):
     app = FastAPI()
     app.include_router(router, prefix="/tables")
-    app.dependency_overrides[get_args(WorkspaceActorRouteRole)[1].dependency] = (
-        lambda: (search_role)
-    )
+    role_dependency = get_args(WorkspaceActorRouteRole)[1].dependency
+    app.dependency_overrides[role_dependency] = lambda: search_role
 
     async def database_session():
         yield AsyncMock(spec=AsyncSession)
