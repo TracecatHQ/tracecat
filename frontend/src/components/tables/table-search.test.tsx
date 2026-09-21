@@ -364,7 +364,16 @@ test("polling runs while chunks remain and stops at ready and on unmount", async
     await jest.advanceTimersByTimeAsync(10)
   })
   expect(searchPollInterval(configuration)).toBe(3000)
-  configuration = { ...configuration, status: "ready" }
+  configuration = {
+    ...configuration,
+    status: "ready",
+    index: {
+      ...configuration.index,
+      state: "active",
+      pending: 0,
+      backfill_complete: true,
+    },
+  }
   await act(async () => {
     await jest.advanceTimersByTimeAsync(3100)
   })
@@ -462,4 +471,167 @@ test("a provider reindex marker overrides stale Ready and explains rebuilding", 
     screen.getByRole("button", { name: "Semantic search: Updating" })
   )
   expect(screen.getByText(/settings changed/)).toBeInTheDocument()
+})
+
+test("provider failure allows removing selected columns but prevents new selections", async () => {
+  configuration = { ...configuration, selected_column_ids: [column.id] }
+  jest
+    .mocked(searchGetEmbeddingConfiguration)
+    .mockRejectedValue({ status: 400 })
+  jest.mocked(tablesSelectTableSearchColumn).mockResolvedValue(configuration)
+  setup(controls([column, { ...column, id: "other-id", name: "other" }]))
+  await screen.findAllByText(/Provider or index status could not be loaded/)
+  const [selected, unselected] = screen.getAllByRole("menuitemcheckbox")
+  await waitFor(() => expect(selected).not.toHaveAttribute("data-disabled"))
+  expect(unselected).toHaveAttribute("data-disabled")
+  fireEvent.click(selected)
+  await waitFor(() =>
+    expect(tablesSelectTableSearchColumn).toHaveBeenCalledWith({
+      workspaceId: "workspace-synthetic",
+      tableId: "table-synthetic",
+      requestBody: {
+        column_id: column.id,
+        enabled: false,
+        expected_generation: 2,
+      },
+    })
+  )
+})
+
+test("configuration failure still prevents changing selected columns", async () => {
+  configuration = { ...configuration, selected_column_ids: [column.id] }
+  setup(controls())
+  await waitFor(() =>
+    expect(screen.getByRole("menuitemcheckbox")).not.toHaveAttribute(
+      "data-disabled"
+    )
+  )
+  jest.mocked(tablesGetTableSearch).mockRejectedValue({ status: 503 })
+  await act(async () => {
+    await client.invalidateQueries({
+      queryKey: tableSearchKey("workspace-synthetic", "table-synthetic"),
+    })
+  })
+  await waitFor(() =>
+    expect(screen.getByRole("menuitemcheckbox")).toHaveAttribute(
+      "data-disabled"
+    )
+  )
+})
+
+test.each([
+  { pending: 1, backfill_complete: true },
+  { pending: 0, backfill_complete: false },
+])("failed rows do not stop polling unfinished work: %j", async (work) => {
+  jest.useFakeTimers()
+  try {
+    configuration = {
+      ...configuration,
+      selected_column_ids: [column.id],
+      status: "needs_attention",
+      index: { ...configuration.index, state: "active", ...work, failed: 1 },
+    }
+    setup(<TableSearchStatus />)
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(10)
+    })
+    fireEvent.click(
+      screen.getByRole("button", { name: "Semantic search: Needs attention" })
+    )
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(10)
+    })
+    const statusCalls = jest.mocked(tablesGetTableSearch).mock.calls.length
+    const progressCalls = jest.mocked(tablesGetTableSearchProgress).mock.calls
+      .length
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(3100)
+    })
+    expect(jest.mocked(tablesGetTableSearch).mock.calls.length).toBeGreaterThan(
+      statusCalls
+    )
+    expect(
+      jest.mocked(tablesGetTableSearchProgress).mock.calls.length
+    ).toBeGreaterThan(progressCalls)
+    configuration = {
+      ...configuration,
+      index: {
+        ...configuration.index,
+        state: "active",
+        pending: 0,
+        backfill_complete: true,
+      },
+    }
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(3100)
+    })
+    const stoppedStatus = jest.mocked(tablesGetTableSearch).mock.calls.length
+    const stoppedProgress = jest.mocked(tablesGetTableSearchProgress).mock.calls
+      .length
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(10000)
+    })
+    expect(tablesGetTableSearch).toHaveBeenCalledTimes(stoppedStatus)
+    expect(tablesGetTableSearchProgress).toHaveBeenCalledTimes(stoppedProgress)
+  } finally {
+    jest.useRealTimers()
+  }
+})
+
+test("polling stops when disabled, paused, or unavailable despite unfinished work", () => {
+  const working: TableSearchConfiguration = {
+    ...configuration,
+    selected_column_ids: [column.id],
+    status: "needs_attention",
+    index: { ...configuration.index, state: "active", pending: 1, failed: 1 },
+  }
+  expect(searchPollInterval({ ...working, selected_column_ids: [] })).toBe(
+    false
+  )
+  expect(searchPollInterval({ ...working, status: "disabled" })).toBe(false)
+  expect(searchPollInterval({ ...working, status: "unavailable" })).toBe(false)
+  expect(
+    searchPollInterval({
+      ...working,
+      index: { ...working.index, state: "paused" },
+    })
+  ).toBe(false)
+  expect(
+    searchPollInterval({
+      ...working,
+      index: { ...working.index, state: "disabled" },
+    })
+  ).toBe(false)
+  expect(searchPollInterval(working, { ...available, available: false })).toBe(
+    false
+  )
+  expect(searchPollInterval(working, { ...available, state: "paused" })).toBe(
+    false
+  )
+})
+
+test("first selection keeps polling before the worker binds its configuration", () => {
+  const initial: TableSearchConfiguration = {
+    ...configuration,
+    selected_column_ids: [column.id],
+    status: "indexing",
+    index: { state: "disabled", backfill_complete: false },
+  }
+  expect(searchPollInterval(initial, available)).toBe(3000)
+  expect(
+    searchPollInterval(
+      { ...initial, status: "needs_attention" },
+      {
+        ...available,
+        reindex_required: true,
+      }
+    )
+  ).toBe(3000)
+  expect(searchPollInterval({ ...initial, index: null }, available)).toBe(3000)
+  expect(
+    searchPollInterval(
+      { ...initial, status: "needs_attention", index: null },
+      available
+    )
+  ).toBe(false)
 })

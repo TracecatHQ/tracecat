@@ -39,8 +39,8 @@ export function TableSearchColumnControl({
           retry.isPending ||
           configuration.isFetching ||
           !configuration.data ||
-          error ||
-          (unavailable && !selected)
+          Boolean(configuration.error) ||
+          ((unavailable || Boolean(provider.error)) && !selected)
         }
         onSelect={(event) => event.preventDefault()}
         onCheckedChange={(enabled) =>

@@ -24,12 +24,19 @@ export function searchPollInterval(
   availability?: EmbeddingConfigurationRead
 ) {
   if (
-    data?.selected_column_ids?.length &&
-    availability?.available &&
-    availability.reindex_required
+    !data?.selected_column_ids?.length ||
+    data.status === "disabled" ||
+    data.status === "unavailable" ||
+    data.index?.state === "paused" ||
+    availability?.available === false ||
+    availability?.state === "paused"
   )
-    return 3000
-  return data?.status === "indexing" || data?.status === "updating"
+    return false
+  if (availability?.available && availability.reindex_required) return 3000
+  return data.status === "indexing" ||
+    data.status === "updating" ||
+    (data.index?.state === "active" &&
+      ((data.index.pending ?? 0) > 0 || !data.index.backfill_complete))
     ? 3000
     : false
 }
