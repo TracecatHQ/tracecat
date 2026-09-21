@@ -1338,7 +1338,7 @@ async def test_invoke_once_keeps_action_error_when_withholding_disabled(
 def _patch_org_error_details_setting(mocker, value: object):
     """Stub the raw org setting row behind `workspace_allows_error_details`.
 
-    `value` is what the stored allow-list deserializes to (a list of workspace
+    `value` is what the stored block-list deserializes to (a list of workspace
     ID strings); `None` mimics a missing row.
     """
     executor_service._workspace_allows_error_details_cached.cache_clear()
@@ -1363,7 +1363,7 @@ _OTHER_WS = str(UUID(int=3))
 @pytest.mark.anyio
 async def test_workspace_allows_error_details_lookup_is_cached(mocker) -> None:
     """Repeated checks for the same org/workspace hit the DB once within the TTL."""
-    stub = _patch_org_error_details_setting(mocker, [_CURRENT_WS])
+    stub = _patch_org_error_details_setting(mocker, [_OTHER_WS])
     role = Role(
         type="service",
         service_id="tracecat-executor",
@@ -1382,23 +1382,23 @@ async def test_workspace_allows_error_details_lookup_is_cached(mocker) -> None:
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("allowed_workspaces", "action_opts_in", "expect_original"),
+    ("blocked_workspaces", "action_opts_in", "expect_original"),
     [
-        pytest.param([_CURRENT_WS], True, True, id="workspace-allowed-and-action"),
+        pytest.param([], True, True, id="block-list-empty-and-action"),
+        pytest.param(None, True, True, id="block-list-missing-and-action"),
+        pytest.param([_OTHER_WS], True, True, id="other-workspace-blocked"),
+        pytest.param([], False, False, id="action-not-opted-in"),
+        pytest.param([_CURRENT_WS], True, False, id="workspace-blocked"),
         pytest.param(
-            [_OTHER_WS, _CURRENT_WS], True, True, id="workspace-among-allowed"
+            [_OTHER_WS, _CURRENT_WS], True, False, id="workspace-among-blocked"
         ),
-        pytest.param([_CURRENT_WS], False, False, id="workspace-allowed-only"),
-        pytest.param([_OTHER_WS], True, False, id="other-workspace-allowed"),
-        pytest.param([], True, False, id="allow-list-empty"),
-        pytest.param(None, True, False, id="allow-list-missing"),
-        pytest.param("not-a-list", True, False, id="allow-list-malformed"),
+        pytest.param("not-a-list", True, False, id="block-list-malformed"),
     ],
 )
-async def test_invoke_once_action_opt_out_requires_workspace_allow(
-    mocker, monkeypatch, allowed_workspaces, action_opts_in, expect_original
+async def test_invoke_once_action_opt_out_respects_workspace_block(
+    mocker, monkeypatch, blocked_workspaces, action_opts_in, expect_original
 ):
-    """The per-action opt-out only surfaces the message for org-allow-listed workspaces."""
+    """The per-action opt-out surfaces the message unless the org blocked the workspace."""
     from tracecat.exceptions import ExecutionError
 
     monkeypatch.setattr(
@@ -1409,7 +1409,7 @@ async def test_invoke_once_action_opt_out_requires_workspace_allow(
         "core.probe", {"value": "${{ ACTIONS.fetch.result }}"}
     )
     action_input.task.unsafe_disable_secret_error_withholding = action_opts_in
-    get_setting = _patch_org_error_details_setting(mocker, allowed_workspaces)
+    get_setting = _patch_org_error_details_setting(mocker, blocked_workspaces)
     resolved_context = mocker.Mock(logical_time=mocker.sentinel.logical_time)
     prepared_context = executor_service.PreparedContext(
         resolved_context=resolved_context,
@@ -1457,7 +1457,7 @@ async def test_invoke_once_action_opt_out_requires_workspace_allow(
     assert ctx_unsafe_disable_secret_error_withholding.get() is False
     if action_opts_in:
         assert get_setting.await_args.args == (
-            "app_unsafe_disable_secret_error_withholding_workspace_ids",
+            "app_secret_error_details_blocked_workspace_ids",
         )
         assert get_setting.await_args.kwargs["organization_id"] == role.organization_id
     else:
@@ -1468,7 +1468,7 @@ async def test_invoke_once_action_opt_out_requires_workspace_allow(
 async def test_invoke_once_action_opt_out_fails_closed_without_workspace(
     mocker, monkeypatch
 ):
-    """No workspace on the role means the allow-list is never consulted."""
+    """No workspace on the role means the block-list is never consulted."""
     from tracecat.exceptions import ExecutionError
 
     monkeypatch.setattr(
@@ -1484,7 +1484,7 @@ async def test_invoke_once_action_opt_out_fails_closed_without_workspace(
         "core.probe", {"value": "${{ ACTIONS.fetch.result }}"}
     )
     action_input.task.unsafe_disable_secret_error_withholding = True
-    get_setting = _patch_org_error_details_setting(mocker, [_CURRENT_WS])
+    get_setting = _patch_org_error_details_setting(mocker, [])
     prepared_context = executor_service.PreparedContext(
         resolved_context=mocker.Mock(logical_time=mocker.sentinel.logical_time),
         mask_values={"sk-live-secret"},
@@ -1542,7 +1542,7 @@ async def test_invoke_once_opt_out_masks_template_expression_errors(
     role = _expression_policy_role("tracecat-executor")
     action_input = _expression_policy_input("testing.error_details", {})
     action_input.task.unsafe_disable_secret_error_withholding = True
-    _patch_org_error_details_setting(mocker, [_CURRENT_WS])
+    _patch_org_error_details_setting(mocker, [])
     template_definition = {
         "name": "error_details",
         "namespace": "testing",

@@ -146,7 +146,7 @@ function errorDetailsStatusLabel(
   enabled: boolean
 ): string {
   if (!workspaceAllows) {
-    return "Not allowed for this workspace by organization settings"
+    return "Opted out for this workspace by organization settings"
   }
   return enabled ? "Enabled" : "Disabled"
 }

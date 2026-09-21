@@ -834,7 +834,7 @@ async def prepare_resolved_context(
 
 
 async def _workspace_allows_error_details(role: Role) -> bool:
-    """Whether the org allow-lists this workspace for per-action error details."""
+    """Whether the org has not opted this workspace out of per-action error details."""
     if role.organization_id is None or role.workspace_id is None:
         return False
     return await _workspace_allows_error_details_cached(
@@ -846,7 +846,7 @@ async def _workspace_allows_error_details(role: Role) -> bool:
 async def _workspace_allows_error_details_cached(
     organization_id: OrganizationID, workspace_id: WorkspaceID
 ) -> bool:
-    """TTL-cached allow-list lookup so hot loops don't hit the DB per action."""
+    """TTL-cached block-list lookup so hot loops don't hit the DB per action."""
     async with get_async_session_bypass_rls_context_manager() as session:
         return await workspace_allows_error_details(
             organization_id=organization_id,

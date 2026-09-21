@@ -26,9 +26,7 @@ const appFormSchema = z.object({
   app_workflow_export_enabled: z.boolean(),
   app_create_workspace_on_register: z.boolean(),
   app_action_form_mode_enabled: z.boolean(),
-  app_unsafe_disable_secret_error_withholding_workspace_ids: z.array(
-    z.string()
-  ),
+  app_secret_error_details_blocked_workspace_ids: z.array(z.string()),
 })
 
 type AppFormValues = z.infer<typeof appFormSchema>
@@ -56,9 +54,8 @@ export function OrgSettingsAppForm() {
         appSettings?.app_create_workspace_on_register ?? false,
       app_action_form_mode_enabled:
         appSettings?.app_action_form_mode_enabled ?? true,
-      app_unsafe_disable_secret_error_withholding_workspace_ids:
-        appSettings?.app_unsafe_disable_secret_error_withholding_workspace_ids ??
-        [],
+      app_secret_error_details_blocked_workspace_ids:
+        appSettings?.app_secret_error_details_blocked_workspace_ids ?? [],
     },
   })
   const { workspaces, workspacesLoading } = useWorkspaceManager()
@@ -74,8 +71,8 @@ export function OrgSettingsAppForm() {
           app_create_workspace_on_register:
             data.app_create_workspace_on_register,
           app_action_form_mode_enabled: data.app_action_form_mode_enabled,
-          app_unsafe_disable_secret_error_withholding_workspace_ids:
-            data.app_unsafe_disable_secret_error_withholding_workspace_ids,
+          app_secret_error_details_blocked_workspace_ids:
+            data.app_secret_error_details_blocked_workspace_ids,
         },
       })
     } catch {
@@ -231,54 +228,87 @@ export function OrgSettingsAppForm() {
 
         <FormField
           control={form.control}
-          name="app_unsafe_disable_secret_error_withholding_workspace_ids"
-          render={({ field }) => (
-            <FormItem className="rounded-lg border p-4">
-              <div className="space-y-0.5">
-                <FormLabel>Workspaces allowed to show error details</FormLabel>
-                <FormDescription>
-                  Unsafe: actions in these workspaces can opt into showing
-                  original error messages when secrets are in scope. Known
-                  secret values are still masked.
-                </FormDescription>
-              </div>
-              <div className="space-y-2 pt-2">
-                {workspacesLoading && (
-                  <p className="text-xs text-muted-foreground">
-                    Loading workspaces...
-                  </p>
-                )}
-                {!workspacesLoading && (workspaces?.length ?? 0) === 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    No workspaces found.
-                  </p>
-                )}
-                {workspaces?.map((workspace) => {
-                  const checked = field.value.includes(workspace.id)
-                  return (
-                    <label
-                      key={workspace.id}
-                      className="flex items-center gap-2 text-sm"
+          name="app_secret_error_details_blocked_workspace_ids"
+          render={({ field }) => {
+            const workspaceIds = workspaces?.map((ws) => ws.id) ?? []
+            const blocked = new Set(field.value)
+            const allAllowed = workspaceIds.every((id) => !blocked.has(id))
+            const allBlocked =
+              workspaceIds.length > 0 &&
+              workspaceIds.every((id) => blocked.has(id))
+            return (
+              <FormItem className="rounded-lg border p-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="space-y-0.5">
+                    <FormLabel>
+                      Workspaces allowed to show error details
+                    </FormLabel>
+                    <FormDescription>
+                      Unsafe: actions in allowed workspaces can opt into showing
+                      original error messages when secrets are in scope. All
+                      workspaces are allowed by default; uncheck a workspace to
+                      opt it out. Known secret values are always masked.
+                    </FormDescription>
+                  </div>
+                  <div className="flex shrink-0 gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={workspacesLoading || allAllowed}
+                      onClick={() => field.onChange([])}
                     >
-                      <Checkbox
-                        checked={checked}
-                        onCheckedChange={(next) => {
-                          if (next === true) {
-                            field.onChange([...field.value, workspace.id])
-                          } else {
-                            field.onChange(
-                              field.value.filter((id) => id !== workspace.id)
-                            )
-                          }
-                        }}
-                      />
-                      <span>{workspace.name}</span>
-                    </label>
-                  )
-                })}
-              </div>
-            </FormItem>
-          )}
+                      Allow all
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={workspacesLoading || allBlocked}
+                      onClick={() => field.onChange(workspaceIds)}
+                    >
+                      Disable all
+                    </Button>
+                  </div>
+                </div>
+                <div className="space-y-2 pt-2">
+                  {workspacesLoading && (
+                    <p className="text-xs text-muted-foreground">
+                      Loading workspaces...
+                    </p>
+                  )}
+                  {!workspacesLoading && (workspaces?.length ?? 0) === 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      No workspaces found.
+                    </p>
+                  )}
+                  {workspaces?.map((workspace) => {
+                    const allowed = !blocked.has(workspace.id)
+                    return (
+                      <label
+                        key={workspace.id}
+                        className="flex items-center gap-2 text-sm"
+                      >
+                        <Checkbox
+                          checked={allowed}
+                          onCheckedChange={(next) => {
+                            if (next === true) {
+                              field.onChange(
+                                field.value.filter((id) => id !== workspace.id)
+                              )
+                            } else {
+                              field.onChange([...field.value, workspace.id])
+                            }
+                          }}
+                        />
+                        <span>{workspace.name}</span>
+                      </label>
+                    )
+                  })}
+                </div>
+              </FormItem>
+            )
+          }}
         />
 
         <Button type="submit" disabled={updateAppSettingsIsPending}>
