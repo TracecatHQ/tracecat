@@ -6,7 +6,6 @@ import { z } from "zod"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
 import {
   Form,
   FormControl,
@@ -236,75 +235,87 @@ export function OrgSettingsAppForm() {
             const allBlocked =
               workspaceIds.length > 0 &&
               workspaceIds.every((id) => blocked.has(id))
+            const allowedCount = workspaceIds.filter(
+              (id) => !blocked.has(id)
+            ).length
             return (
               <FormItem className="rounded-lg border p-4">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="space-y-0.5">
-                    <FormLabel>
-                      Workspaces allowed to show error details
-                    </FormLabel>
-                    <FormDescription>
-                      Unsafe: actions in allowed workspaces can opt into showing
-                      original error messages when secrets are in scope. All
-                      workspaces are allowed by default; uncheck a workspace to
-                      opt it out. Known secret values are always masked.
-                    </FormDescription>
-                  </div>
-                  <div className="flex shrink-0 gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={workspacesLoading || allAllowed}
-                      onClick={() => field.onChange([])}
-                    >
-                      Allow all
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={workspacesLoading || allBlocked}
-                      onClick={() => field.onChange(workspaceIds)}
-                    >
-                      Disable all
-                    </Button>
-                  </div>
+                <div className="space-y-0.5">
+                  <FormLabel>Show error details</FormLabel>
+                  <FormDescription>
+                    Unsafe: actions in allowed workspaces can opt into showing
+                    original error messages when secrets are in scope. All
+                    workspaces are allowed by default. Known secret values are
+                    always masked.
+                  </FormDescription>
                 </div>
-                <div className="space-y-2 pt-2">
-                  {workspacesLoading && (
-                    <p className="text-xs text-muted-foreground">
-                      Loading workspaces...
-                    </p>
-                  )}
-                  {!workspacesLoading && (workspaces?.length ?? 0) === 0 && (
-                    <p className="text-xs text-muted-foreground">
-                      No workspaces found.
-                    </p>
-                  )}
-                  {workspaces?.map((workspace) => {
-                    const allowed = !blocked.has(workspace.id)
-                    return (
-                      <label
-                        key={workspace.id}
-                        className="flex items-center gap-2 text-sm"
+                <div className="pt-4">
+                  <div className="flex items-center justify-between pb-2">
+                    <span className="text-xs text-muted-foreground">
+                      {workspacesLoading
+                        ? "Loading workspaces..."
+                        : `${allowedCount} of ${workspaceIds.length} workspaces allowed`}
+                    </span>
+                    <div className="flex gap-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-xs"
+                        disabled={workspacesLoading || allAllowed}
+                        onClick={() => field.onChange([])}
                       >
-                        <Checkbox
-                          checked={allowed}
-                          onCheckedChange={(next) => {
-                            if (next === true) {
-                              field.onChange(
-                                field.value.filter((id) => id !== workspace.id)
-                              )
-                            } else {
-                              field.onChange([...field.value, workspace.id])
-                            }
-                          }}
-                        />
-                        <span>{workspace.name}</span>
-                      </label>
-                    )
-                  })}
+                        Allow all
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-xs"
+                        disabled={workspacesLoading || allBlocked}
+                        onClick={() => field.onChange(workspaceIds)}
+                      >
+                        Disable all
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="divide-y rounded-md border">
+                    {!workspacesLoading && workspaceIds.length === 0 && (
+                      <p className="p-3 text-xs text-muted-foreground">
+                        No workspaces found.
+                      </p>
+                    )}
+                    {workspaces?.map((workspace) => {
+                      const allowed = !blocked.has(workspace.id)
+                      return (
+                        <div
+                          key={workspace.id}
+                          className="flex items-center justify-between px-3 py-2"
+                        >
+                          <span className="text-sm">{workspace.name}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-muted-foreground">
+                              {allowed ? "Allowed" : "Opted out"}
+                            </span>
+                            <Switch
+                              checked={allowed}
+                              onCheckedChange={(next) => {
+                                if (next) {
+                                  field.onChange(
+                                    field.value.filter(
+                                      (id) => id !== workspace.id
+                                    )
+                                  )
+                                } else {
+                                  field.onChange([...field.value, workspace.id])
+                                }
+                              }}
+                            />
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
                 </div>
               </FormItem>
             )
