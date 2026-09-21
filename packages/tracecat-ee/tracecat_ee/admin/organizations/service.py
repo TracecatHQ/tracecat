@@ -69,6 +69,7 @@ PLATFORM_ORG_INVITATION_ROLE_SLUGS: frozenset[PlatformOrgInvitationRoleSlug] = (
         {
             "organization-owner",
             "organization-admin",
+            "organization-member",
         }
     )
 )

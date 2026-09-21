@@ -759,6 +759,10 @@ class RBACService(BaseOrgService):
                 if scope in existing:
                     existing[scope].role_id = role_id
                 else:
+                    if scope is not None:
+                        await mirror_workspace_membership(
+                            self.session, user_id=params.user_id, workspace_id=scope
+                        )
                     self.session.add(
                         UserRoleAssignment(
                             organization_id=self.organization_id,
@@ -770,6 +774,15 @@ class RBACService(BaseOrgService):
                     )
             for assignment in removed:
                 await self.session.delete(assignment)
+            removed_workspaces = [
+                a.workspace_id for a in removed if a.workspace_id is not None
+            ]
+            if removed_workspaces:
+                await drop_workspace_membership_mirror(
+                    self.session,
+                    user_id=params.user_id,
+                    workspace_ids=removed_workspaces,
+                )
             await self.session.commit()
         except Exception:
             await self.session.rollback()

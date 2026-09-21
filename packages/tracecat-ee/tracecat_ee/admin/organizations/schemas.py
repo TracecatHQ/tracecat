@@ -15,6 +15,7 @@ from tracecat.invitations.enums import InvitationStatus
 PlatformOrgInvitationRoleSlug = Literal[
     "organization-owner",
     "organization-admin",
+    "organization-member",
 ]
 
 
