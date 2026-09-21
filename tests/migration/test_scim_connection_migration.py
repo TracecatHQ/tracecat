@@ -8,10 +8,12 @@ import uuid
 from collections.abc import Iterator
 
 import pytest
-from sqlalchemy import Connection, Engine, create_engine, text
+from sqlalchemy import Connection, Engine, create_engine, select, text, update
 from sqlalchemy.exc import IntegrityError
 
 from tests.database import TEST_DB_CONFIG
+from tracecat.authz.enums import ScimConnectionStatus
+from tracecat.db.models import ScimConnection
 
 MIGRATION_REVISION = "a667d946cca1"
 PREVIOUS_REVISION = "e847d14eeb86"
@@ -193,5 +195,27 @@ def test_downgrade_removes_everything_the_upgrade_added(migration_db: str) -> No
                 .all()
             )
             assert RLS_POLICY in policies
+    finally:
+        engine.dispose()
+
+
+def test_status_round_trips_as_enum_on_existing_schema(migration_db: str) -> None:
+    """ORM enum conversion preserves legacy lowercase VARCHAR values."""
+    engine = _engine(migration_db)
+    try:
+        with engine.begin() as conn:
+            org_id = _seed_org(conn)
+            _seed_connection(conn, org_id)
+            for status in ScimConnectionStatus:
+                conn.execute(
+                    text("UPDATE scim_connection SET status = :status"),
+                    {"status": status.value},
+                )
+                assert conn.scalar(select(ScimConnection.status)) is status
+                conn.execute(update(ScimConnection).values(status=status))
+                assert (
+                    conn.scalar(text("SELECT status FROM scim_connection"))
+                    == status.value
+                )
     finally:
         engine.dispose()
