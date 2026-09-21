@@ -68,9 +68,7 @@ from tracecat.agent.common.stream_types import (
 )
 from tracecat.agent.common.tool_inputs import (
     AGENT_TOOL_NAMES,
-    READ_TOOL_NAME,
     sanitize_agent_tool_input,
-    sanitize_read_tool_input,
 )
 from tracecat.agent.common.types import (
     MCPServerConfig,
@@ -1324,10 +1322,6 @@ class ClaudeAgentRuntime:
         }
         if tool_name in AGENT_TOOL_NAMES:
             sanitized_input = sanitize_agent_tool_input(tool_name, tool_input)
-            if sanitized_input != tool_input:
-                hook_output["updatedInput"] = sanitized_input
-        elif tool_name == READ_TOOL_NAME:
-            sanitized_input = sanitize_read_tool_input(tool_input)
             if sanitized_input != tool_input:
                 hook_output["updatedInput"] = sanitized_input
         elif self._should_inject_tool_metadata(tool_name, action_name):

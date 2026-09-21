@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import codecs
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -16,6 +17,10 @@ READ_TOOL_PDF_PAGE_THRESHOLD = 10
 READ_TOOL_PDF_MAX_PAGES_PER_REQUEST = 20
 _IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".gif", ".webp"})
 _TEXT_SNIFF_BYTES = 8192
+# Files above this size are reported without a line count; they are already
+# far past what a single Read call returns, so exact counts add nothing.
+MAX_LINE_COUNT_BYTES = 8 * 1024 * 1024
+_READ_CHUNK_BYTES = 1024 * 1024
 
 _PDF_GUIDANCE = (
     "PDFs with more than "
@@ -47,12 +52,18 @@ class SkillFileEntry:
         line = f"- `{self.relative_path}` ({', '.join(details)})"
         if self.kind == "pdf":
             line += ": read with `pages` or `pdftotext`"
-        elif (
-            self.line_count is not None
-            and self.line_count > READ_TOOL_DEFAULT_LINE_LIMIT
-        ):
+        elif self.is_large_text:
             line += ": read with `offset`/`limit` or Grep"
         return line
+
+    @property
+    def is_large_text(self) -> bool:
+        """Whether a plain Read would truncate this text file."""
+        if self.kind != "text":
+            return False
+        if self.line_count is None:
+            return self.size_bytes > MAX_LINE_COUNT_BYTES
+        return self.line_count > READ_TOOL_DEFAULT_LINE_LIMIT
 
 
 def format_size(size_bytes: int) -> str:
@@ -67,22 +78,35 @@ def format_size(size_bytes: int) -> str:
     return f"{value:.1f} TiB"
 
 
-def _count_text_lines(path: Path) -> int | None:
-    """Return the line count when the file is UTF-8 text, otherwise None."""
+def _is_utf8_text(head: bytes, *, at_eof: bool) -> bool:
+    """Return whether the sniffed prefix decodes as UTF-8 text.
+
+    The incremental decoder tolerates a multi-byte sequence cut off by the
+    sniff window but still rejects invalid bytes anywhere in the prefix.
+    """
+    if b"\x00" in head:
+        return False
+    decoder = codecs.getincrementaldecoder("utf-8")()
+    try:
+        decoder.decode(head, final=at_eof)
+    except UnicodeDecodeError:
+        return False
+    return True
+
+
+def _sniff_is_text(path: Path) -> bool:
+    """Return whether the file's prefix looks like UTF-8 text."""
     with path.open("rb") as handle:
         head = handle.read(_TEXT_SNIFF_BYTES)
-        if b"\x00" in head:
-            return None
-        try:
-            head.decode("utf-8")
-        except UnicodeDecodeError as exc:
-            # A multi-byte sequence may straddle the sniff window.
-            if exc.end < len(head) - 4:
-                return None
-        handle.seek(0)
-        lines = 0
-        last_byte = b""
-        while chunk := handle.read(1024 * 1024):
+    return _is_utf8_text(head, at_eof=len(head) < _TEXT_SNIFF_BYTES)
+
+
+def _count_lines(path: Path) -> int:
+    """Count lines, treating an unterminated final line as a line."""
+    lines = 0
+    last_byte = b""
+    with path.open("rb") as handle:
+        while chunk := handle.read(_READ_CHUNK_BYTES):
             lines += chunk.count(b"\n")
             last_byte = chunk[-1:]
     if last_byte and last_byte != b"\n":
@@ -99,29 +123,48 @@ def inspect_skill_file(skill_dir: Path, path: Path) -> SkillFileEntry:
         return SkillFileEntry(relative_path, size_bytes, "pdf")
     if suffix in _IMAGE_SUFFIXES:
         return SkillFileEntry(relative_path, size_bytes, "image")
-    line_count = _count_text_lines(path)
-    if line_count is None:
+    if not _sniff_is_text(path):
         return SkillFileEntry(relative_path, size_bytes, "binary")
-    return SkillFileEntry(relative_path, size_bytes, "text", line_count=line_count)
+    if size_bytes > MAX_LINE_COUNT_BYTES:
+        return SkillFileEntry(relative_path, size_bytes, "text")
+    return SkillFileEntry(
+        relative_path, size_bytes, "text", line_count=_count_lines(path)
+    )
 
 
-def collect_skill_files(skill_dir: Path) -> list[SkillFileEntry]:
-    """List every supporting file under the skill, excluding the root manifest."""
-    entries: list[SkillFileEntry] = []
-    for path in sorted(skill_dir.rglob("*")):
-        if not path.is_file() or path.is_symlink():
-            continue
-        if path.parent == skill_dir and path.name == SKILL_MANIFEST_NAME:
-            continue
-        entries.append(inspect_skill_file(skill_dir, path))
-    return entries
+@dataclass(frozen=True, slots=True)
+class SkillFileInventory:
+    """Inspected supporting files plus the count of files left undescribed."""
+
+    entries: list[SkillFileEntry]
+    omitted: int = 0
 
 
-def render_skill_file_inventory(entries: list[SkillFileEntry]) -> str | None:
+def collect_skill_files(skill_dir: Path) -> SkillFileInventory:
+    """Inspect supporting files under the skill, excluding the root manifest.
+
+    Only the first ``MAX_INVENTORY_ENTRIES`` files (sorted by path) are opened;
+    the rest are counted so the rendered section can say how many were omitted.
+    """
+    paths = [
+        path
+        for path in sorted(skill_dir.rglob("*"))
+        if path.is_file()
+        and not path.is_symlink()
+        and not (path.parent == skill_dir and path.name == SKILL_MANIFEST_NAME)
+    ]
+    shown = paths[:MAX_INVENTORY_ENTRIES]
+    return SkillFileInventory(
+        entries=[inspect_skill_file(skill_dir, path) for path in shown],
+        omitted=len(paths) - len(shown),
+    )
+
+
+def render_skill_file_inventory(inventory: SkillFileInventory) -> str | None:
     """Render the inventory section, or None when there is nothing to describe."""
+    entries = inventory.entries
     if not entries:
         return None
-    shown = entries[:MAX_INVENTORY_ENTRIES]
     lines = [
         SKILL_FILE_INVENTORY_HEADING,
         "",
@@ -129,17 +172,14 @@ def render_skill_file_inventory(entries: list[SkillFileEntry]) -> str | None:
         "directory. Use these sizes to choose how to read each file before "
         "calling Read.",
         "",
-        *(entry.render() for entry in shown),
+        *(entry.render() for entry in entries),
     ]
-    if len(entries) > len(shown):
-        lines.append(f"- ... and {len(entries) - len(shown)} more files")
+    if inventory.omitted:
+        lines.append(f"- ... and {inventory.omitted} more files")
     guidance: list[str] = []
     if any(entry.kind == "pdf" for entry in entries):
         guidance.append(_PDF_GUIDANCE)
-    if any(
-        entry.line_count is not None and entry.line_count > READ_TOOL_DEFAULT_LINE_LIMIT
-        for entry in entries
-    ):
+    if any(entry.is_large_text for entry in entries):
         guidance.append(_LARGE_TEXT_GUIDANCE)
     if guidance:
         lines.append("")
