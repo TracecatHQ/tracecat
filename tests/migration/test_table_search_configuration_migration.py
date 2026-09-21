@@ -36,7 +36,19 @@ def test_unconfigured_selection_upgrade_and_guarded_downgrade() -> None:
             )
         rejected = run_alembic(url, "downgrade", "391f391da70b")
         assert rejected.returncode != 0
+        assert "NotImplementedError" in rejected.stderr
+        assert "providerless search selections exist" in rejected.stderr
+        assert "backup or snapshot" in rejected.stderr
+        assert "remove the incompatible selections" in rejected.stderr
         with engine.begin() as conn:
+            assert (
+                conn.scalar(
+                    text(
+                        "SELECT is_nullable FROM information_schema.columns WHERE table_name = 'search_collection' AND column_name = 'config_version'"
+                    )
+                )
+                == "YES"
+            )
             assert (
                 conn.scalar(
                     text(
