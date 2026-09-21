@@ -652,8 +652,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.google_directory": createIconRenderer(GoogleIcon),
     "tools.google_reports": createIconRenderer(GoogleIcon),
     "tools.google_alert_center": createIconRenderer(GoogleIcon),
-    "tools.google_secops_detection": createIconRenderer(GoogleSecOpsIcon),
-    "tools.google_secops_soar": createIconRenderer(GoogleSecOpsIcon),
+    "tools.google_chronicle": createIconRenderer(GoogleSecOpsIcon),
     // Existing vendor marks reused across additional namespaces
     "tools.alertmedia": createIconRenderer(AlertMediaIcon),
     "tools.amazon_s3": createIconRenderer(AwsIcon),
