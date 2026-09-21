@@ -27595,6 +27595,55 @@ export const $TableSearchProgressPage = {
   title: "TableSearchProgressPage",
 } as const
 
+export const $TableSearchRequestValidationError = {
+  properties: {
+    loc: {
+      items: {
+        anyOf: [
+          {
+            type: "string",
+          },
+          {
+            type: "integer",
+          },
+        ],
+      },
+      type: "array",
+      title: "Loc",
+    },
+    msg: {
+      type: "string",
+      title: "Msg",
+    },
+    type: {
+      type: "string",
+      title: "Type",
+    },
+    input: {
+      $ref: "#/components/schemas/JsonValue",
+    },
+    ctx: {
+      anyOf: [
+        {
+          additionalProperties: {
+            $ref: "#/components/schemas/JsonValue",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Ctx",
+    },
+  },
+  type: "object",
+  required: ["loc", "msg", "type"],
+  title: "TableSearchRequestValidationError",
+  description:
+    "Standard FastAPI request validation fields for the selection endpoint.",
+} as const
+
 export const $TableSearchRetry = {
   properties: {
     expected_generation: {
@@ -27642,6 +27691,29 @@ export const $TableSearchSelection = {
   title: "TableSearchSelection",
   description:
     "Set one selection; generation zero denotes an absent collection.",
+} as const
+
+export const $TableSearchSelectionErrorResponse = {
+  properties: {
+    detail: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/TableSearchErrorRead",
+        },
+        {
+          items: {
+            $ref: "#/components/schemas/TableSearchRequestValidationError",
+          },
+          type: "array",
+        },
+      ],
+      title: "Detail",
+    },
+  },
+  type: "object",
+  required: ["detail"],
+  title: "TableSearchSelectionErrorResponse",
+  description: "Invalid column selection or malformed request parameters.",
 } as const
 
 export const $TableUpdate = {

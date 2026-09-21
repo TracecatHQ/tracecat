@@ -4,7 +4,7 @@ from enum import StrEnum
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, JsonValue
 
 from tracecat.search.schemas import SearchIndexStatus
 from tracecat.search.types import DocumentState, SearchErrorCode
@@ -72,3 +72,19 @@ class TableSearchProgressPage(BaseModel):
 
 class TableSearchErrorResponse(BaseModel):
     detail: TableSearchErrorRead
+
+
+class TableSearchRequestValidationError(BaseModel):
+    """Standard FastAPI request validation fields for the selection endpoint."""
+
+    loc: list[str | int]
+    msg: str
+    type: str
+    input: JsonValue = Field(default=None)
+    ctx: dict[str, JsonValue] | None = Field(default=None)
+
+
+class TableSearchSelectionErrorResponse(BaseModel):
+    """Invalid column selection or malformed request parameters."""
+
+    detail: TableSearchErrorRead | list[TableSearchRequestValidationError]
