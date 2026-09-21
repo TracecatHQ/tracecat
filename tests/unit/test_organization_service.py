@@ -2188,17 +2188,17 @@ class TestOrganizationScimInviteWarning:
 
 
 @pytest.mark.anyio
-class TestOrganizationServiceExplainMemberAccess:
-    """`explain_member_access` reports one entry per role path the user holds."""
+class TestOrganizationServiceTraceMemberAccess:
+    """Member access traces group role sources without merging workspaces."""
 
-    async def test_explain_covers_all_three_arms(
+    async def test_trace_groups_sources_by_role_and_workspace(
         self,
         session: AsyncSession,
         org1: Organization,
         user_in_org1: User,
         admin_in_org1: User,
     ):
-        """Direct, manual-group and IdP-group paths each appear once."""
+        """Retain every source while returning each role once per workspace."""
         await seed_system_roles_for_org(session, org1.id)
         group_role = (
             await session.execute(
@@ -2212,10 +2212,16 @@ class TestOrganizationServiceExplainMemberAccess:
         manual_group = Group(
             id=uuid.uuid4(), name="manual-grp", organization_id=org1.id
         )
+        second_manual_group = Group(
+            id=uuid.uuid4(), name="second-manual-grp", organization_id=org1.id
+        )
         idp_group = Group(id=uuid.uuid4(), name="idp-grp", organization_id=org1.id)
-        session.add_all([manual_group, idp_group])
+        workspace = Workspace(
+            id=uuid.uuid4(), name="trace-workspace", organization_id=org1.id
+        )
+        session.add_all([manual_group, second_manual_group, idp_group, workspace])
         await session.flush()
-        for group in (manual_group, idp_group):
+        for group in (manual_group, second_manual_group, idp_group):
             session.add(
                 GroupRoleAssignment(
                     organization_id=org1.id,
@@ -2224,11 +2230,20 @@ class TestOrganizationServiceExplainMemberAccess:
                     role_id=group_role,
                 )
             )
+        for group in (manual_group, second_manual_group):
+            session.add(
+                GroupMember(
+                    group_id=group.id,
+                    user_id=user_in_org1.id,
+                    organization_id=org1.id,
+                )
+            )
         session.add(
-            GroupMember(
-                group_id=manual_group.id,
-                user_id=user_in_org1.id,
+            GroupRoleAssignment(
                 organization_id=org1.id,
+                group_id=manual_group.id,
+                workspace_id=workspace.id,
+                role_id=group_role,
             )
         )
         await session.flush()
@@ -2237,7 +2252,7 @@ class TestOrganizationServiceExplainMemberAccess:
             session, organization_id=org1.id, user_id=user_in_org1.id
         )
         external_group = await seed_external_group(
-            session, organization_id=org1.id, external_id="idp-explain"
+            session, organization_id=org1.id, external_id="idp-trace"
         )
         await seed_external_group_members(
             session,
@@ -2255,27 +2270,43 @@ class TestOrganizationServiceExplainMemberAccess:
         await session.flush()
 
         role = create_admin_role(org1.id, admin_in_org1.id)
-        explained = await OrgService(session, role=role).explain_member_access(
+        trace = await OrgService(session, role=role).trace_member_access(
             user_in_org1.id
         )
 
-        by_source = {p.source for p in explained.paths}
-        assert by_source == {"direct", "group", "idp_group"}
-        idp_path = next(p for p in explained.paths if p.source == "idp_group")
-        assert idp_path.group_name == "idp-grp"
-        assert idp_path.external_group_id == external_group.id
-        manual_path = next(p for p in explained.paths if p.source == "group")
-        assert manual_path.group_name == "manual-grp"
-        assert manual_path.external_group_id is None
+        assert trace.user_id == user_in_org1.id
+        assert len(trace.roles) == 2
+        org_role, workspace_role = trace.roles
+        assert org_role.role_id == workspace_role.role_id == group_role
+        assert org_role.workspace_id is None
+        assert [source.type for source in org_role.sources] == [
+            "direct",
+            "group",
+            "group",
+            "idp_group",
+        ]
+        idp_source = org_role.sources[-1]
+        assert idp_source.group_id == idp_group.id
+        assert idp_source.group_name == "idp-grp"
+        assert idp_source.external_group_id == external_group.id
+        manual_sources = [s for s in org_role.sources if s.type == "group"]
+        assert {s.group_id for s in manual_sources} == {
+            manual_group.id,
+            second_manual_group.id,
+        }
+        assert all(s.external_group_id is None for s in manual_sources)
+        assert workspace_role.workspace_id == workspace.id
+        assert len(workspace_role.sources) == 1
+        assert workspace_role.sources[0].group_id == manual_group.id
 
-    async def test_inactive_external_user_drops_the_idp_path(
+    async def test_inactive_external_user_drops_the_idp_source(
         self,
         session: AsyncSession,
         org1: Organization,
         user_in_org1: User,
         admin_in_org1: User,
     ):
-        """Deprovisioning removes the IdP path without touching the direct one."""
+        """An inactive IdP user contributes no source; direct access remains."""
         await seed_system_roles_for_org(session, org1.id)
         group_role = (
             await session.execute(
@@ -2318,8 +2349,9 @@ class TestOrganizationServiceExplainMemberAccess:
         await session.flush()
 
         role = create_admin_role(org1.id, admin_in_org1.id)
-        explained = await OrgService(session, role=role).explain_member_access(
+        trace = await OrgService(session, role=role).trace_member_access(
             user_in_org1.id
         )
 
-        assert {p.source for p in explained.paths} == {"direct"}
+        assert len(trace.roles) == 1
+        assert [source.type for source in trace.roles[0].sources] == ["direct"]

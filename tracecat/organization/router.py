@@ -31,7 +31,7 @@ from tracecat.invitations.enums import InvitationStatus
 from tracecat.invitations.schemas import InvitationGrant
 from tracecat.invitations.service import InvitationService
 from tracecat.organization.schemas import (
-    MemberAccessExplain,
+    MemberAccessTrace,
     OrgDomainRead,
     OrgMemberDetail,
     OrgMemberRead,
@@ -367,16 +367,16 @@ async def list_org_members(
     return result
 
 
-@router.get("/members/{user_id}/access", response_model=MemberAccessExplain)
+@router.get("/members/{user_id}/access", response_model=MemberAccessTrace)
 @require_scope("org:member:read")
-async def explain_org_member_access(
+async def trace_org_member_access(
     *,
     role: OrgUserRole,
     session: AsyncDBSession,
     user_id: UserID,
-) -> MemberAccessExplain:
-    """List every path by which a member holds a role."""
-    return await OrgService(session, role=role).explain_member_access(user_id)
+) -> MemberAccessTrace:
+    """Trace a member's roles to their direct and group sources."""
+    return await OrgService(session, role=role).trace_member_access(user_id)
 
 
 @router.delete("/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
