@@ -792,3 +792,42 @@ async def test_unused_corrupt_credentials_do_not_break_selection(case):
         secret.encrypted_keys = b"corrupt-lower-priority-credential"
     selected = await resolve_embedding_configuration(case.scope())
     assert selected is not None and selected.spec.provider == "openai"
+
+
+@pytest.mark.parametrize(
+    "provider,model",
+    [("ollama", "all-minilm:22m"), ("vllm", "sentence-transformers/all-MiniLM-L6-v2")],
+)
+@pytest.mark.parametrize("embedding_allowed", [False, True])
+async def test_corrupt_preferred_self_hosted_connection_requires_eligible_model(
+    case, provider, model, embedding_allowed
+):
+    chat_id, secret_id = await case.connect(
+        provider, values={f"{provider.upper()}_BASE_URL": case.base_url}
+    )
+    await case.connect("openai")
+    await case.prefer(chat_id)
+    async with case.sessions.begin() as session:
+        secret = await case.secret(session, secret_id)
+        secret.encrypted_keys = b"synthetic-invalid-ciphertext"
+        if embedding_allowed:
+            catalog = AgentCatalog(
+                organization_id=case.scope().organization_id,
+                model_provider=provider,
+                model_name=model,
+            )
+            session.add(catalog)
+            await session.flush()
+            session.add(
+                AgentModelAccess(
+                    organization_id=case.scope().organization_id, catalog_id=catalog.id
+                )
+            )
+    if embedding_allowed:
+        # Once eligible, invalid credentials must still fail without fallback.
+        with pytest.raises(EmbeddingError) as caught:
+            await resolve_embedding_configuration(case.scope())
+        assert caught.value.code == EmbeddingErrorCode.CREDENTIAL_INVALID
+    else:
+        selected = await resolve_embedding_configuration(case.scope())
+        assert selected is not None and selected.spec.provider == "openai"
