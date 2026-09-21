@@ -205,7 +205,7 @@ export function OrganizationSidebar({
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        {canViewSettings === true && (
+        {navSettings.some((item) => item.visible === true) && (
           <SidebarGroup>
             <SidebarGroupLabel>Settings</SidebarGroupLabel>
             <SidebarGroupContent>
