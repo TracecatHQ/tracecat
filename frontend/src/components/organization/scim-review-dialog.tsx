@@ -46,7 +46,8 @@ export function ScimReviewDialog({
               ? "Active directory users will be admitted and their pending invitations revoked. Inactive users will not be admitted. "
               : ""}
             Mapping transfers group membership management to your identity
-            provider. Manual memberships listed below will be removed. Other
+            provider. Manual memberships listed below will be removed, and
+            directory members will gain this group&apos;s access. Other
             independent grants are preserved.
           </DialogDescription>
         </DialogHeader>
@@ -77,6 +78,22 @@ export function ScimReviewDialog({
             </p>
             <ul>
               {plan.manual_members_purged.map((id) => (
+                <li key={id}>
+                  {plan.manual_member_emails?.[id] ??
+                    "User details unavailable"}
+                </li>
+              ))}
+            </ul>
+            <p>
+              {plan.users_gaining_access?.length ?? 0} directory users will gain
+              access through this group.
+            </p>
+            <p>
+              {plan.users_losing_access?.length ?? 0} users will lose access
+              through this group.
+            </p>
+            <ul>
+              {(plan.users_losing_access ?? []).map((id) => (
                 <li key={id}>
                   {plan.manual_member_emails?.[id] ??
                     "User details unavailable"}
