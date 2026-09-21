@@ -176,6 +176,16 @@ class BaseRegistrySyncService[
     def _storage_namespace(cls) -> str | None:
         return None
 
+    async def _reject_shadowed_platform_actions(
+        self, *, origin: str, manifest: RegistryVersionManifest
+    ) -> None:
+        """Reject manifests whose action names collide with platform registries.
+
+        The base implementation accepts every manifest; org-scoped services
+        override this so a custom registry cannot shadow a builtin action.
+        """
+        return None
+
     async def _resolve_sync_version(
         self,
         *,
@@ -409,6 +419,8 @@ class BaseRegistrySyncService[
 
         if not actions:
             raise self._sync_error_cls()(f"No actions found in repository {origin}")
+
+        await self._reject_shadowed_platform_actions(origin=origin, manifest=manifest)
 
         if target_version is None:
             target_version = self._generate_version_string(
@@ -774,6 +786,7 @@ class BaseRegistrySyncService[
         )
 
         manifest = RegistryVersionManifest.from_actions(actions)
+        await self._reject_shadowed_platform_actions(origin=origin, manifest=manifest)
 
         if target_version is None:
             target_version = workflow_target_version or self._generate_version_string(
