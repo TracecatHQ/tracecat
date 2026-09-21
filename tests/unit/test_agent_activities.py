@@ -104,6 +104,7 @@ from tracecat.chat.schemas import ChatMessage
 from tracecat.exceptions import (
     BuiltinRegistryHasNoSelectionError,
     EntitlementRequired,
+    RegistryLockAmbiguousActionError,
     RegistryLockInvalidDataError,
 )
 from tracecat.integrations.schemas import MCPToolSummary
@@ -496,6 +497,56 @@ class TestBuildToolDefinitionsActivity:
         assert classification.owner is RuntimeErrorOwner.PLATFORM
         assert classification.kind is RuntimeErrorKind.REGISTRY_LOCK_INVALID_DATA
         assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+        assert exc_info.value.non_retryable is True
+
+    @pytest.mark.anyio
+    async def test_classifies_ambiguous_registry_action_as_user_owned(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        async def mock_build_agent_tools(**_kwargs: Any) -> BuildToolsResult:
+            return BuildToolsResult(tools=[], collected_secrets=set())
+
+        class _LockService:
+            async def resolve_lock_with_bindings(self, _actions: set[str]) -> None:
+                raise RegistryLockAmbiguousActionError(
+                    "tools.example.get",
+                    ["tracecat_registry", "git+ssh://git@example.com/acme/reg.git"],
+                )
+
+        class _AsyncContext:
+            async def __aenter__(self) -> _LockService:
+                return _LockService()
+
+            async def __aexit__(
+                self, exc_type: object, exc: object, tb: object
+            ) -> None:
+                return None
+
+        monkeypatch.setattr(
+            agent_activities, "build_agent_tools", mock_build_agent_tools
+        )
+        monkeypatch.setattr(
+            RegistryLockService,
+            "with_session",
+            lambda: _AsyncContext(),
+        )
+
+        args = BuildToolDefsArgs(
+            role=Role(type="service", service_id="tracecat-api"),
+            tool_filters=ToolFilters(actions=[]),
+        )
+
+        with pytest.raises(ApplicationError) as exc_info:
+            await AgentActivities().build_tool_definitions(args)
+
+        classification = extract_error_classification(exc_info.value)
+        assert classification is not None
+        assert classification.owner is RuntimeErrorOwner.USER
+        assert classification.kind is RuntimeErrorKind.REGISTRY_LOCK_ACTION_AMBIGUOUS
+        assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+        assert "tools.example.get" in classification.message
+        assert "tracecat_registry" in classification.message
         assert exc_info.value.non_retryable is True
 
     @pytest.mark.anyio
