@@ -32,8 +32,8 @@ definition:
       description: "Number of projects to skip."
       default: null
     continuation_token:
-      type: str | None
-      description: "Continuation token from the previous page."
+      type: int | None
+      description: "Continuation token (number of projects already fetched) from the previous page."
       default: null
     get_default_team_image_url:
       type: bool | None

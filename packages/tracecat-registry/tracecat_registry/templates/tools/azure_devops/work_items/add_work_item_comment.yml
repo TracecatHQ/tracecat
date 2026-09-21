@@ -51,6 +51,6 @@ definition:
           Authorization: Bearer ${{ SECRETS.azure_devops_oauth.AZURE_DEVOPS_USER_TOKEN || SECRETS.azure_devops_oauth.AZURE_DEVOPS_SERVICE_TOKEN }}
           Content-Type: application/json
         params:
-          api-version: "7.0-preview.3"
+          api-version: "7.2-preview.4"
         payload: ${{ steps.build_payload.result }}
   returns: ${{ steps.add_work_item_comment.result }}
