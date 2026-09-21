@@ -1,15 +1,32 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import type { ReactNode } from "react"
-import type { ExternalGroupMappingRead } from "@/client"
+import ScimSettingsPage from "@/app/organization/settings/scim/page"
+import type { ExternalGroupMappingRead, ScimConnectionRead } from "@/client"
 import { OrgSettingsScimConnection } from "@/components/organization/org-settings-scim-connection"
 import { OrgSettingsScimMappings } from "@/components/organization/org-settings-scim-mappings"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import type { TracecatApiError } from "@/lib/errors"
 
 let mappings: ExternalGroupMappingRead[] = []
 const createMapping = jest.fn()
 const deleteMapping = jest.fn()
 const review = { mutateAsync: jest.fn(), isPending: false }
 const activate = { mutateAsync: jest.fn(), isPending: false }
+const refetchConnection = jest.fn()
+const issueToken = jest.fn()
+const initialConnection: ScimConnectionRead = {
+  id: "connection",
+  organization_id: "org",
+  status: "pending",
+  preview: "scim_test",
+  revoked_at: null,
+  last_used_at: null,
+  created_at: "2026-01-01T00:00:00Z",
+  updated_at: "2026-01-01T00:00:00Z",
+}
+let connection: ScimConnectionRead | null | undefined = initialConnection
+let connectionError: Pick<TracecatApiError, "status"> | null = null
+let connectionIsFetching = false
 
 let allowedScopes: string[] | null = null
 jest.mock("@/components/auth/scope-guard", () => ({
@@ -18,6 +35,9 @@ jest.mock("@/components/auth/scope-guard", () => ({
 }))
 jest.mock("@/lib/api", () => ({
   getBaseUrl: () => "https://api.example.com/backend/",
+}))
+jest.mock("@/hooks/use-entitlements", () => ({
+  useEntitlements: () => ({ hasEntitlement: () => true, isLoading: false }),
 }))
 
 jest.mock("@/hooks/use-scim", () => ({
@@ -34,23 +54,19 @@ jest.mock("@/hooks/use-scim", () => ({
   useScimMappings: () => ({ mappings, createMapping, deleteMapping }),
   useScimActivation: () => ({ review, activate }),
   useScimConnection: () => ({
-    connection: {
-      id: "connection",
-      organization_id: "org",
-      status: "pending",
-      preview: "scim_test",
-      revoked_at: null,
-      last_used_at: null,
-    },
-    issueToken: jest.fn(),
+    connection,
+    connectionError,
+    connectionIsFetching,
+    refetchConnection,
+    issueToken,
     revokeToken: jest.fn(),
   }),
 }))
 jest.mock("@/lib/hooks", () => ({
   useRbacGroups: () => ({ groups: [{ id: "target", name: "Target team" }] }),
-  useOrgMembers: () => ({
-    orgMembers: [{ user_id: "manual", email: "manual@example.com" }],
-  }),
+  useOrgMembers: () => {
+    throw new Error("SCIM review must not depend on org:member:read")
+  },
 }))
 jest.mock("@/components/ui/select", () => ({
   Select: ({
@@ -87,6 +103,7 @@ const preview = {
       group_id: "target",
       group_name: "Target team",
       manual_members_purged: ["manual"],
+      manual_member_emails: { manual: "manual@example.com" },
     },
   ],
 }
@@ -95,6 +112,9 @@ beforeEach(() => {
   jest.clearAllMocks()
   mappings = []
   allowedScopes = null
+  connection = initialConnection
+  connectionError = null
+  connectionIsFetching = false
   review.mutateAsync.mockResolvedValue(preview)
   activate.mutateAsync.mockResolvedValue(undefined)
   createMapping.mockResolvedValue(undefined)
@@ -137,6 +157,47 @@ test("active mapping discloses purge before committing", async () => {
       groupId: "target",
     })
   )
+})
+
+test("missing affected-user labels prevent confirmation", async () => {
+  review.mutateAsync.mockResolvedValue({
+    ...preview,
+    plans: [{ ...preview.plans[0], manual_member_emails: {} }],
+  })
+  render(<OrgSettingsScimMappings connected status="active" revoked={false} />)
+  selectMapping()
+  fireEvent.click(screen.getByRole("button", { name: "Review mapping" }))
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "Affected user details could not be loaded"
+  )
+  expect(screen.getByRole("button", { name: "Confirm mapping" })).toBeDisabled()
+  expect(createMapping).not.toHaveBeenCalled()
+})
+
+test.each([undefined, initialConnection])(
+  "connection errors block setup and rotation, including stale data: %j",
+  (cached) => {
+    connection = cached
+    connectionError = Object.assign(new Error("Unavailable"), { status: 503 })
+    const { rerender } = render(<ScimSettingsPage />)
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Could not load SCIM connection"
+    )
+    expect(screen.queryByRole("button", { name: "Generate token" })).toBeNull()
+    expect(screen.queryByRole("button", { name: "Rotate token" })).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }))
+    expect(refetchConnection).toHaveBeenCalledTimes(1)
+    expect(issueToken).not.toHaveBeenCalled()
+    connectionIsFetching = true
+    rerender(<ScimSettingsPage />)
+    expect(screen.getByRole("button", { name: "Retry" })).toBeDisabled()
+  }
+)
+
+test("a confirmed absent connection still offers setup", () => {
+  connection = null
+  render(<ScimSettingsPage />)
+  expect(screen.getByRole("button", { name: "Generate token" })).toBeEnabled()
 })
 
 test("cancelling review leaves memberships untouched", async () => {

@@ -10,7 +10,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { useOrgMembers } from "@/lib/hooks"
 
 /** Show directory eligibility and the manual memberships a mapping will remove. */
 export function ScimReviewDialog({
@@ -27,9 +26,8 @@ export function ScimReviewDialog({
   onConfirm: () => Promise<void>
 }) {
   const actionLabel = activation ? "Confirm activation" : "Confirm mapping"
-  const { orgMembers } = useOrgMembers()
-  const emails = new Map(
-    orgMembers?.map((member) => [member.user_id, member.email])
+  const missingLabels = review.plans.some((plan) =>
+    plan.manual_members_purged.some((id) => !plan.manual_member_emails?.[id])
   )
   return (
     <Dialog
@@ -79,11 +77,20 @@ export function ScimReviewDialog({
             </p>
             <ul>
               {plan.manual_members_purged.map((id) => (
-                <li key={id}>{emails.get(id) ?? id}</li>
+                <li key={id}>
+                  {plan.manual_member_emails?.[id] ??
+                    "User details unavailable"}
+                </li>
               ))}
             </ul>
           </div>
         ))}
+        {missingLabels && (
+          <p role="alert" className="text-sm text-destructive">
+            Affected user details could not be loaded. Close this review and try
+            again before confirming.
+          </p>
+        )}
         <p className="text-sm text-muted-foreground">
           Confirmation uses the latest directory. These changes affect group
           membership; access through other roles or groups is preserved.
@@ -93,7 +100,7 @@ export function ScimReviewDialog({
             Cancel
           </Button>
           <Button
-            disabled={pending}
+            disabled={pending || missingLabels}
             onClick={() => {
               void onConfirm().catch(() => {})
             }}
