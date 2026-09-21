@@ -116,6 +116,7 @@
               "self-hosting/pgvector",
               "self-hosting/tls",
               "self-hosting/environment-variables",
+              "self-hosting/secrets-backends",
               "self-hosting/security"
             ]
           },
