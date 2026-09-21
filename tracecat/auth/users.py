@@ -220,8 +220,8 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             return False
 
         # An IdP-provisioned user holds a generated password the IdP cannot
-        # revoke, so treat provisioning like that org enforcing SAML.
-        if await self._is_externally_managed(user.id):
+        # revoke. Require external login only when one is enabled.
+        if await self._requires_external_login(user.id):
             return False
 
         org_ids = await self._list_user_org_ids(user.id)
@@ -307,10 +307,10 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                 return True
         return False
 
-    async def _is_externally_managed(self, user_id: uuid.UUID) -> bool:
-        """Check whether an IdP provisions this user in any organization."""
+    async def _requires_external_login(self, user_id: uuid.UUID) -> bool:
+        """Require an enabled external login for active, admitted SCIM users."""
         statement = (
-            select(ExternalUser.id)
+            select(ExternalUser.organization_id)
             .join(
                 ScimConnection,
                 ScimConnection.organization_id == ExternalUser.organization_id,
@@ -328,7 +328,21 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         )
         async with get_async_session_auth_context_manager() as session:
             result = await session.execute(statement)
-            return result.first() is not None
+            org_ids = result.scalars().all()
+            if not org_ids:
+                return False
+            if AuthType.OIDC in config.TRACECAT__AUTH_TYPES:
+                return True
+            if AuthType.SAML in config.TRACECAT__AUTH_TYPES:
+                for org_id in org_ids:
+                    if await get_setting_from_bypass_session(
+                        "saml_enabled",
+                        organization_id=org_id,
+                        session=session,
+                        default=True,
+                    ):
+                        return True
+            return False
 
     async def _is_saml_enforced_for_oauth(self, email: str) -> bool:
         """Check if SAML enforcement blocks OAuth for this email.
@@ -673,6 +687,27 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             When False, only existing users can authenticate.
         :return: A user.
         """
+        user = await self.provision_user_by_email(
+            email=email,
+            organization_id=organization_id,
+            associate_by_email=associate_by_email,
+            is_verified_by_default=is_verified_by_default,
+            allow_auto_provisioning=allow_auto_provisioning,
+        )
+        await self._enforce_login_ip_allowlist(user, organization_id=organization_id)
+        self.logger.info(f"User {user.id} authenticated via SAML.")
+        return user
+
+    async def provision_user_by_email(
+        self,
+        *,
+        email: str,
+        organization_id: uuid.UUID | None = None,
+        associate_by_email: bool = True,
+        is_verified_by_default: bool = True,
+        allow_auto_provisioning: bool = True,
+    ) -> User:
+        """Create or link an account without authenticating a login request."""
         await self.validate_email(email, organization_id=organization_id)
         try:
             user = await self.get_by_email(email)
@@ -698,8 +733,6 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             user = await self.user_db.create(user_dict)
             await self.on_after_register(user)
 
-        await self._enforce_login_ip_allowlist(user, organization_id=organization_id)
-        self.logger.info(f"User {user.id} authenticated via SAML.")
         return user
 
 

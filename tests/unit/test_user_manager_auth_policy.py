@@ -544,3 +544,44 @@ async def test_historical_scim_link_does_not_block_password_or_reset(
     monkeypatch.setattr(user_manager, "on_after_forgot_password", after_reset)
     await user_manager.forgot_password(user)
     after_reset.assert_awaited_once()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("auth_types", "saml_enabled", "allowed"),
+    [
+        ({AuthType.BASIC}, True, True),
+        ({AuthType.BASIC, AuthType.SAML}, False, True),
+        ({AuthType.BASIC, AuthType.SAML}, True, False),
+        ({AuthType.BASIC, AuthType.OIDC}, False, False),
+        ({AuthType.SAML}, False, False),
+    ],
+)
+async def test_scim_password_policy_requires_available_external_login(
+    session: AsyncSession,
+    user_manager: UserManager,
+    monkeypatch: pytest.MonkeyPatch,
+    auth_types: set[AuthType],
+    saml_enabled: bool,
+    allowed: bool,
+) -> None:
+    user, org = await _create_user_with_org_membership(
+        session,
+        email="scim-login@example.com",
+        password="password-123456",
+        saml_enforced=False,
+    )
+    await _link_external_user(session, user=user, organization=org)
+    settings = SettingsService(session, role=bootstrap_role(org.id))
+    await settings.update_saml_settings(SAMLSettingsUpdate(saml_enabled=saml_enabled))
+    await session.commit()
+    monkeypatch.setattr(config, "TRACECAT__AUTH_TYPES", auth_types)
+    on_after = AsyncMock()
+    monkeypatch.setattr(user_manager, "on_after_forgot_password", on_after)
+
+    result = await user_manager.authenticate(
+        OAuth2PasswordRequestForm(username=user.email, password="password-123456")
+    )
+    assert (result is not None) is allowed
+    await user_manager.forgot_password(user)
+    assert on_after.await_count == int(allowed)

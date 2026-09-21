@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import IntegrityError
 
 from tracecat.api.app import (
     _install_scim_exception_handlers,
@@ -226,3 +227,30 @@ def test_scim_authorization_envelope_preserves_opaque_denials(
         }
     else:
         assert response.json() == _get(exc).json()
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        RuntimeError("private internal detail"),
+        IntegrityError("private SQL", {}, Exception("private value")),
+    ],
+)
+@pytest.mark.parametrize("scim", [False, True])
+def test_unexpected_scim_errors_are_sanitized(exc: Exception, scim: bool) -> None:
+    path = "/scim/v2/Users" if scim else "/boom"
+    app = _build_app(exc, path)
+    _install_scim_exception_handlers(app)
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get(path)
+    assert response.status_code == 500
+    detail = "An unexpected error occurred. Please try again later."
+    if scim:
+        assert response.headers["content-type"] == "application/scim+json"
+        assert response.json() == {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:Error"],
+            "status": "500",
+            "detail": detail,
+        }
+    else:
+        assert response.json() == {"message": detail}

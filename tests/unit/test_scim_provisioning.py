@@ -6,14 +6,17 @@ import uuid
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.scim.provisioning import ScimProvisioningService
 from tracecat_ee.scim.service import SCIMService
 
 from tracecat.auth.types import Role
+from tracecat.auth.users import UserManager, get_user_db_context
 from tracecat.authz.enums import ScimConnectionStatus
 from tracecat.authz.membership import ensure_member
 from tracecat.authz.seeding import seed_system_roles_for_org
@@ -450,3 +453,27 @@ async def test_reactivation_revokes_invitation_before_it_can_grant_roles(
         await accept_invitation_for_user(
             session, user_id=user_id, token=invitation.token
         )
+
+
+@pytest.mark.anyio
+async def test_provisioning_does_not_apply_login_ip_policy(
+    service: ScimProvisioningService,
+    session: AsyncSession,
+    org: Organization,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    login_check = AsyncMock(side_effect=HTTPException(403, "IP denied"))
+    monkeypatch.setattr(UserManager, "_enforce_login_ip_allowlist", login_check)
+    provisioned = await service.provision_user(
+        external_id="ip-policy-user", email="ip-policy-user@tracecat.com"
+    )
+    assert provisioned.created
+    login_check.assert_not_awaited()
+    async with get_user_db_context(session) as user_db:
+        manager = UserManager(user_db)
+        with pytest.raises(HTTPException) as exc:
+            await manager.saml_callback(
+                email=provisioned.user.email, organization_id=org.id
+            )
+        assert exc.value.status_code == 403
+    login_check.assert_awaited_once()

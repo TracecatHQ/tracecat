@@ -5,7 +5,7 @@ retry, and Okta queries before creating but races itself; Entra handles a 409
 badly. So a POST for an email that already has an account links that account
 into this organization instead of failing.
 
-Account creation delegates to ``UserManager.saml_callback``, the established
+Account creation delegates to ``UserManager.provision_user_by_email``, the established
 create-or-link primitive: it validates the email, links by email, and generates
 and hashes a random password for a new user because ``hashed_password`` is
 NOT NULL. Reimplementing it here would fork that behaviour.
@@ -146,7 +146,7 @@ class ScimProvisioningService(BaseOrgService):
         async with get_user_db_context(self.session) as user_db:
             async with get_user_manager_context(user_db) as user_manager:
                 try:
-                    return await user_manager.saml_callback(
+                    return await user_manager.provision_user_by_email(
                         email=email,
                         organization_id=self.organization_id,
                         associate_by_email=True,

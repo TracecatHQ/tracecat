@@ -369,6 +369,16 @@ def _install_scim_exception_handlers(app: FastAPI) -> None:
             return _authorization(request, exc)
         return scope_denied_exception_handler(request, exc)
 
+    async def _unexpected(request: Request, exc: Exception) -> Response:
+        response = await generic_exception_handler(request, exc)
+        if is_scim_path(request):
+            return scim_error_response(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="An unexpected error occurred. Please try again later.",
+            )
+        return response
+
+    app.add_exception_handler(Exception, _unexpected)
     app.add_exception_handler(TracecatAuthorizationError, _authorization)
     app.add_exception_handler(ScopeDeniedError, _scope_denied)
     app.add_exception_handler(HTTPException, _http_async)
