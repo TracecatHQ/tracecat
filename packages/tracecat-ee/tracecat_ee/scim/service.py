@@ -414,7 +414,7 @@ class SCIMService(BaseOrgService):
         ]
         return ScimActivationReviewRead(users=users, groups=groups, plans=plans)
 
-    @require_scope("org:rbac:update")
+    @require_scope("org:rbac:update", "org:member:remove")
     @audit_log(resource_type="scim_connection", action="update")
     async def activate(self, proposed: Sequence[ExternalGroupMappingCreate]) -> None:
         """Admit the pushed directory and install the reviewed mappings.
@@ -454,20 +454,51 @@ class SCIMService(BaseOrgService):
         await self.session.commit()
 
     async def _admit_pushed_users(self) -> None:
-        """Admit every active external user the provider pushed."""
-        rows = (
-            await self.session.execute(
-                select(ExternalUser.user_id, User.email)  # pyright: ignore[reportArgumentType, reportCallIssue]
-                .join(User, User.id == ExternalUser.user_id)  # pyright: ignore[reportArgumentType]
-                .where(
+        """Reconcile staged users before making the directory authoritative."""
+        inactive_ids = (
+            await self.session.scalars(
+                select(ExternalUser.user_id).where(
                     ExternalUser.organization_id == self.organization_id,
-                    ExternalUser.active,
+                    ExternalUser.active.is_(False),
                 )
             )
-        ).tuples()
-        for user_id, email in rows:
-            await self._revoke_pending_invitation(email)
-            await ensure_member(self.session, self.organization_id, user_id)
+        ).all()
+        for user_id in inactive_ids:
+            await self.deprovision_user(user_id, commit=False)
+
+        active_emails = (
+            select(func.lower(User.email))
+            .join(ExternalUser, ExternalUser.user_id == User.id)
+            .where(
+                ExternalUser.organization_id == self.organization_id,
+                ExternalUser.active,
+            )
+        )
+        await self.session.execute(
+            update(Invitation)
+            .where(
+                Invitation.organization_id == self.organization_id,
+                Invitation.status == InvitationStatus.PENDING,
+                func.lower(Invitation.email).in_(active_emails),
+            )
+            .values(status=InvitationStatus.REVOKED)
+        )
+        await self.session.execute(
+            pg_insert(OrganizationMembership)
+            .from_select(
+                ["organization_id", "user_id"],
+                select(ExternalUser.organization_id, ExternalUser.user_id).where(
+                    ExternalUser.organization_id == self.organization_id,
+                    ExternalUser.active,
+                ),
+            )
+            .on_conflict_do_nothing(
+                index_elements=[
+                    OrganizationMembership.organization_id,
+                    OrganizationMembership.user_id,
+                ]
+            )
+        )
         await self.session.flush()
 
     async def _revoke_pending_invitation(self, email: str) -> None:
@@ -578,7 +609,7 @@ class SCIMService(BaseOrgService):
     # Deprovisioning
     # =========================================================================
 
-    async def deprovision_user(self, user_id: UUID) -> None:
+    async def deprovision_user(self, user_id: UUID, *, commit: bool = True) -> None:
         """Remove a user from this organization at the provider's instruction.
 
         ``active=false`` revokes access to this tenant only: the row and its
@@ -589,6 +620,7 @@ class SCIMService(BaseOrgService):
 
         Args:
             user_id: The user the provider has deprovisioned.
+            commit: Commit standalone pushes; activation owns its transaction.
 
         Raises:
             TracecatAuthorizationError: The user is a superuser, or the caller
@@ -611,7 +643,8 @@ class SCIMService(BaseOrgService):
             await OrgService(self.session, self.role).delete_member(
                 user_id, allow_idp_managed=True, member=user, commit=False
             )
-        await self.session.commit()
+        if commit:
+            await self.session.commit()
 
     async def reactivate_external_user(self, external_user: ExternalUser) -> None:
         """Re-admit a user the provider has activated again.
