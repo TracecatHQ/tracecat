@@ -1,0 +1,58 @@
+type: action
+definition:
+  title: List memberships
+  description: "List memberships for a subject (user or group) via the Graph API."
+  display_group: Azure DevOps
+  doc_url: https://learn.microsoft.com/en-us/rest/api/azure/devops/graph/memberships/list?view=azure-devops-rest-7.2
+  namespace: tools.azure_devops
+  name: list_memberships
+  secrets:
+    - type: oauth
+      provider_id: azure_devops
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: azure_devops
+      grant_type: client_credentials
+      optional: true
+  expects:
+    organization:
+      type: str
+      description: "Azure DevOps organization name."
+    subject_descriptor:
+      type: str
+      description: "Graph descriptor of the user or group."
+    direction:
+      type: str | None
+      description: "Traversal direction. One of `up` (containers of the subject), `down` (members of the subject)."
+      default: null
+    depth:
+      type: int | None
+      description: "Maximum traversal depth."
+      default: null
+    base_url:
+      type: str | None
+      description: "Azure DevOps base URL. Defaults to `https://vssps.dev.azure.com` (Azure DevOps Services). For Azure DevOps Server, set this to the collection URL."
+      default: null
+  steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          params:
+            direction: ${{ inputs.direction }}
+            depth: ${{ inputs.depth }}
+        script: |
+          def main(params):
+              query = {k: v for k, v in params.items() if v is not None}
+              query["api-version"] = "7.2-preview.1"
+              return query
+    - ref: list_memberships
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.azure_devops.graph_base_url || "https://vssps.dev.azure.com" }}/${{ FN.url_encode(inputs.organization) }}/_apis/graph/Memberships/${{ FN.url_encode(inputs.subject_descriptor) }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.azure_devops_oauth.AZURE_DEVOPS_USER_TOKEN || SECRETS.azure_devops_oauth.AZURE_DEVOPS_SERVICE_TOKEN }}
+        params: ${{ steps.build_params.result }}
+  returns: ${{ steps.list_memberships.result }}

@@ -1,0 +1,36 @@
+type: action
+definition:
+  title: List audit streams
+  description: "List configured audit streams for the organization."
+  display_group: Azure DevOps
+  doc_url: https://learn.microsoft.com/en-us/rest/api/azure/devops/audit/streams/query-all-streams?view=azure-devops-rest-7.2
+  namespace: tools.azure_devops
+  name: list_audit_streams
+  secrets:
+    - type: oauth
+      provider_id: azure_devops
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: azure_devops
+      grant_type: client_credentials
+      optional: true
+  expects:
+    organization:
+      type: str
+      description: "Azure DevOps organization name."
+    base_url:
+      type: str | None
+      description: "Azure DevOps base URL. Defaults to `https://auditservice.dev.azure.com` (Azure DevOps Services). For Azure DevOps Server, set this to the collection URL."
+      default: null
+  steps:
+    - ref: list_audit_streams
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.azure_devops.audit_base_url || "https://auditservice.dev.azure.com" }}/${{ FN.url_encode(inputs.organization) }}/_apis/audit/streams
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.azure_devops_oauth.AZURE_DEVOPS_USER_TOKEN || SECRETS.azure_devops_oauth.AZURE_DEVOPS_SERVICE_TOKEN }}
+        params:
+          api-version: "7.2-preview.1"
+  returns: ${{ steps.list_audit_streams.result }}

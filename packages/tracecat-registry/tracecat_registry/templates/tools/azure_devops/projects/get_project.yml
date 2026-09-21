@@ -1,0 +1,58 @@
+type: action
+definition:
+  title: Get project
+  description: "Get a project by ID or name."
+  display_group: Azure DevOps
+  doc_url: https://learn.microsoft.com/en-us/rest/api/azure/devops/core/projects/get?view=azure-devops-rest-7.2
+  namespace: tools.azure_devops
+  name: get_project
+  secrets:
+    - type: oauth
+      provider_id: azure_devops
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: azure_devops
+      grant_type: client_credentials
+      optional: true
+  expects:
+    organization:
+      type: str
+      description: "Azure DevOps organization name."
+    project:
+      type: str
+      description: "Project ID or project name."
+    include_capabilities:
+      type: bool | None
+      description: "Include capabilities (such as source control) in the project result."
+      default: null
+    include_history:
+      type: bool | None
+      description: "Search within renamed projects that had such name in the past."
+      default: null
+    base_url:
+      type: str | None
+      description: "Azure DevOps base URL. Defaults to `https://dev.azure.com` (Azure DevOps Services). For Azure DevOps Server, set this to the collection URL."
+      default: null
+  steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          params:
+            includeCapabilities: ${{ inputs.include_capabilities }}
+            includeHistory: ${{ inputs.include_history }}
+        script: |
+          def main(params):
+              query = {k: v for k, v in params.items() if v is not None}
+              query["api-version"] = "7.2-preview.4"
+              return query
+    - ref: get_project
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.azure_devops.base_url || "https://dev.azure.com" }}/${{ FN.url_encode(inputs.organization) }}/_apis/projects/${{ FN.url_encode(inputs.project) }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.azure_devops_oauth.AZURE_DEVOPS_USER_TOKEN || SECRETS.azure_devops_oauth.AZURE_DEVOPS_SERVICE_TOKEN }}
+        params: ${{ steps.build_params.result }}
+  returns: ${{ steps.get_project.result }}

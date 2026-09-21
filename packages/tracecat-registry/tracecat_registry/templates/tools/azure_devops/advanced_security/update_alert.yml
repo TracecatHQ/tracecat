@@ -1,0 +1,69 @@
+type: action
+definition:
+  title: Update Advanced Security alert
+  description: "Update the state of a GitHub Advanced Security for Azure DevOps alert, e.g. dismiss it."
+  display_group: Azure DevOps
+  doc_url: https://learn.microsoft.com/en-us/rest/api/azure/devops/advancedsecurity/alerts/update?view=azure-devops-rest-7.2
+  namespace: tools.azure_devops
+  name: update_alert
+  secrets:
+    - type: oauth
+      provider_id: azure_devops
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: azure_devops
+      grant_type: client_credentials
+      optional: true
+  expects:
+    organization:
+      type: str
+      description: "Azure DevOps organization name."
+    project:
+      type: str
+      description: "Project ID or project name."
+    repository_id:
+      type: str
+      description: "Repository ID or name."
+    alert_id:
+      type: int
+      description: "Alert ID."
+    state:
+      type: str
+      description: "New alert state. One of `active`, `dismissed`."
+    dismissed_reason:
+      type: str | None
+      description: "Dismissal reason when dismissing. One of `acceptedRisk`, `falsePositive`, `fixed`, `agentAutoDismissed`, `other`."
+      default: null
+    dismissed_comment:
+      type: str | None
+      description: "Free-text dismissal comment."
+      default: null
+    base_url:
+      type: str | None
+      description: "Azure DevOps base URL. Defaults to `https://advsec.dev.azure.com` (Azure DevOps Services). For Azure DevOps Server, set this to the collection URL."
+      default: null
+  steps:
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          fields:
+            state: ${{ inputs.state }}
+            dismissedReason: ${{ inputs.dismissed_reason }}
+            dismissedComment: ${{ inputs.dismissed_comment }}
+        script: |
+          def main(fields):
+              return {k: v for k, v in fields.items() if v is not None}
+    - ref: update_alert
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.azure_devops.advanced_security_base_url || "https://advsec.dev.azure.com" }}/${{ FN.url_encode(inputs.organization) }}/${{ FN.url_encode(inputs.project) }}/_apis/alert/repositories/${{ FN.url_encode(inputs.repository_id) }}/alerts/${{ FN.url_encode(inputs.alert_id) }}
+        method: PATCH
+        headers:
+          Authorization: Bearer ${{ SECRETS.azure_devops_oauth.AZURE_DEVOPS_USER_TOKEN || SECRETS.azure_devops_oauth.AZURE_DEVOPS_SERVICE_TOKEN }}
+          Content-Type: application/json
+        params:
+          api-version: "7.2-preview.1"
+        payload: ${{ steps.build_payload.result }}
+  returns: ${{ steps.update_alert.result }}

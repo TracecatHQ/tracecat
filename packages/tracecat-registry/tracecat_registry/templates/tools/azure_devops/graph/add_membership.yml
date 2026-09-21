@@ -1,0 +1,42 @@
+type: action
+definition:
+  title: Add group membership
+  description: "Add a user or group to a group."
+  display_group: Azure DevOps
+  doc_url: https://learn.microsoft.com/en-us/rest/api/azure/devops/graph/memberships/add?view=azure-devops-rest-7.2
+  namespace: tools.azure_devops
+  name: add_membership
+  secrets:
+    - type: oauth
+      provider_id: azure_devops
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: azure_devops
+      grant_type: client_credentials
+      optional: true
+  expects:
+    organization:
+      type: str
+      description: "Azure DevOps organization name."
+    subject_descriptor:
+      type: str
+      description: "Graph descriptor of the user or group to add."
+    container_descriptor:
+      type: str
+      description: "Graph descriptor of the target group."
+    base_url:
+      type: str | None
+      description: "Azure DevOps base URL. Defaults to `https://vssps.dev.azure.com` (Azure DevOps Services). For Azure DevOps Server, set this to the collection URL."
+      default: null
+  steps:
+    - ref: add_membership
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.azure_devops.graph_base_url || "https://vssps.dev.azure.com" }}/${{ FN.url_encode(inputs.organization) }}/_apis/graph/memberships/${{ FN.url_encode(inputs.subject_descriptor) }}/${{ FN.url_encode(inputs.container_descriptor) }}
+        method: PUT
+        headers:
+          Authorization: Bearer ${{ SECRETS.azure_devops_oauth.AZURE_DEVOPS_USER_TOKEN || SECRETS.azure_devops_oauth.AZURE_DEVOPS_SERVICE_TOKEN }}
+        params:
+          api-version: "7.2-preview.1"
+  returns: ${{ steps.add_membership.result }}

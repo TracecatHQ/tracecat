@@ -1,0 +1,68 @@
+type: action
+definition:
+  title: Add pull request reviewer
+  description: "Add a reviewer to a pull request, optionally casting a vote on their behalf."
+  display_group: Azure DevOps
+  doc_url: https://learn.microsoft.com/en-us/rest/api/azure/devops/git/pull-request-reviewers/create-pull-request-reviewer?view=azure-devops-rest-7.2
+  namespace: tools.azure_devops
+  name: add_pull_request_reviewer
+  secrets:
+    - type: oauth
+      provider_id: azure_devops
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: azure_devops
+      grant_type: client_credentials
+      optional: true
+  expects:
+    organization:
+      type: str
+      description: "Azure DevOps organization name."
+    project:
+      type: str
+      description: "Project ID or project name."
+    repository_id:
+      type: str
+      description: "Repository ID or name."
+    pull_request_id:
+      type: int
+      description: "Pull request ID."
+    reviewer_id:
+      type: str
+      description: "Reviewer identity ID."
+    vote:
+      type: int | None
+      description: "Vote: 10 approved, 5 approved with suggestions, 0 no vote, -5 waiting for author, -10 rejected."
+      default: null
+    is_required:
+      type: bool | None
+      description: "Mark the reviewer as required."
+      default: null
+    base_url:
+      type: str | None
+      description: "Azure DevOps base URL. Defaults to `https://dev.azure.com` (Azure DevOps Services). For Azure DevOps Server, set this to the collection URL."
+      default: null
+  steps:
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          fields:
+            vote: ${{ inputs.vote }}
+            isRequired: ${{ inputs.is_required }}
+        script: |
+          def main(fields):
+              return {k: v for k, v in fields.items() if v is not None}
+    - ref: add_pull_request_reviewer
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.azure_devops.base_url || "https://dev.azure.com" }}/${{ FN.url_encode(inputs.organization) }}/${{ FN.url_encode(inputs.project) }}/_apis/git/repositories/${{ FN.url_encode(inputs.repository_id) }}/pullRequests/${{ FN.url_encode(inputs.pull_request_id) }}/reviewers/${{ FN.url_encode(inputs.reviewer_id) }}
+        method: PUT
+        headers:
+          Authorization: Bearer ${{ SECRETS.azure_devops_oauth.AZURE_DEVOPS_USER_TOKEN || SECRETS.azure_devops_oauth.AZURE_DEVOPS_SERVICE_TOKEN }}
+          Content-Type: application/json
+        params:
+          api-version: "7.2-preview.1"
+        payload: ${{ steps.build_payload.result }}
+  returns: ${{ steps.add_pull_request_reviewer.result }}

@@ -1,0 +1,70 @@
+type: action
+definition:
+  title: Query audit log
+  description: "Query organization audit log entries. Returns one batch; pass `continuation_token` to fetch the next batch."
+  display_group: Azure DevOps
+  doc_url: https://learn.microsoft.com/en-us/rest/api/azure/devops/audit/audit-log/query?view=azure-devops-rest-7.2
+  namespace: tools.azure_devops
+  name: query_audit_log
+  secrets:
+    - type: oauth
+      provider_id: azure_devops
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: azure_devops
+      grant_type: client_credentials
+      optional: true
+  expects:
+    organization:
+      type: str
+      description: "Azure DevOps organization name."
+    start_time:
+      type: str | None
+      description: "Start time (ISO 8601). Defaults to 90 days before `end_time`."
+      default: null
+    end_time:
+      type: str | None
+      description: "End time (ISO 8601). Defaults to now."
+      default: null
+    batch_size:
+      type: int | None
+      description: "Maximum number of entries to return."
+      default: null
+    skip_aggregation:
+      type: bool | None
+      description: "Return raw entries instead of aggregating similar entries."
+      default: null
+    continuation_token:
+      type: str | None
+      description: "Continuation token from the previous batch."
+      default: null
+    base_url:
+      type: str | None
+      description: "Azure DevOps base URL. Defaults to `https://auditservice.dev.azure.com` (Azure DevOps Services). For Azure DevOps Server, set this to the collection URL."
+      default: null
+  steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          params:
+            startTime: ${{ inputs.start_time }}
+            endTime: ${{ inputs.end_time }}
+            batchSize: ${{ inputs.batch_size }}
+            skipAggregation: ${{ inputs.skip_aggregation }}
+            continuationToken: ${{ inputs.continuation_token }}
+        script: |
+          def main(params):
+              query = {k: v for k, v in params.items() if v is not None}
+              query["api-version"] = "7.2-preview.1"
+              return query
+    - ref: query_audit_log
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.azure_devops.audit_base_url || "https://auditservice.dev.azure.com" }}/${{ FN.url_encode(inputs.organization) }}/_apis/audit/auditlog
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.azure_devops_oauth.AZURE_DEVOPS_USER_TOKEN || SECRETS.azure_devops_oauth.AZURE_DEVOPS_SERVICE_TOKEN }}
+        params: ${{ steps.build_params.result }}
+  returns: ${{ steps.query_audit_log.result }}

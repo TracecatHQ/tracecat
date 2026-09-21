@@ -1,0 +1,98 @@
+type: action
+definition:
+  title: List build definitions
+  description: "List build definitions in a project. Returns one page; pass `continuation_token` to fetch the next page."
+  display_group: Azure DevOps
+  doc_url: https://learn.microsoft.com/en-us/rest/api/azure/devops/build/definitions/list?view=azure-devops-rest-7.2
+  namespace: tools.azure_devops
+  name: list_build_definitions
+  secrets:
+    - type: oauth
+      provider_id: azure_devops
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: azure_devops
+      grant_type: client_credentials
+      optional: true
+  expects:
+    organization:
+      type: str
+      description: "Azure DevOps organization name."
+    project:
+      type: str
+      description: "Project ID or project name."
+    name:
+      type: str | None
+      description: "Filter by definition name (supports `*` wildcard)."
+      default: null
+    repository_id:
+      type: str | None
+      description: "Filter by repository ID."
+      default: null
+    repository_type:
+      type: str | None
+      description: "Filter by repository type (e.g. `TfsGit`, `GitHub`)."
+      default: null
+    query_order:
+      type: str | None
+      description: "Result order. One of `none`, `lastModifiedAscending`, `lastModifiedDescending`, `definitionNameAscending`, `definitionNameDescending`."
+      default: null
+    top:
+      type: int | None
+      description: "Maximum number of definitions to return."
+      default: null
+    continuation_token:
+      type: str | None
+      description: "Continuation token from the previous page."
+      default: null
+    path:
+      type: str | None
+      description: "Filter by definition folder path."
+      default: null
+    include_latest_builds:
+      type: bool | None
+      description: "Include the latest and latest completed builds for each definition."
+      default: null
+    include_all_properties:
+      type: bool | None
+      description: "Return full definitions instead of shallow references."
+      default: null
+    yaml_filename:
+      type: str | None
+      description: "Filter by YAML pipeline filename."
+      default: null
+    base_url:
+      type: str | None
+      description: "Azure DevOps base URL. Defaults to `https://dev.azure.com` (Azure DevOps Services). For Azure DevOps Server, set this to the collection URL."
+      default: null
+  steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          params:
+            name: ${{ inputs.name }}
+            repositoryId: ${{ inputs.repository_id }}
+            repositoryType: ${{ inputs.repository_type }}
+            queryOrder: ${{ inputs.query_order }}
+            $top: ${{ inputs.top }}
+            continuationToken: ${{ inputs.continuation_token }}
+            path: ${{ inputs.path }}
+            includeLatestBuilds: ${{ inputs.include_latest_builds }}
+            includeAllProperties: ${{ inputs.include_all_properties }}
+            yamlFilename: ${{ inputs.yaml_filename }}
+        script: |
+          def main(params):
+              query = {k: v for k, v in params.items() if v is not None}
+              query["api-version"] = "7.2-preview.8"
+              return query
+    - ref: list_build_definitions
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.azure_devops.base_url || "https://dev.azure.com" }}/${{ FN.url_encode(inputs.organization) }}/${{ FN.url_encode(inputs.project) }}/_apis/build/definitions
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.azure_devops_oauth.AZURE_DEVOPS_USER_TOKEN || SECRETS.azure_devops_oauth.AZURE_DEVOPS_SERVICE_TOKEN }}
+        params: ${{ steps.build_params.result }}
+  returns: ${{ steps.list_build_definitions.result }}

@@ -1,0 +1,83 @@
+type: action
+definition:
+  title: List service connections
+  description: "List service connections (service endpoints) in a project."
+  display_group: Azure DevOps
+  doc_url: https://learn.microsoft.com/en-us/rest/api/azure/devops/serviceendpoint/endpoints/get-service-endpoints?view=azure-devops-rest-7.2
+  namespace: tools.azure_devops
+  name: list_service_endpoints
+  secrets:
+    - type: oauth
+      provider_id: azure_devops
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: azure_devops
+      grant_type: client_credentials
+      optional: true
+  expects:
+    organization:
+      type: str
+      description: "Azure DevOps organization name."
+    project:
+      type: str
+      description: "Project ID or project name."
+    type:
+      type: str | None
+      description: "Filter by connection type (e.g. `azurerm`, `github`, `generic`)."
+      default: null
+    auth_schemes:
+      type: str | None
+      description: "Comma-separated authorization schemes to filter by."
+      default: null
+    endpoint_ids:
+      type: str | None
+      description: "Comma-separated service connection IDs."
+      default: null
+    owner:
+      type: str | None
+      description: "Filter by owner (`library` or `agentcloud`)."
+      default: null
+    include_failed:
+      type: bool | None
+      description: "Include failed connections."
+      default: null
+    include_details:
+      type: bool | None
+      description: "Include connection details (admins only)."
+      default: null
+    action_filter:
+      type: str | None
+      description: "Only connections the caller can perform this action on (`none`, `manage`, `use`, `view`)."
+      default: null
+    base_url:
+      type: str | None
+      description: "Azure DevOps base URL. Defaults to `https://dev.azure.com` (Azure DevOps Services). For Azure DevOps Server, set this to the collection URL."
+      default: null
+  steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          params:
+            type: ${{ inputs.type }}
+            authSchemes: ${{ inputs.auth_schemes }}
+            endpointIds: ${{ inputs.endpoint_ids }}
+            owner: ${{ inputs.owner }}
+            includeFailed: ${{ inputs.include_failed }}
+            includeDetails: ${{ inputs.include_details }}
+            actionFilter: ${{ inputs.action_filter }}
+        script: |
+          def main(params):
+              query = {k: v for k, v in params.items() if v is not None}
+              query["api-version"] = "7.2-preview.4"
+              return query
+    - ref: list_service_endpoints
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.azure_devops.base_url || "https://dev.azure.com" }}/${{ FN.url_encode(inputs.organization) }}/${{ FN.url_encode(inputs.project) }}/_apis/serviceendpoint/endpoints
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.azure_devops_oauth.AZURE_DEVOPS_USER_TOKEN || SECRETS.azure_devops_oauth.AZURE_DEVOPS_SERVICE_TOKEN }}
+        params: ${{ steps.build_params.result }}
+  returns: ${{ steps.list_service_endpoints.result }}
