@@ -200,7 +200,7 @@ export function OrgSettingsScimMappings({
   }
 
   if (
-    externalGroupsError ||
+    (externalGroupsError && !externalGroups?.length) ||
     (mappingsError && !mappings?.length) ||
     groupsError
   ) {
@@ -313,6 +313,11 @@ export function OrgSettingsScimMappings({
                   ))}
                 </SelectContent>
               </Select>
+              {externalGroupsError && (
+                <p role="alert" className="text-sm text-muted-foreground">
+                  Unable to load more synced groups. Try again.
+                </p>
+              )}
               {externalGroupsHasNextPage && (
                 <Button
                   variant="outline"
