@@ -7,6 +7,7 @@ import {
   type ScimConnectionRead,
   type ScimConnectionTokenRead,
   type ScimListExternalGroupsResponse,
+  type ScimListScimMappingsResponse,
   scimActivateScimConnection,
   scimCreateScimMapping,
   scimDeleteScimMapping,
@@ -147,13 +148,18 @@ export function useScimExternalGroups() {
 export function useScimMappings() {
   const queryClient = useQueryClient()
 
-  const {
-    data: mappings,
-    isLoading: mappingsIsLoading,
-    error: mappingsError,
-  } = useQuery<ExternalGroupMappingRead[], TracecatApiError>({
+  const query = useInfiniteQuery<
+    ScimListScimMappingsResponse,
+    TracecatApiError
+  >({
     queryKey: SCIM_MAPPINGS_KEY,
-    queryFn: async () => await scimListScimMappings(),
+    queryFn: async ({ pageParam }) =>
+      await scimListScimMappings({
+        limit: 50,
+        cursor: typeof pageParam === "string" ? pageParam : undefined,
+      }),
+    initialPageParam: null,
+    getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
   })
 
   const { mutateAsync: createMapping, isPending: createMappingIsPending } =
@@ -197,9 +203,12 @@ export function useScimMappings() {
     })
 
   return {
-    mappings,
-    mappingsIsLoading,
-    mappingsError,
+    mappings: query.data?.pages.flatMap((page) => page.items),
+    mappingsIsLoading: query.isLoading,
+    mappingsError: query.error,
+    mappingsHasNextPage: query.hasNextPage,
+    mappingsIsFetchingNextPage: query.isFetchingNextPage,
+    fetchNextMappings: query.fetchNextPage,
     createMapping,
     createMappingIsPending,
     deleteMapping,

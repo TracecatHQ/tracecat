@@ -83,6 +83,9 @@ export function OrgSettingsScimMappings({
     mappings,
     mappingsIsLoading,
     mappingsError,
+    mappingsHasNextPage,
+    mappingsIsFetchingNextPage,
+    fetchNextMappings,
     createMapping,
     createMappingIsPending,
     deleteMapping,
@@ -199,7 +202,11 @@ export function OrgSettingsScimMappings({
     )
   }
 
-  if (externalGroupsError || mappingsError || groupsError) {
+  if (
+    externalGroupsError ||
+    (mappingsError && !mappings?.length) ||
+    groupsError
+  ) {
     return (
       <p role="alert">Unable to load group mappings. Reload to try again.</p>
     )
@@ -266,13 +273,7 @@ export function OrgSettingsScimMappings({
           title="Remove mapping"
           confirmLabel="Remove mapping"
           isPending={deleteMappingIsPending}
-          description={
-            (mappings ?? []).filter(
-              (item) => item.group_id === removing.group_id
-            ).length === 1
-              ? "This is the final mapping. Current active, admitted IdP members will be retained as manual members. Their group access will remain."
-              : "Other mappings remain. Members supplied only by this mapping will lose this group path; other grants are preserved."
-          }
+          description="If this is the final mapping, current active, admitted IdP members will be retained as manual members. If other mappings remain, members supplied only by this mapping will lose this group path; other grants are preserved."
           onConfirm={async () => {
             await deleteMapping(removing.id)
             setRemoving(null)
@@ -423,6 +424,23 @@ export function OrgSettingsScimMappings({
                 ))}
               </TableBody>
             </Table>
+          )}
+          {!isPending && mappingsError && (
+            <p role="alert">Unable to load more mappings. Try again.</p>
+          )}
+          {!isPending && mappingsHasNextPage && (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={mappingsIsFetchingNextPage}
+              onClick={() => {
+                void fetchNextMappings()
+              }}
+            >
+              {mappingsIsFetchingNextPage
+                ? "Loading mappings…"
+                : "Load more mappings"}
+            </Button>
           )}
         </div>
       )}

@@ -10,6 +10,10 @@ import type { TracecatApiError } from "@/lib/errors"
 let mappings: ExternalGroupMappingRead[] = []
 const createMapping = jest.fn()
 const deleteMapping = jest.fn()
+const fetchNextMappings = jest.fn()
+let mappingsHasNextPage = false
+let mappingsIsFetchingNextPage = false
+let mappingsError: Error | null = null
 const review = { mutateAsync: jest.fn(), isPending: false }
 const activate = { mutateAsync: jest.fn(), isPending: false }
 const refetchConnection = jest.fn()
@@ -51,7 +55,15 @@ jest.mock("@/hooks/use-scim", () => ({
       },
     ],
   }),
-  useScimMappings: () => ({ mappings, createMapping, deleteMapping }),
+  useScimMappings: () => ({
+    mappings,
+    createMapping,
+    deleteMapping,
+    mappingsHasNextPage,
+    mappingsIsFetchingNextPage,
+    mappingsError,
+    fetchNextMappings,
+  }),
   useScimActivation: () => ({ review, activate }),
   useScimConnection: () => ({
     connection,
@@ -111,6 +123,9 @@ const preview = {
 beforeEach(() => {
   jest.clearAllMocks()
   mappings = []
+  mappingsHasNextPage = false
+  mappingsIsFetchingNextPage = false
+  mappingsError = null
   allowedScopes = null
   connection = initialConnection
   connectionError = null
@@ -219,7 +234,8 @@ test("pending connection is not labelled active", () => {
   expect(screen.queryByText("Active")).not.toBeInTheDocument()
 })
 
-test("last unmap explains retained access before removal", () => {
+test("mapping pages load on request and removal does not assume all mappings are loaded", () => {
+  mappingsHasNextPage = true
   mappings = [
     {
       id: "mapping",
@@ -230,11 +246,34 @@ test("last unmap explains retained access before removal", () => {
       group_name: "Target team",
     },
   ]
-  render(<OrgSettingsScimMappings connected status="active" revoked={false} />)
+  const { rerender } = render(
+    <OrgSettingsScimMappings connected status="active" revoked={false} />
+  )
+  fireEvent.click(screen.getByRole("button", { name: "Load more mappings" }))
+  expect(fetchNextMappings).toHaveBeenCalledTimes(1)
+  mappingsIsFetchingNextPage = true
+  rerender(
+    <OrgSettingsScimMappings connected status="active" revoked={false} />
+  )
+  expect(
+    screen.getByRole("button", { name: "Loading mappings…" })
+  ).toBeDisabled()
+  mappingsIsFetchingNextPage = false
+  mappingsError = new Error("Unavailable")
+  rerender(
+    <OrgSettingsScimMappings connected status="active" revoked={false} />
+  )
+  expect(screen.getByRole("alert")).toHaveTextContent(
+    "Unable to load more mappings"
+  )
+  expect(
+    screen.getByRole("button", { name: "Load more mappings" })
+  ).toBeEnabled()
   fireEvent.click(
     screen.getByRole("button", { name: "Remove mapping for IdP team" })
   )
   expect(screen.getByText(/retained as manual members/)).toBeInTheDocument()
+  expect(screen.getByText(/If this is the final mapping/)).toBeInTheDocument()
   expect(deleteMapping).not.toHaveBeenCalled()
 })
 
