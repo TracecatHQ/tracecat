@@ -13,14 +13,18 @@ from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.auth.types import Role
 from tracecat.db.engine import get_async_session
 from tracecat.exceptions import ScopeDeniedError, TracecatNotFoundError
+from tracecat.pagination import PaginationError, PaginationErrorCode
 from tracecat.search.embeddings.service import WorkspaceEmbeddingService
 from tracecat.tables.search.router import (
     get_table_search,
+    get_table_search_progress,
     router,
     select_table_search_column,
 )
 from tracecat.tables.search.schemas import (
     TableSearchConfiguration,
+    TableSearchProgressPage,
+    TableSearchProgressParams,
     TableSearchSelection,
     TableSearchSelectionErrorResponse,
 )
@@ -220,3 +224,68 @@ async def test_selection_422_contract_covers_domain_and_request_errors(
             "items": {"$ref": "#/components/schemas/TableSearchRequestValidationError"},
         },
     ]
+
+
+@pytest.mark.parametrize(
+    "query,expected_status",
+    [
+        ({"generation": 1, "limit": 1, "cursor": "opaque"}, 200),
+        ({"generation": 1, "limit": 101}, 422),
+        ({"generation": 1, "limit": 0}, 422),
+        ({"generation": 0}, 422),
+        ({}, 422),
+    ],
+)
+async def test_progress_uses_flat_shared_query_contract(
+    search_role, monkeypatch, query, expected_status
+):
+    app = FastAPI()
+    app.include_router(router, prefix="/tables")
+    app.dependency_overrides[get_args(WorkspaceActorRouteRole)[1].dependency] = (
+        lambda: (search_role)
+    )
+
+    async def database_session():
+        yield AsyncMock(spec=AsyncSession)
+
+    app.dependency_overrides[get_async_session] = database_session
+    progress = AsyncMock(return_value=TableSearchProgressPage(generation=1, items=[]))
+    monkeypatch.setattr(TableSearchService, "progress", progress)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.get(f"/tables/{uuid4()}/search/documents", params=query)
+    assert response.status_code == expected_status
+    if expected_status == 200:
+        assert progress.call_args.kwargs["params"] == TableSearchProgressParams(**query)
+        assert "prev_cursor" in response.json()
+    else:
+        progress.assert_not_awaited()
+    operation = app.openapi()["paths"]["/tables/{table_id}/search/documents"]["get"]
+    assert {p["name"] for p in operation["parameters"] if p["in"] == "query"} == {
+        "generation",
+        "limit",
+        "cursor",
+    }
+
+
+async def test_invalid_progress_cursor_returns_safe_400(search_role, monkeypatch):
+    monkeypatch.setattr(
+        TableSearchService,
+        "progress",
+        AsyncMock(
+            side_effect=PaginationError(
+                "Synthetic private cursor", code=PaginationErrorCode.INVALID_CURSOR
+            )
+        ),
+    )
+    with pytest.raises(HTTPException) as error:
+        await get_table_search_progress(
+            table_id=uuid4(),
+            role=search_role,
+            session=AsyncMock(spec=AsyncSession),
+            params=TableSearchProgressParams(generation=1, cursor="invalid"),
+        )
+    assert error.value.status_code == 400
+    assert error.value.detail == {"code": "INVALID_CURSOR"}
+    assert error.value.__context__ is None

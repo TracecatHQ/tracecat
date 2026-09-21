@@ -10015,8 +10015,8 @@ export const tablesRetryTableSearch = (
  * @param data.tableId
  * @param data.workspaceId
  * @param data.generation
- * @param data.cursor
  * @param data.limit
+ * @param data.cursor
  * @returns TableSearchProgressPage Successful Response
  * @throws ApiError
  */
@@ -10031,11 +10031,12 @@ export const tablesGetTableSearchProgress = (
       workspace_id: data.workspaceId,
     },
     query: {
-      generation: data.generation,
-      cursor: data.cursor,
       limit: data.limit,
+      cursor: data.cursor,
+      generation: data.generation,
     },
     errors: {
+      400: "Bad Request",
       404: "Not Found",
       409: "Conflict",
       422: "Validation Error",

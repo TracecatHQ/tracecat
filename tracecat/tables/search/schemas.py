@@ -6,6 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, JsonValue
 
+from tracecat.pagination import PageParams
 from tracecat.search.schemas import SearchIndexStatus
 from tracecat.search.types import DocumentState, SearchErrorCode
 
@@ -63,11 +64,20 @@ class TableSearchDocumentProgress(BaseModel):
     error_code: str | None
 
 
+class TableSearchProgressParams(PageParams):
+    """Generation-bound document progress with standard opaque pagination."""
+
+    generation: int = Field(ge=1)
+    limit: int = Field(default=20, ge=1, le=100)
+
+
 class TableSearchProgressPage(BaseModel):
     generation: int
     items: list[TableSearchDocumentProgress]
-    next_cursor: UUID | None = Field(default=None)
+    next_cursor: str | None = Field(default=None)
+    prev_cursor: str | None = Field(default=None)
     has_more: bool = Field(default=False)
+    has_previous: bool = Field(default=False)
 
 
 class TableSearchErrorResponse(BaseModel):
