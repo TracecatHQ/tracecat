@@ -139,6 +139,10 @@ export function OrgSettingsScimConnection() {
         <p className="text-sm text-muted-foreground">
           Your identity provider authenticates to Tracecat with this token.
         </p>
+        <p className="text-sm text-muted-foreground">
+          SCIM username and email changes are not supported yet. Updates that
+          change an existing user&apos;s login address are rejected.
+        </p>
       </div>
 
       {connection ? (
