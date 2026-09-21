@@ -1,45 +1,66 @@
 #!/bin/bash
 
+# Release tag grammar (see CONTRIBUTING.md "Release Process"):
+#
+#   <major>.<minor>.<patch>                   stable
+#   <major>.<minor>.<patch>-<label>.<N>       prerelease, label in {alpha, beta}
+#   <major>.<minor>.<patch>-<label>.<N>.<M>   hotfix on top of that prerelease
+#
+# The base is always the NEXT stable version, and series numbers start at 1.
+
 # Function to display usage
 usage() {
     echo "Usage: $0 [options] [new_version]"
     echo "Options:"
     echo "  --major      # Increment major version (1.2.3 -> 2.0.0)"
     echo "  --minor      # Increment minor version (1.2.3 -> 1.3.0)"
-    echo "  --beta       # Create or increment beta tag (1.2.3 -> 1.2.3-beta.0, 1.2.3-beta.0 -> 1.2.3-beta.1)"
-    echo "  --rc         # Create or increment release candidate tag (1.2.3 -> 1.2.3-rc.0, 1.2.3-rc.0 -> 1.2.3-rc.1)"
-    echo "  --release    # Strip prerelease suffix (1.2.3-beta.1 -> 1.2.3)"
+    echo "  --alpha      # Create or increment alpha tag (1.1.0 -> 1.1.0-alpha.1, 1.1.0-alpha.1 -> 1.1.0-alpha.2)"
+    echo "  --beta       # Create or increment beta tag (1.1.0 -> 1.1.0-beta.1, 1.1.0-beta.1 -> 1.1.0-beta.2)"
+    echo "  --hotfix     # Create or increment a hotfix on a prerelease (1.1.0-alpha.2 -> 1.1.0-alpha.2.1)"
+    echo "  --release    # Strip prerelease suffix (1.1.0-beta.1 -> 1.1.0)"
     echo "Examples:"
-    echo "  $0           # Automatically increment patch version (or prerelease if current is prerelease)"
+    echo "  $0           # Automatically increment the last version component"
     echo "  $0 --major   # Increment major version"
     echo "  $0 --minor   # Increment minor version"
+    echo "  $0 --alpha   # Create or increment alpha version"
     echo "  $0 --beta    # Create or increment beta version"
-    echo "  $0 --rc      # Create or increment release candidate"
+    echo "  $0 --hotfix  # Create or increment a hotfix on the current prerelease"
     echo "  $0 --release # Strip prerelease suffix for stable release"
-    echo "  $0 1.0.1     # Set specific version"
-    echo "  $0 1.0.0-beta.0  # Set specific prerelease tag"
-    echo "  $0 1.0.0-beta.48-rc.5  # Keep release/image tag convention"
+    echo "  $0 1.1.0     # Set specific stable version"
+    echo "  $0 1.1.0-alpha.1    # Set specific prerelease tag"
+    echo "  $0 1.1.0-alpha.2.6  # Set specific hotfix tag"
     exit 1
 }
 
-PUBLIC_SUFFIX_PATTERN='(alpha|a|beta|b|rc|dev|post)\.[0-9]+'
-PUBLIC_VERSION_PATTERN="[0-9]+\.[0-9]+\.[0-9]+(-${PUBLIC_SUFFIX_PATTERN}){0,2}"
-VERSION_SEARCH_PATTERN='[0-9]+\.[0-9]+\.[0-9]+(-[a-z]+\.[0-9]+){0,2}'
+PUBLIC_SUFFIX_PATTERN='(alpha|beta)\.[0-9]+(\.[0-9]+)?'
+PUBLIC_VERSION_PATTERN="[0-9]+\.[0-9]+\.[0-9]+(-${PUBLIC_SUFFIX_PATTERN}){0,1}"
+VERSION_SEARCH_PATTERN='[0-9]+\.[0-9]+\.[0-9]+(-[a-z]+\.[0-9]+(\.[0-9]+)?)?'
 
+# Map a public release tag to its PEP 440 equivalent:
+#   1.1.0           -> 1.1.0
+#   1.1.0-alpha.2   -> 1.1.0a2
+#   1.1.0-beta.3    -> 1.1.0b3
+#   1.1.0-alpha.2.6 -> 1.1.0a2.post6
 to_python_version() {
     local python_version=$1
+    local core label number hotfix
 
-    if [[ $python_version =~ ^(.+-[a-z]+\.[0-9]+)-([a-z]+)\.([0-9]+)$ ]]; then
-        python_version="${BASH_REMATCH[1]}+${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
+    if [[ $python_version =~ ^([0-9]+\.[0-9]+\.[0-9]+)-(alpha|beta)\.([0-9]+)(\.([0-9]+))?$ ]]; then
+        core="${BASH_REMATCH[1]}"
+        label="${BASH_REMATCH[2]}"
+        number="${BASH_REMATCH[3]}"
+        hotfix="${BASH_REMATCH[5]}"
+
+        case $label in
+        alpha) label="a" ;;
+        beta) label="b" ;;
+        esac
+
+        python_version="${core}${label}${number}"
+        if [ -n "$hotfix" ]; then
+            python_version="${python_version}.post${hotfix}"
+        fi
     fi
-
-    python_version=${python_version//-alpha./a}
-    python_version=${python_version//-a./a}
-    python_version=${python_version//-beta./b}
-    python_version=${python_version//-b./b}
-    python_version=${python_version//-rc./rc}
-    python_version=${python_version//-dev./.dev}
-    python_version=${python_version//-post./.post}
 
     printf '%s\n' "$python_version"
 }
@@ -67,7 +88,7 @@ if [ ! -f "$INIT_FILE" ]; then
     exit 1
 fi
 
-# Match release/image tag versions (1.2.3, 1.2.3-beta.0, 1.2.3-beta.0-rc.1)
+# Match release/image tag versions (1.1.0, 1.1.0-alpha.1, 1.1.0-alpha.2.6)
 CURRENT_VERSION=$(sed -nE "s/^__version__ = \"($PUBLIC_VERSION_PATTERN)\"$/\1/p" "$INIT_FILE")
 if [ -z "$CURRENT_VERSION" ]; then
     echo "Error: Could not extract version from $INIT_FILE"
@@ -92,8 +113,9 @@ fi
 
 # Parse arguments and determine new version
 if [ "$#" -eq 0 ]; then
-    # Auto-increment: if prerelease, increment prerelease number; otherwise increment patch
-    if [[ $CURRENT_VERSION =~ ^(.+-[a-zA-Z]+\.)([0-9]+)$ ]]; then
+    # Auto-increment: if prerelease, increment its last numeric component
+    # (alpha.2 -> alpha.3, alpha.2.6 -> alpha.2.7); otherwise increment patch
+    if [[ $CURRENT_VERSION =~ ^([0-9]+\.[0-9]+\.[0-9]+-.*[.])([0-9]+)$ ]]; then
         NEW_VERSION="${BASH_REMATCH[1]}$((BASH_REMATCH[2] + 1))"
         echo "No version specified. Incrementing prerelease version to $NEW_VERSION"
     else
@@ -112,26 +134,29 @@ elif [ "$#" -eq 1 ]; then
             NEW_VERSION="${CURRENT_MAJOR}.$((CURRENT_MINOR + 1)).0"
             echo "Incrementing minor version to $NEW_VERSION"
             ;;
-        --beta)
-            # Create or increment beta version
-            if [[ $CURRENT_VERSION =~ ^(.+-beta\.)([0-9]+)$ ]]; then
-                NEW_VERSION="${BASH_REMATCH[1]}$((BASH_REMATCH[2] + 1))"
-                echo "Incrementing beta version to $NEW_VERSION"
+        --alpha | --beta)
+            # Create or increment an alpha/beta series. A hotfix suffix on the
+            # current version is dropped: alpha.2.6 -> alpha.3.
+            LABEL="${1#--}"
+            if [[ $CURRENT_VERSION =~ ^(.+)-${LABEL}\.([0-9]+)(\.[0-9]+)?$ ]]; then
+                NEW_VERSION="${BASH_REMATCH[1]}-${LABEL}.$((BASH_REMATCH[2] + 1))"
+                echo "Incrementing $LABEL version to $NEW_VERSION"
             else
-                # Strip any existing prerelease and start beta.0
-                NEW_VERSION="${CURRENT_CORE_VERSION}-beta.0"
-                echo "Creating beta version $NEW_VERSION"
+                # Strip any existing prerelease and start the series at 1
+                NEW_VERSION="${CURRENT_CORE_VERSION}-${LABEL}.1"
+                echo "Creating $LABEL version $NEW_VERSION"
             fi
             ;;
-        --rc)
-            # Create or increment release candidate
-            if [[ $CURRENT_VERSION =~ ^(.+-rc\.)([0-9]+)$ ]]; then
-                NEW_VERSION="${BASH_REMATCH[1]}$((BASH_REMATCH[2] + 1))"
-                echo "Incrementing release candidate to $NEW_VERSION"
+        --hotfix)
+            # Create or increment a hotfix on top of the current prerelease
+            if [[ $CURRENT_VERSION =~ ^([0-9]+\.[0-9]+\.[0-9]+-(alpha|beta)\.[0-9]+)(\.([0-9]+))?$ ]]; then
+                HOTFIX_BASE="${BASH_REMATCH[1]}"
+                HOTFIX_NUMBER="${BASH_REMATCH[4]:-0}"
+                NEW_VERSION="${HOTFIX_BASE}.$((HOTFIX_NUMBER + 1))"
+                echo "Incrementing hotfix version to $NEW_VERSION"
             else
-                # Strip any existing prerelease and start rc.0
-                NEW_VERSION="${CURRENT_CORE_VERSION}-rc.0"
-                echo "Creating release candidate $NEW_VERSION"
+                echo "Error: --hotfix requires a prerelease version (e.g. 1.1.0-alpha.2), got $CURRENT_VERSION"
+                exit 1
             fi
             ;;
         --release)
@@ -158,7 +183,7 @@ fi
 
 # Validate release/image tag version numbers (semver-style with optional prerelease)
 if ! [[ $NEW_VERSION =~ ^${PUBLIC_VERSION_PATTERN}$ ]]; then
-    echo "Error: Version must use the release tag format (e.g., 1.0.0, 1.0.0-beta.0, 1.0.0-beta.48-rc.5)"
+    echo "Error: Version must use the release tag format (e.g., 1.1.0, 1.1.0-alpha.1, 1.1.0-alpha.2.6)"
     exit 1
 fi
 
@@ -281,7 +306,7 @@ update_release_tag_file() {
     run_sed_in_place "s/$escaped_current_version/$escaped_new_version/g" "$file" && \
     run_sed_in_place "s#(/blob/)${VERSION_SEARCH_PATTERN}/#\\1${escaped_new_version}/#g" "$file" && \
     run_sed_in_place "s/\`${VERSION_SEARCH_PATTERN}\`/\`${escaped_new_version}\`/g" "$file" && \
-    run_sed_in_place "s/(\\$\\{TRACECAT__IMAGE_TAG:-)${VERSION_SEARCH_PATTERN}(\\})/\\1${escaped_new_version}\\3/g" "$file" && \
+    run_sed_in_place "s/(\\$\\{TRACECAT__IMAGE_TAG:-)${VERSION_SEARCH_PATTERN}(\\})/\\1${escaped_new_version}\\4/g" "$file" && \
     run_sed_in_place '/variable "tracecat_image_tag"/,/\}/ s/(default[[:space:]]*=[[:space:]]*)"[^"]*"/\1"'"$escaped_new_version"'"/' "$file" && \
     run_sed_in_place "s#(raw\\.githubusercontent\\.com/TracecatHQ/tracecat/)${VERSION_SEARCH_PATTERN}/#\\1${escaped_new_version}/#g" "$file" && \
     run_sed_in_place "s/(TF_VAR_tracecat_image_tag=)${VERSION_SEARCH_PATTERN}/\\1${escaped_new_version}/g" "$file" && \
