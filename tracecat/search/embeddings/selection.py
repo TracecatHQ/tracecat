@@ -9,7 +9,10 @@ from tracecat.search.embeddings.catalog import (
     default_model,
     recipe_revision,
 )
-from tracecat.search.embeddings.self_hosted import select_self_hosted_model
+from tracecat.search.embeddings.self_hosted import (
+    SELF_HOSTED_MODELS,
+    select_self_hosted_model,
+)
 from tracecat.search.embeddings.types import (
     EmbeddingError,
     EmbeddingErrorCode,
@@ -34,6 +37,14 @@ def select_configuration(
         key=lambda c: (c.provider != preferred, PROVIDER_ORDER.index(c.provider)),
     )
     for connection in ordered:
+        provider = connection.provider
+        # Chat-only connections are not candidates. Their credentials must not
+        # prevent selection of a provider that actually offers permitted embeddings.
+        if provider in {"ollama", "vllm"} and not any(
+            spec.provider == provider and spec.model in connection.models
+            for spec in SELF_HOSTED_MODELS
+        ):
+            continue
         try:
             values = {
                 item.key: item.value.get_secret_value()
@@ -41,7 +52,6 @@ def select_configuration(
                     connection.encrypted_keys, key=get_db_encryption_key()
                 )
             }
-            provider = connection.provider
             if (
                 provider in {"openai", "gemini"}
                 and not values.get(API_KEY_FIELDS[provider], "").strip()
