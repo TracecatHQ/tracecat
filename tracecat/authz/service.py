@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from uuid import UUID
 
-from sqlalchemy import delete, literal, or_, select, union_all
+from sqlalchemy import delete, exists, literal, or_, select, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.sql.elements import ColumnElement
@@ -27,6 +27,7 @@ from tracecat.db.models import (
     User,
     UserRoleAssignment,
     Workspace,
+    role_paths,
 )
 from tracecat.db.models import Role as DBRole
 from tracecat.exceptions import (
@@ -120,6 +121,38 @@ async def resolve_granter_scopes(
     )
 
 
+async def workspace_membership_exists(
+    session: SupportsExecute,
+    *,
+    user_id: UserID,
+    workspace_id: WorkspaceID,
+) -> bool:
+    """Check whether a user holds any role path into a workspace.
+
+    Reads the role-path union directly, so arms added to ``role_paths`` are
+    covered without changing this helper.
+
+    Args:
+        session: Session used to run the existence query.
+        user_id: User whose presence is being checked.
+        workspace_id: Workspace the user must hold a role path into.
+
+    Returns:
+        True if at least one role path grants the user presence there.
+    """
+    stmt = select(
+        exists(
+            select(1)
+            .select_from(role_paths)
+            .where(
+                role_paths.c.user_id == user_id,
+                role_paths.c.workspace_id == workspace_id,
+            )
+        )
+    )
+    return bool((await session.execute(stmt)).scalar_one())
+
+
 async def resolve_grantable_role(
     session: AsyncSession,
     granter: Role,
@@ -185,7 +218,7 @@ class MembershipService(BaseService):
 
     This service optionally accepts a role for authorization-controlled methods
     (like add/update/delete membership). Methods used during the auth flow
-    (like get_membership, list_user_memberships) don't require a role.
+    (like get_membership) don't require a role.
     """
 
     service_name = "membership"
@@ -255,26 +288,13 @@ class MembershipService(BaseService):
         )
         return (await self.session.execute(statement)).scalars().first()
 
-    async def list_user_memberships(self, user_id: UserID) -> Sequence[Membership]:
-        """List all workspace memberships for a specific user.
-
-        This is used by the authorization middleware to cache user permissions.
-        """
-        statement = select(Membership).where(Membership.user_id == user_id)
-        result = await self.session.execute(statement)
-        return result.scalars().all()
-
     @require_scope("workspace:member:invite")
     async def create_membership(
         self,
         workspace_id: WorkspaceID,
         params: WorkspaceMembershipCreate,
     ) -> None:
-        """Create a workspace membership.
-
-        Note: The authorization cache is request-scoped, so changes will be
-        reflected in subsequent requests automatically.
-        """
+        """Create a workspace membership."""
         org_stmt = select(Workspace.organization_id).where(Workspace.id == workspace_id)
         organization_id = (await self.session.execute(org_stmt)).scalar_one_or_none()
         if organization_id is None:
@@ -332,9 +352,6 @@ class MembershipService(BaseService):
         self, workspace_id: WorkspaceID, user_id: UserID
     ) -> None:
         """Delete a workspace membership.
-
-        Note: The authorization cache is request-scoped, so changes will be
-        reflected in subsequent requests automatically.
 
         Raises:
             TracecatConflictError: If a workspace-scoped group grant would keep
