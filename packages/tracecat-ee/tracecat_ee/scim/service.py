@@ -220,7 +220,7 @@ class SCIMService(BaseOrgService):
                     ExternalGroup.organization_id,
                     ExternalGroup.external_id,
                 ],
-                set_={"display_name": display_name},
+                set_={"display_name": display_name, "updated_at": func.now()},
             )
             .returning(ExternalGroup)
         )
@@ -442,7 +442,8 @@ class SCIMService(BaseOrgService):
             proposed: The mappings the admin intends to install.
 
         Returns:
-            The pushed users and one plan per proposed mapping.
+            The pushed users and one plan per proposed mapping. Combined access
+            changes appear on the first plan for each target group.
         """
         users = await self._directory_users()
         plans = [
@@ -451,6 +452,25 @@ class SCIMService(BaseOrgService):
             )
             for m in proposed
         ]
+        # Keep every mapping for activation, but report each target's combined
+        # impact once. A member loses access only if no proposed source retains it.
+        group_plans: dict[UUID, ScimMappingPlanRead] = {}
+        for plan in plans:
+            if (combined := group_plans.get(plan.group_id)) is None:
+                group_plans[plan.group_id] = plan
+                continue
+            combined.users_gaining_access = sorted(
+                set(combined.users_gaining_access) | set(plan.users_gaining_access),
+                key=str,
+            )
+            combined.users_losing_access = sorted(
+                set(combined.users_losing_access) & set(plan.users_losing_access),
+                key=str,
+            )
+            plan.manual_members_purged = []
+            plan.manual_member_emails = {}
+            plan.users_gaining_access = []
+            plan.users_losing_access = []
         return ScimActivationReviewRead(users=users, plans=plans)
 
     @require_scope("org:scim:manage")

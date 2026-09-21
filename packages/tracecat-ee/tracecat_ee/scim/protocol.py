@@ -343,7 +343,9 @@ async def replace_user(
         session, organization_id=organization_id, resource_id=resource_id
     )
     if params.user_name.strip().lower() != user.email.lower() or any(
-        email.value is not None and email.value.strip().lower() != user.email.lower()
+        email.primary is True
+        and email.value is not None
+        and email.value.strip().lower() != user.email.lower()
         for email in params.emails
     ):
         raise ScimMutabilityError()

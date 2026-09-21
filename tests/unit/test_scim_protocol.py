@@ -481,7 +481,10 @@ async def test_delete_unknown_user_is_204(
 
 
 @pytest.mark.anyio
-async def test_group_lifecycle(client: httpx.AsyncClient, org: Organization) -> None:
+@pytest.mark.parametrize("rename_method", ["post", "patch"])
+async def test_group_lifecycle(
+    client: httpx.AsyncClient, session: AsyncSession, rename_method: str
+) -> None:
     """Create, read, rename, and delete a synced group."""
     created = await client.post(
         "/scim/v2/Groups",
@@ -497,6 +500,36 @@ async def test_group_lifecycle(client: httpx.AsyncClient, org: Organization) -> 
 
     fetched = await client.get(f"/scim/v2/Groups/{group_id}")
     assert fetched.status_code == status.HTTP_200_OK
+
+    old_modified = datetime(2000, 1, 1, tzinfo=UTC)
+    await session.execute(
+        update(ExternalGroup)
+        .where(ExternalGroup.id == uuid.UUID(group_id))
+        .values(updated_at=old_modified)
+    )
+    if rename_method == "post":
+        renamed = await client.post(
+            "/scim/v2/Groups",
+            json={"externalId": "idp-eng", "displayName": "Platform"},
+        )
+        assert renamed.status_code == status.HTTP_201_CREATED
+    else:
+        renamed = await client.patch(
+            f"/scim/v2/Groups/{group_id}",
+            json={
+                "Operations": [
+                    {"op": "replace", "path": "displayName", "value": "Platform"}
+                ]
+            },
+        )
+        assert renamed.status_code == status.HTTP_200_OK
+    assert renamed.json()["id"] == group_id
+    assert renamed.json()["displayName"] == "Platform"
+    assert renamed.json()["meta"]["created"] == created.json()["meta"]["created"]
+    assert datetime.fromisoformat(renamed.json()["meta"]["lastModified"]) > old_modified
+    fetched = await client.get(f"/scim/v2/Groups/{group_id}")
+    assert fetched.json()["displayName"] == "Platform"
+    assert fetched.json()["meta"] == renamed.json()["meta"]
 
     listed = await client.get("/scim/v2/Groups")
     assert listed.json()["totalResults"] == 1
@@ -1297,7 +1330,6 @@ async def test_put_user_updates_external_id_without_relinking(
     [
         {"userName": "renamed@example.com"},
         {"emails": [{"value": "renamed@example.com", "primary": True}]},
-        {"emails": [{"value": "renamed@example.com"}]},
     ],
 )
 async def test_put_user_rejects_rename_without_partial_updates(
@@ -1330,6 +1362,31 @@ async def test_put_user_rejects_rename_without_partial_updates(
     assert await _resource_is_member(
         session, resource_id=uuid.UUID(resource_id), organization_id=org.id
     )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("secondary", [{"primary": False}, {}])
+async def test_put_user_ignores_secondary_emails(
+    client: httpx.AsyncClient, secondary: dict[str, bool]
+) -> None:
+    email = f"original-{uuid.uuid4().hex}@example.com"
+    emails = [
+        {"value": email, "primary": True},
+        {"value": "alias@example.com", **secondary},
+    ]
+    created = await _post_user(client, email, emails=emails)
+    assert created.status_code == 201
+    resource_id = created.json()["id"]
+    replaced = await client.put(
+        f"/scim/v2/Users/{resource_id}",
+        json={"userName": email, "emails": emails},
+    )
+    assert replaced.status_code == 200
+    assert replaced.json()["id"] == resource_id
+    assert replaced.json()["userName"] == email
+    assert replaced.json()["emails"] == created.json()["emails"]
+    fetched = await client.get(f"/scim/v2/Users/{resource_id}")
+    assert fetched.json()["emails"] == created.json()["emails"]
 
 
 @pytest.mark.anyio
