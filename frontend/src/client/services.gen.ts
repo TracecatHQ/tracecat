@@ -704,6 +704,7 @@ import type {
   ScimGetUserData,
   ScimGetUserResponse,
   ScimIssueScimTokenResponse,
+  ScimListExternalGroupsData,
   ScimListExternalGroupsResponse,
   ScimListGroupsData,
   ScimListGroupsResponse,
@@ -14544,16 +14545,27 @@ export const scimRevokeScimToken =
 /**
  * List External Groups
  * List synced IdP groups available as mapping sources.
- * @returns ExternalGroupRead Successful Response
+ * @param data The data for the request.
+ * @param data.limit
+ * @param data.cursor
+ * @returns Page_ExternalGroupRead_ Successful Response
  * @throws ApiError
  */
-export const scimListExternalGroups =
-  (): CancelablePromise<ScimListExternalGroupsResponse> => {
-    return __request(OpenAPI, {
-      method: "GET",
-      url: "/scim/external-groups",
-    })
-  }
+export const scimListExternalGroups = (
+  data: ScimListExternalGroupsData = {}
+): CancelablePromise<ScimListExternalGroupsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/scim/external-groups",
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
 
 /**
  * Review Scim Activation
@@ -14738,7 +14750,7 @@ export const scimGetUser = (
 
 /**
  * Replace User
- * Replace a user resource. Only ``active`` changes anything in Tracecat.
+ * Replace the provider identifier and active state of a user resource.
  * @param data The data for the request.
  * @param data.resourceId
  * @param data.requestBody

@@ -6531,6 +6531,9 @@ export type Page_SecretStoreRead_ = {
    */
   prev_cursor?: string | null
 }
+export type Page_ExternalGroupRead_ = {
+  items: Array<ExternalGroupRead>
+
 
 export type Page_WorkspaceSecretStoreRead_ = {
   items: Array<WorkspaceSecretStoreRead>
@@ -7796,7 +7799,6 @@ export type ScimActivationRequest = {
  */
 export type ScimActivationReviewRead = {
   users: Array<ScimDirectoryUserRead>
-  groups: Array<ExternalGroupRead>
   plans: Array<ScimMappingPlanRead>
 }
 
@@ -15819,7 +15821,12 @@ export type ScimIssueScimTokenResponse = ScimConnectionTokenRead
 
 export type ScimRevokeScimTokenResponse = void
 
-export type ScimListExternalGroupsResponse = Array<ExternalGroupRead>
+export type ScimListExternalGroupsData = {
+  cursor?: string | null
+  limit?: number
+}
+
+export type ScimListExternalGroupsResponse = Page_ExternalGroupRead_
 
 export type ScimReviewScimActivationData = {
   requestBody: ScimActivationRequest
@@ -23423,11 +23430,16 @@ export type $OpenApiTs = {
   }
   "/scim/external-groups": {
     get: {
+      req: ScimListExternalGroupsData
       res: {
         /**
          * Successful Response
          */
-        200: Array<ExternalGroupRead>
+        200: Page_ExternalGroupRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
       }
     }
   }

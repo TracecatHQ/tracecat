@@ -419,13 +419,17 @@ class MembershipService(BaseService):
         group_name = (
             await self.session.execute(
                 select(Group.name)
-                .join(GroupMember, GroupMember.group_id == Group.id)
+                .join(
+                    effective_group_members,
+                    effective_group_members.c.group_id == Group.id,
+                )
                 .join(
                     GroupRoleAssignment,
                     GroupRoleAssignment.group_id == Group.id,
                 )
                 .where(
-                    GroupMember.user_id == user_id,
+                    effective_group_members.c.user_id == user_id,
+                    Group.organization_id == organization_id,
                     GroupRoleAssignment.workspace_id == workspace_id,
                 )
                 .limit(1)

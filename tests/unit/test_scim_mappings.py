@@ -39,6 +39,7 @@ from tracecat.exceptions import (
     TracecatConflictError,
     TracecatNotFoundError,
 )
+from tracecat.pagination import PageParams, PaginationError
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -165,7 +166,7 @@ async def test_list_external_groups_is_empty_without_a_sync(
     service: SCIMService,
 ) -> None:
     """An organization the provider has never pushed to has nothing to offer."""
-    assert await service.list_external_groups() == []
+    assert (await service.list_external_groups(page=PageParams())).items == []
 
 
 @pytest.mark.anyio
@@ -188,7 +189,7 @@ async def test_list_external_groups_counts_members(
         session, external_group_id=populated.id, external_user_ids=external_user_ids
     )
 
-    listed = await service.list_external_groups()
+    listed = (await service.list_external_groups(page=PageParams())).items
 
     assert [(g.display_name, g.member_count) for g in listed] == [
         ("Eng", 2),
@@ -215,7 +216,7 @@ async def test_list_external_groups_excludes_other_organizations(
         display_name="Theirs",
     )
 
-    listed = await service.list_external_groups()
+    listed = (await service.list_external_groups(page=PageParams())).items
 
     assert [g.external_id for g in listed] == ["idp-mine"]
 
@@ -484,7 +485,7 @@ async def test_listing_requires_the_read_scope(
     service = SCIMService(session, _role(org, "org:rbac:create"))
 
     with pytest.raises(TracecatAuthorizationError):
-        await service.list_external_groups()
+        await service.list_external_groups(page=PageParams())
     with pytest.raises(TracecatAuthorizationError):
         await service.list_mappings()
 
@@ -790,3 +791,47 @@ async def test_activation_requires_member_removal_permission(
 ) -> None:
     with pytest.raises(TracecatAuthorizationError):
         await SCIMService(session, _role(org, "org:rbac:update")).activate([])
+
+
+@pytest.mark.anyio
+async def test_external_groups_pagination_is_bounded_and_scoped(
+    session: AsyncSession,
+    org: Organization,
+    other_org: Organization,
+    service: SCIMService,
+) -> None:
+    groups = [
+        await seed_external_group(
+            session,
+            organization_id=org.id,
+            external_id=f"page-{i}",
+            display_name="Same name",
+        )
+        for i in range(5)
+    ]
+    first = await service.list_external_groups(page=PageParams(limit=2))
+    assert len(first.items) == 2
+    assert first.next_cursor is not None
+    second = await service.list_external_groups(
+        page=PageParams(limit=2, cursor=first.next_cursor)
+    )
+    third = await service.list_external_groups(
+        page=PageParams(limit=2, cursor=second.next_cursor)
+    )
+    assert len(second.items) == 2
+    assert len(third.items) == 1
+    assert third.next_cursor is None
+    assert {g.id for page in (first, second, third) for g in page.items} == {
+        g.id for g in groups
+    }
+    back = await service.list_external_groups(
+        page=PageParams(limit=2, cursor=second.prev_cursor)
+    )
+    assert back.items == first.items
+    with pytest.raises(PaginationError):
+        await service.list_external_groups(page=PageParams(cursor="invalid"))
+    other_service = SCIMService(session, _role(other_org, "org:rbac:read"))
+    with pytest.raises(PaginationError):
+        await other_service.list_external_groups(
+            page=PageParams(cursor=first.next_cursor)
+        )

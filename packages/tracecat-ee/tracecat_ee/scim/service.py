@@ -43,6 +43,7 @@ from tracecat.exceptions import (
 )
 from tracecat.invitations.enums import InvitationStatus
 from tracecat.organization.service import OrgService
+from tracecat.pagination import Page, PageParams, paginate
 from tracecat.service import BaseOrgService
 from tracecat_ee.scim.schemas import (
     ExternalGroupMappingCreate,
@@ -64,11 +65,13 @@ class SCIMService(BaseOrgService):
     # =========================================================================
 
     @require_scope("org:rbac:read")
-    async def list_external_groups(self) -> list[ExternalGroupRead]:
+    async def list_external_groups(
+        self, *, page: PageParams
+    ) -> Page[ExternalGroupRead]:
         """List this organization's synced IdP groups with their member counts.
 
         Returns:
-            Every synced external group, ordered by display name.
+            A bounded page of synced groups, ordered by display name and ID.
         """
         # Correlated scalar subquery rather than an outer join plus group_by:
         # it keeps groups with no members at zero without a coalesce, and the
@@ -79,26 +82,28 @@ class SCIMService(BaseOrgService):
             .where(ExternalGroupMember.external_group_id == ExternalGroup.id)
             .scalar_subquery()
         )
-        stmt = (
-            select(
-                ExternalGroup.id,
-                ExternalGroup.external_id,
-                ExternalGroup.display_name,
-                member_count.label("member_count"),
-            )
-            .where(ExternalGroup.organization_id == self.organization_id)
-            .order_by(ExternalGroup.display_name, ExternalGroup.id)
+        stmt = select(
+            ExternalGroup.id,
+            ExternalGroup.external_id,
+            ExternalGroup.display_name,
+            member_count.label("member_count"),
+        ).where(ExternalGroup.organization_id == self.organization_id)
+        result = await paginate(
+            self.session,
+            stmt,
+            page=page,
+            order_by=(ExternalGroup.display_name.asc(), ExternalGroup.id.asc()),
+            row_factory=lambda row: ExternalGroupRead.model_validate(
+                dict(
+                    zip(
+                        ("id", "external_id", "display_name", "member_count"),
+                        row,
+                        strict=True,
+                    )
+                )
+            ),
         )
-        rows = (await self.session.execute(stmt)).tuples().all()
-        return [
-            ExternalGroupRead(
-                id=group_id,
-                external_id=external_id,
-                display_name=display_name,
-                member_count=member_count,
-            )
-            for group_id, external_id, display_name, member_count in rows
-        ]
+        return result
 
     @require_scope("org:rbac:read")
     async def get_mapping(self, mapping_id: UUID) -> ExternalGroupMappingRead:
@@ -211,6 +216,27 @@ class SCIMService(BaseOrgService):
         external_group = (await self.session.execute(stmt)).scalar_one()
         # Renaming grants nothing, so no group needs reconciling here.
         return external_group
+
+    async def update_external_group(
+        self, group: ExternalGroup, *, external_id: str | None, display_name: str
+    ) -> None:
+        """Update the addressed group without replacing its stable resource ID."""
+        await lock_role_changes(self.session, self.organization_id)
+        if external_id is not None and external_id != group.external_id:
+            duplicate = await self.session.scalar(
+                select(ExternalGroup.id).where(
+                    ExternalGroup.organization_id == self.organization_id,
+                    ExternalGroup.external_id == external_id,
+                    ExternalGroup.id != group.id,
+                )
+            )
+            if duplicate is not None:
+                raise TracecatConflictError(
+                    "An external group already uses this externalId"
+                )
+            group.external_id = external_id
+        group.display_name = display_name
+        await self.session.flush()
 
     @audit_log(
         resource_type="scim_directory",
@@ -402,17 +428,16 @@ class SCIMService(BaseOrgService):
             proposed: The mappings the admin intends to install.
 
         Returns:
-            The pushed users and groups, plus one plan per proposed mapping.
+            The pushed users and one plan per proposed mapping.
         """
         users = await self._directory_users()
-        groups = await self.list_external_groups()
         plans = [
             await self._mapping_plan(
                 external_group_id=m.external_group_id, group_id=m.group_id
             )
             for m in proposed
         ]
-        return ScimActivationReviewRead(users=users, groups=groups, plans=plans)
+        return ScimActivationReviewRead(users=users, plans=plans)
 
     @require_scope("org:rbac:update", "org:member:remove")
     @audit_log(resource_type="scim_connection", action="update")

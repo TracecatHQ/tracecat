@@ -93,7 +93,6 @@ class ScimActivationReviewRead(Schema):
     """What arrived while the connection was pending, and the effect of each mapping."""
 
     users: list[ScimDirectoryUserRead]
-    groups: list[ExternalGroupRead]
     plans: list[ScimMappingPlanRead]
 
 

@@ -21524,6 +21524,9 @@ export const $Page_WorkspaceSecretStoreRead_ = {
   title: "Page[WorkspaceSecretStoreRead]",
 } as const
 
+export const $Page_ExternalGroupRead_ = {
+        $ref: "#/components/schemas/ExternalGroupRead",
+  title: "Page[ExternalGroupRead]",
 export const $PathSource = {
   type: "string",
   enum: ["direct", "group", "idp_group"],
@@ -25490,13 +25493,6 @@ export const $ScimActivationReviewRead = {
       type: "array",
       title: "Users",
     },
-    groups: {
-      items: {
-        $ref: "#/components/schemas/ExternalGroupRead",
-      },
-      type: "array",
-      title: "Groups",
-    },
     plans: {
       items: {
         $ref: "#/components/schemas/ScimMappingPlanRead",
@@ -25506,7 +25502,7 @@ export const $ScimActivationReviewRead = {
     },
   },
   type: "object",
-  required: ["users", "groups", "plans"],
+  required: ["users", "plans"],
   title: "ScimActivationReviewRead",
   description:
     "What arrived while the connection was pending, and the effect of each mapping.",
