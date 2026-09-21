@@ -208,7 +208,7 @@ async def _apply_grants(
     user_id: UserID,
     grants: Sequence[InvitationGrant],
 ) -> None:
-    """Insert one assignment per grant.
+    """Admit the user and insert assignments for explicit roles.
 
     Existing assignments are never overwritten: a grant the user already holds
     at that scope is skipped.
@@ -218,7 +218,16 @@ async def _apply_grants(
     # The membership row is the aggregate root; assignments hang off it.
     await ensure_member(session, organization_id, user_id)
 
+    # The member invitation is admission-only; never persist the implicit role.
+    member_role_id = await session.scalar(
+        select(DBRole.id).where(
+            DBRole.organization_id == organization_id,
+            DBRole.slug == ORG_MEMBER_ROLE_SLUG,
+        )
+    )
     for grant in grants:
+        if grant.workspace_id is None and grant.role_id == member_role_id:
+            continue
         stmt = pg_insert(UserRoleAssignment).values(
             organization_id=organization_id,
             user_id=user_id,

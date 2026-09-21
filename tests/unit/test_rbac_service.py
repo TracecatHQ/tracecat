@@ -1397,6 +1397,13 @@ class TestAtomicRoleEdits:
             UserRoleAssignmentSpec(role_id=editor, workspace_id=other.id),
         ]
         await service.replace_user_assignments(params)
+        assert set(
+            await session.scalars(
+                select(LegacyMembership.workspace_id).where(
+                    LegacyMembership.user_id == member.id
+                )
+            )
+        ) == {other.id}
         assert (await _org_assignment(session, member.id)).id == original_org.id
         assert (
             await session.scalar(

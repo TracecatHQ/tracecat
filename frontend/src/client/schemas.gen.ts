@@ -1058,7 +1058,7 @@ export const $AdminOrgInvitationCreate = {
     },
     role_slug: {
       type: "string",
-      enum: ["organization-owner", "organization-admin"],
+      enum: ["organization-owner", "organization-admin", "organization-member"],
       title: "Role Slug",
       default: "organization-owner",
     },

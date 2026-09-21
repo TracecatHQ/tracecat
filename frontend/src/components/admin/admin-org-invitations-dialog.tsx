@@ -57,6 +57,7 @@ type PlatformRoleSlug = NonNullable<AdminOrgInvitationCreate["role_slug"]>
 const ROLE_OPTIONS: Array<{ label: string; value: PlatformRoleSlug }> = [
   { label: "Organization owner", value: "organization-owner" },
   { label: "Organization admin", value: "organization-admin" },
+  { label: "Organization member", value: "organization-member" },
 ]
 
 function invitationUrl(token: string) {

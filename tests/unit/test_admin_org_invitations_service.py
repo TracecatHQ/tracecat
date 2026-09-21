@@ -20,12 +20,14 @@ from tracecat.db.models import (
     Invitation,
     InvitationGrant,
     Organization,
+    OrganizationMembership,
     User,
+    UserRoleAssignment,
 )
 from tracecat.db.models import Role as DBRole
 from tracecat.exceptions import TracecatConflictError, TracecatValidationError
 from tracecat.invitations.enums import InvitationStatus
-from tracecat.invitations.service import RESEND_COOLDOWN
+from tracecat.invitations.service import RESEND_COOLDOWN, accept_invitation_for_user
 from tracecat.pagination import CursorPaginationParams
 
 
@@ -570,3 +572,32 @@ async def test_resend_organization_invitation_enforces_cooldown(
     await session.commit()
     resent = await service.resend_organization_invitation(org.id, invitation.id)
     assert resent.id == invitation.id
+
+
+@pytest.mark.anyio
+async def test_member_invitation_admits_without_persisting_role(
+    session: AsyncSession,
+    org: Organization,
+    org_roles: dict[str, DBRole],
+    platform_role: PlatformRole,
+) -> None:
+    service = AdminOrgService(session, platform_role)
+    issued = await service.create_organization_invitation(
+        org.id,
+        AdminOrgInvitationCreate(
+            email="baseline@example.com", role_slug="organization-member"
+        ),
+    )
+    assert issued.role_slug == "organization-member"
+    user = User(id=uuid.uuid4(), email="baseline@example.com", hashed_password="test")
+    session.add(user)
+    await session.flush()
+    await accept_invitation_for_user(session, user_id=user.id, token=issued.token)
+    await session.flush()
+    assert await session.get(OrganizationMembership, (user.id, org.id)) is not None
+    assert (
+        await session.scalar(
+            select(UserRoleAssignment.id).where(UserRoleAssignment.user_id == user.id)
+        )
+        is None
+    )
