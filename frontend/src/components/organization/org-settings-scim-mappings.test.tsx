@@ -11,6 +11,15 @@ const deleteMapping = jest.fn()
 const review = { mutateAsync: jest.fn(), isPending: false }
 const activate = { mutateAsync: jest.fn(), isPending: false }
 
+let allowedScopes: string[] | null = null
+jest.mock("@/components/auth/scope-guard", () => ({
+  useScopeCheck: (scope: string) =>
+    allowedScopes === null || allowedScopes.includes(scope),
+}))
+jest.mock("@/lib/api", () => ({
+  getBaseUrl: () => "https://api.example.com/backend/",
+}))
+
 jest.mock("@/hooks/use-scim", () => ({
   useScimExternalGroups: () => ({
     externalGroups: [
@@ -86,6 +95,7 @@ const preview = {
 beforeEach(() => {
   jest.clearAllMocks()
   mappings = []
+  allowedScopes = null
   review.mutateAsync.mockResolvedValue(preview)
   activate.mutateAsync.mockResolvedValue(undefined)
   createMapping.mockResolvedValue(undefined)
@@ -183,4 +193,57 @@ test("confirmation uses the reviewed mapping if selectors changed during loading
       groupId: "target",
     })
   )
+})
+
+test("connection uses the configured API host and prefix", () => {
+  render(
+    <TooltipProvider>
+      <OrgSettingsScimConnection />
+    </TooltipProvider>
+  )
+  expect(
+    screen.getByText("https://api.example.com/backend/scim/v2")
+  ).toBeInTheDocument()
+})
+
+test.each([
+  { scopes: [] },
+  { scopes: ["org:rbac:create"] },
+  { scopes: ["org:member:remove"] },
+])("token rotation requires all issuance scopes: %j", ({ scopes }) => {
+  allowedScopes = scopes
+  render(
+    <TooltipProvider>
+      <OrgSettingsScimConnection />
+    </TooltipProvider>
+  )
+  expect(screen.getByRole("button", { name: "Rotate token" })).toBeDisabled()
+})
+
+test("read-only users cannot create, activate, or remove mappings", () => {
+  allowedScopes = ["org:rbac:read"]
+  mappings = [
+    {
+      id: "mapping",
+      external_group_id: "source",
+      group_id: "target",
+      external_group_external_id: "idp-source",
+      external_group_display_name: "IdP team",
+      group_name: "Target team",
+    },
+  ]
+  const { rerender } = render(
+    <OrgSettingsScimMappings connected status="active" revoked={false} />
+  )
+  selectMapping()
+  expect(screen.getByRole("button", { name: "Review mapping" })).toBeDisabled()
+  expect(
+    screen.getByRole("button", { name: "Remove mapping for IdP team" })
+  ).toBeDisabled()
+  rerender(
+    <OrgSettingsScimMappings connected status="pending" revoked={false} />
+  )
+  expect(
+    screen.getByRole("button", { name: "Review activation" })
+  ).toBeDisabled()
 })
