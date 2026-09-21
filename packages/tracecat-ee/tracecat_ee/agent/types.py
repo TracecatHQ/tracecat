@@ -28,7 +28,7 @@ class AgentWorkflowID(str):
 
         return core_schema.json_or_python_schema(
             json_schema=core_schema.str_schema(
-                pattern=rf"^{cls._prefix}[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                pattern=rf"^{cls._prefix}[0-9a-f]{{8}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{12}}$"
             ),
             python_schema=python_schema,
             serialization=core_schema.plain_serializer_function_ser_schema(
