@@ -27,6 +27,7 @@ from tracecat.db.models import (
     Workspace,
 )
 from tracecat.exceptions import ScopeDeniedError, TracecatNotFoundError
+from tracecat.pagination import PaginationError
 from tracecat.search.chunking_types import ChunkingIdentity
 from tracecat.search.embeddings.schemas import EmbeddingConfigurationRead
 from tracecat.search.query import eligible_chunks
@@ -50,7 +51,11 @@ from tracecat.tables.schemas import (
     TableUpdate,
 )
 from tracecat.tables.search.router import router as search_router
-from tracecat.tables.search.schemas import TableSearchDisplayState, TableSearchSelection
+from tracecat.tables.search.schemas import (
+    TableSearchDisplayState,
+    TableSearchProgressParams,
+    TableSearchSelection,
+)
 from tracecat.tables.search.service import TableSearchService
 from tracecat.tables.search.source import TableSearchSource
 from tracecat.tables.service import BaseTablesService, TableEditorService, TablesService
@@ -406,16 +411,37 @@ async def test_progress_retry_and_stale_generation(tables: TablesService, table:
     assert claim is not None
     await tables.search.fail(claim, SearchErrorCode.PROVIDER_UNAVAILABLE)
     page = await tables.search.progress(
-        table.id, generation=collection.generation, limit=1
+        table.id,
+        params=TableSearchProgressParams(generation=collection.generation, limit=1),
     )
     assert page.has_more and page.next_cursor is not None
     assert page.items[0].sampled_chunks == 0 and page.items[0].expected_chunks is None
     page2 = await tables.search.progress(
-        table.id, generation=collection.generation, cursor=page.next_cursor, limit=1
+        table.id,
+        params=TableSearchProgressParams(
+            generation=collection.generation, cursor=page.next_cursor, limit=1
+        ),
     )
     assert (
         not page2.has_more and page2.items[0].document_id != page.items[0].document_id
     )
+    assert page2.has_previous and page2.prev_cursor is not None
+    previous = await tables.search.progress(
+        table.id,
+        params=TableSearchProgressParams(
+            generation=collection.generation, cursor=page2.prev_cursor, limit=1
+        ),
+    )
+    assert previous.items == page.items
+    assert not previous.has_previous
+    assert page.next_cursor != str(page.items[-1].document_id)
+    with pytest.raises(PaginationError):
+        await tables.search.progress(
+            table.id,
+            params=TableSearchProgressParams(
+                generation=collection.generation, cursor=str(docs[0].id)
+            ),
+        )
     await tables.search.retry(table.id, collection.generation, [docs[0].id])
     assert (await documents(tables.session, collection))[0].state == "pending"
     with pytest.raises(SearchError):
@@ -611,7 +637,9 @@ async def test_progress_caps_chunk_reads_and_never_reports_partial_row_ready(
         ]
     )
     await tables.session.flush()
-    page = await tables.search.progress(table.id, generation=collection.generation)
+    page = await tables.search.progress(
+        table.id, params=TableSearchProgressParams(generation=collection.generation)
+    )
     assert page.items[0].chunks_capped
     assert page.items[0].sampled_chunks == page.items[0].sampled_embedded == 1001
     assert page.items[0].expected_chunks is None
@@ -913,3 +941,45 @@ async def test_source_reader_resolves_legacy_metadata_column_name(
     piece = await source.read_slice(identity, column.id, 1, 3)
     assert piece.text == "😀 s"
     assert not piece.end_of_column
+
+
+async def test_progress_cursor_is_bound_to_collection_and_generation(tables, table):
+    collection = await enable(tables, table, provider=True)
+    await tables.batch_insert_rows(table, [{"body": "one"}, {"body": "two"}])
+    page = await tables.search.progress(
+        table.id,
+        params=TableSearchProgressParams(generation=collection.generation, limit=1),
+    )
+    assert page.next_cursor
+    other = await tables.create_table(
+        TableCreate(
+            name=f"other_{uuid4().hex}",
+            columns=[TableColumnCreate(name="body", type=SqlType.TEXT)],
+        )
+    )
+    other_collection = await enable(tables, other, provider=True)
+    with pytest.raises(PaginationError):
+        await tables.search.progress(
+            other.id,
+            params=TableSearchProgressParams(
+                generation=other_collection.generation, cursor=page.next_cursor
+            ),
+        )
+    old_generation = collection.generation
+    collection.generation += 1
+    await tables.session.flush()
+    with pytest.raises(SearchError) as stale:
+        await tables.search.progress(
+            table.id,
+            params=TableSearchProgressParams(
+                generation=old_generation, cursor=page.next_cursor
+            ),
+        )
+    assert stale.value.code == SearchErrorCode.CONFIGURATION_CHANGED
+    with pytest.raises(PaginationError):
+        await tables.search.progress(
+            table.id,
+            params=TableSearchProgressParams(
+                generation=collection.generation, cursor=page.next_cursor
+            ),
+        )

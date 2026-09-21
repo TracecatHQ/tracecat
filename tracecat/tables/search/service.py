@@ -19,6 +19,7 @@ from tracecat.db.models import (
     TableColumn,
 )
 from tracecat.exceptions import TracecatNotFoundError
+from tracecat.pagination import paginate
 from tracecat.search.embeddings.schemas import EmbeddingConfigurationRead
 from tracecat.search.service import SearchStorage
 from tracecat.search.types import (
@@ -34,6 +35,7 @@ from tracecat.tables.search.schemas import (
     TableSearchDisplayState,
     TableSearchDocumentProgress,
     TableSearchProgressPage,
+    TableSearchProgressParams,
     TableSearchSelection,
 )
 
@@ -223,33 +225,37 @@ class TableSearchService(SearchStorage):
         self,
         table_id: UUID,
         *,
-        generation: int,
-        cursor: UUID | None = None,
-        limit: int = 20,
+        params: TableSearchProgressParams,
     ) -> TableSearchProgressPage:
         """Read at most 100 documents and 1,001 chunk states per document.
 
         Counts are explicitly a bounded sample, never an invented completion
         percentage. The final expected total is available after enumeration.
         """
-        if not 1 <= limit <= 100:
-            raise ValueError("Progress limit must be between 1 and 100")
+        generation = params.generation
         collection = await self.for_table(table_id)
         await self.table(table_id)
         if collection is None or collection.generation != generation:
             raise SearchError(SearchErrorCode.CONFIGURATION_CHANGED)
-        docs = (
+        document_page = await paginate(
+            self.session,
             sa.select(SearchDocument)
+            .join(SearchCollection, SearchCollection.id == SearchDocument.collection_id)
             .where(
                 self._scope(SearchDocument),
                 SearchDocument.collection_id == collection.id,
                 SearchDocument.deleted_at.is_(None),
-            )
-            .order_by(SearchDocument.id)
-            .limit(limit + 1)
+                SearchCollection.generation == generation,
+            ),
+            page=params,
+            order_by=(SearchDocument.id.asc(),),
         )
-        if cursor is not None:
-            docs = docs.where(SearchDocument.id > cursor)
+        # Sample chunks only for the bounded page, never for every document in
+        # the collection. Pagination owns cursor validation and traversal.
+        docs = sa.select(SearchDocument).where(
+            self._scope(SearchDocument),
+            SearchDocument.id.in_([d.id for d in document_page.items]),
+        )
         doc = aliased(SearchDocument, docs.subquery())
         sample = (
             sa.select(SearchChunk.state)
@@ -295,11 +301,13 @@ class TableSearchService(SearchStorage):
                 chunks_capped=prepared > 1000,
                 error_code=d.error_code if d.generation == generation else None,
             )
-            for d, prepared, embedded in rows[:limit]
+            for d, prepared, embedded in rows
         ]
         return TableSearchProgressPage(
             generation=generation,
             items=items,
-            next_cursor=items[-1].document_id if len(rows) > limit else None,
-            has_more=len(rows) > limit,
+            next_cursor=document_page.next_cursor,
+            prev_cursor=document_page.prev_cursor,
+            has_more=document_page.has_more,
+            has_previous=document_page.has_previous,
         )

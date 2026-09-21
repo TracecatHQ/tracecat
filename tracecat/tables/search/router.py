@@ -1,14 +1,15 @@
 """Public table selection, status and retry; query routes belong to search."""
 
-from uuid import UUID
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.identifiers import TableID
+from tracecat.pagination import PaginationError
 from tracecat.search.embeddings.service import WorkspaceEmbeddingService
 from tracecat.search.embeddings.types import EmbeddingError
 from tracecat.search.types import SearchError, SearchErrorCode, SearchScope
@@ -16,6 +17,7 @@ from tracecat.tables.search.schemas import (
     TableSearchConfiguration,
     TableSearchErrorResponse,
     TableSearchProgressPage,
+    TableSearchProgressParams,
     TableSearchRetry,
     TableSearchSelection,
     TableSearchSelectionErrorResponse,
@@ -126,15 +128,13 @@ async def retry_table_search(
     await session.commit()
 
 
-@router.get("/documents")
+@router.get("/documents", responses={400: {"model": TableSearchErrorResponse}})
 @require_scope("table:read")
 async def get_table_search_progress(
     table_id: TableID,
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
-    generation: int = Query(ge=1),
-    cursor: UUID | None = None,
-    limit: int = Query(default=20, ge=1, le=100),
+    params: Annotated[TableSearchProgressParams, Depends()],
 ) -> TableSearchProgressPage:
     """Read bounded per-document progress and safe retry references."""
     assert role.organization_id is not None and role.workspace_id is not None
@@ -144,11 +144,13 @@ async def get_table_search_progress(
     try:
         return await service.progress(
             table_id,
-            generation=generation,
-            cursor=cursor,
-            limit=limit,
+            params=params,
         )
+    except PaginationError:
+        error = HTTPException(400, detail={"code": "INVALID_CURSOR"})
     except TracecatNotFoundError as exc:
         raise HTTPException(404, detail={"code": "NOT_FOUND"}) from exc
     except SearchError as exc:
         raise search_http_error(exc) from exc
+
+    raise error

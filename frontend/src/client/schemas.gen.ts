@@ -27576,7 +27576,6 @@ export const $TableSearchProgressPage = {
       anyOf: [
         {
           type: "string",
-          format: "uuid",
         },
         {
           type: "null",
@@ -27584,9 +27583,25 @@ export const $TableSearchProgressPage = {
       ],
       title: "Next Cursor",
     },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+    },
     has_more: {
       type: "boolean",
       title: "Has More",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
       default: false,
     },
   },

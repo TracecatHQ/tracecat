@@ -8437,7 +8437,9 @@ export type TableSearchProgressPage = {
   generation: number
   items: Array<TableSearchDocumentProgress>
   next_cursor?: string | null
+  prev_cursor?: string | null
   has_more?: boolean
+  has_previous?: boolean
 }
 
 /**
@@ -19885,6 +19887,10 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: TableSearchProgressPage
+        /**
+         * Bad Request
+         */
+        400: TableSearchErrorResponse
         /**
          * Not Found
          */
