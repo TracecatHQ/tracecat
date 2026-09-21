@@ -21,6 +21,7 @@ from tracecat.agent.sandbox.llm_proxy import (
     LLMRoutingPlan,
     LLMSocketProxy,
     _http_error_classification,
+    _rewrite_json_body,
 )
 from tracecat.agent.tokens import LLMRouteClaim, mint_llm_token
 from tracecat.runtime.errors import (
@@ -2250,3 +2251,19 @@ async def test_forward_request_normalizes_read_tool_use_before_sandbox(
         assert payload["content"][0]["input"] == {
             "file_path": "/skills/demo/references/api.md"
         }
+
+
+@pytest.mark.anyio
+async def test_rewrite_json_body_passes_through_oversized_bodies() -> None:
+    chunk = b"x" * (1024 * 1024)
+    chunks = [chunk] * 12
+
+    async def source() -> AsyncIterator[bytes]:
+        for item in chunks:
+            yield item
+
+    out = [piece async for piece in _rewrite_json_body(source())]
+
+    assert b"".join(out) == b"".join(chunks)
+    # 11 chunks are flushed as one buffered piece; the 12th streams through.
+    assert len(out) == 2

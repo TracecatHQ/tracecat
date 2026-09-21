@@ -8,7 +8,6 @@ rewriters to ``/v1/messages`` responses on their way back into the sandbox.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
 from typing import Any
 
 import orjson
@@ -17,22 +16,15 @@ from tracecat.agent.common.tool_inputs import READ_TOOL_NAME, sanitize_read_tool
 
 MESSAGES_PATH = "/v1/messages"
 
-ToolInputSanitizer = Callable[[Mapping[str, Any]], dict[str, Any]]
-
-TOOL_INPUT_SANITIZERS: dict[str, ToolInputSanitizer] = {
-    READ_TOOL_NAME: sanitize_read_tool_input,
-}
-
 
 def _sanitize_tool_use_block(block: dict[str, Any]) -> dict[str, Any] | None:
     """Return a rewritten ``tool_use`` block, or None when it can pass through."""
-    sanitizer = TOOL_INPUT_SANITIZERS.get(str(block.get("name")))
-    if sanitizer is None:
+    if block.get("name") != READ_TOOL_NAME:
         return None
     tool_input = block.get("input")
     if not isinstance(tool_input, dict):
         return None
-    sanitized = sanitizer(tool_input)
+    sanitized = sanitize_read_tool_input(tool_input)
     if sanitized == tool_input:
         return None
     return {**block, "input": sanitized}
@@ -76,23 +68,20 @@ def sanitize_messages_response_body(body: bytes) -> bytes:
 class _PendingToolUse:
     """A streamed ``tool_use`` block whose events are held until it completes."""
 
-    __slots__ = ("events", "partial_json", "sanitizer", "start")
+    __slots__ = ("events", "partial_json", "start")
 
-    def __init__(
-        self, start: dict[str, Any], events: list[bytes], sanitizer: ToolInputSanitizer
-    ) -> None:
+    def __init__(self, start: dict[str, Any], events: list[bytes]) -> None:
         self.start = start
         self.events = events
         self.partial_json: list[str] = []
-        self.sanitizer = sanitizer
 
 
 class ToolUseStreamRewriter:
     """Rewrite ``tool_use`` inputs inside a Messages SSE stream.
 
-    Events for a ``tool_use`` block with a registered sanitizer are buffered
+    Events for a ``Read`` ``tool_use`` block are buffered
     from ``content_block_start`` to ``content_block_stop``. If the accumulated
-    ``input_json_delta`` fragments parse and the sanitizer changes them, the
+    ``input_json_delta`` fragments parse and sanitizing changes them, the
     block is re-emitted with a single delta carrying the sanitized JSON;
     otherwise the original events are forwarded verbatim. Everything else
     streams through untouched, so text deltas keep their latency.
@@ -134,9 +123,11 @@ class ToolUseStreamRewriter:
                 "index": int(index),
                 "content_block": dict() as block,
             }:
-                sanitizer = TOOL_INPUT_SANITIZERS.get(str(block.get("name")))
-                if block.get("type") == "tool_use" and sanitizer is not None:
-                    self._pending[index] = _PendingToolUse(payload, [event], sanitizer)
+                if (
+                    block.get("type") == "tool_use"
+                    and block.get("name") == READ_TOOL_NAME
+                ):
+                    self._pending[index] = _PendingToolUse(payload, [event])
                     return b""
                 return event
             case {
@@ -173,7 +164,7 @@ class ToolUseStreamRewriter:
             tool_input = start_block.get("input")
         if not isinstance(tool_input, dict):
             return original
-        sanitized = pending.sanitizer(tool_input)
+        sanitized = sanitize_read_tool_input(tool_input)
         if sanitized == tool_input:
             return original
         if not raw_json:

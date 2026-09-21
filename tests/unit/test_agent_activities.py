@@ -91,7 +91,6 @@ from tracecat.agent.session.activities import (
     load_session_messages_activity,
 )
 from tracecat.agent.session.types import AgentSessionEntity
-from tracecat.agent.skill.inventory import append_skill_file_inventory
 from tracecat.agent.skill.types import ResolvedSkillRef
 from tracecat.agent.subagents import (
     ResolvedAgentsConfig,
@@ -3743,16 +3742,12 @@ class TestSandboxedAgentExecutorSkillCaching:
 
         await mock_executor._stage_resolved_skills(skills_dir)
 
-        assert len(to_thread_calls) == 2
+        assert len(to_thread_calls) == 1
         func, args, kwargs = to_thread_calls[0]
         assert func is shutil.copytree
         assert args[0] == cached_dir
         assert args[1] == skills_dir / "skill-a"
         assert kwargs == {"dirs_exist_ok": True}
-        inventory_func, inventory_args, inventory_kwargs = to_thread_calls[1]
-        assert inventory_func is append_skill_file_inventory
-        assert inventory_args == (skills_dir / "skill-a",)
-        assert inventory_kwargs == {}
         assert (skills_dir / "skill-a" / "SKILL.md").read_text() == "# Cached skill"
 
     @pytest.mark.anyio

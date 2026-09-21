@@ -715,9 +715,20 @@ def _normalize_direct_route(route: LLMRoute) -> LLMRoute:
 async def _rewrite_json_body(
     chunks: AsyncIterable[bytes],
 ) -> AsyncIterable[bytes]:
+    """Buffer a JSON response up to ``MAX_BODY_SIZE`` and rewrite it.
+
+    Larger bodies are passed through untouched: everything buffered so far is
+    flushed and the remaining chunks stream as they arrive.
+    """
     body = bytearray()
-    async for chunk in chunks:
+    iterator = aiter(chunks)
+    async for chunk in iterator:
         body.extend(chunk)
+        if len(body) > MAX_BODY_SIZE:
+            yield bytes(body)
+            async for rest in iterator:
+                yield rest
+            return
     yield sanitize_messages_response_body(bytes(body))
 
 
