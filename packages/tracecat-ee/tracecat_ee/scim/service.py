@@ -118,23 +118,27 @@ class SCIMService(BaseOrgService):
         Raises:
             TracecatNotFoundError: The mapping is not in this organization.
         """
-        rows = await self._mapping_rows(ExternalGroupMapping.id == mapping_id)
-        if not rows:
+        result = await self._mapping_page(
+            ExternalGroupMapping.id == mapping_id, page=PageParams(limit=1)
+        )
+        if not result.items:
             raise TracecatNotFoundError("External group mapping not found")
-        return rows[0]
+        return result.items[0]
 
     @require_scope("org:rbac:read")
-    async def list_mappings(self) -> list[ExternalGroupMappingRead]:
+    async def list_mappings(
+        self, *, page: PageParams
+    ) -> Page[ExternalGroupMappingRead]:
         """List this organization's mappings with both sides joined in.
 
         Returns:
-            Every mapping, ordered by external then Tracecat group name.
+            A bounded page, ordered by external name, Tracecat name, and ID.
         """
-        return await self._mapping_rows()
+        return await self._mapping_page(page=page)
 
-    async def _mapping_rows(
-        self, *criteria: ColumnElement[bool]
-    ) -> list[ExternalGroupMappingRead]:
+    async def _mapping_page(
+        self, *criteria: ColumnElement[bool], page: PageParams
+    ) -> Page[ExternalGroupMappingRead]:
         """Read mappings joined to both sides, always org-scoped."""
         stmt = (
             select(
@@ -153,27 +157,33 @@ class SCIMService(BaseOrgService):
             .where(
                 ExternalGroupMapping.organization_id == self.organization_id, *criteria
             )
-            .order_by(ExternalGroup.display_name, Group.name, ExternalGroupMapping.id)
         )
-        rows = (await self.session.execute(stmt)).tuples().all()
-        return [
-            ExternalGroupMappingRead(
-                id=mapping_id,
-                external_group_id=external_group_id,
-                external_group_external_id=external_id,
-                external_group_display_name=display_name,
-                group_id=group_id,
-                group_name=group_name,
-            )
-            for (
-                mapping_id,
-                external_group_id,
-                external_id,
-                display_name,
-                group_id,
-                group_name,
-            ) in rows
-        ]
+        return await paginate(
+            self.session,
+            stmt,
+            page=page,
+            order_by=(
+                ExternalGroup.display_name.asc(),
+                Group.name.asc(),
+                ExternalGroupMapping.id.asc(),
+            ),
+            row_factory=lambda row: ExternalGroupMappingRead.model_validate(
+                dict(
+                    zip(
+                        (
+                            "id",
+                            "external_group_id",
+                            "external_group_external_id",
+                            "external_group_display_name",
+                            "group_id",
+                            "group_name",
+                        ),
+                        row,
+                        strict=True,
+                    )
+                )
+            ),
+        )
 
     # =========================================================================
     # Write-side operations for the sync endpoints

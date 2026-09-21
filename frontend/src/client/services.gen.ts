@@ -694,6 +694,7 @@ import type {
   ScimListExternalGroupsResponse,
   ScimListGroupsData,
   ScimListGroupsResponse,
+  ScimListScimMappingsData,
   ScimListScimMappingsResponse,
   ScimListUsersData,
   ScimListUsersResponse,
@@ -14208,16 +14209,27 @@ export const scimActivateScimConnection = (
 /**
  * List Scim Mappings
  * List group mappings with both sides joined in.
- * @returns ExternalGroupMappingRead Successful Response
+ * @param data The data for the request.
+ * @param data.limit
+ * @param data.cursor
+ * @returns Page_ExternalGroupMappingRead_ Successful Response
  * @throws ApiError
  */
-export const scimListScimMappings =
-  (): CancelablePromise<ScimListScimMappingsResponse> => {
-    return __request(OpenAPI, {
-      method: "GET",
-      url: "/scim/mappings",
-    })
-  }
+export const scimListScimMappings = (
+  data: ScimListScimMappingsData = {}
+): CancelablePromise<ScimListScimMappingsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/scim/mappings",
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
 
 /**
  * Create Scim Mapping

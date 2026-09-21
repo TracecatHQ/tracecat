@@ -20751,6 +20751,45 @@ export const $OutputType = {
   ],
 } as const
 
+export const $Page_ExternalGroupMappingRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/ExternalGroupMappingRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Next-page cursor",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Previous-page cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "Page[ExternalGroupMappingRead]",
+} as const
+
 export const $Page_ExternalGroupRead_ = {
   properties: {
     items: {

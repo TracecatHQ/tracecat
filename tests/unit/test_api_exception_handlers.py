@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
 
@@ -254,3 +254,39 @@ def test_unexpected_scim_errors_are_sanitized(exc: Exception, scim: bool) -> Non
         }
     else:
         assert response.json() == {"message": detail}
+
+
+@pytest.mark.parametrize("scim", [False, True])
+@pytest.mark.parametrize(
+    "method,suffix,status_code,detail",
+    [
+        ("GET", "/missing", 404, "Not Found"),
+        ("POST", "/control", 405, "Method Not Allowed"),
+        ("GET", "/control", 401, "Unauthorized"),
+    ],
+)
+def test_http_errors_keep_status_and_use_the_correct_envelope(
+    scim: bool, method: str, suffix: str, status_code: int, detail: str
+) -> None:
+    prefix = "/scim/v2" if scim else "/other"
+    app = _build_app(
+        HTTPException(401, "Unauthorized", headers={"WWW-Authenticate": "Bearer"}),
+        f"{prefix}/control",
+    )
+    _install_scim_exception_handlers(app)
+    with TestClient(app) as client:
+        response = client.request(method, f"{prefix}{suffix}")
+    assert response.status_code == status_code
+    if scim:
+        assert response.headers["content-type"] == "application/scim+json"
+        assert response.json() == {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:Error"],
+            "status": str(status_code),
+            "detail": detail,
+        }
+    else:
+        assert response.json() == {"detail": detail}
+    if status_code == 401:
+        assert response.headers["www-authenticate"] == "Bearer"
+    if status_code == 405:
+        assert "GET" in response.headers["allow"]
