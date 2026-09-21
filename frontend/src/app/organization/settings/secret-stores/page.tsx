@@ -29,8 +29,8 @@ export default function SecretStoresSettingsPage() {
                 Secret stores
               </h2>
               <p className="text-base text-muted-foreground">
-                Let workspaces reference secrets that stay in AWS Secrets
-                Manager.
+                Let workspaces reference secrets from an external secret
+                manager.
               </p>
             </div>
           </div>
