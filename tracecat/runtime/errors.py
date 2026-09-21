@@ -77,6 +77,7 @@ class RuntimeErrorKind(StrEnum):
     WORKFLOW_BOOTSTRAP_UNAVAILABLE = "workflow.bootstrap.unavailable"
     WORKFLOW_EXPRESSION_INVALID = "workflow.expression.invalid"
     WORKFLOW_LOOP_LIMIT_EXCEEDED = "workflow.loop.limit_exceeded"
+    WORKFLOW_JOIN_UNREACHABLE = "workflow.join.unreachable"
     WORKFLOW_RUNTIME_INVARIANT_VIOLATION = "workflow.runtime.invariant_violation"
     WORKFLOW_AGENT_INPUT_INVALID = "workflow.agent.input_invalid"
     WORKFLOW_AGENT_PREPARATION_FAILED = "workflow.agent.preparation_failed"
