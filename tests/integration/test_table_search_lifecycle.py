@@ -49,10 +49,10 @@ from tracecat.tables.schemas import (
     TableRowInsert,
     TableUpdate,
 )
-from tracecat.tables.search import TableSearchService
-from tracecat.tables.search_router import router as search_router
-from tracecat.tables.search_schemas import TableSearchDisplayState, TableSearchSelection
-from tracecat.tables.search_source import TableSearchSource
+from tracecat.tables.search.router import router as search_router
+from tracecat.tables.search.schemas import TableSearchDisplayState, TableSearchSelection
+from tracecat.tables.search.service import TableSearchService
+from tracecat.tables.search.source import TableSearchSource
 from tracecat.tables.service import BaseTablesService, TableEditorService, TablesService
 from tracecat.workspace_sync.adapters import TABLE_RESOURCE_ADAPTER
 from tracecat.workspace_sync.importer import WorkspaceResourceImportService
@@ -422,6 +422,43 @@ async def test_progress_retry_and_stale_generation(tables: TablesService, table:
         await tables.search.retry(table.id, collection.generation + 1, [docs[0].id])
 
 
+async def test_retry_remains_in_callers_transaction(
+    tables: TablesService, table: Table
+):
+    collection = await enable(tables, table, provider=True)
+    await tables.insert_row(table, TableRowInsert(data={"body": "Synthetic retry"}))
+    document = (await documents(tables.session, collection))[0]
+    table_id, document_id, generation = table.id, document.id, collection.generation
+    claim = await tables.search.claim(collection.id, document_id)
+    assert claim is not None
+    await tables.search.fail(claim, SearchErrorCode.PROVIDER_UNAVAILABLE)
+    await tables.session.commit()
+
+    await tables.search.retry(table_id, generation, [document_id])
+    assert (
+        await tables.session.scalar(
+            sa.select(SearchDocument.state).where(SearchDocument.id == document_id)
+        )
+        == "pending"
+    )
+    await tables.session.rollback()
+
+    # A caller may abandon the larger operation after retry. The primitive must
+    # not commit early and prevent that caller from restoring the failed state.
+    assert (
+        await tables.session.scalar(
+            sa.select(SearchDocument.state).where(SearchDocument.id == document_id)
+        )
+        == "failed"
+    )
+    assert (
+        await tables.session.scalar(
+            sa.select(SearchDocument.error_code).where(SearchDocument.id == document_id)
+        )
+        == SearchErrorCode.PROVIDER_UNAVAILABLE
+    )
+
+
 async def test_csv_paths_and_selection_deletion(tables: TablesService, table: Table):
     collection = await enable(tables, table)
     importer = CSVImporter(list(table.columns), chunk_size=2)
@@ -685,6 +722,12 @@ async def test_http_selection_conflict_validation_and_permissions(
             },
         )
         assert invalid.status_code == 422
+        assert invalid.json()["detail"] == {"code": "INVALID_SELECTION"}
+        missing = await client.patch(
+            f"/tables/{uuid4()}/search/selection", json=request
+        )
+        assert missing.status_code == 404
+        assert missing.json()["detail"] == {"code": "NOT_FOUND"}
         await tables.insert_row(table, TableRowInsert(data={"body": "http"}))
         progress = await client.get(path + "/documents", params={"generation": 1})
         assert progress.status_code == 200, progress.text

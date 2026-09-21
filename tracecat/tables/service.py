@@ -95,7 +95,7 @@ from tracecat.tables.schemas import (
     TableRowInsert,
     TableUpdate,
 )
-from tracecat.tables.search import TableSearchService
+from tracecat.tables.search.service import TableSearchService
 
 _RETRYABLE_DB_EXCEPTIONS = (
     InvalidCachedStatementError,

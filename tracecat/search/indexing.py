@@ -33,7 +33,7 @@ from tracecat.search.types import (
     SearchErrorCode,
     SearchState,
 )
-from tracecat.tables.search_source import TableSearchSource
+from tracecat.tables.search.source import TableSearchSource
 
 Embed = Callable[[EmbeddingRequest], Awaitable[EmbeddingBatch]]
 
