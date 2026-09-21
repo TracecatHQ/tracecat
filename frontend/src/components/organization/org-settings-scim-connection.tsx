@@ -3,6 +3,7 @@
 import { KeyRoundIcon, Loader2 } from "lucide-react"
 import { useState } from "react"
 import type { ScimConnectionRead } from "@/client"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { ConfirmDestructiveDialog } from "@/components/confirm-destructive-dialog"
 import { CopyButton } from "@/components/copy-button"
 import { CenteredSpinner } from "@/components/loading/spinner"
@@ -24,6 +25,7 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty"
 import { useScimConnection } from "@/hooks/use-scim"
+import { getBaseUrl } from "@/lib/api"
 
 /** Render a nullable ISO timestamp as a readable local time. */
 function formatTimestamp(value: string | null | undefined): string {
@@ -35,10 +37,10 @@ function formatTimestamp(value: string | null | undefined): string {
 
 /** Absolute SCIM base URL an administrator pastes into their IdP. */
 function useScimBaseUrl(): string {
-  if (typeof window === "undefined") {
-    return "/api/scim/v2"
-  }
-  return `${window.location.origin}/api/scim/v2`
+  const path = `${getBaseUrl().replace(/\/$/, "")}/scim/v2`
+  return typeof window === "undefined"
+    ? path
+    : new URL(path, window.location.origin).href
 }
 
 function ConnectionDetails({ connection }: { connection: ScimConnectionRead }) {
@@ -92,6 +94,10 @@ function ConnectionDetails({ connection }: { connection: ScimConnectionRead }) {
  * because the API returns it exactly once and can never return it again.
  */
 export function OrgSettingsScimConnection() {
+  const canCreate = useScopeCheck("org:rbac:create")
+  const canRemoveMembers = useScopeCheck("org:member:remove")
+  const canRevoke = useScopeCheck("org:rbac:delete")
+  const canIssue = canCreate === true && canRemoveMembers === true
   const {
     connection,
     connectionIsLoading,
@@ -142,7 +148,7 @@ export function OrgSettingsScimConnection() {
             <Button
               variant="outline"
               onClick={() => setRotateOpen(true)}
-              disabled={issueTokenIsPending}
+              disabled={!canIssue || issueTokenIsPending}
             >
               {issueTokenIsPending ? (
                 <Loader2 className="mr-2 size-4 animate-spin" />
@@ -153,7 +159,7 @@ export function OrgSettingsScimConnection() {
               <Button
                 variant="outline"
                 onClick={() => setRevokeOpen(true)}
-                disabled={revokeTokenIsPending}
+                disabled={!canRevoke || revokeTokenIsPending}
               >
                 Revoke token
               </Button>
@@ -173,7 +179,10 @@ export function OrgSettingsScimConnection() {
             </EmptyDescription>
           </EmptyHeader>
           <EmptyContent>
-            <Button onClick={handleIssue} disabled={issueTokenIsPending}>
+            <Button
+              onClick={handleIssue}
+              disabled={!canIssue || issueTokenIsPending}
+            >
               {issueTokenIsPending ? (
                 <Loader2 className="mr-2 size-4 animate-spin" />
               ) : null}

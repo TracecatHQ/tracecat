@@ -7,6 +7,7 @@ import type {
   ScimActivationReviewRead,
   ScimConnectionStatus,
 } from "@/client"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { ConfirmDestructiveDialog } from "@/components/confirm-destructive-dialog"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { ScimReviewDialog } from "@/components/organization/scim-review-dialog"
@@ -65,6 +66,10 @@ export function OrgSettingsScimMappings({
   )
   const isPending = status === "pending"
   const canEdit = !revoked && (isPending || status === "active")
+  const canCreate = useScopeCheck("org:rbac:create")
+  const canActivate = useScopeCheck("org:rbac:update")
+  const canRemoveMembers = useScopeCheck("org:member:remove")
+  const canDelete = useScopeCheck("org:rbac:delete")
 
   const { externalGroups, externalGroupsIsLoading, externalGroupsError } =
     useScimExternalGroups()
@@ -211,7 +216,14 @@ export function OrgSettingsScimMappings({
             draft mappings, then review.
           </p>
           <Button
-            disabled={!canEdit || review.isPending || activate.isPending}
+            disabled={
+              !canEdit ||
+              canActivate !== true ||
+              canRemoveMembers !== true ||
+              (drafts.length > 0 && canCreate !== true) ||
+              review.isPending ||
+              activate.isPending
+            }
             onClick={() => {
               setReviewActivation(true)
               void review
@@ -325,6 +337,7 @@ export function OrgSettingsScimMappings({
               }}
               disabled={
                 !canEdit ||
+                canCreate !== true ||
                 !externalGroupId ||
                 !groupId ||
                 createMappingIsPending ||
@@ -367,7 +380,12 @@ export function OrgSettingsScimMappings({
                         variant="ghost"
                         size="icon"
                         disabled={
-                          !canEdit || deleteMappingIsPending || review.isPending
+                          !canEdit ||
+                          (isPending
+                            ? canCreate !== true
+                            : canDelete !== true) ||
+                          deleteMappingIsPending ||
+                          review.isPending
                         }
                         onClick={() => {
                           if (isPending)
