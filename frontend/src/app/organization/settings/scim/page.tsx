@@ -5,19 +5,12 @@ import { EntitlementRequiredEmptyState } from "@/components/entitlement-required
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { OrgSettingsScimConnection } from "@/components/organization/org-settings-scim-connection"
 import { OrgSettingsScimMappings } from "@/components/organization/org-settings-scim-mappings"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Button } from "@/components/ui/button"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useScimConnection } from "@/hooks/use-scim"
 
 function ScimSettings() {
-  const {
-    connection,
-    connectionIsLoading,
-    connectionIsFetching,
-    connectionError,
-    refetchConnection,
-  } = useScimConnection()
+  const { connection, connectionIsLoading, connectionError } =
+    useScimConnection()
 
   if (connectionIsLoading) {
     return <CenteredSpinner />
@@ -32,33 +25,16 @@ function ScimSettings() {
     )
   }
 
-  if (connectionError) {
-    return (
-      <Alert>
-        <AlertTitle>Could not load SCIM connection</AlertTitle>
-        <AlertDescription>
-          <p>Retry to check your existing connection before making changes.</p>
-          <Button
-            variant="outline"
-            className="mt-3"
-            disabled={connectionIsFetching}
-            onClick={() => void refetchConnection()}
-          >
-            Retry
-          </Button>
-        </AlertDescription>
-      </Alert>
-    )
-  }
-
   return (
     <div className="space-y-12">
       <OrgSettingsScimConnection />
-      <OrgSettingsScimMappings
-        connected={!connectionIsLoading && Boolean(connection)}
-        status={connection?.status}
-        revoked={Boolean(connection?.revoked_at)}
-      />
+      {!connectionError && (
+        <OrgSettingsScimMappings
+          connected={!connectionIsLoading && Boolean(connection)}
+          status={connection?.status}
+          revoked={Boolean(connection?.revoked_at)}
+        />
+      )}
     </div>
   )
 }
