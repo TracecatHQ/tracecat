@@ -1,7 +1,7 @@
 """add skill folders and tags
 
 Revision ID: b4e8f2a6c1d9
-Revises: a7c3e9f1b2d4
+Revises: 9680c861644a, bc3124ad3437
 Create Date: 2026-06-16 00:00:00.000000
 
 """
@@ -19,7 +19,7 @@ from tracecat.db.tenant_rls import (
 )
 
 revision: str = "b4e8f2a6c1d9"
-down_revision: str | None = "a7c3e9f1b2d4"
+down_revision: tuple[str, str] | None = ("9680c861644a", "bc3124ad3437")
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
