@@ -95,6 +95,15 @@ CASE_VERSION_FIELD_ENUM = Enum(CaseVersionField, name="caseversionfield")
 INTERACTION_STATUS_ENUM = Enum(InteractionStatus, name="interactionstatus")
 APPROVAL_STATUS_ENUM = Enum(ApprovalStatus, name="approvalstatus")
 INVITATION_STATUS_ENUM = Enum(InvitationStatus, name="invitationstatus")
+# Keep the existing lowercase VARCHAR storage compatible with deployed writers.
+SCIM_CONNECTION_STATUS_ENUM = Enum(
+    ScimConnectionStatus,
+    name="scimconnectionstatus",
+    native_enum=False,
+    length=32,
+    values_callable=lambda enum: [status.value for status in enum],
+    validate_strings=True,
+)
 # Naming convention for constraints so Alembic can generate deterministic names
 # See: https://alembic.sqlalchemy.org/en/latest/naming.html
 NAMING_CONVENTION: dict[str, str] = {
@@ -1246,7 +1255,7 @@ class ScimConnection(RecordModel):
     preview: Mapped[str] = mapped_column(String(32), nullable=False)
     # Pending until an admin reviews what arrived; nothing is admitted before.
     status: Mapped[ScimConnectionStatus] = mapped_column(
-        String(32),
+        SCIM_CONNECTION_STATUS_ENUM,
         nullable=False,
         default=ScimConnectionStatus.PENDING,
         server_default=ScimConnectionStatus.PENDING,
