@@ -6617,18 +6617,20 @@ async def test_workflow_trigger_validation_error_details(
     assert isinstance(cause, ApplicationError)
     assert "Failed to validate trigger inputs" in str(cause)
 
-    details = cause.details
-    if isinstance(details, list | tuple):
-        detail_messages = [str(d) for d in details]
-    elif details is None:
-        detail_messages = []
-    else:
-        detail_messages = [str(details)]
-
-    assert detail_messages, "Trigger validation error should include details"
-    combined_details = "\n".join(detail_messages)
-    assert "default_number" in combined_details
-    assert "valid integer" in combined_details or '"type": "int' in combined_details
+    assert len(cause.details) == 1
+    error_map = cause.details[0]
+    assert isinstance(error_map, Mapping)
+    trigger_error = ActionErrorInfoAdapter.validate_python(error_map["<root>"])
+    assert trigger_error.ref == "<root>"
+    assert trigger_error.type == "ValidationError"
+    assert trigger_error.expr_context == "TRIGGER"
+    assert trigger_error.children is not None
+    assert len(trigger_error.children) == 1
+    field_error = trigger_error.children[0]
+    assert field_error.ref == "default_number"
+    assert field_error.type.startswith("pydantic.")
+    assert field_error.expr_context == "TRIGGER"
+    assert "valid integer" in field_error.message
 
 
 @pytest.mark.anyio
