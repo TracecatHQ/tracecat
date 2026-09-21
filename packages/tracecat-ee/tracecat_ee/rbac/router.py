@@ -317,7 +317,7 @@ groups_router = APIRouter(
 
 
 @groups_router.get("", response_model=GroupList)
-@require_scope("org:rbac:read")
+@require_scope("org:rbac:read", "org:scim:manage", require_all=False)
 async def list_groups(
     *,
     role: OrgActorRole,
@@ -325,7 +325,7 @@ async def list_groups(
 ) -> GroupList:
     """List groups for the organization.
 
-    Requires: org:rbac:read scope
+    Requires: org:rbac:read or org:scim:manage to select mapping targets.
     """
     service = RBACService(session, role=role)
     groups = await service.list_groups()

@@ -23,7 +23,6 @@ from tracecat.authz.controls import require_scope
 from tracecat.db.models import ScimConnection
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.service import BaseOrgService
-from tracecat_ee.scim.credentials import SCIM_ROLE_SCOPES
 
 
 class IssuedScimConnection:
@@ -45,8 +44,8 @@ class ScimConnectionService(BaseOrgService):
 
     service_name = "scim_connection"
 
-    # The issuer must hold every scope the minted token will carry.
-    @require_scope("org:rbac:create", *SCIM_ROLE_SCOPES)
+    # SCIM administrators may delegate provisioning authority to the IdP.
+    @require_scope("org:scim:manage")
     @audit_log(
         resource_type="scim_connection",
         action="create",
@@ -87,7 +86,7 @@ class ScimConnectionService(BaseOrgService):
         await self.session.refresh(connection)
         return IssuedScimConnection(connection=connection, token=generated.raw)
 
-    @require_scope("org:rbac:read")
+    @require_scope("org:scim:manage")
     async def get_connection(self) -> ScimConnection:
         """Return the organization's connection status.
 
@@ -99,7 +98,7 @@ class ScimConnectionService(BaseOrgService):
             raise TracecatNotFoundError("SCIM connection not found")
         return connection
 
-    @require_scope("org:rbac:delete")
+    @require_scope("org:scim:manage")
     @audit_log(resource_type="scim_connection", action="revoke")
     async def revoke(self) -> None:
         """Revoke the organization's connection token.

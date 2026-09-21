@@ -109,6 +109,8 @@ async def test_valid_token_yields_scim_role(
     # The connection id is the auditable actor, not a user.
     assert role.actor_id == connection_id
     assert role.scopes == SCIM_ROLE_SCOPES
+    assert role.scopes is not None
+    assert "org:scim:manage" not in role.scopes
 
 
 @pytest.mark.anyio

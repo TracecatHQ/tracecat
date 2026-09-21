@@ -8,6 +8,8 @@ from collections.abc import Iterator
 import pytest
 from sqlalchemy import event, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from tracecat_ee.rbac.router import list_groups
+from tracecat_ee.rbac.service import RBACService
 from tracecat_ee.scim.schemas import ExternalGroupMappingCreate
 from tracecat_ee.scim.service import SCIMService
 
@@ -39,6 +41,7 @@ from tracecat.exceptions import (
     TracecatConflictError,
     TracecatNotFoundError,
 )
+from tracecat.organization.service import OrgService
 from tracecat.pagination import PageParams, PaginationError
 
 
@@ -79,12 +82,7 @@ def _role(org: Organization, *scopes: str) -> Role:
 
 @pytest.fixture
 def admin_role(org: Organization) -> Role:
-    return _role(
-        org,
-        "org:rbac:read",
-        "org:rbac:create",
-        "org:rbac:delete",
-    )
+    return _role(org, "org:scim:manage")
 
 
 @pytest.fixture
@@ -274,7 +272,7 @@ async def test_list_mappings_excludes_other_organizations(
     their_group = await _make_group(session, other_org)
     await SCIMService(
         session,
-        _role(other_org, "org:rbac:read", "org:rbac:create"),
+        _role(other_org, "org:scim:manage"),
     ).create_mapping(external_group_id=their_external.id, group_id=their_group.id)
 
     listed = (await service.list_mappings(page=PageParams())).items
@@ -444,7 +442,7 @@ async def test_deleting_another_organizations_mapping_is_rejected(
     their_group = await _make_group(session, other_org)
     theirs = await SCIMService(
         session,
-        _role(other_org, "org:rbac:read", "org:rbac:create"),
+        _role(other_org, "org:scim:manage"),
     ).create_mapping(external_group_id=their_external.id, group_id=their_group.id)
 
     with pytest.raises(TracecatNotFoundError):
@@ -465,7 +463,7 @@ async def test_reading_another_organizations_mapping_is_rejected(
     their_group = await _make_group(session, other_org)
     theirs = await SCIMService(
         session,
-        _role(other_org, "org:rbac:read", "org:rbac:create"),
+        _role(other_org, "org:scim:manage"),
     ).create_mapping(external_group_id=their_external.id, group_id=their_group.id)
 
     with pytest.raises(TracecatNotFoundError):
@@ -478,38 +476,55 @@ async def test_reading_another_organizations_mapping_is_rejected(
 
 
 @pytest.mark.anyio
-async def test_listing_requires_the_read_scope(
+async def test_listing_requires_scim_management(
     session: AsyncSession, org: Organization
 ) -> None:
-    """Reads are refused without org:rbac:read."""
-    service = SCIMService(session, _role(org, "org:rbac:create"))
+    """Generic RBAC and member scopes do not expose the SCIM directory."""
+    service = SCIMService(session, _role(org, "org:rbac:*", "org:member:*"))
 
     with pytest.raises(TracecatAuthorizationError):
         await service.list_external_groups(page=PageParams())
     with pytest.raises(TracecatAuthorizationError):
         await service.list_mappings(page=PageParams())
+    with pytest.raises(TracecatAuthorizationError):
+        await service.get_mapping(uuid.uuid4())
+    with pytest.raises(TracecatAuthorizationError):
+        await service.review_activation([])
 
 
 @pytest.mark.anyio
-async def test_creating_requires_the_create_scope(
+async def test_scim_manager_can_list_targets_without_general_write_authority(
+    session: AsyncSession, org: Organization, admin_role: Role
+) -> None:
+    group = await _make_group(session, org)
+    targets = await list_groups(role=admin_role, session=session)
+    assert [target.id for target in targets.items] == [group.id]
+    with pytest.raises(TracecatAuthorizationError):
+        await RBACService(session, admin_role).create_group(name="Unauthorized")
+    with pytest.raises(TracecatAuthorizationError):
+        await OrgService(session, admin_role).delete_member(uuid.uuid4())
+
+
+@pytest.mark.anyio
+async def test_creating_requires_scim_management(
     session: AsyncSession, org: Organization
 ) -> None:
-    """A mapping is refused without org:rbac:create."""
+    """Creating RBAC objects does not grant control over SCIM mappings."""
     external = await seed_external_group(
         session, organization_id=org.id, external_id="idp-eng"
     )
     group = await _make_group(session, org)
-    service = SCIMService(session, _role(org, "org:rbac:read"))
+    service = SCIMService(session, _role(org, "org:rbac:*", "org:member:*"))
 
     with pytest.raises(TracecatAuthorizationError):
         await service.create_mapping(external_group_id=external.id, group_id=group.id)
 
 
 @pytest.mark.anyio
-async def test_deleting_requires_the_delete_scope(
+async def test_deleting_requires_scim_management(
     session: AsyncSession, org: Organization, service: SCIMService
 ) -> None:
-    """Removing a mapping is refused without org:rbac:delete."""
+    """Deleting RBAC objects does not grant control over SCIM mappings."""
     external = await seed_external_group(
         session, organization_id=org.id, external_id="idp-eng"
     )
@@ -517,10 +532,10 @@ async def test_deleting_requires_the_delete_scope(
     mapping = await service.create_mapping(
         external_group_id=external.id, group_id=group.id
     )
-    without_delete = SCIMService(session, _role(org, "org:rbac:read"))
+    without_scim = SCIMService(session, _role(org, "org:rbac:*", "org:member:*"))
 
     with pytest.raises(TracecatAuthorizationError):
-        await without_delete.delete_mapping(mapping.id)
+        await without_scim.delete_mapping(mapping.id)
 
 
 # =============================================================================
@@ -563,9 +578,7 @@ async def test_activation_admits_pushed_users_and_installs_mappings(
     # Nothing is admitted while the connection is pending.
     assert not await _is_member(session, user_id=user.id, organization_id=org.id)
 
-    role = _role(
-        org, "org:rbac:read", "org:rbac:create", "org:rbac:update", "org:member:remove"
-    )
+    role = _role(org, "org:scim:manage")
     await SCIMService(session, role).activate(
         [ExternalGroupMappingCreate(external_group_id=external.id, group_id=group.id)]
     )
@@ -692,9 +705,7 @@ async def test_activation_removes_existing_inactive_member_atomically(
     connection.status = ScimConnectionStatus.PENDING
     await session.commit()
     user_id, org_id, group_id, connection_id = user.id, org.id, group.id, connection.id
-    service = SCIMService(
-        session, _role(org, "org:rbac:update", "org:rbac:create", "org:member:remove")
-    )
+    service = SCIMService(session, _role(org, "org:scim:manage"))
     if invalid_mapping:
         with pytest.raises(TracecatNotFoundError):
             await service.activate(
@@ -707,6 +718,7 @@ async def test_activation_removes_existing_inactive_member_atomically(
         await session.rollback()
     else:
         await service.activate([])
+    assert service.role.scopes == frozenset({"org:scim:manage"})
     assert (
         await _is_member(session, user_id=user_id, organization_id=org_id)
         is invalid_mapping
@@ -787,11 +799,13 @@ async def test_activation_admission_uses_constant_write_count(
 
 
 @pytest.mark.anyio
-async def test_activation_requires_member_removal_permission(
+async def test_activation_requires_scim_management(
     session: AsyncSession, org: Organization
 ) -> None:
     with pytest.raises(TracecatAuthorizationError):
-        await SCIMService(session, _role(org, "org:rbac:update")).activate([])
+        await SCIMService(session, _role(org, "org:rbac:*", "org:member:*")).activate(
+            []
+        )
 
 
 @pytest.mark.anyio
@@ -831,7 +845,7 @@ async def test_external_groups_pagination_is_bounded_and_scoped(
     assert back.items == first.items
     with pytest.raises(PaginationError):
         await service.list_external_groups(page=PageParams(cursor="invalid"))
-    other_service = SCIMService(session, _role(other_org, "org:rbac:read"))
+    other_service = SCIMService(session, _role(other_org, "org:scim:manage"))
     with pytest.raises(PaginationError):
         await other_service.list_external_groups(
             page=PageParams(cursor=first.next_cursor)
@@ -879,7 +893,7 @@ async def test_mapping_pages_are_bounded_stable_and_org_scoped(
     assert await service.get_mapping(first.items[0].id) == first.items[0]
     with pytest.raises(PaginationError):
         await service.list_mappings(page=PageParams(cursor="invalid"))
-    other_service = SCIMService(session, _role(other_org, "org:rbac:read"))
+    other_service = SCIMService(session, _role(other_org, "org:scim:manage"))
     with pytest.raises(PaginationError):
         await other_service.list_mappings(page=PageParams(cursor=first.next_cursor))
     with pytest.raises(TracecatNotFoundError):

@@ -13786,7 +13786,7 @@ export const rbacDeleteRole = (
  * List Groups
  * List groups for the organization.
  *
- * Requires: org:rbac:read scope
+ * Requires: org:rbac:read or org:scim:manage to select mapping targets.
  * @returns GroupList Successful Response
  * @throws ApiError
  */

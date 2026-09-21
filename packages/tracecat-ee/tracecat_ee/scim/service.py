@@ -45,6 +45,7 @@ from tracecat.invitations.enums import InvitationStatus
 from tracecat.organization.service import OrgService
 from tracecat.pagination import Page, PageParams, paginate
 from tracecat.service import BaseOrgService
+from tracecat_ee.scim.credentials import SCIM_ROLE_SCOPES
 from tracecat_ee.scim.schemas import (
     ExternalGroupMappingCreate,
     ExternalGroupMappingRead,
@@ -64,7 +65,7 @@ class SCIMService(BaseOrgService):
     # Read-side operations for the admin mapping API
     # =========================================================================
 
-    @require_scope("org:rbac:read")
+    @require_scope("org:scim:manage")
     async def list_external_groups(
         self, *, page: PageParams
     ) -> Page[ExternalGroupRead]:
@@ -105,7 +106,7 @@ class SCIMService(BaseOrgService):
         )
         return result
 
-    @require_scope("org:rbac:read")
+    @require_scope("org:scim:manage")
     async def get_mapping(self, mapping_id: UUID) -> ExternalGroupMappingRead:
         """Read one mapping with both sides joined in.
 
@@ -125,7 +126,7 @@ class SCIMService(BaseOrgService):
             raise TracecatNotFoundError("External group mapping not found")
         return result.items[0]
 
-    @require_scope("org:rbac:read")
+    @require_scope("org:scim:manage")
     async def list_mappings(
         self, *, page: PageParams
     ) -> Page[ExternalGroupMappingRead]:
@@ -301,7 +302,7 @@ class SCIMService(BaseOrgService):
         await lock_role_changes(self.session, self.organization_id)
         # Serializes concurrent replacements: without it two pushes can each
         # delete nothing and insert independently, leaving their union.
-        await self._get_external_group(external_group_id, for_update=True)
+        group = await self._get_external_group(external_group_id, for_update=True)
         desired = set(external_user_ids)
 
         stale = delete(ExternalGroupMember).where(
@@ -331,9 +332,12 @@ class SCIMService(BaseOrgService):
                     ]
                 )
             )
+        # Membership changes also modify the SCIM group resource's metadata.
+        group.updated_at = func.now()
         await self.session.flush()
+        await self.session.refresh(group, attribute_names=["updated_at"])
 
-    @require_scope("org:rbac:create")
+    @require_scope("org:scim:manage")
     @audit_log(
         resource_type="scim_group_mapping",
         action="create",
@@ -386,7 +390,7 @@ class SCIMService(BaseOrgService):
         await self.session.flush()
         return mapping
 
-    @require_scope("org:rbac:delete")
+    @require_scope("org:scim:manage")
     @audit_log(
         resource_type="scim_group_mapping",
         action="delete",
@@ -425,7 +429,7 @@ class SCIMService(BaseOrgService):
     # Activation review
     # =========================================================================
 
-    @require_scope("org:rbac:read")
+    @require_scope("org:scim:manage")
     async def review_activation(
         self, proposed: Sequence[ExternalGroupMappingCreate]
     ) -> ScimActivationReviewRead:
@@ -449,7 +453,7 @@ class SCIMService(BaseOrgService):
         ]
         return ScimActivationReviewRead(users=users, plans=plans)
 
-    @require_scope("org:rbac:update", "org:member:remove")
+    @require_scope("org:scim:manage")
     @audit_log(resource_type="scim_connection", action="update")
     async def activate(self, proposed: Sequence[ExternalGroupMappingCreate]) -> None:
         """Admit the pushed directory and install the reviewed mappings.
@@ -480,7 +484,10 @@ class SCIMService(BaseOrgService):
         self.session.add(connection)
         await self.session.flush()
 
-        await self._admit_pushed_users()
+        # Activation delegates the same provisioning authority as the IdP token,
+        # while retaining the administrator as the audit actor.
+        provisioning_role = self.role.model_copy(update={"scopes": SCIM_ROLE_SCOPES})
+        await SCIMService(self.session, provisioning_role)._admit_pushed_users()
         for mapping in proposed:
             await self.create_mapping(
                 external_group_id=mapping.external_group_id,
