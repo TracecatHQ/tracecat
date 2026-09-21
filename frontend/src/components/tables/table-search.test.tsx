@@ -321,6 +321,71 @@ test("long-row progress does not claim ready after backfill and retries only dis
   )
 })
 
+test.each(["provider", "index"] as const)(
+  "failed row retries stay disabled while the %s is paused and recover after refresh",
+  async (pausedSource) => {
+    configuration = {
+      ...configuration,
+      selected_column_ids: [column.id],
+      status: "needs_attention",
+      index: {
+        ...configuration.index,
+        state: pausedSource === "index" ? "paused" : "active",
+        failed: 1,
+        pending: 0,
+        backfill_complete: true,
+      },
+    }
+    jest.mocked(searchGetEmbeddingConfiguration).mockResolvedValue({
+      ...available,
+      state: pausedSource === "provider" ? "paused" : "active",
+    })
+    jest.mocked(tablesGetTableSearchProgress).mockResolvedValue({
+      generation: 2,
+      items: [
+        {
+          document_id: "doc-synthetic",
+          row_id: "row-synthetic",
+          state: "failed",
+          revision: 1,
+          expected_chunks: 1,
+          sampled_chunks: 1,
+          sampled_embedded: 0,
+          chunks_capped: false,
+          error_code: "TIMEOUT",
+        },
+      ],
+    })
+    setup(<TableSearchStatus />)
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name:
+          pausedSource === "provider"
+            ? "Semantic search: Unavailable"
+            : "Semantic search: Needs attention",
+      })
+    )
+    const retry = await screen.findByRole("button", {
+      name: "Retry failed rows on this page",
+    })
+    expect(retry).toBeDisabled()
+    fireEvent.click(retry)
+    expect(tablesRetryTableSearch).not.toHaveBeenCalled()
+
+    configuration = {
+      ...configuration,
+      index: { ...configuration.index, state: "active" },
+    }
+    jest.mocked(searchGetEmbeddingConfiguration).mockResolvedValue(available)
+    fireEvent.click(
+      screen.getByRole("button", { name: "Refresh search status" })
+    )
+    await waitFor(() => expect(retry).toBeEnabled())
+    fireEvent.click(retry)
+    await waitFor(() => expect(tablesRetryTableSearch).toHaveBeenCalledTimes(1))
+  }
+)
+
 test("provider failures show attention and credential-only rotation does not announce rebuild", async () => {
   configuration = {
     ...configuration,

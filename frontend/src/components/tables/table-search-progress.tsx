@@ -99,6 +99,8 @@ export function TableSearchProgress() {
             size="sm"
             variant="outline"
             disabled={
+              search.provider.data?.state !== "active" ||
+              search.configuration.data?.index?.state !== "active" ||
               search.retry.isPending ||
               search.selection.isPending ||
               progress.isFetching
