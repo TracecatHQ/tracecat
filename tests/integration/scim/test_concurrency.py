@@ -33,11 +33,16 @@ from tracecat.db.models import (
     ExternalUser,
     Group,
     GroupMember,
+    GroupRoleAssignment,
+    Membership,
     Organization,
     OrganizationMembership,
     ScimConnection,
     User,
+    UserRoleAssignment,
+    Workspace,
 )
+from tracecat.db.models import Role as DBRole
 from tracecat.exceptions import TracecatConflictError, TracecatNotFoundError
 
 pytestmark = [pytest.mark.anyio, pytest.mark.usefixtures("db")]
@@ -420,3 +425,248 @@ async def test_duplicate_first_provisioning_links_the_winning_account(
         async with AsyncSession(cohort.engine) as session:
             await session.execute(delete(User).where(User.__table__.c.email == email))
             await session.commit()
+
+
+@pytest.fixture
+async def mapped_directory(
+    cohort: Cohort,
+) -> AsyncIterator[tuple[uuid.UUID, uuid.UUID, uuid.UUID]]:
+    """Three admitted users, one unadmitted shadow, and independent access paths."""
+    workspace_id, manual_id, role_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    async with AsyncSession(cohort.engine, expire_on_commit=False) as session:
+        session.add_all(
+            [
+                Workspace(
+                    id=workspace_id, organization_id=cohort.org_id, name="Lifecycle"
+                ),
+                Group(id=manual_id, organization_id=cohort.org_id, name="Independent"),
+                DBRole(id=role_id, organization_id=cohort.org_id, name="Access"),
+                ExternalUser(
+                    id=uuid.uuid4(),
+                    organization_id=cohort.org_id,
+                    user_id=cohort.users[3],
+                    external_id="unadmitted",
+                    active=True,
+                ),
+            ]
+        )
+        await session.flush()
+        external_ids = list(
+            (
+                await session.scalars(
+                    select(ExternalUser.id).where(
+                        ExternalUser.organization_id == cohort.org_id
+                    )
+                )
+            ).all()
+        )
+        service = SCIMService(session, cohort.role)
+        await service.replace_external_group_members(cohort.source_id, external_ids)
+        mapping = await service.create_mapping(
+            external_group_id=cohort.source_id, group_id=cohort.group_id
+        )
+        for group_id in (cohort.group_id, manual_id):
+            session.add(
+                GroupRoleAssignment(
+                    id=uuid.uuid4(),
+                    organization_id=cohort.org_id,
+                    group_id=group_id,
+                    role_id=role_id,
+                    workspace_id=workspace_id,
+                )
+            )
+        for user_id in cohort.users[:2]:
+            session.add(
+                GroupMember(
+                    organization_id=cohort.org_id, group_id=manual_id, user_id=user_id
+                )
+            )
+            session.add(
+                UserRoleAssignment(
+                    id=uuid.uuid4(),
+                    organization_id=cohort.org_id,
+                    user_id=user_id,
+                    role_id=role_id,
+                    workspace_id=workspace_id,
+                )
+            )
+        await session.commit()
+        mapping_id = mapping.id
+    try:
+        yield mapping_id, workspace_id, manual_id
+    finally:
+        async with AsyncSession(cohort.engine) as session:
+            await session.execute(delete(Workspace).where(Workspace.id == workspace_id))
+            await session.commit()
+
+
+async def change_directory_group(
+    cohort: Cohort, mapping_id: uuid.UUID, operation: str, session: AsyncSession
+) -> None:
+    role = cohort.role.model_copy(
+        update={"scopes": (cohort.role.scopes or frozenset()) | {"org:rbac:delete"}}
+    )
+    service = SCIMService(session, role)
+    if operation == "unmap":
+        await service.delete_mapping(mapping_id)
+    elif operation == "delete":
+        await service.delete_external_group(cohort.source_id)
+    else:
+        # Remove only user 0; leave both peers and the unadmitted shadow in place.
+        external_ids = list(
+            (
+                await session.scalars(
+                    select(ExternalUser.id).where(
+                        ExternalUser.organization_id == cohort.org_id,
+                        ExternalUser.user_id != cohort.users[0],
+                    )
+                )
+            ).all()
+        )
+        await service.replace_external_group_members(cohort.source_id, external_ids)
+    await session.commit()
+
+
+async def assert_directory_outcome(
+    cohort: Cohort,
+    directory: tuple[uuid.UUID, uuid.UUID, uuid.UUID],
+    operation: str,
+    deprovisioned: bool,
+) -> None:
+    _, workspace_id, manual_id = directory
+    admitted = set(cohort.users[1:3] if deprovisioned else cohort.users[:3])
+    independent = set(cohort.users[1:2] if deprovisioned else cohort.users[:2])
+    async with AsyncSession(cohort.engine) as session:
+        assert (
+            set(
+                (
+                    await session.scalars(
+                        select(OrganizationMembership.user_id).where(
+                            OrganizationMembership.organization_id == cohort.org_id
+                        )
+                    )
+                ).all()
+            )
+            == admitted
+        )
+        for statement in (
+            select(GroupMember.user_id).where(GroupMember.group_id == manual_id),
+            select(UserRoleAssignment.user_id).where(
+                UserRoleAssignment.organization_id == cohort.org_id
+            ),
+        ):
+            assert set((await session.scalars(statement)).all()) == independent
+        retained = set(
+            (
+                await session.scalars(
+                    select(GroupMember.user_id).where(
+                        GroupMember.group_id == cohort.group_id
+                    )
+                )
+            ).all()
+        )
+        assert retained == (admitted if operation == "unmap" else set())
+        paths = set(
+            (
+                await session.scalars(
+                    select(Membership.user_id).where(
+                        Membership.workspace_id == workspace_id
+                    )
+                )
+            ).all()
+        )
+        assert paths == (independent if operation == "delete" else admitted)
+        external = dict(
+            (
+                await session.execute(
+                    select(ExternalUser.user_id, ExternalUser.active).where(
+                        ExternalUser.organization_id == cohort.org_id
+                    )
+                )
+            )
+            .tuples()
+            .all()
+        )
+        assert external == {
+            uid: not (deprovisioned and uid == cohort.users[0]) for uid in cohort.users
+        }
+        # Deprovisioning preserves identities; it never disables the global account.
+        assert set(
+            (
+                await session.scalars(
+                    select(User.__table__.c.id).where(
+                        User.__table__.c.id.in_(cohort.users),
+                        User.__table__.c.is_active.is_(True),
+                    )
+                )
+            ).all()
+        ) == set(cohort.users)
+
+
+@pytest.mark.parametrize("operation", ["remove_member", "delete", "unmap"])
+@pytest.mark.parametrize("deprovision_order", ["never", "before", "after"])
+async def test_group_changes_and_user_deprovisioning_have_distinct_effects(
+    cohort: Cohort,
+    mapped_directory: tuple[uuid.UUID, uuid.UUID, uuid.UUID],
+    operation: str,
+    deprovision_order: str,
+) -> None:
+    async with AsyncSession(cohort.engine, expire_on_commit=False) as session:
+        service = SCIMService(session, cohort.role)
+        if deprovision_order == "before":
+            await service.deprovision_user(cohort.users[0])
+        await change_directory_group(cohort, mapped_directory[0], operation, session)
+        if deprovision_order == "after":
+            # In the unmap case this must remove the newly retained manual row too.
+            await service.deprovision_user(cohort.users[0])
+    await assert_directory_outcome(
+        cohort, mapped_directory, operation, deprovision_order != "never"
+    )
+    if deprovision_order != "never":
+        async with AsyncSession(cohort.engine, expire_on_commit=False) as session:
+            service = SCIMService(session, cohort.role)
+            external = await session.get(ExternalUser, cohort.external[0])
+            assert external is not None
+            await service.reactivate_external_user(external)
+            await session.commit()
+        async with AsyncSession(cohort.engine) as session:
+            assert (
+                await session.get(
+                    OrganizationMembership, (cohort.users[0], cohort.org_id)
+                )
+                is not None
+            )
+            # Every tested operation removed this user's source path; reactivation
+            # must not resurrect old direct or retained/manual paths.
+            assert (
+                await session.scalars(
+                    select(Membership.user_id).where(
+                        Membership.workspace_id == mapped_directory[1],
+                        Membership.user_id == cohort.users[0],
+                    )
+                )
+            ).all() == []
+
+
+@pytest.mark.parametrize("operation", ["delete", "unmap"])
+@pytest.mark.parametrize("deprovision_first", [False, True])
+async def test_group_removal_racing_deprovision_never_retains_offboarded_user(
+    cohort: Cohort,
+    mapped_directory: tuple[uuid.UUID, uuid.UUID, uuid.UUID],
+    monkeypatch: pytest.MonkeyPatch,
+    operation: str,
+    deprovision_first: bool,
+) -> None:
+    async def deprovision(session: AsyncSession) -> None:
+        await SCIMService(session, cohort.role).deprovision_user(cohort.users[0])
+
+    async def group_change(session: AsyncSession) -> None:
+        await change_directory_group(cohort, mapped_directory[0], operation, session)
+
+    await interleave(
+        cohort,
+        monkeypatch,
+        deprovision if deprovision_first else group_change,
+        group_change if deprovision_first else deprovision,
+    )
+    await assert_directory_outcome(cohort, mapped_directory, operation, True)
