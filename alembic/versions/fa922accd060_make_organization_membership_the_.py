@@ -44,6 +44,10 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 
 from alembic import op
+from tracecat.db.tenant_rls import (
+    disable_org_table_rls,
+    enable_group_member_table_rls,
+)
 
 # revision identifiers, used by Alembic.
 revision: str = "fa922accd060"
@@ -53,6 +57,7 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
+    op.execute(enable_group_member_table_rls())
     op.add_column(
         "group_member",
         sa.Column("organization_id", sa.UUID(), nullable=True),
@@ -191,6 +196,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.execute(disable_org_table_rls("group_member"))
     op.execute(
         "DROP TRIGGER IF EXISTS trg_organization_membership_revoke_mcp_tokens "
         "ON organization_membership"

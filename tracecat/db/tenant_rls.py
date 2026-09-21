@@ -221,6 +221,25 @@ def disable_oauth_state_special_rls() -> str:
     """
 
 
+def enable_group_member_table_rls() -> str:
+    """Scope legacy nullable membership rows through their owning group."""
+    return f"""
+        ALTER TABLE group_member ENABLE ROW LEVEL SECURITY;
+        CREATE POLICY {policy_name("group_member")} ON group_member
+            FOR ALL
+            USING (
+                current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}'
+                OR EXISTS (
+                    SELECT 1 FROM "group" AS parent_group
+                    WHERE parent_group.id = group_member.group_id
+                      AND parent_group.organization_id = NULLIF(
+                          current_setting('app.current_org_id', true), ''
+                      )::uuid
+                )
+            );
+    """
+
+
 def enable_org_table_rls(table: str) -> str:
     return f"""
         ALTER TABLE "{table}" ENABLE ROW LEVEL SECURITY;
