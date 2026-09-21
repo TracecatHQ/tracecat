@@ -398,3 +398,27 @@ async def test_other_workspace_mixed_dimensions_are_filtered_before_cosine(retri
     page = await case.search()
     assert [item.row_id for item in page.items] == [own]
     assert foreign != own
+
+
+async def test_valid_emoji_query_is_searchable(retrieval):
+    await retrieval.row()
+    page = await retrieval.service.search(
+        retrieval.name, SearchRequest(query="synthetic 😀")
+    )
+    assert len(page.items) == 1
+
+
+async def test_invalid_missing_and_legacy_table_names(retrieval):
+    with pytest.raises(SearchError) as invalid:
+        await retrieval.service.search("missing-table", SearchRequest(query="query"))
+    assert invalid.value.code == SearchErrorCode.INVALID_TABLE_NAME
+    assert invalid.value.__context__ is None
+    with pytest.raises(TracecatNotFoundError):
+        await retrieval.service.search("missing_table", SearchRequest(query="query"))
+    # Historical display names can contain punctuation. Exact metadata lookup
+    # remains valid even though new identifiers cannot contain it.
+    table = await retrieval.tables.get_table_by_name(retrieval.name)
+    table.name = f"{retrieval.name}-"
+    await retrieval.tables.session.commit()
+    page = await retrieval.service.search(table.name, SearchRequest(query="query"))
+    assert page.items == []

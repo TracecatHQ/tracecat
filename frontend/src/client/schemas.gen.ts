@@ -24526,6 +24526,7 @@ export const $SearchErrorCode = {
     "CONFIGURATION_CHANGED",
     "PROVIDER_UNAVAILABLE",
     "INVALID_CURSOR",
+    "INVALID_TABLE_NAME",
   ],
   title: "SearchErrorCode",
   description:

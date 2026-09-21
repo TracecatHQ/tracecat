@@ -101,14 +101,22 @@ class TableRetrievalService:
     async def search(self, table_name: str, request: SearchRequest) -> SearchPage:
         """Authorize and reconcile on every page; continuations never re-embed."""
         async with TablesService.with_session(role=self.role) as tables:
-            table_id = (await tables.get_table_by_name(table_name)).id
+            try:
+                table = await tables.get_table_by_name(table_name)
+            except ValueError:
+                table = None
+            if table is None:
+                raise SearchError(SearchErrorCode.INVALID_TABLE_NAME)
+            table_id = table.id
         configuration = await resolve_embedding_configuration(self.scope)
         if configuration is None:
             raise EmbeddingError(EmbeddingErrorCode.NOT_CONFIGURED)
         spec = configuration.spec
         if not request.query.strip() or len(request.query) > spec.input_character_limit:
             raise EmbeddingError(EmbeddingErrorCode.INPUT_INVALID)
-        count = await asyncio.to_thread(token_counter(spec).count_tokens, request.query)
+        count = await asyncio.to_thread(
+            lambda: token_counter(spec).count_tokens(request.query)
+        )
         if count > min(512, spec.input_token_limit, spec.batch_token_limit):
             raise EmbeddingError(EmbeddingErrorCode.INPUT_INVALID)
         async with TableSearchSource.with_session(scope=self.scope) as store:
