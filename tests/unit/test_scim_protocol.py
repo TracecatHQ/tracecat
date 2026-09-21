@@ -5,13 +5,14 @@ from __future__ import annotations
 import uuid
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from typing import Any, get_args
 
 import httpx
 import pytest
 from fastapi import FastAPI, HTTPException, Request, Response, status
 from fastapi.exceptions import RequestValidationError
-from sqlalchemy import event, func, select
+from sqlalchemy import event, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.scim.credentials import ScimConnectionRole
 from tracecat_ee.scim.protocol import (
@@ -533,11 +534,18 @@ async def test_group_membership_projects_into_tracecat_group(
     await session.flush()
     # An admin authors the mapping; the connection role cannot, so this seeds
     # it with the org scopes rather than the token's.
-    admin_role = scim_role.model_copy(update={"scopes": frozenset({"org:rbac:create"})})
+    admin_role = scim_role.model_copy(update={"scopes": frozenset({"org:scim:manage"})})
     await SCIMService(session, admin_role).create_mapping(
         external_group_id=external_group_id, group_id=group.id
     )
     await session.flush()
+    old_modified = datetime(2000, 1, 1, tzinfo=UTC)
+    age_group = (
+        update(ExternalGroup)
+        .where(ExternalGroup.id == external_group_id)
+        .values(updated_at=old_modified)
+    )
+    await session.execute(age_group)
 
     added = await client.patch(
         f"/scim/v2/Groups/{external_group_id}",
@@ -554,6 +562,9 @@ async def test_group_membership_projects_into_tracecat_group(
     )
     assert added.status_code == status.HTTP_200_OK
     assert await _idp_member_count(session, group.id, user_id) == 1
+    assert datetime.fromisoformat(added.json()["meta"]["lastModified"]) > old_modified
+
+    await session.execute(age_group)
 
     removed = await client.patch(
         f"/scim/v2/Groups/{external_group_id}",
@@ -570,6 +581,9 @@ async def test_group_membership_projects_into_tracecat_group(
     )
     assert removed.status_code == status.HTTP_200_OK
     assert await _idp_member_count(session, group.id, user_id) == 0
+    assert datetime.fromisoformat(removed.json()["meta"]["lastModified"]) > old_modified
+    fetched = await client.get(f"/scim/v2/Groups/{external_group_id}")
+    assert fetched.json()["meta"] == removed.json()["meta"]
 
 
 async def _idp_member_count(
@@ -620,6 +634,14 @@ async def test_put_group_replaces_member_list(
     )
     group_id = created.json()["id"]
 
+    assert created.json()["meta"]["created"] == created.json()["meta"]["lastModified"]
+    old_modified = datetime(2000, 1, 1, tzinfo=UTC)
+    await session.execute(
+        update(ExternalGroup)
+        .where(ExternalGroup.id == uuid.UUID(group_id))
+        .values(updated_at=old_modified)
+    )
+
     replaced = await client.put(
         f"/scim/v2/Groups/{group_id}",
         json={
@@ -632,6 +654,11 @@ async def test_put_group_replaces_member_list(
     assert replaced.status_code == status.HTTP_200_OK
     values = {m["value"] for m in replaced.json()["members"]}
     assert values == {str(second)}
+    assert (
+        datetime.fromisoformat(replaced.json()["meta"]["lastModified"]) > old_modified
+    )
+    fetched = await client.get(f"/scim/v2/Groups/{group_id}")
+    assert fetched.json()["meta"] == replaced.json()["meta"]
 
 
 @pytest.mark.anyio
@@ -991,7 +1018,7 @@ async def test_pending_deactivation_survives_activation(
         type="service",
         service_id="tracecat-api",
         organization_id=org.id,
-        scopes=frozenset({"org:rbac:update", "org:member:remove"}),
+        scopes=frozenset({"org:scim:manage"}),
     )
     await SCIMService(session, role).activate([])
     external = (

@@ -65,6 +65,7 @@ class Cohort:
             organization_id=self.org_id,
             scopes=frozenset(
                 {
+                    "org:scim:manage",
                     "org:rbac:read",
                     "org:rbac:create",
                     "org:rbac:update",

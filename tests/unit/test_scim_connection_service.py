@@ -17,7 +17,6 @@ from tracecat.auth.api_keys import (
     verify_api_key,
 )
 from tracecat.auth.types import Role
-from tracecat.authz.scopes import ORG_ADMIN_SCOPES
 from tracecat.db.models import Organization, ScimConnection, User
 from tracecat.exceptions import ScopeDeniedError, TracecatNotFoundError
 
@@ -56,7 +55,7 @@ def admin_role(org: Organization, admin_user: User) -> Role:
         user_id=admin_user.id,
         organization_id=org.id,
         service_id="tracecat-api",
-        scopes=ORG_ADMIN_SCOPES,
+        scopes=frozenset({"org:scim:manage"}),
     )
 
 
@@ -161,7 +160,7 @@ async def test_one_connection_per_organization(
 async def test_issue_token_requires_scope(
     session: AsyncSession, org: Organization
 ) -> None:
-    """A role without the RBAC create scope cannot issue a token."""
+    """Unrelated membership permissions do not allow issuing a token."""
     unprivileged = Role(
         type="user",
         user_id=uuid.uuid4(),
@@ -175,20 +174,22 @@ async def test_issue_token_requires_scope(
 
 
 @pytest.mark.anyio
-async def test_issue_token_requires_the_scopes_it_mints(
+async def test_connection_management_requires_explicit_scim_permission(
     session: AsyncSession, org: Organization
 ) -> None:
-    """Holding the RBAC create scope is not enough to mint member-removal authority.
-
-    The token carries SCIM_ROLE_SCOPES, so the issuer must hold them too.
-    """
+    """Even full RBAC and member authority does not grant SCIM administration."""
     partial = Role(
         type="user",
         user_id=uuid.uuid4(),
         organization_id=org.id,
         service_id="tracecat-api",
-        scopes=frozenset({"org:rbac:create"}),
+        scopes=frozenset({"org:rbac:*", "org:member:*"}),
     )
     service = ScimConnectionService(session, role=partial)
     with pytest.raises(ScopeDeniedError):
         await service.issue_token()
+
+    with pytest.raises(ScopeDeniedError):
+        await service.get_connection()
+    with pytest.raises(ScopeDeniedError):
+        await service.revoke()
