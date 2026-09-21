@@ -80,7 +80,6 @@ jest.mock("@/components/ui/select", () => ({
 
 const preview = {
   users: [{ id: "user", email: "eligible@example.com", active: true }],
-  groups: [],
   plans: [
     {
       external_group_id: "source",

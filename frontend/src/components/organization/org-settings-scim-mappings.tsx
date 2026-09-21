@@ -71,8 +71,14 @@ export function OrgSettingsScimMappings({
   const canRemoveMembers = useScopeCheck("org:member:remove")
   const canDelete = useScopeCheck("org:rbac:delete")
 
-  const { externalGroups, externalGroupsIsLoading, externalGroupsError } =
-    useScimExternalGroups()
+  const {
+    externalGroups,
+    externalGroupsIsLoading,
+    externalGroupsError,
+    externalGroupsHasNextPage,
+    externalGroupsIsFetchingNextPage,
+    fetchNextExternalGroups,
+  } = useScimExternalGroups()
   const {
     mappings,
     mappingsIsLoading,
@@ -311,6 +317,20 @@ export function OrgSettingsScimMappings({
                   ))}
                 </SelectContent>
               </Select>
+              {externalGroupsHasNextPage && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={externalGroupsIsFetchingNextPage}
+                  onClick={() => {
+                    void fetchNextExternalGroups()
+                  }}
+                >
+                  {externalGroupsIsFetchingNextPage
+                    ? "Loading groups…"
+                    : "Load more groups"}
+                </Button>
+              )}
             </div>
 
             <div className="min-w-[220px] flex-1 space-y-2">

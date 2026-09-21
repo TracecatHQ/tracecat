@@ -3,10 +3,10 @@
 import {
   type ExternalGroupMappingCreate,
   type ExternalGroupMappingRead,
-  type ExternalGroupRead,
   type ScimActivationReviewRead,
   type ScimConnectionRead,
   type ScimConnectionTokenRead,
+  type ScimListExternalGroupsResponse,
   scimActivateScimConnection,
   scimCreateScimMapping,
   scimDeleteScimMapping,
@@ -19,7 +19,12 @@ import {
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
 import { getApiErrorDetail, type TracecatApiError } from "@/lib/errors"
-import { useMutation, useQuery, useQueryClient } from "@/lib/query"
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@/lib/query"
 
 const SCIM_CONNECTION_KEY = ["scim-connection"]
 const SCIM_EXTERNAL_GROUPS_KEY = ["scim-external-groups"]
@@ -104,18 +109,29 @@ export function useScimConnection() {
   }
 }
 
-/** List the IdP groups the identity provider has pushed so far. */
+/** Fetch synced groups in bounded pages as the administrator requests them. */
 export function useScimExternalGroups() {
-  const {
-    data: externalGroups,
-    isLoading: externalGroupsIsLoading,
-    error: externalGroupsError,
-  } = useQuery<ExternalGroupRead[], TracecatApiError>({
+  const query = useInfiniteQuery<
+    ScimListExternalGroupsResponse,
+    TracecatApiError
+  >({
     queryKey: SCIM_EXTERNAL_GROUPS_KEY,
-    queryFn: async () => await scimListExternalGroups(),
+    queryFn: async ({ pageParam }) =>
+      await scimListExternalGroups({
+        limit: 50,
+        cursor: typeof pageParam === "string" ? pageParam : undefined,
+      }),
+    initialPageParam: null,
+    getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
   })
-
-  return { externalGroups, externalGroupsIsLoading, externalGroupsError }
+  return {
+    externalGroups: query.data?.pages.flatMap((page) => page.items),
+    externalGroupsIsLoading: query.isLoading,
+    externalGroupsError: query.error,
+    externalGroupsHasNextPage: query.hasNextPage,
+    externalGroupsIsFetchingNextPage: query.isFetchingNextPage,
+    fetchNextExternalGroups: query.fetchNextPage,
+  }
 }
 
 /**
