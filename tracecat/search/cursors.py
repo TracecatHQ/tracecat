@@ -52,6 +52,11 @@ class WindowStore:
     def __init__(self, scope: SearchScope):
         self.prefix = f"search:{{{scope.organization_id}:{scope.workspace_id}}}:"
 
+    async def check_available(self) -> None:
+        """Require Redis availability without occupying a pagination slot."""
+        client = await RedisClient()._get_client()
+        await cast(Awaitable[bool], client.ping())
+
     async def save(self, window: SearchWindow) -> str:
         """Persist a window atomically with workspace eviction bookkeeping."""
         identifier = secrets.token_hex(16)

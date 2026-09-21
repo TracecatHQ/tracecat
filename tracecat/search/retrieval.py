@@ -182,9 +182,12 @@ class TableRetrievalService:
                 position += 1
         has_more = position < len(window.references)
         if vector is not None:
-            # Persist even single-page windows: Redis availability is part of the
-            # protocol, never an excuse to silently change pagination semantics.
-            identifier = await windows.save(window)
+            if has_more:
+                identifier = await windows.save(window)
+            else:
+                # Require Redis even without a cursor, but do not evict active
+                # pagination windows for results that cannot be continued.
+                await windows.check_available()
         return SearchPage(
             items=items,
             next_cursor=windows.cursor(identifier, window, position)

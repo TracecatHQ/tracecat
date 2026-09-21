@@ -248,6 +248,34 @@ async def test_cursor_context_tampering_expiry_and_eviction(retrieval):
         await case.search(limit=1, cursor=page.next_cursor)
 
 
+async def test_single_page_searches_preserve_active_cursor(retrieval):
+    case = retrieval
+    ids = sorted([await case.row(), await case.row()])
+    first = await case.search(limit=1)
+    assert first.next_cursor is not None
+    store = WindowStore(case.service.scope)
+    client = await RedisClient()._get_client()
+    for _ in range(32):
+        page = await case.search(limit=2)
+        assert len(page.items) == 2
+        assert not page.has_more and page.next_cursor is None
+    assert await client.zcard(store.prefix + "windows") == 1
+    last = await case.search(limit=1, cursor=first.next_cursor)
+    assert [item.row_id for item in last.items] == [ids[1]]
+    assert not last.has_more
+    assert len(case.server.calls) == 33
+
+
+async def test_empty_search_does_not_retain_a_window(retrieval):
+    case = retrieval
+    page = await case.search()
+    assert page.items == []
+    assert not page.has_more and page.next_cursor is None
+    store = WindowStore(case.service.scope)
+    client = await RedisClient()._get_client()
+    assert await client.zcard(store.prefix + "windows") == 0
+
+
 async def test_deleted_and_edited_rows_are_skipped_without_refill(retrieval):
     case = retrieval
     ids = sorted([await case.row() for _ in range(4)])

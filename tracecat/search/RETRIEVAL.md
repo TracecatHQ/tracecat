@@ -24,7 +24,9 @@ descending, then row UUID; tied chunks use stable column UUID then ordinal.
 Ranking has a two-second statement timeout. Scores are similarities, not
 probabilities or confidence estimates.
 
-Redis stores at most 32 windows per workspace, each for five minutes. A window
+Redis stores at most 32 windows per workspace, each for five minutes. First pages
+without a continuation cursor check Redis availability without storing a window,
+so empty or single-page searches cannot evict active pagination. A window
 contains at most 100 row/revision/chunk references and scores, never query or
 source text. Its context hash binds actor identity/scopes, query/options,
 collection generation and embedding version. Cursors authenticate window and
