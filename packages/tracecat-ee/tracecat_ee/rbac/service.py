@@ -604,8 +604,9 @@ class RBACService(BaseOrgService):
             stmt = stmt.where(GroupRoleAssignment.group_id == group_id)
         if user_id is not None:
             stmt = stmt.join(
-                GroupMember, GroupMember.group_id == GroupRoleAssignment.group_id
-            ).where(GroupMember.user_id == user_id)
+                effective_group_members,
+                effective_group_members.c.group_id == GroupRoleAssignment.group_id,
+            ).where(effective_group_members.c.user_id == user_id)
         if workspace_id is not None:
             stmt = stmt.where(GroupRoleAssignment.workspace_id == workspace_id)
 

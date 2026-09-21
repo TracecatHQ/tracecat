@@ -25072,6 +25072,16 @@ export const $ScimMappingPlanRead = {
       type: "array",
       title: "Manual Members Purged",
     },
+    manual_member_emails: {
+      additionalProperties: {
+        type: "string",
+      },
+      propertyNames: {
+        format: "uuid",
+      },
+      type: "object",
+      title: "Manual Member Emails",
+    },
     users_gaining_access: {
       items: {
         type: "string",
@@ -25096,6 +25106,7 @@ export const $ScimMappingPlanRead = {
     "group_id",
     "group_name",
     "manual_members_purged",
+    "manual_member_emails",
     "users_gaining_access",
     "users_losing_access",
   ],

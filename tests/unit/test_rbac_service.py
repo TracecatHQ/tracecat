@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.rbac.schemas import (
     RoleAssignmentSnapshot,
@@ -19,6 +19,8 @@ from tests.support.membership import (
     grant_org_membership_via_group,
     grant_workspace_membership,
     seed_external_group,
+    seed_external_group_members,
+    seed_external_user,
 )
 from tracecat.auth.types import Role
 from tracecat.authz.enums import ScopeSource
@@ -32,6 +34,7 @@ from tracecat.authz.service import query_effective_scopes
 from tracecat.db.models import (
     AccessToken,
     ExternalGroupMapping,
+    ExternalUser,
     Group,
     GroupMember,
     GroupRoleAssignment,
@@ -1580,6 +1583,65 @@ class TestAtomicRoleEdits:
             user_id=member.id
         )
         assert [a.id for a in grants] == [own_grant.id]
+
+
+@pytest.mark.anyio
+async def test_idp_group_roles_are_visible_and_protect_role_edit_snapshots(
+    session: AsyncSession,
+    role: Role,
+    org: Organization,
+    workspace: Workspace,
+    user: User,
+) -> None:
+    await seed_system_roles_for_org(session, org.id)
+    group, grant = await _workspace_group(session, org, workspace, user)
+    user_id, workspace_id = user.id, workspace.id
+    await session.execute(
+        delete(GroupMember).where(
+            GroupMember.group_id == group.id, GroupMember.user_id == user.id
+        )
+    )
+    await session.commit()
+    service = RBACService(session, role=role)
+    before_mapping = await _replacement(service, user.id)
+    external = await seed_external_group(
+        session, organization_id=org.id, external_id="idp-role-review"
+    )
+    external_user_id = await seed_external_user(
+        session, organization_id=org.id, user_id=user.id
+    )
+    await seed_external_group_members(
+        session, external_group_id=external.id, external_user_ids=[external_user_id]
+    )
+    session.add(
+        ExternalGroupMapping(
+            organization_id=org.id, external_group_id=external.id, group_id=group.id
+        )
+    )
+    await session.commit()
+
+    grants = await service.list_group_role_assignments(
+        user_id=user.id, workspace_id=workspace.id
+    )
+    assert [a.id for a in grants] == [grant.id]
+    with pytest.raises(TracecatConflictError, match="group access changed"):
+        await service.replace_user_assignments(before_mapping)
+
+    before_deactivation = await _replacement(service, user_id)
+    await session.execute(
+        update(ExternalUser)
+        .where(ExternalUser.id == external_user_id)
+        .values(active=False)
+    )
+    await session.commit()
+    assert (
+        await service.list_group_role_assignments(
+            user_id=user_id, workspace_id=workspace_id
+        )
+        == []
+    )
+    with pytest.raises(TracecatConflictError, match="group access changed"):
+        await service.replace_user_assignments(before_deactivation)
 
 
 @pytest.mark.anyio

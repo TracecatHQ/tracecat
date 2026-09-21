@@ -7650,6 +7650,9 @@ export type ScimMappingPlanRead = {
   group_id: string
   group_name: string
   manual_members_purged: Array<string>
+  manual_member_emails: {
+    [key: string]: string
+  }
   users_gaining_access: Array<string>
   users_losing_access: Array<string>
 }

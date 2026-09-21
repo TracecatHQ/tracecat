@@ -593,6 +593,7 @@ async def test_activation_review_reports_the_plan_without_storing_it(
     )
 
     assert [p.manual_members_purged for p in review.plans] == [[member.id]]
+    assert review.plans[0].manual_member_emails == {member.id: member.email}
     assert [p.users_losing_access for p in review.plans] == [[member.id]]
     # A review is a read: the manual row and the absent mapping both survive.
     assert await _manual_members(session, group.id) == {member.id}

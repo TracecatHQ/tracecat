@@ -118,6 +118,7 @@ async def test_scim_deprovision_is_audited_as_the_connection(
     """A SCIM-driven removal is attributed to the connection, not a user."""
     issued = await ScimConnectionService(session, role=admin_role).issue_token()
     connection_id = issued.connection.id
+    await SCIMService(session, role=admin_role).activate([])
 
     scim_role = await authenticate_scim_connection(
         HTTPAuthorizationCredentials(scheme="Bearer", credentials=issued.token)

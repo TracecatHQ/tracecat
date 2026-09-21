@@ -24,18 +24,23 @@ from tracecat_ee.scim.protocol import (
 from tracecat_ee.scim.schemas import ERROR_SCHEMA, SCIM_CONTENT_TYPE
 from tracecat_ee.scim.service import SCIMService
 
-from tests.support.membership import grant_org_membership
+from tests.support.membership import (
+    grant_org_membership,
+    grant_org_membership_via_group,
+)
 from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.authz.enums import ScimConnectionStatus
 from tracecat.authz.membership import ensure_member
 from tracecat.db.engine import get_async_session
 from tracecat.db.models import (
+    AccessToken,
     ExternalGroup,
     ExternalGroupMapping,
     ExternalGroupMember,
     ExternalUser,
     Group,
+    GroupMember,
     Organization,
     OrganizationMembership,
     ScimConnection,
@@ -847,8 +852,9 @@ async def test_invalid_patch_is_atomic(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("method", ["PUT", "PATCH", "DELETE"])
 async def test_pending_deactivation_survives_activation(
-    client: httpx.AsyncClient, org: Organization, session: AsyncSession
+    client: httpx.AsyncClient, org: Organization, session: AsyncSession, method: str
 ) -> None:
     connection = (
         await session.execute(
@@ -856,18 +862,49 @@ async def test_pending_deactivation_survives_activation(
         )
     ).scalar_one()
     connection.status = ScimConnectionStatus.PENDING
+    existing = User(
+        id=uuid.uuid4(),
+        email=f"pending-deactivate-{uuid.uuid4().hex}@example.com",
+        hashed_password="test",
+    )
+    session.add(existing)
+    await session.flush()
+    group = await grant_org_membership_via_group(
+        session, user_id=existing.id, organization_id=org.id
+    )
+    token = AccessToken(token=uuid.uuid4().hex, user_id=existing.id)
+    session.add(token)
     await session.commit()
     user = (
-        await client.post(
-            "/scim/v2/Users", json={"userName": "pending-deactivate@example.com"}
-        )
+        await client.post("/scim/v2/Users", json={"userName": existing.email})
     ).json()
-    response = await client.patch(
-        f"/scim/v2/Users/{user['id']}",
-        json={"Operations": [{"op": "replace", "path": "active", "value": False}]},
+    payload = {
+        "PUT": {"userName": existing.email, "active": False},
+        "PATCH": {"Operations": [{"op": "replace", "path": "active", "value": False}]},
+        "DELETE": None,
+    }[method]
+    response = await client.request(
+        method, f"/scim/v2/Users/{user['id']}", json=payload
     )
-    assert response.status_code == 200
+    assert response.status_code == (204 if method == "DELETE" else 200)
     assert (await client.get(f"/scim/v2/Users/{user['id']}")).json()["active"] is False
+    assert await _is_member(session, user_id=existing.id, organization_id=org.id)
+    assert (
+        await session.scalar(
+            select(GroupMember.user_id).where(
+                GroupMember.group_id == group.id, GroupMember.user_id == existing.id
+            )
+        )
+        == existing.id
+    )
+    assert (
+        await session.scalar(
+            select(AccessToken.__table__.c.token).where(
+                AccessToken.__table__.c.token == token.token
+            )
+        )
+        == token.token
+    )
     role = Role(
         type="service",
         service_id="tracecat-api",
@@ -881,6 +918,15 @@ async def test_pending_deactivation_survives_activation(
         )
     ).scalar_one()
     assert await session.get(OrganizationMembership, (external.user_id, org.id)) is None
+    assert (
+        await session.scalar(
+            select(AccessToken.__table__.c.token).where(
+                AccessToken.__table__.c.token == token.token
+            )
+        )
+        is None
+    )
+    assert await session.get(User, existing.id) is not None
 
 
 @pytest.mark.anyio

@@ -85,6 +85,7 @@ class ScimMappingPlanRead(Schema):
     group_id: UUID
     group_name: str
     manual_members_purged: list[UUID]
+    manual_member_emails: dict[UUID, str]
     users_gaining_access: list[UUID]
     users_losing_access: list[UUID]
 

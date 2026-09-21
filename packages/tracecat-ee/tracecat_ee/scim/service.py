@@ -576,7 +576,18 @@ class SCIMService(BaseOrgService):
         if group_name is None:
             raise TracecatNotFoundError("Group not found")
 
-        manual = await self._manual_member_ids(group_id)
+        manual_emails = dict(
+            (
+                await self.session.execute(
+                    select(User.__table__.c.id, User.__table__.c.email)
+                    .join(GroupMember, GroupMember.user_id == User.__table__.c.id)
+                    .where(GroupMember.group_id == group_id)
+                )
+            )
+            .tuples()
+            .all()
+        )
+        manual = set(manual_emails)
         incoming = await self._external_group_user_ids(external_group_id)
         already = await self._idp_member_ids(group_id)
         return ScimMappingPlanRead(
@@ -585,6 +596,7 @@ class SCIMService(BaseOrgService):
             group_id=group_id,
             group_name=group_name,
             manual_members_purged=sorted(manual, key=str),
+            manual_member_emails=manual_emails,
             users_gaining_access=sorted(incoming - manual - already, key=str),
             users_losing_access=sorted(manual - incoming - already, key=str),
         )
@@ -642,6 +654,7 @@ class SCIMService(BaseOrgService):
         the global ``is_active`` flag is never written. Clearing ``active``
         already drops the IdP role-path arm; ``delete_member`` then removes the
         membership row and the direct and manual paths with it.
+        Before connection activation, only the staged active flag changes.
 
         Args:
             user_id: The user the provider has deprovisioned.
@@ -653,6 +666,12 @@ class SCIMService(BaseOrgService):
             TracecatNotFoundError: The account no longer exists.
         """
         await lock_role_changes(self.session, self.organization_id)
+        if not await self._connection_is_active():
+            # Before activation the provider owns only the staged directory.
+            await self.deactivate_external_user(user_id)
+            if commit:
+                await self.session.commit()
+            return
         user = await self.session.get(User, user_id)
         if user is None:
             raise TracecatNotFoundError("User not found")
