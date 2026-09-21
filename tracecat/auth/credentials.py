@@ -46,12 +46,11 @@ from tracecat.auth.users import (
 )
 from tracecat.authz.controls import has_scope
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
-from tracecat.authz.service import MembershipService
+from tracecat.authz.service import workspace_membership_exists
 from tracecat.contexts import ctx_agent_session_id, ctx_role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import AuthSession, get_async_session_auth_context_manager
 from tracecat.db.models import (
-    Membership,
     Organization,
     OrganizationMembership,
     ServiceAccount,
@@ -77,9 +76,6 @@ service_account_api_key_bearer_scheme = HTTPBearer(
     description="Tracecat service account API key.",
     auto_error=False,
 )
-
-# Maximum number of memberships to cache per user to prevent memory exhaustion
-MAX_CACHED_MEMBERSHIPS = 1000
 
 
 @alru_cache(maxsize=10000)
@@ -481,109 +477,33 @@ OptionalTracecatApiKeyDep = Annotated[
 # --- Helper Functions for Auth ---
 
 
-async def _get_membership_with_cache(
+async def _require_workspace_membership(
     *,
-    request: Request,
     session: AsyncSession,
     workspace_id: uuid.UUID,
     user: User,
-) -> Membership:
-    """Resolve workspace membership using cache when available.
+) -> None:
+    """Enforce that the user holds a role path into the workspace.
 
-    Uses request-scoped cache from middleware if present, otherwise falls back
-    to direct database query.
+    Args:
+        session: Session used for the existence check.
+        workspace_id: Workspace being accessed.
+        user: Authenticated user.
 
     Raises:
-        HTTPException(403): If user is not a member of the workspace.
+        HTTPException: 403 if the user holds no role path into the workspace.
     """
-    membership_with_org: Membership | None = None
-    auth_cache = getattr(request.state, "auth_cache", None)
+    if await workspace_membership_exists(
+        session, user_id=user.id, workspace_id=workspace_id
+    ):
+        return
 
-    if auth_cache is not None:
-        cached_membership = auth_cache["memberships"].get(str(workspace_id))
-        # Validate cached membership belongs to requesting user
-        if cached_membership is not None and cached_membership.user_id == user.id:
-            # Membership carries organization_id, but the cache collapse is deferred.
-            svc = MembershipService(session)
-            membership_with_org = await svc.get_membership(
-                workspace_id=workspace_id, user_id=user.id
-            )
-            logger.debug(
-                "Using cached membership",
-                user_id=user.id,
-                workspace_id=workspace_id,
-                cached=True,
-            )
-        elif not auth_cache["membership_checked"]:
-            # Load all memberships once if not already done
-            svc = MembershipService(session)
-            all_memberships = await svc.list_user_memberships(user_id=user.id)
-
-            # Check cache size limit to prevent memory exhaustion
-            if len(all_memberships) > MAX_CACHED_MEMBERSHIPS:
-                logger.warning(
-                    "User has excessive memberships, caching disabled for security",
-                    user_id=user.id,
-                    membership_count=len(all_memberships),
-                    max_allowed=MAX_CACHED_MEMBERSHIPS,
-                )
-                # Find membership without caching - fetch with org_id
-                membership_with_org = await svc.get_membership(
-                    workspace_id=workspace_id, user_id=user.id
-                )
-            else:
-                # Cache all memberships with user context
-                auth_cache["user_id"] = user.id
-                auth_cache["memberships"] = {
-                    str(m.workspace_id): m for m in all_memberships
-                }
-                auth_cache["membership_checked"] = True
-                auth_cache["all_memberships"] = all_memberships
-
-                # Get the specific membership with org_id
-                membership_with_org = await svc.get_membership(
-                    workspace_id=workspace_id, user_id=user.id
-                )
-
-                logger.debug(
-                    "Loaded and cached all user memberships",
-                    user_id=user.id,
-                    workspace_count=len(all_memberships),
-                    workspace_id=workspace_id,
-                    found=membership_with_org is not None,
-                )
-        elif auth_cache.get("user_id") != user.id:
-            # Cache belongs to different user - security fallback
-            logger.warning(
-                "Cache user mismatch, falling back to direct query",
-                cache_user_id=auth_cache.get("user_id"),
-                request_user_id=user.id,
-            )
-            svc = MembershipService(session)
-            membership_with_org = await svc.get_membership(
-                workspace_id=workspace_id, user_id=user.id
-            )
-    else:
-        # No cache available (e.g., in tests), fall back to direct query
-        svc = MembershipService(session)
-        membership_with_org = await svc.get_membership(
-            workspace_id=workspace_id, user_id=user.id
-        )
-        logger.debug(
-            "No cache available, using direct query",
-            user_id=user.id,
-            workspace_id=workspace_id,
-        )
-
-    if membership_with_org is None:
-        logger.debug(
-            "User is not a member of this workspace",
-            user=user,
-            workspace_id=workspace_id,
-        )
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
-
-    return membership_with_org
+    logger.debug(
+        "User is not a member of this workspace",
+        user=user,
+        workspace_id=workspace_id,
+    )
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
 
 ACTIVE_ORG_COOKIE = "tracecat:active-org-id"
@@ -750,8 +670,7 @@ async def _authenticate_user(
             )
         else:
             # Workspace member - validate direct workspace membership.
-            await _get_membership_with_cache(
-                request=request,
+            await _require_workspace_membership(
                 session=session,
                 workspace_id=workspace_id,
                 user=user,

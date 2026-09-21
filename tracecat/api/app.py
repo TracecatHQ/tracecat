@@ -134,7 +134,6 @@ from tracecat.mcp.personal_access_tokens.router import (
     router as mcp_personal_access_tokens_router,
 )
 from tracecat.middleware import (
-    AuthorizationCacheMiddleware,
     RequestLoggingMiddleware,
 )
 from tracecat.middleware.security import SecurityHeadersMiddleware
@@ -674,8 +673,6 @@ def create_app(**kwargs) -> FastAPI:
     app.add_exception_handler(HTTPException, http_exception_handler)
 
     # Middleware
-    # Add authorization cache middleware first so it's available for all requests
-    app.add_middleware(AuthorizationCacheMiddleware)
     app.add_middleware(RequestLoggingMiddleware)
     if config.TRACECAT__APP_ENV != "development":
         app.add_middleware(SecurityHeadersMiddleware)

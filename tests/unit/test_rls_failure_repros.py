@@ -63,7 +63,6 @@ async def test_authenticate_user_membership_check_is_not_done_under_deny_default
 
     request = MagicMock(spec=Request)
     request.state = MagicMock()
-    request.state.auth_cache = None
     session = AsyncMock()
     session.sync_session = MagicMock()
     session.sync_session.info = {

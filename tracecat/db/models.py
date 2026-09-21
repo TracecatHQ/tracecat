@@ -6038,7 +6038,7 @@ class SearchChunk(TimestampMixin, Base):
 # type_coerce strips the source columns' foreign keys: the composite one to
 # organization_membership would otherwise propagate into the subquery and the
 # mapper would try to resolve it as a real table.
-_role_paths = union_all(
+role_paths = union_all(
     select(
         type_coerce(UserRoleAssignment.user_id, UUID).label("user_id"),
         type_coerce(UserRoleAssignment.organization_id, UUID).label("organization_id"),
@@ -6058,11 +6058,11 @@ _role_paths = union_all(
 # Workspace rows only: org presence is the stored OrganizationMembership row.
 membership_select = (
     select(
-        _role_paths.c.user_id,
-        _role_paths.c.organization_id,
-        _role_paths.c.workspace_id,
+        role_paths.c.user_id,
+        role_paths.c.organization_id,
+        role_paths.c.workspace_id,
     )
-    .where(_role_paths.c.workspace_id.is_not(None))
+    .where(role_paths.c.workspace_id.is_not(None))
     .distinct()
     .subquery("membership_derived")
 )
