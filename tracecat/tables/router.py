@@ -49,7 +49,7 @@ from tracecat.tables.schemas import (
     TableRowUpdate,
     TableUpdate,
 )
-from tracecat.tables.search_router import router as search_router
+from tracecat.tables.search.router import router as search_router
 from tracecat.tables.service import TablesService
 
 router = APIRouter(prefix="/tables", tags=["tables"])

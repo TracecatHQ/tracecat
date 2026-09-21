@@ -10,7 +10,7 @@ from tracecat.identifiers.workflow import WorkspaceUUID
 from tracecat.search.chunking_types import ChunkingIdentity, SourceSlice
 from tracecat.search.types import SearchError, SearchErrorCode
 from tracecat.tables.common import sanitize_identifier
-from tracecat.tables.search import TableSearchService
+from tracecat.tables.search.service import TableSearchService
 
 
 @dataclass(frozen=True, slots=True)

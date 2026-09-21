@@ -29,7 +29,7 @@ from tracecat.search.types import (
     SearchState,
 )
 from tracecat.tables.enums import SqlType
-from tracecat.tables.search_schemas import (
+from tracecat.tables.search.schemas import (
     TableSearchConfiguration,
     TableSearchDisplayState,
     TableSearchDocumentProgress,
