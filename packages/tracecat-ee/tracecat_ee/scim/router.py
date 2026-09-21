@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
+from tracecat import config
 from tracecat.auth.dependencies import OrgActorRole
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatConflictError, TracecatNotFoundError
+from tracecat.pagination import Page, PageParams
 from tracecat.tiers.entitlements import check_entitlement
 from tracecat.tiers.enums import Entitlement
 from tracecat_ee.scim.connections import ScimConnectionService
@@ -99,14 +101,22 @@ mappings_router = APIRouter(
 )
 
 
-@mappings_router.get("/external-groups", response_model=list[ExternalGroupRead])
+@mappings_router.get("/external-groups", response_model=Page[ExternalGroupRead])
 async def list_external_groups(
     *,
     role: OrgActorRole,
     session: AsyncDBSession,
-) -> list[ExternalGroupRead]:
+    limit: int = Query(
+        default=config.TRACECAT__LIMIT_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
+    ),
+    cursor: str | None = Query(default=None, max_length=8192),
+) -> Page[ExternalGroupRead]:
     """List synced IdP groups available as mapping sources."""
-    return await SCIMService(session, role=role).list_external_groups()
+    return await SCIMService(session, role=role).list_external_groups(
+        page=PageParams(limit=limit, cursor=cursor)
+    )
 
 
 @mappings_router.post("/activation/review", response_model=ScimActivationReviewRead)

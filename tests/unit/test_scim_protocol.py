@@ -41,7 +41,11 @@ from tracecat.db.models import (
     ScimConnection,
     User,
 )
-from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.exceptions import (
+    TracecatConflictError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 
 LIST_RESPONSE_SCHEMA = "urn:ietf:params:scim:api:messages:2.0:ListResponse"
 
@@ -167,6 +171,10 @@ def _install_handlers(app: FastAPI) -> None:
 
     app.add_exception_handler(HTTPException, _http)
     app.add_exception_handler(RequestValidationError, _validation)
+    app.add_exception_handler(
+        TracecatConflictError,
+        lambda request, exc: scim_error_response(status_code=409, detail=str(exc)),
+    )
     app.add_exception_handler(TracecatNotFoundError, _not_found)
     app.add_exception_handler(TracecatValidationError, _invalid)
 
@@ -1031,3 +1039,95 @@ async def test_group_list_batches_memberships(
     assert [m["value"] for m in resources[0]["members"]] == [users[0]]
     assert [m["value"] for m in resources[1]["members"]] == [users[1]]
     assert all(not group["members"] for group in resources[2:])
+
+
+@pytest.mark.anyio
+async def test_put_group_updates_identifier_without_replacing_resource(
+    client: httpx.AsyncClient, session: AsyncSession, org: Organization
+) -> None:
+    created = await client.post(
+        "/scim/v2/Groups",
+        json={"displayName": "Original", "externalId": "old-identifier", "members": []},
+    )
+    assert created.status_code == 201
+    resource_id = created.json()["id"]
+    for _ in range(2):
+        updated = await client.put(
+            f"/scim/v2/Groups/{resource_id}",
+            json={
+                "displayName": "Renamed",
+                "externalId": "new-identifier",
+                "members": [],
+            },
+        )
+        assert updated.status_code == 200
+        assert updated.json()["id"] == resource_id
+        assert updated.json()["externalId"] == "new-identifier"
+    stored = await client.get(f"/scim/v2/Groups/{resource_id}")
+    assert stored.json()["externalId"] == "new-identifier"
+    assert (
+        await session.scalar(
+            select(func.count())
+            .select_from(ExternalGroup)
+            .where(ExternalGroup.organization_id == org.id)
+        )
+        == 1
+    )
+    await client.post(
+        "/scim/v2/Groups",
+        json={"displayName": "Other", "externalId": "occupied", "members": []},
+    )
+    rejected = await client.put(
+        f"/scim/v2/Groups/{resource_id}",
+        json={
+            "displayName": "Must not change",
+            "externalId": "occupied",
+            "members": [],
+        },
+    )
+    assert rejected.status_code == 409
+    unchanged = await client.get(f"/scim/v2/Groups/{resource_id}")
+    assert unchanged.json()["externalId"] == "new-identifier"
+    assert unchanged.json()["displayName"] == "Renamed"
+
+
+@pytest.mark.anyio
+async def test_put_user_updates_external_id_without_relinking(
+    client: httpx.AsyncClient, session: AsyncSession
+) -> None:
+    email = f"rename-{uuid.uuid4().hex}@example.com"
+    created = await _post_user(client, email, externalId="original-user")
+    resource_id = created.json()["id"]
+    linked_user_id = await session.scalar(
+        select(ExternalUser.user_id).where(ExternalUser.id == uuid.UUID(resource_id))
+    )
+    for _ in range(2):
+        updated = await client.put(
+            f"/scim/v2/Users/{resource_id}",
+            json={"userName": email, "externalId": "renamed-user", "active": True},
+        )
+        assert updated.status_code == 200
+        assert updated.json()["externalId"] == "renamed-user"
+        assert updated.json()["id"] == resource_id
+    assert (await client.get(f"/scim/v2/Users/{resource_id}")).json()[
+        "externalId"
+    ] == "renamed-user"
+    assert (
+        await session.scalar(
+            select(ExternalUser.user_id).where(
+                ExternalUser.id == uuid.UUID(resource_id)
+            )
+        )
+        == linked_user_id
+    )
+    await _post_user(
+        client, f"other-{uuid.uuid4().hex}@example.com", externalId="occupied-user"
+    )
+    conflict = await client.put(
+        f"/scim/v2/Users/{resource_id}",
+        json={"userName": email, "externalId": "occupied-user", "active": False},
+    )
+    assert conflict.status_code == 409
+    unchanged = (await client.get(f"/scim/v2/Users/{resource_id}")).json()
+    assert unchanged["externalId"] == "renamed-user"
+    assert unchanged["active"] is True

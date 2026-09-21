@@ -39,7 +39,7 @@ from tracecat.db.models import (
     ScimConnection,
     User,
 )
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import TracecatConflictError, TracecatValidationError
 from tracecat.invitations.enums import InvitationStatus
 from tracecat.service import BaseOrgService
 from tracecat_ee.scim.service import SCIMService
@@ -127,6 +127,25 @@ class ScimProvisioningService(BaseOrgService):
 
         await self.session.flush()
         return ProvisionedUser(user=user, external_user=external_user, created=created)
+
+    async def update_external_id(
+        self, external_user: ExternalUser, external_id: str | None
+    ) -> None:
+        """Update the provider identifier while preserving the account linkage."""
+        if external_id is None or external_id == external_user.external_id:
+            return
+        await lock_role_changes(self.session, self.organization_id)
+        duplicate = await self.session.scalar(
+            select(ExternalUser.id).where(
+                ExternalUser.organization_id == self.organization_id,
+                ExternalUser.external_id == external_id,
+                ExternalUser.id != external_user.id,
+            )
+        )
+        if duplicate is not None:
+            raise TracecatConflictError("An external user already uses this externalId")
+        external_user.external_id = external_id
+        await self.session.flush()
 
     async def _connection_is_active(self) -> bool:
         """Whether this organization's connection has been activated."""

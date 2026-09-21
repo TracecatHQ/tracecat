@@ -316,15 +316,19 @@ async def replace_user(
     resource_id: UUID,
     params: ScimUserRequest,
 ) -> ScimUserResource:
-    """Replace a user resource. Only ``active`` changes anything in Tracecat."""
+    """Replace the provider identifier and active state of a user resource."""
     await lock_role_changes(session, _organization_id(role))
     organization_id = _organization_id(role)
     external_user, user = await _linked_user(
         session, organization_id=organization_id, resource_id=resource_id
     )
+    await ScimProvisioningService(session, role).update_external_id(
+        external_user, params.external_id
+    )
     await _apply_active(
         session, role=role, external_user=external_user, active=params.active
     )
+    await session.commit()
     return _user_resource(external_user, user)
 
 
@@ -574,8 +578,8 @@ async def replace_group(
         session, organization_id=organization_id, group_id=group_id
     )
     service = SCIMService(session, role)
-    await service.upsert_external_group(
-        external_id=group.external_id, display_name=params.display_name
+    await service.update_external_group(
+        group, external_id=params.external_id, display_name=params.display_name
     )
     external_user_ids = await _resolve_member_ids(
         session, organization_id=organization_id, members=params.members or []

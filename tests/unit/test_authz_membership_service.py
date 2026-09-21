@@ -3,10 +3,16 @@
 import uuid
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tests.support.membership import grant_org_membership, grant_workspace_membership
+from tests.support.membership import (
+    grant_org_membership,
+    grant_workspace_membership,
+    seed_external_group,
+    seed_external_group_members,
+    seed_external_user,
+)
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
 from tracecat.authz.membership import ensure_member
@@ -14,6 +20,7 @@ from tracecat.authz.scopes import ADMIN_SCOPES, EDITOR_SCOPES
 from tracecat.authz.seeding import seed_system_scopes
 from tracecat.authz.service import MembershipService
 from tracecat.db.models import (
+    ExternalGroupMapping,
     Group,
     GroupMember,
     GroupRoleAssignment,
@@ -522,7 +529,9 @@ async def test_list_workspace_members_reports_each_path_once(
     assert by_user[member_user.id].via_group is False
 
 
+@pytest.mark.parametrize("idp_managed", [False, True])
 async def test_delete_membership_rejects_when_group_grant_remains(
+    idp_managed: bool,
     session: AsyncSession,
     membership_service: MembershipService,
     organization: Organization,
@@ -565,6 +574,28 @@ async def test_delete_membership_rejects_when_group_grant_remains(
             LegacyMembership(user_id=member_user.id, workspace_id=workspace.id),
         ]
     )
+    if idp_managed:
+        await session.execute(
+            delete(GroupMember).where(GroupMember.group_id == group.id)
+        )
+        external_group = await seed_external_group(
+            session, organization_id=organization.id, external_id="mapped-group"
+        )
+        external_user_id = await seed_external_user(
+            session, organization_id=organization.id, user_id=member_user.id
+        )
+        await seed_external_group_members(
+            session,
+            external_group_id=external_group.id,
+            external_user_ids=[external_user_id],
+        )
+        session.add(
+            ExternalGroupMapping(
+                organization_id=organization.id,
+                external_group_id=external_group.id,
+                group_id=group.id,
+            )
+        )
     await session.commit()
 
     with pytest.raises(TracecatConflictError, match="Reviewers"):
