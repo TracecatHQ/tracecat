@@ -101,6 +101,7 @@ from tracecat.agent.skill.builtin import (
     PLATFORM_SKILL_PLUGIN_DIR,
 )
 from tracecat.agent.skill.builtin.staging import stage_platform_skill_plugin
+from tracecat.agent.skill.inventory import append_skill_file_inventory
 from tracecat.agent.skill.service import SkillService
 from tracecat.agent.types import AgentConfig, clamp_agent_timeout_seconds
 from tracecat.auth.types import Role
@@ -1220,6 +1221,10 @@ class SandboxedAgentExecutor:
                     cached_dir,
                     skills_dir / resolved_skill.skill_name,
                     dirs_exist_ok=True,
+                )
+                await asyncio.to_thread(
+                    append_skill_file_inventory,
+                    skills_dir / resolved_skill.skill_name,
                 )
 
     async def _stage_builtin_skills(self, plugin_dir: Path) -> None:
