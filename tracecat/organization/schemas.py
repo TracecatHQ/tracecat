@@ -48,27 +48,33 @@ class OrgMemberDetail(BaseModel):
     last_login_at: datetime | None
 
 
-type PathSource = Literal["direct", "group", "idp_group"]
+type MemberRoleSourceType = Literal["direct", "group", "idp_group"]
 
 
-class MemberAccessPath(BaseModel):
-    """One route by which a member holds a role, with the rows behind it."""
+class MemberRoleSource(BaseModel):
+    """A direct assignment or group through which a member holds a role."""
 
-    source: PathSource
-    workspace_id: WorkspaceID | None
-    role_id: UUID
-    role_name: str
+    type: MemberRoleSourceType
     group_id: UUID | None = None
     group_name: str | None = None
     external_group_id: UUID | None = None
     external_group_display_name: str | None = None
 
 
-class MemberAccessExplain(BaseModel):
-    """Every path a member holds, for answering "why does she have this?"."""
+class MemberRoleRead(BaseModel):
+    """A member's role in one workspace or organization, with its sources."""
+
+    role_id: UUID
+    role_name: str
+    workspace_id: WorkspaceID | None
+    sources: list[MemberRoleSource]
+
+
+class MemberAccessTrace(BaseModel):
+    """A member's roles and the sources of each role."""
 
     user_id: UserID
-    paths: list[MemberAccessPath]
+    roles: list[MemberRoleRead]
 
 
 # Organization

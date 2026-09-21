@@ -535,8 +535,6 @@ import type {
   OrganizationDeleteOrgMemberResponse,
   OrganizationDeleteSessionData,
   OrganizationDeleteSessionResponse,
-  OrganizationExplainOrgMemberAccessData,
-  OrganizationExplainOrgMemberAccessResponse,
   OrganizationGetCurrentOrgMemberResponse,
   OrganizationGetOrganizationEntitlementsResponse,
   OrganizationGetOrganizationResponse,
@@ -554,6 +552,8 @@ import type {
   OrganizationSecretsListOrgSecretsResponse,
   OrganizationSecretsUpdateOrgSecretByIdData,
   OrganizationSecretsUpdateOrgSecretByIdResponse,
+  OrganizationTraceOrgMemberAccessData,
+  OrganizationTraceOrgMemberAccessResponse,
   OrganizationUpdateOrgMemberData,
   OrganizationUpdateOrgMemberResponse,
   ProvidersCreateCustomProviderData,
@@ -4310,16 +4310,16 @@ export const organizationListOrgMembers =
   }
 
 /**
- * Explain Org Member Access
- * List every path by which a member holds a role.
+ * Trace Org Member Access
+ * Trace a member's roles to their direct and group sources.
  * @param data The data for the request.
  * @param data.userId
- * @returns MemberAccessExplain Successful Response
+ * @returns MemberAccessTrace Successful Response
  * @throws ApiError
  */
-export const organizationExplainOrgMemberAccess = (
-  data: OrganizationExplainOrgMemberAccessData
-): CancelablePromise<OrganizationExplainOrgMemberAccessResponse> => {
+export const organizationTraceOrgMemberAccess = (
+  data: OrganizationTraceOrgMemberAccessData
+): CancelablePromise<OrganizationTraceOrgMemberAccessResponse> => {
   return __request(OpenAPI, {
     method: "GET",
     url: "/organization/members/{user_id}/access",

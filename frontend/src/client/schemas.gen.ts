@@ -19493,32 +19493,37 @@ export const $McpIntegrationMappingSelection = {
     "User-selected local MCP integration for one source integration reference.",
 } as const
 
-export const $MemberAccessExplain = {
+export const $MemberAccessTrace = {
   properties: {
     user_id: {
       type: "string",
       format: "uuid",
       title: "User Id",
     },
-    paths: {
+    roles: {
       items: {
-        $ref: "#/components/schemas/MemberAccessPath",
+        $ref: "#/components/schemas/MemberRoleRead",
       },
       type: "array",
-      title: "Paths",
+      title: "Roles",
     },
   },
   type: "object",
-  required: ["user_id", "paths"],
-  title: "MemberAccessExplain",
-  description:
-    'Every path a member holds, for answering "why does she have this?".',
+  required: ["user_id", "roles"],
+  title: "MemberAccessTrace",
+  description: "A member's roles and the sources of each role.",
 } as const
 
-export const $MemberAccessPath = {
+export const $MemberRoleRead = {
   properties: {
-    source: {
-      $ref: "#/components/schemas/PathSource",
+    role_id: {
+      type: "string",
+      format: "uuid",
+      title: "Role Id",
+    },
+    role_name: {
+      type: "string",
+      title: "Role Name",
     },
     workspace_id: {
       anyOf: [
@@ -19532,14 +19537,25 @@ export const $MemberAccessPath = {
       ],
       title: "Workspace Id",
     },
-    role_id: {
-      type: "string",
-      format: "uuid",
-      title: "Role Id",
+    sources: {
+      items: {
+        $ref: "#/components/schemas/MemberRoleSource",
+      },
+      type: "array",
+      title: "Sources",
     },
-    role_name: {
-      type: "string",
-      title: "Role Name",
+  },
+  type: "object",
+  required: ["role_id", "role_name", "workspace_id", "sources"],
+  title: "MemberRoleRead",
+  description:
+    "A member's role in one workspace or organization, with its sources.",
+} as const
+
+export const $MemberRoleSource = {
+  properties: {
+    type: {
+      $ref: "#/components/schemas/MemberRoleSourceType",
     },
     group_id: {
       anyOf: [
@@ -19589,10 +19605,15 @@ export const $MemberAccessPath = {
     },
   },
   type: "object",
-  required: ["source", "workspace_id", "role_id", "role_name"],
-  title: "MemberAccessPath",
+  required: ["type"],
+  title: "MemberRoleSource",
   description:
-    "One route by which a member holds a role, with the rows behind it.",
+    "A direct assignment or group through which a member holds a role.",
+} as const
+
+export const $MemberRoleSourceType = {
+  type: "string",
+  enum: ["direct", "group", "idp_group"],
 } as const
 
 export const $MentionTargetType = {
@@ -20827,11 +20848,6 @@ export const $Page_ExternalGroupRead_ = {
   type: "object",
   required: ["items"],
   title: "Page[ExternalGroupRead]",
-} as const
-
-export const $PathSource = {
-  type: "string",
-  enum: ["direct", "group", "idp_group"],
 } as const
 
 export const $PayloadChangedEventRead = {

@@ -5,8 +5,8 @@ from contextlib import asynccontextmanager
 from typing import Any
 from typing import cast as type_cast
 
-from sqlalchemy import Select, String, and_, cast, delete, literal, select
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import String, and_, cast, delete, func, literal, select, union_all
+from sqlalchemy.dialects.postgresql import UUID, aggregate_order_by
 from sqlalchemy.orm import contains_eager
 
 from tracecat.audit.logger import audit_log
@@ -50,9 +50,8 @@ from tracecat.organization.management import (
     validate_organization_delete_confirmation,
 )
 from tracecat.organization.schemas import (
-    MemberAccessExplain,
-    MemberAccessPath,
-    PathSource,
+    MemberAccessTrace,
+    MemberRoleRead,
 )
 from tracecat.service import BaseOrgService
 
@@ -215,24 +214,23 @@ class OrgService(BaseOrgService):
             await self.session.commit()
 
     @require_scope("org:member:read")
-    async def explain_member_access(self, user_id: UserID) -> MemberAccessExplain:
-        """List every path by which a member holds a role.
+    async def trace_member_access(self, user_id: UserID) -> MemberAccessTrace:
+        """Trace a member's roles to their direct and group sources.
 
-        One query per role-path arm, mirroring the union in ``_role_paths``:
-        direct assignments, manual group membership, and IdP group membership
-        through a mapping.
+        Group sources by role and workspace so a role appears once even when
+        held through multiple groups or a direct assignment.
 
         Args:
-            user_id: The member whose access is being explained.
+            user_id: The member whose access is being traced.
 
         Returns:
-            The member and one entry per path, with the rows behind it.
+            The member's roles and the direct, group, or IdP group sources of each.
         """
         direct = (
             select(
                 UserRoleAssignment.workspace_id,
-                DBRole.id,
-                DBRole.name,
+                DBRole.id.label("role_id"),
+                DBRole.name.label("role_name"),
                 literal(None, type_=UUID).label("group_id"),
                 literal(None, type_=String).label("group_name"),
                 literal(None, type_=UUID).label("external_group_id"),
@@ -293,36 +291,48 @@ class OrgService(BaseOrgService):
                 GroupRoleAssignment.organization_id == self.organization_id,
             )
         )
-        arms: tuple[tuple[PathSource, Select[Any]], ...] = (
-            ("direct", direct),
-            ("group", via_group),
-            ("idp_group", via_idp),
-        )
-        paths: list[MemberAccessPath] = []
-        for source, stmt in arms:
-            rows = (await self.session.execute(stmt)).tuples().all()
-            paths.extend(
-                MemberAccessPath(
-                    source=source,
-                    workspace_id=workspace_id,
-                    role_id=role_id,
-                    role_name=role_name,
-                    group_id=group_id,
-                    group_name=group_name,
-                    external_group_id=external_group_id,
-                    external_group_display_name=external_group_display_name,
-                )
-                for (
-                    workspace_id,
-                    role_id,
-                    role_name,
-                    group_id,
-                    group_name,
-                    external_group_id,
-                    external_group_display_name,
-                ) in rows
+        sources = union_all(
+            direct.add_columns(literal("direct").label("type")),
+            via_group.add_columns(literal("group").label("type")),
+            via_idp.add_columns(literal("idp_group").label("type")),
+        ).subquery()
+        stmt = (
+            select(
+                sources.c.role_id,
+                sources.c.role_name,
+                sources.c.workspace_id,
+                func.jsonb_agg(
+                    aggregate_order_by(
+                        func.jsonb_build_object(
+                            "type",
+                            sources.c.type,
+                            "group_id",
+                            sources.c.group_id,
+                            "group_name",
+                            sources.c.group_name,
+                            "external_group_id",
+                            sources.c.external_group_id,
+                            "external_group_display_name",
+                            sources.c.external_group_display_name,
+                        ),
+                        sources.c.type,
+                        sources.c.group_id,
+                        sources.c.external_group_id,
+                    )
+                ).label("sources"),
             )
-        return MemberAccessExplain(user_id=user_id, paths=paths)
+            .group_by(sources.c.role_id, sources.c.role_name, sources.c.workspace_id)
+            .order_by(
+                sources.c.workspace_id.nulls_first(),
+                sources.c.role_name,
+                sources.c.role_id,
+            )
+        )
+        rows = (await self.session.execute(stmt)).mappings().all()
+        return MemberAccessTrace(
+            user_id=user_id,
+            roles=[MemberRoleRead.model_validate(row) for row in rows],
+        )
 
     @require_scope("org:member:update")
     @audit_log(resource_type="organization_member", action="update")

@@ -5971,26 +5971,35 @@ export type McpIntegrationMappingSelection = {
 }
 
 /**
- * Every path a member holds, for answering "why does she have this?".
+ * A member's roles and the sources of each role.
  */
-export type MemberAccessExplain = {
+export type MemberAccessTrace = {
   user_id: string
-  paths: Array<MemberAccessPath>
+  roles: Array<MemberRoleRead>
 }
 
 /**
- * One route by which a member holds a role, with the rows behind it.
+ * A member's role in one workspace or organization, with its sources.
  */
-export type MemberAccessPath = {
-  source: PathSource
-  workspace_id: string | null
+export type MemberRoleRead = {
   role_id: string
   role_name: string
+  workspace_id: string | null
+  sources: Array<MemberRoleSource>
+}
+
+/**
+ * A direct assignment or group through which a member holds a role.
+ */
+export type MemberRoleSource = {
+  type: MemberRoleSourceType
   group_id?: string | null
   group_name?: string | null
   external_group_id?: string | null
   external_group_display_name?: string | null
 }
+
+export type MemberRoleSourceType = "direct" | "group" | "idp_group"
 
 /**
  * Polymorphic target kind for a parsed case-comment mention.
@@ -6312,8 +6321,6 @@ export type Page_ExternalGroupRead_ = {
    */
   prev_cursor?: string | null
 }
-
-export type PathSource = "direct" | "group" | "idp_group"
 
 /**
  * Event for when a case payload is changed.
@@ -12262,11 +12269,11 @@ export type OrganizationGetCurrentOrgMemberResponse = OrgMemberDetail
 
 export type OrganizationListOrgMembersResponse = Array<OrgMemberRead>
 
-export type OrganizationExplainOrgMemberAccessData = {
+export type OrganizationTraceOrgMemberAccessData = {
   userId: string
 }
 
-export type OrganizationExplainOrgMemberAccessResponse = MemberAccessExplain
+export type OrganizationTraceOrgMemberAccessResponse = MemberAccessTrace
 
 export type OrganizationDeleteOrgMemberData = {
   userId: string
@@ -17300,12 +17307,12 @@ export type $OpenApiTs = {
   }
   "/organization/members/{user_id}/access": {
     get: {
-      req: OrganizationExplainOrgMemberAccessData
+      req: OrganizationTraceOrgMemberAccessData
       res: {
         /**
          * Successful Response
          */
-        200: MemberAccessExplain
+        200: MemberAccessTrace
         /**
          * Validation Error
          */
