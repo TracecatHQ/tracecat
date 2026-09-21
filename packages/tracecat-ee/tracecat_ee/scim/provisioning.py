@@ -12,7 +12,7 @@ NOT NULL. Reimplementing it here would fork that behaviour.
 
 This lives beside ``SCIMService`` rather than inside it because the projection
 service is a pure function of the shadow tables, while provisioning writes the
-user, the linkage, and the org-wide role assignment.
+user, the linkage, and organization membership.
 """
 
 from __future__ import annotations
@@ -33,21 +33,16 @@ from tracecat.auth.users import (
 )
 from tracecat.authz.enums import ScimConnectionStatus
 from tracecat.authz.membership import ensure_member, lock_role_changes
-from tracecat.authz.seeding import seed_system_roles_for_org
 from tracecat.db.models import (
     ExternalUser,
     Invitation,
     ScimConnection,
     User,
-    UserRoleAssignment,
 )
-from tracecat.db.models import Role as DBRole
 from tracecat.exceptions import TracecatValidationError
 from tracecat.invitations.enums import InvitationStatus
 from tracecat.service import BaseOrgService
 from tracecat_ee.scim.service import SCIMService
-
-ORG_MEMBER_ROLE_SLUG = "organization-member"
 
 
 @dataclass(frozen=True, slots=True)
@@ -188,42 +183,8 @@ class ScimProvisioningService(BaseOrgService):
         return (await self.session.execute(stmt)).scalar_one()
 
     async def _grant_org_membership(self, user_id: UUID) -> None:
-        """Admit the user and give them an org-wide member assignment.
-
-        The membership row is the aggregate root the assignment's composite
-        foreign key hangs off, so it is written first. An existing assignment is
-        left alone: it may be a higher role an admin granted deliberately.
-        """
+        """Admit the user; membership itself supplies the baseline scopes."""
         await ensure_member(self.session, self.organization_id, user_id)
-        role_id = await self._org_member_role_id()
-        await self.session.execute(
-            pg_insert(UserRoleAssignment)
-            .values(
-                organization_id=self.organization_id,
-                user_id=user_id,
-                workspace_id=None,
-                role_id=role_id,
-            )
-            .on_conflict_do_nothing(
-                index_elements=[
-                    UserRoleAssignment.organization_id,
-                    UserRoleAssignment.user_id,
-                ],
-                index_where=UserRoleAssignment.workspace_id.is_(None),
-            )
-        )
-
-    async def _org_member_role_id(self) -> UUID:
-        """Resolve the preset member role, seeding it if the org lacks it."""
-        stmt = select(DBRole.id).where(
-            DBRole.organization_id == self.organization_id,
-            DBRole.slug == ORG_MEMBER_ROLE_SLUG,
-        )
-        role_id = (await self.session.execute(stmt)).scalar_one_or_none()
-        if role_id is not None:
-            return role_id
-        await seed_system_roles_for_org(self.session, self.organization_id)
-        return (await self.session.execute(stmt)).scalar_one()
 
     async def _revoke_pending_invitation(self, email: str) -> None:
         """Revoke any live invitation for the email in this organization.

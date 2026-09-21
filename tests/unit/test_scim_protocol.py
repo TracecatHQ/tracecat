@@ -861,7 +861,7 @@ async def test_pending_deactivation_survives_activation(
         type="service",
         service_id="tracecat-api",
         organization_id=org.id,
-        scopes=frozenset({"org:rbac:update"}),
+        scopes=frozenset({"org:rbac:update", "org:member:remove"}),
     )
     await SCIMService(session, role).activate([])
     external = (

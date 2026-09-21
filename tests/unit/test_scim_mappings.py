@@ -6,12 +6,13 @@ import uuid
 from collections.abc import Iterator
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import event, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.scim.schemas import ExternalGroupMappingCreate
 from tracecat_ee.scim.service import SCIMService
 
 from tests.support.membership import (
+    grant_org_membership,
     grant_org_membership_via_group,
     seed_external_group,
     seed_external_group_members,
@@ -30,6 +31,7 @@ from tracecat.db.models import (
     OrganizationMembership,
     ScimConnection,
     User,
+    UserRoleAssignment,
     effective_group_members,
 )
 from tracecat.exceptions import (
@@ -560,7 +562,9 @@ async def test_activation_admits_pushed_users_and_installs_mappings(
     # Nothing is admitted while the connection is pending.
     assert not await _is_member(session, user_id=user.id, organization_id=org.id)
 
-    role = _role(org, "org:rbac:read", "org:rbac:create", "org:rbac:update")
+    role = _role(
+        org, "org:rbac:read", "org:rbac:create", "org:rbac:update", "org:member:remove"
+    )
     await SCIMService(session, role).activate(
         [ExternalGroupMappingCreate(external_group_id=external.id, group_id=group.id)]
     )
@@ -663,3 +667,126 @@ async def test_provider_group_deletion_drops_only_its_membership(
     )
     assert await _manual_members(session, group.id) == set()
     assert await _is_member(session, user_id=user.id, organization_id=org.id)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("invalid_mapping", [False, True])
+async def test_activation_removes_existing_inactive_member_atomically(
+    session: AsyncSession, org: Organization, invalid_mapping: bool
+) -> None:
+    user = await _make_user(session, org)
+    await grant_org_membership(session, user_id=user.id, organization_id=org.id)
+    group = await _make_group(session, org)
+    await seed_group_member(session, group_id=group.id, user_id=user.id)
+    await session.execute(
+        update(ExternalUser)
+        .where(ExternalUser.organization_id == org.id, ExternalUser.user_id == user.id)
+        .values(active=False)
+    )
+    connection = await session.scalar(
+        select(ScimConnection).where(ScimConnection.organization_id == org.id)
+    )
+    assert connection is not None
+    connection.status = ScimConnectionStatus.PENDING
+    await session.commit()
+    user_id, org_id, group_id, connection_id = user.id, org.id, group.id, connection.id
+    service = SCIMService(
+        session, _role(org, "org:rbac:update", "org:rbac:create", "org:member:remove")
+    )
+    if invalid_mapping:
+        with pytest.raises(TracecatNotFoundError):
+            await service.activate(
+                [
+                    ExternalGroupMappingCreate(
+                        external_group_id=uuid.uuid4(), group_id=group_id
+                    )
+                ]
+            )
+        await session.rollback()
+    else:
+        await service.activate([])
+    assert (
+        await _is_member(session, user_id=user_id, organization_id=org_id)
+        is invalid_mapping
+    )
+    assert (
+        await session.scalar(
+            select(UserRoleAssignment.id).where(UserRoleAssignment.user_id == user_id)
+        )
+        is not None
+    ) is invalid_mapping
+    assert (
+        await session.get(GroupMember, (user_id, group_id)) is not None
+    ) is invalid_mapping
+    current = await session.scalar(
+        select(ScimConnection).where(ScimConnection.id == connection_id)
+    )
+    assert current is not None
+    assert current.status == (
+        ScimConnectionStatus.PENDING if invalid_mapping else ScimConnectionStatus.ACTIVE
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("user_count", [1, 100])
+async def test_activation_admission_uses_constant_write_count(
+    session: AsyncSession, org: Organization, user_count: int
+) -> None:
+    users = [
+        User(
+            id=uuid.uuid4(),
+            email=f"batch-{uuid.uuid4().hex}@example.com",
+            hashed_password="test",
+        )
+        for _ in range(user_count)
+    ]
+    session.add_all(users)
+    await session.flush()
+    session.add_all(
+        [
+            ExternalUser(
+                organization_id=org.id,
+                user_id=user.id,
+                external_id=str(user.id),
+                active=True,
+            )
+            for user in users
+        ]
+    )
+    await session.flush()
+    writes: list[str] = []
+
+    def capture(
+        conn: object,
+        cursor: object,
+        statement: str,
+        parameters: object,
+        context: object,
+        executemany: bool,
+    ) -> None:
+        if statement.lstrip().upper().startswith(("INSERT", "UPDATE")):
+            writes.append(statement)
+
+    bind = session.get_bind()
+    event.listen(bind, "before_cursor_execute", capture)
+    try:
+        await SCIMService(session, _role(org))._admit_pushed_users()
+    finally:
+        event.remove(bind, "before_cursor_execute", capture)
+    assert len(writes) == 2
+    admitted = set(
+        await session.scalars(
+            select(OrganizationMembership.user_id).where(
+                OrganizationMembership.organization_id == org.id
+            )
+        )
+    )
+    assert admitted == {user.id for user in users}
+
+
+@pytest.mark.anyio
+async def test_activation_requires_member_removal_permission(
+    session: AsyncSession, org: Organization
+) -> None:
+    with pytest.raises(TracecatAuthorizationError):
+        await SCIMService(session, _role(org, "org:rbac:update")).activate([])

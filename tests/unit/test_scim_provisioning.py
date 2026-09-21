@@ -281,13 +281,13 @@ async def test_pending_invitation_is_revoked_on_provisioning(
 
 
 @pytest.mark.anyio
-async def test_provision_grants_only_the_member_role(
+async def test_provision_grants_membership_without_a_role(
     session: AsyncSession,
     org: Organization,
     service: ScimProvisioningService,
     active_connection: None,
 ) -> None:
-    """Provisioning admits at organization-member, never higher."""
+    """Provisioning grants only membership, leaving the direct role slot free."""
     email = f"member-{uuid.uuid4().hex[:8]}@tracecat.com"
 
     provisioned = await service.provision_user(external_id="idp-7", email=email)
@@ -302,8 +302,11 @@ async def test_provision_grants_only_the_member_role(
                 UserRoleAssignment.workspace_id.is_(None),
             )
         )
-    ).scalar_one()
-    assert slug == "organization-member"
+    ).scalar_one_or_none()
+    assert slug is None
+    assert await _is_member(
+        session, user_id=provisioned.user.id, organization_id=org.id
+    )
 
 
 @pytest.mark.anyio
@@ -427,6 +430,7 @@ async def test_reactivation_revokes_invitation_before_it_can_grant_roles(
         external_id="reactivate", email="reactivate-invite@tracecat.com"
     )
     user_id, email = provisioned.user.id, provisioned.user.email
+    await seed_system_roles_for_org(session, org.id)
     await SCIMService(session, role).deprovision_user(user_id)
     role_id = (
         await session.execute(
