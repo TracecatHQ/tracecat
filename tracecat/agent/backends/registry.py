@@ -44,6 +44,11 @@ def get_agent_backends() -> Mapping[str, AgentBackend[Any, Any]]:
             or backend.default_harness not in backend.supported_harnesses
         ):
             raise ValueError(f"Invalid default harness for agent backend: {entry.name}")
+        for harness in backend.supported_harnesses:
+            if not re.fullmatch(r"[a-z][a-z0-9_]{0,49}", harness):
+                raise ValueError(
+                    f"Invalid harness identifier for agent backend: {entry.name}"
+                )
         if backend.history is not None and not isinstance(
             backend.history, SessionHistoryAdapter
         ):

@@ -103,6 +103,40 @@ def test_disabled_plugins_cannot_be_selected():
         registry.get_agent_backend("external")
 
 
+@pytest.mark.parametrize(
+    "harness", ["", "x" * 51, "custom.harness", "Custom", "1custom"]
+)
+@pytest.mark.parametrize("use_as_default", [False, True])
+def test_invalid_harness_identifiers_fail_registration(harness, use_as_default):
+    class CustomHarnessBackend(DefaultBackend):
+        default_harness = harness if use_as_default else "claude_code"
+        supported_harnesses = frozenset({"claude_code", harness})
+
+    with (
+        patch.object(
+            registry,
+            "entry_points",
+            return_value=[entry("external", CustomHarnessBackend)],
+        ),
+        pytest.raises(ValueError, match="Invalid harness identifier"),
+    ):
+        registry.get_agent_backends()
+
+
+def test_harness_identifier_accepts_maximum_length():
+    class CustomHarnessBackend(DefaultBackend):
+        default_harness = "a" + "_1" * 24 + "z"
+        supported_harnesses = frozenset({default_harness})
+
+    with patch.object(
+        registry,
+        "entry_points",
+        return_value=[entry("external", CustomHarnessBackend)],
+    ):
+        backend = registry.get_agent_backend("external")
+    assert backend.default_harness == CustomHarnessBackend.default_harness
+
+
 def context() -> SessionTurnContext:
     role = Role(
         type="service",
