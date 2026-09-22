@@ -516,3 +516,70 @@ async def test_scheduler_stops_spawning_after_failure_during_spawn_yield() -> No
     first_unstarted_ref = f"task_{scheduler_module._SCHEDULER_TASK_SPAWN_YIELD_EVERY}"
     assert len(started_refs) == scheduler_module._SCHEDULER_TASK_SPAWN_YIELD_EVERY
     assert first_unstarted_ref not in started_refs
+
+
+@pytest.mark.anyio
+async def test_scheduler_classifies_unreachable_join_as_user_error() -> None:
+    """A join with a skipped sibling and ``join_strategy: all`` fails as a
+    user-owned ``workflow.join.unreachable`` error, not an unclassified one."""
+
+    async def executor(_: ActionStatement) -> None:
+        return None
+
+    dsl = DSLInput(
+        title="test",
+        description="test",
+        entrypoint=DSLEntrypoint(ref="start"),
+        actions=[
+            ActionStatement(ref="start", action="core.noop"),
+            ActionStatement(
+                ref="left",
+                action="core.noop",
+                depends_on=["start"],
+                run_if="${{ False }}",
+            ),
+            ActionStatement(ref="right", action="core.noop", depends_on=["start"]),
+            ActionStatement(
+                ref="join", action="core.noop", depends_on=["left", "right"]
+            ),
+        ],
+    )
+    wf_id = WorkflowUUID.new_uuid4()
+    scheduler = DSLScheduler(
+        executor=executor,
+        dsl=dsl,
+        max_pending_tasks=4,
+        context=ExecutionContext(ACTIONS={}, TRIGGER=None),
+        role=Role(
+            type="service",
+            service_id="tracecat-runner",
+            workspace_id=uuid.uuid4(),
+            user_id=uuid.uuid4(),
+        ),
+        run_context=RunContext(
+            wf_id=wf_id,
+            wf_exec_id=f"{wf_id.short()}/exec_test",
+            wf_run_id=uuid.uuid4(),
+            environment="test",
+            logical_time=datetime.now(UTC),
+        ),
+    )
+
+    async def resolve_expression(expression: str, _: ExecutionContext) -> Any:
+        return expression != "${{ False }}"
+
+    with patch.object(scheduler, "resolve_expression", new=resolve_expression):
+        task_exceptions = await scheduler.start()
+
+    assert task_exceptions is not None
+    assert set(task_exceptions) == {"join"}
+    info = task_exceptions["join"]
+    classifications = extract_error_classifications(info.exception)
+    assert len(classifications) == 1
+    classification = classifications[0]
+    assert classification.kind is RuntimeErrorKind.WORKFLOW_JOIN_UNREACHABLE
+    assert classification.owner.value == "user"
+    assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+    assert "'left'" in info.details.message
+    assert "'right'" not in info.details.message
+    assert "join_strategy: any" in info.details.message
