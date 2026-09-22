@@ -11,6 +11,7 @@ from tracecat.agent.workflow_schemas import AgentConfigPayload
 from tracecat.dsl._converter import PydanticORJSONPayloadConverter
 from tracecat.dsl.common import AgentActionMemo, ChildWorkflowMemo
 from tracecat.dsl.enums import WaitStrategy
+from tracecat.temporal.exceptions import TemporalPayloadEncodingError
 
 
 class _LeakyValue:
@@ -31,13 +32,11 @@ def test_to_payload_sanitizes_serializer_failures(monkeypatch) -> None:
 
     converter = PydanticORJSONPayloadConverter()
 
-    try:
+    with pytest.raises(TemporalPayloadEncodingError) as caught:
         converter.to_payload(_LeakyValue())
-    except RuntimeError as exc:
-        message = str(exc)
-    else:
-        raise AssertionError("Expected to_payload to raise RuntimeError")
 
+    message = str(caught.value)
+    assert caught.value.__context__ is None
     assert message == "Failed to encode payload value of type _LeakyValue"
     assert "secret-token" not in message
 

@@ -6,7 +6,7 @@ from dataclasses import replace
 from typing import ClassVar
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from temporalio.client import (
     Client,
     WorkflowExecutionStatus,
@@ -40,6 +40,8 @@ from tracecat.db.models import AgentSession
 from tracecat.dsl.client import get_temporal_client
 from tracecat.exceptions import TracecatConflictError
 from tracecat.logger import logger
+from tracecat.temporal.codec import TemporalPayloadCodecError
+from tracecat.temporal.exceptions import TemporalPayloadEncodingError
 from tracecat.workflow.executions.correlation import build_agent_session_correlation_id
 from tracecat.workflow.executions.enums import (
     ExecutionType,
@@ -116,10 +118,36 @@ class AgentBackend[InputT, OutputT](ABC):
                 priority=self.priority,
                 search_attributes=search_attributes,
             )
+        except (
+            TemporalPayloadEncodingError,
+            TemporalPayloadCodecError,
+            TypeError,
+            ValueError,
+        ):
+            # The SDK validates and encodes start arguments before sending the
+            # RPC. These failures prove this attempt could not start a workflow.
+            rejected = True
         except Exception:
-            pass
+            # Transport errors (including retries), already-started responses,
+            # and unknown errors cannot prove that no workflow was started.
+            rejected = False
         else:
             return
+        if rejected:
+            # Release here so non-HTTP callers can retry too. Match both owner
+            # identities so delayed cleanup cannot clear a later turn.
+            await context.db.execute(
+                update(AgentSession)
+                .where(
+                    AgentSession.id == context.session.id,
+                    AgentSession.workspace_id == context.role.workspace_id,
+                    AgentSession.curr_run_id == context.run_id,
+                    AgentSession.active_stream_id == context.stream_id,
+                )
+                .values(curr_run_id=None, active_stream_id=None)
+            )
+            await context.db.commit()
+            raise RuntimeError("Agent workflow start failed before dispatch")
         # Raise outside the handler so SDK context cannot leak. Ownership stays
         # reserved because a lost acknowledgement cannot prove dispatch failed.
         raise SessionDispatchUncertain("Dispatch requires reconciliation")

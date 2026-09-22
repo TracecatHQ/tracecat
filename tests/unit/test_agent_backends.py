@@ -7,12 +7,14 @@ from unittest.mock import AsyncMock, Mock, patch
 from uuid import uuid4
 
 import pytest
+from temporalio.api.workflowservice.v1 import StartWorkflowExecutionResponse
 from temporalio.client import (
+    Client,
     WorkflowExecutionStatus,
     WorkflowUpdateFailedError,
     WorkflowUpdateRPCTimeoutOrCancelledError,
 )
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 from temporalio.service import RPCError, RPCStatusCode
 from tracecat_ee.agent.approvals.service import ApprovalService
 from tracecat_ee.agent.workflows.durable import DurableAgentWorkflow
@@ -38,7 +40,10 @@ from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import BasicChatRequest
 from tracecat.db.models import AgentSession
+from tracecat.dsl._converter import get_data_converter
 from tracecat.exceptions import TracecatConflictError, TracecatValidationError
+from tracecat.temporal.codec import TemporalPayloadCodecError
+from tracecat.temporal.exceptions import TemporalPayloadEncodingError
 
 
 @pytest.fixture(autouse=True)
@@ -405,10 +410,81 @@ async def test_backend_and_harness_are_independent_and_defaults_resolve_internal
 
 
 @pytest.mark.anyio
-async def test_builtin_lost_ack_retains_ownership_without_raw_exception_context():
+@pytest.mark.parametrize(
+    "error",
+    [
+        TypeError("private SDK details"),
+        ValueError("private SDK details"),
+        TemporalPayloadEncodingError("private SDK details"),
+        TemporalPayloadCodecError("private SDK details"),
+    ],
+)
+async def test_local_dispatch_failure_releases_only_its_ownership(error):
     ctx = context()
+    assert isinstance(ctx.db, AsyncMock)
     client = AsyncMock()
-    client.start_workflow.side_effect = TimeoutError("private SDK details")
+    client.start_workflow.side_effect = error
+    with (
+        patch("tracecat.agent.backends.base.get_temporal_client", return_value=client),
+        pytest.raises(RuntimeError) as caught,
+    ):
+        await DefaultBackend().start_turn(ctx)
+    assert not isinstance(caught.value, SessionDispatchUncertain)
+    assert caught.value.__context__ is None
+    assert "private SDK details" not in str(caught.value)
+    ctx.db.execute.assert_awaited_once()
+    # Cleanup is scoped to this session, workspace, run and stream, including
+    # callers that do not use the HTTP router's cleanup path.
+    statement = ctx.db.execute.await_args.args[0]
+    assert statement.compile().params == {
+        "curr_run_id": None,
+        "active_stream_id": None,
+        "id_1": ctx.session.id,
+        "workspace_id_1": ctx.role.workspace_id,
+        "curr_run_id_1": ctx.run_id,
+        "active_stream_id_1": ctx.stream_id,
+    }
+    assert ctx.db.commit.await_count == 2
+
+
+@pytest.mark.anyio
+async def test_real_client_encoding_failure_releases_reservation_before_rpc():
+    ctx = context()
+    assert isinstance(ctx.db, AsyncMock)
+    service_client = Mock()
+    service_client.config.identity = "test-client"
+    dispatch = AsyncMock(return_value=StartWorkflowExecutionResponse(run_id="run-1"))
+    service_client.workflow_service.start_workflow_execution = dispatch
+    client = Client(service_client, data_converter=get_data_converter())
+    with (
+        patch("tracecat.agent.backends.base.get_temporal_client", return_value=client),
+        patch("tracecat.dsl._converter.orjson.dumps", side_effect=TypeError("invalid")),
+        pytest.raises(RuntimeError) as caught,
+    ):
+        await DefaultBackend().start_turn(ctx)
+    assert not isinstance(caught.value, SessionDispatchUncertain)
+    assert caught.value.__context__ is None
+    dispatch.assert_not_awaited()
+    ctx.db.execute.assert_awaited_once()
+    assert ctx.db.commit.await_count == 2
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "error",
+    [
+        TimeoutError("private SDK details"),
+        RPCError("private SDK details", RPCStatusCode.UNAVAILABLE, b""),
+        RPCError("private SDK details", RPCStatusCode.DEADLINE_EXCEEDED, b""),
+        WorkflowAlreadyStartedError("workflow-1", "test"),
+        RuntimeError("unknown outcome"),
+    ],
+)
+async def test_builtin_lost_ack_retains_ownership_without_raw_exception_context(error):
+    ctx = context()
+    assert isinstance(ctx.db, AsyncMock)
+    client = AsyncMock()
+    client.start_workflow.side_effect = error
     with patch(
         "tracecat.agent.backends.base.get_temporal_client",
         return_value=client,
@@ -418,6 +494,8 @@ async def test_builtin_lost_ack_retains_ownership_without_raw_exception_context(
     assert caught.value.__context__ is None
     assert ctx.session.curr_run_id == ctx.run_id
     assert ctx.session.active_stream_id == ctx.stream_id
+    ctx.db.execute.assert_not_awaited()
+    ctx.db.commit.assert_awaited_once()
 
 
 @pytest.mark.anyio

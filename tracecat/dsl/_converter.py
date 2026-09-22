@@ -15,6 +15,7 @@ from temporalio.converter import (
 
 from tracecat import config
 from tracecat.temporal.codec import get_payload_codec
+from tracecat.temporal.exceptions import TemporalPayloadEncodingError
 
 
 def _serializer(obj: Any) -> Any:
@@ -59,12 +60,16 @@ class PydanticORJSONPayloadConverter(JSONPlainPayloadConverter):
                 option=orjson.OPT_SORT_KEYS | orjson.OPT_NON_STR_KEYS,
             )
         except Exception:
-            raise RuntimeError(
-                f"Failed to encode payload value of type {type(value).__name__}"
-            ) from None
-        return Payload(
-            metadata={"encoding": self.encoding.encode()},
-            data=data,
+            pass
+        else:
+            return Payload(
+                metadata={"encoding": self.encoding.encode()},
+                data=data,
+            )
+        # Leave the handler so the original serializer error and payload are not
+        # retained as implicit exception context.
+        raise TemporalPayloadEncodingError(
+            f"Failed to encode payload value of type {type(value).__name__}"
         )
 
     def from_payload(
