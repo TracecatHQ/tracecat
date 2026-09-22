@@ -18,9 +18,10 @@ services:
       target: development
     restart: unless-stopped
     ports:
-      - ${API_PORT:-8000}:8000
+      - ${API_PORT:-${PORT:-8000}}:${PORT:-8000}
     environment:
       # App
+      PORT: ${PORT:-8000}
       TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS: ${TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS:-}
       LOG_LEVEL: ${LOG_LEVEL}
       TRACECAT__LOG_FORMAT: ${TRACECAT__LOG_FORMAT:-console}
@@ -114,7 +115,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD-SHELL", "curl -f http://localhost:$${PORT:-8000}/health"]
       interval: 5s
       timeout: 5s
       retries: 30
@@ -409,7 +410,7 @@ services:
       TRACECAT__DB_AUTH_POOL_SIZE: ${TRACECAT__DB_AUTH_POOL_SIZE:-5}
       TRACECAT__DB_AUTH_MAX_OVERFLOW: ${TRACECAT__DB_AUTH_MAX_OVERFLOW:-5}
       TRACECAT__LITELLM_PORT: ${TRACECAT__LITELLM_PORT:-4000}
-      TRACECAT__LITELLM_BASE_URL: ${TRACECAT__LITELLM_BASE_URL:-http://litellm:4000}
+      TRACECAT__LITELLM_BASE_URL: ${TRACECAT__LITELLM_BASE_URL:-http://litellm:${TRACECAT__LITELLM_PORT:-4000}}
       TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS: ${TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS:-}
       PYTHONPATH: /app:/app/packages/tracecat-registry:/app/packages/tracecat-ee
     volumes:
@@ -421,7 +422,7 @@ services:
       migrations:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:4000/health/readiness"]
+      test: ["CMD-SHELL", "curl -f http://localhost:$${TRACECAT__LITELLM_PORT:-4000}/health/readiness"]
       interval: 5s
       timeout: 5s
       retries: 30
