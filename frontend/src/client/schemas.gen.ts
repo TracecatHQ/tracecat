@@ -1453,6 +1453,38 @@ export const $AgentArtifact = {
   description: "Agent preset artifact shown in artifact-capable chat surfaces.",
 } as const
 
+export const $AgentBackendCapability = {
+  type: "string",
+  enum: ["fork", "caller_owned_workflows"],
+  title: "AgentBackendCapability",
+  description: "Optional operations an agent backend can perform.",
+} as const
+
+export const $AgentBackendRead = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    capabilities: {
+      items: {
+        $ref: "#/components/schemas/AgentBackendCapability",
+      },
+      type: "array",
+      uniqueItems: true,
+      title: "Capabilities",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "capabilities"],
+  title: "AgentBackendRead",
+  description: "An enabled installed backend available for session creation.",
+} as const
+
 export const $AgentCatalogListResponse = {
   properties: {
     items: {
@@ -4052,8 +4084,8 @@ export const $AgentSessionCreate = {
       minLength: 1,
       pattern: "^[a-z][a-z0-9_]*$",
       title: "Backend Id",
-      description: "Opaque session backend identifier",
-      default: "v1",
+      description: "Opaque agent backend identifier",
+      default: "oss",
     },
     harness_type: {
       anyOf: [
@@ -4241,7 +4273,7 @@ export const $AgentSessionRead = {
     backend_id: {
       type: "string",
       title: "Backend Id",
-      default: "v1",
+      default: "oss",
     },
     backend_available: {
       type: "boolean",
@@ -4460,7 +4492,7 @@ export const $AgentSessionReadVercel = {
     backend_id: {
       type: "string",
       title: "Backend Id",
-      default: "v1",
+      default: "oss",
     },
     backend_available: {
       type: "boolean",
@@ -4687,7 +4719,7 @@ export const $AgentSessionReadWithMessages = {
     backend_id: {
       type: "string",
       title: "Backend Id",
-      default: "v1",
+      default: "oss",
     },
     backend_available: {
       type: "boolean",
@@ -4882,7 +4914,7 @@ export const $AgentSessionUpdate = {
         },
       ],
       title: "Backend Id",
-      description: "Immutable session backend identifier",
+      description: "Immutable agent backend identifier",
     },
     harness_type: {
       anyOf: [
@@ -25332,27 +25364,6 @@ export const $ServiceAccountUpdate = {
   },
   type: "object",
   title: "ServiceAccountUpdate",
-} as const
-
-export const $SessionBackendRead = {
-  properties: {
-    id: {
-      type: "string",
-      title: "Id",
-    },
-    name: {
-      type: "string",
-      title: "Name",
-    },
-    supports_fork: {
-      type: "boolean",
-      title: "Supports Fork",
-    },
-  },
-  type: "object",
-  required: ["id", "name", "supports_fork"],
-  title: "SessionBackendRead",
-  description: "An enabled installed backend available for session creation.",
 } as const
 
 export const $SessionRead = {

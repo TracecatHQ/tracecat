@@ -55,7 +55,7 @@ def _agent_session_row(
         mcp_integrations=None,
         agent_preset_id=None,
         agent_preset_version_id=None,
-        backend_id="v1",
+        backend_id="oss",
         harness_type=None,
         last_stream_id=None,
         parent_session_id=parent_session_id,

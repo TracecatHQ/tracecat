@@ -35,7 +35,7 @@ def test_backend_identity_preserves_harness_and_old_writes() -> None:
                     text(
                         "SELECT backend_id, harness_type FROM agent_session ORDER BY id"
                     )
-                ).all() == [("v1", "claude_code"), ("v1", None)]
+                ).all() == [("oss", "claude_code"), ("oss", None)]
                 # Old application versions omit backend_id entirely.
                 connection.execute(
                     text(
@@ -46,20 +46,20 @@ def test_backend_identity_preserves_harness_and_old_writes() -> None:
                     connection.scalar(
                         text("SELECT backend_id FROM agent_session WHERE id = 3")
                     )
-                    == "v1"
+                    == "oss"
                 )
                 connection.execute(
                     text(
-                        "INSERT INTO agent_session VALUES (4, 'synthetic_harness', 'v2')"
+                        "INSERT INTO agent_session VALUES (4, 'synthetic_harness', 'ee')"
                     )
                 )
-                with pytest.raises(RuntimeError, match="non-v1 sessions"):
+                with pytest.raises(RuntimeError, match="non-oss sessions"):
                     revision.module.downgrade()
                 assert (
                     connection.scalar(
                         text("SELECT backend_id FROM agent_session WHERE id = 4")
                     )
-                    == "v2"
+                    == "ee"
                 )
                 connection.execute(text("DELETE FROM agent_session WHERE id = 4"))
                 revision.module.downgrade()

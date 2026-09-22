@@ -20,6 +20,15 @@ from temporalio.exceptions import TimeoutError as TemporalTimeoutError
 
 with workflow.unsafe.imports_passed_through():
     from tracecat import config
+    from tracecat.agent.backends.schemas import (
+        AgentWorkflowArgs as AgentWorkflowArgs,
+    )
+    from tracecat.agent.backends.schemas import (
+        WorkflowApprovalSubmission as WorkflowApprovalSubmission,
+    )
+    from tracecat.agent.backends.schemas import (
+        WorkflowCancelRequest as WorkflowCancelRequest,
+    )
     from tracecat.agent.common.stream_types import HarnessType
     from tracecat.agent.common.types import (
         MCPToolDefinition,
@@ -85,15 +94,6 @@ with workflow.unsafe.imports_passed_through():
         load_session_messages_activity,
         reconcile_tool_results_activity,
     )
-    from tracecat.agent.session.backends.schemas import (
-        AgentWorkflowArgs as AgentWorkflowArgs,
-    )
-    from tracecat.agent.session.backends.schemas import (
-        WorkflowApprovalSubmission as WorkflowApprovalSubmission,
-    )
-    from tracecat.agent.session.backends.schemas import (
-        WorkflowCancelRequest as WorkflowCancelRequest,
-    )
     from tracecat.agent.session.types import AgentSessionEntity
     from tracecat.agent.subagents import (
         AgentSubagentsConfig,
@@ -122,10 +122,10 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.logger import logger
     from tracecat.registry.lock.types import RegistryLock
     from tracecat.runtime.errors import RuntimeErrorClassification
+    from tracecat.temporal.error_chain import iter_error_chain
     from tracecat.temporal.errors import (
         build_error_transport_detail,
         extract_error_classifications,
-        iter_error_chain,
         raise_application_error_from_classification,
         raise_wrapped_application_error,
     )

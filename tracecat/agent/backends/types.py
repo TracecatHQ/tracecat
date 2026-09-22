@@ -1,7 +1,8 @@
-"""Contracts shared by built-in and separately installed session backends."""
+"""Contracts shared by built-in and separately installed agent backends."""
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Any, Protocol, runtime_checkable
 from uuid import UUID
 
@@ -14,8 +15,19 @@ from tracecat.auth.types import Role
 from tracecat.db.models import AgentSession, AgentSessionHistory
 
 
+class AgentBackendCapability(StrEnum):
+    """Optional operations an agent backend can perform."""
+
+    FORK = "fork"
+    CALLER_OWNED_WORKFLOWS = "caller_owned_workflows"
+
+
 class SessionDispatchUncertain(RuntimeError):
-    """Dispatch may have succeeded; the caller must retain turn ownership."""
+    """Dispatch may have succeeded; the caller must retain turn ownership.
+
+    Raise after ownership is committed when a lost acknowledgement leaves the
+    dispatch outcome unknown. Definitive pre-dispatch failures use normal errors.
+    """
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,7 +46,11 @@ class SessionTurnContext:
 
 @runtime_checkable
 class SessionHistoryAdapter(Protocol):
-    """Project a backend's opaque persisted history into chat display records."""
+    """Project native history into the existing Claude-compatible chat format.
+
+    Preserve native records and IDs. Display output must never replace the
+    harness's native model history.
+    """
 
     async def load(
         self,
@@ -51,7 +67,7 @@ class SessionHistoryAdapter(Protocol):
 
 
 @runtime_checkable
-class SessionBackend(Protocol):
+class AgentBackend(Protocol):
     """Session dispatch and Temporal control; shared services enforce access.
 
     Factories return process-wide, stateless providers. Request-scoped database
@@ -68,10 +84,7 @@ class SessionBackend(Protocol):
     def supported_harnesses(self) -> frozenset[str]: ...
 
     @property
-    def supports_fork(self) -> bool: ...
-
-    @property
-    def supports_caller_owned_workflows(self) -> bool: ...
+    def capabilities(self) -> frozenset[AgentBackendCapability]: ...
 
     @property
     def approval_update_name(self) -> str: ...

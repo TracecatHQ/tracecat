@@ -1,4 +1,4 @@
-"""Built-in Claude session backend, preserving the durable workflow contract."""
+"""Built-in Claude agent backend, preserving the durable workflow contract."""
 
 from uuid import UUID
 
@@ -6,31 +6,33 @@ from temporalio.client import Client
 from temporalio.common import Priority
 
 from tracecat import config
-from tracecat.agent.cancellation import signal_turn_cancel
-from tracecat.agent.common.stream_types import HarnessType
-from tracecat.agent.schemas import RunAgentArgs
-from tracecat.agent.session.backends.schemas import (
+from tracecat.agent.backends.schemas import (
     AgentWorkflowArgs,
     WorkflowCancelRequest,
 )
-from tracecat.agent.session.backends.types import (
+from tracecat.agent.backends.types import (
+    AgentBackendCapability,
     SessionDispatchUncertain,
     SessionTurnContext,
 )
+from tracecat.agent.cancellation import signal_turn_cancel
+from tracecat.agent.common.stream_types import HarnessType
+from tracecat.agent.schemas import RunAgentArgs
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import RETRY_POLICIES
 from tracecat.logger import logger
 
 
-class DurableSessionBackend:
+class DurableAgentBackend:
     """Dispatch and control the existing Claude durable workflow."""
 
-    name = "Standard"
+    name = "Open source"
     default_harness = "claude_code"
     supported_harnesses = frozenset({"claude_code"})
-    supports_fork = True
-    supports_caller_owned_workflows = True
+    capabilities = frozenset(
+        {AgentBackendCapability.FORK, AgentBackendCapability.CALLER_OWNED_WORKFLOWS}
+    )
     approval_update_name = "set_approvals"
     history = None
 

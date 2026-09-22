@@ -5,10 +5,10 @@ import { ArrowRight, ChevronDown, Plus } from "lucide-react"
 import Link from "next/link"
 import { type ReactNode, useEffect, useState } from "react"
 import type {
+  AgentBackendRead,
   AgentPresetRead,
   AgentSessionEntity,
   AgentSessionsGetSessionVercelResponse,
-  SessionBackendRead,
 } from "@/client"
 import {
   PromptInput,
@@ -57,10 +57,10 @@ import { toast } from "@/components/ui/use-toast"
 import { useAuth } from "@/hooks/use-auth"
 import {
   parseChatError,
+  useAgentBackends,
   useCreateChat,
   useGetChatVercel,
   useListChats,
-  useSessionBackends,
   useUpdateChat,
 } from "@/hooks/use-chat"
 import { useChatPresetManager } from "@/hooks/use-chat-preset-manager"
@@ -124,12 +124,12 @@ export function ChatInterface({
   const workspaceId = useWorkspaceId()
   const queryClient = useQueryClient()
   const { user } = useAuth()
-  const { backends } = useSessionBackends(workspaceId)
+  const { backends } = useAgentBackends(workspaceId)
   const hasBackendChoice = backends.length > 1
   const [selectedChatId, setSelectedChatId] = useState<string | undefined>(
     chatId
   )
-  const [newChatBackend, setNewChatBackend] = useState<string>("v1")
+  const [newChatBackend, setNewChatBackend] = useState<string>("oss")
   const [newChatDialogOpen, setNewChatDialogOpen] = useState(false)
   const [autoCreateAttempted, setAutoCreateAttempted] = useState(false)
   const [isDraftChat, setIsDraftChat] = useState(false)
@@ -159,10 +159,11 @@ export function ChatInterface({
     chatId: selectedChatId,
     workspaceId,
   })
-  const currentBackendId = chat && "backend_id" in chat ? chat.backend_id : "v1"
+  const currentBackendId =
+    chat && "backend_id" in chat ? chat.backend_id : "oss"
   const currentBackendName =
     backends.find((backend) => backend.id === currentBackendId)?.name ??
-    (currentBackendId === "v1" ? "Standard" : "Unavailable")
+    (currentBackendId === "oss" ? "Open source" : "Unavailable")
   const { updateChat, isUpdating } = useUpdateChat(workspaceId)
 
   useEffect(() => {
@@ -562,7 +563,7 @@ function BackendSelect({
   value,
   onChange,
 }: {
-  backends: SessionBackendRead[]
+  backends: AgentBackendRead[]
   value: string
   onChange: (value: string) => void
 }) {

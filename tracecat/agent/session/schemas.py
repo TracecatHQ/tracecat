@@ -9,6 +9,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from tracecat.agent.adapter.vercel import UIMessage
+from tracecat.agent.backends.types import AgentBackendCapability
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.subagents import ResolvedAgentsConfig
 from tracecat.artifacts.schemas import Artifact
@@ -62,8 +63,8 @@ class AgentSessionCreate(BaseModel):
         ),
     )
     backend_id: str = Field(
-        default="v1",
-        description="Opaque session backend identifier",
+        default="oss",
+        description="Opaque agent backend identifier",
         min_length=1,
         max_length=50,
         pattern=r"^[a-z][a-z0-9_]*$",
@@ -106,7 +107,7 @@ class AgentSessionUpdate(BaseModel):
     )
     backend_id: str | None = Field(
         default=None,
-        description="Immutable session backend identifier",
+        description="Immutable agent backend identifier",
         min_length=1,
         max_length=50,
         pattern=r"^[a-z][a-z0-9_]*$",
@@ -156,7 +157,7 @@ class AgentSessionRead(BaseModel):
     agent_preset_id: uuid.UUID | None
     agent_preset_version_id: uuid.UUID | None
     agents_binding: ResolvedAgentsConfig | None = None
-    backend_id: str = Field(default="v1")
+    backend_id: str = Field(default="oss")
     backend_available: bool = Field(
         default=True,
         description="Whether this session can execute; unavailable sessions remain readable",
@@ -229,9 +230,9 @@ class AgentSessionCancelResponse(BaseModel):
     reason: str
 
 
-class SessionBackendRead(BaseModel):
+class AgentBackendRead(BaseModel):
     """An enabled installed backend available for session creation."""
 
     id: str
     name: str
-    supports_fork: bool
+    capabilities: frozenset[AgentBackendCapability]

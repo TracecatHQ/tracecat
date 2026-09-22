@@ -406,6 +406,20 @@ export type AgentArtifact = {
 }
 
 /**
+ * Optional operations an agent backend can perform.
+ */
+export type AgentBackendCapability = "fork" | "caller_owned_workflows"
+
+/**
+ * An enabled installed backend available for session creation.
+ */
+export type AgentBackendRead = {
+  id: string
+  name: string
+  capabilities: Array<AgentBackendCapability>
+}
+
+/**
  * List catalog entries with pagination.
  */
 export type AgentCatalogListResponse = {
@@ -1031,7 +1045,7 @@ export type AgentSessionCreate = {
    */
   agent_preset_version_id?: string | null
   /**
-   * Opaque session backend identifier
+   * Opaque agent backend identifier
    */
   backend_id?: string
   /**
@@ -1224,7 +1238,7 @@ export type AgentSessionUpdate = {
    */
   agent_preset_version_id?: string | null
   /**
-   * Immutable session backend identifier
+   * Immutable agent backend identifier
    */
   backend_id?: string | null
   /**
@@ -7655,15 +7669,6 @@ export type ServiceAccountUpdate = {
   scope_ids?: Array<string> | null
 }
 
-/**
- * An enabled installed backend available for session creation.
- */
-export type SessionBackendRead = {
-  id: string
-  name: string
-  supports_fork: boolean
-}
-
 export type SessionRead = {
   id: string
   created_at: string
@@ -12663,11 +12668,11 @@ export type AgentSkillsRemoveSkillTagData = {
 
 export type AgentSkillsRemoveSkillTagResponse = void
 
-export type AgentSessionsListSessionBackendsData = {
+export type AgentSessionsListAgentBackendsData = {
   workspaceId: string
 }
 
-export type AgentSessionsListSessionBackendsResponse = Array<SessionBackendRead>
+export type AgentSessionsListAgentBackendsResponse = Array<AgentBackendRead>
 
 export type AgentSessionsCreateSessionData = {
   requestBody: AgentSessionCreate
@@ -18303,12 +18308,12 @@ export type $OpenApiTs = {
   }
   "/workspaces/{workspace_id}/agent/sessions/backends": {
     get: {
-      req: AgentSessionsListSessionBackendsData
+      req: AgentSessionsListAgentBackendsData
       res: {
         /**
          * Successful Response
          */
-        200: Array<SessionBackendRead>
+        200: Array<AgentBackendRead>
         /**
          * Validation Error
          */

@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { ChatInterface } from "@/components/chat/chat-interface"
-import { useSessionBackends } from "@/hooks/use-chat"
+import { useAgentBackends } from "@/hooks/use-chat"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
 
 jest.mock("@/components/chat/chat-session-pane", () => ({
@@ -25,7 +25,7 @@ jest.mock("@/hooks/use-entitlements", () => ({
   }),
 }))
 jest.mock("@/hooks/use-chat", () => ({
-  useSessionBackends: jest.fn(),
+  useAgentBackends: jest.fn(),
   useListChats: () => ({ chats: [], chatsLoading: false, chatsError: null }),
   useCreateChat: () => ({
     createChat: jest.fn(),
@@ -75,11 +75,17 @@ const mockUseScopeCheck = useScopeCheck as jest.MockedFunction<
   typeof useScopeCheck
 >
 
-const mockUseSessionBackends = jest.mocked(useSessionBackends)
+const mockUseAgentBackends = jest.mocked(useAgentBackends)
 
 beforeEach(() => {
-  mockUseSessionBackends.mockReturnValue({
-    backends: [{ id: "v1", name: "Standard", supports_fork: true }],
+  mockUseAgentBackends.mockReturnValue({
+    backends: [
+      {
+        id: "oss",
+        name: "Open source",
+        capabilities: ["fork", "caller_owned_workflows"],
+      },
+    ],
   })
 })
 
@@ -144,16 +150,20 @@ describe("ChatInterface mode selection", () => {
 
   it("shows a product label when another backend is installed", () => {
     setScopeResult("integration:read", true)
-    mockUseSessionBackends.mockReturnValue({
+    mockUseAgentBackends.mockReturnValue({
       backends: [
-        { id: "v1", name: "Standard", supports_fork: true },
-        { id: "v2", name: "Advanced", supports_fork: false },
+        {
+          id: "oss",
+          name: "Open source",
+          capabilities: ["fork", "caller_owned_workflows"],
+        },
+        { id: "ee", name: "Enterprise", capabilities: [] },
       ],
     })
     renderChat()
     const selectors = screen.getAllByRole("combobox", { name: "Chat mode" })
     expect(selectors.length).toBeGreaterThan(0)
-    expect(selectors[0]).toHaveTextContent("Standard")
+    expect(selectors[0]).toHaveTextContent("Open source")
     expect(screen.queryByText("claude_code")).not.toBeInTheDocument()
   })
 })

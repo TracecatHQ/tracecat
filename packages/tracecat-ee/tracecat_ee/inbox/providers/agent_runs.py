@@ -203,7 +203,7 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
             AgentSession.workspace_id == self.workspace_id,
             # This inbox provider interprets built-in workflow metadata only.
             # Other backends expose their controls/history through session APIs.
-            AgentSession.backend_id == "v1",
+            AgentSession.backend_id == "oss",
             AgentSession.parent_session_id.is_(None),
             AgentSession.entity_type != "approval",
             or_(
@@ -766,7 +766,7 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
                 Approval.workspace_id == self.workspace_id,
                 Approval.status == ApprovalStatus.PENDING,
                 AgentSession.workspace_id == self.workspace_id,
-                AgentSession.backend_id == "v1",
+                AgentSession.backend_id == "oss",
                 AgentSession.parent_session_id.is_(None),
             )
         )

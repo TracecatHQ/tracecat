@@ -15,13 +15,14 @@ from tracecat_ee.workspace_chat.policy import (
 
 from tracecat import config
 from tracecat.agent.adapter import vercel
-from tracecat.agent.session.backends.registry import (
-    find_session_backend,
-    get_session_backends,
-    session_backend_available,
+from tracecat.agent.backends.registry import (
+    agent_backend_available,
+    find_agent_backend,
+    get_agent_backends,
 )
-from tracecat.agent.session.backends.types import SessionDispatchUncertain
+from tracecat.agent.backends.types import SessionDispatchUncertain
 from tracecat.agent.session.schemas import (
+    AgentBackendRead,
     AgentSessionArtifactsRead,
     AgentSessionCancelRequest,
     AgentSessionCancelResponse,
@@ -31,7 +32,6 @@ from tracecat.agent.session.schemas import (
     AgentSessionReadVercel,
     AgentSessionReadWithMessages,
     AgentSessionUpdate,
-    SessionBackendRead,
 )
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import (
@@ -142,15 +142,13 @@ async def _require_workspace_chat_entitlement_for_session_tree(
 
 @router.get("/backends")
 @require_scope("agent:read")
-async def list_session_backends(
+async def list_agent_backends(
     role: WorkspaceActorRouteRole,
-) -> list[SessionBackendRead]:
+) -> list[AgentBackendRead]:
     """List enabled installed backends available to new sessions."""
     return [
-        SessionBackendRead(
-            id=key, name=backend.name, supports_fork=backend.supports_fork
-        )
-        for key, backend in get_session_backends().items()
+        AgentBackendRead(id=key, name=backend.name, capabilities=backend.capabilities)
+        for key, backend in get_agent_backends().items()
         if backend.is_enabled()
     ]
 
@@ -256,15 +254,14 @@ async def get_session(
             title=agent_session.title,
             created_by=agent_session.created_by,
             is_readonly=is_session_readonly(role, agent_session.created_by)
-            or not session_backend_available(
+            or not agent_backend_available(
                 agent_session.backend_id, agent_session.harness_type
             ),
             backend_id=agent_session.backend_id,
-            backend_available=session_backend_available(
+            backend_available=agent_backend_available(
                 agent_session.backend_id, agent_session.harness_type
             ),
-            history_available=find_session_backend(agent_session.backend_id)
-            is not None,
+            history_available=find_agent_backend(agent_session.backend_id) is not None,
             entity_type=AgentSessionEntity(agent_session.entity_type),
             entity_id=agent_session.entity_id,
             channel_context=agent_session.channel_context,
@@ -349,15 +346,14 @@ async def get_session_vercel(
             title=agent_session.title,
             created_by=agent_session.created_by,
             is_readonly=is_session_readonly(role, agent_session.created_by)
-            or not session_backend_available(
+            or not agent_backend_available(
                 agent_session.backend_id, agent_session.harness_type
             ),
             backend_id=agent_session.backend_id,
-            backend_available=session_backend_available(
+            backend_available=agent_backend_available(
                 agent_session.backend_id, agent_session.harness_type
             ),
-            history_available=find_session_backend(agent_session.backend_id)
-            is not None,
+            history_available=find_agent_backend(agent_session.backend_id) is not None,
             entity_type=AgentSessionEntity(agent_session.entity_type),
             entity_id=agent_session.entity_id,
             channel_context=agent_session.channel_context,

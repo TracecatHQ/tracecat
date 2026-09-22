@@ -12,12 +12,12 @@ from fastapi.responses import Response, StreamingResponse
 from starlette import status
 
 from tracecat.agent.adapter.vercel import UIMessage
+from tracecat.agent.backends.types import SessionDispatchUncertain
 from tracecat.agent.common.stream_types import (
     HarnessType,
     StreamEventType,
     UnifiedStreamEvent,
 )
-from tracecat.agent.session.backends.types import SessionDispatchUncertain
 from tracecat.agent.session.router import (
     cancel_session,
     fork_session,
@@ -76,7 +76,7 @@ def _agent_session_stub(**overrides: Any) -> SimpleNamespace:
         "agent_preset_id": uuid.uuid4(),
         "agent_preset_version_id": uuid.uuid4(),
         "agents_binding": {},
-        "backend_id": "v1",
+        "backend_id": "oss",
         "harness_type": HarnessType.CLAUDE_CODE,
         "created_at": now,
         "updated_at": now,

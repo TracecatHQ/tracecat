@@ -7,6 +7,7 @@ import {
 } from "ai"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
+  type AgentBackendRead,
   type AgentSessionCreate,
   type AgentSessionEntity,
   type AgentSessionRead,
@@ -23,12 +24,11 @@ import {
   agentSessionsDeleteSession,
   agentSessionsGetSession,
   agentSessionsGetSessionVercel,
-  agentSessionsListSessionBackends,
+  agentSessionsListAgentBackends,
   agentSessionsListSessions,
   agentSessionsRemoveSessionArtifact,
   agentSessionsUpdateSession,
   type ContinueRunRequest,
-  type SessionBackendRead,
   type VercelChatRequest,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
@@ -776,14 +776,14 @@ export function makeContinueMessage(
   }
 }
 
-const EMPTY_BACKENDS: SessionBackendRead[] = []
+const EMPTY_BACKENDS: AgentBackendRead[] = []
 
 /** Discover enabled backend providers without coupling the UI to their names. */
-export function useSessionBackends(workspaceId?: string) {
+export function useAgentBackends(workspaceId?: string) {
   const { data } = useQuery({
-    queryKey: ["session-backends", workspaceId],
+    queryKey: ["agent-backends", workspaceId],
     queryFn: () =>
-      agentSessionsListSessionBackends({ workspaceId: workspaceId! }),
+      agentSessionsListAgentBackends({ workspaceId: workspaceId! }),
     enabled: Boolean(workspaceId),
     staleTime: 60_000,
   })

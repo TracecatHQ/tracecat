@@ -170,7 +170,7 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
 
             # This activity belongs to the built-in durable workflow. Never let
             # a caller-supplied session ID redirect a different backend's session.
-            if (agent_session.backend_id or "v1") != "v1" or (
+            if (agent_session.backend_id or "oss") != "oss" or (
                 agent_session.harness_type is not None
                 and agent_session.harness_type != input.harness_type
             ):

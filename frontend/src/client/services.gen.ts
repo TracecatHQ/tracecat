@@ -191,8 +191,8 @@ import type {
   AgentSessionsGetSessionResponse,
   AgentSessionsGetSessionVercelData,
   AgentSessionsGetSessionVercelResponse,
-  AgentSessionsListSessionBackendsData,
-  AgentSessionsListSessionBackendsResponse,
+  AgentSessionsListAgentBackendsData,
+  AgentSessionsListAgentBackendsResponse,
   AgentSessionsListSessionsData,
   AgentSessionsListSessionsResponse,
   AgentSessionsRemoveSessionArtifactData,
@@ -7203,16 +7203,16 @@ export const agentSkillsRemoveSkillTag = (
 }
 
 /**
- * List Session Backends
+ * List Agent Backends
  * List enabled installed backends available to new sessions.
  * @param data The data for the request.
  * @param data.workspaceId
- * @returns SessionBackendRead Successful Response
+ * @returns AgentBackendRead Successful Response
  * @throws ApiError
  */
-export const agentSessionsListSessionBackends = (
-  data: AgentSessionsListSessionBackendsData
-): CancelablePromise<AgentSessionsListSessionBackendsResponse> => {
+export const agentSessionsListAgentBackends = (
+  data: AgentSessionsListAgentBackendsData
+): CancelablePromise<AgentSessionsListAgentBackendsResponse> => {
   return __request(OpenAPI, {
     method: "GET",
     url: "/workspaces/{workspace_id}/agent/sessions/backends",

@@ -285,14 +285,14 @@ class ApprovalService(BaseWorkspaceService):
         """Get a session by ID."""
 
         # This legacy view parses durable-workflow metadata. Other backends use
-        # the shared session approval API and must never be looked up as v1.
+        # the shared session approval API and must never be looked up as oss.
         backend_id = await self.session.scalar(
             select(AgentSession.backend_id).where(
                 AgentSession.id == session_id,
                 AgentSession.workspace_id == self.workspace_id,
             )
         )
-        if backend_id is not None and backend_id != "v1":
+        if backend_id is not None and backend_id != "oss":
             return None
 
         # Query workflow executions using the agent session key
