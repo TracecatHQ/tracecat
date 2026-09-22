@@ -40,6 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.audit.service import AuditService
+from tracecat.auth.domain_policy import is_domain_allowed_for_org
 from tracecat.auth.enums import AuthType
 from tracecat.auth.ip_allowlist import IP_ALLOWLIST_DENIED_DETAIL
 from tracecat.auth.ip_allowlist_enforcement import (
@@ -354,12 +355,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
     async def _saml_would_admit_email(
         self, session: SupportsExecute, org_id: OrganizationID, email: str
     ) -> bool:
-        """Mirror the SAML callback's domain allowlist for one organization.
-
-        Kept in step with ``_is_normalized_domain_allowed_for_org`` in
-        ``tracecat.auth.saml``, which imports from this module and so cannot be
-        imported back.
-        """
+        """Apply the SAML callback's domain policy for one organization."""
         _, _, email_domain = email.rpartition("@")
         if not email_domain:
             return False
@@ -380,11 +376,9 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             .scalars()
             .all()
         )
-        if active_domains:
-            return normalized_domain in active_domains
-        # No configured domains: multi-tenant admits nobody by domain, and the
-        # single-tenant env allowlist is handled by the callback itself.
-        return not config.TRACECAT__EE_MULTI_TENANT
+        return is_domain_allowed_for_org(
+            normalized_domain=normalized_domain, active_domains=active_domains
+        )
 
     async def _is_saml_enforced_for_oauth(self, email: str) -> bool:
         """Check if SAML enforcement blocks OAuth for this email.
