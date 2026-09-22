@@ -624,6 +624,82 @@ class TestBuildToolDefinitionsActivity:
         assert exc_info.value.non_retryable is True
 
     @pytest.mark.anyio
+    async def test_strict_mcp_discovery_failure_names_server_and_status(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from tracecat.agent.common.exceptions import UserMCPDiscoveryError
+        from tracecat.agent.mcp import user_client
+
+        async def mock_build_agent_tools(**_kwargs: Any) -> BuildToolsResult:
+            return BuildToolsResult(tools=[], collected_secrets=set())
+
+        async def mock_discover_user_mcp_tools(
+            _configs: list[dict[str, Any]],
+            *,
+            fail_on_error: bool = False,
+        ) -> dict[str, Any]:
+            raise UserMCPDiscoveryError(
+                "broken", "HTTPStatusError(status_code=401)"
+            ) from RuntimeError("secret-bearing upstream body")
+
+        class _LockService:
+            async def resolve_lock_with_bindings(
+                self,
+                actions: set[str],
+            ) -> RegistryLock:
+                return RegistryLock(origins={}, actions={})
+
+        class _AsyncContext:
+            async def __aenter__(self) -> _LockService:
+                return _LockService()
+
+            async def __aexit__(
+                self, exc_type: object, exc: object, tb: object
+            ) -> None:
+                return None
+
+        monkeypatch.setattr(
+            agent_activities, "build_agent_tools", mock_build_agent_tools
+        )
+        monkeypatch.setattr(
+            user_client,
+            "discover_user_mcp_tools",
+            mock_discover_user_mcp_tools,
+        )
+        monkeypatch.setattr(
+            RegistryLockService,
+            "with_session",
+            lambda: _AsyncContext(),
+        )
+
+        args = BuildToolDefsArgs(
+            role=Role(type="service", service_id="tracecat-api"),
+            tool_filters=ToolFilters(actions=[]),
+            mcp_servers=[
+                {
+                    "type": "http",
+                    "name": "broken",
+                    "url": "https://broken.example/mcp",
+                }
+            ],
+            fail_on_mcp_discovery_error=True,
+        )
+
+        with pytest.raises(ApplicationError) as exc_info:
+            await AgentActivities().build_tool_definitions(args)
+
+        classification = extract_error_classification(exc_info.value)
+        assert classification is not None
+        assert classification.owner is RuntimeErrorOwner.USER
+        assert classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
+        assert "'broken'" in exc_info.value.message
+        assert "status_code=401" in exc_info.value.message
+        assert "secret-bearing" not in exc_info.value.message
+        assert "broken.example" not in exc_info.value.message
+        assert exc_info.value.non_retryable is True
+
+    @pytest.mark.anyio
     async def test_mcp_tool_policy_filters_and_maps_approvals(
         self,
         monkeypatch: pytest.MonkeyPatch,
