@@ -38,6 +38,7 @@ from tracecat.agent.backends.types import (
 )
 from tracecat.agent.cancellation import signal_turn_cancel
 from tracecat.agent.session.types import TurnLifecycle
+from tracecat.concurrency import rejoin_future_on_cancel
 from tracecat.db.models import AgentSession
 from tracecat.dsl.client import get_temporal_client
 from tracecat.exceptions import TracecatConflictError
@@ -101,10 +102,26 @@ class AgentBackend[InputT, OutputT](ABC):
         )
         if session is None or session.curr_run_id is not None:
             raise TracecatConflictError("This chat already has an active turn")
+        # Once admitted, finish the ownership decision before releasing the
+        # request's DB session. Cancellation must not interrupt a commit that
+        # PostgreSQL may already have accepted, or skip dispatch/cleanup after it.
+        await rejoin_future_on_cancel(
+            asyncio.create_task(
+                self._prepare_and_dispatch_turn(
+                    replace(context, session=session), client
+                )
+            )
+        )
+
+    async def _prepare_and_dispatch_turn(
+        self, context: SessionTurnContext, client: Client
+    ) -> None:
+        """Settle preparation, dispatch, and cleanup while caller cancellation waits."""
+        session = context.session
         session_id = session.id
         dispatch = TurnDispatchClient(client.service_client, context.db.commit)
         try:
-            args = await self.build_workflow_args(replace(context, session=session))
+            args = await self.build_workflow_args(context)
             search_attributes = self._search_attributes(context)
             session.curr_run_id = context.run_id
             session.active_stream_id = context.stream_id

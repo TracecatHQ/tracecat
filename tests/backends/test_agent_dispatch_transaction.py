@@ -4,6 +4,7 @@ Run against local PostgreSQL with:
 uv run pytest --noconftest tests/backends/test_agent_dispatch_transaction.py
 """
 
+import asyncio
 from collections.abc import AsyncIterator
 from dataclasses import replace
 from unittest.mock import AsyncMock, Mock, patch
@@ -213,6 +214,109 @@ async def test_uncertain_dispatch_keeps_history_and_blocks_another_turn(
                     replace(context, run_id=uuid4(), stream_id=uuid4())
                 )
             rpc.assert_awaited_once()
+
+
+@pytest.mark.parametrize(
+    "cancel_at,outcome",
+    [
+        ("before_commit", "success"),
+        ("after_commit", "success"),
+        ("after_commit", "rejected"),
+        ("after_commit", "uncertain"),
+        ("rpc", "success"),
+        ("rpc", "rejected"),
+        ("before_commit", "commit_failure"),
+    ],
+)
+async def test_caller_cancellation_settles_commit_dispatch_and_cleanup(
+    connection: AsyncConnection, cancel_at: str, outcome: str
+) -> None:
+    backend = HistoryBackend()
+    paused = asyncio.Event()
+    proceed = asyncio.Event()
+
+    async def pause() -> None:
+        paused.set()
+        await proceed.wait()
+
+    async def start_rpc(*_args, **_kwargs):
+        if cancel_at == "rpc":
+            await pause()
+        if outcome == "rejected":
+            raise RPCError(
+                "private rejection details", RPCStatusCode.INVALID_ARGUMENT, b""
+            )
+        if outcome == "uncertain":
+            raise TimeoutError("private transport details")
+        return StartWorkflowExecutionResponse(run_id="run-1")
+
+    rpc = AsyncMock(side_effect=start_rpc)
+    client = temporal_client(rpc)
+    async with AsyncSession(connection, expire_on_commit=False) as db:
+        context = await make_context(db)
+        session_id = context.session.id
+        commit = db.commit
+        rollback = AsyncMock(wraps=db.rollback)
+        first_commit = True
+
+        async def commit_at_boundary() -> None:
+            nonlocal first_commit
+            if not first_commit:
+                await commit()
+                return
+            first_commit = False
+            if cancel_at == "before_commit":
+                await pause()
+            if outcome == "commit_failure":
+                raise RuntimeError("private commit details")
+            await commit()
+            if cancel_at == "after_commit":
+                # Ownership and prepared history are already persisted, but the
+                # commit await has not returned to TurnDispatchClient yet.
+                await pause()
+
+        with (
+            patch(
+                "tracecat.agent.backends.base.get_temporal_client", return_value=client
+            ),
+            patch.object(db, "commit", side_effect=commit_at_boundary),
+            patch.object(db, "rollback", rollback),
+        ):
+            turn = asyncio.create_task(backend.start_turn(context))
+            try:
+                await asyncio.wait_for(paused.wait(), timeout=5)
+                for _ in range(2):
+                    turn.cancel()
+                    await asyncio.sleep(0)
+                    assert not turn.done()
+                rollback.assert_not_awaited()
+            finally:
+                proceed.set()
+                with pytest.raises(asyncio.CancelledError) as caught:
+                    await asyncio.wait_for(turn, timeout=5)
+            assert caught.value.__context__ is None
+            assert caught.value.__cause__ is None
+
+        assert not db.in_transaction()
+        if outcome == "commit_failure":
+            rpc.assert_not_awaited()
+            rollback.assert_awaited_once()
+        else:
+            rpc.assert_awaited_once()
+            rollback.assert_not_awaited()
+        async with AsyncSession(connection) as reader:
+            saved = await reader.scalar(
+                select(AgentSession).where(AgentSession.id == session_id)
+            )
+            assert saved is not None
+            if outcome in {"success", "uncertain"}:
+                assert saved.curr_run_id == context.run_id
+                assert saved.active_stream_id == context.stream_id
+            else:
+                assert saved.curr_run_id is None
+                assert saved.active_stream_id is None
+            rows = list(await reader.scalars(select(AgentSessionHistory)))
+            assert len(rows) == (1 if outcome == "commit_failure" else 2)
 
 
 @pytest.mark.parametrize(
