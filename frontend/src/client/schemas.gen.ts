@@ -26106,6 +26106,7 @@ export const $ScimUserRequest = {
     },
     userName: {
       type: "string",
+      maxLength: 320,
       title: "Username",
     },
     externalId: {
