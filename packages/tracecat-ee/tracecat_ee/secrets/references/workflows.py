@@ -6,6 +6,7 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 with workflow.unsafe.imports_passed_through():
+    from tracecat.logger import logger
     from tracecat.secrets.enums import AwsSecretResolutionErrorCode
     from tracecat.secrets.schemas import (
         SecretReferenceCheckRequest,
@@ -28,9 +29,13 @@ async def check_secret_reference_activity(
             )
             secret = await service.get_secret(request.secret_id)
             return await service.check_aws_secret_reference(secret)
-    except Exception:
+    except Exception as e:
         # Unexpected provider/DB failures must not serialize their details to Temporal.
-        pass
+        logger.warning(
+            "Secret reference check failed unexpectedly",
+            secret_id=str(request.secret_id),
+            error_type=type(e).__name__,
+        )
     return SecretReferenceCheckResult(
         ok=False,
         error_code=AwsSecretResolutionErrorCode.UNKNOWN,
