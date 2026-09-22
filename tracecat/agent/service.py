@@ -530,7 +530,7 @@ class AgentManagementService(BaseOrgService):
     ) -> dict[str, str] | None:
         """Resolve local or externally backed workspace credentials for a provider.
 
-        Runs on the caller's session; gateway callers already hold a connection.
+        Commits the caller's session before resolving an external reference.
         """
         secret_name = self._get_workspace_credential_secret_name(provider)
         secrets = await self.secrets_service.search_secrets(
@@ -544,6 +544,8 @@ class AgentManagementService(BaseOrgService):
                 self.session, self.role, Entitlement.EXTERNAL_SECRET_STORES
             )
             reference = build_external_secret_reference(secret)
+            # Release the DB connection before the remote call.
+            await self.session.commit()
             values = await get_backend(reference.provider).resolve([reference])
             return values.get(secret_name)
         decrypted_keys = self.secrets_service.decrypt_keys(secret.encrypted_keys)

@@ -302,6 +302,12 @@ function SecretStoreCard({
     useWorkspaceManager()
   const canUpdate = useScopeCheck("org:secret:update")
   const canDelete = useScopeCheck("org:secret:delete")
+  // Mirrors the scopes GET /workspaces accepts.
+  const canListWorkspaces = useScopeCheck(undefined, [
+    "org:read",
+    "org:workspace:read",
+    "workspace:read",
+  ])
   const [editing, setEditing] = React.useState(false)
   const [pending, setPending] = React.useState(false)
   const [workspacePickerOpen, setWorkspacePickerOpen] = React.useState(false)
@@ -482,7 +488,9 @@ function SecretStoreCard({
                   )}
                   {workspacesError && (
                     <p className="px-2 py-2 text-xs text-destructive">
-                      Could not load workspaces. Refresh to try again.
+                      {canListWorkspaces === false
+                        ? "You need permission to view workspaces to choose them."
+                        : "Could not load workspaces. Refresh to try again."}
                     </p>
                   )}
                   <div className="max-h-64 overflow-y-auto">
