@@ -5,12 +5,14 @@ from uuid import UUID
 
 from temporalio.client import Client
 from temporalio.common import Priority, WorkflowIDReusePolicy
+from temporalio.workflow import UpdateMethodMultiParam
 from tracecat_ee.agent.workflows.durable import DurableAgentWorkflow
 
 from tracecat import config
 from tracecat.agent.backends.base import AgentBackend
 from tracecat.agent.backends.schemas import (
     AgentWorkflowArgs,
+    WorkflowApprovalSubmission,
     WorkflowCancelRequest,
 )
 from tracecat.agent.backends.types import (
@@ -39,8 +41,15 @@ class DefaultBackend(AgentBackend[AgentWorkflowArgs, AgentOutput]):
     capabilities = frozenset(
         {AgentBackendCapability.FORK, AgentBackendCapability.CALLER_OWNED_WORKFLOWS}
     )
-    approval_update_name = "set_approvals"
     history = None
+
+    @property
+    def approval_update(
+        self,
+    ) -> UpdateMethodMultiParam[
+        [DurableAgentWorkflow, WorkflowApprovalSubmission], bool
+    ]:
+        return DurableAgentWorkflow.set_approvals
 
     async def build_workflow_args(
         self, context: SessionTurnContext

@@ -2,13 +2,15 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import replace
-from typing import ClassVar
+from typing import Any, ClassVar
 from uuid import UUID
 
 from sqlalchemy import select
 from temporalio.client import Client
 from temporalio.common import Priority, RetryPolicy, WorkflowIDReusePolicy
+from temporalio.workflow import UpdateMethodMultiParam
 
+from tracecat.agent.backends.schemas import WorkflowApprovalSubmission
 from tracecat.agent.backends.types import (
     AgentBackendCapability,
     AgentWorkflow,
@@ -35,7 +37,6 @@ class AgentBackend[InputT, OutputT](ABC):
     default_harness: ClassVar[str]
     supported_harnesses: ClassVar[frozenset[str]]
     capabilities: ClassVar[frozenset[AgentBackendCapability]] = frozenset()
-    approval_update_name: ClassVar[str]
     history: ClassVar[SessionHistoryAdapter | None] = None
     task_queue: ClassVar[str]
     priority: ClassVar[Priority] = Priority()
@@ -51,6 +52,13 @@ class AgentBackend[InputT, OutputT](ABC):
     def workflow_id(self, run_id: UUID) -> str:
         """Build the stable workflow identity for a turn."""
         return f"agent/{run_id}"
+
+    @property
+    @abstractmethod
+    def approval_update(
+        self,
+    ) -> UpdateMethodMultiParam[[Any, WorkflowApprovalSubmission], bool]:
+        """Return the unbound Temporal update method accepting approval decisions."""
 
     @abstractmethod
     async def build_workflow_args(self, context: SessionTurnContext) -> InputT:

@@ -2357,7 +2357,7 @@ class AgentSessionService(BaseWorkspaceService):
             resumed = await handle.execute_update(
                 get_agent_backend(
                     agent_session.backend_id, harness_type=agent_session.harness_type
-                ).approval_update_name,
+                ).approval_update,
                 WorkflowApprovalSubmission(
                     approvals=validated.approval_map,
                     approved_by=self.role.user_id,
