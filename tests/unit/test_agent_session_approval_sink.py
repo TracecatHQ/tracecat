@@ -11,13 +11,16 @@ import orjson
 import pytest
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from temporalio.api.workflowservice.v1 import StartWorkflowExecutionRequest
 from temporalio.client import (
+    Client,
     WorkflowUpdateFailedError,
     WorkflowUpdateRPCTimeoutOrCancelledError,
 )
 from temporalio.exceptions import ApplicationError
 
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.backends.schemas import AgentWorkflowArgs
 from tracecat.agent.backends.types import AgentControlRejected, AgentControlUncertain
 from tracecat.agent.executor.schemas import ToolExecutionResult
 from tracecat.agent.session.service import AgentSessionService
@@ -2243,9 +2246,10 @@ async def test_run_turn_merges_basic_chat_request_instructions(
     session: AsyncSession,
     svc_role: Role,
     external_agent_session: AgentSession,
+    temporal_start_client: tuple[Client, AsyncMock],
 ) -> None:
     service = AgentSessionService(session=session, role=svc_role)
-    fake_client = SimpleNamespace(start_workflow=AsyncMock(return_value=None))
+    temporal_client, start_rpc = temporal_start_client
 
     @contextlib.asynccontextmanager
     async def _fake_build_agent_config(_session: AgentSession):
@@ -2270,7 +2274,7 @@ async def test_run_turn_merges_basic_chat_request_instructions(
         ),
         patch(
             "tracecat.agent.backends.base.get_temporal_client",
-            AsyncMock(return_value=fake_client),
+            AsyncMock(return_value=temporal_client),
         ),
     ):
         response = await service.run_turn(
@@ -2282,9 +2286,13 @@ async def test_run_turn_merges_basic_chat_request_instructions(
         )
 
     assert response is not None
-    await_args = fake_client.start_workflow.await_args
-    assert await_args is not None
-    workflow_args = await_args.args[1]
+    start_rpc.assert_awaited_once()
+    assert start_rpc.await_args is not None
+    start_request = start_rpc.await_args.args[1]
+    assert isinstance(start_request, StartWorkflowExecutionRequest)
+    (workflow_args,) = await temporal_client.data_converter.decode(
+        list(start_request.input.payloads), [AgentWorkflowArgs]
+    )
     assert (
         workflow_args.agent_args.config.instructions
         == "Base preset instructions\n\nSlack actor context for this turn:\n- Slack email: jordan@example.com"
