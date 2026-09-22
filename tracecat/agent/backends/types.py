@@ -7,7 +7,6 @@ from typing import Any, Protocol, runtime_checkable
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from temporalio.common import TypedSearchAttributes
 
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
@@ -29,6 +28,14 @@ class SessionDispatchUncertain(RuntimeError):
     """
 
 
+class AgentControlRejected(RuntimeError):
+    """A control operation failed definitively; its local attempt may be rolled back."""
+
+
+class AgentControlUncertain(RuntimeError):
+    """A control operation may have applied; preserve its identity for retries."""
+
+
 @dataclass(frozen=True, slots=True)
 class SessionTurnContext:
     """Resolved, authorized inputs for dispatching one session turn."""
@@ -40,7 +47,6 @@ class SessionTurnContext:
     prompt: str
     run_id: UUID
     stream_id: UUID
-    search_attributes: TypedSearchAttributes
 
 
 @runtime_checkable

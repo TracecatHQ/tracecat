@@ -30,12 +30,6 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID, insert
 from sqlalchemy.exc import SQLAlchemyError
-from temporalio.client import (
-    WorkflowHandle,
-    WorkflowUpdateRPCTimeoutOrCancelledError,
-)
-from temporalio.common import TypedSearchAttributes
-from temporalio.service import RPCError
 from tracecat_ee.workspace_chat.policy import is_workspace_chat_entitled
 from tracecat_registry._internal.exceptions import SecretNotFoundError
 
@@ -48,6 +42,7 @@ from tracecat.agent.approvals.types import (
     ToolApprovedDecision,
     ToolDeniedDecision,
 )
+from tracecat.agent.backends.base import AgentBackend
 from tracecat.agent.backends.registry import (
     agent_backend_available,
     find_agent_backend,
@@ -56,6 +51,7 @@ from tracecat.agent.backends.registry import (
 from tracecat.agent.backends.schemas import WorkflowApprovalSubmission
 from tracecat.agent.backends.types import (
     AgentBackendCapability,
+    AgentControlRejected,
     SessionHistoryAdapter,
     SessionTurnContext,
 )
@@ -142,7 +138,6 @@ from tracecat.db.models import (
     User,
     Workflow,
 )
-from tracecat.dsl.client import get_temporal_client
 from tracecat.exceptions import (
     TracecatConflictError,
     TracecatNotFoundError,
@@ -154,12 +149,6 @@ from tracecat.redis.client import RedisClient, get_redis_client
 from tracecat.service import BaseWorkspaceService
 from tracecat.tiers.entitlements import check_entitlement
 from tracecat.tiers.enums import Entitlement
-from tracecat.workflow.executions.correlation import build_agent_session_correlation_id
-from tracecat.workflow.executions.enums import (
-    ExecutionType,
-    TemporalSearchAttr,
-    TriggerType,
-)
 from tracecat.workspaces.prompts import WorkspaceCopilotPrompts
 
 if TYPE_CHECKING:
@@ -479,29 +468,6 @@ class AgentSessionService(BaseWorkspaceService):
             return
         preset_service = AgentPresetService(self.session, self.role)
         await preset_service.load_selected_mcp_integrations(mcp_integrations)
-
-    def _build_direct_agent_search_attributes(
-        self, session_id: uuid.UUID
-    ) -> TypedSearchAttributes:
-        """Build Temporal search attributes for direct (non-child) agent runs."""
-        pairs = [
-            TriggerType.MANUAL.to_temporal_search_attr_pair(),
-            ExecutionType.PUBLISHED.to_temporal_search_attr_pair(),
-            TemporalSearchAttr.CORRELATION_ID.create_pair(
-                build_agent_session_correlation_id(session_id)
-            ),
-        ]
-        if self.role.user_id is not None:
-            pairs.append(
-                TemporalSearchAttr.TRIGGERED_BY_USER_ID.create_pair(
-                    str(self.role.user_id)
-                )
-            )
-        if self.role.workspace_id is not None:
-            pairs.append(
-                TemporalSearchAttr.WORKSPACE_ID.create_pair(str(self.role.workspace_id))
-            )
-        return TypedSearchAttributes(search_attributes=pairs)
 
     async def create_session(
         self,
@@ -2098,9 +2064,6 @@ class AgentSessionService(BaseWorkspaceService):
                     prompt=user_prompt or "",
                     run_id=run_id,
                     stream_id=stream_id,
-                    search_attributes=self._build_direct_agent_search_attributes(
-                        session_id
-                    ),
                 )
             )
 
@@ -2132,53 +2095,15 @@ class AgentSessionService(BaseWorkspaceService):
     async def get_turn_lifecycle(
         self, agent_session: AgentSession
     ) -> TurnLifecycleResult:
-        """Resolve the live turn lifecycle from Temporal (cold reconnect path).
-
-        Temporal owns lifecycle - we never cache it in the DB. Returns the
-        decision plus the run id used to compute it (None when there is no
-        current run). On any describe error we fall back to FAILED so a
-        reconnecting client gets a terminal frame instead of hanging.
-        """
-        from temporalio.client import WorkflowExecutionStatus
-
+        """Resolve live execution state through the session's backend."""
         curr_run_id = agent_session.curr_run_id
         if curr_run_id is None:
             return TurnLifecycleResult(TurnLifecycle.NONE, None)
-
         backend = find_agent_backend(agent_session.backend_id)
         if backend is None:
             return TurnLifecycleResult(TurnLifecycle.UNAVAILABLE, curr_run_id)
-        client = await get_temporal_client()
-        handle = client.get_workflow_handle(backend.workflow_id(curr_run_id))
-        try:
-            description = await handle.describe()
-        except RPCError:
-            # Workflow history already gone / never started -> treat as failed so
-            # the client receives a terminal frame and refetches DB history.
-            logger.warning(
-                "Failed to describe agent workflow for reconnect",
-                session_id=str(agent_session.id),
-                run_id=str(curr_run_id),
-            )
-            return TurnLifecycleResult(TurnLifecycle.FAILED, curr_run_id)
-
-        match description.status:
-            case (
-                WorkflowExecutionStatus.RUNNING
-                | WorkflowExecutionStatus.CONTINUED_AS_NEW
-            ):
-                # CONTINUED_AS_NEW is not currently reachable - DurableAgentWorkflow
-                # loops turns internally rather than calling continue_as_new - but
-                # treat it as still-running (not failed) for consistency with how
-                # the inbox provider classifies Temporal workflow statuses.
-                return TurnLifecycleResult(TurnLifecycle.RUNNING, curr_run_id)
-            case WorkflowExecutionStatus.COMPLETED:
-                return TurnLifecycleResult(TurnLifecycle.COMPLETED, curr_run_id)
-            case WorkflowExecutionStatus.CANCELED:
-                return TurnLifecycleResult(TurnLifecycle.CANCELLED, curr_run_id)
-            case _:
-                # FAILED | TERMINATED | TIMED_OUT
-                return TurnLifecycleResult(TurnLifecycle.FAILED, curr_run_id)
+        lifecycle = await backend.get_turn_lifecycle(curr_run_id)
+        return TurnLifecycleResult(lifecycle, curr_run_id)
 
     async def _is_attachable_continuation(self, agent_session: AgentSession) -> bool:
         """Probe whether the active stream is an open approval continuation.
@@ -2345,39 +2270,26 @@ class AgentSessionService(BaseWorkspaceService):
         curr_run_id: uuid.UUID,
         attempt: ApprovalContinuationAttempt,
         validated: _ValidatedContinuation,
-        handle: WorkflowHandle[Any, Any],
+        backend: AgentBackend[Any, Any],
     ) -> bool:
-        """Submit the Temporal update, preserving the attempt on ambiguous failure.
-
-        Ambiguous transport failures leave the attempt intact so a retry reuses
-        the same Temporal update id; definitive rejections roll it back.
-        """
-
+        """Preserve an uncertain attempt; roll back only a definitive rejection."""
         try:
-            resumed = await handle.execute_update(
-                get_agent_backend(
-                    agent_session.backend_id, harness_type=agent_session.harness_type
-                ).approval_update,
+            return await backend.submit_approvals(
+                curr_run_id,
                 WorkflowApprovalSubmission(
                     approvals=validated.approval_map,
                     approved_by=self.role.user_id,
                     decision_metadata=validated.decision_metadata or None,
                     new_stream_id=attempt.stream_id,
                 ),
-                id=f"set-approvals:{attempt.stream_id}",
             )
-        except BaseException as exc:
-            if isinstance(exc, Exception) and not isinstance(
-                exc,
-                (WorkflowUpdateRPCTimeoutOrCancelledError, RPCError),
-            ):
-                await self._rollback_rejected_approval_continuation(
-                    agent_session=agent_session,
-                    curr_run_id=curr_run_id,
-                    attempt=attempt,
-                )
+        except AgentControlRejected:
+            await self._rollback_rejected_approval_continuation(
+                agent_session=agent_session,
+                curr_run_id=curr_run_id,
+                attempt=attempt,
+            )
             raise
-        return resumed is not False
 
     async def _continue_with_approvals(
         self,
@@ -2386,10 +2298,9 @@ class AgentSessionService(BaseWorkspaceService):
     ) -> ChatResponse | None:
         """Continue an agent workflow by submitting approval decisions.
 
-        Two idempotency layers converge concurrent submissions (Slack <->
-        inbox): the DB CAS on ``active_stream_id`` picks a single winning rotated
-        stream, and the Temporal update id ``set-approvals:{stream_id}`` dedups
-        server-side so duplicate submitters get the same result.
+        The DB CAS on ``active_stream_id`` selects one continuation stream.
+        The backend uses that identity to deduplicate approval delivery across
+        concurrent submissions and retries.
 
         Raises:
             TracecatNotFoundError: If no active session exists.
@@ -2428,18 +2339,13 @@ class AgentSessionService(BaseWorkspaceService):
             )
             return None
 
-        # Resolve the workflow handle first. These operations do not mutate
-        # continuation state, so failures here should not suppress a later retry.
-        client = await get_temporal_client()
+        # Validate backend availability before reserving a continuation attempt.
         backend = get_agent_backend(
             agent_session.backend_id, harness_type=agent_session.harness_type
         )
-        workflow_id = backend.workflow_id(curr_run_id)
-        handle = client.get_workflow_handle(workflow_id)
 
         logger.info(
             "Submitting approval decisions to workflow",
-            workflow_id=str(workflow_id),
             session_id=str(session_id),
             run_id=str(curr_run_id),
             num_decisions=len(validated.approval_map),
@@ -2447,7 +2353,7 @@ class AgentSessionService(BaseWorkspaceService):
 
         # Install the retryable stream; the database CAS converges concurrent
         # setup on a single winning rotated stream. Duplicate submitters reuse
-        # the installed attempt (marker match) and its Temporal update id.
+        # the installed attempt (marker match) and its backend submission identity.
         submission_key = self._approval_submission_key(
             workspace_id=self.workspace_id,
             session_id=session_id,
@@ -2506,18 +2412,10 @@ class AgentSessionService(BaseWorkspaceService):
                 curr_run_id=curr_run_id,
                 attempt=attempt,
                 validated=validated,
-                handle=handle,
+                backend=backend,
             )
-        except BaseException as exc:
-            is_ambiguous = isinstance(
-                exc, (WorkflowUpdateRPCTimeoutOrCancelledError, RPCError)
-            )
-            if (
-                dedup_client is not None
-                and claimed_submission
-                and isinstance(exc, Exception)
-                and not is_ambiguous
-            ):
+        except AgentControlRejected:
+            if dedup_client is not None and claimed_submission:
                 with contextlib.suppress(Exception):
                     await dedup_client.delete(submission_key)
             raise
@@ -2536,7 +2434,6 @@ class AgentSessionService(BaseWorkspaceService):
 
         logger.info(
             "Approval decisions submitted successfully",
-            workflow_id=str(workflow_id),
             session_id=str(session_id),
             new_stream_id=str(attempt.stream_id),
             resumed=did_resume,
@@ -2578,10 +2475,9 @@ class AgentSessionService(BaseWorkspaceService):
                 detail={"lifecycle": lifecycle.value},
             )
 
-        client = await get_temporal_client()
         await get_agent_backend(
             agent_session.backend_id, harness_type=agent_session.harness_type
-        ).cancel(client, curr_run_id)
+        ).cancel(curr_run_id)
 
         return AgentSessionCancelResponse(
             session_id=session_id,

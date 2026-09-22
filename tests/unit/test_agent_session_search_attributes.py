@@ -101,6 +101,7 @@ async def test_run_turn_stamps_tracecat_search_attributes(
 
     with (
         patch.object(service, "get_session", AsyncMock(return_value=agent_session)),
+        patch.object(service.session, "scalar", AsyncMock(return_value=agent_session)),
         patch.object(service, "has_pending_approvals", AsyncMock(return_value=False)),
         patch.object(
             service,
@@ -110,7 +111,7 @@ async def test_run_turn_stamps_tracecat_search_attributes(
         patch.object(service, "auto_title_session_on_first_prompt", AsyncMock()),
         patch.object(service, "_build_agent_config", _mock_agent_config_context),
         patch(
-            "tracecat.agent.session.service.get_temporal_client",
+            "tracecat.agent.backends.base.get_temporal_client",
             AsyncMock(return_value=temporal_client),
         ),
     ):
@@ -159,11 +160,12 @@ async def test_run_turn_omits_triggered_by_when_role_has_no_user_id(
 
     with (
         patch.object(service, "get_session", AsyncMock(return_value=agent_session)),
+        patch.object(service.session, "scalar", AsyncMock(return_value=agent_session)),
         patch.object(service, "has_pending_approvals", AsyncMock(return_value=False)),
         patch.object(service, "auto_title_session_on_first_prompt", AsyncMock()),
         patch.object(service, "_build_agent_config", _mock_agent_config_context),
         patch(
-            "tracecat.agent.session.service.get_temporal_client",
+            "tracecat.agent.backends.base.get_temporal_client",
             AsyncMock(return_value=temporal_client),
         ),
     ):
@@ -219,10 +221,11 @@ async def test_run_turn_uses_only_vercel_text_parts(
 
     with (
         patch.object(service, "get_session", AsyncMock(return_value=agent_session)),
+        patch.object(service.session, "scalar", AsyncMock(return_value=agent_session)),
         patch.object(service, "has_pending_approvals", AsyncMock(return_value=False)),
         patch.object(service, "_build_agent_config", _mock_agent_config_context),
         patch(
-            "tracecat.agent.session.service.get_temporal_client",
+            "tracecat.agent.backends.base.get_temporal_client",
             AsyncMock(return_value=temporal_client),
         ),
     ):
@@ -261,6 +264,7 @@ async def test_run_turn_rejects_vercel_file_only_prompt(
 
     with (
         patch.object(service, "get_session", AsyncMock(return_value=agent_session)),
+        patch.object(service.session, "scalar", AsyncMock(return_value=agent_session)),
         patch.object(service, "has_pending_approvals", AsyncMock(return_value=False)),
         pytest.raises(ValueError, match="no supported text parts"),
     ):

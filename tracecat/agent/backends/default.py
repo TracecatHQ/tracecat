@@ -44,7 +44,7 @@ class DefaultBackend(AgentBackend[AgentWorkflowArgs, AgentOutput]):
     history = None
 
     @property
-    def approval_update(
+    def _approval_update(
         self,
     ) -> UpdateMethodMultiParam[
         [DurableAgentWorkflow, WorkflowApprovalSubmission], bool
@@ -74,7 +74,7 @@ class DefaultBackend(AgentBackend[AgentWorkflowArgs, AgentOutput]):
             agent_preset_version_id=session.agent_preset_version_id,
         )
 
-    async def cancel(self, client: Client, run_id: UUID) -> None:
+    async def _cancel(self, client: Client, run_id: UUID) -> None:
         # The executor polls this signal for prompt cancellation. The workflow
         # update remains authoritative if the best-effort signal is unavailable.
         try:
@@ -82,5 +82,6 @@ class DefaultBackend(AgentBackend[AgentWorkflowArgs, AgentOutput]):
         except Exception:
             logger.warning("Failed to write turn cancel signal", run_id=str(run_id))
         await client.get_workflow_handle(self.workflow_id(run_id)).execute_update(
-            "request_cancel", WorkflowCancelRequest(reason="user_cancel")
+            DurableAgentWorkflow.request_cancel,
+            WorkflowCancelRequest(reason="user_cancel"),
         )

@@ -7,16 +7,24 @@ from unittest.mock import AsyncMock, Mock, patch
 from uuid import uuid4
 
 import pytest
-from temporalio.client import WorkflowExecutionStatus
-from temporalio.common import TypedSearchAttributes
+from temporalio.client import (
+    WorkflowExecutionStatus,
+    WorkflowUpdateFailedError,
+    WorkflowUpdateRPCTimeoutOrCancelledError,
+)
 from temporalio.exceptions import ApplicationError
+from temporalio.service import RPCError, RPCStatusCode
 from tracecat_ee.agent.approvals.service import ApprovalService
+from tracecat_ee.agent.workflows.durable import DurableAgentWorkflow
 from tracecat_ee.inbox.providers.agent_runs import AgentRunsInboxProvider
 
 from tracecat.agent.backends import registry
 from tracecat.agent.backends.default import DefaultBackend
+from tracecat.agent.backends.schemas import WorkflowApprovalSubmission
 from tracecat.agent.backends.types import (
     AgentBackendCapability,
+    AgentControlRejected,
+    AgentControlUncertain,
     SessionDispatchUncertain,
     SessionTurnContext,
 )
@@ -120,7 +128,6 @@ def context() -> SessionTurnContext:
         prompt="Hello",
         run_id=uuid4(),
         stream_id=uuid4(),
-        search_attributes=TypedSearchAttributes.empty,
     )
 
 
@@ -148,7 +155,6 @@ async def test_builtin_dispatch_preserves_workflow_contract():
     assert call.args[1].harness_type == "claude_code"
     assert call.args[1].agent_args.active_stream_id == ctx.stream_id
     assert call.kwargs["id"] == f"agent/{ctx.run_id}"
-    assert call.kwargs["search_attributes"] == ctx.search_attributes
 
 
 @pytest.mark.anyio
@@ -256,14 +262,8 @@ async def test_lifecycle_and_cancel_use_selected_backend():
     ctx.session.curr_run_id = ctx.run_id
     service = AgentSessionService(ctx.db, ctx.role)
     provider = Mock(spec=DefaultBackend)
-    provider.workflow_id.return_value = f"external/{ctx.run_id}"
+    provider.get_turn_lifecycle = AsyncMock(return_value=TurnLifecycle.RUNNING)
     provider.cancel = AsyncMock()
-    handle = SimpleNamespace(
-        describe=AsyncMock(
-            return_value=SimpleNamespace(status=WorkflowExecutionStatus.RUNNING)
-        )
-    )
-    client = SimpleNamespace(get_workflow_handle=Mock(return_value=handle))
     with (
         patch.object(service, "get_session", return_value=ctx.session),
         patch.object(service, "require_entitlement", return_value=None),
@@ -273,15 +273,12 @@ async def test_lifecycle_and_cancel_use_selected_backend():
         patch(
             "tracecat.agent.session.service.find_agent_backend", return_value=provider
         ),
-        patch(
-            "tracecat.agent.session.service.get_temporal_client", return_value=client
-        ),
     ):
         result = await service.get_turn_lifecycle(ctx.session)
         assert result.lifecycle == TurnLifecycle.RUNNING
         await service.request_cancel(ctx.session.id)
-    client.get_workflow_handle.assert_called_with(f"external/{ctx.run_id}")
-    provider.cancel.assert_awaited_once_with(client, ctx.run_id)
+    provider.get_turn_lifecycle.assert_awaited_with(ctx.run_id)
+    provider.cancel.assert_awaited_once_with(ctx.run_id)
 
 
 @pytest.mark.anyio
@@ -477,3 +474,95 @@ async def test_legacy_workflow_views_do_not_target_another_backend():
     query = ctx.db.scalar.await_args.args[0]
     compiled = query.compile(compile_kwargs={"literal_binds": True})
     assert "agent_session.backend_id = 'oss'" in str(compiled)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "status,expected",
+    [
+        (WorkflowExecutionStatus.RUNNING, TurnLifecycle.RUNNING),
+        (WorkflowExecutionStatus.CONTINUED_AS_NEW, TurnLifecycle.RUNNING),
+        (WorkflowExecutionStatus.COMPLETED, TurnLifecycle.COMPLETED),
+        (WorkflowExecutionStatus.CANCELED, TurnLifecycle.CANCELLED),
+        (WorkflowExecutionStatus.FAILED, TurnLifecycle.FAILED),
+        (WorkflowExecutionStatus.TERMINATED, TurnLifecycle.FAILED),
+        (WorkflowExecutionStatus.TIMED_OUT, TurnLifecycle.FAILED),
+    ],
+)
+async def test_backend_maps_execution_lifecycle(status, expected):
+    run_id = uuid4()
+    handle = Mock(describe=AsyncMock(return_value=SimpleNamespace(status=status)))
+    client = Mock(get_workflow_handle=Mock(return_value=handle))
+    with patch("tracecat.agent.backends.base.get_temporal_client", return_value=client):
+        assert await DefaultBackend().get_turn_lifecycle(run_id) == expected
+    client.get_workflow_handle.assert_called_once_with(f"agent/{run_id}")
+
+
+@pytest.mark.anyio
+async def test_backend_missing_execution_keeps_reconnect_terminal():
+    handle = Mock(
+        describe=AsyncMock(side_effect=RPCError("gone", RPCStatusCode.NOT_FOUND, b""))
+    )
+    client = Mock(get_workflow_handle=Mock(return_value=handle))
+    with patch("tracecat.agent.backends.base.get_temporal_client", return_value=client):
+        assert (
+            await DefaultBackend().get_turn_lifecycle(uuid4()) == TurnLifecycle.FAILED
+        )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "failure,expected",
+    [
+        (WorkflowUpdateRPCTimeoutOrCancelledError(), AgentControlUncertain),
+        (
+            RPCError("private transport details", RPCStatusCode.UNAVAILABLE, b""),
+            AgentControlUncertain,
+        ),
+        (
+            WorkflowUpdateFailedError(ApplicationError("private rejection")),
+            AgentControlRejected,
+        ),
+    ],
+)
+async def test_backend_approval_errors_preserve_outcome_without_sdk_context(
+    failure, expected
+):
+    submission = WorkflowApprovalSubmission(approvals={}, new_stream_id=uuid4())
+    handle = Mock(execute_update=AsyncMock(side_effect=failure))
+    client = Mock(get_workflow_handle=Mock(return_value=handle))
+    with patch("tracecat.agent.backends.base.get_temporal_client", return_value=client):
+        with pytest.raises(expected) as caught:
+            await DefaultBackend().submit_approvals(uuid4(), submission)
+    assert caught.value.__context__ is None
+    assert caught.value.__cause__ is None
+
+
+@pytest.mark.anyio
+async def test_backend_connection_failure_is_definitive_before_submission():
+    submission = WorkflowApprovalSubmission(approvals={}, new_stream_id=uuid4())
+    with patch(
+        "tracecat.agent.backends.base.get_temporal_client",
+        side_effect=RPCError("connection unavailable", RPCStatusCode.UNAVAILABLE, b""),
+    ):
+        with pytest.raises(AgentControlRejected):
+            await DefaultBackend().submit_approvals(uuid4(), submission)
+
+
+@pytest.mark.anyio
+async def test_default_cancel_keeps_workflow_control_when_executor_signal_fails():
+    run_id = uuid4()
+    handle = Mock(execute_update=AsyncMock())
+    client = Mock(get_workflow_handle=Mock(return_value=handle))
+    with (
+        patch("tracecat.agent.backends.base.get_temporal_client", return_value=client),
+        patch(
+            "tracecat.agent.backends.default.signal_turn_cancel",
+            side_effect=RuntimeError,
+        ),
+    ):
+        await DefaultBackend().cancel(run_id)
+    client.get_workflow_handle.assert_called_once_with(f"agent/{run_id}")
+    assert (
+        handle.execute_update.await_args.args[0] is DurableAgentWorkflow.request_cancel
+    )
