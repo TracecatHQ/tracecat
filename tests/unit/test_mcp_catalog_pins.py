@@ -8,6 +8,7 @@ from typing import Any
 import orjson
 
 QA_VERIFIED_STDIO_SOURCE_PINS = {
+    "rapid7-mcp": "3c5ecc1b6bfad8014e815f632dd302d2759dddb5",
     "sentinelone-mcp": "07d4992089b10affff6163f296b1f6cb5734539f",
 }
 

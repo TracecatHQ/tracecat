@@ -703,6 +703,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.google_chronicle": createCatalogIconRenderer(
       "google_cloud_secops_mcp"
     ),
+    "tools.rapid7": createCatalogIconRenderer("rapid7_mcp"),
     // Semantic lucide fallbacks (no clean brand mark available)
     "tools.abuseipdb": createColoredLucideRenderer(
       ShieldBan,
@@ -1029,6 +1030,7 @@ export const providerIcons: Record<
   ),
   jamf: createCatalogIconRenderer("jamf_mcp"),
   google_chronicle: createCatalogIconRenderer("google_cloud_secops_mcp"),
+  rapid7: createCatalogIconRenderer("rapid7_mcp"),
   slack: ({ className, iconClassName, flairsize: _ignored, ...rest }) => (
     <div className={cn("!rounded-sm", className)}>
       <SlackIcon {...rest} className={cn("size-full", iconClassName)} />

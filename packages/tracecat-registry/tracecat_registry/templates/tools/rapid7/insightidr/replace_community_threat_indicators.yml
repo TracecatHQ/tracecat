@@ -1,0 +1,37 @@
+type: action
+definition:
+  title: Replace Community Threat indicators
+  description: "Replace Community Threat indicators. Calls POST /idr/v1/customthreats/key/{key}/indicators/replace directly."
+  display_group: Rapid7
+  doc_url: https://help.rapid7.com/insightidr/en-us/api/v1/docs.html#operation/replaceIndicators
+  namespace: tools.rapid7
+  name: replace_community_threat_indicators
+  secrets:
+    - name: rapid7
+      keys: ["RAPID7_API_KEY"]
+  expects:
+    key:
+      type: str
+      description: "The key of the Community Threat."
+    indicators:
+      # Vendor documents a free-form indicator object (ips, hashes, domain_names, urls lists).
+      type: dict[str, Any]
+      description: "Free-form documented indicator object containing IP addresses, process hashes, domains, or URLs."
+    base_url:
+      type: str | None
+      description: "Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.rapid7.base_url || "https://us.api.insight.rapid7.com" }}/idr/v1/customthreats/key/${{ FN.url_encode(inputs.key) }}/indicators/replace
+        method: POST
+        headers:
+          X-Api-Key: ${{ SECRETS.rapid7.RAPID7_API_KEY }}
+          Accept: application/json
+          Content-Type: application/json
+        params:
+          format: json
+        payload: ${{ inputs.indicators }}
+  returns: ${{ steps.request.result }}
