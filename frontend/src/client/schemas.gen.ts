@@ -25757,12 +25757,14 @@ export const $ScimGroupRequest = {
     },
     displayName: {
       type: "string",
+      maxLength: 255,
       title: "Displayname",
     },
     externalId: {
       anyOf: [
         {
           type: "string",
+          maxLength: 255,
         },
         {
           type: "null",
@@ -26110,6 +26112,7 @@ export const $ScimUserRequest = {
       anyOf: [
         {
           type: "string",
+          maxLength: 255,
         },
         {
           type: "null",
