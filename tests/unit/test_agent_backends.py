@@ -14,7 +14,7 @@ from tracecat_ee.agent.approvals.service import ApprovalService
 from tracecat_ee.inbox.providers.agent_runs import AgentRunsInboxProvider
 
 from tracecat.agent.backends import registry
-from tracecat.agent.backends.durable import DurableAgentBackend
+from tracecat.agent.backends.default import DefaultBackend
 from tracecat.agent.backends.types import (
     AgentBackendCapability,
     SessionDispatchUncertain,
@@ -31,7 +31,7 @@ from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import BasicChatRequest
 from tracecat.db.models import AgentSession
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import TracecatConflictError, TracecatValidationError
 
 
 @pytest.fixture(autouse=True)
@@ -46,14 +46,14 @@ def entry(name: str, factory: object) -> SimpleNamespace:
 
 
 def test_discovery_loads_factories_once_and_rejects_unknown_backends():
-    provider = DurableAgentBackend()
+    provider = DefaultBackend()
     factory = Mock(return_value=provider)
     with patch.object(
         registry, "entry_points", return_value=[entry("external", factory)]
     ):
         assert registry.get_agent_backend("external") is provider
         assert registry.get_agent_backend("external") is provider
-        assert isinstance(registry.get_agent_backend(None), DurableAgentBackend)
+        assert isinstance(registry.get_agent_backend(None), DefaultBackend)
         factory.assert_called_once_with()
         with pytest.raises(TracecatValidationError, match="unavailable"):
             registry.get_agent_backend("missing")
@@ -62,16 +62,16 @@ def test_discovery_loads_factories_once_and_rejects_unknown_backends():
 @pytest.mark.parametrize(
     "entries, error",
     [
-        ([entry("oss", DurableAgentBackend)], ValueError),
+        ([entry("oss", DefaultBackend)], ValueError),
         (
             [
-                entry("external", DurableAgentBackend),
-                entry("external", DurableAgentBackend),
+                entry("external", DefaultBackend),
+                entry("external", DefaultBackend),
             ],
             ValueError,
         ),
-        ([entry("invalid.name", DurableAgentBackend)], ValueError),
-        ([entry("x" * 51, DurableAgentBackend)], ValueError),
+        ([entry("invalid.name", DefaultBackend)], ValueError),
+        ([entry("x" * 51, DefaultBackend)], ValueError),
         ([entry("external", object())], TypeError),
         ([entry("external", lambda: object())], TypeError),
     ],
@@ -85,7 +85,7 @@ def test_invalid_plugins_fail_closed(entries, error):
 
 
 def test_disabled_plugins_cannot_be_selected():
-    provider = DurableAgentBackend()
+    provider = DefaultBackend()
     with (
         patch.object(provider, "is_enabled", return_value=False),
         patch.object(
@@ -113,7 +113,7 @@ def context() -> SessionTurnContext:
         harness_type="claude_code",
     )
     return SessionTurnContext(
-        db=AsyncMock(add=Mock()),
+        db=AsyncMock(add=Mock(), scalar=AsyncMock(return_value=session)),
         session=session,
         role=role,
         config=AgentConfig(model_name="test", model_provider="anthropic"),
@@ -129,16 +129,22 @@ async def test_builtin_dispatch_preserves_workflow_contract():
     ctx = context()
     assert isinstance(ctx.db, AsyncMock)
     client = AsyncMock()
+
+    async def start_workflow(*_args, **_kwargs):
+        assert isinstance(ctx.db, AsyncMock)
+        ctx.db.commit.assert_awaited_once()
+
+    client.start_workflow.side_effect = start_workflow
     with patch(
-        "tracecat.agent.backends.durable.get_temporal_client",
+        "tracecat.agent.backends.base.get_temporal_client",
         return_value=client,
     ):
-        await DurableAgentBackend().start_turn(ctx)
+        await DefaultBackend().start_turn(ctx)
     assert ctx.session.curr_run_id == ctx.run_id
     assert ctx.session.active_stream_id == ctx.stream_id
     ctx.db.commit.assert_awaited_once()
     call = client.start_workflow.await_args
-    assert call.args[0] == "DurableAgentWorkflow"
+    assert call.args[0] is DefaultBackend.workflow.run
     assert call.args[1].harness_type == "claude_code"
     assert call.args[1].agent_args.active_stream_id == ctx.stream_id
     assert call.kwargs["id"] == f"agent/{ctx.run_id}"
@@ -146,11 +152,49 @@ async def test_builtin_dispatch_preserves_workflow_contract():
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("missing", [False, True])
+async def test_dispatch_rejects_missing_or_owned_session_before_preparation(missing):
+    ctx = context()
+    assert isinstance(ctx.db, AsyncMock)
+    ctx.session.curr_run_id = uuid4()
+    if missing:
+        ctx.db.scalar.return_value = None
+    backend = DefaultBackend()
+    client = AsyncMock()
+    with (
+        patch("tracecat.agent.backends.base.get_temporal_client", return_value=client),
+        patch.object(backend, "build_workflow_args") as prepare,
+        pytest.raises(TracecatConflictError),
+    ):
+        await backend.start_turn(ctx)
+    prepare.assert_not_called()
+    ctx.db.commit.assert_not_awaited()
+    client.start_workflow.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_preparation_failure_does_not_reserve_or_dispatch():
+    ctx = context()
+    assert isinstance(ctx.db, AsyncMock)
+    backend = DefaultBackend()
+    client = AsyncMock()
+    with (
+        patch("tracecat.agent.backends.base.get_temporal_client", return_value=client),
+        patch.object(backend, "build_workflow_args", side_effect=ValueError("invalid")),
+        pytest.raises(ValueError, match="invalid"),
+    ):
+        await backend.start_turn(ctx)
+    assert ctx.session.curr_run_id is None
+    ctx.db.commit.assert_not_awaited()
+    client.start_workflow.assert_not_awaited()
+
+
+@pytest.mark.anyio
 async def test_service_dispatches_resolved_config_and_propagates_uncertainty():
     ctx = context()
     assert isinstance(ctx.db, AsyncMock)
     service = AgentSessionService(ctx.db, ctx.role)
-    provider = Mock(spec=DurableAgentBackend)
+    provider = Mock(spec=DefaultBackend)
     provider.start_turn = AsyncMock(side_effect=SessionDispatchUncertain("uncertain"))
 
     @contextlib.asynccontextmanager
@@ -211,7 +255,7 @@ async def test_lifecycle_and_cancel_use_selected_backend():
     assert isinstance(ctx.db, AsyncMock)
     ctx.session.curr_run_id = ctx.run_id
     service = AgentSessionService(ctx.db, ctx.role)
-    provider = Mock(spec=DurableAgentBackend)
+    provider = Mock(spec=DefaultBackend)
     provider.workflow_id.return_value = f"external/{ctx.run_id}"
     provider.cancel = AsyncMock()
     handle = SimpleNamespace(
@@ -246,7 +290,7 @@ async def test_backend_capabilities_guard_fork_and_caller_owned_dispatch():
     ctx.session.backend_id = "oss"
     assert isinstance(ctx.db, AsyncMock)
     service = AgentSessionService(ctx.db, ctx.role)
-    provider = Mock(spec=DurableAgentBackend)
+    provider = Mock(spec=DefaultBackend)
     provider.capabilities = frozenset()
     with (
         patch.object(service, "get_session", return_value=ctx.session),
@@ -274,7 +318,7 @@ async def test_fork_requires_its_specific_capability(capabilities, allowed):
     ctx = context()
     assert isinstance(ctx.db, AsyncMock)
     service = AgentSessionService(ctx.db, ctx.role)
-    provider = Mock(spec=DurableAgentBackend)
+    provider = Mock(spec=DefaultBackend)
     provider.capabilities = capabilities
     with (
         patch.object(service, "get_session", return_value=ctx.session),
@@ -297,7 +341,7 @@ async def test_fork_requires_its_specific_capability(capabilities, allowed):
 async def test_backend_and_harness_are_independent_and_defaults_resolve_internally():
     ctx = context()
     service = AgentSessionService(ctx.db, ctx.role)
-    provider = DurableAgentBackend()
+    provider = DefaultBackend()
     provider.default_harness = "custom_harness"
     provider.supported_harnesses = frozenset({"custom_harness", "another_harness"})
     with patch.object(
@@ -333,11 +377,11 @@ async def test_builtin_lost_ack_retains_ownership_without_raw_exception_context(
     client = AsyncMock()
     client.start_workflow.side_effect = TimeoutError("private SDK details")
     with patch(
-        "tracecat.agent.backends.durable.get_temporal_client",
+        "tracecat.agent.backends.base.get_temporal_client",
         return_value=client,
     ):
         with pytest.raises(SessionDispatchUncertain) as caught:
-            await DurableAgentBackend().start_turn(ctx)
+            await DefaultBackend().start_turn(ctx)
     assert caught.value.__context__ is None
     assert ctx.session.curr_run_id == ctx.run_id
     assert ctx.session.active_stream_id == ctx.stream_id
@@ -368,7 +412,7 @@ async def test_missing_backend_history_and_lifecycle_remain_readable():
 async def test_disabled_backend_keeps_history_projection():
     ctx = context()
     service = AgentSessionService(ctx.db, ctx.role)
-    provider = Mock(spec=DurableAgentBackend)
+    provider = Mock(spec=DefaultBackend)
     provider.is_enabled.return_value = False
     provider.history = Mock(load=AsyncMock(return_value=[]))
     result = Mock()

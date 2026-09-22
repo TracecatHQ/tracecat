@@ -2259,7 +2259,7 @@ async def test_run_turn_merges_basic_chat_request_instructions(
             AsyncMock(return_value=None),
         ),
         patch(
-            "tracecat.agent.backends.durable.get_temporal_client",
+            "tracecat.agent.backends.base.get_temporal_client",
             AsyncMock(return_value=fake_client),
         ),
     ):

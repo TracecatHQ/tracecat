@@ -7,7 +7,6 @@ from typing import Any, Protocol, runtime_checkable
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from temporalio.client import Client
 from temporalio.common import TypedSearchAttributes
 
 from tracecat.agent.types import AgentConfig
@@ -66,36 +65,7 @@ class SessionHistoryAdapter(Protocol):
     def project(self, entry: AgentSessionHistory) -> dict[str, Any] | None: ...
 
 
-@runtime_checkable
-class AgentBackend(Protocol):
-    """Session dispatch and Temporal control; shared services enforce access.
+class AgentWorkflow[InputT, ResultT](Protocol):
+    """Typed run method implemented by each concrete Temporal workflow class."""
 
-    Factories return process-wide, stateless providers. Request-scoped database
-    sessions and identities are passed explicitly and must never be retained.
-    """
-
-    @property
-    def name(self) -> str: ...
-
-    @property
-    def default_harness(self) -> str: ...
-
-    @property
-    def supported_harnesses(self) -> frozenset[str]: ...
-
-    @property
-    def capabilities(self) -> frozenset[AgentBackendCapability]: ...
-
-    @property
-    def approval_update_name(self) -> str: ...
-
-    @property
-    def history(self) -> SessionHistoryAdapter | None: ...
-
-    def is_enabled(self) -> bool: ...
-
-    async def start_turn(self, context: SessionTurnContext) -> None: ...
-
-    def workflow_id(self, run_id: UUID) -> str: ...
-
-    async def cancel(self, client: Client, run_id: UUID) -> None: ...
+    async def run(self, args: InputT, /) -> ResultT: ...

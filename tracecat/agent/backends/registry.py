@@ -3,11 +3,12 @@
 import re
 from collections.abc import Mapping
 from functools import lru_cache
-from importlib.metadata import entry_points
+from importlib.metadata import EntryPoint, entry_points
 from types import MappingProxyType
+from typing import Any
 
-from tracecat.agent.backends.durable import DurableAgentBackend
-from tracecat.agent.backends.types import AgentBackend, SessionHistoryAdapter
+from tracecat.agent.backends.base import AgentBackend
+from tracecat.agent.backends.types import SessionHistoryAdapter
 from tracecat.exceptions import TracecatValidationError
 
 AGENT_BACKEND_ENTRY_POINT_GROUP = "tracecat.agent_backends"
@@ -15,12 +16,19 @@ DEFAULT_AGENT_BACKEND = "oss"
 
 
 @lru_cache(maxsize=1)
-def get_agent_backends() -> Mapping[str, AgentBackend]:
+def get_agent_backends() -> Mapping[str, AgentBackend[Any, Any]]:
     """Load trusted installed factories once; reject conflicting registrations."""
-    backends: dict[str, AgentBackend] = {DEFAULT_AGENT_BACKEND: DurableAgentBackend()}
-    for entry in sorted(
+    backends: dict[str, AgentBackend[Any, Any]] = {}
+    # Load the built-in factory lazily too: its workflow imports session services.
+    builtin = EntryPoint(
+        name=DEFAULT_AGENT_BACKEND,
+        value="tracecat.agent.backends.default:DefaultBackend",
+        group=AGENT_BACKEND_ENTRY_POINT_GROUP,
+    )
+    installed = sorted(
         entry_points(group=AGENT_BACKEND_ENTRY_POINT_GROUP), key=lambda ep: ep.name
-    ):
+    )
+    for entry in (builtin, *installed):
         if not re.fullmatch(r"[a-z][a-z0-9_]{0,49}", entry.name):
             raise ValueError(f"Invalid agent backend identifier: {entry.name}")
         if entry.name in backends:
@@ -44,7 +52,7 @@ def get_agent_backends() -> Mapping[str, AgentBackend]:
     return MappingProxyType(backends)
 
 
-def find_agent_backend(identifier: str | None) -> AgentBackend | None:
+def find_agent_backend(identifier: str | None) -> AgentBackend[Any, Any] | None:
     """Find an installed provider for reads, including disabled providers.
 
     A persisted session can outlive its installed plugin. Return None in that
@@ -57,7 +65,7 @@ def find_agent_backend(identifier: str | None) -> AgentBackend | None:
 
 def get_agent_backend(
     identifier: str | None, *, harness_type: str | None = None
-) -> AgentBackend:
+) -> AgentBackend[Any, Any]:
     """Resolve an executable backend and validate its selected harness."""
     backend = find_agent_backend(identifier)
     if backend is None or not backend.is_enabled():
