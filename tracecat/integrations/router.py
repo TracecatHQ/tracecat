@@ -9,7 +9,7 @@ from fastapi import APIRouter, Body, HTTPException, Query, status
 from pydantic import SecretStr
 
 from tracecat import config
-from tracecat.auth.credentials import RoleACL
+from tracecat.auth.credentials import RoleACL, compute_effective_scopes
 from tracecat.auth.dependencies import (
     WorkspaceActorRouteRole,
     WorkspaceUserRouteRole,
@@ -272,9 +272,11 @@ async def oauth_callback(
             detail="Invalid state parameter",
         )
 
-    # Overwrite role with workspace context from validated state
-    # This is always authorization code
+    # Overwrite role with workspace context from validated state and resolve
+    # scopes against that workspace: the route is authenticated without one, so
+    # the role only carries org-wide grants at this point.
     role = role.model_copy(update={"workspace_id": oauth_state_db.workspace_id})
+    role = role.model_copy(update={"scopes": await compute_effective_scopes(role)})
     ctx_role.set(role)
     if config.TRACECAT__RLS_MODE == config.RLSMode.ENFORCE:
         await set_rls_context_from_role(session, role)
