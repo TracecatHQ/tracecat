@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from claude_agent_sdk.types import AssistantMessage, ThinkingBlock
+
 from tracecat.agent.mcp.metadata import (
     PROXY_TOOL_CALL_ID_KEY,
     PROXY_TOOL_METADATA_KEY,
     sanitize_message_tool_inputs,
     strip_proxy_tool_metadata,
 )
+from tracecat.agent.types import ClaudeSDKMessageTA
 
 
 def test_strip_proxy_tool_metadata_removes_internal_key() -> None:
@@ -69,3 +72,22 @@ def test_sanitize_message_tool_inputs_strips_pydantic_tool_call_metadata() -> No
     assert message["parts"][0]["args"][PROXY_TOOL_METADATA_KEY] == {
         PROXY_TOOL_CALL_ID_KEY: "call_123"
     }
+
+
+def test_sanitize_message_tool_inputs_coerces_null_thinking_signature() -> None:
+    message = {
+        "role": "assistant",
+        "model": "custom-model",
+        "content": [
+            {"type": "thinking", "thinking": "reasoning", "signature": None},
+            {"type": "text", "text": "done"},
+        ],
+    }
+
+    sanitized = sanitize_message_tool_inputs(message)
+
+    assert sanitized["content"][0]["signature"] == ""
+    assert message["content"][0]["signature"] is None
+    validated = ClaudeSDKMessageTA.validate_python(sanitized)
+    assert isinstance(validated, AssistantMessage)
+    assert isinstance(validated.content[0], ThinkingBlock)
