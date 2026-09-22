@@ -22,6 +22,7 @@ import shutil
 import sys
 import tempfile
 import time
+from collections.abc import Iterable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -47,7 +48,11 @@ from tracecat.sandbox.exceptions import (
     raise_for_sandbox_error_code,
     sandbox_resource_limit_message,
 )
-from tracecat.sandbox.executor import ActionSandboxConfig, NsjailExecutor
+from tracecat.sandbox.executor import (
+    ActionSandboxConfig,
+    NsjailExecutor,
+    workload_stderr_tail,
+)
 from tracecat.sandbox.types import ResourceLimits, SandboxErrorCode
 from tracecat.sandbox.utils import (
     communicate_process_group,
@@ -118,8 +123,21 @@ def _is_sandbox_available() -> bool:
     return True
 
 
-def _sandbox_failure_message(error_code: SandboxErrorCode | None) -> str:
-    """Return the message carried by the typed exception a sandbox code selects."""
+_WORKLOAD_STDERR_MESSAGE_CHARS = 2000
+
+
+def _sandbox_failure_message(
+    error_code: SandboxErrorCode | None,
+    *,
+    stderr: str = "",
+    mask_values: Iterable[str] = (),
+) -> str:
+    """Return the message carried by the typed exception a sandbox code selects.
+
+    Infrastructure and resource-limit failures never quote sandbox output.
+    Other workload failures append the masked tail of the workload's stderr so
+    the action author sees the traceback that ended the run.
+    """
     match error_code:
         case SandboxErrorCode.INFRASTRUCTURE_FAILURE:
             return "Action sandbox infrastructure failed before producing a result"
@@ -129,7 +147,12 @@ def _sandbox_failure_message(error_code: SandboxErrorCode | None) -> str:
                 memory_env_var="TRACECAT__SANDBOX_DEFAULT_MEMORY_MB",
             )
         case _:
-            return "Action sandbox workload stopped before producing a result"
+            message = "Action sandbox workload stopped before producing a result"
+            tail = workload_stderr_tail(stderr, limit=_WORKLOAD_STDERR_MESSAGE_CHARS)
+            if not tail:
+                return message
+            masked_tail = apply_masks_object(tail, masks=mask_values)
+            return f"{message}. Workload stderr (tail):\n{masked_tail}"
 
 
 def _direct_subprocess_command(minimal_runner_path: Path) -> list[str]:
@@ -361,7 +384,11 @@ class ActionRunner:
 
             raise_for_sandbox_error_code(
                 result.error_code,
-                _sandbox_failure_message(result.error_code),
+                _sandbox_failure_message(
+                    result.error_code,
+                    stderr=result.stderr,
+                    mask_values=secret_projection.mask_values,
+                ),
             )
 
             # Handle error from sandbox
