@@ -151,7 +151,7 @@ async def test_builtin_dispatch_preserves_workflow_contract():
     assert ctx.session.active_stream_id == ctx.stream_id
     ctx.db.commit.assert_awaited_once()
     call = client.start_workflow.await_args
-    assert call.args[0] is DefaultBackend.workflow.run
+    assert call.args[0] is DefaultBackend().workflow.run
     assert call.args[1].harness_type == "claude_code"
     assert call.args[1].agent_args.active_stream_id == ctx.stream_id
     assert call.kwargs["id"] == f"agent/{ctx.run_id}"
@@ -492,10 +492,12 @@ async def test_legacy_workflow_views_do_not_target_another_backend():
 async def test_backend_maps_execution_lifecycle(status, expected):
     run_id = uuid4()
     handle = Mock(describe=AsyncMock(return_value=SimpleNamespace(status=status)))
-    client = Mock(get_workflow_handle=Mock(return_value=handle))
+    client = Mock(get_workflow_handle_for=Mock(return_value=handle))
     with patch("tracecat.agent.backends.base.get_temporal_client", return_value=client):
         assert await DefaultBackend().get_turn_lifecycle(run_id) == expected
-    client.get_workflow_handle.assert_called_once_with(f"agent/{run_id}")
+    client.get_workflow_handle_for.assert_called_once_with(
+        DurableAgentWorkflow.run, f"agent/{run_id}"
+    )
 
 
 @pytest.mark.anyio
@@ -503,7 +505,7 @@ async def test_backend_missing_execution_keeps_reconnect_terminal():
     handle = Mock(
         describe=AsyncMock(side_effect=RPCError("gone", RPCStatusCode.NOT_FOUND, b""))
     )
-    client = Mock(get_workflow_handle=Mock(return_value=handle))
+    client = Mock(get_workflow_handle_for=Mock(return_value=handle))
     with patch("tracecat.agent.backends.base.get_temporal_client", return_value=client):
         assert (
             await DefaultBackend().get_turn_lifecycle(uuid4()) == TurnLifecycle.FAILED
@@ -530,7 +532,7 @@ async def test_backend_approval_errors_preserve_outcome_without_sdk_context(
 ):
     submission = WorkflowApprovalSubmission(approvals={}, new_stream_id=uuid4())
     handle = Mock(execute_update=AsyncMock(side_effect=failure))
-    client = Mock(get_workflow_handle=Mock(return_value=handle))
+    client = Mock(get_workflow_handle_for=Mock(return_value=handle))
     with patch("tracecat.agent.backends.base.get_temporal_client", return_value=client):
         with pytest.raises(expected) as caught:
             await DefaultBackend().submit_approvals(uuid4(), submission)
@@ -553,16 +555,18 @@ async def test_backend_connection_failure_is_definitive_before_submission():
 async def test_default_cancel_keeps_workflow_control_when_executor_signal_fails():
     run_id = uuid4()
     handle = Mock(execute_update=AsyncMock())
-    client = Mock(get_workflow_handle=Mock(return_value=handle))
+    client = Mock(get_workflow_handle_for=Mock(return_value=handle))
     with (
         patch("tracecat.agent.backends.base.get_temporal_client", return_value=client),
         patch(
-            "tracecat.agent.backends.default.signal_turn_cancel",
+            "tracecat.agent.backends.base.signal_turn_cancel",
             side_effect=RuntimeError,
         ),
     ):
         await DefaultBackend().cancel(run_id)
-    client.get_workflow_handle.assert_called_once_with(f"agent/{run_id}")
+    client.get_workflow_handle_for.assert_called_once_with(
+        DurableAgentWorkflow.run, f"agent/{run_id}"
+    )
     assert (
         handle.execute_update.await_args.args[0] is DurableAgentWorkflow.request_cancel
     )

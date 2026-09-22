@@ -7,7 +7,12 @@ from typing import Any, Protocol, runtime_checkable
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from temporalio import workflow
 
+from tracecat.agent.backends.schemas import (
+    WorkflowApprovalSubmission,
+    WorkflowCancelRequest,
+)
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.db.models import AgentSession, AgentSessionHistory
@@ -72,6 +77,12 @@ class SessionHistoryAdapter(Protocol):
 
 
 class AgentWorkflow[InputT, OutputT](Protocol):
-    """Typed run method implemented by each concrete Temporal workflow class."""
+    """Common execution and control contract for agent workflows."""
 
     async def run(self, args: InputT, /) -> OutputT: ...
+
+    @workflow.update
+    def set_approvals(self, submission: WorkflowApprovalSubmission) -> bool: ...
+
+    @workflow.update
+    def request_cancel(self, request: WorkflowCancelRequest) -> None: ...

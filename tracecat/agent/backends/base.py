@@ -3,13 +3,14 @@
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
-from typing import Any, ClassVar
+from typing import ClassVar
 from uuid import UUID
 
 from sqlalchemy import select
 from temporalio.client import (
-    Client,
+    WorkflowExecutionDescription,
     WorkflowExecutionStatus,
+    WorkflowHandle,
     WorkflowUpdateRPCTimeoutOrCancelledError,
 )
 from temporalio.common import (
@@ -19,9 +20,11 @@ from temporalio.common import (
     WorkflowIDReusePolicy,
 )
 from temporalio.service import RPCError
-from temporalio.workflow import UpdateMethodMultiParam
 
-from tracecat.agent.backends.schemas import WorkflowApprovalSubmission
+from tracecat.agent.backends.schemas import (
+    WorkflowApprovalSubmission,
+    WorkflowCancelRequest,
+)
 from tracecat.agent.backends.types import (
     AgentBackendCapability,
     AgentControlRejected,
@@ -31,6 +34,7 @@ from tracecat.agent.backends.types import (
     SessionHistoryAdapter,
     SessionTurnContext,
 )
+from tracecat.agent.cancellation import signal_turn_cancel
 from tracecat.agent.session.types import TurnLifecycle
 from tracecat.db.models import AgentSession
 from tracecat.dsl.client import get_temporal_client
@@ -51,8 +55,6 @@ class AgentBackend[InputT, OutputT](ABC):
     and identities must never be retained on the backend.
     """
 
-    # This class attribute depends on the generic input/output types, so Python's
-    # typing rules do not allow wrapping it in ClassVar.
     workflow: type[AgentWorkflow[InputT, OutputT]]
     name: ClassVar[str]
     default_harness: ClassVar[str]
@@ -73,13 +75,6 @@ class AgentBackend[InputT, OutputT](ABC):
     def workflow_id(self, run_id: UUID) -> str:
         """Build the stable workflow identity for a turn."""
         return f"agent/{run_id}"
-
-    @property
-    @abstractmethod
-    def _approval_update(
-        self,
-    ) -> UpdateMethodMultiParam[[Any, WorkflowApprovalSubmission], bool]:
-        """Return the unbound Temporal update method accepting approval decisions."""
 
     @abstractmethod
     async def build_workflow_args(self, context: SessionTurnContext) -> InputT:
@@ -153,15 +148,25 @@ class AgentBackend[InputT, OutputT](ABC):
             )
         return TypedSearchAttributes(search_attributes=pairs)
 
+    async def handle(
+        self, run_id: UUID
+    ) -> WorkflowHandle[AgentWorkflow[InputT, OutputT], OutputT]:
+        """Resolve a typed handle supporting the common agent controls."""
+        client = await get_temporal_client()
+        return client.get_workflow_handle_for(
+            self.workflow.run, self.workflow_id(run_id)
+        )
+
     async def _run_control[ResultT](
-        self, operation: Callable[[Client], Awaitable[ResultT]]
+        self, operation: Callable[[], Awaitable[ResultT]]
     ) -> ResultT:
         """Keep transport errors private and distinguish safe rollback from uncertainty."""
         started = False
         try:
-            client = await get_temporal_client()
+            # Connect first so a connection failure is a definitive rejection.
+            await get_temporal_client()
             started = True
-            return await operation(client)
+            return await operation()
         except (WorkflowUpdateRPCTimeoutOrCancelledError, RPCError):
             error = AgentControlUncertain if started else AgentControlRejected
         except Exception:
@@ -184,25 +189,27 @@ class AgentBackend[InputT, OutputT](ABC):
             raise AgentControlRejected(
                 "Approval continuation requires a stream identity"
             )
-        resumed = await self._run_control(
-            lambda client: client.get_workflow_handle(
-                self.workflow_id(run_id)
-            ).execute_update(
-                self._approval_update,
+
+        async def submit() -> bool | None:
+            handle = await self.handle(run_id)
+            return await handle.execute_update(
+                self.workflow.set_approvals,
                 submission,
                 id=f"set-approvals:{submission.new_stream_id}",
             )
-        )
+
+        resumed = await self._run_control(submit)
         return resumed is not False
 
     async def get_turn_lifecycle(self, run_id: UUID) -> TurnLifecycle:
         """Resolve execution status for reconnect without exposing Temporal types."""
+
+        async def describe() -> WorkflowExecutionDescription:
+            handle = await self.handle(run_id)
+            return await handle.describe()
+
         try:
-            description = await self._run_control(
-                lambda client: client.get_workflow_handle(
-                    self.workflow_id(run_id)
-                ).describe()
-            )
+            description = await self._run_control(describe)
         except AgentControlUncertain:
             # Preserve reconnect behavior when history is gone or lookup fails.
             logger.warning(
@@ -223,9 +230,19 @@ class AgentBackend[InputT, OutputT](ABC):
                 return TurnLifecycle.FAILED
 
     async def cancel(self, run_id: UUID) -> None:
-        """Request cancellation using this backend's execution controls."""
-        await self._run_control(lambda client: self._cancel(client, run_id))
+        """Interrupt the live executor and durably request workflow cancellation."""
+        try:
+            await signal_turn_cancel(str(run_id), reason="user_cancel")
+        except Exception:
+            # Redis is the fast path; failure must not prevent durable delivery.
+            logger.warning("Failed to write turn cancel signal", run_id=str(run_id))
 
-    @abstractmethod
-    async def _cancel(self, client: Client, run_id: UUID) -> None:
-        """Send implementation-specific cancellation signals and updates."""
+        async def submit() -> None:
+            handle = await self.handle(run_id)
+            await handle.execute_update(
+                self.workflow.request_cancel,
+                WorkflowCancelRequest(reason="user_cancel"),
+                id=f"cancel:{run_id}",
+            )
+
+        await self._run_control(submit)

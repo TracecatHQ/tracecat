@@ -1,30 +1,23 @@
 """Built-in Claude agent backend, preserving the durable workflow contract."""
 
 from typing import ClassVar
-from uuid import UUID
 
-from temporalio.client import Client
 from temporalio.common import Priority, WorkflowIDReusePolicy
-from temporalio.workflow import UpdateMethodMultiParam
 from tracecat_ee.agent.workflows.durable import DurableAgentWorkflow
 
 from tracecat import config
 from tracecat.agent.backends.base import AgentBackend
 from tracecat.agent.backends.schemas import (
     AgentWorkflowArgs,
-    WorkflowApprovalSubmission,
-    WorkflowCancelRequest,
 )
 from tracecat.agent.backends.types import (
     AgentBackendCapability,
     SessionTurnContext,
 )
-from tracecat.agent.cancellation import signal_turn_cancel
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.schemas import AgentOutput, RunAgentArgs
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.dsl.common import RETRY_POLICIES
-from tracecat.logger import logger
 
 
 class DefaultBackend(AgentBackend[AgentWorkflowArgs, AgentOutput]):
@@ -42,14 +35,6 @@ class DefaultBackend(AgentBackend[AgentWorkflowArgs, AgentOutput]):
         {AgentBackendCapability.FORK, AgentBackendCapability.CALLER_OWNED_WORKFLOWS}
     )
     history = None
-
-    @property
-    def _approval_update(
-        self,
-    ) -> UpdateMethodMultiParam[
-        [DurableAgentWorkflow, WorkflowApprovalSubmission], bool
-    ]:
-        return DurableAgentWorkflow.set_approvals
 
     async def build_workflow_args(
         self, context: SessionTurnContext
@@ -72,16 +57,4 @@ class DefaultBackend(AgentBackend[AgentWorkflowArgs, AgentOutput]):
             tools=session.tools,
             agent_preset_id=session.agent_preset_id,
             agent_preset_version_id=session.agent_preset_version_id,
-        )
-
-    async def _cancel(self, client: Client, run_id: UUID) -> None:
-        # The executor polls this signal for prompt cancellation. The workflow
-        # update remains authoritative if the best-effort signal is unavailable.
-        try:
-            await signal_turn_cancel(str(run_id), reason="user_cancel")
-        except Exception:
-            logger.warning("Failed to write turn cancel signal", run_id=str(run_id))
-        await client.get_workflow_handle(self.workflow_id(run_id)).execute_update(
-            DurableAgentWorkflow.request_cancel,
-            WorkflowCancelRequest(reason="user_cancel"),
         )
