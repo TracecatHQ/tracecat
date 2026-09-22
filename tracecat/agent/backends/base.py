@@ -1,12 +1,13 @@
 """Shared session reservation and Temporal dispatch for agent backends."""
 
+import asyncio
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from typing import ClassVar
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import select
 from temporalio.client import (
     Client,
     WorkflowExecutionStatus,
@@ -21,6 +22,7 @@ from temporalio.common import (
 )
 from temporalio.service import RPCError
 
+from tracecat.agent.backends.dispatch import TurnDispatchClient
 from tracecat.agent.backends.schemas import (
     WorkflowApprovalSubmission,
     WorkflowCancelRequest,
@@ -40,8 +42,6 @@ from tracecat.db.models import AgentSession
 from tracecat.dsl.client import get_temporal_client
 from tracecat.exceptions import TracecatConflictError
 from tracecat.logger import logger
-from tracecat.temporal.codec import TemporalPayloadCodecError
-from tracecat.temporal.exceptions import TemporalPayloadEncodingError
 from tracecat.workflow.executions.correlation import build_agent_session_correlation_id
 from tracecat.workflow.executions.enums import (
     ExecutionType,
@@ -83,7 +83,8 @@ class AgentBackend[InputT, OutputT](ABC):
         """Prepare workflow input and any history writes before reservation commits.
 
         The session is locked. Implementations must not commit or dispatch work;
-        the shared lifecycle commits their writes with turn ownership.
+        the shared lifecycle commits their writes with turn ownership only after
+        Temporal has encoded and validated the start request.
         """
 
     async def start_turn(self, context: SessionTurnContext) -> None:
@@ -100,15 +101,22 @@ class AgentBackend[InputT, OutputT](ABC):
         )
         if session is None or session.curr_run_id is not None:
             raise TracecatConflictError("This chat already has an active turn")
-        args = await self.build_workflow_args(replace(context, session=session))
-        search_attributes = self._search_attributes(context)
-        session.curr_run_id = context.run_id
-        session.active_stream_id = context.stream_id
-        session.last_error = None
-        context.db.add(session)
-        await context.db.commit()
+        dispatch = TurnDispatchClient(client.service_client, context.db.commit)
         try:
-            await client.start_workflow(
+            args = await self.build_workflow_args(replace(context, session=session))
+            search_attributes = self._search_attributes(context)
+            session.curr_run_id = context.run_id
+            session.active_stream_id = context.stream_id
+            session.last_error = None
+            context.db.add(session)
+            # Clone the public client configuration to retain codecs and tracing
+            # without changing the process-wide client's service connection.
+            # Plugin configuration has already been applied to this snapshot;
+            # rerunning plugins could replace the request-scoped service client.
+            dispatch_client = Client(
+                **{**client.config(), "service_client": dispatch, "plugins": []}
+            )
+            await dispatch_client.start_workflow(
                 self.workflow.run,
                 args,
                 id=self.workflow_id(context.run_id),
@@ -118,35 +126,16 @@ class AgentBackend[InputT, OutputT](ABC):
                 priority=self.priority,
                 search_attributes=search_attributes,
             )
-        except (
-            TemporalPayloadEncodingError,
-            TemporalPayloadCodecError,
-            TypeError,
-            ValueError,
-        ):
-            # The SDK validates and encodes start arguments before sending the
-            # RPC. These failures prove this attempt could not start a workflow.
-            rejected = True
+        except asyncio.CancelledError:
+            if not dispatch.committed:
+                await context.db.rollback()
+            raise
         except Exception:
-            # Transport errors (including retries), already-started responses,
-            # and unknown errors cannot prove that no workflow was started.
-            rejected = False
+            if not dispatch.committed:
+                await context.db.rollback()
         else:
             return
-        if rejected:
-            # Release here so non-HTTP callers can retry too. Match both owner
-            # identities so delayed cleanup cannot clear a later turn.
-            await context.db.execute(
-                update(AgentSession)
-                .where(
-                    AgentSession.id == context.session.id,
-                    AgentSession.workspace_id == context.role.workspace_id,
-                    AgentSession.curr_run_id == context.run_id,
-                    AgentSession.active_stream_id == context.stream_id,
-                )
-                .values(curr_run_id=None, active_stream_id=None)
-            )
-            await context.db.commit()
+        if not dispatch.committed:
             raise RuntimeError("Agent workflow start failed before dispatch")
         # Raise outside the handler so SDK context cannot leak. Ownership stays
         # reserved because a lost acknowledgement cannot prove dispatch failed.

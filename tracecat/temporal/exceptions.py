@@ -6,10 +6,6 @@ from typing import Any, ClassVar
 from temporalio.exceptions import ApplicationError
 
 
-class TemporalPayloadEncodingError(RuntimeError):
-    """Payload serialization failed before a Temporal request could be sent."""
-
-
 class UserError(ApplicationError):
     """Temporal application error for user-attributable workflow failures."""
 

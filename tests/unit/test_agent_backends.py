@@ -1,7 +1,9 @@
 """Backend registration and service delegation without a private implementation."""
 
+import asyncio
 import contextlib
 from collections.abc import Iterator
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 from uuid import uuid4
@@ -14,14 +16,18 @@ from temporalio.client import (
     WorkflowUpdateFailedError,
     WorkflowUpdateRPCTimeoutOrCancelledError,
 )
+from temporalio.converter import PayloadCodec
 from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
-from temporalio.service import RPCError, RPCStatusCode
+from temporalio.service import ConnectConfig, RPCError, RPCStatusCode, ServiceClient
 from tracecat_ee.agent.approvals.service import ApprovalService
 from tracecat_ee.agent.workflows.durable import DurableAgentWorkflow
 
 from tracecat.agent.backends import registry
 from tracecat.agent.backends.default import DefaultBackend
-from tracecat.agent.backends.schemas import WorkflowApprovalSubmission
+from tracecat.agent.backends.schemas import (
+    AgentWorkflowArgs,
+    WorkflowApprovalSubmission,
+)
 from tracecat.agent.backends.types import (
     AgentBackendCapability,
     AgentControlRejected,
@@ -43,7 +49,6 @@ from tracecat.db.models import AgentSession
 from tracecat.dsl._converter import get_data_converter
 from tracecat.exceptions import TracecatConflictError, TracecatValidationError
 from tracecat.temporal.codec import TemporalPayloadCodecError
-from tracecat.temporal.exceptions import TemporalPayloadEncodingError
 
 
 @pytest.fixture(autouse=True)
@@ -169,17 +174,26 @@ def context() -> SessionTurnContext:
     )
 
 
+def temporal_client() -> tuple[Client, AsyncMock]:
+    service = Mock(spec=ServiceClient)
+    service.config = ConnectConfig(target_host="localhost:7233", identity="test-client")
+    rpc = AsyncMock(return_value=StartWorkflowExecutionResponse(run_id="run-1"))
+    service._rpc_call = rpc
+    return Client(service, data_converter=get_data_converter()), rpc
+
+
 @pytest.mark.anyio
 async def test_builtin_dispatch_preserves_workflow_contract():
     ctx = context()
     assert isinstance(ctx.db, AsyncMock)
-    client = AsyncMock()
+    client, rpc = temporal_client()
 
     async def start_workflow(*_args, **_kwargs):
         assert isinstance(ctx.db, AsyncMock)
         ctx.db.commit.assert_awaited_once()
+        return StartWorkflowExecutionResponse(run_id="run-1")
 
-    client.start_workflow.side_effect = start_workflow
+    rpc.side_effect = start_workflow
     with patch(
         "tracecat.agent.backends.base.get_temporal_client",
         return_value=client,
@@ -188,11 +202,16 @@ async def test_builtin_dispatch_preserves_workflow_contract():
     assert ctx.session.curr_run_id == ctx.run_id
     assert ctx.session.active_stream_id == ctx.stream_id
     ctx.db.commit.assert_awaited_once()
-    call = client.start_workflow.await_args
-    assert call.args[0] is DefaultBackend().workflow.run
-    assert call.args[1].harness_type == "claude_code"
-    assert call.args[1].agent_args.active_stream_id == ctx.stream_id
-    assert call.kwargs["id"] == f"agent/{ctx.run_id}"
+    assert rpc.await_args is not None
+    request = rpc.await_args.args[1]
+    (args,) = await client.data_converter.decode(
+        list(request.input.payloads), [AgentWorkflowArgs]
+    )
+    assert args.harness_type == "claude_code"
+    assert args.agent_args.active_stream_id == ctx.stream_id
+    assert request.workflow_id == f"agent/{ctx.run_id}"
+    assert request.workflow_type.name == "DurableAgentWorkflow"
+    ctx.db.rollback.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -204,7 +223,7 @@ async def test_dispatch_rejects_missing_or_owned_session_before_preparation(miss
     if missing:
         ctx.db.scalar.return_value = None
     backend = DefaultBackend()
-    client = AsyncMock()
+    client, rpc = temporal_client()
     with (
         patch("tracecat.agent.backends.base.get_temporal_client", return_value=client),
         patch.object(backend, "build_workflow_args") as prepare,
@@ -213,7 +232,7 @@ async def test_dispatch_rejects_missing_or_owned_session_before_preparation(miss
         await backend.start_turn(ctx)
     prepare.assert_not_called()
     ctx.db.commit.assert_not_awaited()
-    client.start_workflow.assert_not_awaited()
+    rpc.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -221,16 +240,41 @@ async def test_preparation_failure_does_not_reserve_or_dispatch():
     ctx = context()
     assert isinstance(ctx.db, AsyncMock)
     backend = DefaultBackend()
-    client = AsyncMock()
+    client, rpc = temporal_client()
     with (
         patch("tracecat.agent.backends.base.get_temporal_client", return_value=client),
         patch.object(backend, "build_workflow_args", side_effect=ValueError("invalid")),
-        pytest.raises(ValueError, match="invalid"),
+        pytest.raises(RuntimeError, match="before dispatch"),
     ):
         await backend.start_turn(ctx)
     assert ctx.session.curr_run_id is None
     ctx.db.commit.assert_not_awaited()
-    client.start_workflow.assert_not_awaited()
+    ctx.db.rollback.assert_awaited_once()
+    rpc.assert_not_awaited()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("after_commit", [False, True])
+async def test_dispatch_cancellation_rolls_back_only_before_commit(after_commit):
+    ctx = context()
+    assert isinstance(ctx.db, AsyncMock)
+    backend = DefaultBackend()
+    client, rpc = temporal_client()
+    if after_commit:
+        rpc.side_effect = asyncio.CancelledError
+    else:
+        ctx.db.commit.side_effect = asyncio.CancelledError
+    with (
+        patch("tracecat.agent.backends.base.get_temporal_client", return_value=client),
+        pytest.raises(asyncio.CancelledError),
+    ):
+        await backend.start_turn(ctx)
+    if after_commit:
+        ctx.db.rollback.assert_not_awaited()
+        rpc.assert_awaited_once()
+    else:
+        ctx.db.rollback.assert_awaited_once()
+        rpc.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -415,15 +459,22 @@ async def test_backend_and_harness_are_independent_and_defaults_resolve_internal
     [
         TypeError("private SDK details"),
         ValueError("private SDK details"),
-        TemporalPayloadEncodingError("private SDK details"),
+        RuntimeError("private SDK details"),
         TemporalPayloadCodecError("private SDK details"),
     ],
 )
-async def test_local_dispatch_failure_releases_only_its_ownership(error):
+async def test_local_encoding_failure_rolls_back_preparation(error):
     ctx = context()
     assert isinstance(ctx.db, AsyncMock)
-    client = AsyncMock()
-    client.start_workflow.side_effect = error
+    client, rpc = temporal_client()
+    codec = Mock(spec=PayloadCodec)
+    codec.encode = AsyncMock(side_effect=error)
+    client = Client(
+        **{
+            **client.config(),
+            "data_converter": replace(client.data_converter, payload_codec=codec),
+        }
+    )
     with (
         patch("tracecat.agent.backends.base.get_temporal_client", return_value=client),
         pytest.raises(RuntimeError) as caught,
@@ -432,30 +483,16 @@ async def test_local_dispatch_failure_releases_only_its_ownership(error):
     assert not isinstance(caught.value, SessionDispatchUncertain)
     assert caught.value.__context__ is None
     assert "private SDK details" not in str(caught.value)
-    ctx.db.execute.assert_awaited_once()
-    # Cleanup is scoped to this session, workspace, run and stream, including
-    # callers that do not use the HTTP router's cleanup path.
-    statement = ctx.db.execute.await_args.args[0]
-    assert statement.compile().params == {
-        "curr_run_id": None,
-        "active_stream_id": None,
-        "id_1": ctx.session.id,
-        "workspace_id_1": ctx.role.workspace_id,
-        "curr_run_id_1": ctx.run_id,
-        "active_stream_id_1": ctx.stream_id,
-    }
-    assert ctx.db.commit.await_count == 2
+    ctx.db.rollback.assert_awaited_once()
+    ctx.db.commit.assert_not_awaited()
+    rpc.assert_not_awaited()
 
 
 @pytest.mark.anyio
 async def test_real_client_encoding_failure_releases_reservation_before_rpc():
     ctx = context()
     assert isinstance(ctx.db, AsyncMock)
-    service_client = Mock()
-    service_client.config.identity = "test-client"
-    dispatch = AsyncMock(return_value=StartWorkflowExecutionResponse(run_id="run-1"))
-    service_client.workflow_service.start_workflow_execution = dispatch
-    client = Client(service_client, data_converter=get_data_converter())
+    client, dispatch = temporal_client()
     with (
         patch("tracecat.agent.backends.base.get_temporal_client", return_value=client),
         patch("tracecat.dsl._converter.orjson.dumps", side_effect=TypeError("invalid")),
@@ -465,8 +502,8 @@ async def test_real_client_encoding_failure_releases_reservation_before_rpc():
     assert not isinstance(caught.value, SessionDispatchUncertain)
     assert caught.value.__context__ is None
     dispatch.assert_not_awaited()
-    ctx.db.execute.assert_awaited_once()
-    assert ctx.db.commit.await_count == 2
+    ctx.db.rollback.assert_awaited_once()
+    ctx.db.commit.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -478,13 +515,15 @@ async def test_real_client_encoding_failure_releases_reservation_before_rpc():
         RPCError("private SDK details", RPCStatusCode.DEADLINE_EXCEEDED, b""),
         WorkflowAlreadyStartedError("workflow-1", "test"),
         RuntimeError("unknown outcome"),
+        TypeError("failure after dispatch"),
+        ValueError("failure after dispatch"),
     ],
 )
 async def test_builtin_lost_ack_retains_ownership_without_raw_exception_context(error):
     ctx = context()
     assert isinstance(ctx.db, AsyncMock)
-    client = AsyncMock()
-    client.start_workflow.side_effect = error
+    client, rpc = temporal_client()
+    rpc.side_effect = error
     with patch(
         "tracecat.agent.backends.base.get_temporal_client",
         return_value=client,
@@ -496,6 +535,7 @@ async def test_builtin_lost_ack_retains_ownership_without_raw_exception_context(
     assert ctx.session.active_stream_id == ctx.stream_id
     ctx.db.execute.assert_not_awaited()
     ctx.db.commit.assert_awaited_once()
+    ctx.db.rollback.assert_not_awaited()
 
 
 @pytest.mark.anyio
