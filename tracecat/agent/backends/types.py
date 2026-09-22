@@ -65,7 +65,7 @@ class SessionHistoryAdapter(Protocol):
     def project(self, entry: AgentSessionHistory) -> dict[str, Any] | None: ...
 
 
-class AgentWorkflow[InputT, ResultT](Protocol):
+class AgentWorkflow[InputT, OutputT](Protocol):
     """Typed run method implemented by each concrete Temporal workflow class."""
 
-    async def run(self, args: InputT, /) -> ResultT: ...
+    async def run(self, args: InputT, /) -> OutputT: ...

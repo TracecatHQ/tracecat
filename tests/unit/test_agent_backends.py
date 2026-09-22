@@ -341,9 +341,12 @@ async def test_fork_requires_its_specific_capability(capabilities, allowed):
 async def test_backend_and_harness_are_independent_and_defaults_resolve_internally():
     ctx = context()
     service = AgentSessionService(ctx.db, ctx.role)
-    provider = DefaultBackend()
-    provider.default_harness = "custom_harness"
-    provider.supported_harnesses = frozenset({"custom_harness", "another_harness"})
+
+    class CustomHarnessBackend(DefaultBackend):
+        default_harness = "custom_harness"
+        supported_harnesses = frozenset({"custom_harness", "another_harness"})
+
+    provider = CustomHarnessBackend()
     with patch.object(
         registry, "entry_points", return_value=[entry("ee", lambda: provider)]
     ):

@@ -21,22 +21,22 @@ from tracecat.dsl.client import get_temporal_client
 from tracecat.exceptions import TracecatConflictError
 
 
-class AgentBackend[InputT, ResultT](ABC):
+class AgentBackend[InputT, OutputT](ABC):
     """Stateless backend with a typed workflow and a shared dispatch lifecycle.
 
     Factories return one instance per process. Request-scoped database sessions
     and identities must never be retained on the backend.
     """
 
-    # This class attribute depends on the generic input/result types, so Python's
+    # This class attribute depends on the generic input/output types, so Python's
     # typing rules do not allow wrapping it in ClassVar.
-    workflow: type[AgentWorkflow[InputT, ResultT]]
-    name: str
-    default_harness: str
-    supported_harnesses: frozenset[str]
-    capabilities: frozenset[AgentBackendCapability] = frozenset()
-    approval_update_name: str
-    history: SessionHistoryAdapter | None = None
+    workflow: type[AgentWorkflow[InputT, OutputT]]
+    name: ClassVar[str]
+    default_harness: ClassVar[str]
+    supported_harnesses: ClassVar[frozenset[str]]
+    capabilities: ClassVar[frozenset[AgentBackendCapability]] = frozenset()
+    approval_update_name: ClassVar[str]
+    history: ClassVar[SessionHistoryAdapter | None] = None
     task_queue: ClassVar[str]
     priority: ClassVar[Priority] = Priority()
     retry_policy: ClassVar[RetryPolicy] = RetryPolicy(maximum_attempts=1)
