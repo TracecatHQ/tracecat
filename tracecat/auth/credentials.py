@@ -120,6 +120,16 @@ async def _query_workspace_org_id(
     return result.scalar_one_or_none()
 
 
+async def get_workspace_organization_id(workspace_id: uuid.UUID) -> uuid.UUID | None:
+    """Resolve a workspace's organization independently of request RLS context.
+
+    Uses the auth pool so the lookup is not filtered by the caller's current
+    organization; callers use it to rebind a role to a workspace that may live
+    in a different organization than the one the request authenticated with.
+    """
+    return await _get_workspace_org_id(workspace_id)
+
+
 UNAUTHORIZED_EXCEPTION = HTTPException(
     status_code=status.HTTP_401_UNAUTHORIZED,
     detail="Unauthorized",

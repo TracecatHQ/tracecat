@@ -9,7 +9,11 @@ from fastapi import APIRouter, Body, HTTPException, Query, status
 from pydantic import SecretStr
 
 from tracecat import config
-from tracecat.auth.credentials import RoleACL, compute_effective_scopes
+from tracecat.auth.credentials import (
+    RoleACL,
+    compute_effective_scopes,
+    get_workspace_organization_id,
+)
 from tracecat.auth.dependencies import (
     WorkspaceActorRouteRole,
     WorkspaceUserRouteRole,
@@ -272,10 +276,20 @@ async def oauth_callback(
             detail="Invalid state parameter",
         )
 
-    # Overwrite role with workspace context from validated state and resolve
-    # scopes against that workspace: the route is authenticated without one, so
-    # the role only carries org-wide grants at this point.
-    role = role.model_copy(update={"workspace_id": oauth_state_db.workspace_id})
+    # Rebind the role to the workspace (and its organization) from the validated
+    # state, then resolve scopes for that tenant. The route is authenticated
+    # without workspace context, so the incoming role carries only org-wide
+    # grants for whichever organization the session happened to be active in.
+    workspace_id = oauth_state_db.workspace_id
+    organization_id = await get_workspace_organization_id(workspace_id)
+    if organization_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid state parameter",
+        )
+    role = role.model_copy(
+        update={"workspace_id": workspace_id, "organization_id": organization_id}
+    )
     role = role.model_copy(update={"scopes": await compute_effective_scopes(role)})
     ctx_role.set(role)
     if config.TRACECAT__RLS_MODE == config.RLSMode.ENFORCE:

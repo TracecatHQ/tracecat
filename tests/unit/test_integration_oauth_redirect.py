@@ -51,9 +51,15 @@ def test_oauth_callback_redirect_url_uses_mcp_servers_for_mcp_provider(
 async def test_oauth_callback_resolves_scopes_for_state_workspace(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Workspace-level grants must apply once the callback binds the workspace."""
+    """Workspace-level grants must apply once the callback binds the workspace.
+
+    The callback authenticates with whichever organization the session was
+    active in, so the role must be rebound to the state workspace's own
+    organization before scopes are resolved.
+    """
     user_id = uuid.uuid4()
-    org_id = uuid.uuid4()
+    active_org_id = uuid.uuid4()
+    workspace_org_id = uuid.uuid4()
     workspace_id = uuid.uuid4()
 
     oauth_state = MagicMock()
@@ -67,12 +73,24 @@ async def test_oauth_callback_resolves_scopes_for_state_workspace(
     session.get.return_value = oauth_state
 
     async def fake_compute_effective_scopes(role: Role) -> frozenset[str]:
-        if role.workspace_id == workspace_id:
+        if (
+            role.workspace_id == workspace_id
+            and role.organization_id == workspace_org_id
+        ):
             return frozenset({"integration:create", "integration:update"})
         return frozenset()
 
+    async def fake_get_workspace_organization_id(ws_id: uuid.UUID) -> uuid.UUID:
+        assert ws_id == workspace_id
+        return workspace_org_id
+
     monkeypatch.setattr(
         router_module, "compute_effective_scopes", fake_compute_effective_scopes
+    )
+    monkeypatch.setattr(
+        router_module,
+        "get_workspace_organization_id",
+        fake_get_workspace_organization_id,
     )
     monkeypatch.setattr(config, "TRACECAT__RLS_MODE", config.RLSMode.OFF)
 
@@ -93,7 +111,7 @@ async def test_oauth_callback_resolves_scopes_for_state_workspace(
     unscoped_role = Role(
         type="user",
         user_id=user_id,
-        organization_id=org_id,
+        organization_id=active_org_id,
         workspace_id=None,
         service_id="tracecat-api",
         scopes=frozenset(),
@@ -111,4 +129,5 @@ async def test_oauth_callback_resolves_scopes_for_state_workspace(
     assert len(captured_roles) == 1
     bound_role = captured_roles[0]
     assert bound_role.workspace_id == workspace_id
+    assert bound_role.organization_id == workspace_org_id
     assert bound_role.scopes == frozenset({"integration:create", "integration:update"})
