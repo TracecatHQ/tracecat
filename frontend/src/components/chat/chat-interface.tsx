@@ -64,6 +64,7 @@ import {
   useUpdateChat,
 } from "@/hooks/use-chat"
 import { useChatPresetManager } from "@/hooks/use-chat-preset-manager"
+import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { getApiErrorDetail } from "@/lib/errors"
 import { useChatReadiness } from "@/lib/hooks"
 import { useQueryClient } from "@/lib/query"
@@ -105,6 +106,7 @@ type PresetConfigLike = Pick<
 >
 
 const NOOP = () => {}
+const SERVER_DEFAULT_BACKEND = "server-default"
 
 export function ChatInterface({
   chatId,
@@ -124,12 +126,22 @@ export function ChatInterface({
   const workspaceId = useWorkspaceId()
   const queryClient = useQueryClient()
   const { user } = useAuth()
-  const { backends } = useAgentBackends(workspaceId)
-  const hasBackendChoice = backends.length > 1
+  const { isFeatureEnabled, isLoading: featureFlagsLoading } = useFeatureFlag()
+  const backendSelectionEnabled = isFeatureEnabled("agent-runtime")
+  const { backends, backendsLoading } = useAgentBackends(workspaceId, {
+    enabled: backendSelectionEnabled,
+  })
+  const backendSelectionLoading =
+    featureFlagsLoading || (backendSelectionEnabled && backendsLoading)
+  const hasBackendChoice = backendSelectionEnabled && backends.length > 1
   const [selectedChatId, setSelectedChatId] = useState<string | undefined>(
     chatId
   )
-  const [newChatBackend, setNewChatBackend] = useState<string>("oss")
+  const [newChatBackend, setNewChatBackend] = useState(SERVER_DEFAULT_BACKEND)
+  const backendOverride =
+    backendSelectionEnabled && newChatBackend !== SERVER_DEFAULT_BACKEND
+      ? newChatBackend
+      : undefined
   const [newChatDialogOpen, setNewChatDialogOpen] = useState(false)
   const [autoCreateAttempted, setAutoCreateAttempted] = useState(false)
   const [isDraftChat, setIsDraftChat] = useState(false)
@@ -184,7 +196,8 @@ export function ChatInterface({
   const inWorkspaceChat = surface === "workspace-chat"
   // Surfaces that defer server-side session creation until the first message,
   // showing a draft composer instead of an eagerly-created empty session.
-  const deferSessionCreation = entityType === "case" || inWorkspaceChat
+  const deferSessionCreation =
+    entityType === "case" || inWorkspaceChat || hasBackendChoice
 
   // Mirror the active workspace-chat session into the URL so sessions are
   // deep-linkable (/chat/:sessionId). Uses replaceState to avoid remounting the
@@ -242,7 +255,7 @@ export function ChatInterface({
       chats.length > 0 &&
       !selectedChatId &&
       !inWorkspaceChat &&
-      !(entityType === "case" && isDraftChat)
+      !(deferSessionCreation && isDraftChat)
     ) {
       // Prefer the current user's latest writable chat before falling back to
       // the newest teammate session.
@@ -252,6 +265,7 @@ export function ChatInterface({
       onChatSelect?.(firstChatId)
     } else if (
       !deferSessionCreation &&
+      !backendSelectionLoading &&
       chats.length === 0 &&
       !selectedChatId &&
       !autoCreateAttempted
@@ -262,7 +276,7 @@ export function ChatInterface({
         title: "Chat 1",
         entity_type: entityType,
         entity_id: entityId,
-        backend_id: newChatBackend,
+        backend_id: backendOverride,
       })
         .then((newChat) => {
           setSelectedChatId(newChat.id)
@@ -282,7 +296,8 @@ export function ChatInterface({
     entityType,
     entityId,
     autoCreateAttempted,
-    newChatBackend,
+    backendOverride,
+    backendSelectionLoading,
     isDraftChat,
     inWorkspaceChat,
     deferSessionCreation,
@@ -303,7 +318,7 @@ export function ChatInterface({
         title: `Chat ${(chats?.length || 0) + 1}`,
         entity_type: entityType,
         entity_id: entityId,
-        backend_id: newChatBackend,
+        backend_id: backendOverride,
       })
       setSelectedChatId(newChat.id)
       onChatSelect?.(newChat.id)
@@ -330,7 +345,7 @@ export function ChatInterface({
         title: `Chat ${(chats?.length || 0) + 1}`,
         entity_type: entityType,
         entity_id: entityId,
-        backend_id: newChatBackend,
+        backend_id: backendOverride,
         tools: selectedTools,
         mcp_integrations: selectedMcpIntegrations,
         agent_preset_id: pendingPreset.presetId,
@@ -380,6 +395,7 @@ export function ChatInterface({
   // Show loading while chats are loading or being auto-created
   if (
     chatsLoading ||
+    (!selectedChatId && backendSelectionLoading) ||
     (!deferSessionCreation && chats && chats.length === 0 && createChatPending)
   ) {
     return (
@@ -453,18 +469,18 @@ export function ChatInterface({
 
           {chat && "history_available" in chat && !chat.history_available ? (
             <span className="text-xs text-muted-foreground">
-              History is unavailable until this chat mode is restored.
+              History is unavailable until this chat is restored.
             </span>
           ) : null}
           {chat && "backend_available" in chat && !chat.backend_available ? (
             <span className="text-xs text-muted-foreground">
-              Chat mode unavailable
+              Chat unavailable
             </span>
           ) : null}
           {/* Right-side actions */}
           <div className="flex items-center gap-1">
             {headerActions}
-            {selectedChatId && chat ? (
+            {backendSelectionEnabled && selectedChatId && chat ? (
               <Badge variant="outline">{currentBackendName}</Badge>
             ) : null}
             {!selectedChatId && hasBackendChoice && (
@@ -484,10 +500,11 @@ export function ChatInterface({
                   <AlertDialogTrigger asChild>
                     <TooltipTrigger asChild>
                       <Button
+                        aria-label="New chat"
                         size="sm"
                         variant="ghost"
                         className="size-6 p-0"
-                        disabled={createChatPending}
+                        disabled={createChatPending || backendSelectionLoading}
                       >
                         <Plus className="h-4 w-4" />
                       </Button>
@@ -571,14 +588,20 @@ function BackendSelect({
     <Select
       value={value}
       onValueChange={(next) => {
-        if (backends.some((backend) => backend.id === next)) onChange(next)
+        if (
+          next === SERVER_DEFAULT_BACKEND ||
+          backends.some((backend) => backend.id === next)
+        ) {
+          onChange(next)
+        }
       }}
     >
-      <SelectTrigger aria-label="Chat mode" className="w-36">
+      <SelectTrigger aria-label="Backend (dev)" className="w-36">
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
         <SelectGroup>
+          <SelectItem value={SERVER_DEFAULT_BACKEND}>Server default</SelectItem>
           {backends.map((backend) => (
             <SelectItem key={backend.id} value={backend.id}>
               {backend.name}

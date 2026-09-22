@@ -14569,6 +14569,7 @@ export const $FeatureFlag = {
     "workflow-concurrency-limits",
     "agent-channels",
     "agent-fs-persistence",
+    "agent-runtime",
   ],
   title: "FeatureFlag",
   description: "Feature flag enum reserved for engineering rollouts.",

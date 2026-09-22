@@ -4367,6 +4367,7 @@ export type FeatureFlag =
   | "workflow-concurrency-limits"
   | "agent-channels"
   | "agent-fs-persistence"
+  | "agent-runtime"
 
 /**
  * Response model for feature flags.

@@ -779,13 +779,16 @@ export function makeContinueMessage(
 const EMPTY_BACKENDS: AgentBackendRead[] = []
 
 /** Discover enabled backend providers without coupling the UI to their names. */
-export function useAgentBackends(workspaceId?: string) {
-  const { data } = useQuery({
+export function useAgentBackends(
+  workspaceId?: string,
+  options?: { enabled?: boolean }
+) {
+  const { data, isLoading } = useQuery({
     queryKey: ["agent-backends", workspaceId],
     queryFn: () =>
       agentSessionsListAgentBackends({ workspaceId: workspaceId! }),
-    enabled: Boolean(workspaceId),
+    enabled: Boolean(workspaceId) && (options?.enabled ?? true),
     staleTime: 60_000,
   })
-  return { backends: data ?? EMPTY_BACKENDS }
+  return { backends: data ?? EMPTY_BACKENDS, backendsLoading: isLoading }
 }
