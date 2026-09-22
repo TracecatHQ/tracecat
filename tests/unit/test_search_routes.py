@@ -154,6 +154,48 @@ async def test_tokenizer_construction_and_counting_run_off_event_loop(test_role)
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("stage", ["construction", "counting"])
+@pytest.mark.parametrize("failure", [ValueError, OSError])
+async def test_tokenizer_failures_return_safe_unavailable(test_role, stage, failure):
+    def fail_count(query):
+        raise failure("synthetic private tokenizer details")
+
+    def make_counter(spec):
+        if stage == "construction":
+            raise failure("synthetic private tokenizer details")
+        return SimpleNamespace(count_tokens=fail_count)
+
+    tables = AsyncMock()
+    tables.get_table_by_name.return_value.id = "synthetic"
+    with (
+        patch("tracecat.search.retrieval.TablesService.with_session") as session,
+        patch("tracecat.search.retrieval.resolve_embedding_configuration") as resolve,
+        patch("tracecat.search.retrieval.token_counter", side_effect=make_counter),
+        patch("tracecat.search.retrieval.embed_current") as embed,
+    ):
+        session.return_value.__aenter__.return_value = tables
+        resolve.return_value = SimpleNamespace(
+            spec=SimpleNamespace(input_character_limit=1000)
+        )
+        with pytest.raises(EmbeddingError) as domain_error:
+            await TableRetrievalService(test_role).search(
+                "synthetic", SearchRequest(query="query")
+            )
+        assert domain_error.value.code == EmbeddingErrorCode.UNAVAILABLE
+        assert domain_error.value.__context__ is None
+        with pytest.raises(HTTPException) as error:
+            await semantic_search("synthetic", SearchRequest(query="query"), test_role)
+    assert error.value.status_code == 502
+    assert error.value.detail == {
+        "code": "UNAVAILABLE",
+        "retryable": True,
+        "retry_after": None,
+    }
+    assert error.value.__context__ is None
+    embed.assert_not_called()
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     "body",
     [

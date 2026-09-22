@@ -22,6 +22,7 @@ from tracecat.search.embeddings.service import (
 from tracecat.search.embeddings.types import (
     EmbeddingError,
     EmbeddingErrorCode,
+    ModelSpec,
     PinnedConfiguration,
 )
 from tracecat.search.ranking import rank_rows, read_results
@@ -36,6 +37,19 @@ from tracecat.search.types import (
 )
 from tracecat.tables.search_source import TableSearchSource
 from tracecat.tables.service import TablesService
+
+
+async def _count_query_tokens(spec: ModelSpec, query: str) -> int:
+    try:
+        return await asyncio.to_thread(lambda: token_counter(spec).count_tokens(query))
+    except EmbeddingError as exc:
+        error = EmbeddingError(exc.code, exc.retry_after)
+    except UnicodeError:
+        error = EmbeddingError(EmbeddingErrorCode.INPUT_INVALID)
+    except Exception:
+        # Vocabulary loading and counting can fail before the provider boundary.
+        error = EmbeddingError(EmbeddingErrorCode.UNAVAILABLE)
+    raise error
 
 
 def window_context(
@@ -114,9 +128,7 @@ class TableRetrievalService:
         spec = configuration.spec
         if not request.query.strip() or len(request.query) > spec.input_character_limit:
             raise EmbeddingError(EmbeddingErrorCode.INPUT_INVALID)
-        count = await asyncio.to_thread(
-            lambda: token_counter(spec).count_tokens(request.query)
-        )
+        count = await _count_query_tokens(spec, request.query)
         if count > min(512, spec.input_token_limit, spec.batch_token_limit):
             raise EmbeddingError(EmbeddingErrorCode.INPUT_INVALID)
         async with TableSearchSource.with_session(scope=self.scope) as store:
