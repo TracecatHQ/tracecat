@@ -123,7 +123,9 @@ def _is_sandbox_available() -> bool:
     return True
 
 
-_WORKLOAD_STDERR_MESSAGE_CHARS = 2000
+# Keeps the whole message under the 2048-char cap that
+# EventFailure.sanitize_error_text applies before the UI sees it.
+_WORKLOAD_STDERR_MESSAGE_CHARS = 1900
 
 
 def _sandbox_failure_message(
