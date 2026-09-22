@@ -25,6 +25,7 @@ from tenacity import (
     wait_exponential,
 )
 
+from tracecat.agent.common.exceptions import UserMCPDiscoveryError
 from tracecat.agent.common.types import MCPHttpServerConfig, MCPToolDefinition
 from tracecat.agent.mcp.http_limits import (
     MCPResponseTooLargeError,
@@ -252,9 +253,7 @@ class UserMCPClient:
                 )
                 failed_servers[server_name] = error_summary
                 if fail_on_error:
-                    raise RuntimeError(
-                        f"Failed to discover tools from user MCP server '{server_name}'"
-                    ) from e
+                    raise UserMCPDiscoveryError(server_name, error_summary) from e
 
         logger.info(
             "Discovered user MCP tools",
