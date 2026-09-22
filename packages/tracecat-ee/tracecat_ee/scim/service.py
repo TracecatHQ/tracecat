@@ -528,43 +528,25 @@ class SCIMService(BaseOrgService):
         for user_id in inactive_ids:
             await self.deprovision_user(user_id)
 
-        active_emails = (
-            select(func.lower(User.email))
-            .join(ExternalUser, ExternalUser.user_id == User.id)
-            .where(
-                ExternalUser.organization_id == self.organization_id,
-                ExternalUser.active,
-            )
-        )
-        await self.session.execute(
-            update(Invitation)
-            .where(
-                Invitation.organization_id == self.organization_id,
-                Invitation.status == InvitationStatus.PENDING,
-                func.lower(Invitation.email).in_(active_emails),
-            )
-            .values(status=InvitationStatus.REVOKED)
-        )
-        await self.session.execute(
-            pg_insert(OrganizationMembership)
-            .from_select(
-                ["organization_id", "user_id"],
-                select(ExternalUser.organization_id, ExternalUser.user_id).where(
+        active_ids = (
+            await self.session.scalars(
+                select(ExternalUser.user_id).where(
                     ExternalUser.organization_id == self.organization_id,
                     ExternalUser.active,
-                ),
+                )
             )
-            .on_conflict_do_nothing(
-                index_elements=[
-                    OrganizationMembership.organization_id,
-                    OrganizationMembership.user_id,
-                ]
-            )
-        )
+        ).all()
+        for user_id in active_ids:
+            await self.admit_user(user_id)
         await self.session.flush()
 
     async def _revoke_pending_invitation(self, email: str) -> None:
-        """Revoke a live invitation whose role could outrank what SCIM grants."""
+        """Revoke a live invitation whose role could outrank what SCIM grants.
+
+        Written directly rather than through ``OrgService.revoke_invitation``:
+        that method requires ``org:member:invite``, which the SCIM connection
+        deliberately does not hold.
+        """
         await self.session.execute(
             update(Invitation)
             .where(
@@ -735,17 +717,17 @@ class SCIMService(BaseOrgService):
             .values(active=True)
         )
         if await self._connection_is_active():
-            email = await self.session.scalar(
-                select(User.__table__.c.email).where(
-                    User.__table__.c.id == external_user.user_id
-                )
-            )
-            if email is not None:
-                await self._revoke_pending_invitation(email)
-            await ensure_member(
-                self.session, self.organization_id, external_user.user_id
-            )
+            await self.admit_user(external_user.user_id)
         await self.session.flush()
+
+    async def admit_user(self, user_id: UUID) -> None:
+        """Admit the user, revoking any invitation that could outrank SCIM."""
+        email = await self.session.scalar(
+            select(User.__table__.c.email).where(User.__table__.c.id == user_id)
+        )
+        if email is not None:
+            await self._revoke_pending_invitation(email)
+        await ensure_member(self.session, self.organization_id, user_id)
 
     async def _connection_is_active(self) -> bool:
         """Whether this organization's connection has been activated."""

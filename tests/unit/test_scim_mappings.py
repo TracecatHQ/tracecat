@@ -6,7 +6,7 @@ import uuid
 from collections.abc import Iterator
 
 import pytest
-from sqlalchemy import event, select, update
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.rbac.router import list_groups
 from tracecat_ee.rbac.service import RBACService
@@ -743,7 +743,7 @@ async def test_activation_removes_existing_inactive_member_atomically(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("user_count", [1, 100])
-async def test_activation_admission_uses_constant_write_count(
+async def test_activation_admits_every_pushed_user(
     session: AsyncSession, org: Organization, user_count: int
 ) -> None:
     users = [
@@ -768,26 +768,9 @@ async def test_activation_admission_uses_constant_write_count(
         ]
     )
     await session.flush()
-    writes: list[str] = []
 
-    def capture(
-        conn: object,
-        cursor: object,
-        statement: str,
-        parameters: object,
-        context: object,
-        executemany: bool,
-    ) -> None:
-        if statement.lstrip().upper().startswith(("INSERT", "UPDATE")):
-            writes.append(statement)
+    await SCIMService(session, _role(org))._admit_pushed_users()
 
-    bind = session.get_bind()
-    event.listen(bind, "before_cursor_execute", capture)
-    try:
-        await SCIMService(session, _role(org))._admit_pushed_users()
-    finally:
-        event.remove(bind, "before_cursor_execute", capture)
-    assert len(writes) == 2
     admitted = set(
         await session.scalars(
             select(OrganizationMembership.user_id).where(
