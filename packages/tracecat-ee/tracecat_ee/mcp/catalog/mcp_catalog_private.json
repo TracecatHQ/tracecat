@@ -2634,13 +2634,14 @@
           "perplexity_api",
           "offline_access"
         ],
+        "oauth_resource": "https://api.perplexity.ai",
         "oauth_authorization_endpoint": null,
         "oauth_token_endpoint": null,
         "credentials": [],
         "_research": {
           "confidence": "high",
           "docker_only": false,
-          "notes": "Perplexity hosts a first-party remote MCP server at https://api.perplexity.ai/mcp over streamable HTTP. Unauthenticated requests return 401 with WWW-Authenticate pointing at /.well-known/oauth-protected-resource, which lists https://api.perplexity.ai as the resource and as its own authorization server. The authorization server metadata advertises /oauth/authorize, /oauth/token, /oauth/register (dynamic client registration), PKCE S256, token_endpoint_auth_methods none and client_secret_basic, and scopes perplexity_api and offline_access, so endpoints are discovered and left null here. The resource indicator is pinned to https://api.perplexity.ai in the provider class to match the protected resource metadata. An API key sent as a bearer token is also accepted; users who prefer that path can register the server as a custom HTTP MCP integration with an Authorization header. Exposed tools are perplexity_search, perplexity_ask, perplexity_research, and perplexity_reason.",
+          "notes": "Perplexity hosts a first-party remote MCP server at https://api.perplexity.ai/mcp over streamable HTTP. Unauthenticated requests return 401 with WWW-Authenticate pointing at /.well-known/oauth-protected-resource, which lists https://api.perplexity.ai as the resource and as its own authorization server. The authorization server metadata advertises /oauth/authorize, /oauth/token, /oauth/register (dynamic client registration), PKCE S256, token_endpoint_auth_methods none and client_secret_basic, and scopes perplexity_api and offline_access, so endpoints are discovered and left null here. The resource indicator is pinned to https://api.perplexity.ai via oauth_resource (and in the provider class) to match the protected resource metadata; the /.well-known/oauth-protected-resource/mcp path variant is not served, so discovery alone would fall back to the /mcp transport URL. An API key sent as a bearer token is also accepted; users who prefer that path can register the server as a custom HTTP MCP integration with an Authorization header. Exposed tools are perplexity_search, perplexity_ask, perplexity_research, and perplexity_reason.",
           "sources": [
             "https://docs.perplexity.ai/docs/getting-started/integrations/mcp-server",
             "https://api.perplexity.ai/.well-known/oauth-protected-resource",

@@ -671,6 +671,8 @@ def test_private_catalog_overlay_does_not_drop_public_rows() -> None:
     assert perplexity_spec.credentials == []
     assert perplexity_spec.server_uri == "https://api.perplexity.ai/mcp"
     assert perplexity_spec.scopes == ["perplexity_api", "offline_access"]
+    # Protected resource metadata names the origin, not the /mcp path.
+    assert perplexity_spec.oauth_resource == "https://api.perplexity.ai"
     # api.perplexity.ai is its own authorization server with DCR, so endpoints
     # are discovered from the well-known metadata.
     assert perplexity_spec.oauth_authorization_endpoint is None
