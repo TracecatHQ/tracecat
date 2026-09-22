@@ -403,6 +403,7 @@ async def patch_user(
             active = parsed
 
     await _apply_active(session, role=role, external_user=external_user, active=active)
+    await session.commit()
     return _user_resource(external_user, user)
 
 
@@ -427,10 +428,10 @@ async def _apply_active(
     if active:
         if not external_user.active:
             await service.reactivate_external_user(external_user)
-            await session.commit()
     else:
         # An inactive flag alone does not prove admission/grants are absent.
         await service.deprovision_user(external_user.user_id)
+    await session.flush()
     await session.refresh(external_user)
 
 
@@ -452,6 +453,7 @@ async def delete_user(
         # A resource this tenant never had is already in the desired state.
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     await _apply_active(session, role=role, external_user=external_user, active=False)
+    await session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

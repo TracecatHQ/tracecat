@@ -526,7 +526,7 @@ class SCIMService(BaseOrgService):
             )
         ).all()
         for user_id in inactive_ids:
-            await self.deprovision_user(user_id, commit=False)
+            await self.deprovision_user(user_id)
 
         active_emails = (
             select(func.lower(User.email))
@@ -683,7 +683,7 @@ class SCIMService(BaseOrgService):
     # Deprovisioning
     # =========================================================================
 
-    async def deprovision_user(self, user_id: UUID, *, commit: bool = True) -> None:
+    async def deprovision_user(self, user_id: UUID) -> None:
         """Remove a user from this organization at the provider's instruction.
 
         ``active=false`` revokes access to this tenant only: the row and its
@@ -695,7 +695,6 @@ class SCIMService(BaseOrgService):
 
         Args:
             user_id: The user the provider has deprovisioned.
-            commit: Commit standalone pushes; activation owns its transaction.
 
         Raises:
             TracecatAuthorizationError: The user is a superuser, or the caller
@@ -706,8 +705,6 @@ class SCIMService(BaseOrgService):
         if not await self._connection_is_active():
             # Before activation the provider owns only the staged directory.
             await self.deactivate_external_user(user_id)
-            if commit:
-                await self.session.commit()
             return
         user = await self.session.get(User, user_id)
         if user is None:
@@ -724,8 +721,6 @@ class SCIMService(BaseOrgService):
             await OrgService(self.session, self.role).delete_member(
                 user_id, allow_idp_managed=True, member=user, commit=False
             )
-        if commit:
-            await self.session.commit()
 
     async def reactivate_external_user(self, external_user: ExternalUser) -> None:
         """Re-admit a user the provider has activated again.

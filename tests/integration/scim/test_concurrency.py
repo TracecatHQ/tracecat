@@ -616,10 +616,12 @@ async def test_group_changes_and_user_deprovisioning_have_distinct_effects(
         service = SCIMService(session, cohort.role)
         if deprovision_order == "before":
             await service.deprovision_user(cohort.users[0])
+            await session.commit()
         await change_directory_group(cohort, mapped_directory[0], operation, session)
         if deprovision_order == "after":
             # In the unmap case this must remove the newly retained manual row too.
             await service.deprovision_user(cohort.users[0])
+            await session.commit()
     await assert_directory_outcome(
         cohort, mapped_directory, operation, deprovision_order != "never"
     )
@@ -660,6 +662,7 @@ async def test_group_removal_racing_deprovision_never_retains_offboarded_user(
 ) -> None:
     async def deprovision(session: AsyncSession) -> None:
         await SCIMService(session, cohort.role).deprovision_user(cohort.users[0])
+        await session.commit()
 
     async def group_change(session: AsyncSession) -> None:
         await change_directory_group(cohort, mapped_directory[0], operation, session)
