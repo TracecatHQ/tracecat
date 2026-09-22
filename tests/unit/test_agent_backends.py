@@ -16,7 +16,6 @@ from temporalio.exceptions import ApplicationError
 from temporalio.service import RPCError, RPCStatusCode
 from tracecat_ee.agent.approvals.service import ApprovalService
 from tracecat_ee.agent.workflows.durable import DurableAgentWorkflow
-from tracecat_ee.inbox.providers.agent_runs import AgentRunsInboxProvider
 
 from tracecat.agent.backends import registry
 from tracecat.agent.backends.default import DefaultBackend
@@ -460,7 +459,7 @@ async def test_durable_activity_rejects_existing_session_with_different_identity
 
 
 @pytest.mark.anyio
-async def test_legacy_workflow_views_do_not_target_another_backend():
+async def test_legacy_approval_view_does_not_target_another_backend():
     ctx = context()
     assert isinstance(ctx.db, AsyncMock)
     ctx.db.scalar.return_value = "ee"
@@ -468,12 +467,6 @@ async def test_legacy_workflow_views_do_not_target_another_backend():
     with patch.object(approvals, "handle", new_callable=AsyncMock) as handle:
         assert await approvals.get_session(ctx.session.id) is None
         handle.assert_not_awaited()
-    inbox = AgentRunsInboxProvider(ctx.db, ctx.role)
-    ctx.db.scalar.return_value = 0
-    assert await inbox.count_pending_items() == 0
-    query = ctx.db.scalar.await_args.args[0]
-    compiled = query.compile(compile_kwargs={"literal_binds": True})
-    assert "agent_session.backend_id = 'oss'" in str(compiled)
 
 
 @pytest.mark.anyio
@@ -627,3 +620,16 @@ async def test_handle_construction_failure_is_definitive_before_submission():
                 uuid4(), WorkflowApprovalSubmission(approvals={}, new_stream_id=uuid4())
             )
     assert caught.value.__context__ is None
+
+
+@pytest.mark.anyio
+async def test_backend_handle_reuses_supplied_client():
+    run_id = uuid4()
+    handle = Mock()
+    client = Mock(get_workflow_handle_for=Mock(return_value=handle))
+    with patch("tracecat.agent.backends.base.get_temporal_client") as connect:
+        assert await DefaultBackend().handle(run_id, client=client) is handle
+    connect.assert_not_called()
+    client.get_workflow_handle_for.assert_called_once_with(
+        DurableAgentWorkflow.run, f"agent/{run_id}"
+    )

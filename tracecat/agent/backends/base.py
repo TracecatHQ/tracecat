@@ -8,6 +8,7 @@ from uuid import UUID
 
 from sqlalchemy import select
 from temporalio.client import (
+    Client,
     WorkflowExecutionStatus,
     WorkflowHandle,
     WorkflowUpdateFailedError,
@@ -148,10 +149,11 @@ class AgentBackend[InputT, OutputT](ABC):
         return TypedSearchAttributes(search_attributes=pairs)
 
     async def handle(
-        self, run_id: UUID
+        self, run_id: UUID, *, client: Client | None = None
     ) -> WorkflowHandle[AgentWorkflow[InputT, OutputT], OutputT]:
-        """Resolve a typed handle supporting the common agent controls."""
-        client = await get_temporal_client()
+        """Resolve a typed handle, reusing a client for batched lookups if supplied."""
+        if client is None:
+            client = await get_temporal_client()
         return client.get_workflow_handle_for(
             self.workflow.run, self.workflow_id(run_id)
         )
