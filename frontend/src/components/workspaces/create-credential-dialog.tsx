@@ -57,7 +57,7 @@ import {
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
-import { CreateAwsSecretReferenceForm } from "@/components/workspaces/create-aws-secret-reference-form"
+import { AwsSecretReferenceForm } from "@/components/workspaces/aws-secret-reference-form"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useAwsAssumeRoleAccess, useWorkspaceSecrets } from "@/lib/hooks"
 import { cn, copyToClipboard } from "@/lib/utils"
@@ -943,13 +943,13 @@ export function CreateCredentialDialog({
           </div>
         )}
         {isAwsReference ? (
-          <CreateAwsSecretReferenceForm
+          <AwsSecretReferenceForm
             initialName={selectedTool?.name}
             initialKeys={[
               ...(selectedTool?.keys ?? []),
               ...(selectedTool?.optional_keys ?? []),
             ]}
-            onCreated={() => onOpenChange(false)}
+            onSaved={() => onOpenChange(false)}
           />
         ) : (
           <Form {...methods}>

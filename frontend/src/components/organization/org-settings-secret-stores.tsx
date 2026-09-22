@@ -1,12 +1,18 @@
 "use client"
 
-import { ChevronRightIcon, PlusIcon, Trash2Icon } from "lucide-react"
+import {
+  ChevronDownIcon,
+  ChevronRightIcon,
+  EllipsisIcon,
+  PencilIcon,
+  PlusIcon,
+  Trash2Icon,
+} from "lucide-react"
 import * as React from "react"
 import type { SecretStoreProvider, SecretStoreRead } from "@/client"
-import { ScopeGuard } from "@/components/auth/scope-guard"
+import { ScopeGuard, useScopeCheck } from "@/components/auth/scope-guard"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Collapsible,
@@ -22,19 +28,21 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { useOrgSecretStores } from "@/hooks/use-secret-stores"
 import { useWorkspaceManager } from "@/lib/hooks"
-import { cn } from "@/lib/utils"
 import {
   type CreateConfigState,
   SECRET_STORE_PROVIDERS,
@@ -43,18 +51,9 @@ import {
 /** Organization settings for external secret stores. */
 export function OrgSettingsSecretStores() {
   const { stores, isLoading, error } = useOrgSecretStores()
-  const [expandedStoreIds, setExpandedStoreIds] = React.useState<Set<string>>(
-    () => new Set()
+  const [detailsStoreId, setDetailsStoreId] = React.useState<string | null>(
+    null
   )
-
-  function setStoreOpen(storeId: string, open: boolean) {
-    setExpandedStoreIds((current) => {
-      const next = new Set(current)
-      if (open) next.add(storeId)
-      else next.delete(storeId)
-      return next
-    })
-  }
 
   if (isLoading) {
     return <CenteredSpinner />
@@ -76,16 +75,14 @@ export function OrgSettingsSecretStores() {
           Values are never stored in Tracecat.
         </p>
         <ScopeGuard scope="org:secret:create">
-          <CreateSecretStoreDialog
-            onCreated={(storeId) => setStoreOpen(storeId, true)}
-          />
+          <CreateSecretStoreDialog onCreated={setDetailsStoreId} />
         </ScopeGuard>
       </div>
       {!stores || stores.length === 0 ? (
         <div className="space-y-1 rounded-lg border p-6 text-sm">
           <p>No external secret stores configured yet.</p>
           <p className="text-muted-foreground">
-            Add a store to make it available to selected workspaces.
+            Add a store to make it available to your workspaces.
           </p>
         </div>
       ) : (
@@ -94,8 +91,10 @@ export function OrgSettingsSecretStores() {
             <SecretStoreCard
               key={store.id}
               store={store}
-              open={expandedStoreIds.has(store.id)}
-              onOpenChange={(open) => setStoreOpen(store.id, open)}
+              detailsOpen={detailsStoreId === store.id}
+              onDetailsOpenChange={(open) =>
+                setDetailsStoreId(open ? store.id : null)
+              }
             />
           ))}
         </div>
@@ -114,6 +113,7 @@ function CreateSecretStoreDialog({
   const [name, setName] = React.useState("")
   const [config, setConfig] = React.useState<CreateConfigState>({})
   const [enabled, setEnabled] = React.useState(true)
+  const [allWorkspaces, setAllWorkspaces] = React.useState(false)
   // A provider select arrives with the second provider.
   const providerKey = Object.keys(
     SECRET_STORE_PROVIDERS
@@ -127,6 +127,7 @@ function CreateSecretStoreDialog({
         name: name.trim(),
         config: provider.toCreateConfig(config),
         enabled,
+        all_workspaces: allWorkspaces,
       })
       onCreated(store.id)
     } catch {
@@ -137,6 +138,7 @@ function CreateSecretStoreDialog({
     setName("")
     setConfig({})
     setEnabled(true)
+    setAllWorkspaces(false)
   }
 
   return (
@@ -177,6 +179,16 @@ function CreateSecretStoreDialog({
               onCheckedChange={setEnabled}
             />
           </div>
+          <div className="flex items-center justify-between gap-4">
+            <div className="space-y-0.5">
+              <Label htmlFor="store-all-workspaces">All workspaces</Label>
+            </div>
+            <Switch
+              id="store-all-workspaces"
+              checked={allWorkspaces}
+              onCheckedChange={setAllWorkspaces}
+            />
+          </div>
           <DialogFooter className="gap-2 sm:gap-0">
             <Button
               type="button"
@@ -201,63 +213,138 @@ function CreateSecretStoreDialog({
   )
 }
 
-function SecretStoreCard({
+function EditSecretStoreDialog({
   store,
-  open,
-  onOpenChange,
+  onClose,
 }: {
   store: SecretStoreRead
-  open: boolean
-  onOpenChange: (open: boolean) => void
+  onClose: () => void
+}) {
+  const { updateStore } = useOrgSecretStores()
+  const [name, setName] = React.useState(store.name)
+  const [config, setConfig] = React.useState<CreateConfigState>({
+    ...store.config,
+  })
+  const [pending, setPending] = React.useState(false)
+  const provider = SECRET_STORE_PROVIDERS[store.provider]
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setPending(true)
+    try {
+      await updateStore({
+        storeId: store.id,
+        params: { name: name.trim(), config: provider.toCreateConfig(config) },
+      })
+      onClose()
+    } catch {
+      // The mutation hook shows the error; keep the draft available to retry.
+    } finally {
+      setPending(false)
+    }
+  }
+
+  return (
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose()
+      }}
+    >
+      <DialogContent>
+        <DialogTitle>Edit secret store</DialogTitle>
+        <DialogDescription>
+          Update the store connection. The external ID stays the same.
+        </DialogDescription>
+        <form onSubmit={handleSubmit} className="space-y-5">
+          <div className="space-y-2">
+            <Label htmlFor="edit-store-name">Name</Label>
+            <Input
+              id="edit-store-name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              required
+            />
+          </div>
+          <provider.CreateFields config={config} onChange={setConfig} />
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              className="shadow-none"
+              onClick={onClose}
+              disabled={pending}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" className="shadow-none" disabled={pending}>
+              {pending ? "Saving…" : "Save changes"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function SecretStoreCard({
+  store,
+  detailsOpen,
+  onDetailsOpenChange,
+}: {
+  store: SecretStoreRead
+  detailsOpen: boolean
+  onDetailsOpenChange: (open: boolean) => void
 }) {
   const { updateStore, deleteStore, authorizeWorkspace, revokeWorkspace } =
     useOrgSecretStores()
-  const { workspaces } = useWorkspaceManager()
-  const [selectedWorkspaceId, setSelectedWorkspaceId] = React.useState("")
-
+  const { workspaces, workspacesLoading, workspacesError } =
+    useWorkspaceManager()
+  const canUpdate = useScopeCheck("org:secret:update")
+  const canDelete = useScopeCheck("org:secret:delete")
+  const [editing, setEditing] = React.useState(false)
+  const [pending, setPending] = React.useState(false)
+  const [workspacePickerOpen, setWorkspacePickerOpen] = React.useState(false)
   const authorizedIds = new Set(store.authorized_workspace_ids ?? [])
-  const authorizedWorkspaces = (workspaces ?? []).filter((ws) =>
-    authorizedIds.has(ws.id)
-  )
-  const unauthorizedWorkspaces = (workspaces ?? []).filter(
-    (ws) => !authorizedIds.has(ws.id)
-  )
+
+  async function changeStore(action: () => Promise<unknown>) {
+    setPending(true)
+    try {
+      await action()
+    } catch {
+      // Mutation hooks show errors; retain the server's current access state.
+    } finally {
+      setPending(false)
+    }
+  }
+
   const referenceCount = store.reference_count ?? 0
   const provider = SECRET_STORE_PROVIDERS[store.provider]
+  let workspaceSummary = "Select workspaces"
+  if (store.all_workspaces) {
+    workspaceSummary = "All workspaces"
+  } else if (authorizedIds.size === 1) {
+    workspaceSummary =
+      workspaces?.find((workspace) => authorizedIds.has(workspace.id))?.name ??
+      "1 workspace"
+  } else if (authorizedIds.size > 1) {
+    workspaceSummary = `${authorizedIds.size} workspaces`
+  }
 
   return (
     <Collapsible
-      open={open}
-      onOpenChange={onOpenChange}
-      className="rounded-lg border p-5"
+      open={detailsOpen}
+      onOpenChange={onDetailsOpenChange}
+      className="rounded-lg border p-4"
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <CollapsibleTrigger className="flex min-w-0 flex-1 items-start gap-3 rounded-sm text-left outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring">
-          <ChevronRightIcon
-            className={cn(
-              "mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform motion-reduce:transition-none",
-              open && "rotate-90"
-            )}
-          />
-          <span className="min-w-0 space-y-2">
-            <span className="flex flex-wrap items-center gap-2">
-              <span className="break-all text-sm font-medium">
-                {store.name}
-              </span>
-              <span className="rounded-md border px-2 py-0.5 text-xs font-medium">
-                {provider.label}
-              </span>
-            </span>
-            <span className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-              <span>{provider.summary(store)}</span>
-              <span>
-                {referenceCount} secret reference
-                {referenceCount === 1 ? "" : "s"}
-              </span>
-            </span>
-          </span>
-        </CollapsibleTrigger>
-        <div className="flex shrink-0 items-center gap-3 pl-7 sm:pl-0">
+        <div className="min-w-0 flex-1 space-y-1">
+          <h3 className="break-all text-sm font-medium">{store.name}</h3>
+          <p className="text-xs text-muted-foreground">
+            {provider.label} · {provider.summary(store)}
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-3">
           <ScopeGuard scope="org:secret:update">
             <div className="flex items-center gap-2">
               <Label
@@ -269,112 +356,181 @@ function SecretStoreCard({
               <Switch
                 id={`store-enabled-${store.id}`}
                 checked={store.enabled}
+                disabled={pending}
                 onCheckedChange={(checked) =>
-                  updateStore({
-                    storeId: store.id,
-                    params: { enabled: checked },
-                  })
+                  changeStore(() =>
+                    updateStore({
+                      storeId: store.id,
+                      params: { enabled: checked },
+                    })
+                  )
                 }
               />
             </div>
           </ScopeGuard>
-          <ScopeGuard scope="org:secret:delete">
-            <Button
-              size="sm"
-              variant="ghost"
-              aria-label={`Delete ${store.name}`}
-              disabled={referenceCount > 0}
-              title={
-                referenceCount > 0
-                  ? "Remove all secret references before deleting this store"
-                  : "Delete store"
-              }
-              onClick={() => deleteStore(store.id)}
-            >
-              <Trash2Icon className="size-4" />
-            </Button>
-          </ScopeGuard>
+          {(canUpdate || canDelete) && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="size-6 text-muted-foreground"
+                  aria-label={`Actions for ${store.name}`}
+                >
+                  <EllipsisIcon className="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56 shadow-none">
+                {canUpdate && (
+                  <DropdownMenuItem
+                    disabled={pending}
+                    onSelect={() => setEditing(true)}
+                    className="gap-2"
+                  >
+                    <PencilIcon className="size-3.5" />
+                    Edit store
+                  </DropdownMenuItem>
+                )}
+                <ScopeGuard scope="org:secret:delete">
+                  <DropdownMenuItem
+                    disabled={pending || referenceCount > 0}
+                    onSelect={() => changeStore(() => deleteStore(store.id))}
+                    className="gap-2 text-destructive focus:text-destructive"
+                  >
+                    <Trash2Icon className="size-3.5" />
+                    Delete store
+                  </DropdownMenuItem>
+                  {referenceCount > 0 && (
+                    <p className="px-2 py-1 text-xs text-muted-foreground">
+                      Remove the {referenceCount} secret reference
+                      {referenceCount === 1 ? "" : "s"} first.
+                    </p>
+                  )}
+                </ScopeGuard>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
       </div>
 
-      <CollapsibleContent className="motion-reduce:animate-none">
-        <div className="space-y-5 pt-6">
-          <provider.Details store={store} />
-          <div className="space-y-3 border-t pt-5">
-            <div className="space-y-1">
-              <p className="text-xs font-medium">Authorized workspaces</p>
-              <p className="text-xs text-muted-foreground">
-                Credential authors in these workspaces can reference secrets
-                allowed by the store.
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {authorizedWorkspaces.length === 0 && (
-                <p className="text-xs text-muted-foreground">
-                  No workspaces can reference this store yet.
-                </p>
-              )}
-              {authorizedWorkspaces.map((ws) => (
-                <Badge key={ws.id} variant="secondary" className="gap-1">
-                  {ws.name}
-                  <ScopeGuard scope="org:secret:update">
-                    <button
-                      type="button"
-                      aria-label={`Revoke ${ws.name}`}
-                      className="ml-1 text-muted-foreground hover:text-foreground"
-                      onClick={() =>
-                        revokeWorkspace({
-                          storeId: store.id,
-                          workspaceId: ws.id,
-                        })
-                      }
-                    >
-                      ×
-                    </button>
-                  </ScopeGuard>
-                </Badge>
-              ))}
-            </div>
-            <ScopeGuard scope="org:secret:update">
-              <div className="flex items-center gap-2">
-                <Select
-                  value={selectedWorkspaceId}
-                  onValueChange={setSelectedWorkspaceId}
-                >
-                  <SelectTrigger
-                    className="w-64 min-w-0 text-sm"
-                    aria-label="Select a workspace"
-                  >
-                    <SelectValue placeholder="Select a workspace" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {unauthorizedWorkspaces.map((ws) => (
-                      <SelectItem key={ws.id} value={ws.id}>
-                        {ws.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="shrink-0 shadow-none"
-                  disabled={!selectedWorkspaceId}
-                  onClick={async () => {
-                    await authorizeWorkspace({
+      <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+        <CollapsibleTrigger asChild>
+          <Button
+            variant="link"
+            className="h-auto gap-1.5 p-0 text-xs font-normal text-muted-foreground hover:text-foreground [&[data-state=open]>svg]:rotate-90"
+          >
+            <ChevronRightIcon className="size-3.5 shrink-0 transition-transform motion-reduce:transition-none" />
+            Connection details
+          </Button>
+        </CollapsibleTrigger>
+        <div className="flex min-w-0 max-w-full items-center gap-3">
+          <p className="text-xs text-muted-foreground">Workspaces</p>
+          <DropdownMenu
+            open={workspacePickerOpen}
+            onOpenChange={setWorkspacePickerOpen}
+          >
+            <DropdownMenuTrigger asChild>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 max-w-full gap-2 px-2 text-xs font-normal shadow-none"
+                aria-label={`Workspaces: ${workspaceSummary}`}
+              >
+                <span className="truncate">{workspaceSummary}</span>
+                <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              className="w-64 max-w-[calc(100vw-2rem)] shadow-none"
+            >
+              <DropdownMenuRadioGroup
+                value={store.all_workspaces ? "all" : "selected"}
+                onValueChange={(value) =>
+                  changeStore(() =>
+                    updateStore({
                       storeId: store.id,
-                      workspaceId: selectedWorkspaceId,
+                      params: { all_workspaces: value === "all" },
                     })
-                    setSelectedWorkspaceId("")
-                  }}
+                  )
+                }
+              >
+                <DropdownMenuRadioItem
+                  value="all"
+                  disabled={!canUpdate || pending}
+                  onSelect={(event) => event.preventDefault()}
+                  className="py-2"
                 >
-                  Authorize
-                </Button>
-              </div>
-            </ScopeGuard>
-          </div>
+                  All workspaces
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem
+                  value="selected"
+                  disabled={!canUpdate || pending}
+                  onSelect={(event) => event.preventDefault()}
+                  className="py-2"
+                >
+                  Selected workspaces
+                </DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+              {!store.all_workspaces && (
+                <>
+                  <DropdownMenuSeparator />
+                  {workspacesLoading && (
+                    <p className="px-2 py-2 text-xs text-muted-foreground">
+                      Loading workspaces…
+                    </p>
+                  )}
+                  {workspacesError && (
+                    <p className="px-2 py-2 text-xs text-destructive">
+                      Could not load workspaces. Refresh to try again.
+                    </p>
+                  )}
+                  <div className="max-h-64 overflow-y-auto">
+                    {workspaces?.map((workspace) => (
+                      <DropdownMenuCheckboxItem
+                        key={workspace.id}
+                        checked={authorizedIds.has(workspace.id)}
+                        disabled={!canUpdate || pending}
+                        onSelect={(event) => event.preventDefault()}
+                        onCheckedChange={(checked) =>
+                          changeStore(() => {
+                            const mutate = checked
+                              ? authorizeWorkspace
+                              : revokeWorkspace
+                            return mutate({
+                              storeId: store.id,
+                              workspaceId: workspace.id,
+                            })
+                          })
+                        }
+                        className="break-words py-2"
+                      >
+                        {workspace.name}
+                      </DropdownMenuCheckboxItem>
+                    ))}
+                  </div>
+                </>
+              )}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem className="justify-center py-2">
+                Done
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
+      </div>
+      <CollapsibleContent className="mt-4 space-y-4 border-t pt-4 motion-reduce:animate-none">
+        <p className="text-xs text-muted-foreground">
+          {referenceCount} secret reference{referenceCount === 1 ? "" : "s"}
+        </p>
+        <provider.Details store={store} />
       </CollapsibleContent>
+      {editing && (
+        <EditSecretStoreDialog
+          store={store}
+          onClose={() => setEditing(false)}
+        />
+      )}
     </Collapsible>
   )
 }

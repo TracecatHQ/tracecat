@@ -5,7 +5,8 @@ from __future__ import annotations
 import uuid
 
 from asyncpg import ForeignKeyViolationError
-from sqlalchemy import select
+from sqlalchemy import Select, or_, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 
 from tracecat.audit.logger import audit_log
@@ -13,6 +14,7 @@ from tracecat.authz.controls import require_scope
 from tracecat.db.models import (
     OrganizationSecretStore,
     Secret,
+    Workspace,
     WorkspaceSecretStoreAuthorization,
 )
 from tracecat.exceptions import TracecatAuthorizationError
@@ -40,26 +42,33 @@ class SecretReferencesService(SecretsService):
 
     service_name = "external_secrets"
 
+    def _authorized_store_query(self) -> Select[tuple[OrganizationSecretStore]]:
+        """Apply organization ownership and either form of workspace access."""
+        workspace_id = self._require_workspace_id()
+        workspace_in_org = select(Workspace.id).where(
+            Workspace.id == workspace_id,
+            Workspace.organization_id == self.organization_id,
+        )
+        authorization = select(WorkspaceSecretStoreAuthorization.id).where(
+            WorkspaceSecretStoreAuthorization.workspace_id == workspace_id,
+            WorkspaceSecretStoreAuthorization.store_id == OrganizationSecretStore.id,
+            WorkspaceSecretStoreAuthorization.organization_id == self.organization_id,
+        )
+        return select(OrganizationSecretStore).where(
+            OrganizationSecretStore.organization_id == self.organization_id,
+            workspace_in_org.exists(),
+            or_(
+                OrganizationSecretStore.all_workspaces.is_(True), authorization.exists()
+            ),
+        )
+
     async def list_authorized_stores(
         self, page: PageParams
     ) -> Page[OrganizationSecretStore]:
         """List external stores the current workspace may reference."""
-        workspace_id = self._require_workspace_id()
-        stmt = (
-            select(OrganizationSecretStore)
-            .join(
-                WorkspaceSecretStoreAuthorization,
-                WorkspaceSecretStoreAuthorization.store_id
-                == OrganizationSecretStore.id,
-            )
-            .where(
-                WorkspaceSecretStoreAuthorization.workspace_id == workspace_id,
-                OrganizationSecretStore.organization_id == self.organization_id,
-            )
-        )
         return await paginate(
             self.session,
-            stmt,
+            self._authorized_store_query(),
             page=page,
             order_by=(
                 OrganizationSecretStore.created_at.asc(),
@@ -70,24 +79,31 @@ class SecretReferencesService(SecretsService):
     async def _get_authorized_store(
         self, store_id: uuid.UUID
     ) -> OrganizationSecretStore:
-        workspace_id = self._require_workspace_id()
+        # Serialize reference creation with access-scope changes. The grant and
+        # reference commit together, preserving the existing authorization FK.
         stmt = (
-            select(OrganizationSecretStore)
-            .join(
-                WorkspaceSecretStoreAuthorization,
-                WorkspaceSecretStoreAuthorization.store_id
-                == OrganizationSecretStore.id,
-            )
-            .where(
-                WorkspaceSecretStoreAuthorization.workspace_id == workspace_id,
-                OrganizationSecretStore.id == store_id,
-            )
+            self._authorized_store_query()
+            .where(OrganizationSecretStore.id == store_id)
+            .with_for_update(read=True)
+            .execution_options(populate_existing=True)
         )
         result = await self.session.execute(stmt)
         store = result.scalar_one_or_none()
         if store is None:
             raise TracecatAuthorizationError(
                 "This workspace is not authorized to use the selected secret store."
+            )
+        if store.all_workspaces:
+            # Keep bindings created under organization-wide access when the
+            # store returns to selected workspaces; revocation still checks refs.
+            await self.session.execute(
+                insert(WorkspaceSecretStoreAuthorization)
+                .values(
+                    organization_id=self.organization_id,
+                    workspace_id=self._require_workspace_id(),
+                    store_id=store.id,
+                )
+                .on_conflict_do_nothing(index_elements=["workspace_id", "store_id"])
             )
         return store
 

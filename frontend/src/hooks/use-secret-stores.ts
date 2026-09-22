@@ -17,6 +17,7 @@ import {
   secretsCheckAwsSecretReference,
   secretsCreateAwsSecretReference,
   secretsListAuthorizedSecretStores,
+  secretsSearchSecrets,
   secretsUpdateAwsSecretReference,
   type WorkspaceSecretStoreRead,
 } from "@/client"
@@ -52,7 +53,14 @@ export function useOrgSecretStores() {
   })
 
   function invalidate() {
-    queryClient.invalidateQueries({ queryKey: ORG_SECRET_STORES_KEY })
+    return queryClient.invalidateQueries({ queryKey: ORG_SECRET_STORES_KEY })
+  }
+
+  function invalidateStoreAccess() {
+    return Promise.all([
+      invalidate(),
+      queryClient.invalidateQueries({ queryKey: ["workspace-secret-stores"] }),
+    ])
   }
 
   const { mutateAsync: createStore, isPending: createStorePending } =
@@ -63,7 +71,7 @@ export function useOrgSecretStores() {
         }),
       onSuccess: () => {
         toast({ title: "Secret store created" })
-        invalidate()
+        return invalidateStoreAccess()
       },
       onError: (err: ApiError) => {
         toast({
@@ -87,7 +95,7 @@ export function useOrgSecretStores() {
       }),
     onSuccess: () => {
       toast({ title: "Secret store updated" })
-      invalidate()
+      return invalidateStoreAccess()
     },
     onError: (err: ApiError) => {
       toast({
@@ -102,7 +110,7 @@ export function useOrgSecretStores() {
       await organizationSecretStoresDeleteSecretStore({ storeId }),
     onSuccess: () => {
       toast({ title: "Secret store deleted" })
-      invalidate()
+      return invalidateStoreAccess()
     },
     onError: (err: ApiError) => {
       toast({
@@ -126,10 +134,12 @@ export function useOrgSecretStores() {
       }),
     onSuccess: (_data, { workspaceId }) => {
       toast({ title: "Workspace authorized" })
-      invalidate()
-      return queryClient.invalidateQueries({
-        queryKey: ["workspace-secret-stores", workspaceId],
-      })
+      return Promise.all([
+        invalidate(),
+        queryClient.invalidateQueries({
+          queryKey: ["workspace-secret-stores", workspaceId],
+        }),
+      ])
     },
     onError: (err: ApiError) => {
       toast({
@@ -153,10 +163,12 @@ export function useOrgSecretStores() {
       }),
     onSuccess: (_data, { workspaceId }) => {
       toast({ title: "Workspace authorization revoked" })
-      invalidate()
-      return queryClient.invalidateQueries({
-        queryKey: ["workspace-secret-stores", workspaceId],
-      })
+      return Promise.all([
+        invalidate(),
+        queryClient.invalidateQueries({
+          queryKey: ["workspace-secret-stores", workspaceId],
+        }),
+      ])
     },
     onError: (err: ApiError) => {
       toast({
@@ -212,6 +224,31 @@ export function useAuthorizedSecretStores(
   return { stores, isLoading, error }
 }
 
+/** Load reference metadata for an editor without fetching values from AWS. */
+export function useAwsSecretReference(
+  workspaceId: string,
+  secretId: string,
+  environment: string
+) {
+  return useQuery({
+    queryKey: ["workspace-secrets", workspaceId, secretId, environment],
+    queryFn: async () => {
+      const secrets = await secretsSearchSecrets({
+        workspaceId,
+        id: [secretId],
+        environment,
+      })
+      const secret = secrets.find((item) => item.id === secretId)
+      if (!secret || secret.source !== "aws_secrets_manager") {
+        throw new Error("AWS secret reference not found")
+      }
+      return secret
+    },
+    gcTime: 0,
+    refetchOnWindowFocus: false,
+  })
+}
+
 /**
  * Create, update, and check AWS-backed workspace secret references.
  * These calls send references and key mappings only, never values.
@@ -223,6 +260,7 @@ export function useAwsSecretReferences(workspaceId: string) {
     queryClient.invalidateQueries({
       queryKey: ["workspace-secrets", workspaceId],
     })
+    queryClient.invalidateQueries({ queryKey: ORG_SECRET_STORES_KEY })
   }
 
   const { mutateAsync: createReference } = useMutation({

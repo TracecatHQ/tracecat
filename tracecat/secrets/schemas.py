@@ -465,6 +465,9 @@ class SecretStoreCreate(BaseModel):
     provider: SecretStoreProvider = SecretStoreProvider.AWS_SECRETS_MANAGER
     config: SecretStoreCreateConfig
     enabled: bool = True
+    all_workspaces: bool = Field(
+        default=False, description="Allow all current and future workspaces."
+    )
 
 
 class SecretStoreUpdate(BaseModel):
@@ -474,6 +477,9 @@ class SecretStoreUpdate(BaseModel):
     description: str | None = Field(default=None, max_length=1000)
     config: SecretStoreUpdateConfig | None = None
     enabled: bool | None = None
+    all_workspaces: bool = Field(
+        default=False, description="Allow all current and future workspaces."
+    )
 
 
 class SecretStoreRead(BaseModel):
@@ -486,6 +492,7 @@ class SecretStoreRead(BaseModel):
     provider: SecretStoreProvider
     config: SecretStoreConfig
     enabled: bool
+    all_workspaces: bool
     tracecat_aws_account_id: str | None = None
     tracecat_aws_principal_arn: str | None = None
     authorized_workspace_ids: list[WorkspaceID] = Field(default_factory=list)
@@ -510,6 +517,7 @@ class SecretStoreRead(BaseModel):
             provider=SecretStoreProvider(obj.provider),
             config=SecretStoreConfig.model_validate(obj.config),
             enabled=obj.enabled,
+            all_workspaces=obj.all_workspaces,
             tracecat_aws_account_id=tracecat_aws_account_id,
             tracecat_aws_principal_arn=tracecat_aws_principal_arn,
             authorized_workspace_ids=authorized_workspace_ids,

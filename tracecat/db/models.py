@@ -792,6 +792,9 @@ class OrganizationSecretStore(OrganizationModel):
     enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default=text("true")
     )
+    all_workspaces: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
 
     secrets: Mapped[list[Secret]] = relationship(
         "Secret", back_populates="store", passive_deletes="all"

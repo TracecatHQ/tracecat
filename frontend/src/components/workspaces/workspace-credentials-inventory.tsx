@@ -51,6 +51,7 @@ import {
   DeleteSecretAlertDialog,
   DeleteSecretAlertDialogTrigger,
 } from "@/components/workspaces/delete-workspace-secret"
+import { EditAwsSecretReferenceDialog } from "@/components/workspaces/edit-aws-secret-reference-dialog"
 import {
   EditCredentialsDialog,
   EditCredentialsDialogTrigger,
@@ -93,6 +94,8 @@ export function WorkspaceCredentialsInventory() {
     {}
   )
   const [selectedSecret, setSelectedSecret] =
+    useState<WorkspaceSecretListItem | null>(null)
+  const [editingAwsSecret, setEditingAwsSecret] =
     useState<WorkspaceSecretListItem | null>(null)
   const [activeTemplate, setActiveTemplate] = useState<SecretDefinition | null>(
     null
@@ -413,10 +416,28 @@ export function WorkspaceCredentialsInventory() {
                                   </ItemContent>
                                   <ItemActions className="ml-auto flex shrink-0 items-center gap-1.5 pl-3">
                                     {secret.source === "aws_secrets_manager" ? (
-                                      <AwsSecretReferenceCheckButton
-                                        workspaceId={workspaceId}
-                                        secretId={secret.id}
-                                      />
+                                      <>
+                                        <AwsSecretReferenceCheckButton
+                                          key={
+                                            editingAwsSecret?.id === secret.id
+                                              ? "editing"
+                                              : secret.id
+                                          }
+                                          workspaceId={workspaceId}
+                                          secretId={secret.id}
+                                        />
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          className="h-6 border-input bg-background px-2.5 text-[11px] text-foreground hover:bg-muted"
+                                          onClick={(event) => {
+                                            event.stopPropagation()
+                                            setEditingAwsSecret(secret)
+                                          }}
+                                        >
+                                          Edit
+                                        </Button>
+                                      </>
                                     ) : (
                                       <EditCredentialsDialogTrigger asChild>
                                         <Button
@@ -469,6 +490,13 @@ export function WorkspaceCredentialsInventory() {
         </EditCredentialsDialog>
       </DeleteSecretAlertDialog>
 
+      {editingAwsSecret && (
+        <EditAwsSecretReferenceDialog
+          key={editingAwsSecret.id}
+          secret={editingAwsSecret}
+          onClose={() => setEditingAwsSecret(null)}
+        />
+      )}
       <CreateCredentialDialog
         open={Boolean(activeTemplate)}
         onOpenChange={(nextOpen) => {

@@ -222,7 +222,7 @@ export const SECRET_STORE_PROVIDERS: Record<
 > = {
   aws_secrets_manager: {
     label: "AWS Secrets Manager",
-    summary: (store) => `Region ${store.config.region}`,
+    summary: (store) => store.config.region,
     createTitle: "Add AWS Secrets Manager store",
     createDescription:
       "Enter the AWS role Tracecat will use to read secrets. Saving generates the external ID and trust policy.",

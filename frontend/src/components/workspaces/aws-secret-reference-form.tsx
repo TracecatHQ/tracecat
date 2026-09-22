@@ -4,7 +4,11 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { CloudIcon, PlusCircle, Trash2Icon } from "lucide-react"
 import { useFieldArray, useForm } from "react-hook-form"
 import { z } from "zod"
-import type { AwsSecretKeyMapping, AwsSecretReferenceCreate } from "@/client"
+import type {
+  AwsSecretKeyMapping,
+  AwsSecretReferenceCreate,
+  SecretRead,
+} from "@/client"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { DialogFooter } from "@/components/ui/dialog"
@@ -122,47 +126,58 @@ export function buildKeyMapping(values: AwsReferenceForm): AwsSecretKeyMapping {
   }
 }
 
-interface CreateAwsSecretReferenceFormProps {
+interface AwsSecretReferenceFormProps {
+  /** Existing reference metadata when editing. */
+  secret?: SecretRead
   /** Pre-filled secret name (e.g. from an integration template). */
   initialName?: string
   /** Declared keys to seed the JSON mapping with. */
   initialKeys?: string[]
-  onCreated: () => void
+  onSaved: () => void
 }
 
 /**
- * Form for creating a workspace custom secret whose values live in AWS
+ * Form for creating or editing a workspace custom secret whose values live in AWS
  * Secrets Manager. Collects a store, a secret name or ARN, and a key mapping.
  * There is intentionally no value editor, value preview, or rotation control.
  */
-export function CreateAwsSecretReferenceForm({
+export function AwsSecretReferenceForm({
+  secret,
   initialName = "",
   initialKeys = [],
-  onCreated,
-}: CreateAwsSecretReferenceFormProps) {
+  onSaved,
+}: AwsSecretReferenceFormProps) {
   const workspaceId = useWorkspaceId()
-  const { stores, isLoading: storesLoading } =
-    useAuthorizedSecretStores(workspaceId)
-  const { createReference } = useAwsSecretReferences(workspaceId)
+  const {
+    stores,
+    isLoading: storesLoading,
+    error: storesError,
+  } = useAuthorizedSecretStores(workspaceId)
+  const { createReference, updateReference } =
+    useAwsSecretReferences(workspaceId)
+  const mapping = secret?.remote_key_mapping
 
   const methods = useForm<AwsReferenceForm>({
     resolver: zodResolver(awsReferenceSchema),
     defaultValues: {
-      name: initialName,
-      description: "",
-      environment: "",
-      store_id: "",
-      remote_reference: "",
-      mode: initialKeys.length > 1 ? "json" : "whole_string",
-      whole_string_key: initialKeys.length === 1 ? initialKeys[0] : "",
-      fields: initialKeys.map((key) => ({ key, field: "" })),
+      name: secret?.name ?? initialName,
+      description: secret?.description ?? "",
+      environment: secret?.environment ?? "",
+      store_id: secret?.store_id ?? "",
+      remote_reference: secret?.remote_reference ?? "",
+      mode: mapping?.mode ?? (initialKeys.length > 1 ? "json" : "whole_string"),
+      whole_string_key:
+        mapping?.keys?.[0] ?? (initialKeys.length === 1 ? initialKeys[0] : ""),
+      fields: mapping?.fields ?? initialKeys.map((key) => ({ key, field: "" })),
     },
   })
   const { control, register } = methods
   const mode = methods.watch("mode")
   const { fields, append, remove } = useFieldArray({ control, name: "fields" })
 
-  const enabledStores = (stores ?? []).filter((store) => store.enabled)
+  const availableStores = (stores ?? []).filter(
+    (store) => store.enabled || store.id === secret?.store_id
+  )
 
   async function onSubmit(values: AwsReferenceForm) {
     const params: AwsSecretReferenceCreate = {
@@ -174,8 +189,12 @@ export function CreateAwsSecretReferenceForm({
       key_mapping: buildKeyMapping(values),
     }
     try {
-      await createReference(params)
-      onCreated()
+      if (secret) {
+        await updateReference({ secretId: secret.id, params })
+      } else {
+        await createReference(params)
+      }
+      onSaved()
     } catch {
       // The mutation hook already surfaced a toast.
     }
@@ -189,7 +208,15 @@ export function CreateAwsSecretReferenceForm({
         data-testid="aws-secret-reference-form"
       >
         <div className="space-y-4 overflow-y-auto flex-1 py-2 px-1">
-          {!storesLoading && enabledStores.length === 0 && (
+          {storesError && (
+            <Alert variant="destructive">
+              <AlertTitle>Could not load secret stores</AlertTitle>
+              <AlertDescription>
+                Close and reopen this form to try again.
+              </AlertDescription>
+            </Alert>
+          )}
+          {!storesLoading && !storesError && availableStores.length === 0 && (
             <Alert>
               <CloudIcon className="size-4" />
               <AlertTitle>No authorized AWS stores</AlertTitle>
@@ -271,11 +298,11 @@ export function CreateAwsSecretReferenceForm({
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent>
-                    {enabledStores.map((store) => (
+                    {availableStores.map((store) => (
                       <SelectItem key={store.id} value={store.id}>
                         {store.name}{" "}
                         <span className="text-muted-foreground">
-                          ({store.region})
+                          ({store.region}){!store.enabled && " · Disabled"}
                         </span>
                       </SelectItem>
                     ))}
@@ -429,10 +456,15 @@ export function CreateAwsSecretReferenceForm({
           <Button
             className="ml-auto"
             type="submit"
-            disabled={enabledStores.length === 0}
+            disabled={
+              storesLoading ||
+              Boolean(storesError) ||
+              availableStores.length === 0 ||
+              methods.formState.isSubmitting
+            }
           >
             <CloudIcon className="mr-2 size-4" />
-            Save reference
+            {secret ? "Save changes" : "Save reference"}
           </Button>
         </DialogFooter>
       </form>

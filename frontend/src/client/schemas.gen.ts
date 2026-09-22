@@ -25526,6 +25526,12 @@ export const $SecretStoreCreate = {
       title: "Enabled",
       default: true,
     },
+    all_workspaces: {
+      type: "boolean",
+      title: "All Workspaces",
+      description: "Allow all current and future workspaces.",
+      default: false,
+    },
   },
   type: "object",
   required: ["name", "config"],
@@ -25576,6 +25582,10 @@ export const $SecretStoreRead = {
     enabled: {
       type: "boolean",
       title: "Enabled",
+    },
+    all_workspaces: {
+      type: "boolean",
+      title: "All Workspaces",
     },
     tracecat_aws_account_id: {
       anyOf: [
@@ -25631,6 +25641,7 @@ export const $SecretStoreRead = {
     "provider",
     "config",
     "enabled",
+    "all_workspaces",
     "created_at",
     "updated_at",
   ],
@@ -25686,6 +25697,12 @@ export const $SecretStoreUpdate = {
         },
       ],
       title: "Enabled",
+    },
+    all_workspaces: {
+      type: "boolean",
+      title: "All Workspaces",
+      description: "Allow all current and future workspaces.",
+      default: false,
     },
   },
   type: "object",

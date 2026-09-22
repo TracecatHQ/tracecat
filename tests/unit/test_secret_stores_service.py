@@ -23,7 +23,7 @@ from tracecat.db.models import (
     WorkspaceSecretStoreAuthorization,
 )
 from tracecat.db.rls import set_rls_context
-from tracecat.db.tenant_rls import enable_workspace_table_rls
+from tracecat.db.tenant_rls import enable_org_table_rls, enable_workspace_table_rls
 from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatConflictError,
@@ -462,6 +462,10 @@ async def test_reference_guards_with_enforced_rls_and_org_only_context(
     for statement in enable_workspace_table_rls("secret").split(";"):
         if statement.strip():
             await session.execute(text(statement))
+    # PostgreSQL requires UPDATE privilege for the FOR SHARE scope lock.
+    await session.execute(
+        text(f'GRANT UPDATE ON organization_secret_store TO "{reader}"')
+    )
     await session.execute(text(f'SET LOCAL ROLE "{reader}"'))
     org_role = stores.role.model_copy(update={"workspace_id": None})
     org_stores = SecretStoresService(session, role=org_role)
@@ -508,3 +512,206 @@ async def test_store_config_round_trips_and_rejects_unknown_provider(
     assert config.role_arn == ROLE_ARN
     assert config.region == REGION
     assert config.external_id.startswith("tracecat-")
+
+
+@pytest.mark.anyio
+async def test_org_wide_access_includes_future_workspaces_and_preserves_bindings(
+    stores: SecretStoresService,
+    secrets: SecretReferencesService,
+    svc_workspace: Workspace,
+    session: AsyncSession,
+) -> None:
+    store = await stores.create_store(
+        SecretStoreCreate(
+            name="org-wide",
+            config=AwsSecretsManagerStoreCreate(role_arn=ROLE_ARN, region=REGION),
+            all_workspaces=True,
+        )
+    )
+    assert [
+        s.id for s in (await secrets.list_authorized_stores(PageParams())).items
+    ] == [store.id]
+    # New workspaces inherit access without a grant backfill or creation hook.
+    future_workspace = Workspace(
+        name="future-workspace", organization_id=svc_workspace.organization_id
+    )
+    session.add(future_workspace)
+    await session.commit()
+    # Exercise lazy authorization inserts under the production tenant policies.
+    reader = f"org_store_user_{uuid.uuid4().hex}"
+    await session.execute(text(f'CREATE ROLE "{reader}"'))
+    await session.execute(text(f'GRANT USAGE ON SCHEMA public TO "{reader}"'))
+    await session.execute(
+        text(
+            f'GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO "{reader}"'
+        )
+    )
+    await session.execute(
+        text(f'GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO "{reader}"')
+    )
+    for table in ("organization_secret_store", "workspace_secret_store_authorization"):
+        for statement in enable_org_table_rls(table).split(";"):
+            if statement.strip():
+                await session.execute(text(statement))
+    for statement in enable_workspace_table_rls("secret").split(";"):
+        if statement.strip():
+            await session.execute(text(statement))
+    await session.execute(text(f'SET LOCAL ROLE "{reader}"'))
+    await set_rls_context(
+        session, org_id=stores.organization_id, workspace_id=svc_workspace.id
+    )
+    future_secrets = SecretReferencesService(
+        session,
+        role=secrets.role.model_copy(update={"workspace_id": future_workspace.id}),
+    )
+    assert [
+        s.id for s in (await future_secrets.list_authorized_stores(PageParams())).items
+    ] == [store.id]
+    for name in ("first-ref", "second-ref"):
+        await secrets.create_aws_secret_reference(reference_params(store.id, name))
+    grants = (
+        await session.scalars(
+            select(WorkspaceSecretStoreAuthorization).where(
+                WorkspaceSecretStoreAuthorization.store_id == store.id
+            )
+        )
+    ).all()
+    assert [grant.workspace_id for grant in grants] == [svc_workspace.id]
+    with pytest.raises(TracecatConflictError, match="Turn off all-workspace"):
+        await stores.revoke_workspace(store, svc_workspace.id)
+
+    # Disabling the store remains independent of workspace access.
+    await stores.update_store(store, SecretStoreUpdate(enabled=False))
+    assert store.all_workspaces is True
+    reference = await secrets.get_secret_by_name("first-ref")
+    assert reference is not None
+    await session.refresh(reference, attribute_names=["store"])
+    assert build_external_secret_reference(reference).store_enabled is False
+
+    # Returning to selected access keeps existing references, but not unused access.
+    await stores.update_store(store, SecretStoreUpdate(all_workspaces=False))
+    assert [
+        s.id for s in (await secrets.list_authorized_stores(PageParams())).items
+    ] == [store.id]
+    assert (await future_secrets.list_authorized_stores(PageParams())).items == []
+    with pytest.raises(TracecatAuthorizationError):
+        await future_secrets.create_aws_secret_reference(reference_params(store.id))
+    with pytest.raises(TracecatConflictError, match="still has 2 secret"):
+        await stores.revoke_workspace(store, svc_workspace.id)
+
+
+@pytest.mark.anyio
+async def test_org_wide_access_never_crosses_organization_boundaries(
+    stores: SecretStoresService,
+    secrets: SecretReferencesService,
+    session: AsyncSession,
+) -> None:
+    store = await stores.create_store(
+        SecretStoreCreate(
+            name="org-wide",
+            config=AwsSecretsManagerStoreCreate(role_arn=ROLE_ARN, region=REGION),
+            all_workspaces=True,
+        )
+    )
+    other_org = Organization(name="other-org", slug=f"other-{uuid.uuid4().hex}")
+    session.add(other_org)
+    await session.flush()
+    other_workspace = Workspace(name="other-workspace", organization_id=other_org.id)
+    session.add(other_workspace)
+    await session.commit()
+    for organization_id in (other_org.id, stores.organization_id):
+        # Also reject a mismatched org/workspace pair without relying on RLS.
+        foreign_secrets = SecretReferencesService(
+            session,
+            role=secrets.role.model_copy(
+                update={
+                    "organization_id": organization_id,
+                    "workspace_id": other_workspace.id,
+                }
+            ),
+        )
+        assert (await foreign_secrets.list_authorized_stores(PageParams())).items == []
+        with pytest.raises(TracecatAuthorizationError):
+            await foreign_secrets.create_aws_secret_reference(
+                reference_params(store.id)
+            )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("reference_first", [True, False])
+async def test_org_wide_scope_change_serializes_with_reference_creation(
+    svc_admin_role: Role,
+    reference_first: bool,
+) -> None:
+    from sqlalchemy.exc import DBAPIError
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from tests.database import TEST_DB_CONFIG
+
+    # Independent committed transactions exercise the production READ COMMITTED
+    # race, rather than the service fixture's enclosing SERIALIZABLE transaction.
+    engine = create_async_engine(TEST_DB_CONFIG.test_url)
+    try:
+        async with AsyncSession(engine, expire_on_commit=False) as first:
+            org = Organization(name="race-org", slug=f"race-{uuid.uuid4().hex}")
+            first.add(org)
+            await first.flush()
+            workspace = Workspace(name="race-workspace", organization_id=org.id)
+            first.add(workspace)
+            await first.commit()
+            role = svc_admin_role.model_copy(
+                update={"organization_id": org.id, "workspace_id": workspace.id}
+            )
+            stores = SecretStoresService(first, role=role)
+            store = await stores.create_store(
+                SecretStoreCreate(
+                    name="race-store",
+                    config=AwsSecretsManagerStoreCreate(
+                        role_arn=ROLE_ARN, region=REGION
+                    ),
+                    all_workspaces=True,
+                )
+            )
+            references = SecretReferencesService(first, role=role)
+            async with AsyncSession(engine, expire_on_commit=False) as second:
+                other_stores = SecretStoresService(second, role=role)
+                other_references = SecretReferencesService(second, role=role)
+                other_store = await other_stores.get_store(store.id)
+                if reference_first:
+                    await references._get_authorized_store(store.id)
+                else:
+                    store.all_workspaces = False
+                    await first.flush()
+                await second.execute(text("SET LOCAL lock_timeout = '100ms'"))
+                with pytest.raises(DBAPIError, match="lock timeout"):
+                    if reference_first:
+                        await other_stores.update_store(
+                            other_store, SecretStoreUpdate(all_workspaces=False)
+                        )
+                    else:
+                        await other_references.create_aws_secret_reference(
+                            reference_params(store.id)
+                        )
+                await second.rollback()
+                if reference_first:
+                    await references.create_aws_secret_reference(
+                        reference_params(store.id)
+                    )
+                    other_store = await other_stores.get_store(store.id)
+                    await other_stores.update_store(
+                        other_store, SecretStoreUpdate(all_workspaces=False)
+                    )
+                    assert [
+                        s.id
+                        for s in (
+                            await other_references.list_authorized_stores(PageParams())
+                        ).items
+                    ] == [store.id]
+                else:
+                    await first.commit()
+                    with pytest.raises(TracecatAuthorizationError):
+                        await other_references.create_aws_secret_reference(
+                            reference_params(store.id)
+                        )
+    finally:
+        await engine.dispose()

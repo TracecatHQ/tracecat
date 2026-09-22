@@ -13,6 +13,7 @@ describe("AWS secret store permissions", () => {
       name: "test-store",
       provider: "aws_secrets_manager",
       enabled: true,
+      all_workspaces: false,
       created_at: "2026-01-01T00:00:00Z",
       updated_at: "2026-01-01T00:00:00Z",
       config: {

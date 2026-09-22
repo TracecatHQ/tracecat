@@ -111,6 +111,7 @@ class SecretStoresService(BaseOrgService):
             provider=params.provider,
             config=config.model_dump(mode="json"),
             enabled=params.enabled,
+            all_workspaces=params.all_workspaces,
         )
         self.session.add(store)
         await self.session.commit()
@@ -193,6 +194,13 @@ class SecretStoresService(BaseOrgService):
         Rejected while that workspace still holds secrets referencing the store
         so runtime never silently loses an authorized binding.
         """
+        await self.session.refresh(
+            store, attribute_names=["all_workspaces"], with_for_update={"read": True}
+        )
+        if store.all_workspaces:
+            raise TracecatConflictError(
+                "Turn off all-workspace access before revoking individual workspaces."
+            )
         counts = await self.count_references([store.id], workspace_id=workspace_id)
         if reference_count := counts.get(store.id, 0):
             raise TracecatConflictError(

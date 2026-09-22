@@ -18,6 +18,7 @@ jest.mock("@/client", () => ({
   organizationSecretStoresRevokeSecretStoreWorkspace: jest
     .fn()
     .mockResolvedValue(undefined),
+  organizationSecretStoresUpdateSecretStore: jest.fn().mockResolvedValue({}),
   secretsListAuthorizedSecretStores: jest.fn(),
 }))
 jest.mock("@/components/ui/use-toast", () => ({ toast: jest.fn() }))
@@ -60,6 +61,41 @@ test.each(["authorizeWorkspace", "revokeWorkspace"] as const)(
     )
     await waitFor(() => expect(selector.result.current.stores).toEqual(after))
     selector.unmount()
+    management.unmount()
+    client.clear()
+  }
+)
+
+test.each([
+  { all_workspaces: true },
+  { all_workspaces: false },
+  { enabled: false },
+])(
+  "store access change %j refreshes every workspace selector",
+  async (params) => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    const workspaceKeys = ["first-workspace", "second-workspace"].map((id) => [
+      "workspace-secret-stores",
+      id,
+    ])
+    for (const key of workspaceKeys) client.setQueryData(key, [])
+    function wrapper({ children }: { children: ReactNode }) {
+      return (
+        <QueryClientProvider client={client}>{children}</QueryClientProvider>
+      )
+    }
+    const management = renderHook(() => useOrgSecretStores(), { wrapper })
+    await act(async () => {
+      await management.result.current.updateStore({
+        storeId: "synthetic-store",
+        params,
+      })
+    })
+    for (const key of workspaceKeys) {
+      expect(client.getQueryState(key)?.isInvalidated).toBe(true)
+    }
     management.unmount()
     client.clear()
   }

@@ -7790,6 +7790,10 @@ export type SecretStoreCreate = {
   provider?: SecretStoreProvider
   config: AwsSecretsManagerStoreCreate
   enabled?: boolean
+  /**
+   * Allow all current and future workspaces.
+   */
+  all_workspaces?: boolean
 }
 
 /**
@@ -7808,6 +7812,7 @@ export type SecretStoreRead = {
   provider: SecretStoreProvider
   config: AwsSecretsManagerStoreConfig
   enabled: boolean
+  all_workspaces: boolean
   tracecat_aws_account_id?: string | null
   tracecat_aws_principal_arn?: string | null
   authorized_workspace_ids?: Array<string>
@@ -7824,6 +7829,10 @@ export type SecretStoreUpdate = {
   description?: string | null
   config?: AwsSecretsManagerStoreUpdate | null
   enabled?: boolean | null
+  /**
+   * Allow all current and future workspaces.
+   */
+  all_workspaces?: boolean
 }
 
 /**
