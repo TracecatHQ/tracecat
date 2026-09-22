@@ -3,6 +3,7 @@
 from json import JSONDecodeError
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import JsonValue
 from redis.exceptions import RedisError
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -18,27 +19,41 @@ from tracecat.search.types import SearchError, SearchErrorCode
 router = APIRouter()
 
 
-async def validate_query_encoding(request: Request) -> None:
+def _contains_surrogate(body: JsonValue) -> bool:
+    pending = [body]
+    while pending:
+        value = pending.pop()
+        if isinstance(value, str):
+            if any(0xD800 <= ord(char) <= 0xDFFF for char in value):
+                return True
+        elif isinstance(value, list):
+            pending.extend(value)
+        elif isinstance(value, dict):
+            pending.extend(value.keys())
+            pending.extend(value.values())
+    return False
+
+
+async def validate_request_encoding(request: Request) -> None:
     """Reject malformed Unicode before validation errors can echo invalid UTF-8."""
     try:
         body = await request.json()
     except (JSONDecodeError, UnicodeDecodeError):
         return  # Leave non-JSON body validation to FastAPI.
-    match body:
-        case {"query": str(query)} if any(0xD800 <= ord(c) <= 0xDFFF for c in query):
-            raise HTTPException(
-                422,
-                detail=EmbeddingErrorRead(
-                    code=EmbeddingErrorCode.INPUT_INVALID,
-                    retryable=False,
-                    retry_after=None,
-                ).model_dump(),
-            )
+    if _contains_surrogate(body):
+        raise HTTPException(
+            422,
+            detail=EmbeddingErrorRead(
+                code=EmbeddingErrorCode.INPUT_INVALID,
+                retryable=False,
+                retry_after=None,
+            ).model_dump(),
+        )
 
 
 @router.post(
     "/{table_name}/rows/semantic-search",
-    dependencies=[Depends(validate_query_encoding)],
+    dependencies=[Depends(validate_request_encoding)],
 )
 async def semantic_search(
     table_name: str, params: SearchRequest, role: ExecutorWorkspaceRole

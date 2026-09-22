@@ -12,6 +12,9 @@ from fastapi.exceptions import RequestValidationError
 from redis.exceptions import ConnectionError as RedisConnectionError
 from tracecat_registry.sdk.client import TracecatClient
 
+from tracecat.api.app import (
+    validation_exception_handler as api_validation_exception_handler,
+)
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
 from tracecat.auth.types import Role
 from tracecat.executor.action_gateway.app import (
@@ -151,23 +154,37 @@ async def test_tokenizer_construction_and_counting_run_off_event_loop(test_role)
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("query", [r'"\ud800"', r'"prefix\udfff"'])
+@pytest.mark.parametrize(
+    "body",
+    [
+        rb'{"query":"\ud800"}',
+        rb'{"query":"prefix\udfff"}',
+        rb'{"query":"ok","limit":"\ud800"}',
+        rb'{"query":"ok","cursor":"\ud800"}',
+        rb'{"query":"ok","allow_partial":"\ud800"}',
+        rb'{"query":{"nested":["\ud800"]}}',
+        rb'{"query":"ok","limit":{"\ud800":0}}',
+        rb'["\ud800"]',
+    ],
+)
 @pytest.mark.parametrize("gateway", [False, True])
-async def test_raw_surrogate_query_returns_safe_422(test_role, query, gateway):
+async def test_raw_surrogate_request_returns_safe_422(test_role, body, gateway):
     app = FastAPI()
     app.include_router(search_router)
     app.dependency_overrides[get_args(ExecutorWorkspaceRole)[1].dependency] = lambda: (
         test_role
     )
-    if gateway:
-        app.add_exception_handler(RequestValidationError, validation_exception_handler)
+    app.add_exception_handler(
+        RequestValidationError,
+        validation_exception_handler if gateway else api_validation_exception_handler,
+    )
     with patch("tracecat.search.router.TableRetrievalService.search") as search:
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://synthetic"
         ) as http:
             response = await http.post(
                 "/synthetic/rows/semantic-search",
-                content=f'{{"query":{query}}}',
+                content=body,
                 headers={"content-type": "application/json"},
             )
     assert response.status_code == 422
