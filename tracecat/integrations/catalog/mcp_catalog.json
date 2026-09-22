@@ -416,6 +416,13 @@
       "description": "Search company knowledge and run Glean agents with permission-aware results",
       "category": "Productivity",
       "icon": "https://www.google.com/s2/favicons?domain=www.glean.com&sz=128"
+    },
+    {
+      "slug": "perplexity-mcp",
+      "name": "Perplexity",
+      "description": "Search the web, research topics, and reason over live results with Perplexity",
+      "category": "Productivity",
+      "icon": "https://cdn.simpleicons.org/perplexity"
     }
   ]
 }
