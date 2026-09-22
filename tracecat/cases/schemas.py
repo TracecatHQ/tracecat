@@ -426,7 +426,7 @@ class CaseCommentCreate(Schema):
     @field_validator("content")
     @classmethod
     def strip_content(cls, value: str) -> str:
-        return value.strip()
+        return value.replace("\x00", "").strip()
 
     @model_validator(mode="after")
     def validate_content(self) -> CaseCommentCreate:
@@ -448,7 +448,7 @@ class CaseCommentUpdate(Schema):
         """Reject blank edits; only creation with a workflow may leave a comment empty."""
         if value is None:
             return None
-        stripped = value.strip()
+        stripped = value.replace("\x00", "").strip()
         if not stripped:
             raise ValueError("Comment content cannot be blank")
         return stripped
