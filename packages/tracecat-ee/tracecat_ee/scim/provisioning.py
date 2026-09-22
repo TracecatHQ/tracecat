@@ -184,7 +184,21 @@ class ScimProvisioningService(BaseOrgService):
 
         The linkage is per-tenant, so re-pushing an existing user refreshes the
         provider's identifier rather than creating a second row.
+
+        Raises:
+            TracecatConflictError: Another account in this organization already
+                holds the identifier. The upsert below resolves a conflict on
+                the user, so this one would surface as an integrity error.
         """
+        duplicate = await self.session.scalar(
+            select(ExternalUser.id).where(
+                ExternalUser.organization_id == self.organization_id,
+                ExternalUser.external_id == external_id,
+                ExternalUser.user_id != user_id,
+            )
+        )
+        if duplicate is not None:
+            raise TracecatConflictError("An external user already uses this externalId")
         stmt = (
             pg_insert(ExternalUser)
             .values(

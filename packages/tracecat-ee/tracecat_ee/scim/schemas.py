@@ -123,6 +123,8 @@ SCIM_CONTENT_TYPE = "application/scim+json"
 # and external_group.display_name are all String(255).
 EXTERNAL_ID_MAX_LENGTH = 255
 DISPLAY_NAME_MAX_LENGTH = 255
+# userName is stored as the account email, whose column is RFC 5321 sized.
+USER_NAME_MAX_LENGTH = 320
 
 # Providers send unknown attributes freely; rejecting them would fail otherwise
 # valid provisioning requests, so every inbound resource ignores extras.
@@ -169,7 +171,7 @@ class ScimUserRequest(ScimModel):
     """
 
     schemas: list[str] = Field(default_factory=lambda: [USER_SCHEMA])
-    user_name: str = Field(alias="userName")
+    user_name: str = Field(alias="userName", max_length=USER_NAME_MAX_LENGTH)
     # Bounded by the stored column, so an oversized id is 400 invalidValue
     # rather than a database error the provider reads as 500.
     external_id: str | None = Field(
@@ -179,6 +181,20 @@ class ScimUserRequest(ScimModel):
     name: ScimName | None = Field(default=None)
     display_name: str | None = Field(default=None, alias="displayName")
     emails: list[ScimEmail] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def check_fallback_identifier(self) -> Self:
+        """Reject a userName too long to stand in for a missing externalId.
+
+        ``create_user`` falls back to ``userName`` as the provider identifier,
+        which is stored in a narrower column than the address itself.
+        """
+        if self.external_id is None and len(self.user_name) > EXTERNAL_ID_MAX_LENGTH:
+            raise ValueError(
+                "userName exceeds "
+                f"{EXTERNAL_ID_MAX_LENGTH} characters and no externalId was supplied"
+            )
+        return self
 
 
 class ScimUserResource(ScimModel):
