@@ -59,6 +59,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.api.common import bootstrap_role, get_default_organization_id
 from tracecat.auth.dependencies import ServiceRole, verify_auth_type
+from tracecat.auth.domain_policy import (
+    is_domain_allowed_for_org,
+)
 from tracecat.auth.enums import AuthType
 from tracecat.auth.org_context import resolve_auth_organization_id
 from tracecat.auth.users import (
@@ -75,7 +78,6 @@ from tracecat.config import (
     SAML_PUBLIC_ACS_URL,
     SAML_VERIFY_SSL_ENTITY,
     SAML_VERIFY_SSL_METADATA,
-    TRACECAT__AUTH_ALLOWED_DOMAINS,
     TRACECAT__AUTH_SUPERADMIN_EMAIL,
     TRACECAT__EE_MULTI_TENANT,
     TRACECAT__PUBLIC_API_URL,
@@ -345,38 +347,6 @@ async def _get_active_org_domains(
     return set((await session.execute(domains_stmt)).scalars().all())
 
 
-def _get_env_allowed_domains_for_saml() -> set[str]:
-    """Return normalized env-domain allowlist for SAML checks."""
-    normalized_domains: set[str] = set()
-    for raw_domain in TRACECAT__AUTH_ALLOWED_DOMAINS:
-        domain = raw_domain.strip().lower()
-        if not domain:
-            continue
-        try:
-            normalized_domains.add(normalize_domain(domain).normalized_domain)
-        except ValueError:
-            continue
-    return normalized_domains
-
-
-def _is_normalized_domain_allowed_for_org(
-    *,
-    normalized_domain: str,
-    active_domains: set[str],
-) -> bool:
-    """Apply runtime SAML domain policy for a normalized email domain."""
-    if active_domains:
-        return normalized_domain in active_domains
-
-    if TRACECAT__EE_MULTI_TENANT:
-        return False
-
-    env_allowed_domains = _get_env_allowed_domains_for_saml()
-    if env_allowed_domains:
-        return normalized_domain in env_allowed_domains
-    return True
-
-
 def _extract_candidate_emails(parser: SAMLParser) -> list[str]:
     """Extract candidate emails from known SAML attributes in priority order."""
     candidates = [
@@ -444,7 +414,7 @@ async def _select_authorized_email(
             normalized_domain = normalize_domain(raw_domain).normalized_domain
         except ValueError:
             continue
-        if not _is_normalized_domain_allowed_for_org(
+        if not is_domain_allowed_for_org(
             normalized_domain=normalized_domain,
             active_domains=active_domains,
         ):

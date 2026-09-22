@@ -585,3 +585,28 @@ async def test_scim_password_policy_requires_available_external_login(
     assert (result is not None) is allowed
     await user_manager.forgot_password(user)
     assert on_after.await_count == int(allowed)
+
+
+@pytest.mark.anyio
+async def test_saml_would_not_admit_off_env_allowlist_domain(
+    session: AsyncSession,
+    user_manager: UserManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Single-tenant with no org domains still honours the env allowlist."""
+    organization = Organization(
+        id=uuid.uuid4(),
+        name="Acme",
+        slug=f"acme-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    session.add(organization)
+    await session.commit()
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", False)
+    monkeypatch.setattr(config, "TRACECAT__AUTH_ALLOWED_DOMAINS", {"acme.com"})
+
+    admitted = await user_manager._saml_would_admit_email(
+        session, organization.id, "user@other.com"
+    )
+
+    assert admitted is False
