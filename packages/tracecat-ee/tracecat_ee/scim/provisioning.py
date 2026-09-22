@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from uuid import UUID
 
 from fastapi_users.exceptions import InvalidPasswordException
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 
@@ -32,15 +32,13 @@ from tracecat.auth.users import (
     get_user_manager_context,
 )
 from tracecat.authz.enums import ScimConnectionStatus
-from tracecat.authz.membership import ensure_member, lock_role_changes
+from tracecat.authz.membership import lock_role_changes
 from tracecat.db.models import (
     ExternalUser,
-    Invitation,
     ScimConnection,
     User,
 )
 from tracecat.exceptions import TracecatConflictError, TracecatValidationError
-from tracecat.invitations.enums import InvitationStatus
 from tracecat.service import BaseOrgService
 from tracecat_ee.scim.service import SCIMService
 
@@ -120,10 +118,7 @@ class ScimProvisioningService(BaseOrgService):
             await SCIMService(self.session, self.role).deprovision_user(user.id)
             await self.session.refresh(external_user)
         elif active and connection_active:
-            # A live invitation carries its own role, possibly above what SCIM
-            # grants, so accepting it later would escalate. It is revoked here.
-            await self._revoke_pending_invitation(normalized)
-            await self._grant_org_membership(user.id)
+            await SCIMService(self.session, self.role).admit_user(user.id)
 
         await self.session.flush()
         return ProvisionedUser(user=user, external_user=external_user, created=created)
@@ -214,27 +209,6 @@ class ScimProvisioningService(BaseOrgService):
             .returning(ExternalUser)
         )
         return (await self.session.execute(stmt)).scalar_one()
-
-    async def _grant_org_membership(self, user_id: UUID) -> None:
-        """Admit the user; membership itself supplies the baseline scopes."""
-        await ensure_member(self.session, self.organization_id, user_id)
-
-    async def _revoke_pending_invitation(self, email: str) -> None:
-        """Revoke any live invitation for the email in this organization.
-
-        Written directly rather than through ``OrgService.revoke_invitation``:
-        that method requires ``org:member:invite``, which the SCIM connection
-        deliberately does not hold.
-        """
-        await self.session.execute(
-            update(Invitation)
-            .where(
-                Invitation.organization_id == self.organization_id,
-                func.lower(Invitation.email) == email,
-                Invitation.status == InvitationStatus.PENDING,
-            )
-            .values(status=InvitationStatus.REVOKED)
-        )
 
 
 def _normalize_email(email: str) -> str:
