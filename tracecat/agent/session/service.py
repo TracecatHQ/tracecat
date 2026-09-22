@@ -31,6 +31,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB, UUID, insert
 from sqlalchemy.exc import SQLAlchemyError
 from temporalio.client import (
+    WorkflowHandle,
     WorkflowUpdateRPCTimeoutOrCancelledError,
 )
 from temporalio.common import TypedSearchAttributes
@@ -2344,7 +2345,7 @@ class AgentSessionService(BaseWorkspaceService):
         curr_run_id: uuid.UUID,
         attempt: ApprovalContinuationAttempt,
         validated: _ValidatedContinuation,
-        handle: Any,
+        handle: WorkflowHandle[Any, Any],
     ) -> bool:
         """Submit the Temporal update, preserving the attempt on ambiguous failure.
 
