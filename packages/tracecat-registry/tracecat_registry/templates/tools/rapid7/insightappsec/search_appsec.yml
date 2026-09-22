@@ -1,11 +1,11 @@
 type: action
 definition:
-  title: Search
+  title: Search InsightAppSec
   description: "Search. Calls POST /ias/v1/search directly."
   display_group: Rapid7
   doc_url: https://help.rapid7.com/insightappsec/en-us/api/v1/docs.html#operation/perform-search
   namespace: tools.rapid7
-  name: search
+  name: search_appsec
   secrets:
     - name: rapid7
       keys: ["RAPID7_API_KEY"]

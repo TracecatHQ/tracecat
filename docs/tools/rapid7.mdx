@@ -256,6 +256,42 @@ Default: `null`.
 
 </ParamField>
 
+## Create InsightAppSec vulnerability comment
+
+Action ID: `tools.rapid7.create_appsec_vulnerability_comment`
+
+Create vulnerability comment. Calls POST /ias/v1/vulnerabilities/&#123;vuln_id&#125;/comments directly.
+
+Reference: [https://help.rapid7.com/insightappsec/en-us/api/v1/docs.html#operation/create-vulnerability-comment](https://help.rapid7.com/insightappsec/en-us/api/v1/docs.html#operation/create-vulnerability-comment)
+
+### Secrets
+
+Required secrets:
+
+- `rapid7`: required values `RAPID7_API_KEY`.
+
+### Input fields
+
+<ParamField path="content" type="string" required>
+
+The content of the Vulnerability Comment.
+
+</ParamField>
+
+<ParamField path="vuln_id" type="string" required>
+
+The identifier of the vulnerability.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap.
+
+Default: `null`.
+
+</ParamField>
+
 ## Create investigation
 
 Action ID: `tools.rapid7.create_investigation`
@@ -407,42 +443,6 @@ Default: `null`.
 <ParamField path="tags" type="array[string] | null">
 
 The tags to apply.
-
-Default: `null`.
-
-</ParamField>
-
-## Create vulnerability comment
-
-Action ID: `tools.rapid7.create_vulnerability_comment`
-
-Create vulnerability comment. Calls POST /ias/v1/vulnerabilities/&#123;vuln_id&#125;/comments directly.
-
-Reference: [https://help.rapid7.com/insightappsec/en-us/api/v1/docs.html#operation/create-vulnerability-comment](https://help.rapid7.com/insightappsec/en-us/api/v1/docs.html#operation/create-vulnerability-comment)
-
-### Secrets
-
-Required secrets:
-
-- `rapid7`: required values `RAPID7_API_KEY`.
-
-### Input fields
-
-<ParamField path="content" type="string" required>
-
-The content of the Vulnerability Comment.
-
-</ParamField>
-
-<ParamField path="vuln_id" type="string" required>
-
-The identifier of the vulnerability.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap.
 
 Default: `null`.
 
@@ -714,36 +714,6 @@ Default: `null`.
 
 </ParamField>
 
-## Get app
-
-Action ID: `tools.rapid7.get_app`
-
-Get app. Calls GET /ias/v1/apps/&#123;app_id&#125; directly.
-
-Reference: [https://help.rapid7.com/insightappsec/en-us/api/v1/docs.html#operation/get-app](https://help.rapid7.com/insightappsec/en-us/api/v1/docs.html#operation/get-app)
-
-### Secrets
-
-Required secrets:
-
-- `rapid7`: required values `RAPID7_API_KEY`.
-
-### Input fields
-
-<ParamField path="app_id" type="string" required>
-
-The identifier of the app.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap.
-
-Default: `null`.
-
-</ParamField>
-
 ## Get asset by RRN
 
 Action ID: `tools.rapid7.get_asset`
@@ -804,6 +774,234 @@ Default: `null`.
 
 </ParamField>
 
+## Get InsightAppSec app
+
+Action ID: `tools.rapid7.get_appsec_app`
+
+Get app. Calls GET /ias/v1/apps/&#123;app_id&#125; directly.
+
+Reference: [https://help.rapid7.com/insightappsec/en-us/api/v1/docs.html#operation/get-app](https://help.rapid7.com/insightappsec/en-us/api/v1/docs.html#operation/get-app)
+
+### Secrets
+
+Required secrets:
+
+- `rapid7`: required values `RAPID7_API_KEY`.
+
+### Input fields
+
+<ParamField path="app_id" type="string" required>
+
+The identifier of the app.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap.
+
+Default: `null`.
+
+</ParamField>
+
+## Get InsightAppSec scan
+
+Action ID: `tools.rapid7.get_appsec_scan`
+
+Get scan. Calls GET /ias/v1/scans/&#123;scan_id&#125; directly.
+
+Reference: [https://help.rapid7.com/insightappsec/en-us/api/v1/docs.html#operation/get-scan](https://help.rapid7.com/insightappsec/en-us/api/v1/docs.html#operation/get-scan)
+
+### Secrets
+
+Required secrets:
+
+- `rapid7`: required values `RAPID7_API_KEY`.
+
+### Input fields
+
+<ParamField path="scan_id" type="string" required>
+
+The identifier of the scan.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap.
+
+Default: `null`.
+
+</ParamField>
+
+## Get InsightAppSec scan execution details
+
+Action ID: `tools.rapid7.get_appsec_scan_execution_details`
+
+Get scan execution details. Calls GET /ias/v1/scans/&#123;scan_id&#125;/execution-details directly.
+
+Reference: [https://help.rapid7.com/insightappsec/en-us/api/v1/docs.html#operation/get-scan-execution-details](https://help.rapid7.com/insightappsec/en-us/api/v1/docs.html#operation/get-scan-execution-details)
+
+### Secrets
+
+Required secrets:
+
+- `rapid7`: required values `RAPID7_API_KEY`.
+
+### Input fields
+
+<ParamField path="scan_id" type="string" required>
+
+The identifier of the scan.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap.
+
+Default: `null`.
+
+</ParamField>
+
+## Get InsightAppSec vulnerability
+
+Action ID: `tools.rapid7.get_appsec_vulnerability`
+
+Get vulnerability. Calls GET /ias/v1/vulnerabilities/&#123;vuln_id&#125; directly.
+
+Reference: [https://help.rapid7.com/insightappsec/en-us/api/v1/docs.html#operation/get-vulnerability](https://help.rapid7.com/insightappsec/en-us/api/v1/docs.html#operation/get-vulnerability)
+
+### Secrets
+
+Required secrets:
+
+- `rapid7`: required values `RAPID7_API_KEY`.
+
+### Input fields
+
+<ParamField path="vuln_id" type="string" required>
+
+The identifier of the vulnerability.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap.
+
+Default: `null`.
+
+</ParamField>
+
+## Get InsightVM asset
+
+Action ID: `tools.rapid7.get_vm_asset`
+
+Get asset. Calls GET /vm/v4/integration/assets/&#123;id&#125; directly.
+
+Reference: [https://help.rapid7.com/insightvm/en-us/api/integrations.html#operation/getIntegrationAsset](https://help.rapid7.com/insightvm/en-us/api/integrations.html#operation/getIntegrationAsset)
+
+### Secrets
+
+Required secrets:
+
+- `rapid7`: required values `RAPID7_API_KEY`.
+
+### Input fields
+
+<ParamField path="id" type="string" required>
+
+The identifier of the asset.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="comparisonTime" type="string | null">
+
+Asset comparison time.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="currentTime" type="string | null">
+
+Current comparison time.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="includeInterSnapshotRemediations" type="boolean | null">
+
+Include inter-snapshot remediations.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="includeSame" type="boolean | null">
+
+Include already-existing vulnerabilities.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="includeUniqueIdentifiers" type="boolean | null">
+
+Include unique identifiers.
+
+Default: `null`.
+
+</ParamField>
+
+## Get InsightVM scan
+
+Action ID: `tools.rapid7.get_vm_scan`
+
+Get scan. Calls GET /vm/v4/integration/scan/&#123;id&#125; directly.
+
+Reference: [https://help.rapid7.com/insightvm/en-us/api/integrations.html#operation/getScan](https://help.rapid7.com/insightvm/en-us/api/integrations.html#operation/getScan)
+
+### Secrets
+
+Required secrets:
+
+- `rapid7`: required values `RAPID7_API_KEY`.
+
+### Input fields
+
+<ParamField path="id" type="string" required>
+
+The identifier of the scan.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="includeDetails" type="boolean | null">
+
+Include additional scan details.
+
+Default: `null`.
+
+</ParamField>
+
 ## Get investigation
 
 Action ID: `tools.rapid7.get_investigation`
@@ -842,66 +1040,6 @@ Default: `null`.
 
 </ParamField>
 
-## Get scan
-
-Action ID: `tools.rapid7.get_scan`
-
-Get scan. Calls GET /ias/v1/scans/&#123;scan_id&#125; directly.
-
-Reference: [https://help.rapid7.com/insightappsec/en-us/api/v1/docs.html#operation/get-scan](https://help.rapid7.com/insightappsec/en-us/api/v1/docs.html#operation/get-scan)
-
-### Secrets
-
-Required secrets:
-
-- `rapid7`: required values `RAPID7_API_KEY`.
-
-### Input fields
-
-<ParamField path="scan_id" type="string" required>
-
-The identifier of the scan.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap.
-
-Default: `null`.
-
-</ParamField>
-
-## Get scan execution details
-
-Action ID: `tools.rapid7.get_scan_execution_details`
-
-Get scan execution details. Calls GET /ias/v1/scans/&#123;scan_id&#125;/execution-details directly.
-
-Reference: [https://help.rapid7.com/insightappsec/en-us/api/v1/docs.html#operation/get-scan-execution-details](https://help.rapid7.com/insightappsec/en-us/api/v1/docs.html#operation/get-scan-execution-details)
-
-### Secrets
-
-Required secrets:
-
-- `rapid7`: required values `RAPID7_API_KEY`.
-
-### Input fields
-
-<ParamField path="scan_id" type="string" required>
-
-The identifier of the scan.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap.
-
-Default: `null`.
-
-</ParamField>
-
 ## Get user by RRN
 
 Action ID: `tools.rapid7.get_user`
@@ -921,36 +1059,6 @@ Required secrets:
 <ParamField path="rrn" type="string" required>
 
 The RRN of the user.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap.
-
-Default: `null`.
-
-</ParamField>
-
-## Get vulnerability
-
-Action ID: `tools.rapid7.get_vulnerability`
-
-Get vulnerability. Calls GET /ias/v1/vulnerabilities/&#123;vuln_id&#125; directly.
-
-Reference: [https://help.rapid7.com/insightappsec/en-us/api/v1/docs.html#operation/get-vulnerability](https://help.rapid7.com/insightappsec/en-us/api/v1/docs.html#operation/get-vulnerability)
-
-### Secrets
-
-Required secrets:
-
-- `rapid7`: required values `RAPID7_API_KEY`.
-
-### Input fields
-
-<ParamField path="vuln_id" type="string" required>
-
-The identifier of the vulnerability.
 
 </ParamField>
 
@@ -1021,62 +1129,6 @@ Default: `null`.
 <ParamField path="size" type="integer | null">
 
 The page size.
-
-Default: `null`.
-
-</ParamField>
-
-## List apps
-
-Action ID: `tools.rapid7.list_apps`
-
-List apps. Calls GET /ias/v1/apps directly.
-
-Reference: [https://help.rapid7.com/insightappsec/en-us/api/v1/docs.html#operation/get-apps](https://help.rapid7.com/insightappsec/en-us/api/v1/docs.html#operation/get-apps)
-
-### Secrets
-
-Required secrets:
-
-- `rapid7`: required values `RAPID7_API_KEY`.
-
-### Input fields
-
-<ParamField path="base_url" type="string | null">
-
-Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="index" type="integer | null">
-
-The page index.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="page_token" type="string | null">
-
-The token to retrieve the next page.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="size" type="integer | null">
-
-The page size.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="sort" type="string | null">
-
-The sort criteria.
 
 Default: `null`.
 
@@ -1177,6 +1229,382 @@ Default: `null`.
 <ParamField path="sortDirection" type="string | null">
 
 The direction in which comments should be sorted.
+
+Default: `null`.
+
+</ParamField>
+
+## List InsightAppSec apps
+
+Action ID: `tools.rapid7.list_appsec_apps`
+
+List apps. Calls GET /ias/v1/apps directly.
+
+Reference: [https://help.rapid7.com/insightappsec/en-us/api/v1/docs.html#operation/get-apps](https://help.rapid7.com/insightappsec/en-us/api/v1/docs.html#operation/get-apps)
+
+### Secrets
+
+Required secrets:
+
+- `rapid7`: required values `RAPID7_API_KEY`.
+
+### Input fields
+
+<ParamField path="base_url" type="string | null">
+
+Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="index" type="integer | null">
+
+The page index.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page_token" type="string | null">
+
+The token to retrieve the next page.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="size" type="integer | null">
+
+The page size.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort" type="string | null">
+
+The sort criteria.
+
+Default: `null`.
+
+</ParamField>
+
+## List InsightAppSec scan configs
+
+Action ID: `tools.rapid7.list_appsec_scan_configs`
+
+List scan configs. Calls GET /ias/v1/scan-configs directly.
+
+Reference: [https://help.rapid7.com/insightappsec/en-us/api/v1/docs.html#operation/get-scan-configs](https://help.rapid7.com/insightappsec/en-us/api/v1/docs.html#operation/get-scan-configs)
+
+### Secrets
+
+Required secrets:
+
+- `rapid7`: required values `RAPID7_API_KEY`.
+
+### Input fields
+
+<ParamField path="base_url" type="string | null">
+
+Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="include_errors" type="boolean | null">
+
+Whether to include errors.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="index" type="integer | null">
+
+The page index.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page_token" type="string | null">
+
+The token to retrieve the next page.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="size" type="integer | null">
+
+The page size.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort" type="string | null">
+
+The sort criteria.
+
+Default: `null`.
+
+</ParamField>
+
+## List InsightAppSec scans
+
+Action ID: `tools.rapid7.list_appsec_scans`
+
+List scans. Calls GET /ias/v1/scans directly.
+
+Reference: [https://help.rapid7.com/insightappsec/en-us/api/v1/docs.html#operation/get-scans](https://help.rapid7.com/insightappsec/en-us/api/v1/docs.html#operation/get-scans)
+
+### Secrets
+
+Required secrets:
+
+- `rapid7`: required values `RAPID7_API_KEY`.
+
+### Input fields
+
+<ParamField path="base_url" type="string | null">
+
+Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="index" type="integer | null">
+
+The page index.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page_token" type="string | null">
+
+The token to retrieve the next page.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="size" type="integer | null">
+
+The page size.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort" type="string | null">
+
+The sort criteria.
+
+Default: `null`.
+
+</ParamField>
+
+## List InsightAppSec vulnerabilities
+
+Action ID: `tools.rapid7.list_appsec_vulnerabilities`
+
+List vulnerabilities. Calls GET /ias/v1/vulnerabilities directly.
+
+Reference: [https://help.rapid7.com/insightappsec/en-us/api/v1/docs.html#operation/get-vulnerabilities](https://help.rapid7.com/insightappsec/en-us/api/v1/docs.html#operation/get-vulnerabilities)
+
+### Secrets
+
+Required secrets:
+
+- `rapid7`: required values `RAPID7_API_KEY`.
+
+### Input fields
+
+<ParamField path="base_url" type="string | null">
+
+Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="index" type="integer | null">
+
+The page index.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page_token" type="string | null">
+
+The token to retrieve the next page.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="size" type="integer | null">
+
+The page size.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort" type="string | null">
+
+The sort criteria.
+
+Default: `null`.
+
+</ParamField>
+
+## List InsightVM scan engines
+
+Action ID: `tools.rapid7.list_vm_scan_engines`
+
+List scan engines. Calls GET /vm/v4/integration/scan/engine directly.
+
+Reference: [https://help.rapid7.com/insightvm/en-us/api/integrations.html#operation/getScanEngines](https://help.rapid7.com/insightvm/en-us/api/integrations.html#operation/getScanEngines)
+
+### Secrets
+
+Required secrets:
+
+- `rapid7`: required values `RAPID7_API_KEY`.
+
+### Input fields
+
+<ParamField path="base_url" type="string | null">
+
+Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+The zero-based page index.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="size" type="integer | null">
+
+The number of records per page.
+
+Default: `null`.
+
+</ParamField>
+
+## List InsightVM scans
+
+Action ID: `tools.rapid7.list_vm_scans`
+
+List scans. Calls GET /vm/v4/integration/scan directly.
+
+Reference: [https://help.rapid7.com/insightvm/en-us/api/integrations.html#operation/getScans](https://help.rapid7.com/insightvm/en-us/api/integrations.html#operation/getScans)
+
+### Secrets
+
+Required secrets:
+
+- `rapid7`: required values `RAPID7_API_KEY`.
+
+### Input fields
+
+<ParamField path="base_url" type="string | null">
+
+Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="includeDetails" type="boolean | null">
+
+Include additional scan details.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+The zero-based page index.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="size" type="integer | null">
+
+The number of records per page.
+
+Default: `null`.
+
+</ParamField>
+
+## List InsightVM sites
+
+Action ID: `tools.rapid7.list_vm_sites`
+
+List sites. Calls POST /vm/v4/integration/sites directly.
+
+Reference: [https://help.rapid7.com/insightvm/en-us/api/integrations.html#operation/getSites](https://help.rapid7.com/insightvm/en-us/api/integrations.html#operation/getSites)
+
+### Secrets
+
+Required secrets:
+
+- `rapid7`: required values `RAPID7_API_KEY`.
+
+### Input fields
+
+<ParamField path="base_url" type="string | null">
+
+Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="cursor" type="string | null">
+
+The stateless cursor.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+The zero-based page index.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="size" type="integer | null">
+
+The number of records per page.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort" type="string | null">
+
+The sort criteria.
 
 Default: `null`.
 
@@ -1453,278 +1881,6 @@ Required secrets:
 <ParamField path="base_url" type="string | null">
 
 Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap.
-
-Default: `null`.
-
-</ParamField>
-
-## List scan configs
-
-Action ID: `tools.rapid7.list_scan_configs`
-
-List scan configs. Calls GET /ias/v1/scan-configs directly.
-
-Reference: [https://help.rapid7.com/insightappsec/en-us/api/v1/docs.html#operation/get-scan-configs](https://help.rapid7.com/insightappsec/en-us/api/v1/docs.html#operation/get-scan-configs)
-
-### Secrets
-
-Required secrets:
-
-- `rapid7`: required values `RAPID7_API_KEY`.
-
-### Input fields
-
-<ParamField path="base_url" type="string | null">
-
-Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="include_errors" type="boolean | null">
-
-Whether to include errors.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="index" type="integer | null">
-
-The page index.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="page_token" type="string | null">
-
-The token to retrieve the next page.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="size" type="integer | null">
-
-The page size.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="sort" type="string | null">
-
-The sort criteria.
-
-Default: `null`.
-
-</ParamField>
-
-## List scan engines
-
-Action ID: `tools.rapid7.list_scan_engines`
-
-List scan engines. Calls GET /vm/v4/integration/scan/engine directly.
-
-Reference: [https://help.rapid7.com/insightvm/en-us/api/integrations.html#operation/getScanEngines](https://help.rapid7.com/insightvm/en-us/api/integrations.html#operation/getScanEngines)
-
-### Secrets
-
-Required secrets:
-
-- `rapid7`: required values `RAPID7_API_KEY`.
-
-### Input fields
-
-<ParamField path="base_url" type="string | null">
-
-Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="page" type="integer | null">
-
-The zero-based page index.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="size" type="integer | null">
-
-The number of records per page.
-
-Default: `null`.
-
-</ParamField>
-
-## List scans
-
-Action ID: `tools.rapid7.list_scans`
-
-List scans. Calls GET /ias/v1/scans directly.
-
-Reference: [https://help.rapid7.com/insightappsec/en-us/api/v1/docs.html#operation/get-scans](https://help.rapid7.com/insightappsec/en-us/api/v1/docs.html#operation/get-scans)
-
-### Secrets
-
-Required secrets:
-
-- `rapid7`: required values `RAPID7_API_KEY`.
-
-### Input fields
-
-<ParamField path="base_url" type="string | null">
-
-Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="index" type="integer | null">
-
-The page index.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="page_token" type="string | null">
-
-The token to retrieve the next page.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="size" type="integer | null">
-
-The page size.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="sort" type="string | null">
-
-The sort criteria.
-
-Default: `null`.
-
-</ParamField>
-
-## List sites
-
-Action ID: `tools.rapid7.list_sites`
-
-List sites. Calls POST /vm/v4/integration/sites directly.
-
-Reference: [https://help.rapid7.com/insightvm/en-us/api/integrations.html#operation/getSites](https://help.rapid7.com/insightvm/en-us/api/integrations.html#operation/getSites)
-
-### Secrets
-
-Required secrets:
-
-- `rapid7`: required values `RAPID7_API_KEY`.
-
-### Input fields
-
-<ParamField path="base_url" type="string | null">
-
-Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="cursor" type="string | null">
-
-The stateless cursor.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="page" type="integer | null">
-
-The zero-based page index.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="size" type="integer | null">
-
-The number of records per page.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="sort" type="string | null">
-
-The sort criteria.
-
-Default: `null`.
-
-</ParamField>
-
-## List vulnerabilities
-
-Action ID: `tools.rapid7.list_vulnerabilities`
-
-List vulnerabilities. Calls GET /ias/v1/vulnerabilities directly.
-
-Reference: [https://help.rapid7.com/insightappsec/en-us/api/v1/docs.html#operation/get-vulnerabilities](https://help.rapid7.com/insightappsec/en-us/api/v1/docs.html#operation/get-vulnerabilities)
-
-### Secrets
-
-Required secrets:
-
-- `rapid7`: required values `RAPID7_API_KEY`.
-
-### Input fields
-
-<ParamField path="base_url" type="string | null">
-
-Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="index" type="integer | null">
-
-The page index.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="page_token" type="string | null">
-
-The token to retrieve the next page.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="size" type="integer | null">
-
-The page size.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="sort" type="string | null">
-
-The sort criteria.
 
 Default: `null`.
 
@@ -2088,82 +2244,6 @@ Default: `null`.
 
 </ParamField>
 
-## Search
-
-Action ID: `tools.rapid7.search`
-
-Search. Calls POST /ias/v1/search directly.
-
-Reference: [https://help.rapid7.com/insightappsec/en-us/api/v1/docs.html#operation/perform-search](https://help.rapid7.com/insightappsec/en-us/api/v1/docs.html#operation/perform-search)
-
-### Secrets
-
-Required secrets:
-
-- `rapid7`: required values `RAPID7_API_KEY`.
-
-### Input fields
-
-<ParamField path="query" type="string" required>
-
-The query for the Search.
-
-</ParamField>
-
-<ParamField path="type" type="string" required>
-
-Resource type: APP, SCAN, SCAN_CONFIG, VULNERABILITY, VULNERABILITY_DISCOVERY, ATTACK_TEMPLATE, TARGET, ENGINE, ENGINE_GROUP, SCHEDULE, BLACKOUT, FILE, TAG, or REPORT.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="index" type="integer | null">
-
-The page index.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="limitData" type="boolean | null">
-
-Whether to limit data.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="page_token" type="string | null">
-
-The token to retrieve the next page.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="size" type="integer | null">
-
-The page size.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="sort" type="string | null">
-
-The sort criteria.
-
-Default: `null`.
-
-</ParamField>
-
 ## Search accounts
 
 Action ID: `tools.rapid7.search_accounts`
@@ -2349,6 +2429,258 @@ Default: `null`.
 <ParamField path="sort" type="array[object] | null">
 
 Sorting information with field and order.
+
+Default: `null`.
+
+</ParamField>
+
+## Search InsightAppSec
+
+Action ID: `tools.rapid7.search_appsec`
+
+Search. Calls POST /ias/v1/search directly.
+
+Reference: [https://help.rapid7.com/insightappsec/en-us/api/v1/docs.html#operation/perform-search](https://help.rapid7.com/insightappsec/en-us/api/v1/docs.html#operation/perform-search)
+
+### Secrets
+
+Required secrets:
+
+- `rapid7`: required values `RAPID7_API_KEY`.
+
+### Input fields
+
+<ParamField path="query" type="string" required>
+
+The query for the Search.
+
+</ParamField>
+
+<ParamField path="type" type="string" required>
+
+Resource type: APP, SCAN, SCAN_CONFIG, VULNERABILITY, VULNERABILITY_DISCOVERY, ATTACK_TEMPLATE, TARGET, ENGINE, ENGINE_GROUP, SCHEDULE, BLACKOUT, FILE, TAG, or REPORT.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="index" type="integer | null">
+
+The page index.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limitData" type="boolean | null">
+
+Whether to limit data.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page_token" type="string | null">
+
+The token to retrieve the next page.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="size" type="integer | null">
+
+The page size.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort" type="string | null">
+
+The sort criteria.
+
+Default: `null`.
+
+</ParamField>
+
+## Search InsightVM assets
+
+Action ID: `tools.rapid7.search_vm_assets`
+
+Search assets. Calls POST /vm/v4/integration/assets directly.
+
+Reference: [https://help.rapid7.com/insightvm/en-us/api/integrations.html#operation/searchIntegrationAssets](https://help.rapid7.com/insightvm/en-us/api/integrations.html#operation/searchIntegrationAssets)
+
+### Secrets
+
+Required secrets:
+
+- `rapid7`: required values `RAPID7_API_KEY`.
+
+### Input fields
+
+<ParamField path="asset" type="string | null">
+
+Filter expression for assets.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="comparisonTime" type="string | null">
+
+Asset comparison time.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="currentTime" type="string | null">
+
+Current comparison time.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="cursor" type="string | null">
+
+Use the cursor from the previous response.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="includeInterSnapshotRemediations" type="boolean | null">
+
+Include inter-snapshot remediations.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="includeSame" type="boolean | null">
+
+Include already-existing vulnerabilities.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="includeUniqueIdentifiers" type="boolean | null">
+
+Include unique identifiers.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+The zero-based page index.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="size" type="integer | null">
+
+The number of records per page.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort" type="string | null">
+
+The sort criteria.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="vulnerability" type="string | null">
+
+Filter expression for vulnerabilities.
+
+Default: `null`.
+
+</ParamField>
+
+## Search InsightVM vulnerabilities
+
+Action ID: `tools.rapid7.search_vm_vulnerabilities`
+
+Search vulnerabilities. Calls POST /vm/v4/integration/vulnerabilities directly.
+
+Reference: [https://help.rapid7.com/insightvm/en-us/api/integrations.html#operation/searchIntegrationVulnerabilities](https://help.rapid7.com/insightvm/en-us/api/integrations.html#operation/searchIntegrationVulnerabilities)
+
+### Secrets
+
+Required secrets:
+
+- `rapid7`: required values `RAPID7_API_KEY`.
+
+### Input fields
+
+<ParamField path="base_url" type="string | null">
+
+Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="cursor" type="string | null">
+
+Use the cursor from the previous response.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+The zero-based page index.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="size" type="integer | null">
+
+The number of records per page.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort" type="string | null">
+
+The sort criteria.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="vulnerability" type="string | null">
+
+Search expression for vulnerabilities.
 
 Default: `null`.
 
@@ -2546,70 +2878,6 @@ Default: `null`.
 
 </ParamField>
 
-## Search vulnerabilities
-
-Action ID: `tools.rapid7.search_vulnerabilities`
-
-Search vulnerabilities. Calls POST /vm/v4/integration/vulnerabilities directly.
-
-Reference: [https://help.rapid7.com/insightvm/en-us/api/integrations.html#operation/searchIntegrationVulnerabilities](https://help.rapid7.com/insightvm/en-us/api/integrations.html#operation/searchIntegrationVulnerabilities)
-
-### Secrets
-
-Required secrets:
-
-- `rapid7`: required values `RAPID7_API_KEY`.
-
-### Input fields
-
-<ParamField path="base_url" type="string | null">
-
-Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="cursor" type="string | null">
-
-Use the cursor from the previous response.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="page" type="integer | null">
-
-The zero-based page index.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="size" type="integer | null">
-
-The number of records per page.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="sort" type="string | null">
-
-The sort criteria.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="vulnerability" type="string | null">
-
-Search expression for vulnerabilities.
-
-Default: `null`.
-
-</ParamField>
-
 ## Set investigation disposition
 
 Action ID: `tools.rapid7.set_investigation_disposition`
@@ -2750,9 +3018,9 @@ Default: `null`.
 
 </ParamField>
 
-## Start scan
+## Start InsightVM scan
 
-Action ID: `tools.rapid7.start_scan`
+Action ID: `tools.rapid7.start_vm_scan`
 
 Start scan. Calls POST /vm/v4/integration/scan directly.
 
@@ -2780,9 +3048,9 @@ Default: `null`.
 
 </ParamField>
 
-## Stop scan
+## Stop InsightVM scan
 
-Action ID: `tools.rapid7.stop_scan`
+Action ID: `tools.rapid7.stop_vm_scan`
 
 Stop scan. Calls POST /vm/v4/integration/scan/&#123;id&#125;/stop directly.
 
@@ -2810,9 +3078,9 @@ Default: `null`.
 
 </ParamField>
 
-## Submit scan
+## Submit InsightAppSec scan
 
-Action ID: `tools.rapid7.submit_scan`
+Action ID: `tools.rapid7.submit_appsec_scan`
 
 Submit scan. Calls POST /ias/v1/scans directly.
 
@@ -2848,9 +3116,9 @@ Default: `null`.
 
 </ParamField>
 
-## Submit scan action
+## Submit InsightAppSec scan action
 
-Action ID: `tools.rapid7.submit_scan_action`
+Action ID: `tools.rapid7.submit_appsec_scan_action`
 
 Submit scan action. Calls PUT /ias/v1/scans/&#123;scan_id&#125;/action directly.
 

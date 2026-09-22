@@ -1,11 +1,11 @@
 type: action
 definition:
-  title: Submit scan action
-  description: "Submit scan action. Calls PUT /ias/v1/scans/{scan_id}/action directly."
+  title: Get InsightAppSec scan
+  description: "Get scan. Calls GET /ias/v1/scans/{scan_id} directly."
   display_group: Rapid7
-  doc_url: https://help.rapid7.com/insightappsec/en-us/api/v1/docs.html#operation/submit-scan-action
+  doc_url: https://help.rapid7.com/insightappsec/en-us/api/v1/docs.html#operation/get-scan
   namespace: tools.rapid7
-  name: submit_scan_action
+  name: get_appsec_scan
   secrets:
     - name: rapid7
       keys: ["RAPID7_API_KEY"]
@@ -13,9 +13,6 @@ definition:
     scan_id:
       type: str
       description: "The identifier of the scan."
-    action:
-      type: str
-      description: "The action: PAUSE, RESUME, STOP, AUTHENTICATE, or CANCEL."
     base_url:
       type: str | None
       description: "Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap."
@@ -24,12 +21,9 @@ definition:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.rapid7.base_url || "https://us.api.insight.rapid7.com" }}/ias/v1/scans/${{ FN.url_encode(inputs.scan_id) }}/action
-        method: PUT
+        url: ${{ inputs.base_url || VARS.rapid7.base_url || "https://us.api.insight.rapid7.com" }}/ias/v1/scans/${{ FN.url_encode(inputs.scan_id) }}
+        method: GET
         headers:
           X-Api-Key: ${{ SECRETS.rapid7.RAPID7_API_KEY }}
           Accept: application/json
-          Content-Type: application/json
-        payload:
-          action: ${{ inputs.action }}
   returns: ${{ steps.request.result }}

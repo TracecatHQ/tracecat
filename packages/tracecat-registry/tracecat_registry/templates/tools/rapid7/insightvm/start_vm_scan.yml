@@ -1,11 +1,11 @@
 type: action
 definition:
-  title: Start scan
+  title: Start InsightVM scan
   description: "Start scan. Calls POST /vm/v4/integration/scan directly."
   display_group: Rapid7
   doc_url: https://help.rapid7.com/insightvm/en-us/api/integrations.html#operation/startScan
   namespace: tools.rapid7
-  name: start_scan
+  name: start_vm_scan
   secrets:
     - name: rapid7
       keys: ["RAPID7_API_KEY"]

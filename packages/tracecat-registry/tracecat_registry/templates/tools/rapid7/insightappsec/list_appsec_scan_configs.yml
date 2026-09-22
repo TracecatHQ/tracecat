@@ -1,34 +1,34 @@
 type: action
 definition:
-  title: Search vulnerabilities
-  description: "Search vulnerabilities. Calls POST /vm/v4/integration/vulnerabilities directly."
+  title: List InsightAppSec scan configs
+  description: "List scan configs. Calls GET /ias/v1/scan-configs directly."
   display_group: Rapid7
-  doc_url: https://help.rapid7.com/insightvm/en-us/api/integrations.html#operation/searchIntegrationVulnerabilities
+  doc_url: https://help.rapid7.com/insightappsec/en-us/api/v1/docs.html#operation/get-scan-configs
   namespace: tools.rapid7
-  name: search_vulnerabilities
+  name: list_appsec_scan_configs
   secrets:
     - name: rapid7
       keys: ["RAPID7_API_KEY"]
   expects:
-    cursor:
-      type: str | None
-      description: "Use the cursor from the previous response."
+    include_errors:
+      type: bool | None
+      description: "Whether to include errors."
       default: null
-    page:
+    index:
       type: int | None
-      description: "The zero-based page index."
+      description: "The page index."
       default: null
     size:
       type: int | None
-      description: "The number of records per page."
+      description: "The page size."
       default: null
     sort:
       type: str | None
       description: "The sort criteria."
       default: null
-    vulnerability:
+    page_token:
       type: str | None
-      description: "Search expression for vulnerabilities."
+      description: "The token to retrieve the next page."
       default: null
     base_url:
       type: str | None
@@ -38,17 +38,15 @@ definition:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.rapid7.base_url || "https://us.api.insight.rapid7.com" }}/vm/v4/integration/vulnerabilities
-        method: POST
+        url: ${{ inputs.base_url || VARS.rapid7.base_url || "https://us.api.insight.rapid7.com" }}/ias/v1/scan-configs
+        method: GET
         headers:
           X-Api-Key: ${{ SECRETS.rapid7.RAPID7_API_KEY }}
           Accept: application/json
-          Content-Type: application/json
         params:
-          cursor: ${{ inputs.cursor }}
-          page: ${{ inputs.page }}
+          "include-errors": ${{ inputs.include_errors }}
+          index: ${{ inputs.index }}
           size: ${{ inputs.size }}
           sort: ${{ inputs.sort }}
-        payload:
-          vulnerability: ${{ inputs.vulnerability }}
+          "page-token": ${{ inputs.page_token }}
   returns: ${{ steps.request.result }}

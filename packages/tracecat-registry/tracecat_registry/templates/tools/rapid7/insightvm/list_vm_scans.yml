@@ -1,11 +1,11 @@
 type: action
 definition:
-  title: List scans
+  title: List InsightVM scans
   description: "List scans. Calls GET /vm/v4/integration/scan directly."
   display_group: Rapid7
   doc_url: https://help.rapid7.com/insightvm/en-us/api/integrations.html#operation/getScans
   namespace: tools.rapid7
-  name: list_scans
+  name: list_vm_scans
   secrets:
     - name: rapid7
       keys: ["RAPID7_API_KEY"]

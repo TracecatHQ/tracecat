@@ -1,15 +1,19 @@
 type: action
 definition:
-  title: List scan engines
-  description: "List scan engines. Calls GET /vm/v4/integration/scan/engine directly."
+  title: List InsightVM sites
+  description: "List sites. Calls POST /vm/v4/integration/sites directly."
   display_group: Rapid7
-  doc_url: https://help.rapid7.com/insightvm/en-us/api/integrations.html#operation/getScanEngines
+  doc_url: https://help.rapid7.com/insightvm/en-us/api/integrations.html#operation/getSites
   namespace: tools.rapid7
-  name: list_scan_engines
+  name: list_vm_sites
   secrets:
     - name: rapid7
       keys: ["RAPID7_API_KEY"]
   expects:
+    cursor:
+      type: str | None
+      description: "The stateless cursor."
+      default: null
     page:
       type: int | None
       description: "The zero-based page index."
@@ -17,6 +21,10 @@ definition:
     size:
       type: int | None
       description: "The number of records per page."
+      default: null
+    sort:
+      type: str | None
+      description: "The sort criteria."
       default: null
     base_url:
       type: str | None
@@ -26,12 +34,14 @@ definition:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.rapid7.base_url || "https://us.api.insight.rapid7.com" }}/vm/v4/integration/scan/engine
-        method: GET
+        url: ${{ inputs.base_url || VARS.rapid7.base_url || "https://us.api.insight.rapid7.com" }}/vm/v4/integration/sites
+        method: POST
         headers:
           X-Api-Key: ${{ SECRETS.rapid7.RAPID7_API_KEY }}
           Accept: application/json
         params:
+          cursor: ${{ inputs.cursor }}
           page: ${{ inputs.page }}
           size: ${{ inputs.size }}
+          sort: ${{ inputs.sort }}
   returns: ${{ steps.request.result }}

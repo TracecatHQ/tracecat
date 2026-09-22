@@ -1,11 +1,11 @@
 type: action
 definition:
-  title: Search assets
+  title: Search InsightVM assets
   description: "Search assets. Calls POST /vm/v4/integration/assets directly."
   display_group: Rapid7
   doc_url: https://help.rapid7.com/insightvm/en-us/api/integrations.html#operation/searchIntegrationAssets
   namespace: tools.rapid7
-  name: search_assets
+  name: search_vm_assets
   secrets:
     - name: rapid7
       keys: ["RAPID7_API_KEY"]

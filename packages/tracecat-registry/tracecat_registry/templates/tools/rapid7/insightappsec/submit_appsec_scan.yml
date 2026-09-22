@@ -1,11 +1,11 @@
 type: action
 definition:
-  title: Submit scan
+  title: Submit InsightAppSec scan
   description: "Submit scan. Calls POST /ias/v1/scans directly."
   display_group: Rapid7
   doc_url: https://help.rapid7.com/insightappsec/en-us/api/v1/docs.html#operation/submit-scan
   namespace: tools.rapid7
-  name: submit_scan
+  name: submit_appsec_scan
   secrets:
     - name: rapid7
       keys: ["RAPID7_API_KEY"]
