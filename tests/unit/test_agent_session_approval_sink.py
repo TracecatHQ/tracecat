@@ -1817,6 +1817,7 @@ async def test_run_turn_continue_override_maps_to_tool_approved(
     "failure,expected",
     [
         (WorkflowUpdateRPCTimeoutOrCancelledError(), AgentControlUncertain),
+        (ValueError("result decoding failed after submission"), AgentControlUncertain),
         (asyncio.CancelledError(), asyncio.CancelledError),
     ],
 )

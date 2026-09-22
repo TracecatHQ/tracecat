@@ -8,10 +8,9 @@ from uuid import UUID
 
 from sqlalchemy import select
 from temporalio.client import (
-    WorkflowExecutionDescription,
     WorkflowExecutionStatus,
     WorkflowHandle,
-    WorkflowUpdateRPCTimeoutOrCancelledError,
+    WorkflowUpdateFailedError,
 )
 from temporalio.common import (
     Priority,
@@ -158,19 +157,26 @@ class AgentBackend[InputT, OutputT](ABC):
         )
 
     async def _run_control[ResultT](
-        self, operation: Callable[[], Awaitable[ResultT]]
+        self,
+        run_id: UUID,
+        operation: Callable[
+            [WorkflowHandle[AgentWorkflow[InputT, OutputT], OutputT]],
+            Awaitable[ResultT],
+        ],
     ) -> ResultT:
-        """Keep transport errors private and distinguish safe rollback from uncertainty."""
+        """Resolve once, then preserve uncertainty unless execution rejects the update."""
         started = False
         try:
-            # Connect first so a connection failure is a definitive rejection.
-            await get_temporal_client()
+            handle = await self.handle(run_id)
             started = True
-            return await operation()
-        except (WorkflowUpdateRPCTimeoutOrCancelledError, RPCError):
-            error = AgentControlUncertain if started else AgentControlRejected
-        except Exception:
+            return await operation(handle)
+        except WorkflowUpdateFailedError:
+            # The server returned a failed update outcome, not a lost response.
             error = AgentControlRejected
+        except Exception:
+            # Even decoding a successful response can fail after the update has
+            # applied. Only failures before handle acquisition are safe to undo.
+            error = AgentControlUncertain if started else AgentControlRejected
         # Leave the handler before raising so SDK exception context cannot leak.
         # Task cancellation propagates unchanged: it never proves rejection.
         if error is AgentControlUncertain:
@@ -190,27 +196,23 @@ class AgentBackend[InputT, OutputT](ABC):
                 "Approval continuation requires a stream identity"
             )
 
-        async def submit() -> bool | None:
-            handle = await self.handle(run_id)
-            return await handle.execute_update(
+        resumed = await self._run_control(
+            run_id,
+            lambda handle: handle.execute_update(
                 self.workflow.set_approvals,
                 submission,
                 id=f"set-approvals:{submission.new_stream_id}",
-            )
-
-        resumed = await self._run_control(submit)
+            ),
+        )
         return resumed is not False
 
     async def get_turn_lifecycle(self, run_id: UUID) -> TurnLifecycle:
         """Resolve execution status for reconnect without exposing Temporal types."""
 
-        async def describe() -> WorkflowExecutionDescription:
-            handle = await self.handle(run_id)
-            return await handle.describe()
-
+        handle = await self.handle(run_id)
         try:
-            description = await self._run_control(describe)
-        except AgentControlUncertain:
+            description = await handle.describe()
+        except RPCError:
             # Preserve reconnect behavior when history is gone or lookup fails.
             logger.warning(
                 "Failed to describe agent workflow for reconnect", run_id=str(run_id)
@@ -237,12 +239,11 @@ class AgentBackend[InputT, OutputT](ABC):
             # Redis is the fast path; failure must not prevent durable delivery.
             logger.warning("Failed to write turn cancel signal", run_id=str(run_id))
 
-        async def submit() -> None:
-            handle = await self.handle(run_id)
-            await handle.execute_update(
+        await self._run_control(
+            run_id,
+            lambda handle: handle.execute_update(
                 self.workflow.request_cancel,
                 WorkflowCancelRequest(reason="user_cancel"),
                 id=f"cancel:{run_id}",
-            )
-
-        await self._run_control(submit)
+            ),
+        )

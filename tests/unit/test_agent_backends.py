@@ -517,6 +517,8 @@ async def test_backend_missing_execution_keeps_reconnect_terminal():
     "failure,expected",
     [
         (WorkflowUpdateRPCTimeoutOrCancelledError(), AgentControlUncertain),
+        (ValueError("private result decoding details"), AgentControlUncertain),
+        (TimeoutError("private transport timeout"), AgentControlUncertain),
         (
             RPCError("private transport details", RPCStatusCode.UNAVAILABLE, b""),
             AgentControlUncertain,
@@ -570,3 +572,58 @@ async def test_default_cancel_keeps_workflow_control_when_executor_signal_fails(
     assert (
         handle.execute_update.await_args.args[0] is DurableAgentWorkflow.request_cancel
     )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("operation", ["approvals", "cancel", "lifecycle"])
+async def test_backend_resolves_one_client_and_handle_per_operation(operation):
+    run_id = uuid4()
+    handle = Mock(
+        execute_update=AsyncMock(return_value=True),
+        describe=AsyncMock(
+            return_value=SimpleNamespace(status=WorkflowExecutionStatus.RUNNING)
+        ),
+    )
+    client = Mock(get_workflow_handle_for=Mock(return_value=handle))
+    backend = DefaultBackend()
+    with (
+        patch(
+            "tracecat.agent.backends.base.get_temporal_client", return_value=client
+        ) as connect,
+        patch("tracecat.agent.backends.base.signal_turn_cancel"),
+    ):
+        match operation:
+            case "approvals":
+                await backend.submit_approvals(
+                    run_id,
+                    WorkflowApprovalSubmission(approvals={}, new_stream_id=uuid4()),
+                )
+            case "cancel":
+                await backend.cancel(run_id)
+            case "lifecycle":
+                with patch.object(
+                    backend,
+                    "_run_control",
+                    side_effect=AssertionError("read used control path"),
+                ):
+                    assert (
+                        await backend.get_turn_lifecycle(run_id)
+                        == TurnLifecycle.RUNNING
+                    )
+    connect.assert_awaited_once()
+    client.get_workflow_handle_for.assert_called_once_with(
+        DurableAgentWorkflow.run, f"agent/{run_id}"
+    )
+
+
+@pytest.mark.anyio
+async def test_handle_construction_failure_is_definitive_before_submission():
+    client = Mock(
+        get_workflow_handle_for=Mock(side_effect=ValueError("invalid workflow"))
+    )
+    with patch("tracecat.agent.backends.base.get_temporal_client", return_value=client):
+        with pytest.raises(AgentControlRejected) as caught:
+            await DefaultBackend().submit_approvals(
+                uuid4(), WorkflowApprovalSubmission(approvals={}, new_stream_id=uuid4())
+            )
+    assert caught.value.__context__ is None
