@@ -24,6 +24,8 @@ Older three-counter nonempty cursors
 are rejected rather than silently inventing overlap state. Rebuild those
 collections using `configure_collection` if upgrading an experimental worker.
 The database column's type stays JSONB; there is no new migration.
+Malformed checkpoints become durable `MANIFEST_CONFLICT` failures and stop
+automatic retries. Rebuild the collection to replace its invalid checkpoints.
 
 Preparation saves at most 32 manifests per turn. Embedding reconstructs only
 missing chunks, verifies their hashes, and respects both the provider's input

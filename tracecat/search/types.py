@@ -135,21 +135,26 @@ def decode_enumeration_cursor(
     Three-counter cursors remain supported by generic storage callers, but cannot
     resume chunk preparation. New worker writes persist only ChunkCheckpoint.
     """
-    data = dict(value or {})
-    nested = data.pop("chunker", None)
-    if nested is not None:
-        checkpoint = ChunkCheckpoint.model_validate_json(orjson.dumps(nested))
-        legacy = EnumerationCursor.model_validate(data)
-        if (
-            legacy.column_index != checkpoint.column_index
-            or legacy.character_offset != checkpoint.character_offset
-            or legacy.next_ordinal != checkpoint.next_ordinal
-        ):
-            raise ValueError("Chunker checkpoint position mismatch")
-        return checkpoint
-    if "identity" in data:
-        return ChunkCheckpoint.model_validate_json(orjson.dumps(data))
-    return EnumerationCursor.model_validate(data)
+    try:
+        data = dict(value or {})
+        nested = data.pop("chunker", None)
+        if nested is not None:
+            checkpoint = ChunkCheckpoint.model_validate_json(orjson.dumps(nested))
+            legacy = EnumerationCursor.model_validate(data)
+            if (
+                legacy.column_index != checkpoint.column_index
+                or legacy.character_offset != checkpoint.character_offset
+                or legacy.next_ordinal != checkpoint.next_ordinal
+            ):
+                raise ValueError("Chunker checkpoint position mismatch")
+            return checkpoint
+        if "identity" in data:
+            return ChunkCheckpoint.model_validate_json(orjson.dumps(data))
+        return EnumerationCursor.model_validate(data)
+    except (ValueError, TypeError):
+        pass
+    # Validation errors may contain source data. Discard their exception context.
+    raise SearchError(SearchErrorCode.MANIFEST_CONFLICT)
 
 
 class ChunkManifest(BaseModel):

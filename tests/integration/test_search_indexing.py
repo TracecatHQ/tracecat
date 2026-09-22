@@ -385,3 +385,48 @@ async def test_crash_after_preparation_resumes_saved_checkpoint(
     assert result.embedded > 0 and result.prepared == 0
     await tables.session.refresh(doc)
     assert doc.enumeration_cursor == checkpoint and doc.fence > old_fence
+
+
+@pytest.mark.parametrize("corruption", ["invalid_native", "legacy_mismatch"])
+async def test_corrupt_checkpoint_becomes_a_durable_failure(
+    tables: TablesService, table: Table, indexing, corruption: str
+):
+    work, pinned, embed = indexing
+    await tables.insert_row(
+        table, TableRowInsert(data={"body": "synthetic checkpoint recovery. " * 1000})
+    )
+    assert (await index_collection(work, pinned, embed)).outcome == "progress"
+    await tables.session.rollback()
+    doc = await tables.session.scalar(
+        sa.select(SearchDocument).where(
+            SearchDocument.collection_id == work.collection_id
+        )
+    )
+    assert doc is not None and doc.enumeration_cursor is not None
+    current = dict(doc.enumeration_cursor)
+    if corruption == "legacy_mismatch":
+        doc.enumeration_cursor = {
+            "column_index": current["column_index"],
+            "character_offset": current["character_offset"],
+            "next_ordinal": 9999,
+            "chunker": current,
+        }
+    else:
+        current["identity"] = "synthetic malformed identity"
+        doc.enumeration_cursor = current
+    await tables.session.commit()
+
+    async def unexpected_embed(request):
+        pytest.fail("A corrupt checkpoint must fail before provider calls")
+
+    result = await index_collection(work, pinned, unexpected_embed)
+    assert result.outcome == "MANIFEST_CONFLICT"
+    await tables.session.refresh(doc)
+    assert doc.state == "failed" and doc.error_code == "MANIFEST_CONFLICT"
+    assert doc.lease_until is None and doc.next_attempt_at is None
+    assert doc.indexed_revision is None
+    fence = doc.fence
+    await tables.session.rollback()
+    assert (await index_collection(work, pinned, unexpected_embed)).outcome == "idle"
+    await tables.session.refresh(doc)
+    assert doc.fence == fence

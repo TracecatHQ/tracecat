@@ -5,7 +5,12 @@ from uuid import uuid4
 import pytest
 
 from tracecat.search.chunking_types import ChunkCheckpoint, ChunkingIdentity
-from tracecat.search.types import EnumerationCursor, decode_enumeration_cursor
+from tracecat.search.types import (
+    EnumerationCursor,
+    SearchError,
+    SearchErrorCode,
+    decode_enumeration_cursor,
+)
 
 
 @pytest.fixture
@@ -54,8 +59,10 @@ def test_conflicting_legacy_positions_are_rejected(checkpoint, position):
         "chunker": checkpoint.model_dump(mode="json"),
     }
     data[position] = 999
-    with pytest.raises(ValueError, match="position mismatch"):
+    with pytest.raises(SearchError) as error:
         decode_enumeration_cursor(data)
+    assert error.value.code == SearchErrorCode.MANIFEST_CONFLICT
+    assert error.value.__context__ is None
 
 
 def test_generic_storage_cursor_remains_supported():
