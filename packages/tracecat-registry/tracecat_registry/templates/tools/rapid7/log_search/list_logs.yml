@@ -1,0 +1,26 @@
+type: action
+definition:
+  title: List logs
+  description: "List logs. Calls GET /log_search/management/logs directly."
+  display_group: Rapid7
+  doc_url: https://docs.rapid7.com/insightidr/log-search-api/#operation/getLogs
+  namespace: tools.rapid7
+  name: list_logs
+  secrets:
+    - name: rapid7
+      keys: ["RAPID7_API_KEY"]
+  expects:
+    base_url:
+      type: str | None
+      description: "Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap, aps2, me1."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.rapid7.base_url || "https://us.api.insight.rapid7.com" }}/log_search/management/logs
+        method: GET
+        headers:
+          X-Api-Key: ${{ SECRETS.rapid7.RAPID7_API_KEY }}
+          Accept: application/json
+  returns: ${{ steps.request.result }}

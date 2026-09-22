@@ -1,0 +1,84 @@
+type: action
+definition:
+  title: Search assets
+  description: "Search assets. Calls POST /vm/v4/integration/assets directly."
+  display_group: Rapid7
+  doc_url: https://help.rapid7.com/insightvm/en-us/api/integrations.html#operation/searchIntegrationAssets
+  namespace: tools.rapid7
+  name: search_assets
+  secrets:
+    - name: rapid7
+      keys: ["RAPID7_API_KEY"]
+  expects:
+    cursor:
+      type: str | None
+      description: "Use the cursor from the previous response."
+      default: null
+    page:
+      type: int | None
+      description: "The zero-based page index."
+      default: null
+    size:
+      type: int | None
+      description: "The number of records per page."
+      default: null
+    sort:
+      type: str | None
+      description: "The sort criteria."
+      default: null
+    currentTime:
+      type: str | None
+      description: "Current comparison time."
+      default: null
+    comparisonTime:
+      type: str | None
+      description: "Asset comparison time."
+      default: null
+    includeSame:
+      type: bool | None
+      description: "Include already-existing vulnerabilities."
+      default: null
+    includeUniqueIdentifiers:
+      type: bool | None
+      description: "Include unique identifiers."
+      default: null
+    includeInterSnapshotRemediations:
+      type: bool | None
+      description: "Include inter-snapshot remediations."
+      default: null
+    asset:
+      type: str | None
+      description: "Filter expression for assets."
+      default: null
+    vulnerability:
+      type: str | None
+      description: "Filter expression for vulnerabilities."
+      default: null
+    base_url:
+      type: str | None
+      description: "Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap, aps2, me1."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.rapid7.base_url || "https://us.api.insight.rapid7.com" }}/vm/v4/integration/assets
+        method: POST
+        headers:
+          X-Api-Key: ${{ SECRETS.rapid7.RAPID7_API_KEY }}
+          Accept: application/json
+          Content-Type: application/json
+        params:
+          cursor: ${{ inputs.cursor }}
+          page: ${{ inputs.page }}
+          size: ${{ inputs.size }}
+          sort: ${{ inputs.sort }}
+          currentTime: ${{ inputs.currentTime }}
+          comparisonTime: ${{ inputs.comparisonTime }}
+          includeSame: ${{ inputs.includeSame }}
+          includeUniqueIdentifiers: ${{ inputs.includeUniqueIdentifiers }}
+          includeInterSnapshotRemediations: ${{ inputs.includeInterSnapshotRemediations }}
+        payload:
+          asset: ${{ inputs.asset }}
+          vulnerability: ${{ inputs.vulnerability }}
+  returns: ${{ steps.request.result }}

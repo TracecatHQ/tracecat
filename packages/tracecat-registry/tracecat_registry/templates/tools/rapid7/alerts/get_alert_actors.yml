@@ -1,0 +1,40 @@
+type: action
+definition:
+  title: Get alert actors
+  description: "Get alert actors. Calls GET /idr/at/alerts/{alert_rrn}/actors directly."
+  display_group: Rapid7
+  doc_url: https://docs.rapid7.com/insightidr/api/alert-triage/#operation/getAlertActors
+  namespace: tools.rapid7
+  name: get_alert_actors
+  secrets:
+    - name: rapid7
+      keys: ["RAPID7_API_KEY"]
+  expects:
+    alert_rrn:
+      type: str
+      description: "The unique identifier of the alert."
+    index:
+      type: int | None
+      description: "The zero-based page index."
+      default: null
+    size:
+      type: int | None
+      description: "The page size."
+      default: null
+    base_url:
+      type: str | None
+      description: "Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap, aps2, me1."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.rapid7.base_url || "https://us.api.insight.rapid7.com" }}/idr/at/alerts/${{ FN.url_encode(inputs.alert_rrn) }}/actors
+        method: GET
+        headers:
+          X-Api-Key: ${{ SECRETS.rapid7.RAPID7_API_KEY }}
+          Accept: application/json
+        params:
+          index: ${{ inputs.index }}
+          size: ${{ inputs.size }}
+  returns: ${{ steps.request.result }}

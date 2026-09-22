@@ -1,0 +1,63 @@
+type: action
+definition:
+  title: Search alerts
+  description: "Search alerts. Calls POST /idr/at/alerts/ops/search directly."
+  display_group: Rapid7
+  doc_url: https://docs.rapid7.com/insightidr/api/alert-triage/#operation/searchAlerts
+  namespace: tools.rapid7
+  name: search_alerts
+  secrets:
+    - name: rapid7
+      keys: ["RAPID7_API_KEY"]
+  expects:
+    rrns_only:
+      type: bool | None
+      description: "Return only alert RRNs when true."
+      default: null
+    index:
+      type: int | None
+      description: "The zero-based page index."
+      default: null
+    size:
+      type: int | None
+      description: "The page size."
+      default: null
+    search:
+      type: dict[str, Any]
+      description: "The search terms to match against."
+    sorts:
+      type: list[dict[str, Any]] | None
+      description: "The sort order."
+      default: null
+    field_ids:
+      type: list[str] | None
+      description: "Additional fields to include."
+      default: null
+    aggregates:
+      type: list[dict[str, Any]] | None
+      description: "Aggregations to apply."
+      default: null
+    base_url:
+      type: str | None
+      description: "Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap, aps2, me1."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.rapid7.base_url || "https://us.api.insight.rapid7.com" }}/idr/at/alerts/ops/search
+        method: POST
+        headers:
+          X-Api-Key: ${{ SECRETS.rapid7.RAPID7_API_KEY }}
+          Accept: application/json
+          Content-Type: application/json
+        params:
+          rrns_only: ${{ inputs.rrns_only }}
+          index: ${{ inputs.index }}
+          size: ${{ inputs.size }}
+        payload:
+          search: ${{ inputs.search }}
+          sorts: ${{ inputs.sorts }}
+          field_ids: ${{ inputs.field_ids }}
+          aggregates: ${{ inputs.aggregates }}
+  returns: ${{ steps.request.result }}

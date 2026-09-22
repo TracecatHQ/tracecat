@@ -315,6 +315,7 @@
               "tools/pipe0",
               "tools/project_discovery",
               "tools/pymongo",
+              "tools/rapid7",
               "tools/recorded_future",
               "tools/rippling",
               "tools/rootly",

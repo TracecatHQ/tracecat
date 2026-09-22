@@ -1,0 +1,64 @@
+type: action
+definition:
+  title: Search investigations
+  description: "Search investigations. Calls POST /idr/v2/investigations/_search directly."
+  display_group: Rapid7
+  doc_url: https://help.rapid7.com/insightidr/en-us/api/v2/docs.html#operation/searchInvestigations
+  namespace: tools.rapid7
+  name: search_investigations
+  secrets:
+    - name: rapid7
+      keys: ["RAPID7_API_KEY"]
+  expects:
+    index:
+      type: int | None
+      description: "The optional 0-based index of the page to retrieve."
+      default: null
+    size:
+      type: int | None
+      description: "The optional size of the page to retrieve."
+      default: null
+    multi_customer:
+      type: bool | None
+      description: "Indicates whether the requester has multi-customer access. If set to true, a user API key must be provided."
+      default: null
+    search:
+      type: list[dict[str, Any]] | None
+      description: "The criteria for which investigations to return."
+      default: null
+    sort:
+      type: list[dict[str, Any]] | None
+      description: "The sorting information."
+      default: null
+    start_time:
+      type: str | None
+      description: "The start time for the investigation search."
+      default: null
+    end_time:
+      type: str | None
+      description: "The end time for the investigation search."
+      default: null
+    base_url:
+      type: str | None
+      description: "Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap, aps2, me1."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.rapid7.base_url || "https://us.api.insight.rapid7.com" }}/idr/v2/investigations/_search
+        method: POST
+        headers:
+          X-Api-Key: ${{ SECRETS.rapid7.RAPID7_API_KEY }}
+          Accept: application/json
+          Content-Type: application/json
+        params:
+          index: ${{ inputs.index }}
+          size: ${{ inputs.size }}
+          "multi-customer": ${{ inputs.multi_customer }}
+        payload:
+          search: ${{ inputs.search }}
+          sort: ${{ inputs.sort }}
+          start_time: ${{ inputs.start_time }}
+          end_time: ${{ inputs.end_time }}
+  returns: ${{ steps.request.result }}

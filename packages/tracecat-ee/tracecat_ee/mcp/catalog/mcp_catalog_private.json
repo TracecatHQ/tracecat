@@ -807,6 +807,65 @@
       }
     },
     {
+      "slug": "rapid7-mcp",
+      "docs": "https://github.com/rapid7/rapid7-bulk-export-mcp",
+      "connection_spec": {
+        "server_type": "stdio",
+        "auth_type": "CUSTOM",
+        "stdio_command": "uvx",
+        "stdio_args": [
+          "--from",
+          "git+https://github.com/rapid7/rapid7-bulk-export-mcp.git@3c5ecc1b6bfad8014e815f632dd302d2759dddb5",
+          "rapid7-mcp-server"
+        ],
+        "stdio_env": [
+          "RAPID7_API_KEY",
+          "RAPID7_REGION"
+        ],
+        "packages": [
+          {
+            "manager": "uvx",
+            "command": "uvx",
+            "args": [
+              "--from",
+              "git+https://github.com/rapid7/rapid7-bulk-export-mcp.git@3c5ecc1b6bfad8014e815f632dd302d2759dddb5",
+              "rapid7-mcp-server"
+            ],
+            "package": "git+https://github.com/rapid7/rapid7-bulk-export-mcp.git@3c5ecc1b6bfad8014e815f632dd302d2759dddb5"
+          }
+        ],
+        "credentials": [
+          {
+            "key": "RAPID7_API_KEY",
+            "label": "Rapid7 Insight Platform API key",
+            "description": "Insight Platform API key; bulk export requires a key with platform admin permissions",
+            "required": true,
+            "secret": true,
+            "target": "stdio_env"
+          },
+          {
+            "key": "RAPID7_REGION",
+            "label": "Rapid7 region",
+            "description": "Rapid7 region. Supported regions: us, us2, us3, eu, ca, au, ap.",
+            "required": true,
+            "secret": false,
+            "placeholder": "us",
+            "target": "stdio_env"
+          }
+        ],
+        "_research": {
+          "confidence": "high",
+          "docker_only": false,
+          "notes": "Official Rapid7 bulk export MCP repository. Pinned to a git source because no PyPI release is available. Uses the default stdio transport and requires RAPID7_API_KEY and RAPID7_REGION credentials.",
+          "sources": [
+            "https://github.com/rapid7/rapid7-bulk-export-mcp",
+            "https://www.rapid7.com/blog/post/em-bulk-export-ai-ready-security-workflows-open-source-mcp-server-agent-skill/",
+            "https://docs.rapid7.com/insightvm/bulk-export-api/"
+          ]
+        }
+      }
+    },
+    {
       "slug": "wiz-mcp",
       "docs": "https://docs.wiz.io/docs/set-up-wiz-mcp-server",
       "provider_id": "wiz_mcp",

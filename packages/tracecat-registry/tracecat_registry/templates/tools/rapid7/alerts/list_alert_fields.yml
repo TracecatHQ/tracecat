@@ -1,0 +1,52 @@
+type: action
+definition:
+  title: List alert fields
+  description: "List alert fields. Calls GET /idr/at/alerts/fields directly."
+  display_group: Rapid7
+  doc_url: https://docs.rapid7.com/insightidr/api/alert-triage/#operation/getAlertFields
+  namespace: tools.rapid7
+  name: list_alert_fields
+  secrets:
+    - name: rapid7
+      keys: ["RAPID7_API_KEY"]
+  expects:
+    path:
+      type: str | None
+      description: "Limits results to fields at or below this path."
+      default: null
+    path_depth:
+      type: int | None
+      description: "The depth to round results to."
+      default: null
+    search:
+      type: str | None
+      description: "Limits results containing the search terms."
+      default: null
+    index:
+      type: int | None
+      description: "The zero-based page index."
+      default: null
+    size:
+      type: int | None
+      description: "The page size."
+      default: null
+    base_url:
+      type: str | None
+      description: "Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap, aps2, me1."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.rapid7.base_url || "https://us.api.insight.rapid7.com" }}/idr/at/alerts/fields
+        method: GET
+        headers:
+          X-Api-Key: ${{ SECRETS.rapid7.RAPID7_API_KEY }}
+          Accept: application/json
+        params:
+          path: ${{ inputs.path }}
+          path_depth: ${{ inputs.path_depth }}
+          search: ${{ inputs.search }}
+          index: ${{ inputs.index }}
+          size: ${{ inputs.size }}
+  returns: ${{ steps.request.result }}

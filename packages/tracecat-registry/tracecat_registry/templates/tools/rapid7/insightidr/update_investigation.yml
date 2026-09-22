@@ -1,0 +1,41 @@
+type: action
+definition:
+  title: Update investigation
+  description: "Update investigation. Calls PATCH /idr/v2/investigations/{id} directly."
+  display_group: Rapid7
+  doc_url: https://help.rapid7.com/insightidr/en-us/api/v2/docs.html#operation/updateInvestigation
+  namespace: tools.rapid7
+  name: update_investigation
+  secrets:
+    - name: rapid7
+      keys: ["RAPID7_API_KEY"]
+  expects:
+    id:
+      type: str
+      description: "The id or rrn of the investigation."
+    payload:
+      # Generic: vendor treats omitted vs null differently and a literal map cannot omit unset fields
+      type: dict[str, Any]
+      description: "API-native request body. Fields include title, status, priority, disposition, assignee, and threat command fields."
+    multi_customer:
+      type: bool | None
+      description: "Indicates whether the requester has multi-customer access. If set to true, a user API key must be provided."
+      default: null
+    base_url:
+      type: str | None
+      description: "Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap, aps2, me1."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.rapid7.base_url || "https://us.api.insight.rapid7.com" }}/idr/v2/investigations/${{ FN.url_encode(inputs.id) }}
+        method: PATCH
+        headers:
+          X-Api-Key: ${{ SECRETS.rapid7.RAPID7_API_KEY }}
+          Accept: application/json
+          Content-Type: application/json
+        params:
+          "multi-customer": ${{ inputs.multi_customer }}
+        payload: ${{ inputs.payload }}
+  returns: ${{ steps.request.result }}

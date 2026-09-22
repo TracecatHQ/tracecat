@@ -1,0 +1,55 @@
+type: action
+definition:
+  title: Get asset
+  description: "Get asset. Calls GET /vm/v4/integration/assets/{id} directly."
+  display_group: Rapid7
+  doc_url: https://help.rapid7.com/insightvm/en-us/api/integrations.html#operation/getIntegrationAsset
+  namespace: tools.rapid7
+  name: get_asset
+  secrets:
+    - name: rapid7
+      keys: ["RAPID7_API_KEY"]
+  expects:
+    id:
+      type: str
+      description: "The identifier of the asset."
+    currentTime:
+      type: str | None
+      description: "Current comparison time."
+      default: null
+    comparisonTime:
+      type: str | None
+      description: "Asset comparison time."
+      default: null
+    includeSame:
+      type: bool | None
+      description: "Include already-existing vulnerabilities."
+      default: null
+    includeUniqueIdentifiers:
+      type: bool | None
+      description: "Include unique identifiers."
+      default: null
+    includeInterSnapshotRemediations:
+      type: bool | None
+      description: "Include inter-snapshot remediations."
+      default: null
+    base_url:
+      type: str | None
+      description: "Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap, aps2, me1."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.rapid7.base_url || "https://us.api.insight.rapid7.com" }}/vm/v4/integration/assets/${{ FN.url_encode(inputs.id) }}
+        method: GET
+        headers:
+          X-Api-Key: ${{ SECRETS.rapid7.RAPID7_API_KEY }}
+          Accept: application/json
+        params:
+          currentTime: ${{ inputs.currentTime }}
+          comparisonTime: ${{ inputs.comparisonTime }}
+          includeSame: ${{ inputs.includeSame }}
+          includeUniqueIdentifiers: ${{ inputs.includeUniqueIdentifiers }}
+          includeInterSnapshotRemediations: ${{ inputs.includeInterSnapshotRemediations }}
+  returns: ${{ steps.request.result }}

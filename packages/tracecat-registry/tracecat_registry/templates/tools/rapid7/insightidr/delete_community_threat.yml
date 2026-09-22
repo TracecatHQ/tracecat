@@ -1,0 +1,36 @@
+type: action
+definition:
+  title: Delete Community Threat
+  description: "Delete Community Threat. Calls POST /idr/v1/customthreats/key/{key}/delete directly."
+  display_group: Rapid7
+  doc_url: https://help.rapid7.com/insightidr/en-us/api/v1/docs.html#operation/deleteCommunityThreat
+  namespace: tools.rapid7
+  name: delete_community_threat
+  secrets:
+    - name: rapid7
+      keys: ["RAPID7_API_KEY"]
+  expects:
+    key:
+      type: str
+      description: "The key of a Community Threat."
+    reason:
+      type: str | None
+      description: "The reason for deleting the Community Threat."
+      default: null
+    base_url:
+      type: str | None
+      description: "Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap, aps2, me1."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.rapid7.base_url || "https://us.api.insight.rapid7.com" }}/idr/v1/customthreats/key/${{ FN.url_encode(inputs.key) }}/delete
+        method: POST
+        headers:
+          X-Api-Key: ${{ SECRETS.rapid7.RAPID7_API_KEY }}
+          Accept: application/json
+          Content-Type: application/json
+        payload:
+          reason: ${{ inputs.reason }}
+  returns: ${{ steps.request.result }}

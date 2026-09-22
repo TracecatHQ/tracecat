@@ -1,0 +1,43 @@
+type: action
+definition:
+  title: Get alerts
+  description: "Get alerts. Calls POST /idr/at/alerts/ops/rrns directly."
+  display_group: Rapid7
+  doc_url: https://docs.rapid7.com/insightidr/api/alert-triage/#operation/getAlertsByRrn
+  namespace: tools.rapid7
+  name: get_alerts
+  secrets:
+    - name: rapid7
+      keys: ["RAPID7_API_KEY"]
+  expects:
+    strict:
+      type: bool | None
+      description: "Return a 404 when no alerts are found."
+      default: null
+    rrns:
+      type: list[str]
+      description: "The alert RRNs to retrieve."
+    field_ids:
+      type: list[str] | None
+      description: "Additional fields to include."
+      default: null
+    base_url:
+      type: str | None
+      description: "Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap, aps2, me1."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.rapid7.base_url || "https://us.api.insight.rapid7.com" }}/idr/at/alerts/ops/rrns
+        method: POST
+        headers:
+          X-Api-Key: ${{ SECRETS.rapid7.RAPID7_API_KEY }}
+          Accept: application/json
+          Content-Type: application/json
+        params:
+          strict: ${{ inputs.strict }}
+        payload:
+          rrns: ${{ inputs.rrns }}
+          field_ids: ${{ inputs.field_ids }}
+  returns: ${{ steps.request.result }}

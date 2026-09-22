@@ -1,0 +1,60 @@
+type: action
+definition:
+  title: Run saved query
+  description: "Run saved query. Calls GET /log_search/query/saved_query/{saved_query_id} directly."
+  display_group: Rapid7
+  doc_url: https://docs.rapid7.com/insightidr/log-search-api/#operation/useSavedQuery
+  namespace: tools.rapid7
+  name: run_saved_query
+  secrets:
+    - name: rapid7
+      keys: ["RAPID7_API_KEY"]
+  expects:
+    saved_query_id:
+      type: str
+      description: "The id of the saved query."
+    from:
+      type: int | None
+      description: "Start UNIX timestamp in milliseconds."
+      default: null
+    to:
+      type: int | None
+      description: "End UNIX timestamp in milliseconds."
+      default: null
+    time_range:
+      type: str | None
+      description: "An alternative relative time range."
+      default: null
+    per_page:
+      type: int | None
+      description: "Number of entries per page."
+      default: null
+    kvp_info:
+      type: bool | None
+      description: "Include key-value pair information."
+      default: null
+    most_recent_first:
+      type: bool | None
+      description: "Return most recent events first."
+      default: null
+    base_url:
+      type: str | None
+      description: "Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap, aps2, me1."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.rapid7.base_url || "https://us.api.insight.rapid7.com" }}/log_search/query/saved_query/${{ FN.url_encode(inputs.saved_query_id) }}
+        method: GET
+        headers:
+          X-Api-Key: ${{ SECRETS.rapid7.RAPID7_API_KEY }}
+          Accept: application/json
+        params:
+          from: ${{ inputs.from }}
+          to: ${{ inputs.to }}
+          time_range: ${{ inputs.time_range }}
+          per_page: ${{ inputs.per_page }}
+          kvp_info: ${{ inputs.kvp_info }}
+          most_recent_first: ${{ inputs.most_recent_first }}
+  returns: ${{ steps.request.result }}

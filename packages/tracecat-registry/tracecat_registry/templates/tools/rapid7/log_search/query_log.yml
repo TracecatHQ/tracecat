@@ -1,0 +1,70 @@
+type: action
+definition:
+  title: Query individual logs
+  description: "Submit a log query. Responses may be HTTP 202 with a links continuation URL requiring polling via poll_query. Calls GET /log_search/query/logs/{log_keys} directly."
+  display_group: Rapid7
+  doc_url: https://docs.rapid7.com/insightidr/log-search-api/#operation/getQueryLogs
+  namespace: tools.rapid7
+  name: query_log
+  secrets:
+    - name: rapid7
+      keys: ["RAPID7_API_KEY"]
+  expects:
+    log_keys:
+      type: str
+      description: "The log key."
+    query:
+      type: str | None
+      description: "A valid LEQL query."
+      default: null
+    from:
+      type: int | None
+      description: "Start UNIX timestamp in milliseconds."
+      default: null
+    to:
+      type: int | None
+      description: "End UNIX timestamp in milliseconds."
+      default: null
+    time_range:
+      type: str | None
+      description: "An alternative relative time range."
+      default: null
+    per_page:
+      type: int | None
+      description: "Number of entries per page, up to 500."
+      default: null
+    kvp_info:
+      type: bool | None
+      description: "Include key-value pair information."
+      default: null
+    most_recent_first:
+      type: bool | None
+      description: "Return most recent events first."
+      default: null
+    sequence_number:
+      type: int | None
+      description: "Sequence number for incremental results."
+      default: null
+    base_url:
+      type: str | None
+      description: "Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap, aps2, me1."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.rapid7.base_url || "https://us.api.insight.rapid7.com" }}/log_search/query/logs/${{ FN.url_encode(inputs.log_keys) }}
+        method: GET
+        headers:
+          X-Api-Key: ${{ SECRETS.rapid7.RAPID7_API_KEY }}
+          Accept: application/json
+        params:
+          query: ${{ inputs.query }}
+          from: ${{ inputs.from }}
+          to: ${{ inputs.to }}
+          time_range: ${{ inputs.time_range }}
+          per_page: ${{ inputs.per_page }}
+          kvp_info: ${{ inputs.kvp_info }}
+          most_recent_first: ${{ inputs.most_recent_first }}
+          sequence_number: ${{ inputs.sequence_number }}
+  returns: ${{ steps.request.result }}
