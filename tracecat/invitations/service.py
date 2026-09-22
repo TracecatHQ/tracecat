@@ -517,6 +517,10 @@ class InvitationService(BaseOrgService):
                 "User must be authenticated to create invitation"
             )
 
+        # SCIM activation revokes pending invitations under this lock, then
+        # admits the directory. Take it before validating so an invitation
+        # cannot commit into the window and outlive the sweep.
+        await lock_role_changes(self.session, self.organization_id)
         await validate_grants(self.session, self.role, self.organization_id, params)
         invitation = await create_invitation_row(
             self.session,

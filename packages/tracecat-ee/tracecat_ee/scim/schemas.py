@@ -119,6 +119,11 @@ RESOURCE_TYPE_SCHEMA = "urn:ietf:params:scim:schemas:core:2.0:ResourceType"
 
 SCIM_CONTENT_TYPE = "application/scim+json"
 
+# Mirror the stored columns: external_user.external_id, external_group.external_id
+# and external_group.display_name are all String(255).
+EXTERNAL_ID_MAX_LENGTH = 255
+DISPLAY_NAME_MAX_LENGTH = 255
+
 # Providers send unknown attributes freely; rejecting them would fail otherwise
 # valid provisioning requests, so every inbound resource ignores extras.
 _ScimModelConfig = ConfigDict(populate_by_name=True, extra="ignore")
@@ -165,7 +170,11 @@ class ScimUserRequest(ScimModel):
 
     schemas: list[str] = Field(default_factory=lambda: [USER_SCHEMA])
     user_name: str = Field(alias="userName")
-    external_id: str | None = Field(default=None, alias="externalId")
+    # Bounded by the stored column, so an oversized id is 400 invalidValue
+    # rather than a database error the provider reads as 500.
+    external_id: str | None = Field(
+        default=None, alias="externalId", max_length=EXTERNAL_ID_MAX_LENGTH
+    )
     active: bool = Field(default=True)
     name: ScimName | None = Field(default=None)
     display_name: str | None = Field(default=None, alias="displayName")
@@ -201,8 +210,10 @@ class ScimGroupRequest(ScimModel):
     """An inbound Group resource on POST or PUT."""
 
     schemas: list[str] = Field(default_factory=lambda: [GROUP_SCHEMA])
-    display_name: str = Field(alias="displayName")
-    external_id: str | None = Field(default=None, alias="externalId")
+    display_name: str = Field(alias="displayName", max_length=DISPLAY_NAME_MAX_LENGTH)
+    external_id: str | None = Field(
+        default=None, alias="externalId", max_length=EXTERNAL_ID_MAX_LENGTH
+    )
     members: list[ScimGroupMemberRef] | None = Field(default=None)
 
 

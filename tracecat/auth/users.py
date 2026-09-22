@@ -221,7 +221,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
 
         # An IdP-provisioned user holds a generated password the IdP cannot
         # revoke. Require external login only when one is enabled.
-        if await self._requires_external_login(user.id):
+        if await self._requires_external_login(user.id, user.email):
             return False
 
         org_ids = await self._list_user_org_ids(user.id)
@@ -307,8 +307,13 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                 return True
         return False
 
-    async def _requires_external_login(self, user_id: uuid.UUID) -> bool:
-        """Require an enabled external login for active, admitted SCIM users."""
+    async def _requires_external_login(self, user_id: uuid.UUID, email: str) -> bool:
+        """Require an enabled external login for active, admitted SCIM users.
+
+        Only for an organization whose SSO would actually admit them: the SAML
+        callback rejects an email outside the organization's active domains, so
+        forcing external login there would leave the account no way in.
+        """
         statement = (
             select(ExternalUser.organization_id)
             .join(
@@ -335,14 +340,51 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                 return True
             if AuthType.SAML in config.TRACECAT__AUTH_TYPES:
                 for org_id in org_ids:
-                    if await get_setting_from_bypass_session(
+                    if not await get_setting_from_bypass_session(
                         "saml_enabled",
                         organization_id=org_id,
                         session=session,
                         default=True,
                     ):
+                        continue
+                    if await self._saml_would_admit_email(session, org_id, email):
                         return True
             return False
+
+    async def _saml_would_admit_email(
+        self, session: SupportsExecute, org_id: OrganizationID, email: str
+    ) -> bool:
+        """Mirror the SAML callback's domain allowlist for one organization.
+
+        Kept in step with ``_is_normalized_domain_allowed_for_org`` in
+        ``tracecat.auth.saml``, which imports from this module and so cannot be
+        imported back.
+        """
+        _, _, email_domain = email.rpartition("@")
+        if not email_domain:
+            return False
+        try:
+            normalized_domain = normalize_domain(email_domain).normalized_domain
+        except ValueError:
+            return False
+
+        active_domains = set(
+            (
+                await session.execute(
+                    select(OrganizationDomain.normalized_domain).where(
+                        OrganizationDomain.organization_id == org_id,
+                        OrganizationDomain.is_active.is_(True),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if active_domains:
+            return normalized_domain in active_domains
+        # No configured domains: multi-tenant admits nobody by domain, and the
+        # single-tenant env allowlist is handled by the callback itself.
+        return not config.TRACECAT__EE_MULTI_TENANT
 
     async def _is_saml_enforced_for_oauth(self, email: str) -> bool:
         """Check if SAML enforcement blocks OAuth for this email.
