@@ -87,10 +87,12 @@ async def index_search_collection(work: CollectionWork) -> IndexingProgress:
                 ("cleaned", result.cleaned),
             ):
                 meter.create_counter(f"search.indexing.{name}").add(count)
-            meter.create_histogram("search.indexing.pending_rows").record(
+            meter.create_histogram("search.indexing.pending_rows_sample").record(
                 result.pending
             )
-            meter.create_histogram("search.indexing.failed_rows").record(result.failed)
+            meter.create_histogram("search.indexing.failed_rows_sample").record(
+                result.failed
+            )
             meter.create_histogram(
                 "search.indexing.queue_wait_seconds", unit="s"
             ).record(result.queue_wait_seconds)
@@ -119,37 +121,30 @@ class SearchIndexDispatcher:
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
-            remaining = list(page.collections)
-            while remaining:
-                wave: list[CollectionWork] = []
-                deferred: list[CollectionWork] = []
-                workspaces: set[UUID] = set()
-                for item in remaining:
-                    if len(wave) == 6 or item.workspace_id in workspaces:
-                        deferred.append(item)
-                    else:
-                        wave.append(item)
-                        workspaces.add(item.workspace_id)
-                remaining = deferred
-                # One turn per workspace per wave avoids permit starvation.
-                results = await asyncio.gather(
-                    *[
-                        workflow.execute_activity(
-                            index_search_collection,
-                            item,
-                            start_to_close_timeout=timedelta(seconds=100),
-                            retry_policy=RetryPolicy(maximum_attempts=1),
-                        )
-                        for item in wave
-                    ],
-                    return_exceptions=True,
-                )
-                for result in results:
-                    if isinstance(result, ActivityError):
-                        workflow.logger.warning(
-                            "Search collection deferred after activity failure"
-                        )
+            await self._dispatch_page(page.collections)
             cursor = page.next_cursor
             if cursor is None:
                 return
         workflow.continue_as_new(cursor)
+
+    async def _dispatch_page(self, collections: list[CollectionWork]) -> None:
+        capacity = asyncio.Semaphore(6)
+        workspaces = {item.workspace_id: asyncio.Lock() for item in collections}
+
+        async def index(work: CollectionWork) -> None:
+            # Wait for the workspace before taking a global slot, so queued
+            # work from one workspace cannot occupy other workspaces' slots.
+            async with workspaces[work.workspace_id], capacity:
+                try:
+                    await workflow.execute_activity(
+                        index_search_collection,
+                        work,
+                        start_to_close_timeout=timedelta(seconds=100),
+                        retry_policy=RetryPolicy(maximum_attempts=1),
+                    )
+                except ActivityError:
+                    workflow.logger.warning(
+                        "Search collection deferred after activity failure"
+                    )
+
+        await asyncio.gather(*(index(item) for item in collections))

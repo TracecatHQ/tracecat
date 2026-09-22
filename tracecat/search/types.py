@@ -4,7 +4,8 @@ import uuid
 from dataclasses import dataclass
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+import orjson
+from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 from tracecat.search.chunking_types import ChunkCheckpoint
 
@@ -78,6 +79,22 @@ class BuildClaim:
     fence: int
 
 
+@dataclass(frozen=True, slots=True)
+class ClaimedDocument:
+    """A leased document and the time it waited before this claim."""
+
+    claim: BuildClaim
+    queue_wait_seconds: float
+
+
+@dataclass(frozen=True, slots=True)
+class BacklogSample:
+    """Pending and failed counts from at most 100 live documents."""
+
+    pending: int
+    failed: int
+
+
 class ChunkerSettings(BaseModel):
     """Immutable chunking settings defining a collection generation.
 
@@ -108,17 +125,31 @@ class EnumerationCursor(BaseModel):
     column_index: int = Field(default=0, ge=0)
     character_offset: int = Field(default=0, ge=0)
     next_ordinal: int = Field(default=0, ge=0)
-    chunker: ChunkCheckpoint | None = Field(default=None)
 
-    @model_validator(mode="after")
-    def check_chunker_position(self) -> "EnumerationCursor":
-        if self.chunker is not None and (
-            self.column_index != self.chunker.column_index
-            or self.character_offset != self.chunker.character_offset
-            or self.next_ordinal != self.chunker.next_ordinal
+
+def decode_enumeration_cursor(
+    value: dict[str, JsonValue] | None,
+) -> EnumerationCursor | ChunkCheckpoint:
+    """Read canonical checkpoints and validate the earlier nested representation.
+
+    Three-counter cursors remain supported by generic storage callers, but cannot
+    resume chunk preparation. New worker writes persist only ChunkCheckpoint.
+    """
+    data = dict(value or {})
+    nested = data.pop("chunker", None)
+    if nested is not None:
+        checkpoint = ChunkCheckpoint.model_validate_json(orjson.dumps(nested))
+        legacy = EnumerationCursor.model_validate(data)
+        if (
+            legacy.column_index != checkpoint.column_index
+            or legacy.character_offset != checkpoint.character_offset
+            or legacy.next_ordinal != checkpoint.next_ordinal
         ):
             raise ValueError("Chunker checkpoint position mismatch")
-        return self
+        return checkpoint
+    if "identity" in data:
+        return ChunkCheckpoint.model_validate_json(orjson.dumps(data))
+    return EnumerationCursor.model_validate(data)
 
 
 class ChunkManifest(BaseModel):

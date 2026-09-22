@@ -3,12 +3,12 @@
 from collections.abc import Awaitable, Callable
 from uuid import UUID
 
-import orjson
 import sqlalchemy as sa
 
 from tracecat.db.models import SearchChunk, SearchCollection, SearchDocument
 from tracecat.search.chunking import TextChunker
 from tracecat.search.chunking_types import (
+    ChunkCheckpoint,
     ChunkingConfig,
     ChunkingError,
     ChunkingIdentity,
@@ -28,10 +28,10 @@ from tracecat.search.types import (
     ChunkManifest,
     EmbeddingInput,
     EmbeddingRequest,
-    EnumerationCursor,
     SearchError,
     SearchErrorCode,
     SearchState,
+    decode_enumeration_cursor,
 )
 from tracecat.tables.search.source import TableSearchSource
 
@@ -189,52 +189,14 @@ async def _claim_next(
                 complete=not page.has_more,
             )
             progress.discovered = len(page.rows)
-        status = await source.status(collection.id)
-        progress.pending, progress.failed = status.pending, status.failed
-        # Oldest touched document first; successful batches move to the back.
-        due = sa.and_(
-            SearchDocument.state.in_(["pending", "building", "failed"]),
-            sa.or_(
-                SearchDocument.state != "failed",
-                SearchDocument.next_attempt_at.is_not(None),
-            ),
-            sa.or_(
-                SearchDocument.next_attempt_at.is_(None),
-                SearchDocument.next_attempt_at <= sa.func.now(),
-            ),
-        )
-        document_id = await source.session.scalar(
-            sa.select(SearchDocument.id)
-            .where(
-                source._scope(SearchDocument),
-                SearchDocument.collection_id == collection.id,
-                SearchDocument.deleted_at.is_(None),
-                sa.or_(SearchDocument.generation != collection.generation, due),
-                sa.or_(
-                    SearchDocument.lease_until.is_(None),
-                    SearchDocument.lease_until <= sa.func.now(),
-                ),
-            )
-            .order_by(SearchDocument.updated_at, SearchDocument.id)
-            .limit(1)
-        )
-        if document_id is not None:
-            waited = await source.session.scalar(
-                sa.select(
-                    sa.func.extract(
-                        "epoch",
-                        sa.func.clock_timestamp() - SearchDocument.updated_at,
-                    )
-                ).where(SearchDocument.id == document_id)
-            )
-            progress.queue_wait_seconds = max(0, float(waited or 0))
-        claim = (
-            await source.claim(collection.id, document_id, lease_seconds=120)
-            if document_id
-            else None
-        )
+        claimed = await source.claim_next_due(collection.id)
         await source.session.commit()
-    return claim
+        # Telemetry observes a bounded sample after releasing the workspace lock.
+        sample = await source.sample_backlog(collection.id)
+        progress.pending, progress.failed = sample.pending, sample.failed
+        if claimed is not None:
+            progress.queue_wait_seconds = claimed.queue_wait_seconds
+    return claimed.claim if claimed is not None else None
 
 
 async def _prepare_inputs(
@@ -258,10 +220,8 @@ async def _prepare_inputs(
             ],
             configuration,
         )
-        before = EnumerationCursor.model_validate_json(
-            orjson.dumps(document.enumeration_cursor or {})
-        )
-        if document.enumeration_cursor and before.chunker is None:
+        before = decode_enumeration_cursor(document.enumeration_cursor)
+        if document.enumeration_cursor and not isinstance(before, ChunkCheckpoint):
             raise SearchError(SearchErrorCode.MANIFEST_CONFLICT)
         pending = (
             sa.select(SearchChunk)
@@ -277,16 +237,13 @@ async def _prepare_inputs(
         )
         chunks = (await source.session.scalars(pending)).all()
         if not chunks and not document.enumeration_complete:
-            batch = await chunker.prepare_batch(source, before.chunker)
+            batch = await chunker.prepare_batch(
+                source, before if isinstance(before, ChunkCheckpoint) else None
+            )
             await source.checkpoint(
                 claim,
                 before=before,
-                after=EnumerationCursor(
-                    column_index=batch.checkpoint.column_index,
-                    character_offset=batch.checkpoint.character_offset,
-                    next_ordinal=batch.checkpoint.next_ordinal,
-                    chunker=batch.checkpoint,
-                ),
+                after=batch.checkpoint,
                 chunks=tuple(
                     ChunkManifest(
                         ordinal=c.metadata.ordinal,
@@ -336,7 +293,6 @@ async def _finish_batch(
 ) -> None:
     """Save embeddings and publish atomically, or yield incomplete work."""
     async with TableSearchSource.with_session(scope=work.scope) as source:
-        _, document = await source._fenced(claim)
         if result is not None:
             await source.write_embeddings(claim, result.results)
             progress.embedded = len(result.results)
@@ -344,23 +300,7 @@ async def _finish_batch(
                 result.prompt_tokens,
                 result.total_tokens,
             )
-        missing = await source.session.scalar(
-            sa.select(
-                sa.exists().where(
-                    source._scope(SearchChunk),
-                    SearchChunk.document_id == claim.document_id,
-                    SearchChunk.generation == claim.generation,
-                    SearchChunk.revision == claim.revision,
-                    SearchChunk.state != "embedded",
-                )
-            )
-        )
-        if document.enumeration_complete and not missing:
-            await source.publish(claim)
-            progress.outcome = "published"
-        else:
-            await source.yield_claim(claim)
-            progress.outcome = "progress"
+        progress.outcome = await source.finish_or_yield(claim)
         await source.session.commit()
 
 

@@ -24,6 +24,7 @@ from tracecat.db.engine import reset_async_engine
 from tracecat.db.models import SearchChunk, SearchDocument, Table
 from tracecat.redis.client import RedisClient
 from tracecat.search.capacity import search_capacity
+from tracecat.search.chunking_types import ChunkCheckpoint
 from tracecat.search.embeddings.client import EmbeddingClient
 from tracecat.search.embeddings.types import (
     EmbeddingError,
@@ -41,7 +42,6 @@ from tracecat.search.indexing_workflow import (
 )
 from tracecat.search.types import (
     EmbeddingRequest,
-    EnumerationCursor,
     SearchScope,
     SearchState,
 )
@@ -159,11 +159,12 @@ async def test_long_document_resumes_and_never_publishes_partial(
             break
         assert progress.outcome == "progress"
         assert doc.indexed_revision is None
-        checkpoint = EnumerationCursor.model_validate_json(
+        checkpoint = ChunkCheckpoint.model_validate_json(
             json.dumps(doc.enumeration_cursor)
         )
-        assert checkpoint.chunker is not None
-        assert checkpoint.chunker.identity.document_id == doc.id
+        assert doc.enumeration_cursor is not None
+        assert "chunker" not in doc.enumeration_cursor
+        assert checkpoint.identity.document_id == doc.id
         saw_partial = True
     else:
         pytest.fail("bounded retries did not finish")
@@ -343,8 +344,9 @@ async def test_global_capacity_spans_workspaces(tables: TablesService):
         assert not await stack.enter_async_context(search_capacity(scopes[8]))
 
 
+@pytest.mark.parametrize("nested_checkpoint", [False, True])
 async def test_crash_after_preparation_resumes_saved_checkpoint(
-    tables: TablesService, table: Table, indexing
+    tables: TablesService, table: Table, indexing, nested_checkpoint: bool
 ):
     work, pinned, embed = indexing
     await tables.insert_row(
@@ -367,6 +369,14 @@ async def test_crash_after_preparation_resumes_saved_checkpoint(
         and doc.enumeration_cursor is not None
         and doc.indexed_revision is None
     )
+    if nested_checkpoint:
+        current = doc.enumeration_cursor
+        doc.enumeration_cursor = {
+            "column_index": current["column_index"],
+            "character_offset": current["character_offset"],
+            "next_ordinal": current["next_ordinal"],
+            "chunker": current,
+        }
     checkpoint = dict(doc.enumeration_cursor)
     old_fence = doc.fence
     doc.lease_until = datetime.now(UTC)
