@@ -4,7 +4,19 @@ from collections.abc import Awaitable, Callable, Mapping
 from datetime import timedelta
 
 from google.protobuf.message import Message
-from temporalio.service import ServiceClient
+from temporalio.service import RPCError, RPCStatusCode, ServiceClient
+
+_REJECTED_START_STATUSES = frozenset(
+    {
+        RPCStatusCode.INVALID_ARGUMENT,
+        RPCStatusCode.NOT_FOUND,
+        RPCStatusCode.PERMISSION_DENIED,
+        RPCStatusCode.FAILED_PRECONDITION,
+        RPCStatusCode.OUT_OF_RANGE,
+        RPCStatusCode.UNIMPLEMENTED,
+        RPCStatusCode.UNAUTHENTICATED,
+    }
+)
 
 
 class TurnDispatchClient(ServiceClient):
@@ -24,6 +36,7 @@ class TurnDispatchClient(ServiceClient):
         self._wrapped = wrapped
         self._commit = commit
         self.committed = False
+        self.rejected = False
 
     @property
     def worker_service_client(self):
@@ -53,15 +66,23 @@ class TurnDispatchClient(ServiceClient):
         # operation while preparation holds the session lock.
         if service != "workflow" or rpc != "start_workflow_execution":
             raise RuntimeError("Turn dispatch only supports starting a workflow")
-        if not self.committed:
-            await self._commit()
-            self.committed = True
-        return await self._wrapped._rpc_call(
-            rpc,
-            req,
-            resp_type,
-            service=service,
-            retry=retry,
-            metadata=metadata,
-            timeout=timeout,
-        )
+        if self.committed:
+            raise RuntimeError("Turn dispatch only supports one start attempt")
+        await self._commit()
+        self.committed = True
+        try:
+            return await self._wrapped._rpc_call(
+                rpc,
+                req,
+                resp_type,
+                service=service,
+                # A final rejection after an SDK retry cannot rule out an earlier
+                # accepted start whose acknowledgement was lost. Observe exactly
+                # one attempt so only definitive rejections release ownership.
+                retry=False,
+                metadata=metadata,
+                timeout=timeout,
+            )
+        except RPCError as exc:
+            self.rejected = exc.status in _REJECTED_START_STATUSES
+            raise

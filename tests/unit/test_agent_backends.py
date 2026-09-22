@@ -211,6 +211,7 @@ async def test_builtin_dispatch_preserves_workflow_contract():
     assert args.agent_args.active_stream_id == ctx.stream_id
     assert request.workflow_id == f"agent/{ctx.run_id}"
     assert request.workflow_type.name == "DurableAgentWorkflow"
+    assert rpc.await_args.kwargs["retry"] is False
     ctx.db.rollback.assert_not_awaited()
 
 
@@ -508,11 +509,128 @@ async def test_real_client_encoding_failure_releases_reservation_before_rpc():
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
+    "status",
+    [
+        RPCStatusCode.INVALID_ARGUMENT,
+        RPCStatusCode.NOT_FOUND,
+        RPCStatusCode.PERMISSION_DENIED,
+        RPCStatusCode.FAILED_PRECONDITION,
+        RPCStatusCode.OUT_OF_RANGE,
+        RPCStatusCode.UNIMPLEMENTED,
+        RPCStatusCode.UNAUTHENTICATED,
+    ],
+)
+async def test_rpc_rejection_releases_reservation_without_raw_exception_context(status):
+    ctx = context()
+    assert isinstance(ctx.db, AsyncMock)
+    client, rpc = temporal_client()
+    rpc.side_effect = RPCError("private SDK details", status, b"")
+    with (
+        patch("tracecat.agent.backends.base.get_temporal_client", return_value=client),
+        pytest.raises(RuntimeError, match="was rejected") as caught,
+    ):
+        await DefaultBackend().start_turn(ctx)
+    assert not isinstance(caught.value, SessionDispatchUncertain)
+    assert caught.value.__context__ is None
+    assert caught.value.__cause__ is None
+    assert ctx.db.scalar.await_count == 2
+    assert ctx.db.commit.await_count == 2
+    ctx.db.rollback.assert_not_awaited()
+    rpc.assert_awaited_once()
+    assert rpc.await_args is not None
+    assert rpc.await_args.kwargs["retry"] is False
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("failure", ["execute", "commit", "ownership_changed"])
+async def test_rejection_cleanup_failure_preserves_uncertainty(failure):
+    ctx = context()
+    assert isinstance(ctx.db, AsyncMock)
+    client, rpc = temporal_client()
+    rpc.side_effect = RPCError(
+        "private SDK details", RPCStatusCode.INVALID_ARGUMENT, b""
+    )
+    if failure == "execute":
+        ctx.db.scalar.side_effect = [ctx.session, RuntimeError("private DB details")]
+    elif failure == "commit":
+        ctx.db.commit.side_effect = [None, RuntimeError("private DB details")]
+    else:
+        ctx.db.scalar.side_effect = [ctx.session, None]
+    with (
+        patch("tracecat.agent.backends.base.get_temporal_client", return_value=client),
+        pytest.raises(SessionDispatchUncertain) as caught,
+    ):
+        await DefaultBackend().start_turn(ctx)
+    assert caught.value.__context__ is None
+    assert caught.value.__cause__ is None
+    assert "private" not in str(caught.value)
+
+
+@pytest.mark.anyio
+async def test_rpc_error_after_successful_start_does_not_release_reservation():
+    ctx = context()
+    assert isinstance(ctx.db, AsyncMock)
+    client, rpc = temporal_client()
+    start_workflow = Client.start_workflow
+
+    async def start_then_fail(client, *args, **kwargs):
+        await start_workflow(client, *args, **kwargs)
+        raise RPCError("post-dispatch failure", RPCStatusCode.INVALID_ARGUMENT, b"")
+
+    with (
+        patch("tracecat.agent.backends.base.get_temporal_client", return_value=client),
+        patch.object(Client, "start_workflow", start_then_fail),
+        pytest.raises(SessionDispatchUncertain),
+    ):
+        await DefaultBackend().start_turn(ctx)
+    rpc.assert_awaited_once()
+    ctx.db.execute.assert_not_awaited()
+    ctx.db.commit.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_interceptor_cannot_retry_an_uncertain_start():
+    ctx = context()
+    assert isinstance(ctx.db, AsyncMock)
+    client, rpc = temporal_client()
+    # A hidden second attempt would turn the ambiguous outcome into a rejection.
+    rpc.side_effect = [
+        RPCError("lost acknowledgement", RPCStatusCode.UNAVAILABLE, b""),
+        RPCError("permissions changed", RPCStatusCode.PERMISSION_DENIED, b""),
+    ]
+    start_workflow = Client.start_workflow
+
+    async def retry_start(client, *args, **kwargs):
+        try:
+            return await start_workflow(client, *args, **kwargs)
+        except RPCError:
+            return await start_workflow(client, *args, **kwargs)
+
+    with (
+        patch("tracecat.agent.backends.base.get_temporal_client", return_value=client),
+        patch.object(Client, "start_workflow", retry_start),
+        pytest.raises(SessionDispatchUncertain),
+    ):
+        await DefaultBackend().start_turn(ctx)
+    rpc.assert_awaited_once()
+    ctx.db.execute.assert_not_awaited()
+    ctx.db.commit.assert_awaited_once()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
     "error",
     [
         TimeoutError("private SDK details"),
         RPCError("private SDK details", RPCStatusCode.UNAVAILABLE, b""),
         RPCError("private SDK details", RPCStatusCode.DEADLINE_EXCEEDED, b""),
+        RPCError("private SDK details", RPCStatusCode.ALREADY_EXISTS, b""),
+        RPCError("private SDK details", RPCStatusCode.CANCELLED, b""),
+        RPCError("private SDK details", RPCStatusCode.UNKNOWN, b""),
+        RPCError("private SDK details", RPCStatusCode.RESOURCE_EXHAUSTED, b""),
+        RPCError("private SDK details", RPCStatusCode.ABORTED, b""),
+        RPCError("private SDK details", RPCStatusCode.INTERNAL, b""),
+        RPCError("private SDK details", RPCStatusCode.DATA_LOSS, b""),
         WorkflowAlreadyStartedError("workflow-1", "test"),
         RuntimeError("unknown outcome"),
         TypeError("failure after dispatch"),

@@ -7,7 +7,7 @@ from dataclasses import replace
 from typing import ClassVar
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from temporalio.client import (
     Client,
     WorkflowExecutionStatus,
@@ -101,6 +101,7 @@ class AgentBackend[InputT, OutputT](ABC):
         )
         if session is None or session.curr_run_id is not None:
             raise TracecatConflictError("This chat already has an active turn")
+        session_id = session.id
         dispatch = TurnDispatchClient(client.service_client, context.db.commit)
         try:
             args = await self.build_workflow_args(replace(context, session=session))
@@ -137,6 +138,29 @@ class AgentBackend[InputT, OutputT](ABC):
             return
         if not dispatch.committed:
             raise RuntimeError("Agent workflow start failed before dispatch")
+        if dispatch.rejected:
+            # Do this in the shared lifecycle so non-HTTP callers also release
+            # rejected turns. Never clear a different turn's reservation.
+            try:
+                released = await context.db.scalar(
+                    update(AgentSession)
+                    .where(
+                        AgentSession.id == session_id,
+                        AgentSession.workspace_id == context.role.workspace_id,
+                        AgentSession.curr_run_id == context.run_id,
+                        AgentSession.active_stream_id == context.stream_id,
+                    )
+                    .values(curr_run_id=None, active_stream_id=None)
+                    .returning(AgentSession.id)
+                )
+                await context.db.commit()
+            except Exception:
+                # Cleanup itself may have an uncertain outcome. Keep the router
+                # from attempting a less restrictive second cleanup.
+                pass
+            else:
+                if released is not None:
+                    raise RuntimeError("Agent workflow start was rejected")
         # Raise outside the handler so SDK context cannot leak. Ownership stays
         # reserved because a lost acknowledgement cannot prove dispatch failed.
         raise SessionDispatchUncertain("Dispatch requires reconciliation")

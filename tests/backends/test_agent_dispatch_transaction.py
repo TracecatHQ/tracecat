@@ -10,14 +10,14 @@ from unittest.mock import AsyncMock, Mock, patch
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import Table, select, text
+from sqlalchemy import Table, select, text, update
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 from sqlalchemy.schema import CreateTable
 from temporalio.api.workflowservice.v1 import StartWorkflowExecutionResponse
 from temporalio.client import Client
 from temporalio.common import RetryPolicy
-from temporalio.service import ConnectConfig, ServiceClient
+from temporalio.service import ConnectConfig, RPCError, RPCStatusCode, ServiceClient
 
 from tests.database import TEST_DB_CONFIG
 from tracecat.agent.backends.default import DefaultBackend
@@ -213,3 +213,82 @@ async def test_uncertain_dispatch_keeps_history_and_blocks_another_turn(
                     replace(context, run_id=uuid4(), stream_id=uuid4())
                 )
             rpc.assert_awaited_once()
+
+
+@pytest.mark.parametrize(
+    "mismatch", [None, "workspace_id", "curr_run_id", "active_stream_id"]
+)
+async def test_rpc_rejection_releases_only_matching_reservation(
+    connection: AsyncConnection, mismatch: str | None
+) -> None:
+    backend = DefaultBackend()
+    async with AsyncSession(connection, expire_on_commit=False) as db:
+        context = await make_context(db)
+        session_id = context.session.id
+        # Another session with the same ownership values must remain untouched.
+        other = AgentSession(
+            workspace_id=context.role.workspace_id,
+            title="Another chat",
+            entity_type="copilot",
+            entity_id=uuid4(),
+            backend_id="oss",
+            harness_type="claude_code",
+            curr_run_id=context.run_id,
+            active_stream_id=context.stream_id,
+        )
+        db.add(other)
+        await db.commit()
+        other_id = other.id
+
+        async def reject(*_args, **_kwargs):
+            if mismatch is not None:
+                await db.execute(
+                    update(AgentSession)
+                    .where(AgentSession.id == session_id)
+                    .values(**{mismatch: uuid4()})
+                    .execution_options(synchronize_session=False)
+                )
+                await db.commit()
+            raise RPCError("request rejected", RPCStatusCode.INVALID_ARGUMENT, b"")
+
+        rpc = AsyncMock(side_effect=reject)
+        client = temporal_client(rpc)
+        with patch(
+            "tracecat.agent.backends.base.get_temporal_client", return_value=client
+        ):
+            error = RuntimeError if mismatch is None else SessionDispatchUncertain
+            message = "was rejected" if mismatch is None else "requires reconciliation"
+            with pytest.raises(error, match=message):
+                await backend.start_turn(context)
+            assert not db.in_transaction()
+            async with AsyncSession(connection) as reader:
+                saved = await reader.scalar(
+                    select(AgentSession).where(AgentSession.id == session_id)
+                )
+                assert saved is not None
+                if mismatch is None:
+                    assert saved.curr_run_id is None
+                    assert saved.active_stream_id is None
+                else:
+                    assert saved.curr_run_id is not None
+                    assert saved.active_stream_id is not None
+                untouched = await reader.scalar(
+                    select(AgentSession).where(AgentSession.id == other_id)
+                )
+                assert untouched is not None
+                assert untouched.curr_run_id == context.run_id
+                assert untouched.active_stream_id == context.stream_id
+            rpc.assert_awaited_once()
+
+            if mismatch is None:
+                rpc.side_effect = None
+                rpc.return_value = StartWorkflowExecutionResponse(run_id="run-2")
+                retry = replace(context, run_id=uuid4(), stream_id=uuid4())
+                await backend.start_turn(retry)
+                async with AsyncSession(connection) as reader:
+                    saved = await reader.scalar(
+                        select(AgentSession).where(AgentSession.id == session_id)
+                    )
+                    assert saved is not None
+                    assert saved.curr_run_id == retry.run_id
+                    assert saved.active_stream_id == retry.stream_id
