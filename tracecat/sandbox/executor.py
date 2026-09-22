@@ -138,6 +138,23 @@ _NSJAIL_RESOURCE_LIMIT_EXIT_CODES = {
 _WORKLOAD_LAUNCHER_NAME = ".tracecat-workload-launcher.py"
 _WORKLOAD_STARTED_MARKER = b"\x00tracecat-workload-started\x00"
 _FAILURE_STDERR_TAIL_CHARS = 8192
+_NSJAIL_LOG_LINE_PATTERN = re.compile(r"^\[[A-Z]\]\[")
+
+
+def workload_stderr_tail(stderr: str, *, limit: int) -> str:
+    """Return the trailing workload-authored stderr with nsjail log lines removed.
+
+    NsJail logs ``[I][<timestamp>] ...`` lines that carry host paths; the
+    workload's own output (Python tracebacks, warnings) is what a caller
+    debugging a crashed action needs.
+    """
+    lines = [
+        line for line in stderr.splitlines() if not _NSJAIL_LOG_LINE_PATTERN.match(line)
+    ]
+    text = "\n".join(lines).strip()
+    return text[-limit:]
+
+
 _WORKLOAD_LAUNCHER_SCRIPT = f"""\
 import os
 import resource
@@ -1045,7 +1062,7 @@ class NsjailExecutor:
             error=error_msg,
             error_code=error_code,
             stdout=stdout,
-            stderr=stderr[:2000],
+            stderr=workload_stderr_tail(stderr, limit=_FAILURE_STDERR_TAIL_CHARS),
             exit_code=returncode,
             execution_time_ms=execution_time_ms,
         )
