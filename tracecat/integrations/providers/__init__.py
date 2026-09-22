@@ -32,6 +32,8 @@ from tracecat.integrations.providers.jamf.oauth import JamfOAuthProvider
 from tracecat.integrations.providers.jira.mcp import JiraMCPProvider
 from tracecat.integrations.providers.linear.mcp import LinearMCPProvider
 from tracecat.integrations.providers.microsoft import (
+    AzureDevOpsACProvider,
+    AzureDevOpsCCProvider,
     AzureLogAnalyticsACProvider,
     AzureLogAnalyticsCCProvider,
     AzureManagementACProvider,
@@ -104,6 +106,8 @@ _PROVIDER_CLASSES: list[type[BaseOAuthProvider]] = [
     MicrosoftSentinelCCProvider,
     AzureLogAnalyticsACProvider,
     AzureLogAnalyticsCCProvider,
+    AzureDevOpsACProvider,
+    AzureDevOpsCCProvider,
     MicrosoftDefenderEndpointACProvider,
     MicrosoftDefenderEndpointCCProvider,
     MicrosoftDefenderXDRACProvider,

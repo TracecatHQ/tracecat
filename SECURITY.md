@@ -6,7 +6,7 @@ We always recommend using the latest version of Tracecat to ensure you get all s
 If possible, do not expose Tracecat's UI and API to the public internet.
 If you need to receive webhooks from 3rd party sources, scope ingress on the `/api/webhooks` endpoint to the allowed IP addresses.
 
-We also highly recommend using our `AWS Fargate` or `Kubernetes` deployment for production over `Docker Compose`.
+We also highly recommend using our `Kubernetes` deployment for production over `Docker Compose` or `AWS Fargate`.
 
 For more hardening guidelines, check out https://docs.tracecat.com/self-hosting/security
 

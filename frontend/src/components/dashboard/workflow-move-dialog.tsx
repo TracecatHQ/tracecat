@@ -106,7 +106,11 @@ export function WorkflowMoveDialog({
         </DialogHeader>
 
         <div className="w-full flex items-center py-4">
-          <Popover open={openFolderSelect} onOpenChange={setOpenFolderSelect}>
+          <Popover
+            modal
+            open={openFolderSelect}
+            onOpenChange={setOpenFolderSelect}
+          >
             <PopoverTrigger asChild>
               <Button
                 variant="outline"

@@ -3,7 +3,7 @@
 Existing and old-version writes retain the built-in v1 backend through the
 server default. No harness values or native history are rewritten.
 Revision ID: acbacbf8ef53
-Revises: 9680c861644a, bc3124ad3437
+Revises: b4e8f2a6c1d9
 """
 
 import sqlalchemy as sa
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "acbacbf8ef53"
-down_revision = ("9680c861644a", "bc3124ad3437")
+down_revision = "b4e8f2a6c1d9"
 branch_labels = None
 depends_on = None
 

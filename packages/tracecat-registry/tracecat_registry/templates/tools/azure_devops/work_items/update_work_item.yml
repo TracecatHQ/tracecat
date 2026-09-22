@@ -1,0 +1,87 @@
+type: action
+definition:
+  title: Update work item
+  description: "Update fields on an existing work item from a mapping of field reference names to values."
+  display_group: Azure DevOps
+  doc_url: https://learn.microsoft.com/en-us/rest/api/azure/devops/wit/work-items/update?view=azure-devops-rest-7.2
+  namespace: tools.azure_devops
+  name: update_work_item
+  secrets:
+    - type: oauth
+      provider_id: azure_devops
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: azure_devops
+      grant_type: client_credentials
+      optional: true
+  expects:
+    organization:
+      type: str
+      description: "Azure DevOps organization name."
+    project:
+      type: str
+      description: "Project ID or project name."
+    id:
+      type: int
+      description: "Work item ID."
+    fields:
+      type: dict[str, Any]
+      description: "Field reference names mapped to new values, e.g. `{\"System.State\": \"Closed\"}`."
+    validate_only:
+      type: bool | None
+      description: "Validate the changes without saving the work item."
+      default: null
+    bypass_rules:
+      type: bool | None
+      description: "Bypass work item type rules."
+      default: null
+    suppress_notifications:
+      type: bool | None
+      description: "Do not fire notifications for this change."
+      default: null
+    expand:
+      type: str | None
+      description: "Expand parameters for work item attributes. One of `none`, `relations`, `fields`, `links`, `all`."
+      default: null
+    base_url:
+      type: str | None
+      description: "Azure DevOps base URL. Defaults to `https://dev.azure.com` (Azure DevOps Services). For Azure DevOps Server, set this to the collection URL."
+      default: null
+  steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          params:
+            validateOnly: ${{ inputs.validate_only }}
+            bypassRules: ${{ inputs.bypass_rules }}
+            suppressNotifications: ${{ inputs.suppress_notifications }}
+            $expand: ${{ inputs.expand }}
+        script: |
+          def main(params):
+              query = {k: v for k, v in params.items() if v is not None}
+              query["api-version"] = "7.2-preview.3"
+              return query
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          fields: ${{ inputs.fields }}
+        script: |
+          def main(fields):
+              return [
+                  {"op": "add", "path": f"/fields/{name}", "value": value}
+                  for name, value in fields.items()
+              ]
+    - ref: update_work_item
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.azure_devops.base_url || "https://dev.azure.com" }}/${{ FN.url_encode(inputs.organization) }}/${{ FN.url_encode(inputs.project) }}/_apis/wit/workitems/${{ FN.url_encode(inputs.id) }}
+        method: PATCH
+        headers:
+          Authorization: Bearer ${{ SECRETS.azure_devops_oauth.AZURE_DEVOPS_USER_TOKEN || SECRETS.azure_devops_oauth.AZURE_DEVOPS_SERVICE_TOKEN }}
+          Content-Type: application/json-patch+json
+        params: ${{ steps.build_params.result }}
+        payload: ${{ steps.build_payload.result }}
+  returns: ${{ steps.update_work_item.result }}

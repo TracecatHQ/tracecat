@@ -186,6 +186,12 @@ Notes:
 - `list_integrations(workspace_id)`
 - `get_agent_preset_authoring_context(workspace_id)`
 - `list_skills(workspace_id, limit=20, cursor=None)`
+- `list_skill_tree(workspace_id, path="/", depth=1, include_skills=True, limit=20, cursor=None)`
+- `create_skill_folder(workspace_id, path, parents=False)`
+- `rename_skill_folder(workspace_id, path, new_name)`
+- `move_skill_folder(workspace_id, path, destination_parent_path="/")`
+- `delete_skill_folder(workspace_id, path, recursive=False)`
+- `move_skills(workspace_id, skill_slugs, destination_path="/", dry_run=False)`
 - `get_skill(workspace_id, skill_id, path=None)`
 - `prepare_skill_download(workspace_id, skill_id)`
 - `prepare_skill_upload(workspace_id, files, skill_id=None, name=None, description=None)`

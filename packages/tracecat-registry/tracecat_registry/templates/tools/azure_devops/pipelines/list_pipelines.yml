@@ -1,0 +1,63 @@
+type: action
+definition:
+  title: List pipelines
+  description: "List pipelines in a project. Returns one page; pass `continuation_token` to fetch the next page."
+  display_group: Azure DevOps
+  doc_url: https://learn.microsoft.com/en-us/rest/api/azure/devops/pipelines/pipelines/list?view=azure-devops-rest-7.2
+  namespace: tools.azure_devops
+  name: list_pipelines
+  secrets:
+    - type: oauth
+      provider_id: azure_devops
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: azure_devops
+      grant_type: client_credentials
+      optional: true
+  expects:
+    organization:
+      type: str
+      description: "Azure DevOps organization name."
+    project:
+      type: str
+      description: "Project ID or project name."
+    order_by:
+      type: str | None
+      description: "Sort order, e.g. `name asc`."
+      default: null
+    top:
+      type: int | None
+      description: "Maximum number of pipelines to return."
+      default: null
+    continuation_token:
+      type: str | None
+      description: "Continuation token from the previous page."
+      default: null
+    base_url:
+      type: str | None
+      description: "Azure DevOps base URL. Defaults to `https://dev.azure.com` (Azure DevOps Services). For Azure DevOps Server, set this to the collection URL."
+      default: null
+  steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          params:
+            orderBy: ${{ inputs.order_by }}
+            $top: ${{ inputs.top }}
+            continuationToken: ${{ inputs.continuation_token }}
+        script: |
+          def main(params):
+              query = {k: v for k, v in params.items() if v is not None}
+              query["api-version"] = "7.2-preview.1"
+              return query
+    - ref: list_pipelines
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.azure_devops.base_url || "https://dev.azure.com" }}/${{ FN.url_encode(inputs.organization) }}/${{ FN.url_encode(inputs.project) }}/_apis/pipelines
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.azure_devops_oauth.AZURE_DEVOPS_USER_TOKEN || SECRETS.azure_devops_oauth.AZURE_DEVOPS_SERVICE_TOKEN }}
+        params: ${{ steps.build_params.result }}
+  returns: ${{ steps.list_pipelines.result }}

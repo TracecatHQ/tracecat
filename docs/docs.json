@@ -240,6 +240,7 @@
               "tools/ansible",
               "tools/anyrun",
               "tools/aws_boto3",
+              "tools/azure_devops",
               "tools/azure_log_analytics",
               "tools/caldera",
               "tools/censys",
@@ -276,8 +277,6 @@
               "tools/google_maps",
               "tools/google_reports",
               "tools/google_scc",
-              "tools/google_secops_detection",
-              "tools/google_secops_soar",
               "tools/google_sheets",
               "tools/google_slides",
               "tools/gophish",
@@ -379,6 +378,14 @@
     ]
   },
   "redirects": [
+    {
+      "source": "/tools/google_secops_detection",
+      "destination": "/tools/google_chronicle"
+    },
+    {
+      "source": "/tools/google_secops_soar",
+      "destination": "/tools/google_chronicle"
+    },
     {
       "source": "/automations/core-actions/http",
       "destination": "/automations/core-actions/request-actions/http"

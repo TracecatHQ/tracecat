@@ -1,0 +1,141 @@
+type: action
+definition:
+  title: List Advanced Security alerts
+  description: "List GitHub Advanced Security for Azure DevOps alerts (secret, dependency, code scanning) for a repository. Returns one page; pass `continuation_token` to fetch the next page."
+  display_group: Azure DevOps
+  doc_url: https://learn.microsoft.com/en-us/rest/api/azure/devops/advancedsecurity/alerts/list?view=azure-devops-rest-7.2
+  namespace: tools.azure_devops
+  name: list_alerts
+  secrets:
+    - type: oauth
+      provider_id: azure_devops
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: azure_devops
+      grant_type: client_credentials
+      optional: true
+  expects:
+    organization:
+      type: str
+      description: "Azure DevOps organization name."
+    project:
+      type: str
+      description: "Project ID or project name."
+    repository_id:
+      type: str
+      description: "Repository ID or name."
+    alert_type:
+      type: str | None
+      description: "Alert type. One of `unknown`, `dependency`, `secret`, `code`, `license`."
+      default: null
+    severities:
+      type: str | None
+      description: "Comma-separated severities (e.g. `critical,high`)."
+      default: null
+    states:
+      type: str | None
+      description: "Comma-separated states (e.g. `active`, `dismissed`, `fixed`, `autoDismissed`)."
+      default: null
+    confidence_levels:
+      type: str | None
+      description: "Comma-separated confidence levels (`high`, `other`)."
+      default: null
+    validity:
+      type: str | None
+      description: "Comma-separated secret validity statuses."
+      default: null
+    rule_id:
+      type: str | None
+      description: "Filter by rule ID."
+      default: null
+    rule_name:
+      type: str | None
+      description: "Filter by rule name."
+      default: null
+    tool_name:
+      type: str | None
+      description: "Filter by tool name."
+      default: null
+    ref:
+      type: str | None
+      description: "Filter by branch ref (e.g. `refs/heads/main`)."
+      default: null
+    only_default_branch:
+      type: bool | None
+      description: "Only alerts on the default branch."
+      default: null
+    from_date:
+      type: str | None
+      description: "Only alerts first seen after this time (ISO 8601)."
+      default: null
+    to_date:
+      type: str | None
+      description: "Only alerts first seen before this time (ISO 8601)."
+      default: null
+    modified_since:
+      type: str | None
+      description: "Only alerts modified after this time (ISO 8601)."
+      default: null
+    keywords:
+      type: str | None
+      description: "Keyword filter on title, rule, or dependency."
+      default: null
+    is_triaged:
+      type: bool | None
+      description: "Filter by triage status."
+      default: null
+    order_by:
+      type: str | None
+      description: "Sort order, e.g. `severity`, `firstSeen`, `lastSeen`, `id`."
+      default: null
+    top:
+      type: int | None
+      description: "Maximum number of alerts to return."
+      default: null
+    continuation_token:
+      type: str | None
+      description: "Continuation token from the previous page."
+      default: null
+    base_url:
+      type: str | None
+      description: "Azure DevOps base URL. Defaults to `https://advsec.dev.azure.com` (Azure DevOps Services). For Azure DevOps Server, set this to the collection URL."
+      default: null
+  steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          params:
+            criteria.alertType: ${{ inputs.alert_type }}
+            criteria.severities: ${{ inputs.severities }}
+            criteria.states: ${{ inputs.states }}
+            criteria.confidenceLevels: ${{ inputs.confidence_levels }}
+            criteria.validity: ${{ inputs.validity }}
+            criteria.ruleId: ${{ inputs.rule_id }}
+            criteria.ruleName: ${{ inputs.rule_name }}
+            criteria.toolName: ${{ inputs.tool_name }}
+            criteria.ref: ${{ inputs.ref }}
+            criteria.onlyDefaultBranch: ${{ inputs.only_default_branch }}
+            criteria.fromDate: ${{ inputs.from_date }}
+            criteria.toDate: ${{ inputs.to_date }}
+            criteria.modifiedSince: ${{ inputs.modified_since }}
+            criteria.keywords: ${{ inputs.keywords }}
+            criteria.isTriaged: ${{ inputs.is_triaged }}
+            orderBy: ${{ inputs.order_by }}
+            top: ${{ inputs.top }}
+            continuationToken: ${{ inputs.continuation_token }}
+        script: |
+          def main(params):
+              query = {k: v for k, v in params.items() if v is not None}
+              query["api-version"] = "7.2-preview.1"
+              return query
+    - ref: list_alerts
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.azure_devops.advanced_security_base_url || "https://advsec.dev.azure.com" }}/${{ FN.url_encode(inputs.organization) }}/${{ FN.url_encode(inputs.project) }}/_apis/alert/repositories/${{ FN.url_encode(inputs.repository_id) }}/alerts
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.azure_devops_oauth.AZURE_DEVOPS_USER_TOKEN || SECRETS.azure_devops_oauth.AZURE_DEVOPS_SERVICE_TOKEN }}
+        params: ${{ steps.build_params.result }}
+  returns: ${{ steps.list_alerts.result }}
