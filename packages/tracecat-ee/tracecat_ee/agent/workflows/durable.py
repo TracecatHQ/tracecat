@@ -491,6 +491,14 @@ class AgentWorkflowArgs(BaseModel):
         default=False,
         description=("If true, session_id is caller-supplied and must already exist."),
     )
+    unsafe_disable_secret_error_withholding: bool = Field(
+        default=False,
+        description=(
+            "Cascade the parent agent action's 'Show error details' opt-in to "
+            "every registry tool the agent calls. Still gated by the org's "
+            "workspace allow-list at execution time."
+        ),
+    )
 
 
 class WorkflowApprovalSubmission(BaseModel):
@@ -578,6 +586,9 @@ class DurableAgentWorkflow:
         self._cancel_requested: bool = False
         self._cancel_reason: str | None = None
         self._executor_terminal_stream_error_emitted: bool | None = None
+        self.unsafe_disable_secret_error_withholding = (
+            args.unsafe_disable_secret_error_withholding
+        )
 
     def _initialize_run(self) -> None:
         """Initialize fallible workflow runtime state inside the interceptor."""
@@ -755,6 +766,9 @@ class DurableAgentWorkflow:
             allowed_internal_tools=build_result.allowed_internal_tools,
             internal_tool_context=internal_tool_context,
             registry_lock=build_result.registry_lock,
+            unsafe_disable_secret_error_withholding=(
+                self.unsafe_disable_secret_error_withholding
+            ),
             ttl_seconds=ttl_seconds,
         )
 

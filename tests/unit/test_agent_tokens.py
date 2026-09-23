@@ -231,3 +231,40 @@ def _agent_otel_payload(
         "organization_id": str(uuid.uuid4()),
         "session_id": str(uuid.uuid4()),
     }
+
+
+def test_mcp_token_round_trips_error_withholding_opt_in(monkeypatch) -> None:
+    """The parent agent action's error-details opt-in cascades via the claim."""
+    workspace_id, organization_id, session_id = _setup_service_key(monkeypatch)
+
+    def mint(opt_in: bool) -> str:
+        return mint_mcp_token(
+            workspace_id=workspace_id,
+            organization_id=organization_id,
+            allowed_actions=["core.http_request"],
+            session_id=session_id,
+            registry_lock=_registry_lock(),
+            unsafe_disable_secret_error_withholding=opt_in,
+        )
+
+    assert verify_mcp_token(mint(True)).unsafe_disable_secret_error_withholding is True
+    assert (
+        verify_mcp_token(mint(False)).unsafe_disable_secret_error_withholding is False
+    )
+
+
+def test_build_run_input_cascades_error_withholding_opt_in() -> None:
+    from tracecat.agent.mcp.executor import build_run_input
+
+    run_input = build_run_input(
+        "core.http_request",
+        {"url": "https://example.com"},
+        _registry_lock(),
+        unsafe_disable_secret_error_withholding=True,
+    )
+    assert run_input.task.unsafe_disable_secret_error_withholding is True
+
+    default_input = build_run_input(
+        "core.http_request", {"url": "https://example.com"}, _registry_lock()
+    )
+    assert default_input.task.unsafe_disable_secret_error_withholding is False

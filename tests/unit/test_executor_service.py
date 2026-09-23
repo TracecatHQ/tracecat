@@ -34,6 +34,7 @@ from tracecat.registry.lock.types import RegistryLock
 from tracecat.secrets import secrets_manager
 from tracecat.secrets.common import ctx_unsafe_disable_secret_error_withholding
 from tracecat.secrets.constants import MASK_VALUE
+from tracecat.settings.types import WorkspaceErrorDetailsPolicy
 
 
 def test_flatten_secrets_supports_runtime_scalar_entries() -> None:
@@ -1335,13 +1336,19 @@ async def test_invoke_once_keeps_action_error_when_withholding_disabled(
     assert action_error.info.model_dump() == original_info
 
 
-def _patch_org_error_details_setting(mocker, value: object):
-    """Stub the raw org setting row behind `workspace_allows_error_details`.
+_PER_ACTION_KEY = "app_unsafe_disable_secret_error_withholding_workspace_ids"
+_BREAK_GLASS_KEY = (
+    "app_unsafe_disable_secret_error_withholding_break_glass_workspace_ids"
+)
 
-    `value` is what the stored allow-list deserializes to (a list of workspace
-    ID strings); `None` mimics a missing row.
+
+def _patch_org_error_details_setting(mocker, value: object, break_glass: object = None):
+    """Stub the raw org setting rows behind `workspace_error_details_policy`.
+
+    `value` is what the stored per-action allow-list deserializes to and
+    `break_glass` the break-glass list; `None` mimics a missing row.
     """
-    executor_service._workspace_allows_error_details_cached.cache_clear()
+    executor_service._workspace_error_details_policy_cached.cache_clear()
     session_cm = mocker.MagicMock()
     session_cm.__aenter__ = mocker.AsyncMock(return_value=mocker.AsyncMock())
     session_cm.__aexit__ = mocker.AsyncMock(return_value=False)
@@ -1350,7 +1357,15 @@ def _patch_org_error_details_setting(mocker, value: object):
         "get_async_session_bypass_rls_context_manager",
         return_value=session_cm,
     )
-    stub = mocker.AsyncMock(return_value=[] if value is None else value)
+    stored = {
+        _PER_ACTION_KEY: [] if value is None else value,
+        _BREAK_GLASS_KEY: [] if break_glass is None else break_glass,
+    }
+
+    async def fake_get(key: str, **_: object) -> object:
+        return stored[key]
+
+    stub = mocker.AsyncMock(side_effect=fake_get)
     return mocker.patch(
         "tracecat.settings.service.get_setting_from_bypass_session", new=stub
     )
@@ -1361,7 +1376,7 @@ _OTHER_WS = str(UUID(int=3))
 
 
 @pytest.mark.anyio
-async def test_workspace_allows_error_details_lookup_is_cached(mocker) -> None:
+async def test_workspace_error_details_policy_lookup_is_cached(mocker) -> None:
     """Repeated checks for the same org/workspace hit the DB once within the TTL."""
     stub = _patch_org_error_details_setting(mocker, [_CURRENT_WS])
     role = Role(
@@ -1372,33 +1387,62 @@ async def test_workspace_allows_error_details_lookup_is_cached(mocker) -> None:
     )
     other = role.model_copy(update={"workspace_id": UUID(int=3)})
 
-    assert await executor_service._workspace_allows_error_details(role) is True
-    assert await executor_service._workspace_allows_error_details(role) is True
-    assert stub.await_count == 1
-
-    assert await executor_service._workspace_allows_error_details(other) is False
+    policy = executor_service._workspace_error_details_policy
+    assert await policy(role) is WorkspaceErrorDetailsPolicy.PER_ACTION
+    assert await policy(role) is WorkspaceErrorDetailsPolicy.PER_ACTION
+    # One lookup each for the break-glass and per-action lists.
     assert stub.await_count == 2
+
+    assert await policy(other) is WorkspaceErrorDetailsPolicy.WITHHOLD
+    assert stub.await_count == 4
+
+
+@pytest.mark.anyio
+async def test_workspace_error_details_policy_break_glass_wins(mocker) -> None:
+    """A workspace in the break-glass list resolves to DISABLED."""
+    _patch_org_error_details_setting(mocker, [_CURRENT_WS], [_CURRENT_WS])
+    role = Role(
+        type="service",
+        service_id="tracecat-executor",
+        organization_id=UUID(int=1),
+        workspace_id=UUID(int=2),
+    )
+    assert (
+        await executor_service._workspace_error_details_policy(role)
+        is WorkspaceErrorDetailsPolicy.DISABLED
+    )
 
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("allowed_workspaces", "action_opts_in", "expect_original"),
+    ("allowed_workspaces", "break_glass", "action_opts_in", "expect_original"),
     [
-        pytest.param([_CURRENT_WS], True, True, id="workspace-allowed-and-action"),
         pytest.param(
-            [_OTHER_WS, _CURRENT_WS], True, True, id="workspace-among-allowed"
+            [_CURRENT_WS], None, True, True, id="workspace-allowed-and-action"
         ),
-        pytest.param([_CURRENT_WS], False, False, id="workspace-allowed-only"),
-        pytest.param([_OTHER_WS], True, False, id="other-workspace-allowed"),
-        pytest.param([], True, False, id="allow-list-empty"),
-        pytest.param(None, True, False, id="allow-list-missing"),
-        pytest.param("not-a-list", True, False, id="allow-list-malformed"),
+        pytest.param(
+            [_OTHER_WS, _CURRENT_WS], None, True, True, id="workspace-among-allowed"
+        ),
+        pytest.param([_CURRENT_WS], None, False, False, id="workspace-allowed-only"),
+        pytest.param([_OTHER_WS], None, True, False, id="other-workspace-allowed"),
+        pytest.param([], None, True, False, id="allow-list-empty"),
+        pytest.param(None, None, True, False, id="allow-list-missing"),
+        pytest.param("not-a-list", None, True, False, id="allow-list-malformed"),
+        pytest.param(None, [_CURRENT_WS], False, True, id="break-glass-no-opt-in"),
+        pytest.param(None, [_CURRENT_WS], True, True, id="break-glass-opt-in"),
+        pytest.param(None, [_OTHER_WS], True, False, id="break-glass-other"),
+        pytest.param(None, "not-a-list", True, False, id="break-glass-malformed"),
     ],
 )
 async def test_invoke_once_action_opt_out_requires_workspace_allow(
-    mocker, monkeypatch, allowed_workspaces, action_opts_in, expect_original
+    mocker,
+    monkeypatch,
+    allowed_workspaces,
+    break_glass,
+    action_opts_in,
+    expect_original,
 ):
-    """The per-action opt-out only surfaces the message for org-allow-listed workspaces."""
+    """Per-action opt-out needs the org allow-list; break glass needs no opt-in."""
     from tracecat.exceptions import ExecutionError
 
     monkeypatch.setattr(
@@ -1409,7 +1453,9 @@ async def test_invoke_once_action_opt_out_requires_workspace_allow(
         "core.probe", {"value": "${{ ACTIONS.fetch.result }}"}
     )
     action_input.task.unsafe_disable_secret_error_withholding = action_opts_in
-    get_setting = _patch_org_error_details_setting(mocker, allowed_workspaces)
+    get_setting = _patch_org_error_details_setting(
+        mocker, allowed_workspaces, break_glass
+    )
     resolved_context = mocker.Mock(logical_time=mocker.sentinel.logical_time)
     prepared_context = executor_service.PreparedContext(
         resolved_context=resolved_context,
@@ -1455,13 +1501,11 @@ async def test_invoke_once_action_opt_out_requires_workspace_allow(
         assert "upstream rejected the request" not in str(exc_info.value)
     # The per-invocation policy never leaks past invoke_once.
     assert ctx_unsafe_disable_secret_error_withholding.get() is False
-    if action_opts_in:
-        assert get_setting.await_args.args == (
-            "app_unsafe_disable_secret_error_withholding_workspace_ids",
-        )
-        assert get_setting.await_args.kwargs["organization_id"] == role.organization_id
-    else:
-        get_setting.assert_not_awaited()
+    # The policy is always resolved so break glass applies without an opt-in.
+    queried_keys = {call.args[0] for call in get_setting.await_args_list}
+    assert _BREAK_GLASS_KEY in queried_keys
+    for call in get_setting.await_args_list:
+        assert call.kwargs["organization_id"] == role.organization_id
 
 
 @pytest.mark.anyio

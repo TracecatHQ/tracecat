@@ -37,8 +37,9 @@ from tracecat.settings.service import (
     SettingsService,
     get_setting,
     get_setting_override,
-    workspace_allows_error_details,
+    workspace_error_details_policy,
 )
+from tracecat.settings.types import WorkspaceErrorDetailsPolicy
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -822,28 +823,74 @@ async def test_setting_with_override(
     assert no_override_value == default_value
 
 
+_BREAK_GLASS_KEY = (
+    "app_unsafe_disable_secret_error_withholding_break_glass_workspace_ids"
+)
+_PER_ACTION_KEY = "app_unsafe_disable_secret_error_withholding_workspace_ids"
+
+
+def _stub_setting_lists(
+    monkeypatch: pytest.MonkeyPatch, values: dict[str, object]
+) -> None:
+    async def fake_get(key: str, **_: object) -> object:
+        return values.get(key, [])
+
+    monkeypatch.setattr(
+        settings_service_module, "get_setting_from_bypass_session", fake_get
+    )
+
+
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("stored", "expected"),
+    ("per_action", "break_glass", "expected"),
     [
-        pytest.param(None, False, id="missing"),
-        pytest.param([], False, id="empty"),
-        pytest.param("not-a-list", False, id="malformed"),
-        pytest.param([str(uuid.UUID(int=9))], False, id="other-workspace"),
-        pytest.param([str(uuid.UUID(int=7))], True, id="allowed"),
-        pytest.param([uuid.UUID(int=7)], True, id="allowed-uuid-objects"),
+        pytest.param([], [], WorkspaceErrorDetailsPolicy.WITHHOLD, id="empty"),
+        pytest.param(
+            "not-a-list", "nope", WorkspaceErrorDetailsPolicy.WITHHOLD, id="malformed"
+        ),
+        pytest.param(
+            [str(uuid.UUID(int=9))],
+            [str(uuid.UUID(int=9))],
+            WorkspaceErrorDetailsPolicy.WITHHOLD,
+            id="other-workspace",
+        ),
+        pytest.param(
+            [str(uuid.UUID(int=7))],
+            [],
+            WorkspaceErrorDetailsPolicy.PER_ACTION,
+            id="per-action",
+        ),
+        pytest.param(
+            [uuid.UUID(int=7)],
+            [],
+            WorkspaceErrorDetailsPolicy.PER_ACTION,
+            id="per-action-uuid-objects",
+        ),
+        pytest.param(
+            [],
+            [str(uuid.UUID(int=7))],
+            WorkspaceErrorDetailsPolicy.DISABLED,
+            id="break-glass",
+        ),
+        pytest.param(
+            [str(uuid.UUID(int=7))],
+            [str(uuid.UUID(int=7))],
+            WorkspaceErrorDetailsPolicy.DISABLED,
+            id="break-glass-wins",
+        ),
     ],
 )
-async def test_workspace_allows_error_details(
-    stored: object, expected: bool, monkeypatch: pytest.MonkeyPatch
+async def test_workspace_error_details_policy(
+    per_action: object,
+    break_glass: object,
+    expected: WorkspaceErrorDetailsPolicy,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The allow-list check only passes for a listed workspace and fails closed."""
-    monkeypatch.setattr(
-        settings_service_module,
-        "get_setting_from_bypass_session",
-        AsyncMock(return_value=[] if stored is None else stored),
+    """Break glass beats per-action; anything else fails closed to withhold."""
+    _stub_setting_lists(
+        monkeypatch, {_PER_ACTION_KEY: per_action, _BREAK_GLASS_KEY: break_glass}
     )
-    result = await workspace_allows_error_details(
+    result = await workspace_error_details_policy(
         organization_id=uuid.uuid4(),
         workspace_id=uuid.UUID(int=7),
         session=MagicMock(),
@@ -852,18 +899,18 @@ async def test_workspace_allows_error_details(
 
 
 @pytest.mark.anyio
-async def test_workspace_allows_error_details_fails_closed_on_db_error(
+async def test_workspace_error_details_policy_fails_closed_on_db_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A failed allow-list lookup denies the workspace instead of raising."""
+    """A failed lookup withholds instead of raising."""
     monkeypatch.setattr(
         settings_service_module,
         "get_setting_from_bypass_session",
         AsyncMock(side_effect=SQLAlchemyError("boom")),
     )
-    result = await workspace_allows_error_details(
+    result = await workspace_error_details_policy(
         organization_id=uuid.uuid4(),
         workspace_id=uuid.UUID(int=7),
         session=MagicMock(),
     )
-    assert result is False
+    assert result is WorkspaceErrorDetailsPolicy.WITHHOLD

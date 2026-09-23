@@ -22,7 +22,8 @@ from tracecat.exceptions import (
 )
 from tracecat.identifiers import InvitationID, UserID, WorkspaceID
 from tracecat.logger import logger
-from tracecat.settings.service import workspace_allows_error_details
+from tracecat.settings.service import workspace_error_details_policy
+from tracecat.settings.types import WorkspaceErrorDetailsPolicy
 from tracecat.workspaces.schemas import (
     WorkspaceCreate,
     WorkspaceInvitationCreate,
@@ -152,17 +153,21 @@ async def get_workspace(
             status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
         )
 
+    error_details_policy = await workspace_error_details_policy(
+        organization_id=workspace.organization_id,
+        workspace_id=workspace.id,
+        session=session,
+    )
     return WorkspaceRead(
         id=workspace.id,
         name=workspace.name,
         settings=WorkspaceSettingsRead.model_validate(workspace.settings or {}),
         organization_id=workspace.organization_id,
         unsafe_disable_secret_error_withholding_allowed=(
-            await workspace_allows_error_details(
-                organization_id=workspace.organization_id,
-                workspace_id=workspace.id,
-                session=session,
-            )
+            error_details_policy is not WorkspaceErrorDetailsPolicy.WITHHOLD
+        ),
+        unsafe_disable_secret_error_withholding_forced=(
+            error_details_policy is WorkspaceErrorDetailsPolicy.DISABLED
         ),
     )
 
