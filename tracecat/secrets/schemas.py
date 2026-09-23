@@ -47,6 +47,8 @@ AWS_SECRET_ID_PATTERN = (
     r"|[A-Za-z0-9/_+=.@-]{1,512})$"
 )
 """Either a full Secrets Manager ARN or a friendly secret name."""
+EXPRESSION_SECRET_NAME_PATTERN = r"^[a-z_][a-z0-9_]*$"
+"""Snake-case name addressable as ``SECRETS.<name>`` in expressions."""
 
 SecretName = Annotated[str, StringConstraints(pattern=r"[a-z0-9_]+")]
 """Validator for a secret name. e.g. 'aws_access_key_id'"""
@@ -576,7 +578,7 @@ class WorkspaceSecretStoreRead(BaseModel):
 class AwsSecretReferenceCreate(BaseModel):
     """Create a workspace custom secret backed by AWS Secrets Manager."""
 
-    name: str = Field(..., min_length=1, max_length=100)
+    name: str = Field(..., max_length=100, pattern=EXPRESSION_SECRET_NAME_PATTERN)
     description: str | None = Field(default=None, min_length=0, max_length=1000)
     environment: str = DEFAULT_SECRETS_ENVIRONMENT
     tags: dict[str, str] | None = None
@@ -588,7 +590,9 @@ class AwsSecretReferenceCreate(BaseModel):
 class AwsSecretReferenceUpdate(BaseModel):
     """Update an AWS-backed workspace secret. Values are never accepted."""
 
-    name: str | None = Field(default=None, min_length=1, max_length=100)
+    name: str | None = Field(
+        default=None, max_length=100, pattern=EXPRESSION_SECRET_NAME_PATTERN
+    )
     description: str | None = Field(default=None, min_length=0, max_length=1000)
     environment: str | None = Field(default=None, min_length=1, max_length=100)
     tags: dict[str, str] | None = None

@@ -567,7 +567,7 @@ async def test_org_wide_access_includes_future_workspaces_and_preserves_bindings
     assert [
         s.id for s in (await future_secrets.list_authorized_stores(PageParams())).items
     ] == [store.id]
-    for name in ("first-ref", "second-ref"):
+    for name in ("first_ref", "second_ref"):
         await secrets.create_aws_secret_reference(reference_params(store.id, name))
     grants = (
         await session.scalars(
@@ -583,7 +583,7 @@ async def test_org_wide_access_includes_future_workspaces_and_preserves_bindings
     # Disabling the store remains independent of workspace access.
     await stores.update_store(store, SecretStoreUpdate(enabled=False))
     assert store.all_workspaces is True
-    reference = await secrets.get_secret_by_name("first-ref")
+    reference = await secrets.get_secret_by_name("first_ref")
     assert reference is not None
     await session.refresh(reference, attribute_names=["store"])
     assert build_external_secret_reference(reference).store_enabled is False

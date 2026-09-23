@@ -1,12 +1,13 @@
 """Isolated regressions for external secret store API contracts."""
 
+import asyncio
 import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, InvalidToken
 from pydantic import ValidationError
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.exc import IntegrityError
@@ -28,6 +29,8 @@ from tracecat.secrets.encryption import encrypt_keyvalues
 from tracecat.secrets.enums import SecretSource
 from tracecat.secrets.schemas import (
     AwsSecretKeyMapping,
+    AwsSecretReferenceCreate,
+    AwsSecretReferenceUpdate,
     SecretReferenceCheckRequest,
     SecretReferenceCheckResult,
 )
@@ -191,6 +194,87 @@ async def test_collection_queries_are_bounded_and_cursors_are_scoped(
     )
     with pytest.raises(PaginationError):
         await other_list(PageParams(limit=1, cursor=first.next_cursor))
+
+
+@pytest.mark.parametrize("name", ["api-key", "9token", "App", "a.b", ""])
+def test_reference_name_rejects_unreferenceable_aliases(name: str) -> None:
+    mapping = {"mode": "whole_string", "keys": ["TOKEN"]}
+    with pytest.raises(ValidationError):
+        AwsSecretReferenceCreate.model_validate(
+            {
+                "name": name,
+                "store_id": uuid.uuid4(),
+                "remote_reference": "synthetic/secret",
+                "key_mapping": mapping,
+            }
+        )
+    with pytest.raises(ValidationError):
+        AwsSecretReferenceUpdate.model_validate({"name": name})
+
+
+@pytest.mark.parametrize("name", ["app_db", "_token", "a9"])
+def test_valid_reference_names_parse_in_expressions(name: str) -> None:
+    assert AwsSecretReferenceUpdate.model_validate({"name": name}).name == name
+    parser.parse(f"SECRETS.{name}.TOKEN")
+
+
+def _external_secret(name: str) -> Secret:
+    return Secret(
+        id=uuid.uuid4(),
+        name=name,
+        environment="default",
+        source=SecretSource.AWS_SECRETS_MANAGER,
+        encrypted_keys=b"",
+        remote_reference="synthetic-key",
+        remote_key_mapping={"mode": "whole_string", "keys": ["TOKEN"]},
+        store=OrganizationSecretStore(
+            id=uuid.uuid4(),
+            enabled=True,
+            provider="aws_secrets_manager",
+            config={
+                "provider": "aws_secrets_manager",
+                "region": "us-east-1",
+                "role_arn": "arn:aws:iam::123456789012:role/test-reader",
+                "external_id": "synthetic-external-id",
+            },
+        ),
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("entry", ["async", "sync"])
+async def test_failed_sandbox_entry_clears_fetched_values(
+    monkeypatch: pytest.MonkeyPatch, role: Role, entry: str
+) -> None:
+    monkeypatch.setattr(
+        config, "TRACECAT__DB_ENCRYPTION_KEY", Fernet.generate_key().decode()
+    )
+    undecryptable = Secret(
+        id=uuid.uuid4(),
+        name="local",
+        environment="default",
+        source=SecretSource.LOCAL,
+        encrypted_keys=b"not-a-fernet-token",
+    )
+    monkeypatch.setattr(
+        auth_sandbox.AuthSandbox,
+        "_get_secrets",
+        AsyncMock(return_value=[_external_secret("remote"), undecryptable]),
+    )
+    backend = MagicMock(
+        resolve=AsyncMock(return_value={"remote": {"TOKEN": "synthetic-value"}})
+    )
+    monkeypatch.setattr(auth_sandbox, "get_backend", lambda _: backend)
+
+    sandbox = auth_sandbox.AuthSandbox(role=role, secrets=["remote", "local"])
+    with pytest.raises(InvalidToken):
+        if entry == "async":
+            await sandbox.__aenter__()
+        else:
+            await asyncio.to_thread(sandbox.__enter__)
+    backend.resolve.assert_awaited_once()
+    assert sandbox._external_values == {}
+    assert sandbox.secrets == {}
 
 
 @pytest.mark.anyio

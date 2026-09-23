@@ -6253,7 +6253,7 @@ export const $AwsSecretReferenceCreate = {
     name: {
       type: "string",
       maxLength: 100,
-      minLength: 1,
+      pattern: "^[a-z_][a-z0-9_]*$",
       title: "Name",
     },
     description: {
@@ -6318,7 +6318,7 @@ export const $AwsSecretReferenceUpdate = {
         {
           type: "string",
           maxLength: 100,
-          minLength: 1,
+          pattern: "^[a-z_][a-z0-9_]*$",
         },
         {
           type: "null",

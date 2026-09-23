@@ -44,7 +44,10 @@ const awsReferenceSchema = z
     name: z
       .string()
       .min(1, "Name is required")
-      .regex(/^[a-z0-9_]+$/, "Use lowercase letters, digits, and underscores"),
+      .regex(
+        /^[a-z_][a-z0-9_]*$/,
+        "Use lowercase letters, digits, and underscores; do not start with a digit"
+      ),
     description: z.string().max(255).default(""),
     environment: z.string().default(""),
     store_id: z.string().min(1, "Select an authorized store"),

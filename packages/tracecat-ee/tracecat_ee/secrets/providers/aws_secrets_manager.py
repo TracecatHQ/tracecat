@@ -265,7 +265,7 @@ async def _fetch_and_project(
 
     logger.info(
         "Resolving AWS-backed secrets",
-        aliases=sorted({r.alias for r in references}),
+        references=len(references),
         remote_reads=len(unique),
     )
     outcomes = await asyncio.gather(

@@ -32,6 +32,8 @@ jest.mock("@/providers/scopes", () => ({
   useScopes: () => ({
     hasScope: (scope: string) =>
       scope === "org:secret:delete" ? mockCanDelete : mockCanUpdate,
+    // Workspace listing scopes; every test user can list workspaces.
+    hasAnyScope: () => true,
     isLoading: false,
   }),
 }))

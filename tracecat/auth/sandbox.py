@@ -76,8 +76,13 @@ class AuthSandbox:
 
     def __enter__(self) -> Self:
         if self._secret_paths:
-            self._secret_objs = _run_coroutine_sync(self._load_secrets())
-            self._set_secrets()
+            try:
+                self._secret_objs = _run_coroutine_sync(self._load_secrets())
+                self._set_secrets()
+            except BaseException:
+                # __exit__ never runs on a failed entry; drop fetched plaintext.
+                self._unset_secrets()
+                raise
         return self
 
     def __exit__(
@@ -95,8 +100,12 @@ class AuthSandbox:
 
     async def __aenter__(self) -> Self:
         if self._secret_paths:
-            self._secret_objs = await self._load_secrets()
-            self._set_secrets()
+            try:
+                self._secret_objs = await self._load_secrets()
+                self._set_secrets()
+            except BaseException:
+                self._unset_secrets()
+                raise
         return self
 
     async def _load_secrets(self) -> Sequence[BaseSecret]:
