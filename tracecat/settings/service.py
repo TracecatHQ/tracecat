@@ -466,11 +466,11 @@ async def workspace_error_details_policy(
 ) -> WorkspaceErrorDetailsPolicy:
     """Resolve how secret error withholding applies to a workspace.
 
-    The org-level break-glass list wins over the per-action allow-list. Fails
+    The org-level all-actions list wins over the per-action allow-list. Fails
     closed to ``WITHHOLD`` on any lookup failure or malformed value.
     """
     if await _workspace_in_setting_list(
-        "app_unsafe_disable_secret_error_withholding_break_glass_workspace_ids",
+        "app_unsafe_disable_secret_error_withholding_all_actions_workspace_ids",
         organization_id=organization_id,
         workspace_id=workspace_id,
         session=session,

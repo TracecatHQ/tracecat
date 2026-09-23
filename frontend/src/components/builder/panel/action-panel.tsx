@@ -147,7 +147,7 @@ function errorDetailsStatusLabel(
   enabled: boolean
 ): string {
   if (workspaceForces) {
-    return "Always enabled for this workspace by organization settings (break glass)"
+    return "Always enabled for this workspace by organization settings"
   }
   if (!workspaceAllows) {
     return "Not allowed for this workspace by organization settings"

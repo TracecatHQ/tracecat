@@ -823,8 +823,8 @@ async def test_setting_with_override(
     assert no_override_value == default_value
 
 
-_BREAK_GLASS_KEY = (
-    "app_unsafe_disable_secret_error_withholding_break_glass_workspace_ids"
+_ALL_ACTIONS_KEY = (
+    "app_unsafe_disable_secret_error_withholding_all_actions_workspace_ids"
 )
 _PER_ACTION_KEY = "app_unsafe_disable_secret_error_withholding_workspace_ids"
 
@@ -842,7 +842,7 @@ def _stub_setting_lists(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("per_action", "break_glass", "expected"),
+    ("per_action", "all_actions", "expected"),
     [
         pytest.param([], [], WorkspaceErrorDetailsPolicy.WITHHOLD, id="empty"),
         pytest.param(
@@ -870,25 +870,25 @@ def _stub_setting_lists(
             [],
             [str(uuid.UUID(int=7))],
             WorkspaceErrorDetailsPolicy.DISABLED,
-            id="break-glass",
+            id="all-actions",
         ),
         pytest.param(
             [str(uuid.UUID(int=7))],
             [str(uuid.UUID(int=7))],
             WorkspaceErrorDetailsPolicy.DISABLED,
-            id="break-glass-wins",
+            id="all-actions-wins",
         ),
     ],
 )
 async def test_workspace_error_details_policy(
     per_action: object,
-    break_glass: object,
+    all_actions: object,
     expected: WorkspaceErrorDetailsPolicy,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Break glass beats per-action; anything else fails closed to withhold."""
+    """The all-actions list beats per-action; anything else fails closed to withhold."""
     _stub_setting_lists(
-        monkeypatch, {_PER_ACTION_KEY: per_action, _BREAK_GLASS_KEY: break_glass}
+        monkeypatch, {_PER_ACTION_KEY: per_action, _ALL_ACTIONS_KEY: all_actions}
     )
     result = await workspace_error_details_policy(
         organization_id=uuid.uuid4(),

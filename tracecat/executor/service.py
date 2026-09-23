@@ -861,7 +861,7 @@ async def _secret_error_withholding_disabled_for(
 ) -> bool:
     """Whether this invocation surfaces original errors when secrets are in scope.
 
-    The org break-glass list disables withholding for every action; otherwise
+    The org all-actions list disables withholding for every action; otherwise
     the per-action opt-in only counts when the org allow-lists the workspace.
     """
     policy = await _workspace_error_details_policy(role)

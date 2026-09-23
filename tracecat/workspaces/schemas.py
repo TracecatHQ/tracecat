@@ -148,9 +148,8 @@ class WorkspaceRead(Schema):
     unsafe_disable_secret_error_withholding_forced: bool = Field(
         default=False,
         description=(
-            "Whether the organization has broken glass for this workspace: secret "
-            "error withholding is disabled for every action regardless of the "
-            "per-action setting."
+            "Whether the organization has disabled secret error withholding for "
+            "every action in this workspace, regardless of the per-action setting."
         ),
     )
 

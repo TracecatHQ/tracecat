@@ -11,4 +11,4 @@ class WorkspaceErrorDetailsPolicy(StrEnum):
     """Actions may opt in individually via `unsafe_disable_secret_error_withholding`."""
 
     DISABLED = "disabled"
-    """Break glass: withholding is disabled for every action in the workspace."""
+    """Withholding is disabled for every action in the workspace."""

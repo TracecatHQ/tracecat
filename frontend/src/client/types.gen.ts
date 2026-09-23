@@ -1281,7 +1281,7 @@ export type AppSettingsRead = {
   app_create_workspace_on_register: boolean
   app_action_form_mode_enabled: boolean
   app_unsafe_disable_secret_error_withholding_workspace_ids?: Array<string>
-  app_unsafe_disable_secret_error_withholding_break_glass_workspace_ids?: Array<string>
+  app_unsafe_disable_secret_error_withholding_all_actions_workspace_ids?: Array<string>
 }
 
 /**
@@ -1317,9 +1317,9 @@ export type AppSettingsUpdate = {
    */
   app_unsafe_disable_secret_error_withholding_workspace_ids?: Array<string>
   /**
-   * UNSAFE (break glass): workspaces where secret error withholding is disabled for every action, without a per-action opt-in. Known secret values are still masked. Intended for temporary debugging; remove the workspace once done.
+   * UNSAFE: workspaces where secret error withholding is disabled for every action, without a per-action opt-in. Known secret values are still masked. Intended for temporary debugging; remove the workspace once done.
    */
-  app_unsafe_disable_secret_error_withholding_break_glass_workspace_ids?: Array<string>
+  app_unsafe_disable_secret_error_withholding_all_actions_workspace_ids?: Array<string>
 }
 
 /**
@@ -10463,7 +10463,7 @@ export type WorkspaceRead = {
    */
   unsafe_disable_secret_error_withholding_allowed?: boolean
   /**
-   * Whether the organization has broken glass for this workspace: secret error withholding is disabled for every action regardless of the per-action setting.
+   * Whether the organization has disabled secret error withholding for every action in this workspace, regardless of the per-action setting.
    */
   unsafe_disable_secret_error_withholding_forced?: boolean
 }

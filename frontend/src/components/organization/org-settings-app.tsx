@@ -30,7 +30,7 @@ const appFormSchema = z.object({
   app_unsafe_disable_secret_error_withholding_workspace_ids: z.array(
     z.string()
   ),
-  app_unsafe_disable_secret_error_withholding_break_glass_workspace_ids:
+  app_unsafe_disable_secret_error_withholding_all_actions_workspace_ids:
     z.array(z.string()),
 })
 
@@ -38,7 +38,7 @@ type AppFormValues = z.infer<typeof appFormSchema>
 
 type WorkspaceListFieldName =
   | "app_unsafe_disable_secret_error_withholding_workspace_ids"
-  | "app_unsafe_disable_secret_error_withholding_break_glass_workspace_ids"
+  | "app_unsafe_disable_secret_error_withholding_all_actions_workspace_ids"
 
 function WorkspaceListField({
   control,
@@ -132,8 +132,8 @@ export function OrgSettingsAppForm() {
       app_unsafe_disable_secret_error_withholding_workspace_ids:
         appSettings?.app_unsafe_disable_secret_error_withholding_workspace_ids ??
         [],
-      app_unsafe_disable_secret_error_withholding_break_glass_workspace_ids:
-        appSettings?.app_unsafe_disable_secret_error_withholding_break_glass_workspace_ids ??
+      app_unsafe_disable_secret_error_withholding_all_actions_workspace_ids:
+        appSettings?.app_unsafe_disable_secret_error_withholding_all_actions_workspace_ids ??
         [],
     },
   })
@@ -152,8 +152,8 @@ export function OrgSettingsAppForm() {
           app_action_form_mode_enabled: data.app_action_form_mode_enabled,
           app_unsafe_disable_secret_error_withholding_workspace_ids:
             data.app_unsafe_disable_secret_error_withholding_workspace_ids,
-          app_unsafe_disable_secret_error_withholding_break_glass_workspace_ids:
-            data.app_unsafe_disable_secret_error_withholding_break_glass_workspace_ids,
+          app_unsafe_disable_secret_error_withholding_all_actions_workspace_ids:
+            data.app_unsafe_disable_secret_error_withholding_all_actions_workspace_ids,
         },
       })
     } catch {
@@ -318,8 +318,8 @@ export function OrgSettingsAppForm() {
 
         <WorkspaceListField
           control={form.control}
-          name="app_unsafe_disable_secret_error_withholding_break_glass_workspace_ids"
-          label="Break glass: workspaces with error details always shown"
+          name="app_unsafe_disable_secret_error_withholding_all_actions_workspace_ids"
+          label="Workspaces with error details shown for all actions"
           description="Unsafe: every action in these workspaces shows its original error message when secrets are in scope, without a per-action opt-in. Known secret values are still masked. Intended for temporary debugging; remove the workspace when done."
           workspaces={workspaces}
           workspacesLoading={workspacesLoading}
