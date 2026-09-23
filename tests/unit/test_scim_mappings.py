@@ -219,6 +219,53 @@ async def test_list_external_groups_excludes_other_organizations(
     assert [g.external_id for g in listed] == ["idp-mine"]
 
 
+@pytest.mark.anyio
+async def test_directory_summary_counts_pushed_users_and_unmapped_groups(
+    session: AsyncSession,
+    org: Organization,
+    other_org: Organization,
+    service: SCIMService,
+) -> None:
+    """Users split by active flag; groups count as unmapped until mapped."""
+    for active in (True, True, False):
+        user = User(
+            id=uuid.uuid4(),
+            email=f"scim-{uuid.uuid4().hex[:10]}@example.com",
+            hashed_password="test",
+        )
+        session.add(user)
+        await session.flush()
+        await seed_external_user(
+            session, organization_id=org.id, user_id=user.id, active=active
+        )
+    mapped = await seed_external_group(
+        session, organization_id=org.id, external_id="idp-eng"
+    )
+    await seed_external_group(session, organization_id=org.id, external_id="idp-ops")
+    await seed_external_group(
+        session, organization_id=other_org.id, external_id="idp-theirs"
+    )
+    group = await _make_group(session, org)
+    await service.create_mapping(external_group_id=mapped.id, group_id=group.id)
+
+    summary = await service.get_directory_summary()
+
+    assert (summary.users.total, summary.users.active, summary.users.inactive) == (
+        3,
+        2,
+        1,
+    )
+    assert (summary.groups.total, summary.groups.unmapped) == (2, 1)
+
+
+@pytest.mark.anyio
+async def test_directory_summary_is_zero_without_a_sync(service: SCIMService) -> None:
+    """An organization the provider has never pushed to reports zeros."""
+    summary = await service.get_directory_summary()
+
+    assert (summary.users.total, summary.groups.total) == (0, 0)
+
+
 # =============================================================================
 # Listing mappings
 # =============================================================================
@@ -490,6 +537,8 @@ async def test_listing_requires_scim_management(
         await service.get_mapping(uuid.uuid4())
     with pytest.raises(TracecatAuthorizationError):
         await service.review_activation([])
+    with pytest.raises(TracecatAuthorizationError):
+        await service.get_directory_summary()
 
 
 @pytest.mark.anyio

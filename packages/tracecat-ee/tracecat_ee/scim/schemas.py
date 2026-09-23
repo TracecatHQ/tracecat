@@ -51,6 +51,28 @@ class ExternalGroupRead(Schema):
     member_count: int
 
 
+class ScimDirectoryUserCounts(Schema):
+    """Pushed users, split by the provider's active flag."""
+
+    total: int
+    active: int
+    inactive: int
+
+
+class ScimDirectoryGroupCounts(Schema):
+    """Synced groups, and how many no mapping reads."""
+
+    total: int
+    unmapped: int
+
+
+class ScimDirectorySummaryRead(Schema):
+    """What the provider has pushed into this organization."""
+
+    users: ScimDirectoryUserCounts
+    groups: ScimDirectoryGroupCounts
+
+
 class ExternalGroupMappingRead(Schema):
     """A mapping joined with both sides, so a list renders without refetching."""
 

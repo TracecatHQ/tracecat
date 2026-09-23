@@ -701,6 +701,7 @@ import type {
   ScimGetGroupData,
   ScimGetGroupResponse,
   ScimGetScimConnectionResponse,
+  ScimGetScimDirectorySummaryResponse,
   ScimGetUserData,
   ScimGetUserResponse,
   ScimIssueScimTokenResponse,
@@ -14568,6 +14569,20 @@ export const scimListExternalGroups = (
     },
   })
 }
+
+/**
+ * Get Scim Directory Summary
+ * Count the users and groups the provider has pushed.
+ * @returns ScimDirectorySummaryRead Successful Response
+ * @throws ApiError
+ */
+export const scimGetScimDirectorySummary =
+  (): CancelablePromise<ScimGetScimDirectorySummaryResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/scim/directory/summary",
+    })
+  }
 
 /**
  * Review Scim Activation

@@ -58,6 +58,9 @@ from tracecat_ee.scim.schemas import (
     ExternalGroupMappingRead,
     ExternalGroupRead,
     ScimActivationReviewRead,
+    ScimDirectoryGroupCounts,
+    ScimDirectorySummaryRead,
+    ScimDirectoryUserCounts,
     ScimDirectoryUserRead,
     ScimMappingPlanRead,
 )
@@ -112,6 +115,44 @@ class SCIMService(BaseOrgService):
             ),
         )
         return result
+
+    @require_scope("org:scim:manage")
+    async def get_directory_summary(self) -> ScimDirectorySummaryRead:
+        """Count the users and groups the provider has pushed.
+
+        Returns:
+            User totals split by active flag, and group totals with the number
+            no mapping reads.
+        """
+        users_total, users_active = (
+            await self.session.execute(
+                select(func.count(), func.count().filter(ExternalUser.active)).where(
+                    ExternalUser.organization_id == self.organization_id
+                )
+            )
+        ).one()
+        is_mapped = (
+            select(ExternalGroupMapping.id)
+            .where(ExternalGroupMapping.external_group_id == ExternalGroup.id)
+            .exists()
+        )
+        groups_total, groups_unmapped = (
+            await self.session.execute(
+                select(func.count(), func.count().filter(~is_mapped)).where(
+                    ExternalGroup.organization_id == self.organization_id
+                )
+            )
+        ).one()
+        return ScimDirectorySummaryRead(
+            users=ScimDirectoryUserCounts(
+                total=users_total,
+                active=users_active,
+                inactive=users_total - users_active,
+            ),
+            groups=ScimDirectoryGroupCounts(
+                total=groups_total, unmapped=groups_unmapped
+            ),
+        )
 
     @require_scope("org:scim:manage")
     async def get_mapping(self, mapping_id: UUID) -> ExternalGroupMappingRead:

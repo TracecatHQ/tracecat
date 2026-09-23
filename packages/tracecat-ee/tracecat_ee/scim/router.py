@@ -22,6 +22,7 @@ from tracecat_ee.scim.schemas import (
     ScimActivationReviewRead,
     ScimConnectionRead,
     ScimConnectionTokenRead,
+    ScimDirectorySummaryRead,
 )
 from tracecat_ee.scim.service import SCIMService
 
@@ -117,6 +118,16 @@ async def list_external_groups(
     return await SCIMService(session, role=role).list_external_groups(
         page=PageParams(limit=limit, cursor=cursor)
     )
+
+
+@mappings_router.get("/directory/summary", response_model=ScimDirectorySummaryRead)
+async def get_scim_directory_summary(
+    *,
+    role: OrgActorRole,
+    session: AsyncDBSession,
+) -> ScimDirectorySummaryRead:
+    """Count the users and groups the provider has pushed."""
+    return await SCIMService(session, role=role).get_directory_summary()
 
 
 @mappings_router.post("/activation/review", response_model=ScimActivationReviewRead)
