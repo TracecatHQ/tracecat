@@ -1943,6 +1943,43 @@ async def test_create_session_rejects_unavailable_backend_with_bad_request(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    "params",
+    [
+        AgentSessionUpdate(backend_id="external"),
+        AgentSessionUpdate(harness_type="another_harness"),
+    ],
+)
+async def test_update_session_rejects_backend_changes_with_bad_request(
+    params: AgentSessionUpdate,
+) -> None:
+    db = AsyncMock()
+    agent_session = _agent_session_stub()
+    with (
+        patch(
+            "tracecat.agent.session.router.AgentSessionService.is_legacy_session",
+            return_value=False,
+        ),
+        patch(
+            "tracecat.agent.session.router.AgentSessionService.get_session",
+            return_value=agent_session,
+        ),
+        pytest.raises(HTTPException) as exc_info,
+    ):
+        await cast(Any, update_session).__wrapped__(
+            session_id=agent_session.id,
+            params=params,
+            role=_read_role(agent_session.workspace_id),
+            session=db,
+        )
+    assert exc_info.value.status_code == status.HTTP_400_BAD_REQUEST
+    assert exc_info.value.detail == "Start a new chat to change its backend"
+    assert agent_session.backend_id == "oss"
+    assert agent_session.harness_type == HarnessType.CLAUDE_CODE
+    db.commit.assert_not_awaited()
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize("surface", ["create", "get", "vercel", "update", "fork"])
 @pytest.mark.parametrize(
     "backend_state", ["enabled", "disabled", "missing", "unsupported"]
