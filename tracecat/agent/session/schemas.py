@@ -159,11 +159,9 @@ class AgentSessionRead(BaseModel):
     agents_binding: ResolvedAgentsConfig | None = None
     backend_id: str = Field(default="oss")
     backend_available: bool = Field(
-        default=True,
         description="Whether this session can execute; unavailable sessions remain readable",
     )
     history_available: bool = Field(
-        default=True,
         description="Whether the installed backend can project this session's history",
     )
     # Harness

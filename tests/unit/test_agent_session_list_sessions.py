@@ -4,10 +4,12 @@ import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any, cast
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
+from tracecat.agent.backends import registry
+from tracecat.agent.backends.default import DefaultBackend
 from tracecat.agent.session.schemas import AgentSessionRead
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
@@ -56,6 +58,9 @@ def _agent_session_row(
         agent_preset_id=None,
         agent_preset_version_id=None,
         backend_id="oss",
+        agents_binding=None,
+        last_error=None,
+        artifacts=[],
         harness_type=None,
         last_stream_id=None,
         parent_session_id=parent_session_id,
@@ -85,7 +90,13 @@ async def test_list_sessions_parent_session_filter_excludes_legacy_chats() -> No
 
     session.execute.assert_awaited_once()
     assert results == [
-        AgentSessionRead.model_validate(child_session, from_attributes=True)
+        AgentSessionRead.model_validate(
+            {
+                **vars(child_session),
+                "backend_available": True,
+                "history_available": True,
+            }
+        )
     ]
 
 
@@ -109,9 +120,9 @@ async def test_list_sessions_filter_created_by_none_excludes_legacy_chats() -> N
     executed_stmt = session.execute.await_args.args[0]
     assert "agent_session.created_by IS NULL" in str(executed_stmt)
     assert results == [
-        AgentSessionRead.model_validate(session_row, from_attributes=True).model_copy(
-            update={"is_readonly": True}
-        )
+        AgentSessionRead.model_validate(
+            {**vars(session_row), "backend_available": True, "history_available": True}
+        ).model_copy(update={"is_readonly": True})
     ]
 
 
@@ -133,6 +144,40 @@ async def test_list_sessions_marks_teammate_sessions_read_only() -> None:
 
     assert len(results) == 1
     assert results[0].is_readonly is True
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "backend_state", ["enabled", "disabled", "missing", "unsupported"]
+)
+async def test_list_sessions_reports_backend_availability(backend_state: str) -> None:
+    service, db, role = _build_service()
+    assert role.workspace_id is not None
+    row = _agent_session_row(
+        workspace_id=role.workspace_id,
+        user_id=role.user_id,
+        parent_session_id=uuid.uuid4(),
+    )
+    row.backend_id = "external"
+    row.harness_type = (
+        "unsupported" if backend_state == "unsupported" else "claude_code"
+    )
+    db.execute.return_value = _mock_scalar_result([row])
+    provider = DefaultBackend()
+    with (
+        patch.object(
+            registry,
+            "get_agent_backends",
+            return_value={} if backend_state == "missing" else {"external": provider},
+        ),
+        patch.object(provider, "is_enabled", return_value=backend_state != "disabled"),
+    ):
+        results = await service.list_sessions(parent_session_id=row.parent_session_id)
+    assert len(results) == 1
+    assert isinstance(results[0], AgentSessionRead)
+    assert results[0].backend_available is (backend_state == "enabled")
+    assert results[0].history_available is (backend_state != "missing")
+    assert results[0].is_readonly is (backend_state != "enabled")
 
 
 @pytest.mark.anyio

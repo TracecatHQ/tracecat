@@ -16,8 +16,6 @@ from tracecat_ee.workspace_chat.policy import (
 from tracecat import config
 from tracecat.agent.adapter import vercel
 from tracecat.agent.backends.registry import (
-    agent_backend_available,
-    find_agent_backend,
     get_agent_backends,
 )
 from tracecat.agent.backends.types import SessionDispatchUncertain
@@ -39,10 +37,10 @@ from tracecat.agent.session.types import (
     TurnLifecycle,
     is_session_readonly,
 )
+from tracecat.agent.session.views import build_session_read
 from tracecat.agent.stream.artifacts import artifact_stream_event
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamFormat
-from tracecat.agent.subagents import ResolvedAgentsConfig
 from tracecat.artifacts.bindings import ArtifactSideEffect
 from tracecat.artifacts.schemas import ArtifactType
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
@@ -168,7 +166,7 @@ async def create_session(
     )
     svc = AgentSessionService(session, role)
     agent_session = await svc.create_session(request)
-    return AgentSessionRead.model_validate(agent_session, from_attributes=True)
+    return build_session_read(agent_session, role)
 
 
 @router.get("")
@@ -249,37 +247,7 @@ async def get_session(
         messages = await svc.list_messages(session_id)
         logger.info("Session read", session_id=agent_session.id, messages=len(messages))
         return AgentSessionReadWithMessages(
-            id=agent_session.id,
-            workspace_id=agent_session.workspace_id,
-            title=agent_session.title,
-            created_by=agent_session.created_by,
-            is_readonly=is_session_readonly(role, agent_session.created_by)
-            or not agent_backend_available(
-                agent_session.backend_id, agent_session.harness_type
-            ),
-            backend_id=agent_session.backend_id,
-            backend_available=agent_backend_available(
-                agent_session.backend_id, agent_session.harness_type
-            ),
-            history_available=find_agent_backend(agent_session.backend_id) is not None,
-            entity_type=AgentSessionEntity(agent_session.entity_type),
-            entity_id=agent_session.entity_id,
-            channel_context=agent_session.channel_context,
-            tools=agent_session.tools,
-            mcp_integrations=agent_session.mcp_integrations,
-            agent_preset_id=agent_session.agent_preset_id,
-            agent_preset_version_id=agent_session.agent_preset_version_id,
-            agents_binding=(
-                ResolvedAgentsConfig.model_validate(agent_session.agents_binding)
-                if agent_session.agents_binding is not None
-                else None
-            ),
-            harness_type=agent_session.harness_type,
-            last_error=agent_session.last_error,
-            created_at=agent_session.created_at,
-            updated_at=agent_session.updated_at,
-            last_stream_id=agent_session.last_stream_id,
-            artifacts=svc.list_artifacts(agent_session),
+            **build_session_read(agent_session, role).model_dump(),
             messages=messages,
         )
 
@@ -341,37 +309,7 @@ async def get_session_vercel(
         messages = await svc.list_messages(session_id)
         ui_messages = vercel.convert_chat_messages_to_ui(messages)
         return AgentSessionReadVercel(
-            id=agent_session.id,
-            workspace_id=agent_session.workspace_id,
-            title=agent_session.title,
-            created_by=agent_session.created_by,
-            is_readonly=is_session_readonly(role, agent_session.created_by)
-            or not agent_backend_available(
-                agent_session.backend_id, agent_session.harness_type
-            ),
-            backend_id=agent_session.backend_id,
-            backend_available=agent_backend_available(
-                agent_session.backend_id, agent_session.harness_type
-            ),
-            history_available=find_agent_backend(agent_session.backend_id) is not None,
-            entity_type=AgentSessionEntity(agent_session.entity_type),
-            entity_id=agent_session.entity_id,
-            channel_context=agent_session.channel_context,
-            tools=agent_session.tools,
-            mcp_integrations=agent_session.mcp_integrations,
-            agent_preset_id=agent_session.agent_preset_id,
-            agent_preset_version_id=agent_session.agent_preset_version_id,
-            agents_binding=(
-                ResolvedAgentsConfig.model_validate(agent_session.agents_binding)
-                if agent_session.agents_binding is not None
-                else None
-            ),
-            harness_type=agent_session.harness_type,
-            last_error=agent_session.last_error,
-            created_at=agent_session.created_at,
-            updated_at=agent_session.updated_at,
-            last_stream_id=agent_session.last_stream_id,
-            artifacts=svc.list_artifacts(agent_session),
+            **build_session_read(agent_session, role).model_dump(),
             messages=ui_messages,
         )
 
@@ -440,7 +378,7 @@ async def update_session(
     )
 
     updated = await svc.update_session(agent_session, params=params)
-    return AgentSessionRead.model_validate(updated, from_attributes=True)
+    return build_session_read(updated, role)
 
 
 @router.delete("/{session_id}/artifacts/{artifact_type}/{artifact_id}")
@@ -871,7 +809,7 @@ async def fork_session(
             entity_type=entity_type,
         )
         forked = await svc.fork_session(session_id, entity_type=entity_type)
-        return AgentSessionRead.model_validate(forked, from_attributes=True)
+        return build_session_read(forked, role)
     except TracecatNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

@@ -12,6 +12,8 @@ from fastapi.responses import Response, StreamingResponse
 from starlette import status
 
 from tracecat.agent.adapter.vercel import UIMessage
+from tracecat.agent.backends import registry
+from tracecat.agent.backends.default import DefaultBackend
 from tracecat.agent.backends.types import SessionDispatchUncertain
 from tracecat.agent.common.stream_types import (
     HarnessType,
@@ -20,6 +22,7 @@ from tracecat.agent.common.stream_types import (
 )
 from tracecat.agent.session.router import (
     cancel_session,
+    create_session,
     fork_session,
     get_session,
     get_session_vercel,
@@ -31,6 +34,7 @@ from tracecat.agent.session.router import (
 )
 from tracecat.agent.session.schemas import (
     AgentSessionCancelRequest,
+    AgentSessionCreate,
     AgentSessionForkRequest,
     AgentSessionUpdate,
 )
@@ -85,6 +89,7 @@ def _agent_session_stub(**overrides: Any) -> SimpleNamespace:
         "curr_run_id": None,
         "last_error": None,
         "artifacts": [],
+        "parent_session_id": None,
     }
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -391,6 +396,7 @@ async def test_get_session_vercel_includes_persisted_artifacts() -> None:
         severity=CaseSeverity.HIGH,
         status=CaseStatus.NEW,
     )
+    session_stub.artifacts = [artifact.model_dump(mode="json")]
     fake_svc = SimpleNamespace(
         get_session=AsyncMock(return_value=session_stub),
         list_messages=AsyncMock(return_value=[]),
@@ -1901,3 +1907,77 @@ async def test_missing_backend_session_stays_readable_and_reports_unavailability
     assert data["backend_available"] is False
     assert data["history_available"] is False
     assert data["messages"] == []
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("surface", ["create", "get", "vercel", "update", "fork"])
+@pytest.mark.parametrize(
+    "backend_state", ["enabled", "disabled", "missing", "unsupported"]
+)
+async def test_session_responses_report_current_backend_availability(
+    surface: str, backend_state: str
+) -> None:
+    session_stub = _agent_session_stub(
+        backend_id="external",
+        harness_type="unsupported" if backend_state == "unsupported" else "claude_code",
+    )
+    role = Role(
+        type="user",
+        service_id="tracecat-api",
+        user_id=session_stub.created_by,
+        workspace_id=session_stub.workspace_id,
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"agent:read", "agent:execute"}),
+    )
+    provider = DefaultBackend()
+    fake_svc = SimpleNamespace(
+        is_legacy_session=AsyncMock(return_value=False),
+        get_session=AsyncMock(return_value=session_stub),
+        create_session=AsyncMock(return_value=session_stub),
+        update_session=AsyncMock(return_value=session_stub),
+        fork_session=AsyncMock(return_value=session_stub),
+        list_messages=AsyncMock(return_value=[]),
+    )
+    with (
+        patch(
+            "tracecat.agent.session.router.AgentSessionService", return_value=fake_svc
+        ),
+        patch.object(
+            registry,
+            "get_agent_backends",
+            return_value={} if backend_state == "missing" else {"external": provider},
+        ),
+        patch.object(provider, "is_enabled", return_value=backend_state != "disabled"),
+    ):
+        match surface:
+            case "create":
+                response = await cast(Any, create_session).__wrapped__(
+                    request=AgentSessionCreate(
+                        entity_type=session_stub.entity_type,
+                        entity_id=session_stub.entity_id,
+                        backend_id="external",
+                    ),
+                    role=role,
+                    session=AsyncMock(),
+                )
+            case "update":
+                response = await cast(Any, update_session).__wrapped__(
+                    session_id=session_stub.id,
+                    params=AgentSessionUpdate(title="Renamed chat"),
+                    role=role,
+                    session=AsyncMock(),
+                )
+                fake_svc.update_session.assert_awaited_once()
+            case _:
+                endpoint = {
+                    "get": get_session,
+                    "vercel": get_session_vercel,
+                    "fork": fork_session,
+                }[surface]
+                response = await cast(Any, endpoint).__wrapped__(
+                    session_id=session_stub.id, role=role, session=AsyncMock()
+                )
+    assert response.backend_id == "external"
+    assert response.backend_available is (backend_state == "enabled")
+    assert response.history_available is (backend_state != "missing")
+    assert response.is_readonly is (backend_state != "enabled")

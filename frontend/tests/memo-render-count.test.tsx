@@ -160,6 +160,8 @@ const chatFixture = {
   agent_preset_id: null,
   agent_preset_version_id: null,
   agents_binding: null,
+  backend_available: true,
+  history_available: true,
   harness_type: null,
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),

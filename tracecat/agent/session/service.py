@@ -44,7 +44,6 @@ from tracecat.agent.approvals.types import (
 )
 from tracecat.agent.backends.base import AgentBackend
 from tracecat.agent.backends.registry import (
-    agent_backend_available,
     find_agent_backend,
     get_agent_backend,
 )
@@ -93,8 +92,8 @@ from tracecat.agent.session.types import (
     PreparedAgentTurn,
     TurnLifecycle,
     TurnLifecycleResult,
-    is_session_readonly,
 )
+from tracecat.agent.session.views import build_session_read
 from tracecat.agent.skill.builtin import BUILTIN_WORKSPACE_CHAT_SKILLS
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.subagents import (
@@ -865,17 +864,7 @@ class AgentSessionService(BaseWorkspaceService):
             legacy_chats = list(chat_result.scalars().all())
 
         items: list[AgentSessionRead | ChatReadMinimal] = [
-            AgentSessionRead.model_validate(s, from_attributes=True).model_copy(
-                update={
-                    "is_readonly": is_session_readonly(self.role, s.created_by)
-                    or not agent_backend_available(s.backend_id, s.harness_type),
-                    "backend_available": agent_backend_available(
-                        s.backend_id, s.harness_type
-                    ),
-                    "history_available": find_agent_backend(s.backend_id) is not None,
-                }
-            )
-            for s in sessions
+            build_session_read(s, self.role) for s in sessions
         ]
         items.extend(
             ChatReadMinimal.model_validate(chat, from_attributes=True)

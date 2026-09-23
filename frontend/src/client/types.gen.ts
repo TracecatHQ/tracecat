@@ -1111,11 +1111,11 @@ export type AgentSessionRead = {
   /**
    * Whether this session can execute; unavailable sessions remain readable
    */
-  backend_available?: boolean
+  backend_available: boolean
   /**
    * Whether the installed backend can project this session's history
    */
-  history_available?: boolean
+  history_available: boolean
   harness_type: string | null
   last_error?: string | null
   last_stream_id?: string | null
@@ -1151,11 +1151,11 @@ export type AgentSessionReadVercel = {
   /**
    * Whether this session can execute; unavailable sessions remain readable
    */
-  backend_available?: boolean
+  backend_available: boolean
   /**
    * Whether the installed backend can project this session's history
    */
-  history_available?: boolean
+  history_available: boolean
   harness_type: string | null
   last_error?: string | null
   last_stream_id?: string | null
@@ -1195,11 +1195,11 @@ export type AgentSessionReadWithMessages = {
   /**
    * Whether this session can execute; unavailable sessions remain readable
    */
-  backend_available?: boolean
+  backend_available: boolean
   /**
    * Whether the installed backend can project this session's history
    */
-  history_available?: boolean
+  history_available: boolean
   harness_type: string | null
   last_error?: string | null
   last_stream_id?: string | null

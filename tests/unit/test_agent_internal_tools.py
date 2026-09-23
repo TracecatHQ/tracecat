@@ -3,13 +3,17 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from tracecat_registry import RegistryOAuthSecret
 
+from tracecat.agent.backends import registry
+from tracecat.agent.backends.default import DefaultBackend
 from tracecat.agent.mcp import internal_tools
 from tracecat.agent.preset.schemas import AgentPresetRead
 from tracecat.agent.tokens import InternalToolContext, MCPTokenClaims
+from tracecat.db.models import AgentSession
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.schemas import ProviderKey
 
@@ -171,6 +175,52 @@ async def test_get_session_rejects_non_preset_entity(monkeypatch):
             {"session_id": str(uuid.uuid4())},
             claims,
         )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "backend_state", ["enabled", "disabled", "missing", "unsupported"]
+)
+async def test_internal_session_read_reports_backend_availability(backend_state: str):
+    preset_id = uuid.uuid4()
+    claims = _build_claims(preset_id)
+    now = datetime.now(UTC)
+    session = AgentSession(
+        id=uuid.uuid4(),
+        workspace_id=claims.workspace_id,
+        created_by=claims.user_id,
+        title="Example chat",
+        entity_type="agent_preset",
+        entity_id=preset_id,
+        backend_id="external",
+        harness_type="unsupported" if backend_state == "unsupported" else "claude_code",
+        created_at=now,
+        updated_at=now,
+    )
+    provider = DefaultBackend()
+    service = SimpleNamespace(
+        get_session=AsyncMock(return_value=session),
+        list_messages=AsyncMock(return_value=[]),
+    )
+    with (
+        patch(
+            "tracecat.agent.session.service.AgentSessionService.with_session",
+            return_value=_AsyncContext(service),
+        ),
+        patch.object(
+            registry,
+            "get_agent_backends",
+            return_value={} if backend_state == "missing" else {"external": provider},
+        ),
+        patch.object(provider, "is_enabled", return_value=backend_state != "disabled"),
+    ):
+        response = await internal_tools.get_session(
+            {"session_id": str(session.id)}, claims
+        )
+    assert response["backend_id"] == "external"
+    assert response["backend_available"] is (backend_state == "enabled")
+    assert response["history_available"] is (backend_state != "missing")
+    assert response["is_readonly"] is (backend_state != "enabled")
 
 
 @pytest.mark.anyio
