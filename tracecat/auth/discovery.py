@@ -13,6 +13,7 @@ from sqlalchemy import func, select
 
 from tracecat import config
 from tracecat.api.common import get_default_organization_id
+from tracecat.auth.domain_policy import is_org_saml_enforced
 from tracecat.auth.enums import AuthType
 from tracecat.authz.enums import ScimConnectionStatus
 from tracecat.core.schemas import Schema
@@ -141,7 +142,8 @@ class AuthDiscoveryService(BaseService):
     ) -> AuthDiscoveryMethod:
         if await self._org_saml_enabled(org_id):
             # A live invitation is an admin-created non-IdP path: the IdP does
-            # not know this invitee, so offer basic auth when it is enabled.
+            # not know this invitee, so offer basic auth when it is enabled and
+            # SAML is not enforced.
             if (
                 email is not None
                 and await self._org_basic_enabled(org_id)
@@ -149,6 +151,7 @@ class AuthDiscoveryService(BaseService):
                     await self._has_live_invitation(org_id, email)
                     or await self._is_manual_invitee(org_id, email)
                 )
+                and not await is_org_saml_enforced(self.session, org_id)
             ):
                 return AuthDiscoveryMethod.BASIC
             return AuthDiscoveryMethod.SAML
@@ -199,16 +202,7 @@ class AuthDiscoveryService(BaseService):
                 .exists(),
             )
         )
-        if (await self.session.execute(stmt)).first() is None:
-            return False
-        return not bool(
-            await get_setting_from_bypass_session(
-                "saml_enforced",
-                organization_id=org_id,
-                session=self.session,
-                default=False,
-            )
-        )
+        return (await self.session.execute(stmt)).first() is not None
 
     async def _org_saml_enabled(self, org_id: OrganizationID) -> bool:
         if AuthType.SAML not in config.TRACECAT__AUTH_TYPES:

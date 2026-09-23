@@ -16,14 +16,21 @@ from __future__ import annotations
 from collections.abc import Sequence
 from uuid import UUID
 
-from sqlalchemy import ColumnElement, and_, delete, func, select, update
+from sqlalchemy import (
+    ColumnElement,
+    and_,
+    delete,
+    func,
+    select,
+    update,
+)
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from tracecat.audit.logger import audit_log
 from tracecat.audit.service import AuditService
 from tracecat.authz.controls import require_scope
 from tracecat.authz.enums import ScimConnectionStatus
-from tracecat.authz.membership import ensure_member, lock_role_changes
+from tracecat.authz.membership import lock_role_changes
 from tracecat.db.models import (
     ExternalGroup,
     ExternalGroupMapping,
@@ -528,48 +535,22 @@ class SCIMService(BaseOrgService):
         for user_id in inactive_ids:
             await self.deprovision_user(user_id)
 
-        active_ids = (
-            await self.session.scalars(
-                select(ExternalUser.user_id).where(
-                    ExternalUser.organization_id == self.organization_id,
-                    ExternalUser.active,
-                )
-            )
-        ).all()
-        for user_id in active_ids:
-            await self.admit_user(user_id)
+        await self.admit_users()
         await self.session.flush()
-
-    async def _revoke_pending_invitation(self, email: str) -> None:
-        """Revoke a live invitation whose role could outrank what SCIM grants.
-
-        Written directly rather than through ``OrgService.revoke_invitation``:
-        that method requires ``org:member:invite``, which the SCIM connection
-        deliberately does not hold.
-        """
-        await self.session.execute(
-            update(Invitation)
-            .where(
-                Invitation.organization_id == self.organization_id,
-                func.lower(Invitation.email) == email.lower(),
-                Invitation.status == InvitationStatus.PENDING,
-            )
-            .values(status=InvitationStatus.REVOKED)
-        )
 
     async def _directory_users(self) -> list[ScimDirectoryUserRead]:
         """The users the provider has pushed into this organization."""
         rows = (
             await self.session.execute(
-                select(  # pyright: ignore[reportCallIssue]
+                select(
                     ExternalUser.id,
-                    User.email,  # pyright: ignore[reportArgumentType]
+                    User.__table__.c.email,
                     ExternalUser.external_id,
                     ExternalUser.active,
                 )
-                .join(User, User.id == ExternalUser.user_id)  # pyright: ignore[reportArgumentType]
+                .join(User, User.__table__.c.id == ExternalUser.user_id)
                 .where(ExternalUser.organization_id == self.organization_id)
-                .order_by(User.email)
+                .order_by(User.__table__.c.email)
             )
         ).tuples()
         return [
@@ -717,17 +698,51 @@ class SCIMService(BaseOrgService):
             .values(active=True)
         )
         if await self._connection_is_active():
-            await self.admit_user(external_user.user_id)
+            await self.admit_users(external_user.user_id)
         await self.session.flush()
 
-    async def admit_user(self, user_id: UUID) -> None:
-        """Admit the user, revoking any invitation that could outrank SCIM."""
-        email = await self.session.scalar(
-            select(User.__table__.c.email).where(User.__table__.c.id == user_id)
+    async def admit_users(self, user_id: UUID | None = None) -> None:
+        """Admit this org's active pushed users, or just one of them.
+
+        Two statements regardless of cohort size, revoking any invitation that
+        could outrank SCIM. Callers hold the organization role-change lock and
+        own the transaction. Invitation revocation is written directly because
+        the SCIM connection deliberately does not hold ``org:member:invite``.
+
+        Args:
+            user_id: Admit only this user; the whole directory when omitted.
+        """
+        admitted = select(ExternalUser.organization_id, ExternalUser.user_id).where(
+            ExternalUser.organization_id == self.organization_id,
+            ExternalUser.active,
         )
-        if email is not None:
-            await self._revoke_pending_invitation(email)
-        await ensure_member(self.session, self.organization_id, user_id)
+        if user_id is not None:
+            admitted = admitted.where(ExternalUser.user_id == user_id)
+        await self.session.execute(
+            update(Invitation)
+            .where(
+                Invitation.organization_id == self.organization_id,
+                func.lower(Invitation.email).in_(
+                    select(func.lower(User.__table__.c.email)).where(
+                        User.__table__.c.id.in_(
+                            admitted.with_only_columns(ExternalUser.user_id)
+                        )
+                    )
+                ),
+                Invitation.status == InvitationStatus.PENDING,
+            )
+            .values(status=InvitationStatus.REVOKED)
+        )
+        await self.session.execute(
+            pg_insert(OrganizationMembership)
+            .from_select(["organization_id", "user_id"], admitted)
+            .on_conflict_do_nothing(
+                index_elements=[
+                    OrganizationMembership.organization_id,
+                    OrganizationMembership.user_id,
+                ]
+            )
+        )
 
     async def _connection_is_active(self) -> bool:
         """Whether this organization's connection has been activated."""

@@ -40,7 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.audit.service import AuditService
-from tracecat.auth.domain_policy import is_domain_allowed_for_org
+from tracecat.auth.domain_policy import is_domain_allowed_for_org, is_org_saml_enforced
 from tracecat.auth.enums import AuthType
 from tracecat.auth.ip_allowlist import IP_ALLOWLIST_DENIED_DETAIL
 from tracecat.auth.ip_allowlist_enforcement import (
@@ -279,28 +279,8 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             return result.scalar_one_or_none()
 
     async def _is_org_saml_enforced(self, org_id: OrganizationID) -> bool:
-        if AuthType.SAML not in config.TRACECAT__AUTH_TYPES:
-            return False
-
         async with get_async_session_auth_context_manager() as session:
-            saml_enabled = bool(
-                await get_setting_from_bypass_session(
-                    "saml_enabled",
-                    organization_id=org_id,
-                    session=session,
-                    default=True,
-                )
-            )
-            if not saml_enabled:
-                return False
-
-            saml_enforced = await get_setting_from_bypass_session(
-                "saml_enforced",
-                organization_id=org_id,
-                session=session,
-                default=False,
-            )
-            return bool(saml_enforced)
+            return await is_org_saml_enforced(session, org_id)
 
     async def _any_org_saml_enforced(self, org_ids: set[OrganizationID]) -> bool:
         for org_id in org_ids:
@@ -685,7 +665,6 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             self.logger.info(
                 "Blocked password reset request by auth policy",
                 user_id=str(user.id),
-                email=user.email,
             )
             return
         await super().forgot_password(user, request)

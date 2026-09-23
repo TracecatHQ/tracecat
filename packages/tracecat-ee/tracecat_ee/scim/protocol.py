@@ -38,12 +38,8 @@ from tracecat.exceptions import (
 from tracecat_ee.scim.credentials import ScimConnectionRole
 from tracecat_ee.scim.provisioning import ScimProvisioningService
 from tracecat_ee.scim.schemas import (
-    ERROR_SCHEMA,
-    GROUP_SCHEMA,
-    RESOURCE_TYPE_SCHEMA,
+    DISPLAY_NAME_MAX_LENGTH,
     SCIM_CONTENT_TYPE,
-    SERVICE_PROVIDER_CONFIG_SCHEMA,
-    USER_SCHEMA,
     ScimEmail,
     ScimError,
     ScimGroupMemberRef,
@@ -52,6 +48,7 @@ from tracecat_ee.scim.schemas import (
     ScimListResponse,
     ScimMeta,
     ScimPatchOp,
+    ScimSchema,
     ScimUserRequest,
     ScimUserResource,
 )
@@ -99,19 +96,6 @@ class ScimFilterError(HTTPException):
     """An unsupported or malformed SCIM search filter."""
 
 
-class ScimMutabilityError(HTTPException):
-    """An attempt to change a SCIM user's login identity."""
-
-    def __init__(self) -> None:
-        super().__init__(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                "SCIM username and email changes are not supported. "
-                "Keep userName and emails unchanged for existing users."
-            ),
-        )
-
-
 def scim_http_exception_handler(
     request: Request, exc: StarletteHTTPException
 ) -> Response:
@@ -120,8 +104,6 @@ def scim_http_exception_handler(
     scim_type = None
     if isinstance(exc, ScimFilterError):
         scim_type = "invalidFilter"
-    elif isinstance(exc, ScimMutabilityError):
-        scim_type = "mutability"
     response = scim_error_response(
         status_code=exc.status_code,
         detail=detail,
@@ -336,22 +318,20 @@ async def replace_user(
     resource_id: UUID,
     params: ScimUserRequest,
 ) -> ScimUserResource:
-    """Replace the provider identifier and active state of a user resource."""
+    """Replace the login, provider identifier, and active state of a user."""
     await lock_role_changes(session, _organization_id(role))
     organization_id = _organization_id(role)
     external_user, user = await _linked_user(
         session, organization_id=organization_id, resource_id=resource_id
     )
-    if params.user_name.strip().lower() != user.email.lower() or any(
-        email.primary is True
-        and email.value is not None
-        and email.value.strip().lower() != user.email.lower()
-        for email in params.emails
-    ):
-        raise ScimMutabilityError()
-    await ScimProvisioningService(session, role).update_external_id(
-        external_user, params.external_id
+    _require_primary_email_matches(
+        params.user_name,
+        [email.value for email in params.emails if email.primary is True],
     )
+    service = ScimProvisioningService(session, role)
+    if params.user_name.strip().lower() != user.email.lower():
+        await service.rename_user(user_id=user.id, email=params.user_name)
+    await service.update_external_id(external_user, params.external_id)
     await _apply_active(
         session, role=role, external_user=external_user, active=params.active
     )
@@ -367,7 +347,7 @@ async def patch_user(
     resource_id: UUID,
     params: ScimPatchOp,
 ) -> ScimUserResource:
-    """Apply a PatchOp. ``active`` is the operation that matters."""
+    """Apply a PatchOp to the login or the ``active`` state."""
     await lock_role_changes(session, _organization_id(role))
     organization_id = _organization_id(role)
     external_user, user = await _linked_user(
@@ -375,6 +355,8 @@ async def patch_user(
     )
 
     active = external_user.active
+    user_name = user.email
+    emails: list[Any] = []
     for operation in params.operations:
         path = operation.path.strip().lower() if operation.path is not None else None
         values = operation.value if path is None else {path: operation.value}
@@ -383,18 +365,17 @@ async def patch_user(
                 "PATCH requires an attribute path or object value"
             )
         for key, value in values.items():
-            attribute = key.strip().lower().removeprefix(f"{USER_SCHEMA.lower()}:")
-            if (
-                attribute == "username"
-                and operation.op != "remove"
-                and isinstance(value, str)
-                and value.strip().lower() == user.email.lower()
-            ):
-                continue
-            if re.match(r"^(username|emails)(?:$|[.\[])", attribute):
-                raise ScimMutabilityError()
+            attribute = key.strip().lower().removeprefix(f"{ScimSchema.USER.lower()}:")
             if operation.op == "remove":
                 raise TracecatValidationError("Removing user attributes is unsupported")
+            if attribute == "username":
+                if not isinstance(value, str):
+                    raise TracecatValidationError("userName must be a string")
+                user_name = value
+                continue
+            if re.match(r"^emails(?:$|[.\[])", attribute):
+                emails.append(_primary_email_value(value))
+                continue
             if attribute != "active":
                 raise TracecatValidationError("Unsupported user PATCH path")
             parsed = _coerce_bool(value)
@@ -402,9 +383,31 @@ async def patch_user(
                 raise TracecatValidationError("active must be a boolean")
             active = parsed
 
+    _require_primary_email_matches(user_name, emails)
+    if user_name.strip().lower() != user.email.lower():
+        await ScimProvisioningService(session, role).rename_user(
+            user_id=user.id, email=user_name
+        )
     await _apply_active(session, role=role, external_user=external_user, active=active)
     await session.commit()
     return _user_resource(external_user, user)
+
+
+def _primary_email_value(value: Any) -> Any:
+    """The address an ``emails`` operation sets: the primary entry, else the first."""
+    if isinstance(value, list) and value:
+        entries = [entry for entry in value if isinstance(entry, dict)]
+        primary = next((e for e in entries if e.get("primary") is True), None)
+        return (primary or (entries[0] if entries else {})).get("value")
+    return value
+
+
+def _require_primary_email_matches(user_name: str, emails: list[Any]) -> None:
+    """Tracecat stores one address per user, so the primary email is the login."""
+    expected = user_name.strip().lower()
+    for email in emails:
+        if not isinstance(email, str) or email.strip().lower() != expected:
+            raise TracecatValidationError("The primary email must match userName")
 
 
 def _coerce_bool(value: Any) -> bool | None:
@@ -671,7 +674,7 @@ async def patch_group(
             attributes = [(path, operation.value)]
         for attribute, value in attributes:
             attribute = (
-                attribute.strip().lower().removeprefix(f"{GROUP_SCHEMA.lower()}:")
+                attribute.strip().lower().removeprefix(f"{ScimSchema.GROUP.lower()}:")
             )
             if attribute == "displayname":
                 if (
@@ -681,6 +684,10 @@ async def patch_group(
                 ):
                     raise TracecatValidationError(
                         "displayName must be a non-empty string"
+                    )
+                if len(value) > DISPLAY_NAME_MAX_LENGTH:
+                    raise TracecatValidationError(
+                        f"displayName exceeds {DISPLAY_NAME_MAX_LENGTH} characters"
                     )
                 display_name = value
                 continue
@@ -780,7 +787,7 @@ async def delete_group(
 async def service_provider_config() -> dict[str, Any]:
     """Advertise the subset of the specification this surface implements."""
     return {
-        "schemas": [SERVICE_PROVIDER_CONFIG_SCHEMA],
+        "schemas": [ScimSchema.SERVICE_PROVIDER_CONFIG],
         "patch": {"supported": True},
         "bulk": {"supported": False, "maxOperations": 0, "maxPayloadSize": 0},
         "filter": {"supported": True, "maxResults": MAX_FILTER_RESULTS},
@@ -804,21 +811,21 @@ async def resource_types() -> ScimListResponse:
     """List the resource types this surface serves."""
     resources: list[dict[str, Any]] = [
         {
-            "schemas": [RESOURCE_TYPE_SCHEMA],
+            "schemas": [ScimSchema.RESOURCE_TYPE],
             "id": "User",
             "name": "User",
             "endpoint": "/Users",
             "description": "SCIM User",
-            "schema": USER_SCHEMA,
+            "schema": ScimSchema.USER,
             "meta": {"resourceType": "ResourceType"},
         },
         {
-            "schemas": [RESOURCE_TYPE_SCHEMA],
+            "schemas": [ScimSchema.RESOURCE_TYPE],
             "id": "Group",
             "name": "Group",
             "endpoint": "/Groups",
             "description": "SCIM Group",
-            "schema": GROUP_SCHEMA,
+            "schema": ScimSchema.GROUP,
             "meta": {"resourceType": "ResourceType"},
         },
     ]
@@ -835,7 +842,7 @@ async def schemas_document() -> ScimListResponse:
     """List the resource schemas this surface understands."""
     resources: list[dict[str, Any]] = [
         {
-            "id": USER_SCHEMA,
+            "id": ScimSchema.USER,
             "name": "User",
             "description": "SCIM core User",
             "attributes": [
@@ -846,9 +853,9 @@ async def schemas_document() -> ScimListResponse:
                     "uniqueness": "server",
                     "caseExact": False,
                     "multiValued": False,
-                    "mutability": "immutable",
+                    "mutability": "readWrite",
                     "description": (
-                        "The login email address. Username changes are not supported."
+                        "The login email address, at a domain the organization owns."
                     ),
                 },
                 {
@@ -861,7 +868,7 @@ async def schemas_document() -> ScimListResponse:
             "meta": {"resourceType": "Schema"},
         },
         {
-            "id": GROUP_SCHEMA,
+            "id": ScimSchema.GROUP,
             "name": "Group",
             "description": "SCIM core Group",
             "attributes": [
@@ -897,7 +904,6 @@ def _organization_id(role: Role) -> UUID:
 
 
 __all__ = [
-    "ERROR_SCHEMA",
     "ScimJSONResponse",
     "is_scim_path",
     "router",

@@ -23,10 +23,8 @@ from tracecat_ee.scim.protocol import (
     scim_validation_exception_handler,
 )
 from tracecat_ee.scim.schemas import (
-    ERROR_SCHEMA,
-    GROUP_SCHEMA,
     SCIM_CONTENT_TYPE,
-    USER_SCHEMA,
+    ScimSchema,
 )
 from tracecat_ee.scim.service import SCIMService
 
@@ -306,7 +304,7 @@ async def test_unsupported_filter_is_a_scim_error(
     )
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
-    assert response.json()["schemas"] == [ERROR_SCHEMA]
+    assert response.json()["schemas"] == [ScimSchema.ERROR]
 
 
 @pytest.mark.anyio
@@ -330,7 +328,7 @@ async def test_get_unknown_user_returns_scim_404(
     assert response.status_code == status.HTTP_404_NOT_FOUND
     assert response.headers["content-type"].startswith(SCIM_CONTENT_TYPE)
     body = response.json()
-    assert body["schemas"] == [ERROR_SCHEMA]
+    assert body["schemas"] == [ScimSchema.ERROR]
     assert body["status"] == "404"
     assert "detail" in body
 
@@ -344,14 +342,15 @@ async def test_malformed_body_returns_scim_error_envelope(
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     body = response.json()
-    assert body["schemas"] == [ERROR_SCHEMA]
+    assert body["schemas"] == [ScimSchema.ERROR]
     assert body["status"] == "400"
     assert body["scimType"] == "invalidValue"
 
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    "attribute", ["active", f"{USER_SCHEMA}:active", f"{USER_SCHEMA}:active".upper()]
+    "attribute",
+    ["active", f"{ScimSchema.USER}:active", f"{ScimSchema.USER}:active".upper()],
 )
 @pytest.mark.parametrize("object_value", [False, True])
 async def test_patch_active_false_deprovisions(
@@ -540,7 +539,9 @@ async def test_group_lifecycle(
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("prefix", ["", f"{GROUP_SCHEMA}:", f"{GROUP_SCHEMA}:".upper()])
+@pytest.mark.parametrize(
+    "prefix", ["", f"{ScimSchema.GROUP}:", f"{ScimSchema.GROUP}:".upper()]
+)
 async def test_group_membership_projects_into_tracecat_group(
     client: httpx.AsyncClient,
     session: AsyncSession,
@@ -701,7 +702,7 @@ async def test_unknown_group_returns_scim_404(
     response = await client.get(f"/scim/v2/Groups/{uuid.uuid4()}")
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
-    assert response.json()["schemas"] == [ERROR_SCHEMA]
+    assert response.json()["schemas"] == [ScimSchema.ERROR]
 
 
 # =============================================================================
@@ -780,7 +781,7 @@ async def test_schemas_document(client: httpx.AsyncClient) -> None:
     assert "urn:ietf:params:scim:schemas:core:2.0:Group" in ids
     user_schema = next(r for r in response.json()["Resources"] if r["name"] == "User")
     username = next(a for a in user_schema["attributes"] if a["name"] == "userName")
-    assert username["mutability"] == "immutable"
+    assert username["mutability"] == "readWrite"
 
 
 def test_is_scim_path_only_matches_the_protocol_surface() -> None:
@@ -860,11 +861,13 @@ async def test_rejection_body_is_a_scim_error(
     """Even an auth failure answers in the envelope on a SCIM path."""
     response = await unauthenticated_client.get("/scim/v2/Users")
 
-    assert response.json()["schemas"] == [ERROR_SCHEMA]
+    assert response.json()["schemas"] == [ScimSchema.ERROR]
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("prefix", ["", f"{GROUP_SCHEMA}:", f"{GROUP_SCHEMA}:".upper()])
+@pytest.mark.parametrize(
+    "prefix", ["", f"{ScimSchema.GROUP}:", f"{ScimSchema.GROUP}:".upper()]
+)
 async def test_filtered_removal_preserves_peers(
     client: httpx.AsyncClient, org: Organization, prefix: str
 ) -> None:
@@ -958,8 +961,8 @@ async def test_schema_qualified_group_object_patch(client: httpx.AsyncClient) ->
                 {
                     "op": "replace",
                     "value": {
-                        f"{GROUP_SCHEMA}:displayName": "Updated",
-                        f"{GROUP_SCHEMA}:members": [{"value": user["id"]}],
+                        f"{ScimSchema.GROUP}:displayName": "Updated",
+                        f"{ScimSchema.GROUP}:members": [{"value": user["id"]}],
                     },
                 }
             ]
@@ -1325,14 +1328,58 @@ async def test_put_user_updates_external_id_without_relinking(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("method", ["PUT", "PATCH"])
+async def test_user_rename_updates_the_account_email(
+    client: httpx.AsyncClient, session: AsyncSession, org: Organization, method: str
+) -> None:
+    """The provider owns logins at the organization's domains, so a rename sticks."""
+    email = f"original-{uuid.uuid4().hex}@example.com"
+    renamed = f"Renamed-{uuid.uuid4().hex}@tracecat.com"
+    created = await _post_user(client, email)
+    resource_id = created.json()["id"]
+    before = (await client.get(f"/scim/v2/Users/{resource_id}")).json()
+    payload = (
+        {
+            "userName": renamed,
+            "emails": [{"value": renamed, "primary": True}],
+            "active": True,
+        }
+        if method == "PUT"
+        else {
+            "Operations": [
+                {"op": "replace", "path": "userName", "value": renamed},
+                {
+                    "op": "replace",
+                    "path": 'emails[type eq "work"].value',
+                    "value": renamed,
+                },
+            ]
+        }
+    )
+    response = await client.request(
+        method, f"/scim/v2/Users/{resource_id}", json=payload
+    )
+    assert response.status_code == 200
+    assert response.json()["id"] == resource_id
+    assert response.json()["userName"] == renamed.lower()
+    assert before["userName"] == email
+    user = (
+        await session.execute(
+            select(User).where(func.lower(User.email) == renamed.lower())
+        )
+    ).scalar_one()
+    assert await _is_member(session, user_id=user.id, organization_id=org.id)
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     "changes",
     [
-        {"userName": "renamed@example.com"},
-        {"emails": [{"value": "renamed@example.com", "primary": True}]},
+        {"userName": "renamed@outside.io"},
+        {"emails": [{"value": "mismatch@example.com", "primary": True}]},
     ],
 )
-async def test_put_user_rejects_rename_without_partial_updates(
+async def test_put_user_rejects_invalid_rename_without_partial_updates(
     client: httpx.AsyncClient,
     session: AsyncSession,
     org: Organization,
@@ -1351,17 +1398,77 @@ async def test_put_user_rejects_rename_without_partial_updates(
         },
     )
     assert response.status_code == 400
-    assert response.json()["schemas"] == [ERROR_SCHEMA]
-    assert response.json()["scimType"] == "mutability"
-    assert "username and email changes are not supported" in response.json()["detail"]
+    assert response.json()["schemas"] == [ScimSchema.ERROR]
+    assert response.json()["scimType"] == "invalidValue"
     stored = (await client.get(f"/scim/v2/Users/{resource_id}")).json()
     assert stored["userName"] == email
-    assert stored["emails"][0]["value"] == email
     assert stored["externalId"] == "original-id"
     assert stored["active"] is True
     assert await _resource_is_member(
         session, resource_id=uuid.UUID(resource_id), organization_id=org.id
     )
+
+
+@pytest.mark.anyio
+async def test_patch_group_rejects_oversized_display_name(
+    client: httpx.AsyncClient,
+) -> None:
+    """PATCH is bounded like POST/PUT: 400 invalidValue, not a database 500."""
+    created = await client.post(
+        "/scim/v2/Groups", json={"externalId": "idp-long", "displayName": "Short"}
+    )
+    group_id = created.json()["id"]
+    response = await client.patch(
+        f"/scim/v2/Groups/{group_id}",
+        json={
+            "Operations": [{"op": "replace", "path": "displayName", "value": "x" * 256}]
+        },
+    )
+    assert response.status_code == 400
+    assert response.json()["scimType"] == "invalidValue"
+    fetched = await client.get(f"/scim/v2/Groups/{group_id}")
+    assert fetched.json()["displayName"] == "Short"
+
+
+@pytest.mark.anyio
+async def test_user_rename_conflicts_with_another_account(
+    client: httpx.AsyncClient,
+) -> None:
+    email = f"original-{uuid.uuid4().hex}@example.com"
+    taken = f"taken-{uuid.uuid4().hex}@example.com"
+    await _post_user(client, taken, externalId="taken-id")
+    created = await _post_user(client, email, externalId="original-id")
+    resource_id = created.json()["id"]
+    response = await client.put(
+        f"/scim/v2/Users/{resource_id}",
+        json={"userName": taken.upper(), "active": False},
+    )
+    assert response.status_code == 409
+    stored = (await client.get(f"/scim/v2/Users/{resource_id}")).json()
+    assert stored["userName"] == email
+    assert stored["active"] is True
+
+
+@pytest.mark.anyio
+async def test_post_user_rejects_an_unowned_domain_without_linking(
+    client: httpx.AsyncClient, session: AsyncSession, org: Organization
+) -> None:
+    """An existing account outside the owned domains is never pulled in."""
+    user = User(
+        id=uuid.uuid4(),
+        email=f"outsider-{uuid.uuid4().hex}@outside.io",
+        hashed_password="x",
+    )
+    session.add(user)
+    await session.flush()
+    response = await _post_user(client, user.email)
+    assert response.status_code == 400
+    assert response.json()["scimType"] == "invalidValue"
+    linked = await session.scalar(
+        select(ExternalUser.id).where(ExternalUser.user_id == user.id)
+    )
+    assert linked is None
+    assert not await _is_member(session, user_id=user.id, organization_id=org.id)
 
 
 @pytest.mark.anyio
@@ -1393,32 +1500,32 @@ async def test_put_user_ignores_secondary_emails(
 @pytest.mark.parametrize(
     "operation",
     [
-        {"op": "replace", "path": "userName", "value": "renamed@example.com"},
-        {"op": "add", "value": {"userName": "renamed@example.com"}},
+        {"op": "replace", "path": "userName", "value": "renamed@outside.io"},
+        {"op": "add", "value": {"userName": "renamed@outside.io"}},
         {"op": "remove", "path": "userName"},
         {
             "op": "replace",
             "path": "urn:ietf:params:scim:schemas:core:2.0:User:USERNAME",
-            "value": "renamed@example.com",
+            "value": 42,
         },
         {
             "op": "replace",
             "path": "emails",
-            "value": [{"value": "renamed@example.com", "primary": True}],
+            "value": [{"value": "mismatch@example.com", "primary": True}],
         },
         {
             "op": "replace",
-            "value": {"emails": [{"value": "renamed@example.com"}]},
+            "value": {"emails": [{"value": "mismatch@example.com"}]},
         },
         {
             "op": "replace",
             "path": 'emails[type eq "work"].value',
-            "value": "renamed@example.com",
+            "value": "mismatch@example.com",
         },
         {"op": "remove", "path": "emails.value"},
     ],
 )
-async def test_patch_user_rejects_rename_without_deprovisioning(
+async def test_patch_user_rejects_invalid_rename_without_deprovisioning(
     client: httpx.AsyncClient,
     session: AsyncSession,
     org: Organization,
@@ -1437,8 +1544,7 @@ async def test_patch_user_rejects_rename_without_deprovisioning(
         },
     )
     assert response.status_code == 400
-    assert response.json()["scimType"] == "mutability"
-    assert "username and email changes are not supported" in response.json()["detail"]
+    assert response.json()["scimType"] == "invalidValue"
     stored = (await client.get(f"/scim/v2/Users/{resource_id}")).json()
     assert stored["userName"] == email
     assert stored["active"] is True

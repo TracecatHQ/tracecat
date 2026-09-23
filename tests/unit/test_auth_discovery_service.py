@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.auth import discovery as auth_discovery_module
+from tracecat.auth import domain_policy
 from tracecat.auth.discovery import AuthDiscoveryMethod, AuthDiscoveryService
 from tracecat.auth.enums import AuthType
 from tracecat.authz.enums import ScimConnectionStatus
@@ -318,6 +319,24 @@ async def test_discovery_offers_basic_for_pending_invitation_in_saml_org(
 
 @pytest.mark.anyio
 @pytest.mark.usefixtures("saml_org_auth_types")
+async def test_discovery_keeps_saml_for_pending_invitation_when_enforced(
+    session: AsyncSession,
+    organization: Organization,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _create_domain(session, organization.id, "invite-enforced.com")
+    await _create_invitation(session, organization.id, "alice@invite-enforced.com")
+    monkeypatch.setattr(
+        domain_policy, "get_setting_from_bypass_session", AsyncMock(return_value=True)
+    )
+
+    response = await AuthDiscoveryService(session).discover("alice@invite-enforced.com")
+
+    assert response.method == AuthDiscoveryMethod.SAML
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("saml_org_auth_types")
 async def test_discovery_keeps_saml_without_invitation(
     session: AsyncSession,
     organization: Organization,
@@ -483,6 +502,7 @@ async def test_accepted_invitation_login_route(
     monkeypatch.setattr(
         auth_discovery_module, "get_setting_from_bypass_session", setting
     )
+    monkeypatch.setattr(domain_policy, "get_setting_from_bypass_session", setting)
     response = await AuthDiscoveryService(session).discover(
         email, org_slug=organization.slug
     )

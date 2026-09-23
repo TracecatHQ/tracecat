@@ -14762,7 +14762,7 @@ export const scimGetUser = (
 
 /**
  * Replace User
- * Replace the provider identifier and active state of a user resource.
+ * Replace the login, provider identifier, and active state of a user.
  * @param data The data for the request.
  * @param data.resourceId
  * @param data.requestBody
@@ -14788,7 +14788,7 @@ export const scimReplaceUser = (
 
 /**
  * Patch User
- * Apply a PatchOp. ``active`` is the operation that matters.
+ * Apply a PatchOp to the login or the ``active`` state.
  * @param data The data for the request.
  * @param data.resourceId
  * @param data.requestBody
