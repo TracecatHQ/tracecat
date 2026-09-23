@@ -139,10 +139,8 @@ class AppSettingsUpdate(BaseSettingsGroup):
         Field(
             default_factory=list,
             description=(
-                "UNSAFE: workspaces whose actions may opt into showing their "
-                "original error message when secrets are in scope. Each action "
-                "must still enable 'Show error details' individually. Known "
-                "secret values are still masked."
+                "Legacy allow-list, ignored by action execution. Error diagnostics "
+                "always mask known secrets and observed secret-derived values."
             ),
         )
     )

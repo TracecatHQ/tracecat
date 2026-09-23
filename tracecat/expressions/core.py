@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Protocol, TypeVar
 
 from lark import Token, Tree, Visitor
 
+from tracecat.contexts import ctx_secret_masks
 from tracecat.exceptions import TracecatExpressionError
 from tracecat.expressions import patterns
 from tracecat.expressions.common import ExprContext, ExprOperand, ExprType
@@ -17,7 +18,7 @@ from tracecat.expressions.parser.evaluator import ExprEvaluator
 from tracecat.expressions.validator.validator import BaseExprValidator
 from tracecat.logger import logger
 from tracecat.parse import traverse_expressions
-from tracecat.secrets.common import secret_error_withholding_disabled
+from tracecat.secrets.masking import SecretMaskCollector
 
 if TYPE_CHECKING:
     from tracecat.expressions.policy import TaintState
@@ -111,9 +112,15 @@ class Expression:
                 detail=str(e),
             ) from e
 
-        secret_error: TracecatExpressionError | None = None
+        # policy imports this module through eval; defer this dependency until
+        # evaluation, as with the existing provenance policy hook.
+        from tracecat.expressions.policy import SecretValueObserver
+
+        masks = ctx_secret_masks.get() or SecretMaskCollector()
+        masks.observe((self._operand or {}).get(ExprContext.SECRETS, {}))
+        observer = SecretValueObserver(masks, self._taint)
         try:
-            visitor = ExprEvaluator(operand=self._operand)
+            visitor = ExprEvaluator(operand=self._operand, observe=observer.observe)
             if parse_tree is None:
                 raise ValueError(f"Parser returned None for expression `{self._expr}`")
 
@@ -129,25 +136,12 @@ class Expression:
                 )
             return default()
         except TracecatExpressionError as e:
-            # Local import: tracecat.expressions.policy imports this module transitively.
-            from tracecat.expressions.policy import references_secret_derived_value
-
-            if (
-                not secret_error_withholding_disabled()
-                and references_secret_derived_value(parse_tree, taint=self._taint)
-            ):
-                secret_error = TracecatExpressionError(
-                    f"Error evaluating expression `{self._expr}`\n\n"
-                    "Details withheld: the expression may reference a secret.",
-                    detail={"expression": self._expr, "secret_dependent": True},
-                )
-            else:
-                raise TracecatExpressionError(
-                    f"Error evaluating expression `{self._expr}`\n\n{e}",
-                    detail=e.detail if e.detail is not None else str(e),
-                ) from e
-        # Outside the handler: no exception is in flight, so nothing is attached.
-        raise secret_error
+            error = TracecatExpressionError(
+                masks.redact(f"Error evaluating expression `{self._expr}`\n\n{e}"),
+                detail=masks.redact(e.detail if e.detail is not None else str(e)),
+            )
+        # Raise outside the handler so no unmasked exception remains reachable.
+        raise error
 
     def validate(
         self,

@@ -246,7 +246,7 @@ async def test_backend_classification_survives_sanitization(
         assert CANARY not in str(error)
         assert "classification-canary" not in classification.model_dump_json()
         if owner is RuntimeErrorOwner.USER:
-            assert "Details withheld" in classification.message
+            assert "Details withheld" not in classification.message
         # Exercise both raw Python failure conversion and the classified transport.
         for transported in (
             error,

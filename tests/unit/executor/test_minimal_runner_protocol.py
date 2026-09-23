@@ -574,10 +574,10 @@ def test_main_minimal_errors_when_secret_value_stringify_fails(monkeypatch) -> N
     )
 
     assert result["success"] is False
-    # Secrets are in scope, so the message is withheld like any other failure.
+    # The error reports the invalid env entry without invoking its repr.
     assert result["error"]["type"] == "TypeError"
-    assert "Details withheld" in result["error"]["message"]
-    assert "BROKEN" not in result["error"]["message"]
+    assert "Failed to stringify secret env value" in result["error"]["message"]
+    assert "BROKEN" in result["error"]["message"]
 
 
 def test_main_minimal_keeps_error_message_when_withholding_disabled(
@@ -914,8 +914,8 @@ def test_serialize_result_passes_through_when_serialization_succeeds() -> None:
     assert orjson.loads(payload) == {"success": True, "result": 1}
 
 
-def test_main_minimal_withholds_error_when_secrets_in_scope(monkeypatch) -> None:
-    """With secrets in scope the raw message is withheld, phrased like the gate."""
+def test_main_minimal_masks_error_when_secrets_in_scope(monkeypatch) -> None:
+    """Known secrets are masked without discarding the diagnostic."""
     test_module: Any = types.ModuleType("test_module")
 
     def boom_action() -> None:
@@ -946,5 +946,36 @@ def test_main_minimal_withholds_error_when_secrets_in_scope(monkeypatch) -> None
     assert result["success"] is False
     assert result["error"]["type"] == "ValueError"
     assert "CANARY" not in result["error"]["message"]
-    # Phrasing pinned to the expression gate's "Details withheld:" contract.
-    assert "Details withheld:" in result["error"]["message"]
+    assert result["error"]["message"] == "invalid literal: '***'"
+
+
+@pytest.mark.parametrize("escaped", [False, True])
+def test_main_minimal_masks_observed_derived_values_without_env_secrets(
+    monkeypatch, escaped: bool
+) -> None:
+    """Host-observed values cross the subprocess protocol even without env secrets."""
+    derived = "encoded-derived-value\nsecond-line"
+    test_module = types.ModuleType("test_module")
+
+    def fail() -> None:
+        value = repr(derived) if escaped else derived
+        raise ValueError(f"upstream rejected {value}")
+
+    monkeypatch.setattr(test_module, "fail", fail, raising=False)
+    monkeypatch.setattr(
+        minimal_runner.importlib, "import_module", lambda *_args: test_module
+    )
+    result = minimal_runner.main_minimal(
+        {
+            "resolved_context": {
+                "action_impl": {"type": "udf", "module": "test_module", "name": "fail"},
+                "evaluated_args": {},
+            },
+            "secret_env": {},
+            "secret_mask_values": [derived, repr(derived)[1:-1]],
+        }
+    )
+    assert result["success"] is False
+    assert "upstream rejected" in result["error"]["message"]
+    assert "encoded-derived-value" not in result["error"]["message"]
+    assert "***" in result["error"]["message"]

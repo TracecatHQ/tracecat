@@ -111,7 +111,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { ValidationErrorView } from "@/components/validation-errors"
-import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import {
   DEFAULT_ACTION_TIMEOUT_SECONDS,
   isAgentAction,
@@ -139,16 +138,6 @@ function normalizeOptionalExpression(
     return undefined
   }
   return trimmed
-}
-
-function errorDetailsStatusLabel(
-  workspaceAllows: boolean,
-  enabled: boolean
-): string {
-  if (!workspaceAllows) {
-    return "Not allowed for this workspace by organization settings"
-  }
-  return enabled ? "Enabled" : "Disabled"
 }
 
 // These are YAML strings
@@ -323,9 +312,6 @@ function ActionPanelContent({
 }) {
   const { appSettings } = useOrgAppSettings()
   const workspaceId = useWorkspaceId()
-  const { workspace } = useWorkspaceDetails()
-  const workspaceAllowsErrorDetails =
-    workspace?.unsafe_disable_secret_error_withholding_allowed ?? false
   const { validationErrors } = useWorkflow()
   const { action, actionIsLoading, updateAction } = useAction(
     actionId,
@@ -1548,36 +1534,6 @@ function ActionPanelContent({
                                 </FormControl>
                                 <span className="text-xs text-muted-foreground">
                                   {field.value ? "Enabled" : "Disabled"}
-                                </span>
-                              </div>
-                            </FormItem>
-                          )}
-                        />
-                      </ControlFlowField>
-
-                      <ControlFlowField
-                        label="Show error details"
-                        description="Unsafe: show this action's original error message even when secrets are in scope. Known secret values are still masked."
-                      >
-                        <FormField
-                          name="unsafe_disable_secret_error_withholding"
-                          control={methods.control}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormMessage className="whitespace-pre-line" />
-                              <div className="flex items-center gap-2">
-                                <FormControl>
-                                  <Switch
-                                    checked={field.value ?? false}
-                                    onCheckedChange={field.onChange}
-                                    disabled={!workspaceAllowsErrorDetails}
-                                  />
-                                </FormControl>
-                                <span className="text-xs text-muted-foreground">
-                                  {errorDetailsStatusLabel(
-                                    workspaceAllowsErrorDetails,
-                                    field.value ?? false
-                                  )}
                                 </span>
                               </div>
                             </FormItem>

@@ -244,7 +244,7 @@ class TestObjectMasking:
             "key1": "This is a *** message",
             "key2": ["***", "Another ***"],
         }
-        compile_pattern.assert_called_once_with(masks)
+        compile_pattern.assert_called_once_with(masks, include_short=False)
 
     def test_apply_masks_object_with_mask_generator(self):
         masks = (mask for mask in ["secret", "password"])

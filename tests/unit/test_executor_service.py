@@ -1,3 +1,4 @@
+import base64
 import uuid
 from collections.abc import Mapping
 from contextlib import asynccontextmanager
@@ -12,7 +13,6 @@ from tracecat_registry import (
     RegistrySecretType,
 )
 
-from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
@@ -32,7 +32,6 @@ from tracecat.identifiers.workflow import WorkflowUUID, generate_exec_id
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.secrets import secrets_manager
-from tracecat.secrets.common import ctx_unsafe_disable_secret_error_withholding
 from tracecat.secrets.constants import MASK_VALUE
 
 
@@ -1210,13 +1209,8 @@ async def test_invoke_once_returns_none_result_as_success(mocker):
 
 
 @pytest.mark.anyio
-async def test_invoke_once_withholds_carrier_derived_action_error(mocker):
-    """No declared secrets does not mean no secrets.
-
-    ACTIONS/var inputs can be secret-derived, so the original exception must
-    not ride along as __cause__/__context__: Temporal serializes the chain and
-    the run view surfaces its deepest message.
-    """
+async def test_invoke_once_keeps_unknown_carrier_error_without_chain(mocker):
+    """Unknown carrier lineage retains diagnostics; exception chains stay severed."""
     from tracecat.exceptions import ExecutionError
 
     canary = "SUPERSECRET-chain-canary"
@@ -1263,19 +1257,14 @@ async def test_invoke_once_withholds_carrier_derived_action_error(mocker):
 
     assert exc_info.value.__cause__ is None
     assert exc_info.value.__context__ is None
-    assert "Details withheld:" in str(exc_info.value)
-    assert canary not in str(exc_info.value)
+    assert "Details withheld:" not in str(exc_info.value)
+    assert f"rejected {canary}" in str(exc_info.value)
 
 
 @pytest.mark.anyio
-async def test_invoke_once_keeps_action_error_when_withholding_disabled(
-    mocker, monkeypatch
-):
-    """Opting out preserves diagnostics while masking known values in all fields."""
+async def test_invoke_once_selectively_masks_all_error_fields(mocker):
+    """Diagnostics retain useful text while masking known values in all fields."""
     canary = "secret-error-info-canary"
-    monkeypatch.setattr(
-        config, "TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING", True
-    )
     role = _expression_policy_role("tracecat-executor")
     action_input = _expression_policy_input(
         "core.probe", {"value": "${{ ACTIONS.fetch.result }}"}
@@ -1335,214 +1324,18 @@ async def test_invoke_once_keeps_action_error_when_withholding_disabled(
     assert action_error.info.model_dump() == original_info
 
 
-def _patch_org_error_details_setting(mocker, value: object):
-    """Stub the raw org setting row behind `workspace_allows_error_details`.
-
-    `value` is what the stored allow-list deserializes to (a list of workspace
-    ID strings); `None` mimics a missing row.
-    """
-    executor_service._workspace_allows_error_details_cached.cache_clear()
-    session_cm = mocker.MagicMock()
-    session_cm.__aenter__ = mocker.AsyncMock(return_value=mocker.AsyncMock())
-    session_cm.__aexit__ = mocker.AsyncMock(return_value=False)
-    mocker.patch.object(
-        executor_service,
-        "get_async_session_bypass_rls_context_manager",
-        return_value=session_cm,
-    )
-    stub = mocker.AsyncMock(return_value=[] if value is None else value)
-    return mocker.patch(
-        "tracecat.settings.service.get_setting_from_bypass_session", new=stub
-    )
-
-
-_CURRENT_WS = str(UUID(int=2))
-_OTHER_WS = str(UUID(int=3))
-
-
-@pytest.mark.anyio
-async def test_workspace_allows_error_details_lookup_is_cached(mocker) -> None:
-    """Repeated checks for the same org/workspace hit the DB once within the TTL."""
-    stub = _patch_org_error_details_setting(mocker, [_CURRENT_WS])
-    role = Role(
-        type="service",
-        service_id="tracecat-executor",
-        organization_id=UUID(int=1),
-        workspace_id=UUID(int=2),
-    )
-    other = role.model_copy(update={"workspace_id": UUID(int=3)})
-
-    assert await executor_service._workspace_allows_error_details(role) is True
-    assert await executor_service._workspace_allows_error_details(role) is True
-    assert stub.await_count == 1
-
-    assert await executor_service._workspace_allows_error_details(other) is False
-    assert stub.await_count == 2
-
-
-@pytest.mark.anyio
-@pytest.mark.parametrize(
-    ("allowed_workspaces", "action_opts_in", "expect_original"),
-    [
-        pytest.param([_CURRENT_WS], True, True, id="workspace-allowed-and-action"),
-        pytest.param(
-            [_OTHER_WS, _CURRENT_WS], True, True, id="workspace-among-allowed"
-        ),
-        pytest.param([_CURRENT_WS], False, False, id="workspace-allowed-only"),
-        pytest.param([_OTHER_WS], True, False, id="other-workspace-allowed"),
-        pytest.param([], True, False, id="allow-list-empty"),
-        pytest.param(None, True, False, id="allow-list-missing"),
-        pytest.param("not-a-list", True, False, id="allow-list-malformed"),
-    ],
-)
-async def test_invoke_once_action_opt_out_requires_workspace_allow(
-    mocker, monkeypatch, allowed_workspaces, action_opts_in, expect_original
-):
-    """The per-action opt-out only surfaces the message for org-allow-listed workspaces."""
-    from tracecat.exceptions import ExecutionError
-
-    monkeypatch.setattr(
-        config, "TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING", False
-    )
-    role = _expression_policy_role("tracecat-executor")
-    action_input = _expression_policy_input(
-        "core.probe", {"value": "${{ ACTIONS.fetch.result }}"}
-    )
-    action_input.task.unsafe_disable_secret_error_withholding = action_opts_in
-    get_setting = _patch_org_error_details_setting(mocker, allowed_workspaces)
-    resolved_context = mocker.Mock(logical_time=mocker.sentinel.logical_time)
-    prepared_context = executor_service.PreparedContext(
-        resolved_context=resolved_context,
-        mask_values={"sk-live-secret"},
-    )
-    mocker.patch.object(
-        executor_service.registry_resolver,
-        "prefetch_lock",
-        new=mocker.AsyncMock(),
-    )
-    mocker.patch.object(
-        executor_service,
-        "prepare_resolved_context",
-        new=mocker.AsyncMock(return_value=prepared_context),
-    )
-    action_error = ExecutionError(
-        info=ExecutorActionErrorInfo(
-            action_name="core.probe",
-            type="ValueError",
-            message="upstream rejected the request",
-            filename="probe.py",
-            function="run",
-        )
-    )
-    mocker.patch.object(
-        executor_service,
-        "_invoke_step",
-        new=mocker.AsyncMock(side_effect=action_error),
-    )
-
-    with pytest.raises(ExecutionError) as exc_info:
-        await executor_service.invoke_once(
-            backend=mocker.Mock(),
-            input=action_input,
-            ctx=executor_service.DispatchActionContext(role=role),
-        )
-
-    if expect_original:
-        assert "Details withheld:" not in str(exc_info.value)
-        assert "upstream rejected the request" in str(exc_info.value)
-    else:
-        assert "Details withheld:" in str(exc_info.value)
-        assert "upstream rejected the request" not in str(exc_info.value)
-    # The per-invocation policy never leaks past invoke_once.
-    assert ctx_unsafe_disable_secret_error_withholding.get() is False
-    if action_opts_in:
-        assert get_setting.await_args.args == (
-            "app_unsafe_disable_secret_error_withholding_workspace_ids",
-        )
-        assert get_setting.await_args.kwargs["organization_id"] == role.organization_id
-    else:
-        get_setting.assert_not_awaited()
-
-
-@pytest.mark.anyio
-async def test_invoke_once_action_opt_out_fails_closed_without_workspace(
-    mocker, monkeypatch
-):
-    """No workspace on the role means the allow-list is never consulted."""
-    from tracecat.exceptions import ExecutionError
-
-    monkeypatch.setattr(
-        config, "TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING", False
-    )
-    role = Role(
-        type="service",
-        organization_id=UUID(int=1),
-        workspace_id=None,
-        service_id="tracecat-executor",
-    )
-    action_input = _expression_policy_input(
-        "core.probe", {"value": "${{ ACTIONS.fetch.result }}"}
-    )
-    action_input.task.unsafe_disable_secret_error_withholding = True
-    get_setting = _patch_org_error_details_setting(mocker, [_CURRENT_WS])
-    prepared_context = executor_service.PreparedContext(
-        resolved_context=mocker.Mock(logical_time=mocker.sentinel.logical_time),
-        mask_values={"sk-live-secret"},
-    )
-    mocker.patch.object(
-        executor_service.registry_resolver,
-        "prefetch_lock",
-        new=mocker.AsyncMock(),
-    )
-    mocker.patch.object(
-        executor_service,
-        "prepare_resolved_context",
-        new=mocker.AsyncMock(return_value=prepared_context),
-    )
-    mocker.patch.object(
-        executor_service,
-        "_invoke_step",
-        new=mocker.AsyncMock(
-            side_effect=ExecutionError(
-                info=ExecutorActionErrorInfo(
-                    action_name="core.probe",
-                    type="ValueError",
-                    message="upstream rejected the request",
-                    filename="probe.py",
-                    function="run",
-                )
-            )
-        ),
-    )
-
-    with pytest.raises(ExecutionError) as exc_info:
-        await executor_service.invoke_once(
-            backend=mocker.Mock(),
-            input=action_input,
-            ctx=executor_service.DispatchActionContext(role=role),
-        )
-
-    assert "Details withheld:" in str(exc_info.value)
-    assert "upstream rejected the request" not in str(exc_info.value)
-    get_setting.assert_not_awaited()
-    assert ctx_unsafe_disable_secret_error_withholding.get() is False
-
-
 @pytest.mark.anyio
 @pytest.mark.parametrize("failure_site", ["step", "returns", "nested-returns"])
-async def test_invoke_once_opt_out_masks_template_expression_errors(
-    mocker, monkeypatch, failure_site
+@pytest.mark.parametrize("encoded", [False, True])
+async def test_invoke_once_masks_template_expression_errors(
+    mocker, failure_site, encoded
 ):
     """Real template failures retain diagnostics, but never known secret values."""
-    monkeypatch.setattr(
-        config, "TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING", False
-    )
     canary = "secret-template-canary"
-    expression = "${{ int(SECRETS.api.KEY) }}"
+    operand = "FN.to_base64(SECRETS.api.KEY)" if encoded else "SECRETS.api.KEY"
+    expression = "${{ int(" + operand + ") }}"
     role = _expression_policy_role("tracecat-executor")
     action_input = _expression_policy_input("testing.error_details", {})
-    action_input.task.unsafe_disable_secret_error_withholding = True
-    _patch_org_error_details_setting(mocker, [_CURRENT_WS])
     template_definition = {
         "name": "error_details",
         "namespace": "testing",
@@ -1638,6 +1431,9 @@ async def test_invoke_once_opt_out_masks_template_expression_errors(
 
     error = exc_info.value
     assert canary not in error.info.model_dump_json()
+    assert (
+        base64.b64encode(canary.encode()).decode() not in error.info.model_dump_json()
+    )
     assert canary not in str(error)
     assert "invalid literal for int()" in error.info.message
     assert MASK_VALUE in error.info.message
@@ -1646,7 +1442,6 @@ async def test_invoke_once_opt_out_masks_template_expression_errors(
     assert error.info.loop_iteration == 2
     assert error.__cause__ is None
     assert error.__context__ is None
-    assert ctx_unsafe_disable_secret_error_withholding.get() is False
     assert canary not in str(error_log.call_args_list)
     error_log.assert_called()
     if failure_site != "nested-returns":
