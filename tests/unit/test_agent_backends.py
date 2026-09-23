@@ -329,11 +329,77 @@ async def test_dispatch_rejects_missing_or_owned_session_before_preparation(miss
     with (
         patch("tracecat.agent.backends.base.get_temporal_client", return_value=client),
         patch.object(backend, "build_workflow_args") as prepare,
+        patch.object(backend, "handle", side_effect=TimeoutError),
         pytest.raises(TracecatConflictError),
     ):
         await backend.start_turn(ctx)
     prepare.assert_not_called()
     ctx.db.commit.assert_not_awaited()
+    rpc.assert_not_awaited()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "outcome",
+    [
+        WorkflowExecutionStatus.RUNNING,
+        WorkflowExecutionStatus.CONTINUED_AS_NEW,
+        None,
+        RPCError("not found", RPCStatusCode.NOT_FOUND, b""),
+        RPCError("unavailable", RPCStatusCode.UNAVAILABLE, b""),
+        TimeoutError("lookup timed out"),
+    ],
+)
+async def test_turn_admission_preserves_running_or_unconfirmed_ownership(outcome):
+    ctx = context()
+    assert isinstance(ctx.db, AsyncMock)
+    old_run_id, old_stream_id = uuid4(), uuid4()
+    ctx.session.curr_run_id = old_run_id
+    ctx.session.active_stream_id = old_stream_id
+    backend = DefaultBackend()
+    client, rpc = temporal_client()
+    handle = Mock()
+    handle.describe = AsyncMock(return_value=SimpleNamespace(status=outcome))
+    if isinstance(outcome, Exception):
+        handle.describe.side_effect = outcome
+    with (
+        patch("tracecat.agent.backends.base.get_temporal_client", return_value=client),
+        patch.object(backend, "handle", return_value=handle),
+        patch.object(backend, "get_turn_lifecycle") as lifecycle,
+        pytest.raises(TracecatConflictError),
+    ):
+        await backend.start_turn(ctx)
+    lifecycle.assert_not_called()
+    assert ctx.session.curr_run_id == old_run_id
+    assert ctx.session.active_stream_id == old_stream_id
+    ctx.db.commit.assert_not_awaited()
+    ctx.db.scalar.assert_awaited_once()
+    rpc.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_recovery_rechecks_ownership_after_releasing_the_lock():
+    ctx = context()
+    assert isinstance(ctx.db, AsyncMock)
+    ctx.session.curr_run_id = uuid4()
+    newer_session = AgentSession(id=ctx.session.id, curr_run_id=uuid4())
+    ctx.db.scalar.side_effect = [ctx.session, ctx.session.id, newer_session]
+    backend = DefaultBackend()
+    client, rpc = temporal_client()
+    handle = Mock(
+        describe=AsyncMock(
+            return_value=SimpleNamespace(status=WorkflowExecutionStatus.COMPLETED)
+        )
+    )
+    with (
+        patch("tracecat.agent.backends.base.get_temporal_client", return_value=client),
+        patch.object(backend, "handle", return_value=handle),
+        pytest.raises(TracecatConflictError),
+    ):
+        await backend.start_turn(ctx)
+    ctx.db.commit.assert_awaited_once()
+    assert ctx.db.scalar.await_count == 3
+    assert newer_session.curr_run_id != ctx.run_id
     rpc.assert_not_awaited()
 
 

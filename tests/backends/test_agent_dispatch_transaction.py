@@ -7,6 +7,7 @@ uv run pytest --noconftest tests/backends/test_agent_dispatch_transaction.py
 import asyncio
 from collections.abc import AsyncIterator
 from dataclasses import replace
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 from uuid import uuid4
 
@@ -16,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, create_async_e
 from sqlalchemy.pool import NullPool
 from sqlalchemy.schema import CreateTable
 from temporalio.api.workflowservice.v1 import StartWorkflowExecutionResponse
-from temporalio.client import Client
+from temporalio.client import Client, WorkflowExecutionStatus
 from temporalio.common import RetryPolicy
 from temporalio.service import ConnectConfig, RPCError, RPCStatusCode, ServiceClient
 
@@ -209,11 +210,77 @@ async def test_uncertain_dispatch_keeps_history_and_blocks_another_turn(
                 assert saved.active_stream_id == context.stream_id
                 assert len(list(await reader.scalars(select(AgentSessionHistory)))) == 2
 
-            with pytest.raises(TracecatConflictError):
+            describe = AsyncMock(side_effect=TimeoutError("lookup unavailable"))
+            with (
+                patch.object(backend, "handle", return_value=Mock(describe=describe)),
+                pytest.raises(TracecatConflictError),
+            ):
                 await backend.start_turn(
                     replace(context, run_id=uuid4(), stream_id=uuid4())
                 )
+            describe.assert_awaited_once()
             rpc.assert_awaited_once()
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        WorkflowExecutionStatus.COMPLETED,
+        WorkflowExecutionStatus.FAILED,
+        WorkflowExecutionStatus.CANCELED,
+        WorkflowExecutionStatus.TERMINATED,
+        WorkflowExecutionStatus.TIMED_OUT,
+    ],
+)
+@pytest.mark.parametrize("preparation_fails", [False, True])
+async def test_terminal_turn_recovery_persists_before_new_preparation(
+    connection: AsyncConnection,
+    status: WorkflowExecutionStatus,
+    preparation_fails: bool,
+) -> None:
+    backend = HistoryBackend()
+    backend.fail_preparation = preparation_fails
+    rpc = AsyncMock(return_value=StartWorkflowExecutionResponse(run_id="run-2"))
+    handle = Mock(describe=AsyncMock(return_value=SimpleNamespace(status=status)))
+    async with AsyncSession(connection, expire_on_commit=False) as db:
+        context = await make_context(db)
+        session_id = context.session.id
+        stale_run_id = uuid4()
+        context.session.curr_run_id = stale_run_id
+        context.session.active_stream_id = uuid4()
+        context.session.last_error = None
+        await db.commit()
+        with (
+            patch(
+                "tracecat.agent.backends.base.get_temporal_client",
+                return_value=temporal_client(rpc),
+            ),
+            patch.object(backend, "handle", return_value=handle) as resolve,
+        ):
+            if preparation_fails:
+                with pytest.raises(RuntimeError, match="before dispatch"):
+                    await backend.start_turn(context)
+                rpc.assert_not_awaited()
+            else:
+                await backend.start_turn(context)
+                rpc.assert_awaited_once()
+        assert resolve.await_args is not None
+        assert resolve.await_args.args == (stale_run_id,)
+        async with AsyncSession(connection) as reader:
+            saved = await reader.scalar(
+                select(AgentSession).where(AgentSession.id == session_id)
+            )
+            assert saved is not None
+            if preparation_fails:
+                assert saved.curr_run_id is None
+                assert saved.active_stream_id is None
+                assert saved.last_error == (
+                    "Previous agent turn ended before session cleanup completed"
+                )
+            else:
+                assert saved.curr_run_id == context.run_id
+                assert saved.active_stream_id == context.stream_id
+                assert saved.last_error is None
 
 
 @pytest.mark.parametrize(

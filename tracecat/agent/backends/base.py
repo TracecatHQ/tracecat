@@ -4,6 +4,7 @@ import asyncio
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
+from datetime import timedelta
 from typing import ClassVar
 from uuid import UUID
 
@@ -103,7 +104,7 @@ class AgentBackend[InputT, OutputT](ABC):
     async def start_turn(self, context: SessionTurnContext) -> None:
         """Reserve the session, commit ownership, and start its typed workflow."""
         client = await get_temporal_client()
-        session = await context.db.scalar(
+        locked_session = (
             select(AgentSession)
             .where(
                 AgentSession.id == context.session.id,
@@ -112,8 +113,20 @@ class AgentBackend[InputT, OutputT](ABC):
             .with_for_update()
             .execution_options(populate_existing=True)
         )
-        if session is None or session.curr_run_id is not None:
+        session = await context.db.scalar(locked_session)
+        if session is None:
             raise TracecatConflictError("This chat already has an active turn")
+        if session.curr_run_id is not None:
+            recovered = await self._release_terminal_turn(
+                replace(context, session=session), client
+            )
+            if not recovered:
+                raise TracecatConflictError("This chat already has an active turn")
+            # Recovery commits independently so a subsequent preparation failure
+            # cannot restore stale ownership. Reacquire the lock before admission.
+            session = await context.db.scalar(locked_session)
+            if session is None or session.curr_run_id is not None:
+                raise TracecatConflictError("This chat already has an active turn")
         # Once admitted, finish the ownership decision before releasing the
         # request's DB session. Cancellation must not interrupt a commit that
         # PostgreSQL may already have accepted, or skip dispatch/cleanup after it.
@@ -124,6 +137,48 @@ class AgentBackend[InputT, OutputT](ABC):
                 )
             )
         )
+
+    async def _release_terminal_turn(
+        self, context: SessionTurnContext, client: Client
+    ) -> bool:
+        """Recover a locked reservation only when Temporal confirms it has ended."""
+        session = context.session
+        run_id = session.curr_run_id
+        if run_id is None:
+            return False
+        try:
+            handle = await self.handle(run_id, client=client)
+            description = await handle.describe(rpc_timeout=timedelta(seconds=5))
+        except Exception:
+            # NOT_FOUND can race with the commit-to-start gap. A lookup failure
+            # never proves that the original dispatch cannot still start.
+            return False
+        if description.status not in {
+            WorkflowExecutionStatus.COMPLETED,
+            WorkflowExecutionStatus.FAILED,
+            WorkflowExecutionStatus.CANCELED,
+            WorkflowExecutionStatus.TERMINATED,
+            WorkflowExecutionStatus.TIMED_OUT,
+        }:
+            return False
+        released = await context.db.scalar(
+            update(AgentSession)
+            .where(
+                AgentSession.id == session.id,
+                AgentSession.workspace_id == context.role.workspace_id,
+                AgentSession.curr_run_id == run_id,
+                AgentSession.active_stream_id == session.active_stream_id,
+            )
+            .values(
+                curr_run_id=None,
+                active_stream_id=None,
+                last_error=session.last_error
+                or "Previous agent turn ended before session cleanup completed",
+            )
+            .returning(AgentSession.id)
+        )
+        await context.db.commit()
+        return released is not None
 
     async def _prepare_and_dispatch_turn(
         self, context: SessionTurnContext, client: Client
