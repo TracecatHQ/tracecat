@@ -1138,12 +1138,14 @@ async def test_send_message_new_turn_preserves_only_uncertain_dispatch(
     fake_svc.is_first_prompt_for_session.assert_awaited_once_with(session_id)
     fake_svc.build_initial_artifact.assert_not_awaited()
     fake_svc.run_turn.assert_awaited_once()
-    # Startup failure surfaces a terminal frame + clears the active-turn pointers.
-    fake_stream.error.assert_awaited_once()
-    fake_stream.done.assert_awaited_once()
     if uncertain:
+        # A lost start acknowledgement must not truncate a possibly live reply.
+        fake_stream.error.assert_not_awaited()
+        fake_stream.done.assert_not_awaited()
         fake_svc.clear_active_turn.assert_not_awaited()
     else:
+        fake_stream.error.assert_awaited_once()
+        fake_stream.done.assert_awaited_once()
         fake_svc.clear_active_turn.assert_awaited_once()
         clear_call = fake_svc.clear_active_turn.await_args
         assert clear_call.args == (session_id,)

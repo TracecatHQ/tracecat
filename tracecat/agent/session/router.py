@@ -573,6 +573,10 @@ async def send_message(
                         active_stream_id=stream_id,
                         is_first_prompt=is_first_prompt,
                     )
+                except SessionDispatchUncertain:
+                    # The workflow may already be producing a reply. Preserve
+                    # both its reservation and stream so reconnect can resume it.
+                    raise
                 except Exception as turn_exc:
                     logger.warning(
                         "Failed to start agent turn",
@@ -584,10 +588,9 @@ async def send_message(
                             f"Failed to start agent turn for session {session_id}"
                         )
                         await stream.done()
-                        if not isinstance(turn_exc, SessionDispatchUncertain):
-                            await svc.clear_active_turn(
-                                session_id, expected_stream_id=stream_id
-                            )
+                        await svc.clear_active_turn(
+                            session_id, expected_stream_id=stream_id
+                        )
                     except Exception as rollback_exc:
                         logger.warning(
                             "Failed to clear stream state after turn startup failure",
