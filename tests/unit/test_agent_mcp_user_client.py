@@ -114,8 +114,10 @@ def _http_status_error(status_code: int) -> httpx.HTTPStatusError:
         (ValueError("bad schema"), UserMCPDiscoveryError, None),
     ],
 )
+@pytest.mark.parametrize("nested_in_group", [False, True])
 async def test_discover_tools_strict_mode_raises_typed_errors(
     monkeypatch: pytest.MonkeyPatch,
+    nested_in_group: bool,
     error: BaseException,
     expected_type: type[UserMCPDiscoveryError],
     retryable: bool | None,
@@ -126,7 +128,12 @@ async def test_discover_tools_strict_mode_raises_typed_errors(
         config: MCPHttpServerConfig,
     ) -> dict[str, MCPToolDefinition]:
         del self, server_name, config
-        # Wrap like fastmcp does so the typed mapping must walk the chain.
+        # Wrap like fastmcp/anyio do so the typed mapping must walk both the
+        # cause chain and ExceptionGroup members.
+        if nested_in_group:
+            raise RuntimeError("Client failed to connect") from BaseExceptionGroup(
+                "unhandled errors in a TaskGroup", [error]
+            )
         raise RuntimeError("Client failed to connect") from error
 
     monkeypatch.setattr(

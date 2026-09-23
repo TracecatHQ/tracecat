@@ -136,22 +136,13 @@ async def list_remote_mcp_tools(
 
 
 def _iter_exception_chain(exc: BaseException) -> list[BaseException]:
-    """Return an exception and its explicit cause/context chain."""
-    chain: list[BaseException] = []
-    current: BaseException | None = exc
-    while current is not None and current not in chain:
-        chain.append(current)
-        current = current.__cause__ or current.__context__
-    return chain
+    """Return an exception, its cause/context links, and ExceptionGroup members.
 
-
-def _contains_response_too_large(exc: BaseException) -> bool:
-    """Walk cause/context and ExceptionGroup members for the byte-cap error.
-
-    The cap raise surfaces differently by path: bare on tools/call, wrapped in
-    a connect RuntimeError on the handshake, and nested inside an anyio
+    Failures surface differently by path: bare on tools/call, wrapped in a
+    connect RuntimeError on the handshake, and nested inside an anyio
     ExceptionGroup in either case.
     """
+    chain: list[BaseException] = []
     seen: set[int] = set()
     stack: list[BaseException] = [exc]
     while stack:
@@ -159,14 +150,21 @@ def _contains_response_too_large(exc: BaseException) -> bool:
         if id(current) in seen:
             continue
         seen.add(id(current))
-        if isinstance(current, MCPResponseTooLargeError):
-            return True
+        chain.append(current)
         if isinstance(current, BaseExceptionGroup):
             stack.extend(current.exceptions)
         for linked in (current.__cause__, current.__context__):
             if linked is not None:
                 stack.append(linked)
-    return False
+    return chain
+
+
+def _contains_response_too_large(exc: BaseException) -> bool:
+    """Return whether the byte-cap error appears anywhere in the failure."""
+    return any(
+        isinstance(chained, MCPResponseTooLargeError)
+        for chained in _iter_exception_chain(exc)
+    )
 
 
 def _is_retryable_discovery_error_leaf(exc: BaseException) -> bool:
