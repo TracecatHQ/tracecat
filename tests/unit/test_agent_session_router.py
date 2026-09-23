@@ -1913,6 +1913,36 @@ async def test_session_read_surfaces_history_failure(endpoint) -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("backend_state", ["missing", "disabled"])
+async def test_create_session_rejects_unavailable_backend_with_bad_request(
+    backend_state: str,
+) -> None:
+    db = AsyncMock()
+    provider = DefaultBackend()
+    with (
+        patch.object(
+            registry,
+            "get_agent_backends",
+            return_value={} if backend_state == "missing" else {"external": provider},
+        ),
+        patch.object(provider, "is_enabled", return_value=False),
+        pytest.raises(HTTPException) as exc_info,
+    ):
+        await cast(Any, create_session).__wrapped__(
+            request=AgentSessionCreate(
+                entity_type=AgentSessionEntity.AGENT_PRESET,
+                entity_id=uuid.uuid4(),
+                backend_id="external",
+            ),
+            role=_read_role(uuid.uuid4()),
+            session=db,
+        )
+    assert exc_info.value.status_code == status.HTTP_400_BAD_REQUEST
+    assert exc_info.value.detail == "Agent backend is unavailable"
+    db.commit.assert_not_awaited()
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize("surface", ["create", "get", "vercel", "update", "fork"])
 @pytest.mark.parametrize(
     "backend_state", ["enabled", "disabled", "missing", "unsupported"]

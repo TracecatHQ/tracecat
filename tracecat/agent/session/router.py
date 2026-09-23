@@ -58,6 +58,7 @@ from tracecat.exceptions import (
     EntitlementRequired,
     TracecatConflictError,
     TracecatNotFoundError,
+    TracecatValidationError,
 )
 from tracecat.logger import logger
 from tracecat.observability.otel import set_current_span_attributes
@@ -165,7 +166,12 @@ async def create_session(
         entity_type=request.entity_type,
     )
     svc = AgentSessionService(session, role)
-    agent_session = await svc.create_session(request)
+    try:
+        agent_session = await svc.create_session(request)
+    except TracecatValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
     return build_session_read(agent_session, role)
 
 
