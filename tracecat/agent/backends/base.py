@@ -1,6 +1,7 @@
 """Shared session reservation and Temporal dispatch for agent backends."""
 
 import asyncio
+import copy
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
@@ -36,9 +37,10 @@ from tracecat.agent.backends.types import (
     SessionForkContext,
     SessionHistoryAdapter,
     SessionTurnContext,
+    SessionWorkflowContext,
 )
 from tracecat.agent.cancellation import signal_turn_cancel
-from tracecat.agent.session.types import TurnLifecycle
+from tracecat.agent.session.types import AgentSessionEntity, TurnLifecycle
 from tracecat.concurrency import rejoin_future_on_cancel
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
@@ -93,12 +95,13 @@ class AgentBackend[InputT, OutputT](ABC):
         """
 
     @abstractmethod
-    async def build_workflow_args(self, context: SessionTurnContext) -> InputT:
-        """Prepare workflow input and any history writes before reservation commits.
+    async def build_workflow_args(self, context: SessionWorkflowContext) -> InputT:
+        """Build workflow input without side effects from a data-only snapshot.
 
-        The session is locked. Implementations must not commit or dispatch work;
-        the shared lifecycle commits their writes with turn ownership only after
-        Temporal has encoded and validated the start request.
+        Implementations must not write history or backend state, open write
+        transactions, or dispatch work. Persist turn data in workflow activities
+        after execution starts, idempotently across activity retries. The shared
+        lifecycle alone commits session ownership before the start RPC.
         """
 
     async def start_turn(self, context: SessionTurnContext) -> None:
@@ -189,7 +192,24 @@ class AgentBackend[InputT, OutputT](ABC):
         dispatch = TurnDispatchClient(client.service_client, context.db.commit)
         commit_reconciled = False
         try:
-            args = await self.build_workflow_args(context)
+            args = await self.build_workflow_args(
+                SessionWorkflowContext(
+                    session_id=session.id,
+                    backend_id=session.backend_id,
+                    harness_type=session.harness_type,
+                    title=session.title,
+                    entity_type=AgentSessionEntity(session.entity_type),
+                    entity_id=session.entity_id,
+                    tools=tuple(session.tools) if session.tools is not None else None,
+                    agent_preset_id=session.agent_preset_id,
+                    agent_preset_version_id=session.agent_preset_version_id,
+                    role=context.role.model_copy(deep=True),
+                    config=copy.deepcopy(context.config),
+                    prompt=context.prompt,
+                    run_id=context.run_id,
+                    stream_id=context.stream_id,
+                )
+            )
             search_attributes = self._search_attributes(context)
             session.curr_run_id = context.run_id
             session.active_stream_id = context.stream_id

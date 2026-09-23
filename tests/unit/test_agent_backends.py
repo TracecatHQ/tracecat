@@ -36,6 +36,7 @@ from tracecat.agent.backends.types import (
     SessionDispatchUncertain,
     SessionForkContext,
     SessionTurnContext,
+    SessionWorkflowContext,
 )
 from tracecat.agent.session.activities import (
     CreateSessionInput,
@@ -128,7 +129,7 @@ def test_discovery_rejects_missing_required_attributes(missing: str):
         async def prepare_fork(self, context: SessionForkContext) -> None:
             pass
 
-        async def build_workflow_args(self, context: SessionTurnContext) -> None:
+        async def build_workflow_args(self, context: SessionWorkflowContext) -> None:
             return None
 
     attributes: dict[str, object] = {
@@ -319,6 +320,61 @@ async def test_builtin_dispatch_preserves_workflow_contract():
     assert request.workflow_type.name == "DurableAgentWorkflow"
     assert rpc.await_args.kwargs["retry"] is False
     ctx.db.rollback.assert_not_awaited()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("rejected", [False, True])
+async def test_argument_builder_receives_isolated_data_without_database_access(
+    rejected,
+):
+    ctx = context()
+    assert isinstance(ctx.db, AsyncMock)
+    ctx.session.tools = ["core.cases.get_case"]
+    ctx.session.agent_preset_id = uuid4()
+    ctx.session.agent_preset_version_id = uuid4()
+    ctx.config.model_settings = {"temperature": 0.2}
+    client, rpc = temporal_client()
+    if rejected:
+        rpc.side_effect = RPCError("Rejected", RPCStatusCode.PERMISSION_DENIED, b"")
+
+    class SnapshotBackend(DefaultBackend):
+        async def build_workflow_args(
+            self, context: SessionWorkflowContext
+        ) -> AgentWorkflowArgs:
+            snapshot = context
+            assert not hasattr(snapshot, "db")
+            assert not hasattr(snapshot, "session")
+            assert snapshot.session_id == ctx.session.id
+            assert snapshot.backend_id == ctx.session.backend_id
+            assert snapshot.tools == tuple(ctx.session.tools or [])
+            assert snapshot.agent_preset_id == ctx.session.agent_preset_id
+            assert (
+                snapshot.agent_preset_version_id == ctx.session.agent_preset_version_id
+            )
+            assert snapshot.config.model_settings is not None
+            snapshot.config.model_settings["temperature"] = 0.8
+            assert snapshot.role is not ctx.role
+            return await super().build_workflow_args(snapshot)
+
+    with patch("tracecat.agent.backends.base.get_temporal_client", return_value=client):
+        if rejected:
+            with pytest.raises(RuntimeError, match="was rejected"):
+                await SnapshotBackend().start_turn(ctx)
+        else:
+            await SnapshotBackend().start_turn(ctx)
+
+    assert ctx.config.model_settings == {"temperature": 0.2}
+    assert ctx.session.tools == ["core.cases.get_case"]
+    # Only shared ownership is staged, even when Temporal rejects the start.
+    ctx.db.add.assert_called_once_with(ctx.session)
+    rpc.assert_awaited_once()
+    assert rpc.await_args is not None
+    request = rpc.await_args.args[1]
+    (args,) = await client.data_converter.decode(
+        list(request.input.payloads), [AgentWorkflowArgs]
+    )
+    assert args.tools == ctx.session.tools
+    assert args.agent_args.config.model_settings == {"temperature": 0.8}
 
 
 @pytest.mark.anyio
@@ -598,7 +654,7 @@ async def test_fork_delegates_to_required_backend_operation(preparation_fails):
 
 def test_backend_contract_requires_fork_preparation():
     class NoForkBackend(AgentBackend[None, None]):
-        async def build_workflow_args(self, context: SessionTurnContext) -> None:
+        async def build_workflow_args(self, context: SessionWorkflowContext) -> None:
             return None
 
     with (

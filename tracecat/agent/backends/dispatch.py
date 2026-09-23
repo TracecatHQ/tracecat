@@ -24,7 +24,9 @@ class TurnDispatchClient(ServiceClient):
 
     The regular Temporal client still owns validation, serialization, codecs,
     interceptors and request construction. The service boundary runs afterwards,
-    allowing all preparation writes to roll back if any of those steps fail.
+    allowing session ownership to roll back if any of those steps fail. Backend
+    argument construction is side-effect-free; turn data is written by workflow
+    activities only after execution starts.
     """
 
     def __init__(

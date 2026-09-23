@@ -24,7 +24,11 @@ from temporalio.service import ConnectConfig, RPCError, RPCStatusCode, ServiceCl
 from tests.database import TEST_DB_CONFIG
 from tracecat.agent.backends.default import DefaultBackend
 from tracecat.agent.backends.schemas import AgentWorkflowArgs
-from tracecat.agent.backends.types import SessionDispatchUncertain, SessionTurnContext
+from tracecat.agent.backends.types import (
+    SessionDispatchUncertain,
+    SessionTurnContext,
+    SessionWorkflowContext,
+)
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.db.models import AgentSession, AgentSessionHistory
@@ -55,22 +59,14 @@ async def connection() -> AsyncIterator[AsyncConnection]:
         await engine.dispose()
 
 
-class HistoryBackend(DefaultBackend):
+class PreparationBackend(DefaultBackend):
     fail_preparation = False
 
     async def build_workflow_args(
-        self, context: SessionTurnContext
+        self, context: SessionWorkflowContext
     ) -> AgentWorkflowArgs:
-        context.db.add(
-            AgentSessionHistory(
-                workspace_id=context.role.workspace_id,
-                session_id=context.session.id,
-                curr_run_id=context.run_id,
-                content={"role": "user", "text": context.prompt},
-            )
-        )
-        context.session.sdk_session_id = "prepared-native-session"
-        await context.db.flush()
+        assert not hasattr(context, "db")
+        assert not hasattr(context, "session")
         if self.fail_preparation:
             raise ValueError("preparation failed")
         return await super().build_workflow_args(context)
@@ -120,11 +116,11 @@ def temporal_client(rpc: AsyncMock) -> Client:
     return Client(service, data_converter=get_data_converter())
 
 
-@pytest.mark.parametrize("failure", ["preparation", "encoding", "validation"])
-async def test_rejected_start_rolls_back_history_and_retry_writes_once(
+@pytest.mark.parametrize("failure", ["preparation", "encoding", "validation", "rpc"])
+async def test_failed_start_preserves_history_and_retry_reserves_once(
     connection: AsyncConnection, failure: str
 ) -> None:
-    backend = HistoryBackend()
+    backend = PreparationBackend()
     rpc = AsyncMock(return_value=StartWorkflowExecutionResponse(run_id="run-1"))
     client = temporal_client(rpc)
     async with AsyncSession(connection, expire_on_commit=False) as db:
@@ -141,14 +137,24 @@ async def test_rejected_start_rolls_back_history_and_retry_writes_once(
                         "tracecat.dsl._converter.orjson.dumps",
                         Mock(side_effect=TypeError("invalid value")),
                     )
-                else:
+                elif failure == "validation":
                     # Retry-policy validation runs after payload encoding.
                     patcher.setattr(
                         backend, "retry_policy", RetryPolicy(maximum_attempts=-1)
                     )
-                with pytest.raises(RuntimeError, match="before dispatch"):
+                else:
+                    rpc.side_effect = RPCError(
+                        "Rejected", RPCStatusCode.PERMISSION_DENIED, b""
+                    )
+                message = "was rejected" if failure == "rpc" else "before dispatch"
+                with pytest.raises(RuntimeError, match=message):
                     await backend.start_turn(context)
-            rpc.assert_not_awaited()
+            if failure == "rpc":
+                rpc.assert_awaited_once()
+                rpc.reset_mock()
+                rpc.side_effect = None
+            else:
+                rpc.assert_not_awaited()
             assert not db.in_transaction()
 
             # Read persisted state through a fresh ORM session after rollback.
@@ -160,7 +166,9 @@ async def test_rejected_start_rolls_back_history_and_retry_writes_once(
                 assert saved.curr_run_id is None
                 assert saved.active_stream_id is None
                 assert saved.sdk_session_id is None
-                assert saved.last_error == "Previous turn failed"
+                assert saved.last_error == (
+                    None if failure == "rpc" else "Previous turn failed"
+                )
                 assert list(
                     await reader.scalars(select(AgentSessionHistory.content))
                 ) == [{"role": "assistant", "text": "Earlier message"}]
@@ -180,16 +188,16 @@ async def test_rejected_start_rolls_back_history_and_retry_writes_once(
             assert saved is not None
             assert saved.curr_run_id == retry.run_id
             assert saved.active_stream_id == retry.stream_id
-            assert saved.sdk_session_id == "prepared-native-session"
+            assert saved.sdk_session_id is None
             rows = list(await reader.scalars(select(AgentSessionHistory)))
-            assert len(rows) == 2
-            assert sum(row.curr_run_id == retry.run_id for row in rows) == 1
+            assert len(rows) == 1
+            assert rows[0].content == {"role": "assistant", "text": "Earlier message"}
 
 
 async def test_uncertain_dispatch_keeps_history_and_blocks_another_turn(
     connection: AsyncConnection,
 ) -> None:
-    backend = HistoryBackend()
+    backend = PreparationBackend()
     rpc = AsyncMock(side_effect=TimeoutError("lost acknowledgement"))
     client = temporal_client(rpc)
     async with AsyncSession(connection, expire_on_commit=False) as db:
@@ -208,7 +216,7 @@ async def test_uncertain_dispatch_keeps_history_and_blocks_another_turn(
                 assert saved is not None
                 assert saved.curr_run_id == context.run_id
                 assert saved.active_stream_id == context.stream_id
-                assert len(list(await reader.scalars(select(AgentSessionHistory)))) == 2
+                assert len(list(await reader.scalars(select(AgentSessionHistory)))) == 1
 
             describe = AsyncMock(side_effect=TimeoutError("lookup unavailable"))
             with (
@@ -238,7 +246,7 @@ async def test_terminal_turn_recovery_persists_before_new_preparation(
     status: WorkflowExecutionStatus,
     preparation_fails: bool,
 ) -> None:
-    backend = HistoryBackend()
+    backend = PreparationBackend()
     backend.fail_preparation = preparation_fails
     rpc = AsyncMock(return_value=StartWorkflowExecutionResponse(run_id="run-2"))
     handle = Mock(describe=AsyncMock(return_value=SimpleNamespace(status=status)))
@@ -298,7 +306,7 @@ async def test_terminal_turn_recovery_persists_before_new_preparation(
 async def test_caller_cancellation_settles_commit_dispatch_and_cleanup(
     connection: AsyncConnection, cancel_at: str, outcome: str
 ) -> None:
-    backend = HistoryBackend()
+    backend = PreparationBackend()
     paused = asyncio.Event()
     proceed = asyncio.Event()
 
@@ -338,7 +346,7 @@ async def test_caller_cancellation_settles_commit_dispatch_and_cleanup(
                 raise RuntimeError("private commit details")
             await commit()
             if cancel_at == "after_commit":
-                # Ownership and prepared history are already persisted, but the
+                # Ownership is already persisted, but the
                 # commit await has not returned to TurnDispatchClient yet.
                 await pause()
 
@@ -387,7 +395,7 @@ async def test_caller_cancellation_settles_commit_dispatch_and_cleanup(
                 assert saved.curr_run_id is None
                 assert saved.active_stream_id is None
             rows = list(await reader.scalars(select(AgentSessionHistory)))
-            assert len(rows) == (1 if outcome == "commit_failure" else 2)
+            assert len(rows) == 1
 
 
 @pytest.mark.parametrize(

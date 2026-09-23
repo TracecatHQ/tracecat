@@ -12,6 +12,7 @@ from tracecat.agent.backends.schemas import (
     WorkflowApprovalSubmission,
     WorkflowCancelRequest,
 )
+from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.db.models import AgentSession, AgentSessionHistory
@@ -41,6 +42,31 @@ class SessionForkContext:
     parent: AgentSession
     fork: AgentSession
     role: Role
+
+
+@dataclass(frozen=True, slots=True)
+class SessionWorkflowContext:
+    """Data-only snapshot for side-effect-free workflow argument construction.
+
+    No database connection or live ORM objects cross this boundary. Backend
+    history and state writes belong in idempotent workflow activities after
+    execution starts, so a rejected start cannot leave a prepared turn behind.
+    """
+
+    session_id: UUID
+    backend_id: str
+    harness_type: str | None
+    title: str
+    entity_type: AgentSessionEntity
+    entity_id: UUID
+    tools: tuple[str, ...] | None
+    agent_preset_id: UUID | None
+    agent_preset_version_id: UUID | None
+    role: Role
+    config: AgentConfig
+    prompt: str
+    run_id: UUID
+    stream_id: UUID
 
 
 @dataclass(frozen=True, slots=True)

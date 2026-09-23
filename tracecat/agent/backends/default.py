@@ -13,11 +13,10 @@ from tracecat.agent.backends.schemas import (
 )
 from tracecat.agent.backends.types import (
     SessionForkContext,
-    SessionTurnContext,
+    SessionWorkflowContext,
 )
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.schemas import AgentOutput, RunAgentArgs
-from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.dsl.common import RETRY_POLICIES
 
 
@@ -39,24 +38,23 @@ class DefaultBackend(AgentBackend[AgentWorkflowArgs, AgentOutput]):
         context.fork.work_dir_snapshot = copy.deepcopy(context.parent.work_dir_snapshot)
 
     async def build_workflow_args(
-        self, context: SessionTurnContext
+        self, context: SessionWorkflowContext
     ) -> AgentWorkflowArgs:
-        session = context.session
         args = RunAgentArgs(
             user_prompt=context.prompt,
-            session_id=session.id,
+            session_id=context.session_id,
             active_stream_id=context.stream_id,
             curr_run_id=context.run_id,
             config=context.config,
         )
         return AgentWorkflowArgs(
             role=context.role,
-            harness_type=HarnessType(session.harness_type or self.default_harness),
+            harness_type=HarnessType(context.harness_type or self.default_harness),
             agent_args=args,
-            title=session.title,
-            entity_type=AgentSessionEntity(session.entity_type),
-            entity_id=session.entity_id,
-            tools=session.tools,
-            agent_preset_id=session.agent_preset_id,
-            agent_preset_version_id=session.agent_preset_version_id,
+            title=context.title,
+            entity_type=context.entity_type,
+            entity_id=context.entity_id,
+            tools=list(context.tools) if context.tools is not None else None,
+            agent_preset_id=context.agent_preset_id,
+            agent_preset_version_id=context.agent_preset_version_id,
         )
