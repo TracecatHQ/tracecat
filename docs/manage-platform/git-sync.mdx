@@ -1,6 +1,6 @@
 ---
 title: "Git sync"
-description: "Export workspace configuration to GitHub, GitLab, or Bitbucket Cloud as a pull request, then pull a reviewed commit into another workspace."
+description: "Export workspace configuration to GitHub, GitLab, or Bitbucket as a pull request, then pull a reviewed commit into another workspace."
 icon: "lock"
 ---
 
@@ -32,7 +32,7 @@ Use Git sync to export workspace configuration to a repository you own as a pull
     - `read:pullrequest:bitbucket`
     - `write:pullrequest:bitbucket`
 
-    The account must have access to the repository. Initialize the repository with a commit before syncing. Bitbucket Data Center is not supported.
+    The account must have access to the repository. Initialize the repository with a commit before syncing. For Bitbucket Data Center, connect its separate provider card with your HTTPS instance URL and an [HTTP access token](https://confluence.atlassian.com/bitbucketserver/http-access-tokens-939515499.html) granting repository write permission. Include any port and context path in the instance URL, such as `https://bitbucket.example.com:8443/bitbucket`.
 
     Use `Update` to rotate the token before it expires. Deleting these credentials disconnects sync across the organization; it preserves workspace resources, repository branches, and custom-registry credentials.
   </Step>
@@ -45,9 +45,11 @@ Use Git sync to export workspace configuration to a repository you own as a pull
     Open workspace `Settings` and select `Git sync`, then pick a `Provider`.
   </Step>
   <Step title="Set the repository URL and save">
-    For GitHub, `Select` lists repositories granted to the installation and `Manual` accepts any git+ssh URL; for GitLab or Bitbucket Cloud, enter the URL directly. Click `Save`.
+    For GitHub, `Select` lists repositories granted to the installation and `Manual` accepts any git+ssh URL; for GitLab or either Bitbucket provider, enter the URL directly. Click `Save`.
 
     For Bitbucket Cloud, use `git+ssh://git@bitbucket.org/example-workspace/example-repo.git`.
+
+    For Data Center, use `git+ssh://git@bitbucket.example.com/PROJECT/repository.git`. The hostname must match the configured instance. Put the port and context path only in the organization instance URL. Tracecat uses HTTPS with your HTTP access token for Git and API requests.
 
     The URL form is `git+ssh://git@github.com/example-org/example-repo.git`. An `@branch` suffix pins the base branch for exports and the commit list for pulls; omit it to use the default branch.
   </Step>

@@ -7,14 +7,16 @@ import base64
 import hashlib
 import itertools
 import json
+import re
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime
 from email.utils import parseaddr
 from functools import partial
 from tempfile import TemporaryDirectory
 from typing import Any, Protocol
-from urllib.parse import quote, urlparse
+from urllib.parse import quote, unquote, urlparse
 
 import httpx
 from github.GithubException import GithubException
@@ -37,6 +39,13 @@ from tracecat.vcs.bitbucket.types import (
     BitbucketPage,
     BitbucketPullRequest,
     BitbucketRepository,
+)
+from tracecat.vcs.bitbucket_data_center.app import BitbucketDataCenterTokenService
+from tracecat.vcs.bitbucket_data_center.types import (
+    DataCenterBranch,
+    DataCenterCommit,
+    DataCenterPage,
+    DataCenterPullRequest,
 )
 from tracecat.vcs.github.app import GitHubAppError, GitHubAppService
 from tracecat.vcs.gitlab.app import GitLabApiError, GitLabError, GitLabTokenService
@@ -148,6 +157,8 @@ def vcs_transport_for_provider(
             return GitHubWorkspaceSyncTransport(session=session, role=role)
         case VcsProvider.GITLAB:
             return GitLabWorkspaceSyncTransport(session=session, role=role)
+        case VcsProvider.BITBUCKET_DATA_CENTER:
+            return BitbucketDataCenterWorkspaceSyncTransport(session=session, role=role)
         case VcsProvider.BITBUCKET:
             return BitbucketWorkspaceSyncTransport(session=session, role=role)
 
@@ -1628,11 +1639,12 @@ class BitbucketWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                 )
             return result
 
+    def _git_remote(self, url: GitUrl, client: httpx.AsyncClient) -> str:
+        return f"https://bitbucket.org/{repository_path(url)}.git"
+
     async def read_files(self, *, url: GitUrl, ref: str) -> VcsTreeSnapshot:
-        async with self._connection(url) as (_client, git, _path):
-            sha = await git.fetch(
-                f"https://bitbucket.org/{repository_path(url)}.git", ref
-            )
+        async with self._connection(url) as (client, git, _path):
+            sha = await git.fetch(self._git_remote(url, client), ref)
             entries = await git.entries(sha)
             # Bound subprocesses when the shared selector gathers all managed files.
             semaphore = asyncio.Semaphore(8)
@@ -1754,3 +1766,267 @@ class BitbucketWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         )
         pr = BitbucketPullRequest.model_validate_json(response.content)
         return pr.links.html.href, pr.id, False
+
+
+class BitbucketDataCenterWorkspaceSyncTransport(BitbucketWorkspaceSyncTransport):
+    """Data Center REST adapter with the same isolated Git/snapshot implementation."""
+
+    service_name = "workspace_bitbucket_data_center_sync"
+
+    @asynccontextmanager
+    async def _connection(
+        self, url: GitUrl
+    ) -> AsyncIterator[tuple[httpx.AsyncClient, BitbucketGit, str]]:
+        credentials = await BitbucketDataCenterTokenService(
+            session=self.session, role=self.role
+        ).get_bitbucket_data_center_token_credentials()
+        base = httpx.URL(credentials.base_url + "/")
+        if url.host.lower() != base.host.lower() or any(
+            not re.fullmatch(r"[A-Za-z0-9_~][A-Za-z0-9_.~-]*", part)
+            or part in {".", ".."}
+            for part in (url.org, url.repo)
+        ):
+            raise BitbucketError(
+                "Repository must match the configured Data Center instance and project/repository path"
+            )
+        with TemporaryDirectory(prefix="tracecat-bitbucket-dc-") as directory:
+            git = BitbucketGit(
+                directory, credentials.token, credential_url=str(base), bearer=True
+            )
+            await git.initialize()
+            async with httpx.AsyncClient(
+                base_url=base.join("rest/api/1.0/"),
+                headers={
+                    "Authorization": f"Bearer {credentials.token.get_secret_value()}"
+                },
+                timeout=30,
+                follow_redirects=False,
+            ) as client:
+                yield (
+                    client,
+                    git,
+                    f"projects/{quote(url.org, safe='')}/repos/{quote(url.repo, safe='')}",
+                )
+
+    def _git_remote(self, url: GitUrl, client: httpx.AsyncClient) -> str:
+        instance = str(client.base_url).removesuffix("rest/api/1.0/")
+        return f"{instance}scm/{quote(url.org, safe='')}/{quote(url.repo, safe='')}.git"
+
+    async def _request(
+        self,
+        client: httpx.AsyncClient,
+        method: str,
+        path: str,
+        *,
+        params: Mapping[str, str | int] | None = None,
+        body: Mapping[str, object] | None = None,
+    ) -> httpx.Response:
+        target = client.base_url.join(path)
+        base = client.base_url
+        if (
+            target.scheme != "https"
+            or target.host != base.host
+            or target.port != base.port
+            or not target.path.startswith(base.path + "projects/")
+            or target.userinfo
+            or target.fragment
+        ):
+            raise BitbucketError("Invalid Data Center API URL")
+        response = await client.request(method, target, params=params, json=body)
+        if not response.is_success:
+            raise BitbucketError(
+                f"Bitbucket Data Center API request failed (HTTP {response.status_code})"
+            )
+        return response
+
+    async def _list[T: BaseModel](
+        self,
+        client: httpx.AsyncClient,
+        path: str,
+        model: type[T],
+        *,
+        limit: int,
+        params: Mapping[str, str | int] | None = None,
+    ) -> list[T]:
+        results: list[T] = []
+        start = 0
+        while len(results) < limit:
+            response = await self._request(
+                client,
+                "GET",
+                path,
+                params={
+                    **(params or {}),
+                    "start": start,
+                    "limit": min(100, limit - len(results)),
+                },
+            )
+            page = DataCenterPage[model].model_validate_json(response.content)
+            results.extend(page.values)
+            if page.isLastPage:
+                break
+            if page.nextPageStart is None or page.nextPageStart <= start:
+                raise BitbucketError("Invalid Data Center pagination")
+            start = page.nextPageStart
+        return results[:limit]
+
+    async def list_branches(
+        self, *, url: GitUrl, limit: int = 100
+    ) -> list[GitBranchInfo]:
+        if limit <= 0:
+            return []
+        async with self._connection(url) as (client, _git, path):
+            default = await self._model(
+                client, f"{path}/default-branch", DataCenterBranch
+            )
+            branches = await self._list(
+                client, f"{path}/branches", DataCenterBranch, limit=limit
+            )
+            if all(b.name != default.name for b in branches):
+                branches = [default, *branches[: limit - 1]]
+            return [
+                GitBranchInfo(name=b.name, is_default=b.name == default.name)
+                for b in branches
+            ]
+
+    async def list_commits(
+        self, *, url: GitUrl, branch: str = "main", limit: int = 10
+    ) -> list[GitCommitInfo]:
+        if limit <= 0:
+            return []
+        async with self._connection(url) as (client, _git, path):
+            commits = await self._list(
+                client,
+                f"{path}/commits",
+                DataCenterCommit,
+                limit=limit,
+                params={"until": f"refs/heads/{branch}"},
+            )
+            return [
+                GitCommitInfo(
+                    sha=c.id,
+                    message=c.message,
+                    author=c.author.name,
+                    author_email=c.author.emailAddress,
+                    date=datetime.fromtimestamp(
+                        c.authorTimestamp / 1000, UTC
+                    ).isoformat(),
+                )
+                for c in commits
+            ]
+
+    async def write_files(
+        self,
+        *,
+        url: GitUrl,
+        files: dict[str, str],
+        message: str,
+        branch: str,
+        create_pr: bool,
+        pr_base_branch: str | None = None,
+        delete_missing_paths_under: Sequence[str] = (),
+    ) -> CommitInfo:
+        message = self._normalize_commit_message(files, message)
+        async with self._connection(url) as (client, git, path):
+            default = await self._model(
+                client, f"{path}/default-branch", DataCenterBranch
+            )
+            base = pr_base_branch or url.ref or default.name
+            await git.run("check-ref-format", f"refs/heads/{branch}")
+            await git.run("check-ref-format", f"refs/heads/{base}")
+            if create_pr and branch == base:
+                raise TracecatValidationError(
+                    "The sync branch must differ from the pull request base branch"
+                )
+            # Data Center filterText is a substring filter; require an exact name match.
+            candidates = await self._list(
+                client,
+                f"{path}/branches",
+                DataCenterBranch,
+                limit=10000,
+                params={"filterText": branch},
+            )
+            exists = any(b.name == branch for b in candidates)
+            remote = self._git_remote(url, client)
+            parent = await git.fetch(remote, branch if exists else base)
+            entries = await git.entries(parent)
+            roots = _normalized_roots(delete_missing_paths_under)
+            deleted = {
+                p for p in entries if p not in files and _path_is_under_roots(p, roots)
+            }
+            sha = await git.commit(parent, files, deleted, message)
+            if sha:
+                await git.push(remote, sha, branch)
+            info = CommitInfo(
+                status=PushStatus.COMMITTED if sha else PushStatus.NO_OP,
+                sha=sha,
+                ref=branch,
+                base_ref=base,
+                message=message,
+            )
+            if create_pr and (sha or exists):
+                ahead = await self._list(
+                    client,
+                    f"{path}/commits",
+                    DataCenterCommit,
+                    limit=1,
+                    params={
+                        "until": f"refs/heads/{branch}",
+                        "since": f"refs/heads/{base}",
+                    },
+                )
+                if ahead:
+                    pr_url, pr_number, reused = await self._upsert_pull_request(
+                        client, path, branch, base, message
+                    )
+                    info = replace(
+                        info, pr_url=pr_url, pr_number=pr_number, pr_reused=reused
+                    )
+            return info
+
+    async def _upsert_pull_request(
+        self, client: httpx.AsyncClient, path: str, branch: str, base: str, title: str
+    ) -> tuple[str, int, bool]:
+        project, repo = path.split("/")[1::2]
+        existing = await self._list(
+            client,
+            f"{path}/pull-requests",
+            DataCenterPullRequest,
+            limit=10000,
+            params={
+                "state": "OPEN",
+                "direction": "OUTGOING",
+                "at": f"refs/heads/{branch}",
+            },
+        )
+        for pr in existing:
+            if (
+                pr.fromRef.id == f"refs/heads/{branch}"
+                and pr.toRef.id == f"refs/heads/{base}"
+                and all(
+                    ref.repository.slug == unquote(repo)
+                    and ref.repository.project.key.casefold()
+                    == unquote(project).casefold()
+                    for ref in (pr.fromRef, pr.toRef)
+                )
+            ):
+                return self._pr_url(client, path, pr.id), pr.id, True
+        repository = {"slug": unquote(repo), "project": {"key": unquote(project)}}
+        response = await self._request(
+            client,
+            "POST",
+            f"{path}/pull-requests",
+            body={
+                "title": title.splitlines()[0],
+                "description": await self._sync_request_body(),
+                "fromRef": {"id": f"refs/heads/{branch}", "repository": repository},
+                "toRef": {"id": f"refs/heads/{base}", "repository": repository},
+            },
+        )
+        pr = DataCenterPullRequest.model_validate_json(response.content)
+        return self._pr_url(client, path, pr.id), pr.id, False
+
+    @staticmethod
+    def _pr_url(client: httpx.AsyncClient, path: str, number: int) -> str:
+        instance = str(client.base_url).removesuffix("rest/api/1.0/")
+        return f"{instance}{path}/pull-requests/{number}"

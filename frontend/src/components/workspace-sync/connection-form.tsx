@@ -29,7 +29,12 @@ import { validateGitSshUrl } from "@/lib/git"
 import { useWorkspaceSettings } from "@/lib/hooks"
 
 type RepositoryInputMode = "select" | "manual"
-const vcsProviderOptions = ["github", "gitlab", "bitbucket"] as const
+const vcsProviderOptions = [
+  "github",
+  "gitlab",
+  "bitbucket",
+  "bitbucket_data_center",
+] as const
 type WorkspaceSyncConnectionProvider = (typeof vcsProviderOptions)[number]
 
 export const syncSettingsSchema = z
@@ -163,7 +168,10 @@ export function WorkspaceSyncConnectionForm({
       "Enter a GitLab git+ssh URL. Nested groups and self-managed hosts are supported."
   } else if (currentProvider === "bitbucket") {
     repositoryDescription =
-      "Enter a bitbucket.org git+ssh URL. Configure the API token in organization Git sync settings. Data Center is not supported."
+      "Enter a bitbucket.org git+ssh URL. Configure the API token in organization Git sync settings."
+  } else if (currentProvider === "bitbucket_data_center") {
+    repositoryDescription =
+      "Enter git+ssh://git@your-host/PROJECT/repository.git. Configure the HTTPS instance URL and HTTP token in organization Git sync settings."
   } else if (hasRepositoryOptions && repositoryInputMode === "select") {
     repositoryDescription =
       "Select a repository granted to the connected GitHub App installation."
@@ -208,6 +216,10 @@ export function WorkspaceSyncConnectionForm({
                   { value: "github", content: "GitHub" },
                   { value: "gitlab", content: "GitLab" },
                   { value: "bitbucket", content: "Bitbucket Cloud" },
+                  {
+                    value: "bitbucket_data_center",
+                    content: "Bitbucket Data Center",
+                  },
                 ]}
               />
               {mustChooseSupportedProvider && (
@@ -293,6 +305,8 @@ export function WorkspaceSyncConnectionForm({
                         github: "git+ssh://git@github.com/my-org/my-repo.git",
                         gitlab:
                           "git+ssh://git@gitlab.com/my-org/my-group/my-repo.git",
+                        bitbucket_data_center:
+                          "git+ssh://git@bitbucket.example.com/PROJECT/repository.git",
                         bitbucket:
                           "git+ssh://git@bitbucket.org/my-workspace/my-repo.git",
                       }[currentProvider]
@@ -377,7 +391,8 @@ function toConnectionProvider(
   if (
     provider === "github" ||
     provider === "gitlab" ||
-    provider === "bitbucket"
+    provider === "bitbucket" ||
+    provider === "bitbucket_data_center"
   ) {
     return provider
   }

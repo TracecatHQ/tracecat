@@ -6390,6 +6390,87 @@ export const $BedrockCatalogUpdate = {
   title: "BedrockCatalogUpdate",
 } as const
 
+export const $BitbucketDataCenterTokenCredentialsRequest = {
+  properties: {
+    base_url: {
+      type: "string",
+      title: "Base Url",
+    },
+    token: {
+      type: "string",
+      minLength: 1,
+      format: "password",
+      title: "Token",
+      writeOnly: true,
+    },
+  },
+  type: "object",
+  required: ["base_url", "token"],
+  title: "BitbucketDataCenterTokenCredentialsRequest",
+  description:
+    "Register or rotate the organization Bitbucket Data Center API token.",
+} as const
+
+export const $BitbucketDataCenterTokenCredentialsSaveResponse = {
+  properties: {
+    message: {
+      type: "string",
+      title: "Message",
+    },
+    action: {
+      type: "string",
+      enum: ["created", "updated"],
+      title: "Action",
+    },
+    base_url: {
+      type: "string",
+      title: "Base Url",
+    },
+  },
+  type: "object",
+  required: ["message", "action", "base_url"],
+  title: "BitbucketDataCenterTokenCredentialsSaveResponse",
+} as const
+
+export const $BitbucketDataCenterTokenCredentialsStatus = {
+  properties: {
+    exists: {
+      type: "boolean",
+      title: "Exists",
+    },
+    is_corrupted: {
+      type: "boolean",
+      title: "Is Corrupted",
+      default: false,
+    },
+    base_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Base Url",
+    },
+    created_at: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Created At",
+    },
+  },
+  type: "object",
+  required: ["exists"],
+  title: "BitbucketDataCenterTokenCredentialsStatus",
+} as const
+
 export const $BitbucketTokenCredentialsRequest = {
   properties: {
     email: {
@@ -30689,7 +30770,7 @@ export const $VariableUpdate = {
 
 export const $VcsProvider = {
   type: "string",
-  enum: ["github", "gitlab", "bitbucket"],
+  enum: ["github", "gitlab", "bitbucket", "bitbucket_data_center"],
   title: "VcsProvider",
   description: "Version control host backing a workspace sync repository.",
 } as const

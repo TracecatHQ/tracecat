@@ -46,7 +46,14 @@ def validate_path(path: str) -> None:
 class BitbucketGit:
     """A disposable bare repository whose authentication lives only in its environment."""
 
-    def __init__(self, directory: str, token: SecretStr) -> None:
+    def __init__(
+        self,
+        directory: str,
+        token: SecretStr,
+        *,
+        credential_url: str = "https://bitbucket.org/",
+        bearer: bool = False,
+    ) -> None:
         self.directory = directory
         basic = base64.b64encode(
             f"x-bitbucket-api-token-auth:{token.get_secret_value()}".encode()
@@ -59,8 +66,10 @@ class BitbucketGit:
             "GIT_CONFIG_GLOBAL": os.devnull,
             "GIT_TERMINAL_PROMPT": "0",
             "GIT_CONFIG_COUNT": "5",
-            "GIT_CONFIG_KEY_0": "http.https://bitbucket.org/.extraHeader",
-            "GIT_CONFIG_VALUE_0": f"Authorization: Basic {basic}",
+            "GIT_CONFIG_KEY_0": f"http.{credential_url}.extraHeader",
+            "GIT_CONFIG_VALUE_0": f"Authorization: Bearer {token.get_secret_value()}"
+            if bearer
+            else f"Authorization: Basic {basic}",
             "GIT_CONFIG_KEY_1": "core.hooksPath",
             "GIT_CONFIG_VALUE_1": os.devnull,
             "GIT_CONFIG_KEY_2": "http.followRedirects",
@@ -74,6 +83,9 @@ class BitbucketGit:
             "GIT_COMMITTER_NAME": "Tracecat",
             "GIT_COMMITTER_EMAIL": "sync@tracecat.com",
         }
+
+        if ca_file := os.environ.get("SSL_CERT_FILE"):
+            self.env["GIT_SSL_CAINFO"] = ca_file
 
     async def run(self, *args: str, data: bytes | None = None) -> bytes:
         """Run without logging arguments, environment, or remote error output."""

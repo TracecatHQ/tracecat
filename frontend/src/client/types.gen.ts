@@ -1667,6 +1667,29 @@ export type BedrockCatalogUpdate = {
 }
 
 /**
+ * Register or rotate the organization Bitbucket Data Center API token.
+ */
+export type BitbucketDataCenterTokenCredentialsRequest = {
+  base_url: string
+  token: string
+}
+
+export type BitbucketDataCenterTokenCredentialsSaveResponse = {
+  message: string
+  action: "created" | "updated"
+  base_url: string
+}
+
+export type action2 = "created" | "updated"
+
+export type BitbucketDataCenterTokenCredentialsStatus = {
+  exists: boolean
+  is_corrupted?: boolean
+  base_url?: string | null
+  created_at?: string | null
+}
+
+/**
  * Register or rotate the organization Bitbucket Cloud API token.
  */
 export type BitbucketTokenCredentialsRequest = {
@@ -1679,8 +1702,6 @@ export type BitbucketTokenCredentialsSaveResponse = {
   action: "created" | "updated"
   email: string
 }
-
-export type action2 = "created" | "updated"
 
 export type BitbucketTokenCredentialsStatus = {
   exists: boolean
@@ -9258,7 +9279,11 @@ export type VariableUpdate = {
 /**
  * Version control host backing a workspace sync repository.
  */
-export type VcsProvider = "github" | "gitlab" | "bitbucket"
+export type VcsProvider =
+  | "github"
+  | "gitlab"
+  | "bitbucket"
+  | "bitbucket_data_center"
 
 /**
  * Vercel AI SDK format request with structured UI messages.
@@ -14634,6 +14659,18 @@ export type VcsDeleteBitbucketTokenCredentialsResponse = void
 
 export type VcsGetBitbucketTokenCredentialsStatusResponse =
   BitbucketTokenCredentialsStatus
+
+export type VcsSaveBitbucketDataCenterTokenCredentialsData = {
+  requestBody: BitbucketDataCenterTokenCredentialsRequest
+}
+
+export type VcsSaveBitbucketDataCenterTokenCredentialsResponse =
+  BitbucketDataCenterTokenCredentialsSaveResponse
+
+export type VcsDeleteBitbucketDataCenterTokenCredentialsResponse = void
+
+export type VcsGetBitbucketDataCenterTokenCredentialsStatusResponse =
+  BitbucketDataCenterTokenCredentialsStatus
 
 export type UsersGetMyScopesData = {
   workspaceId?: string | null
@@ -21586,6 +21623,39 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: BitbucketTokenCredentialsStatus
+      }
+    }
+  }
+  "/organization/vcs/bitbucket-data-center/credentials": {
+    post: {
+      req: VcsSaveBitbucketDataCenterTokenCredentialsData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: BitbucketDataCenterTokenCredentialsSaveResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+      }
+    }
+  }
+  "/organization/vcs/bitbucket-data-center/credentials/status": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: BitbucketDataCenterTokenCredentialsStatus
       }
     }
   }

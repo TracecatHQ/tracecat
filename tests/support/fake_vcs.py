@@ -42,6 +42,7 @@ class FakeVcsServer:
             VcsProvider.GITHUB,
             VcsProvider.GITLAB,
             VcsProvider.BITBUCKET,
+            VcsProvider.BITBUCKET_DATA_CENTER,
         }:
             raise TracecatValidationError(f"Unsupported fake VCS provider: {provider}")
         return FakeVcsTransport(server=self)

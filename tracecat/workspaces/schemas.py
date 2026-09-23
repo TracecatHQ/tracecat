@@ -91,6 +91,14 @@ class WorkspaceSettingsUpdate(Schema):
                 raise ValueError(
                     "Bitbucket Cloud requires a bitbucket.org workspace/repository URL"
                 )
+        if self.git_provider is VcsProvider.BITBUCKET_DATA_CENTER and self.git_repo_url:
+            match = GIT_SSH_URL_REGEX.match(self.git_repo_url)
+            if match and (
+                match.group("port") or len(match.group("path").split("/")) != 2
+            ):
+                raise ValueError(
+                    "Use a project/repository URL; configure the port and context path in the organization instance URL"
+                )
         return self
 
     @field_validator("git_repo_url", mode="before")

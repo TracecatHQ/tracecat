@@ -40,27 +40,33 @@ import {
 import { Input } from "@/components/ui/input"
 import { useToast } from "@/components/ui/use-toast"
 import {
-  useBitbucketTokenCredentials,
-  useBitbucketTokenCredentialsStatus,
-  useDeleteBitbucketTokenCredentials,
-} from "@/hooks/use-bitbucket-credentials"
+  useBitbucketDataCenterTokenCredentials,
+  useBitbucketDataCenterTokenCredentialsStatus,
+  useDeleteBitbucketDataCenterTokenCredentials,
+} from "@/hooks/use-bitbucket-data-center-credentials"
 
-const bitbucketTokenFormSchema = z.object({
-  email: z.string().trim().email("Enter your Atlassian account email"),
+const bitbucketDataCenterTokenFormSchema = z.object({
+  base_url: z
+    .string()
+    .trim()
+    .url("Enter your HTTPS instance URL")
+    .startsWith("https://"),
   token: z.string().trim().min(1, "Token is required"),
 })
 
-type BitbucketTokenFormData = z.infer<typeof bitbucketTokenFormSchema>
+type BitbucketDataCenterTokenFormData = z.infer<
+  typeof bitbucketDataCenterTokenFormSchema
+>
 
-/** Configure organization credentials for Bitbucket Cloud workspace sync. */
-export function BitbucketTokenSetup() {
+/** Configure organization credentials for Bitbucket Data Center workspace sync. */
+export function BitbucketDataCenterTokenSetup() {
   const {
     credentialsStatus,
     credentialsStatusIsLoading,
     credentialsStatusError,
     refetchCredentialsStatus,
-  } = useBitbucketTokenCredentialsStatus()
-  const { deleteCredentials } = useDeleteBitbucketTokenCredentials()
+  } = useBitbucketDataCenterTokenCredentialsStatus()
+  const { deleteCredentials } = useDeleteBitbucketDataCenterTokenCredentials()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const { toast } = useToast()
@@ -75,7 +81,7 @@ export function BitbucketTokenSetup() {
       "Stored credentials are unreadable. Re-enter the API token to reconnect."
     StatusIcon = AlertTriangleIcon
   } else if (isConfigured) {
-    statusLabel = `Account email: ${credentialsStatus?.email ?? "unknown"}`
+    statusLabel = `Instance URL: ${credentialsStatus?.base_url ?? "unknown"}`
     StatusIcon = CheckCircle2Icon
   }
 
@@ -84,8 +90,9 @@ export function BitbucketTokenSetup() {
       await deleteCredentials.mutateAsync()
       setDeleteDialogOpen(false)
       toast({
-        title: "Bitbucket credentials deleted",
-        description: "Bitbucket workspace sync has been disconnected.",
+        title: "Bitbucket Data Center credentials deleted",
+        description:
+          "Bitbucket Data Center workspace sync has been disconnected.",
       })
     } catch (error) {
       toast({
@@ -106,7 +113,7 @@ export function BitbucketTokenSetup() {
   if (credentialsStatusError) {
     return (
       <p className="text-sm text-destructive">
-        Unable to load Bitbucket credentials.{" "}
+        Unable to load Bitbucket Data Center credentials.{" "}
         <Button variant="link" onClick={() => refetchCredentialsStatus()}>
           Retry
         </Button>
@@ -120,7 +127,7 @@ export function BitbucketTokenSetup() {
         <div className="flex items-center gap-3">
           <StatusIcon className="size-5 text-muted-foreground" />
           <div>
-            <p className="text-sm font-medium">Bitbucket Cloud</p>
+            <p className="text-sm font-medium">Bitbucket Data Center</p>
             <p className="text-xs text-muted-foreground">{statusLabel}</p>
           </div>
         </div>
@@ -137,7 +144,7 @@ export function BitbucketTokenSetup() {
               <Button
                 variant="destructive"
                 size="sm"
-                aria-label="Delete Bitbucket credentials"
+                aria-label="Delete Bitbucket Data Center credentials"
                 onClick={() => setDeleteDialogOpen(true)}
               >
                 <Trash2Icon className="size-3.5" />
@@ -151,16 +158,17 @@ export function BitbucketTokenSetup() {
         </div>
       </div>
 
-      <BitbucketConnectionDialog
+      <BitbucketDataCenterConnectionDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
-        existingEmail={credentialsStatus?.email ?? undefined}
+        existingBaseUrl={credentialsStatus?.base_url ?? undefined}
         onFormSuccess={() => {
           setDialogOpen(false)
           refetchCredentialsStatus()
           toast({
-            title: "Bitbucket credentials saved",
-            description: "Bitbucket workspace sync credentials are ready.",
+            title: "Bitbucket Data Center credentials saved",
+            description:
+              "Bitbucket Data Center workspace sync credentials are ready.",
           })
         }}
       />
@@ -168,11 +176,13 @@ export function BitbucketTokenSetup() {
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Bitbucket credentials</AlertDialogTitle>
+            <AlertDialogTitle>
+              Delete Bitbucket Data Center credentials
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete the Bitbucket token credentials?
-              Bitbucket workspace sync will stop working until credentials are
-              reconnected.
+              Are you sure you want to delete the Bitbucket Data Center token
+              credentials? Bitbucket Data Center workspace sync will stop
+              working until credentials are reconnected.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -193,35 +203,35 @@ export function BitbucketTokenSetup() {
   )
 }
 
-function BitbucketConnectionDialog({
+function BitbucketDataCenterConnectionDialog({
   open,
   onOpenChange,
-  existingEmail,
+  existingBaseUrl,
   onFormSuccess,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  existingEmail?: string
+  existingBaseUrl?: string
   onFormSuccess: () => void
 }) {
-  const { saveCredentials } = useBitbucketTokenCredentials()
+  const { saveCredentials } = useBitbucketDataCenterTokenCredentials()
   const { toast } = useToast()
-  const form = useForm<BitbucketTokenFormData>({
-    resolver: zodResolver(bitbucketTokenFormSchema),
+  const form = useForm<BitbucketDataCenterTokenFormData>({
+    resolver: zodResolver(bitbucketDataCenterTokenFormSchema),
     defaultValues: {
-      email: existingEmail ?? "",
+      base_url: existingBaseUrl ?? "",
       token: "",
     },
   })
 
   useEffect(() => {
     form.reset({
-      email: existingEmail ?? "",
+      base_url: existingBaseUrl ?? "",
       token: "",
     })
-  }, [existingEmail, form, open])
+  }, [existingBaseUrl, form, open])
 
-  async function onSubmit(values: BitbucketTokenFormData) {
+  async function onSubmit(values: BitbucketDataCenterTokenFormData) {
     try {
       await saveCredentials.mutateAsync(values)
       onFormSuccess()
@@ -231,7 +241,7 @@ function BitbucketConnectionDialog({
         description:
           error instanceof Error
             ? error.message
-            : "Failed to save Bitbucket credentials",
+            : "Failed to save Bitbucket Data Center credentials",
         variant: "destructive",
       })
     }
@@ -241,22 +251,27 @@ function BitbucketConnectionDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Bitbucket workspace sync credential</DialogTitle>
+          <DialogTitle>
+            Bitbucket Data Center workspace sync credential
+          </DialogTitle>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             <FormField
               control={form.control}
-              name="email"
+              name="base_url"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Account email</FormLabel>
+                  <FormLabel>Instance URL</FormLabel>
                   <FormControl>
-                    <Input placeholder="you@example.com" {...field} />
+                    <Input
+                      placeholder="https://bitbucket.example.com"
+                      {...field}
+                    />
                   </FormControl>
                   <FormDescription>
-                    Use the Atlassian account email associated with your API
-                    token.
+                    Use the HTTPS instance URL, including its context path if
+                    configured.
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
@@ -272,16 +287,16 @@ function BitbucketConnectionDialog({
                     <Input
                       type="password"
                       autoComplete="off"
-                      placeholder="API token"
+                      placeholder="HTTP access token"
                       {...field}
                     />
                   </FormControl>
                   <FormDescription>
-                    Create a scoped Bitbucket Cloud API token with repository
-                    read/write and pull request read/write permissions.{" "}
+                    Use a Data Center HTTP access token with repository write
+                    permission.{" "}
                     <a
                       className="underline"
-                      href="https://support.atlassian.com/bitbucket-cloud/docs/api-token-permissions/"
+                      href="https://confluence.atlassian.com/bitbucketserver/http-access-tokens-939515499.html"
                       target="_blank"
                       rel="noreferrer"
                     >

@@ -1962,7 +1962,7 @@ class WorkspaceSyncService(SyncMappingService):
             match provider:
                 case VcsProvider.GITHUB:
                     return parse_git_url(repo_url, allowed_domains={"github.com"})
-                case VcsProvider.GITLAB:
+                case VcsProvider.GITLAB | VcsProvider.BITBUCKET_DATA_CENTER:
                     return parse_git_url(repo_url)
                 case VcsProvider.BITBUCKET:
                     return parse_git_url(repo_url, allowed_domains={"bitbucket.org"})
