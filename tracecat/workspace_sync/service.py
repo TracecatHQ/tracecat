@@ -1965,9 +1965,7 @@ class WorkspaceSyncService(SyncMappingService):
                 case VcsProvider.GITLAB:
                     return parse_git_url(repo_url)
                 case VcsProvider.BITBUCKET:
-                    raise TracecatValidationError(
-                        f"{provider.value} workspace sync is not implemented yet."
-                    )
+                    return parse_git_url(repo_url, allowed_domains={"bitbucket.org"})
         except ValueError as e:
             raise TracecatSettingsError(
                 f"Invalid Git repository URL configured for this workspace: {e}"

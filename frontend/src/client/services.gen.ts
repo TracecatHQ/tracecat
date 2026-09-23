@@ -865,8 +865,10 @@ import type {
   VariablesSearchVariablesResponse,
   VariablesUpdateVariableByIdData,
   VariablesUpdateVariableByIdResponse,
+  VcsDeleteBitbucketTokenCredentialsResponse,
   VcsDeleteGithubAppCredentialsResponse,
   VcsDeleteGitlabTokenCredentialsResponse,
+  VcsGetBitbucketTokenCredentialsStatusResponse,
   VcsGetGithubAppCredentialsStatusResponse,
   VcsGetGithubAppManifestResponse,
   VcsGetGitlabTokenCredentialsStatusResponse,
@@ -874,6 +876,8 @@ import type {
   VcsGithubAppInstallCallbackResponse,
   VcsGithubWebhookData,
   VcsGithubWebhookResponse,
+  VcsSaveBitbucketTokenCredentialsData,
+  VcsSaveBitbucketTokenCredentialsResponse,
   VcsSaveGithubAppCredentialsData,
   VcsSaveGithubAppCredentialsResponse,
   VcsSaveGitlabTokenCredentialsData,
@@ -13243,6 +13247,56 @@ export const vcsGetGitlabTokenCredentialsStatus =
     return __request(OpenAPI, {
       method: "GET",
       url: "/organization/vcs/gitlab/credentials/status",
+    })
+  }
+
+/**
+ * Save Bitbucket Token Credentials
+ * Save Bitbucket token credentials (create if new or update existing).
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns BitbucketTokenCredentialsSaveResponse Successful Response
+ * @throws ApiError
+ */
+export const vcsSaveBitbucketTokenCredentials = (
+  data: VcsSaveBitbucketTokenCredentialsData
+): CancelablePromise<VcsSaveBitbucketTokenCredentialsResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/organization/vcs/bitbucket/credentials",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Bitbucket Token Credentials
+ * Delete Bitbucket token credentials.
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const vcsDeleteBitbucketTokenCredentials =
+  (): CancelablePromise<VcsDeleteBitbucketTokenCredentialsResponse> => {
+    return __request(OpenAPI, {
+      method: "DELETE",
+      url: "/organization/vcs/bitbucket/credentials",
+    })
+  }
+
+/**
+ * Get Bitbucket Token Credentials Status
+ * Get the status of Bitbucket token credentials.
+ * @returns BitbucketTokenCredentialsStatus Successful Response
+ * @throws ApiError
+ */
+export const vcsGetBitbucketTokenCredentialsStatus =
+  (): CancelablePromise<VcsGetBitbucketTokenCredentialsStatusResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/organization/vcs/bitbucket/credentials/status",
     })
   }
 

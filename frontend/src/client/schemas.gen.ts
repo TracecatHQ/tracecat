@@ -6390,6 +6390,87 @@ export const $BedrockCatalogUpdate = {
   title: "BedrockCatalogUpdate",
 } as const
 
+export const $BitbucketTokenCredentialsRequest = {
+  properties: {
+    email: {
+      type: "string",
+      format: "email",
+      title: "Email",
+    },
+    token: {
+      type: "string",
+      minLength: 1,
+      format: "password",
+      title: "Token",
+      writeOnly: true,
+    },
+  },
+  type: "object",
+  required: ["email", "token"],
+  title: "BitbucketTokenCredentialsRequest",
+  description: "Register or rotate the organization Bitbucket Cloud API token.",
+} as const
+
+export const $BitbucketTokenCredentialsSaveResponse = {
+  properties: {
+    message: {
+      type: "string",
+      title: "Message",
+    },
+    action: {
+      type: "string",
+      enum: ["created", "updated"],
+      title: "Action",
+    },
+    email: {
+      type: "string",
+      title: "Email",
+    },
+  },
+  type: "object",
+  required: ["message", "action", "email"],
+  title: "BitbucketTokenCredentialsSaveResponse",
+} as const
+
+export const $BitbucketTokenCredentialsStatus = {
+  properties: {
+    exists: {
+      type: "boolean",
+      title: "Exists",
+    },
+    is_corrupted: {
+      type: "boolean",
+      title: "Is Corrupted",
+      default: false,
+    },
+    email: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Email",
+    },
+    created_at: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Created At",
+    },
+  },
+  type: "object",
+  required: ["exists"],
+  title: "BitbucketTokenCredentialsStatus",
+} as const
+
 export const $Body_auth_reset_forgot_password = {
   properties: {
     email: {

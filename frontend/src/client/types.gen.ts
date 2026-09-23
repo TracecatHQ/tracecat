@@ -1666,6 +1666,29 @@ export type BedrockCatalogUpdate = {
   use_converse?: boolean
 }
 
+/**
+ * Register or rotate the organization Bitbucket Cloud API token.
+ */
+export type BitbucketTokenCredentialsRequest = {
+  email: string
+  token: string
+}
+
+export type BitbucketTokenCredentialsSaveResponse = {
+  message: string
+  action: "created" | "updated"
+  email: string
+}
+
+export type action2 = "created" | "updated"
+
+export type BitbucketTokenCredentialsStatus = {
+  exists: boolean
+  is_corrupted?: boolean
+  email?: string | null
+  created_at?: string | null
+}
+
 export type Body_auth_reset_forgot_password = {
   email: string
 }
@@ -4479,8 +4502,6 @@ export type GitHubAppCredentialsSaveResponse = {
   action: "created" | "updated"
   app_id: string
 }
-
-export type action2 = "created" | "updated"
 
 /**
  * Status of GitHub App credentials.
@@ -14602,6 +14623,18 @@ export type VcsDeleteGitlabTokenCredentialsResponse = void
 export type VcsGetGitlabTokenCredentialsStatusResponse =
   GitLabTokenCredentialsStatus
 
+export type VcsSaveBitbucketTokenCredentialsData = {
+  requestBody: BitbucketTokenCredentialsRequest
+}
+
+export type VcsSaveBitbucketTokenCredentialsResponse =
+  BitbucketTokenCredentialsSaveResponse
+
+export type VcsDeleteBitbucketTokenCredentialsResponse = void
+
+export type VcsGetBitbucketTokenCredentialsStatusResponse =
+  BitbucketTokenCredentialsStatus
+
 export type UsersGetMyScopesData = {
   workspaceId?: string | null
 }
@@ -21520,6 +21553,39 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: GitLabTokenCredentialsStatus
+      }
+    }
+  }
+  "/organization/vcs/bitbucket/credentials": {
+    post: {
+      req: VcsSaveBitbucketTokenCredentialsData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: BitbucketTokenCredentialsSaveResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+      }
+    }
+  }
+  "/organization/vcs/bitbucket/credentials/status": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: BitbucketTokenCredentialsStatus
       }
     }
   }

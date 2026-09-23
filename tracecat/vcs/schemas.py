@@ -6,6 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, SecretStr
 
+from tracecat.vcs.bitbucket.schemas import BitbucketTokenCredentials
 from tracecat.vcs.github.manifest import GitHubAppManifest
 
 
@@ -83,3 +84,20 @@ class GitLabTokenCredentialsSaveResponse(BaseModel):
     message: str
     action: Literal["created", "updated"]
     base_url: str
+
+
+class BitbucketTokenCredentialsRequest(BitbucketTokenCredentials):
+    """Register or rotate the organization Bitbucket Cloud API token."""
+
+
+class BitbucketTokenCredentialsStatus(BaseModel):
+    exists: bool
+    is_corrupted: bool = False
+    email: str | None = None
+    created_at: str | None = None
+
+
+class BitbucketTokenCredentialsSaveResponse(BaseModel):
+    message: str
+    action: Literal["created", "updated"]
+    email: str

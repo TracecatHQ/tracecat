@@ -1,6 +1,6 @@
 ---
 title: "Git sync"
-description: "Export workspace configuration to GitHub or GitLab as a pull request, then pull a reviewed commit into another workspace."
+description: "Export workspace configuration to GitHub, GitLab, or Bitbucket Cloud as a pull request, then pull a reviewed commit into another workspace."
 icon: "lock"
 ---
 
@@ -20,10 +20,21 @@ Use Git sync to export workspace configuration to a repository you own as a pull
       ![Organization Git sync settings with GitHub and GitLab provider cards](/img/manage-platform/git-sync-settings.png)
     </Frame>
   </Step>
-  <Step title="Connect GitHub or GitLab">
+  <Step title="Connect your provider">
     For GitHub, click `Connect`, then create a GitHub App through the manifest flow or enter the ID and private key of an existing GitHub App. Install it on the repositories you want to sync.
 
     For GitLab, click `Connect`, then enter your base URL and a project or group access token with the `api` scope.
+
+    For Bitbucket Cloud, click `Connect`, then enter your Atlassian account email and a [scoped API token](https://support.atlassian.com/bitbucket-cloud/docs/using-api-tokens/). Select all four [permissions](https://support.atlassian.com/bitbucket-cloud/docs/api-token-permissions/):
+
+    - `read:repository:bitbucket`
+    - `write:repository:bitbucket`
+    - `read:pullrequest:bitbucket`
+    - `write:pullrequest:bitbucket`
+
+    The account must have access to the repository. Initialize the repository with a commit before syncing. Bitbucket Data Center is not supported.
+
+    Use `Update` to rotate the token before it expires. Deleting these credentials disconnects sync across the organization; it preserves workspace resources, repository branches, and custom-registry credentials.
   </Step>
 </Steps>
 
@@ -34,7 +45,9 @@ Use Git sync to export workspace configuration to a repository you own as a pull
     Open workspace `Settings` and select `Git sync`, then pick a `Provider`.
   </Step>
   <Step title="Set the repository URL and save">
-    For GitHub, `Select` lists repositories granted to the installation and `Manual` accepts any git+ssh URL; for GitLab, enter the URL directly. Click `Save`.
+    For GitHub, `Select` lists repositories granted to the installation and `Manual` accepts any git+ssh URL; for GitLab or Bitbucket Cloud, enter the URL directly. Click `Save`.
+
+    For Bitbucket Cloud, use `git+ssh://git@bitbucket.org/example-workspace/example-repo.git`.
 
     The URL form is `git+ssh://git@github.com/example-org/example-repo.git`. An `@branch` suffix pins the base branch for exports and the commit list for pulls; omit it to use the default branch.
   </Step>

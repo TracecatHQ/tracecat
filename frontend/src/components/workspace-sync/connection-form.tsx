@@ -29,17 +29,33 @@ import { validateGitSshUrl } from "@/lib/git"
 import { useWorkspaceSettings } from "@/lib/hooks"
 
 type RepositoryInputMode = "select" | "manual"
-const vcsProviderOptions = ["github", "gitlab"] as const
+const vcsProviderOptions = ["github", "gitlab", "bitbucket"] as const
 type WorkspaceSyncConnectionProvider = (typeof vcsProviderOptions)[number]
 
-export const syncSettingsSchema = z.object({
-  git_provider: z.enum(vcsProviderOptions).default("github"),
-  git_repo_url: z
-    .string()
-    .nullish()
-    .transform((url) => url?.trim() || null)
-    .superRefine((url, ctx) => validateGitSshUrl(url, ctx)),
-})
+export const syncSettingsSchema = z
+  .object({
+    git_provider: z.enum(vcsProviderOptions).default("github"),
+    git_repo_url: z
+      .string()
+      .nullish()
+      .transform((url) => url?.trim() || null)
+      .superRefine((url, ctx) => validateGitSshUrl(url, ctx)),
+  })
+  .superRefine((values, ctx) => {
+    if (
+      values.git_provider === "bitbucket" &&
+      values.git_repo_url &&
+      !/^git\+ssh:\/\/[^@]+@bitbucket\.org\/[^/]+\/[^/]+\.git(?:@.+)?$/.test(
+        values.git_repo_url
+      )
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["git_repo_url"],
+        message: "Use a Bitbucket Cloud repository on bitbucket.org.",
+      })
+    }
+  })
 
 type SyncSettingsForm = z.infer<typeof syncSettingsSchema>
 
@@ -145,6 +161,9 @@ export function WorkspaceSyncConnectionForm({
   if (currentProvider === "gitlab") {
     repositoryDescription =
       "Enter a GitLab git+ssh URL. Nested groups and self-managed hosts are supported."
+  } else if (currentProvider === "bitbucket") {
+    repositoryDescription =
+      "Enter a bitbucket.org git+ssh URL. Configure the API token in organization Git sync settings. Data Center is not supported."
   } else if (hasRepositoryOptions && repositoryInputMode === "select") {
     repositoryDescription =
       "Select a repository granted to the connected GitHub App installation."
@@ -188,12 +207,13 @@ export function WorkspaceSyncConnectionForm({
                 options={[
                   { value: "github", content: "GitHub" },
                   { value: "gitlab", content: "GitLab" },
+                  { value: "bitbucket", content: "Bitbucket Cloud" },
                 ]}
               />
               {mustChooseSupportedProvider && (
                 <FormDescription className="text-amber-700">
                   The saved provider "{persistedProvider}" is not supported.
-                  Choose GitHub or GitLab before saving.
+                  Choose a supported provider before saving.
                 </FormDescription>
               )}
               <FormMessage />
@@ -269,9 +289,13 @@ export function WorkspaceSyncConnectionForm({
                   <Input
                     aria-invalid={fieldState.invalid}
                     placeholder={
-                      currentProvider === "gitlab"
-                        ? "git+ssh://git@gitlab.com/my-org/my-group/my-repo.git"
-                        : "git+ssh://git@github.com/my-org/my-repo.git"
+                      {
+                        github: "git+ssh://git@github.com/my-org/my-repo.git",
+                        gitlab:
+                          "git+ssh://git@gitlab.com/my-org/my-group/my-repo.git",
+                        bitbucket:
+                          "git+ssh://git@bitbucket.org/my-workspace/my-repo.git",
+                      }[currentProvider]
                     }
                     {...field}
                     value={field.value ?? ""}
@@ -350,7 +374,11 @@ function getRepositorySelectValue(
 function toConnectionProvider(
   provider: VcsProvider
 ): WorkspaceSyncConnectionProvider | undefined {
-  if (provider === "github" || provider === "gitlab") {
+  if (
+    provider === "github" ||
+    provider === "gitlab" ||
+    provider === "bitbucket"
+  ) {
     return provider
   }
   return undefined
