@@ -520,6 +520,56 @@ class WorkflowFolderService(BaseWorkspaceService):
         result = await self.session.execute(statement)
         return result.scalar_one() > 0
 
+    async def _count_workflows_by_folder(
+        self, folder_ids: Sequence[uuid.UUID]
+    ) -> dict[uuid.UUID, int]:
+        """Count workflows directly contained in each of the given folders."""
+        if not folder_ids:
+            return {}
+        statement = (
+            select(Workflow.folder_id, func.count(Workflow.id))
+            .where(
+                Workflow.workspace_id == self.workspace_id,
+                Workflow.folder_id.in_(folder_ids),
+            )
+            .group_by(Workflow.folder_id)
+        )
+        result = await self.session.execute(statement)
+        return {
+            folder_id: count
+            for folder_id, count in result.tuples().all()
+            if folder_id is not None
+        }
+
+    async def _count_child_folders_by_path(
+        self, folder_paths: Sequence[str]
+    ) -> dict[str, int]:
+        """Count direct child folders for each of the given folder paths."""
+        if not folder_paths:
+            return {}
+        parent_paths = set(folder_paths)
+        # All folders here share a parent, so direct children sit one level below.
+        child_depth = next(iter(parent_paths)).count("/") + 1
+        statement = select(WorkflowFolder.path).where(
+            WorkflowFolder.workspace_id == self.workspace_id,
+            or_(
+                *(
+                    WorkflowFolder.path.startswith(parent_path, autoescape=True)
+                    for parent_path in parent_paths
+                )
+            ),
+            func.length(WorkflowFolder.path)
+            - func.length(func.replace(WorkflowFolder.path, "/", ""))
+            == child_depth,
+        )
+        result = await self.session.execute(statement)
+        counts: dict[str, int] = {}
+        for child_path in result.scalars().all():
+            parent_path = self._get_parent_path(child_path)
+            if parent_path in parent_paths:
+                counts[parent_path] = counts.get(parent_path, 0) + 1
+        return counts
+
     async def _get_descendants(self, path: str) -> Sequence[WorkflowFolder]:
         """Get all descendant folders of a given path."""
         path = self._normalize_folder_path(path)
@@ -705,11 +755,17 @@ class WorkflowFolderService(BaseWorkspaceService):
         # Convert to directory items
         directory_items: list[DirectoryItem] = []
 
-        # Add folders with item counts
+        workflow_counts_by_folder_id = await self._count_workflows_by_folder(
+            [folder.id for folder in folders]
+        )
+        child_folder_counts_by_path = await self._count_child_folders_by_path(
+            [folder.path for folder in folders]
+        )
+
         for folder in folders:
-            has_children = await self._has_children(folder.path)
-            has_workflows = await self._has_workflows(folder.id)
-            num_items = (1 if has_children else 0) + (1 if has_workflows else 0)
+            num_items = child_folder_counts_by_path.get(
+                folder.path, 0
+            ) + workflow_counts_by_folder_id.get(folder.id, 0)
 
             directory_items.append(
                 FolderDirectoryItem(

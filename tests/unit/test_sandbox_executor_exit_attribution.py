@@ -8,9 +8,43 @@ from pathlib import Path
 import pytest
 from pytest_mock import MockerFixture
 
-from tracecat.sandbox.executor import NsjailExecutor, _classify_missing_nsjail_result
+from tracecat.sandbox.executor import (
+    ActionSandboxConfig,
+    NsjailExecutor,
+    _classify_missing_nsjail_result,
+    workload_stderr_tail,
+)
 from tracecat.sandbox.nsjail_protocol import NsjailCompletedProcess
 from tracecat.sandbox.types import SandboxConfig, SandboxErrorCode
+
+_NSJAIL_PREAMBLE = (
+    "[I][2026-01-01T00:00:00+0000] Mount: '/host/tmp/job' -> '/work' type:'' options:''\n"
+    "[W][2026-01-01T00:00:00+0000] Uid map: inside_uid:1000 outside_uid:1001\n"
+    "[I][2026-01-01T00:00:00+0000] Executing '/usr/local/bin/python3'\n"
+)
+_COROUTINE_TRACEBACK = (
+    "Traceback (most recent call last):\n"
+    '  File "/work/minimal_runner.py", line 630, in serialize_result\n'
+    "TypeError: Type is not JSON serializable: coroutine\n"
+    "sys:1: RuntimeWarning: coroutine 'call_api' was never awaited\n"
+)
+
+
+def test_workload_stderr_tail_drops_nsjail_lines_and_keeps_traceback() -> None:
+    tail = workload_stderr_tail(_NSJAIL_PREAMBLE + _COROUTINE_TRACEBACK, limit=8192)
+
+    assert tail == _COROUTINE_TRACEBACK.strip()
+    assert "/host/tmp/job" not in tail
+
+
+def test_workload_stderr_tail_is_bounded_from_the_end() -> None:
+    tail = workload_stderr_tail("x" * 100 + "TypeError: boom", limit=15)
+
+    assert tail == "TypeError: boom"
+
+
+def test_workload_stderr_tail_is_empty_without_workload_output() -> None:
+    assert workload_stderr_tail(_NSJAIL_PREAMBLE, limit=8192) == ""
 
 
 @pytest.mark.parametrize(
@@ -161,6 +195,38 @@ async def test_missing_result_preserves_crash_tail_and_launch_status(
     assert fields["stderr_tail_truncated"] is (len(stderr) > 8192)
     assert fields["workload_started"] is True
     assert fields["result_file_exists"] is False
+
+
+@pytest.mark.anyio
+async def test_action_missing_result_keeps_workload_traceback_tail(
+    tmp_path: Path, mocker: MockerFixture
+) -> None:
+    mocker.patch(
+        "tracecat.sandbox.executor.invoke_nsjail",
+        return_value=NsjailCompletedProcess(
+            returncode=1,
+            stdout=b"",
+            stderr=(_NSJAIL_PREAMBLE + _COROUTINE_TRACEBACK).encode(),
+            workload_started=True,
+        ),
+    )
+    mocker.patch("tracecat.sandbox.executor.logger.error")
+    executor = NsjailExecutor(cache_dir=str(tmp_path / "cache"))
+    mocker.patch.object(executor, "_build_action_config", return_value="")
+    mocker.patch.object(executor, "_build_action_env_map", return_value={})
+    job_dir = tmp_path / "job"
+    job_dir.mkdir()
+    action_config = ActionSandboxConfig(
+        registry_paths=[],
+        tracecat_app_dir=tmp_path,
+        site_packages_dir=None,
+    )
+
+    result = await executor.execute_action(job_dir, action_config)
+
+    assert result.success is False
+    assert result.error_code is SandboxErrorCode.WORKLOAD_FAILURE
+    assert result.stderr == _COROUTINE_TRACEBACK.strip()
 
 
 @pytest.mark.anyio

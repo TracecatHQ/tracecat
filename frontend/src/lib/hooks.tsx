@@ -166,6 +166,7 @@ import {
   organizationDeleteSession,
   organizationListOrgMembers,
   organizationListSessions,
+  organizationResendInvitation,
   organizationRevokeInvitation,
   organizationSecretsCreateOrgSecret,
   organizationSecretsDeleteOrgSecretById,
@@ -644,9 +645,14 @@ export function useUpdateWebhook(workspaceId: string, workflowId: string) {
   return mutation
 }
 
-export function useCaseTrigger(workspaceId: string, workflowId: string) {
+export function useCaseTrigger(
+  workspaceId: string,
+  workflowId: string,
+  options?: { enabled?: boolean }
+) {
   return useQuery<CaseTriggerRead | null, ApiError>({
     queryKey: ["case-trigger", workspaceId, workflowId],
+    enabled: options?.enabled ?? true,
     queryFn: async () => {
       try {
         return await triggersGetCaseTrigger({ workspaceId, workflowId })
@@ -2326,6 +2332,19 @@ export function useOrgMembers() {
     },
   })
 
+  const {
+    mutateAsync: resendInvitation,
+    isPending: resendInvitationIsPending,
+  } = useMutation({
+    mutationFn: async (invitationId: string) =>
+      await organizationResendInvitation({ invitationId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["org-members"] })
+    },
+    // Callers toast on the awaited result, including the 409 cooldown.
+    meta: { suppressErrorToast: true },
+  })
+
   return {
     orgMembers,
     updateOrgMember,
@@ -2337,6 +2356,8 @@ export function useOrgMembers() {
     createInvitation,
     createInvitationIsPending,
     revokeInvitation,
+    resendInvitation,
+    resendInvitationIsPending,
   }
 }
 

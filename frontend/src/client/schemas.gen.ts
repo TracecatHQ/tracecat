@@ -1148,6 +1148,18 @@ export const $AdminOrgInvitationCreateResponse = {
       type: "boolean",
       title: "Created By Platform Admin",
     },
+    last_emailed_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Emailed At",
+    },
     token: {
       type: "string",
       title: "Token",
@@ -1249,6 +1261,18 @@ export const $AdminOrgInvitationRead = {
     created_by_platform_admin: {
       type: "boolean",
       title: "Created By Platform Admin",
+    },
+    last_emailed_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Emailed At",
     },
   },
   type: "object",
@@ -12367,6 +12391,69 @@ export const $CursorPaginatedResponse_ServiceAccountRead_ = {
   title: "CursorPaginatedResponse[ServiceAccountRead]",
 } as const
 
+export const $CursorPaginatedResponse_SkillFolderRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/SkillFolderRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[SkillFolderRead]",
+} as const
+
 export const $CursorPaginatedResponse_SkillReadMinimal_ = {
   properties: {
     items: {
@@ -12428,6 +12515,69 @@ export const $CursorPaginatedResponse_SkillReadMinimal_ = {
   type: "object",
   required: ["items"],
   title: "CursorPaginatedResponse[SkillReadMinimal]",
+} as const
+
+export const $CursorPaginatedResponse_SkillTagRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/SkillTagRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[SkillTagRead]",
 } as const
 
 export const $CursorPaginatedResponse_SkillVersionReadMinimal_ = {
@@ -19154,6 +19304,18 @@ export const $OrgInvitationRead = {
       ],
       title: "Accepted At",
     },
+    last_emailed_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Emailed At",
+    },
   },
   type: "object",
   required: [
@@ -23438,6 +23600,8 @@ export const $RuntimeErrorKind = {
     "tenant.entitlement.denied",
     "integration.rate_limited",
     "registry.sync.validation_failed",
+    "registry.lock.invalid_data",
+    "registry.lock.action_ambiguous",
     "runtime.unclassified",
     "storage.materialization.transport_unavailable",
     "storage.materialization.invalid_data",
@@ -25249,6 +25413,96 @@ export const $SkillCreate = {
   description: "Payload for creating a new logical skill.",
 } as const
 
+export const $SkillDirectoryItem = {
+  properties: {
+    type: {
+      type: "string",
+      const: "skill",
+      title: "Type",
+    },
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    slug: {
+      type: "string",
+      title: "Slug",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    current_version_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Current Version Id",
+    },
+    folder_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Folder Id",
+    },
+    tags: {
+      items: {
+        $ref: "#/components/schemas/TagRead",
+      },
+      type: "array",
+      title: "Tags",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "type",
+    "id",
+    "name",
+    "slug",
+    "description",
+    "current_version_id",
+    "folder_id",
+    "tags",
+    "created_at",
+    "updated_at",
+  ],
+  title: "SkillDirectoryItem",
+  description: "Skill as a directory item.",
+} as const
+
 export const $SkillDraftAttachUploadedBlobOp = {
   properties: {
     op: {
@@ -25549,6 +25803,180 @@ export const $SkillFileEntry = {
     "Manifest entry for a skill file (used in both drafts and versions).",
 } as const
 
+export const $SkillFolderCreate = {
+  properties: {
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    parent_path: {
+      type: "string",
+      title: "Parent Path",
+      default: "/",
+    },
+  },
+  type: "object",
+  required: ["name"],
+  title: "SkillFolderCreate",
+} as const
+
+export const $SkillFolderDelete = {
+  properties: {
+    recursive: {
+      type: "boolean",
+      title: "Recursive",
+      default: false,
+    },
+  },
+  type: "object",
+  title: "SkillFolderDelete",
+} as const
+
+export const $SkillFolderDirectoryItem = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    path: {
+      type: "string",
+      title: "Path",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    type: {
+      type: "string",
+      const: "folder",
+      title: "Type",
+    },
+    num_items: {
+      type: "integer",
+      title: "Num Items",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "name",
+    "path",
+    "workspace_id",
+    "created_at",
+    "updated_at",
+    "type",
+    "num_items",
+  ],
+  title: "SkillFolderDirectoryItem",
+} as const
+
+export const $SkillFolderMove = {
+  properties: {
+    new_parent_path: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "New Parent Path",
+    },
+  },
+  type: "object",
+  title: "SkillFolderMove",
+} as const
+
+export const $SkillFolderRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    path: {
+      type: "string",
+      title: "Path",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "path", "workspace_id", "created_at", "updated_at"],
+  title: "SkillFolderRead",
+} as const
+
+export const $SkillFolderUpdate = {
+  properties: {
+    name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+    },
+  },
+  type: "object",
+  title: "SkillFolderUpdate",
+} as const
+
+export const $SkillMoveToFolder = {
+  properties: {
+    folder_path: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Folder Path",
+    },
+  },
+  type: "object",
+  title: "SkillMoveToFolder",
+  description: "Payload for moving a skill into a folder.",
+} as const
+
 export const $SkillRead = {
   properties: {
     id: {
@@ -25597,6 +26025,25 @@ export const $SkillRead = {
         },
       ],
       title: "Current Version Id",
+    },
+    folder_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Folder Id",
+    },
+    tags: {
+      items: {
+        $ref: "#/components/schemas/TagRead",
+      },
+      type: "array",
+      title: "Tags",
     },
     draft_revision: {
       type: "integer",
@@ -25715,6 +26162,25 @@ export const $SkillReadMinimal = {
       ],
       title: "Current Version Id",
     },
+    folder_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Folder Id",
+    },
+    tags: {
+      items: {
+        $ref: "#/components/schemas/TagRead",
+      },
+      type: "array",
+      title: "Tags",
+    },
     created_at: {
       type: "string",
       format: "date-time",
@@ -25746,6 +26212,53 @@ export const $SkillReadMinimal = {
 \`\`slug\`\` is the late-binding handle every skill API accepts; list
 responses must expose it so callers never have to guess it from \`\`name\`\`
 (names are not unique — slugs are, per live row).`,
+} as const
+
+export const $SkillTagCreate = {
+  properties: {
+    tag_id: {
+      type: "string",
+      format: "uuid",
+      title: "Tag Id",
+    },
+  },
+  type: "object",
+  required: ["tag_id"],
+  title: "SkillTagCreate",
+  description: "Payload for adding a tag to a skill.",
+} as const
+
+export const $SkillTagRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    ref: {
+      type: "string",
+      title: "Ref",
+    },
+    color: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Color",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "ref", "color"],
+  title: "SkillTagRead",
+  description: "Tag data.",
 } as const
 
 export const $SkillUpload = {

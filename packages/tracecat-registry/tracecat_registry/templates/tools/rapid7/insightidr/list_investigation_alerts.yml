@@ -1,0 +1,45 @@
+type: action
+definition:
+  title: List investigation alerts
+  description: "List investigation alerts. Calls GET /idr/v2/investigations/{identifier}/alerts directly."
+  display_group: Rapid7
+  doc_url: https://help.rapid7.com/insightidr/en-us/api/v2/docs.html#operation/listInvestigationAlerts
+  namespace: tools.rapid7
+  name: list_investigation_alerts
+  secrets:
+    - name: rapid7
+      keys: ["RAPID7_API_KEY"]
+  expects:
+    identifier:
+      type: str
+      description: "The ID of the investigation."
+    index:
+      type: int | None
+      description: "The page index."
+      default: null
+    size:
+      type: int | None
+      description: "The page size."
+      default: null
+    multi_customer:
+      type: bool | None
+      description: "Indicates whether the requester has multi-customer access. If set to true, a user API key must be provided."
+      default: null
+    base_url:
+      type: str | None
+      description: "Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.rapid7.base_url || "https://us.api.insight.rapid7.com" }}/idr/v2/investigations/${{ FN.url_encode(inputs.identifier) }}/alerts
+        method: GET
+        headers:
+          X-Api-Key: ${{ SECRETS.rapid7.RAPID7_API_KEY }}
+          Accept: application/json
+        params:
+          index: ${{ inputs.index }}
+          size: ${{ inputs.size }}
+          "multi-customer": ${{ inputs.multi_customer }}
+  returns: ${{ steps.request.result }}

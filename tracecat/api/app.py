@@ -38,7 +38,12 @@ from tracecat.agent.provider.router import router as agent_custom_provider_route
 from tracecat.agent.router import router as agent_router
 from tracecat.agent.router import workspace_router as agent_workspace_router
 from tracecat.agent.session.router import router as agent_session_router
+from tracecat.agent.skill.folders.router import router as skill_folders_router
 from tracecat.agent.skill.router import router as agent_skill_router
+from tracecat.agent.skill.tags.definitions_router import (
+    router as skill_tag_definitions_router,
+)
+from tracecat.agent.skill.tags.router import router as skill_tags_router
 from tracecat.agent.tags.definitions_router import (
     router as agent_tag_definitions_router,
 )
@@ -103,6 +108,7 @@ from tracecat.db.exceptions import AuthPoolExhaustedError
 from tracecat.db.rls import set_rls_context_from_role
 from tracecat.db.soft_delete import assert_soft_delete_listener_registered
 from tracecat.editor.router import router as editor_router
+from tracecat.email.transport import SMTPTransport
 from tracecat.exceptions import (
     EntitlementRequired,
     ScopeDeniedError,
@@ -120,6 +126,7 @@ from tracecat.integrations.router import (
 from tracecat.integrations.router import (
     oauth_router as integrations_oauth_router,
 )
+from tracecat.invitations.consumer import start_invitation_email_consumer
 from tracecat.logger import logger
 from tracecat.mcp.oidc import router as mcp_oidc_router
 from tracecat.mcp.personal_access_tokens.router import (
@@ -259,6 +266,13 @@ async def lifespan(app: FastAPI):
         start_case_duration_sync_consumer,
         name="case_duration_sync_consumer",
     )
+
+    # SMTP configuration is loaded at process startup; enabling it needs a restart.
+    if SMTPTransport.from_config() is not None:
+        supervisor.spawn_stoppable(
+            start_invitation_email_consumer,
+            name="invitation_email_consumer",
+        )
 
     logger.info(
         "Feature flags", feature_flags=[f.value for f in config.TRACECAT__FEATURE_FLAGS]
@@ -506,6 +520,9 @@ def create_app(**kwargs) -> FastAPI:
     _include_workspace_scoped_router(app, agent_folders_router)
     _include_workspace_scoped_router(app, agent_tag_definitions_router)
     _include_workspace_scoped_router(app, agent_skill_router)
+    _include_workspace_scoped_router(app, skill_folders_router)
+    _include_workspace_scoped_router(app, skill_tag_definitions_router)
+    _include_workspace_scoped_router(app, skill_tags_router)
     _include_workspace_scoped_router(app, agent_session_router)
     _include_workspace_scoped_router(app, approvals_router)
     app.include_router(watchtower_router)

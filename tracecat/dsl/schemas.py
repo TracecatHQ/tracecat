@@ -37,6 +37,13 @@ TriggerInputs = Any
 """Trigger inputs JSON type."""
 
 
+class DSLDependencyPlan(BaseModel):
+    """Direct action refs read by each action and the workflow return value."""
+
+    actions: dict[str, list[str]]
+    returns: list[str]
+
+
 class ExecutionContext(TypedDict):
     """Workflow execution context with typed fields.
 

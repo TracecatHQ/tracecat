@@ -1,0 +1,82 @@
+type: action
+definition:
+  title: List investigations
+  description: "List investigations. Calls GET /idr/v2/investigations directly."
+  display_group: Rapid7
+  doc_url: https://help.rapid7.com/insightidr/en-us/api/v2/docs.html#operation/listInvestigations
+  namespace: tools.rapid7
+  name: list_investigations
+  secrets:
+    - name: rapid7
+      keys: ["RAPID7_API_KEY"]
+  expects:
+    index:
+      type: int | None
+      description: "The optional 0-based index of the page to retrieve."
+      default: null
+    size:
+      type: int | None
+      description: "The optional size of the page to retrieve."
+      default: null
+    statuses:
+      type: str | None
+      description: "A comma-separated list of investigation statuses to include."
+      default: null
+    sources:
+      type: str | None
+      description: "A comma-separated list of investigation sources to include."
+      default: null
+    priorities:
+      type: str | None
+      description: "A comma-separated list of investigation priorities to include."
+      default: null
+    assignee_email:
+      type: str | None
+      description: "A user's email address. Only investigations assigned to that user will be included."
+      default: null
+    start_time:
+      type: str | None
+      description: "The time an investigation is opened. Must be an ISO-formatted timestamp."
+      default: null
+    end_time:
+      type: str | None
+      description: "The time an investigation is closed. Must be an ISO-formatted timestamp."
+      default: null
+    sort:
+      type: str | None
+      description: "A field and direction separated by a comma."
+      default: null
+    tags:
+      type: str | None
+      description: "A comma-separated list of tags to include."
+      default: null
+    multi_customer:
+      type: bool | None
+      description: "Indicates whether the requester has multi-customer access. If set to true, a user API key must be provided."
+      default: null
+    base_url:
+      type: str | None
+      description: "Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.rapid7.base_url || "https://us.api.insight.rapid7.com" }}/idr/v2/investigations
+        method: GET
+        headers:
+          X-Api-Key: ${{ SECRETS.rapid7.RAPID7_API_KEY }}
+          Accept: application/json
+        params:
+          index: ${{ inputs.index }}
+          size: ${{ inputs.size }}
+          statuses: ${{ inputs.statuses }}
+          sources: ${{ inputs.sources }}
+          priorities: ${{ inputs.priorities }}
+          "assignee.email": ${{ inputs.assignee_email }}
+          start_time: ${{ inputs.start_time }}
+          end_time: ${{ inputs.end_time }}
+          sort: ${{ inputs.sort }}
+          tags: ${{ inputs.tags }}
+          "multi-customer": ${{ inputs.multi_customer }}
+  returns: ${{ steps.request.result }}

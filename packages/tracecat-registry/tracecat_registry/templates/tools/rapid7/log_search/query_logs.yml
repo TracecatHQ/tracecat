@@ -1,0 +1,57 @@
+type: action
+definition:
+  title: Query multiple logs
+  description: "Query multiple logs. Calls POST /log_search/query/logs directly."
+  display_group: Rapid7
+  doc_url: https://docs.rapid7.com/insightidr/log-search-api/#operation/postQueryLogs
+  namespace: tools.rapid7
+  name: query_logs
+  secrets:
+    - name: rapid7
+      keys: ["RAPID7_API_KEY"]
+  expects:
+    per_page:
+      type: int | None
+      description: "Number of entries per page, up to 500."
+      default: null
+    kvp_info:
+      type: bool | None
+      description: "Include key-value pair information."
+      default: null
+    most_recent_first:
+      type: bool | None
+      description: "Return most recent events first."
+      default: null
+    sequence_number:
+      type: int | None
+      description: "Sequence number for incremental results."
+      default: null
+    logs:
+      type: list[str]
+      description: "The logs to query."
+    leql:
+      type: dict[str, Any]
+      description: "LEQL object containing statement and during fields."
+    base_url:
+      type: str | None
+      description: "Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.rapid7.base_url || "https://us.api.insight.rapid7.com" }}/log_search/query/logs
+        method: POST
+        headers:
+          X-Api-Key: ${{ SECRETS.rapid7.RAPID7_API_KEY }}
+          Accept: application/json
+          Content-Type: application/json
+        params:
+          per_page: ${{ inputs.per_page }}
+          kvp_info: ${{ inputs.kvp_info }}
+          most_recent_first: ${{ inputs.most_recent_first }}
+          sequence_number: ${{ inputs.sequence_number }}
+        payload:
+          logs: ${{ inputs.logs }}
+          leql: ${{ inputs.leql }}
+  returns: ${{ steps.request.result }}

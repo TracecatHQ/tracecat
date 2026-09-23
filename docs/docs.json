@@ -113,6 +113,7 @@
               "self-hosting/air-gapped",
               "self-hosting/temporal-retention",
               "self-hosting/architecture",
+              "self-hosting/pgvector",
               "self-hosting/tls",
               "self-hosting/environment-variables",
               "self-hosting/security"
@@ -239,6 +240,7 @@
               "tools/ansible",
               "tools/anyrun",
               "tools/aws_boto3",
+              "tools/azure_devops",
               "tools/azure_log_analytics",
               "tools/caldera",
               "tools/censys",
@@ -275,8 +277,6 @@
               "tools/google_maps",
               "tools/google_reports",
               "tools/google_scc",
-              "tools/google_secops_detection",
-              "tools/google_secops_soar",
               "tools/google_sheets",
               "tools/google_slides",
               "tools/gophish",
@@ -315,6 +315,7 @@
               "tools/pipe0",
               "tools/project_discovery",
               "tools/pymongo",
+              "tools/rapid7",
               "tools/recorded_future",
               "tools/rippling",
               "tools/rootly",
@@ -378,6 +379,14 @@
     ]
   },
   "redirects": [
+    {
+      "source": "/tools/google_secops_detection",
+      "destination": "/tools/google_chronicle"
+    },
+    {
+      "source": "/tools/google_secops_soar",
+      "destination": "/tools/google_chronicle"
+    },
     {
       "source": "/automations/core-actions/http",
       "destination": "/automations/core-actions/request-actions/http"

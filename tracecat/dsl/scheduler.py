@@ -50,6 +50,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.schemas import (
         ROOT_STREAM,
         ActionStatement,
+        DSLDependencyPlan,
         ExecutionContext,
         GatherArgs,
         LoopEndArgs,
@@ -233,9 +234,11 @@ class DSLScheduler:
         role: Role,
         run_context: RunContext,
         logger: WorkflowRuntimeLogger | None = None,
+        dependency_plan: DSLDependencyPlan | None = None,
     ):
         # Static
         self.dsl = dsl
+        self.dependency_plan = dependency_plan
         self.executor = executor
         if max_pending_tasks < 1:
             raise ValueError("max_pending_tasks must be greater than 0")
@@ -1267,7 +1270,7 @@ class DSLScheduler:
             return await self._handle_scatter_skip_stream(task, curr_stream_id)
 
         args = ScatterArgs(**stmt.args)
-        context = self.get_context(curr_stream_id)
+        context = self._build_collection_context(stmt, curr_stream_id)
 
         collection_key = action_collection_prefix(
             self.workspace_id, self.wf_exec_id, curr_stream_id, task.ref
@@ -1569,7 +1572,7 @@ class DSLScheduler:
         gather_ref = task.ref
         # This means we must compute a return value for the gather.
         # We should only compute the items to store if we aren't skipping
-        current_context = self.get_context(stream_id)
+        current_context = self._build_collection_context(stmt, stream_id)
         try:
             item = await workflow.execute_activity(
                 DSLActivities.evaluate_templated_object_activity,
@@ -1778,13 +1781,25 @@ class DSLScheduler:
         context = self.get_context(stream_id)
         return context.get("ACTIONS", {})
 
+    def _build_collection_context(
+        self, task: ActionStatement, stream_id: StreamID
+    ) -> ExecutionContext:
+        """Select scatter/gather inputs, preserving pre-compilation histories."""
+        if self.dependency_plan is None:
+            return self.get_context(stream_id)
+        return self.build_stream_aware_context(task, stream_id)
+
     def build_stream_aware_context(
         self, task: ActionStatement, stream_id: StreamID
     ) -> ExecutionContext:
         """Build a context that is aware of the stream hierarchy."""
-        expr_ctxs = extract_expressions(task.model_dump())
+        # Old histories and compilation failures use the legacy extractor.
+        if self.dependency_plan is None:
+            action_refs = extract_expressions(task.model_dump())[ExprContext.ACTIONS]
+        else:
+            action_refs = self.dependency_plan.actions[task.ref]
         resolved_actions: dict[str, TaskResult] = {}
-        for action_ref in expr_ctxs[ExprContext.ACTIONS]:
+        for action_ref in action_refs:
             result = self.get_stream_aware_action_result(action_ref, stream_id)
             # Only include actions that exist in the stream hierarchy.
             # Actions that don't exist (return None) are omitted to prevent

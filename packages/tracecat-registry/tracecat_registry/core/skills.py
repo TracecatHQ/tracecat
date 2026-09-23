@@ -166,3 +166,135 @@ async def archive_skill(
     ] = None,
 ) -> None:
     await ctx.agents.aio.archive_skill(skill_id, skill_uuid=skill_uuid)
+
+
+@registry.register(
+    default_title="Get agent skill draft",
+    display_group="Agent Skills",
+    description="Get the current mutable draft state for a workspace agent skill, including its file manifest and validation errors.",
+    namespace="ai.skill",
+)
+async def get_skill_draft(
+    skill_id: Annotated[str, Doc("Skill slug in kebab-case.")],
+    skill_uuid: Annotated[
+        uuid.UUID | None, Doc("Optional canonical skill UUID.")
+    ] = None,
+) -> dict[str, Any]:
+    return await ctx.agents.aio.get_skill_draft(skill_id, skill_uuid=skill_uuid)
+
+
+@registry.register(
+    default_title="Get agent skill draft file",
+    display_group="Agent Skills",
+    description="Get one file from the current mutable draft for a workspace agent skill.",
+    namespace="ai.skill",
+)
+async def get_skill_draft_file(
+    skill_id: Annotated[str, Doc("Skill slug in kebab-case.")],
+    path: Annotated[str, Doc("Draft file path (e.g., 'SKILL.md').")],
+    skill_uuid: Annotated[
+        uuid.UUID | None, Doc("Optional canonical skill UUID.")
+    ] = None,
+) -> dict[str, Any]:
+    return await ctx.agents.aio.get_skill_draft_file(
+        skill_id=skill_id,
+        path=path,
+        skill_uuid=skill_uuid,
+    )
+
+
+@registry.register(
+    default_title="Update agent skill draft",
+    display_group="Agent Skills",
+    description="Apply file operations to a workspace agent skill draft without publishing.",
+    namespace="ai.skill",
+)
+async def update_skill_draft(
+    skill_id: Annotated[str, Doc("Skill slug in kebab-case.")],
+    base_revision: Annotated[
+        int,
+        Doc(
+            "Draft revision observed before editing (from get_skill or get_skill_draft). Rejected with a conflict if the draft changed."
+        ),
+    ],
+    operations: Annotated[
+        list[dict[str, Any]],
+        Doc(
+            "Draft operations applied in order. Each has an 'op' of 'upsert_text_file' (path, content, optional content_type), 'delete_file' (path), or 'move_file' (from_path, to_path)."
+        ),
+    ],
+    skill_uuid: Annotated[
+        uuid.UUID | None, Doc("Optional canonical skill UUID.")
+    ] = None,
+) -> dict[str, Any]:
+    return await ctx.agents.aio.patch_skill_draft(
+        skill_id=skill_id,
+        base_revision=base_revision,
+        operations=operations,
+        skill_uuid=skill_uuid,
+    )
+
+
+@registry.register(
+    default_title="Publish agent skill draft",
+    display_group="Agent Skills",
+    description="Publish the current draft as a new immutable skill version.",
+    namespace="ai.skill",
+)
+async def publish_skill_draft(
+    skill_id: Annotated[str, Doc("Skill slug in kebab-case.")],
+    skill_uuid: Annotated[
+        uuid.UUID | None, Doc("Optional canonical skill UUID.")
+    ] = None,
+) -> dict[str, Any]:
+    return await ctx.agents.aio.publish_skill_draft(skill_id, skill_uuid=skill_uuid)
+
+
+@registry.register(
+    default_title="Update agent skill",
+    display_group="Agent Skills",
+    description="Publish a new skill version by applying file upserts and deletions on top of the current published version.",
+    namespace="ai.skill",
+)
+async def update_skill(
+    skill_id: Annotated[str, Doc("Skill slug in kebab-case.")],
+    files: Annotated[
+        list[dict[str, Any]] | None,
+        Doc(
+            "Files to add or replace. Each file requires path and content_base64, with optional content_type."
+        ),
+    ] = None,
+    delete_paths: Annotated[
+        list[str] | None, Doc("File paths to remove from the current version.")
+    ] = None,
+    skill_uuid: Annotated[
+        uuid.UUID | None, Doc("Optional canonical skill UUID.")
+    ] = None,
+) -> dict[str, Any]:
+    skill = await ctx.agents.aio.get_skill(skill_id, skill_uuid=skill_uuid)
+    current_version_id = skill.get("current_version_id")
+    merged: dict[str, dict[str, Any]] = {}
+    if current_version_id is not None:
+        snapshot = await ctx.agents.aio.get_skill_version(
+            skill_id=skill_id,
+            skill_uuid=skill_uuid,
+            version_id=current_version_id,
+        )
+        for file in snapshot.get("files", []):
+            merged[file["path"]] = {
+                "path": file["path"],
+                "content_base64": file["content_base64"],
+                "content_type": file["content_type"],
+            }
+    for path in delete_paths or ():
+        merged.pop(path, None)
+    for file in files or ():
+        merged[file["path"]] = file
+    if not merged:
+        raise ValueError("Skill update must leave at least one file")
+    return await ctx.agents.aio.publish_skill_version(
+        skill_id=skill_id,
+        skill_uuid=skill_uuid,
+        base_version_id=current_version_id,
+        files=list(merged.values()),
+    )
