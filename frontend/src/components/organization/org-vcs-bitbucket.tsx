@@ -1,16 +1,12 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import {
-  AlertTriangleIcon,
-  CheckCircle2Icon,
-  GitBranchIcon,
-  Trash2Icon,
-} from "lucide-react"
+import { Trash2Icon } from "lucide-react"
 import { useEffect, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import { CenteredSpinner } from "@/components/loading/spinner"
+import { BitbucketIcon } from "@/components/organization/vcs-icons"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -69,14 +65,11 @@ export function BitbucketTokenSetup() {
   const isCorrupted = credentialsStatus?.is_corrupted ?? false
 
   let statusLabel = "Not connected"
-  let StatusIcon = GitBranchIcon
   if (isCorrupted) {
     statusLabel =
       "Stored credentials are unreadable. Re-enter the API token to reconnect."
-    StatusIcon = AlertTriangleIcon
   } else if (isConfigured) {
     statusLabel = `Account email: ${credentialsStatus?.email ?? "unknown"}`
-    StatusIcon = CheckCircle2Icon
   }
 
   async function handleDelete() {
@@ -118,7 +111,7 @@ export function BitbucketTokenSetup() {
     <>
       <div className="flex items-center justify-between rounded-lg border p-4">
         <div className="flex items-center gap-3">
-          <StatusIcon className="size-5 text-muted-foreground" />
+          <BitbucketIcon className="size-5 text-muted-foreground" />
           <div>
             <p className="text-sm font-medium">Bitbucket Cloud</p>
             <p className="text-xs text-muted-foreground">{statusLabel}</p>

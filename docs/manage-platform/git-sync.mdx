@@ -25,14 +25,16 @@ Use Git sync to export workspace configuration to a repository you own as a pull
 
     For GitLab, click `Connect`, then enter your base URL and a project or group access token with the `api` scope.
 
-    For Bitbucket Cloud, click `Connect`, then enter your Atlassian account email and a [scoped API token](https://support.atlassian.com/bitbucket-cloud/docs/using-api-tokens/). Select all four [permissions](https://support.atlassian.com/bitbucket-cloud/docs/api-token-permissions/):
+    For Bitbucket, click `Connect` (or `Manage` for an existing connection) to choose Cloud or Data Center.
+
+    For Cloud, click `Connect`, then enter your Atlassian account email and a [scoped API token](https://support.atlassian.com/bitbucket-cloud/docs/using-api-tokens/). Select all four [permissions](https://support.atlassian.com/bitbucket-cloud/docs/api-token-permissions/):
 
     - `read:repository:bitbucket`
     - `write:repository:bitbucket`
     - `read:pullrequest:bitbucket`
     - `write:pullrequest:bitbucket`
 
-    The account must have access to the repository. Initialize the repository with a commit before syncing. For Bitbucket Data Center, connect its separate provider card with your HTTPS instance URL and an [HTTP access token](https://confluence.atlassian.com/bitbucketserver/http-access-tokens-939515499.html) granting repository write permission. Include any port and context path in the instance URL, such as `https://bitbucket.example.com:8443/bitbucket`.
+    The account must have access to the repository. Initialize the repository with a commit before syncing. For Bitbucket Data Center, click `Connect` on the Data Center connection with your HTTPS instance URL and an [HTTP access token](https://confluence.atlassian.com/bitbucketserver/http-access-tokens-939515499.html) granting repository write permission. Include any port and context path in the instance URL, such as `https://bitbucket.example.com:8443/bitbucket`.
 
     Use `Update` to rotate the token before it expires. Deleting these credentials disconnects sync across the organization; it preserves workspace resources, repository branches, and custom-registry credentials.
   </Step>
