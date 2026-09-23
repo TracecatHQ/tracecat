@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import copy
 import hashlib
 import uuid
 from collections.abc import AsyncIterator, Mapping, Sequence
@@ -49,8 +48,8 @@ from tracecat.agent.backends.registry import (
 )
 from tracecat.agent.backends.schemas import WorkflowApprovalSubmission
 from tracecat.agent.backends.types import (
-    AgentBackendCapability,
     AgentControlRejected,
+    SessionForkContext,
     SessionHistoryAdapter,
     SessionTurnContext,
 )
@@ -1898,16 +1897,15 @@ class AgentSessionService(BaseWorkspaceService):
             session_id,
             BasicChatRequest(message=prompt),
         )
-        if (
-            agent_session.backend_id != "oss"
-            or AgentBackendCapability.CALLER_OWNED_WORKFLOWS
-            not in get_agent_backend(
-                agent_session.backend_id, harness_type=agent_session.harness_type
-            ).capabilities
-        ):
+        # This caller constructs the built-in workflow's arguments directly.
+        # Keep that integration restriction explicit until it uses the contract.
+        if agent_session.backend_id != "oss":
             raise TracecatValidationError(
                 "This backend does not support caller-owned workflows"
             )
+        get_agent_backend(
+            agent_session.backend_id, harness_type=agent_session.harness_type
+        )
         async with self._build_agent_config(agent_session) as agent_config:
             if agent_config.tool_approvals:
                 await check_entitlement(
@@ -3362,16 +3360,11 @@ class AgentSessionService(BaseWorkspaceService):
                 f"Parent session with ID {parent_session_id} not found"
             )
 
-        if (
-            AgentBackendCapability.FORK
-            not in get_agent_backend(
-                parent.backend_id, harness_type=parent.harness_type
-            ).capabilities
-        ):
-            raise TracecatValidationError("This backend does not support session forks")
+        backend = get_agent_backend(parent.backend_id, harness_type=parent.harness_type)
 
         # Forked sessions are read-only "reviewer" sessions.
         forked_session = AgentSession(
+            id=uuid.uuid4(),
             workspace_id=self.workspace_id,
             # Metadata - inherit from parent, except entity_type if overridden
             title=f"{parent.title} (continued)",
@@ -3381,7 +3374,6 @@ class AgentSessionService(BaseWorkspaceService):
             channel_context=parent.channel_context,
             tools=[],
             agent_preset_id=None,
-            work_dir_snapshot=copy.deepcopy(parent.work_dir_snapshot),
             # Harness - inherit from parent
             backend_id=parent.backend_id,
             harness_type=parent.harness_type,
@@ -3389,6 +3381,11 @@ class AgentSessionService(BaseWorkspaceService):
             parent_session_id=parent_session_id,
         )
         self.session.add(forked_session)
+        await backend.prepare_fork(
+            SessionForkContext(
+                db=self.session, parent=parent, fork=forked_session, role=self.role
+            )
+        )
         await self.session.commit()
         await self.session.refresh(forked_session)
 

@@ -2,7 +2,6 @@
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from enum import StrEnum
 from typing import Any, Protocol, runtime_checkable
 from uuid import UUID
 
@@ -16,13 +15,6 @@ from tracecat.agent.backends.schemas import (
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.db.models import AgentSession, AgentSessionHistory
-
-
-class AgentBackendCapability(StrEnum):
-    """Optional operations an agent backend can perform."""
-
-    FORK = "fork"
-    CALLER_OWNED_WORKFLOWS = "caller_owned_workflows"
 
 
 class SessionDispatchUncertain(RuntimeError):
@@ -39,6 +31,16 @@ class AgentControlRejected(RuntimeError):
 
 class AgentControlUncertain(RuntimeError):
     """A control operation may have applied; preserve its identity for retries."""
+
+
+@dataclass(frozen=True, slots=True)
+class SessionForkContext:
+    """Authorized parent and new session for backend-specific fork preparation."""
+
+    db: AsyncSession
+    parent: AgentSession
+    fork: AgentSession
+    role: Role
 
 
 @dataclass(frozen=True, slots=True)

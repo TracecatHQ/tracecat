@@ -9,7 +9,6 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from tracecat.agent.adapter.vercel import UIMessage
-from tracecat.agent.backends.types import AgentBackendCapability
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.subagents import ResolvedAgentsConfig
 from tracecat.artifacts.schemas import Artifact
@@ -233,4 +232,3 @@ class AgentBackendRead(BaseModel):
 
     id: str
     name: str
-    capabilities: frozenset[AgentBackendCapability]

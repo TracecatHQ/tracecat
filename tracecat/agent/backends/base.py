@@ -28,11 +28,11 @@ from tracecat.agent.backends.schemas import (
     WorkflowCancelRequest,
 )
 from tracecat.agent.backends.types import (
-    AgentBackendCapability,
     AgentControlRejected,
     AgentControlUncertain,
     AgentWorkflow,
     SessionDispatchUncertain,
+    SessionForkContext,
     SessionHistoryAdapter,
     SessionTurnContext,
 )
@@ -64,7 +64,6 @@ class AgentBackend[InputT, OutputT](ABC):
     name: ClassVar[str]
     default_harness: ClassVar[str]
     supported_harnesses: ClassVar[frozenset[str]]
-    capabilities: ClassVar[frozenset[AgentBackendCapability]] = frozenset()
     history: ClassVar[SessionHistoryAdapter | None] = None
     task_queue: ClassVar[str]
     priority: ClassVar[Priority] = Priority()
@@ -80,6 +79,17 @@ class AgentBackend[InputT, OutputT](ABC):
     def workflow_id(self, run_id: UUID) -> str:
         """Build the stable workflow identity for a turn."""
         return f"agent/{run_id}"
+
+    @abstractmethod
+    async def prepare_fork(self, context: SessionForkContext) -> None:
+        """Prepare the fork's native history and state from its parent.
+
+        Every backend must support session forks. The service supplies a new
+        session with backend, harness and parent identity already set. Prepare
+        any backend-specific state using the supplied transaction; do not commit
+        or start execution. Reading or executing the fork must preserve the
+        parent's history without mutating the parent.
+        """
 
     @abstractmethod
     async def build_workflow_args(self, context: SessionTurnContext) -> InputT:

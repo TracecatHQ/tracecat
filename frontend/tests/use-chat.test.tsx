@@ -26,7 +26,7 @@ describe("useAgentBackends", () => {
       defaultOptions: { queries: { retry: false } },
     })
     const error = new Error("Discovery failed")
-    const backends = [{ id: "custom", name: "Custom", capabilities: [] }]
+    const backends = [{ id: "custom", name: "Custom" }]
     jest
       .mocked(agentSessionsListAgentBackends)
       .mockRejectedValueOnce(error)

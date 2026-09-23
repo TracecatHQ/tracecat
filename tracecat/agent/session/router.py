@@ -145,7 +145,7 @@ async def list_agent_backends(
 ) -> list[AgentBackendRead]:
     """List enabled installed backends available to new sessions."""
     return [
-        AgentBackendRead(id=key, name=backend.name, capabilities=backend.capabilities)
+        AgentBackendRead(id=key, name=backend.name)
         for key, backend in get_agent_backends().items()
         if backend.is_enabled()
     ]

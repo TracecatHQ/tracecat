@@ -1453,13 +1453,6 @@ export const $AgentArtifact = {
   description: "Agent preset artifact shown in artifact-capable chat surfaces.",
 } as const
 
-export const $AgentBackendCapability = {
-  type: "string",
-  enum: ["fork", "caller_owned_workflows"],
-  title: "AgentBackendCapability",
-  description: "Optional operations an agent backend can perform.",
-} as const
-
 export const $AgentBackendRead = {
   properties: {
     id: {
@@ -1470,17 +1463,9 @@ export const $AgentBackendRead = {
       type: "string",
       title: "Name",
     },
-    capabilities: {
-      items: {
-        $ref: "#/components/schemas/AgentBackendCapability",
-      },
-      type: "array",
-      uniqueItems: true,
-      title: "Capabilities",
-    },
   },
   type: "object",
-  required: ["id", "name", "capabilities"],
+  required: ["id", "name"],
   title: "AgentBackendRead",
   description: "An enabled installed backend available for session creation.",
 } as const

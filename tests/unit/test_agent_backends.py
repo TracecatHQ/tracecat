@@ -30,10 +30,10 @@ from tracecat.agent.backends.schemas import (
     WorkflowApprovalSubmission,
 )
 from tracecat.agent.backends.types import (
-    AgentBackendCapability,
     AgentControlRejected,
     AgentControlUncertain,
     SessionDispatchUncertain,
+    SessionForkContext,
     SessionTurnContext,
 )
 from tracecat.agent.session.activities import (
@@ -120,6 +120,9 @@ def test_disabled_plugins_cannot_be_selected():
 )
 def test_discovery_rejects_missing_required_attributes(missing: str):
     class IncompleteBackend(AgentBackend[None, None]):
+        async def prepare_fork(self, context: SessionForkContext) -> None:
+            pass
+
         async def build_workflow_args(self, context: SessionTurnContext) -> None:
             return None
 
@@ -463,56 +466,84 @@ async def test_lifecycle_and_cancel_use_selected_backend():
 
 
 @pytest.mark.anyio
-async def test_backend_capabilities_guard_fork_and_caller_owned_dispatch():
+async def test_caller_owned_dispatch_remains_builtin_only():
     ctx = context()
-    ctx.session.backend_id = "oss"
     assert isinstance(ctx.db, AsyncMock)
     service = AgentSessionService(ctx.db, ctx.role)
-    provider = Mock(spec=DefaultBackend)
-    provider.capabilities = frozenset()
     with (
-        patch.object(service, "get_session", return_value=ctx.session),
         patch.object(service, "validate_turn_request", return_value=ctx.session),
-        patch(
-            "tracecat.agent.session.service.get_agent_backend", return_value=provider
-        ),
     ):
-        with pytest.raises(TracecatValidationError, match="fork"):
-            await service.fork_session(ctx.session.id)
         with pytest.raises(TracecatValidationError, match="caller-owned"):
             await service.prepare_new_turn(ctx.session.id, "Hello")
     ctx.db.commit.assert_not_awaited()
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize(
-    "capabilities,allowed",
-    [
-        (frozenset({AgentBackendCapability.FORK}), True),
-        (frozenset({AgentBackendCapability.CALLER_OWNED_WORKFLOWS}), False),
-    ],
-)
-async def test_fork_requires_its_specific_capability(capabilities, allowed):
+@pytest.mark.parametrize("preparation_fails", [False, True])
+async def test_fork_delegates_to_required_backend_operation(preparation_fails):
     ctx = context()
     assert isinstance(ctx.db, AsyncMock)
     service = AgentSessionService(ctx.db, ctx.role)
     provider = Mock(spec=DefaultBackend)
-    provider.capabilities = capabilities
+    provider.prepare_fork = AsyncMock()
+    if preparation_fails:
+        provider.prepare_fork.side_effect = ValueError("Unable to prepare fork")
     with (
         patch.object(service, "get_session", return_value=ctx.session),
         patch(
             "tracecat.agent.session.service.get_agent_backend", return_value=provider
         ),
     ):
-        if allowed:
+        if not preparation_fails:
             fork = await service.fork_session(ctx.session.id)
             assert fork.backend_id == ctx.session.backend_id
             assert fork.parent_session_id == ctx.session.id
             ctx.db.commit.assert_awaited_once()
+            submitted = provider.prepare_fork.await_args.args[0]
+            assert submitted.db is ctx.db
+            assert submitted.parent is ctx.session
+            assert submitted.fork is fork
+            assert fork.id is not None
+            assert submitted.role is ctx.role
         else:
-            with pytest.raises(TracecatValidationError, match="fork"):
+            with pytest.raises(ValueError, match="Unable to prepare fork"):
                 await service.fork_session(ctx.session.id)
             ctx.db.commit.assert_not_awaited()
+
+
+def test_backend_contract_requires_fork_preparation():
+    class NoForkBackend(AgentBackend[None, None]):
+        async def build_workflow_args(self, context: SessionTurnContext) -> None:
+            return None
+
+    with (
+        patch.object(
+            registry, "entry_points", return_value=[entry("external", NoForkBackend)]
+        ),
+        pytest.raises(TypeError, match="prepare_fork"),
+    ):
+        registry.get_agent_backends()
+
+
+@pytest.mark.anyio
+async def test_builtin_fork_copies_snapshot_without_mutating_parent():
+    ctx = context()
+    assert isinstance(ctx.db, AsyncMock)
+    ctx.session.work_dir_snapshot = {"files": {"example.txt": "original"}}
+    service = AgentSessionService(ctx.db, ctx.role)
+    with (
+        patch.object(service, "get_session", return_value=ctx.session),
+        patch(
+            "tracecat.agent.session.service.get_agent_backend",
+            return_value=DefaultBackend(),
+        ),
+    ):
+        fork = await service.fork_session(ctx.session.id)
+    assert fork.work_dir_snapshot == ctx.session.work_dir_snapshot
+    assert fork.work_dir_snapshot is not ctx.session.work_dir_snapshot
+    assert fork.work_dir_snapshot is not None
+    fork.work_dir_snapshot["files"]["example.txt"] = "changed"
+    assert ctx.session.work_dir_snapshot == {"files": {"example.txt": "original"}}
 
 
 @pytest.mark.anyio

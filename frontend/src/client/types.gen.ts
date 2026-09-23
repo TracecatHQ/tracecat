@@ -406,17 +406,11 @@ export type AgentArtifact = {
 }
 
 /**
- * Optional operations an agent backend can perform.
- */
-export type AgentBackendCapability = "fork" | "caller_owned_workflows"
-
-/**
  * An enabled installed backend available for session creation.
  */
 export type AgentBackendRead = {
   id: string
   name: string
-  capabilities: Array<AgentBackendCapability>
 }
 
 /**

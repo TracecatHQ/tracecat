@@ -103,8 +103,8 @@ const discoveryReady = {
   refetchBackends: mockRefetchBackends,
 }
 const multipleBackends = [
-  { id: "oss", name: "Open source", capabilities: [] },
-  { id: "ee", name: "Enterprise", capabilities: [] },
+  { id: "oss", name: "Open source" },
+  { id: "ee", name: "Enterprise" },
 ]
 
 beforeEach(() => {
@@ -124,7 +124,6 @@ beforeEach(() => {
       {
         id: "oss",
         name: "Open source",
-        capabilities: ["fork", "caller_owned_workflows"],
       },
     ],
   })
