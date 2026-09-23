@@ -302,6 +302,8 @@ async def test_aws_reference_rejects_local_value_updates(
         await secrets.update_secret(
             created, SecretUpdate(keys=[SecretKeyValue(key="K", value=SecretStr("v"))])
         )
+    with pytest.raises(ValueError):
+        await secrets.update_secret(created, SecretUpdate(name="api-key"))
 
     await secrets.update_aws_secret_reference(
         created,

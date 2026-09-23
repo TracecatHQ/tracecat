@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from typing import Protocol, TypeGuard
 
@@ -36,6 +37,7 @@ from tracecat.secrets.enums import (
     SecretType,
 )
 from tracecat.secrets.schemas import (
+    EXPRESSION_SECRET_NAME_PATTERN,
     AwsSecretKeyMapping,
     SecretCreate,
     SecretKeyValue,
@@ -143,6 +145,13 @@ class SecretsService(BaseOrgService):
                 secret.type
             ):
                 raise ValueError("AWS-backed secrets cannot change type.")
+            if params.name is not None and not re.fullmatch(
+                EXPRESSION_SECRET_NAME_PATTERN, params.name
+            ):
+                raise ValueError(
+                    "AWS-backed secret names must be snake_case and start with a"
+                    " letter or underscore."
+                )
             for field, value in params.model_dump(exclude_unset=True).items():
                 setattr(secret, field, value)
             self.session.add(secret)

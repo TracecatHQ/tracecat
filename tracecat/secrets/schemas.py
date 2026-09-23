@@ -579,7 +579,7 @@ class AwsSecretReferenceCreate(BaseModel):
     """Create a workspace custom secret backed by AWS Secrets Manager."""
 
     name: str = Field(..., max_length=100, pattern=EXPRESSION_SECRET_NAME_PATTERN)
-    description: str | None = Field(default=None, min_length=0, max_length=1000)
+    description: str | None = Field(default=None, min_length=0, max_length=255)
     environment: str = DEFAULT_SECRETS_ENVIRONMENT
     tags: dict[str, str] | None = None
     store_id: UUID
@@ -593,7 +593,7 @@ class AwsSecretReferenceUpdate(BaseModel):
     name: str | None = Field(
         default=None, max_length=100, pattern=EXPRESSION_SECRET_NAME_PATTERN
     )
-    description: str | None = Field(default=None, min_length=0, max_length=1000)
+    description: str | None = Field(default=None, min_length=0, max_length=255)
     environment: str | None = Field(default=None, min_length=1, max_length=100)
     tags: dict[str, str] | None = None
     store_id: UUID | None = None

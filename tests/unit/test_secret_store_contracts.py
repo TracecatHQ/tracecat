@@ -212,6 +212,22 @@ def test_reference_name_rejects_unreferenceable_aliases(name: str) -> None:
         AwsSecretReferenceUpdate.model_validate({"name": name})
 
 
+def test_reference_description_fits_column() -> None:
+    mapping = {"mode": "whole_string", "keys": ["TOKEN"]}
+    with pytest.raises(ValidationError):
+        AwsSecretReferenceCreate.model_validate(
+            {
+                "name": "app_db",
+                "description": "x" * 256,
+                "store_id": uuid.uuid4(),
+                "remote_reference": "synthetic/secret",
+                "key_mapping": mapping,
+            }
+        )
+    with pytest.raises(ValidationError):
+        AwsSecretReferenceUpdate.model_validate({"description": "x" * 256})
+
+
 @pytest.mark.parametrize("name", ["app_db", "_token", "a9"])
 def test_valid_reference_names_parse_in_expressions(name: str) -> None:
     assert AwsSecretReferenceUpdate.model_validate({"name": name}).name == name

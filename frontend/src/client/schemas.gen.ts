@@ -6260,7 +6260,7 @@ export const $AwsSecretReferenceCreate = {
       anyOf: [
         {
           type: "string",
-          maxLength: 1000,
+          maxLength: 255,
           minLength: 0,
         },
         {
@@ -6330,7 +6330,7 @@ export const $AwsSecretReferenceUpdate = {
       anyOf: [
         {
           type: "string",
-          maxLength: 1000,
+          maxLength: 255,
           minLength: 0,
         },
         {
