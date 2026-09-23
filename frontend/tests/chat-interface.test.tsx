@@ -353,9 +353,6 @@ describe("ChatInterface backend selection", () => {
           screen.queryByRole("combobox", { name: "Backend (dev)" })
         ).not.toBeInTheDocument()
       }
-      fireEvent.click(
-        screen.getByRole("button", { name: "Send first message" })
-      )
       await waitFor(() => expect(mockCreateChat).toHaveBeenCalledTimes(1))
       expect(mockCreateChat.mock.calls[0][0].backend_id).toBeUndefined()
     }
@@ -425,6 +422,7 @@ describe("ChatInterface backend selection", () => {
       key: "ArrowDown",
     })
     fireEvent.click(await screen.findByRole("option", { name: "Enterprise" }))
+    fireEvent.click(screen.getByRole("button", { name: "Send first message" }))
     await waitFor(() => expect(mockCreateChat).toHaveBeenCalledTimes(1))
     expect(mockCreateChat).toHaveBeenCalledWith(
       expect.objectContaining({ backend_id: "ee" })
