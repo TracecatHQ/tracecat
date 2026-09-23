@@ -1,11 +1,14 @@
-import { renderHook, waitFor } from "@testing-library/react"
+import { act, renderHook, waitFor } from "@testing-library/react"
 import type {
   AgentSessionRead,
   AgentSessionReadVercel,
   AgentSessionReadWithMessages,
 } from "@/client"
-import { agentSessionsUpdateSession } from "@/client"
-import { useUpdateChat } from "@/hooks/use-chat"
+import {
+  agentSessionsListAgentBackends,
+  agentSessionsUpdateSession,
+} from "@/client"
+import { useAgentBackends, useUpdateChat } from "@/hooks/use-chat"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
 
 jest.mock("@/client", () => {
@@ -13,7 +16,39 @@ jest.mock("@/client", () => {
   return {
     ...actual,
     agentSessionsUpdateSession: jest.fn(),
+    agentSessionsListAgentBackends: jest.fn(),
   }
+})
+
+describe("useAgentBackends", () => {
+  it("exposes discovery failure and can retry successfully", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    const error = new Error("Discovery failed")
+    const backends = [{ id: "custom", name: "Custom", capabilities: [] }]
+    jest
+      .mocked(agentSessionsListAgentBackends)
+      .mockRejectedValueOnce(error)
+      .mockResolvedValueOnce(backends)
+    const { result } = renderHook(() => useAgentBackends("workspace-1"), {
+      wrapper: ({ children }) => (
+        <QueryClientProvider client={queryClient}>
+          {children}
+        </QueryClientProvider>
+      ),
+    })
+    expect(result.current.backendsReady).toBe(false)
+    await waitFor(() => expect(result.current.backendsError).toBe(error))
+    expect(result.current.backendsLoading).toBe(false)
+    expect(result.current.backendsReady).toBe(false)
+    await act(async () => {
+      await result.current.refetchBackends()
+    })
+    await waitFor(() => expect(result.current.backendsReady).toBe(true))
+    expect(result.current.backendsError).toBeNull()
+    expect(result.current.backends).toEqual(backends)
+  })
 })
 
 const mockAgentSessionsUpdateSession =

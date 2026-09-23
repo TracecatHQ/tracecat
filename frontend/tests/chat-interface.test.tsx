@@ -96,6 +96,12 @@ const mockUseScopeCheck = useScopeCheck as jest.MockedFunction<
 
 const mockUseAgentBackends = jest.mocked(useAgentBackends)
 const mockUseFeatureFlag = jest.mocked(useFeatureFlag)
+const mockRefetchBackends = jest.fn()
+const discoveryReady = {
+  backendsReady: true,
+  backendsError: null,
+  refetchBackends: mockRefetchBackends,
+}
 const multipleBackends = [
   { id: "oss", name: "Open source", capabilities: [] },
   { id: "ee", name: "Enterprise", capabilities: [] },
@@ -112,6 +118,7 @@ beforeEach(() => {
     hasFeatureData: true,
   })
   mockUseAgentBackends.mockReturnValue({
+    ...discoveryReady,
     backendsLoading: false,
     backends: [
       {
@@ -135,14 +142,19 @@ function renderChat(props: Partial<ComponentProps<typeof ChatInterface>> = {}) {
     defaultOptions: { queries: { retry: false } },
   })
   return render(
-    <QueryClientProvider client={queryClient}>
-      <ChatInterface
-        entityId="workspace-1"
-        entityType="copilot"
-        surface="workspace-chat"
-        {...props}
-      />
-    </QueryClientProvider>
+    <ChatInterface
+      entityId="workspace-1"
+      entityType="copilot"
+      surface="workspace-chat"
+      {...props}
+    />,
+    {
+      wrapper: ({ children }) => (
+        <QueryClientProvider client={queryClient}>
+          {children}
+        </QueryClientProvider>
+      ),
+    }
   )
 }
 
@@ -193,6 +205,7 @@ describe("ChatInterface backend selection", () => {
 
   it("keeps backend selection hidden and uses the server default without the flag", async () => {
     mockUseAgentBackends.mockReturnValue({
+      ...discoveryReady,
       backends: multipleBackends,
       backendsLoading: false,
     })
@@ -231,6 +244,7 @@ describe("ChatInterface backend selection", () => {
       hasFeatureData: true,
     })
     mockUseAgentBackends.mockReturnValue({
+      ...discoveryReady,
       backends: multipleBackends,
       backendsLoading: false,
     })
@@ -259,6 +273,8 @@ describe("ChatInterface backend selection", () => {
       hasFeatureData: true,
     })
     mockUseAgentBackends.mockReturnValue({
+      ...discoveryReady,
+      backendsReady: false,
       backends: [],
       backendsLoading: true,
     })
@@ -273,6 +289,7 @@ describe("ChatInterface backend selection", () => {
       hasFeatureData: true,
     })
     mockUseAgentBackends.mockReturnValue({
+      ...discoveryReady,
       backends: multipleBackends,
       backendsLoading: false,
     })
@@ -288,5 +305,104 @@ describe("ChatInterface backend selection", () => {
     expect(mockCreateChat).toHaveBeenCalledWith(
       expect.objectContaining({ backend_id: "ee" })
     )
+  })
+
+  it.each(["regular", "workspace-chat"] as const)(
+    "blocks new sessions on discovery failure on the %s surface",
+    (surface) => {
+      mockUseFeatureFlag.mockReturnValue({
+        isFeatureEnabled: (flag) => flag === "agent-runtime",
+        isLoading: false,
+        hasFeatureData: true,
+      })
+      mockUseAgentBackends.mockReturnValue({
+        ...discoveryReady,
+        backends: [],
+        backendsLoading: false,
+        backendsReady: false,
+        backendsError: new Error("Discovery failed"),
+      })
+      renderChat({ surface })
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "Unable to load chat backends"
+      )
+      expect(screen.getByRole("button", { name: "New chat" })).toBeDisabled()
+      // The mock pane deliberately invokes the callback even when disabled.
+      const sendButton = screen.queryByRole("button", {
+        name: "Send first message",
+      })
+      if (sendButton) fireEvent.click(sendButton)
+      expect(mockCreateChat).not.toHaveBeenCalled()
+      fireEvent.click(screen.getByRole("button", { name: "Retry" }))
+      expect(mockRefetchBackends).toHaveBeenCalledTimes(1)
+    }
+  )
+
+  it("allows backend selection after discovery recovers", async () => {
+    mockUseFeatureFlag.mockReturnValue({
+      isFeatureEnabled: (flag) => flag === "agent-runtime",
+      isLoading: false,
+      hasFeatureData: true,
+    })
+    mockUseAgentBackends.mockReturnValue({
+      ...discoveryReady,
+      backends: [],
+      backendsLoading: false,
+      backendsReady: false,
+      backendsError: new Error("Discovery failed"),
+    })
+    const { rerender } = renderChat({ surface: "regular" })
+    expect(mockCreateChat).not.toHaveBeenCalled()
+    mockUseAgentBackends.mockReturnValue({
+      ...discoveryReady,
+      backends: multipleBackends,
+      backendsLoading: false,
+    })
+    rerender(
+      <ChatInterface
+        entityId="workspace-1"
+        entityType="copilot"
+        surface="regular"
+      />
+    )
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+    expect(mockCreateChat).not.toHaveBeenCalled()
+    fireEvent.keyDown(screen.getByRole("combobox", { name: "Backend (dev)" }), {
+      key: "ArrowDown",
+    })
+    fireEvent.click(await screen.findByRole("option", { name: "Enterprise" }))
+    fireEvent.click(screen.getByRole("button", { name: "Send first message" }))
+    await waitFor(() => expect(mockCreateChat).toHaveBeenCalledTimes(1))
+    expect(mockCreateChat).toHaveBeenCalledWith(
+      expect.objectContaining({ backend_id: "ee" })
+    )
+  })
+
+  it("keeps existing chats accessible when discovery fails", () => {
+    mockUseFeatureFlag.mockReturnValue({
+      isFeatureEnabled: (flag) => flag === "agent-runtime",
+      isLoading: false,
+      hasFeatureData: true,
+    })
+    mockUseAgentBackends.mockReturnValue({
+      ...discoveryReady,
+      backends: [],
+      backendsLoading: false,
+      backendsReady: false,
+      backendsError: new Error("Discovery failed"),
+    })
+    mockListChats.mockReturnValue([
+      {
+        id: "chat-1",
+        title: "Existing chat",
+        created_at: "2026-01-01T00:00:00Z",
+      },
+    ])
+    mockGetChat.mockReturnValue({ id: "chat-1", backend_id: "oss" })
+    const onChatSelect = jest.fn()
+    renderChat({ surface: "regular", onChatSelect })
+    expect(onChatSelect).toHaveBeenCalledWith("chat-1")
+    expect(screen.getByTestId("chat-session-pane")).toBeInTheDocument()
+    expect(mockCreateChat).not.toHaveBeenCalled()
   })
 })

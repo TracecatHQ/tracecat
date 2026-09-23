@@ -128,11 +128,17 @@ export function ChatInterface({
   const { user } = useAuth()
   const { isFeatureEnabled, isLoading: featureFlagsLoading } = useFeatureFlag()
   const backendSelectionEnabled = isFeatureEnabled("agent-runtime")
-  const { backends, backendsLoading } = useAgentBackends(workspaceId, {
-    enabled: backendSelectionEnabled,
-  })
+  const {
+    backends,
+    backendsLoading,
+    backendsReady,
+    backendsError,
+    refetchBackends,
+  } = useAgentBackends(workspaceId, { enabled: backendSelectionEnabled })
   const backendSelectionLoading =
     featureFlagsLoading || (backendSelectionEnabled && backendsLoading)
+  const backendSelectionReady =
+    !featureFlagsLoading && (!backendSelectionEnabled || backendsReady)
   const hasBackendChoice = backendSelectionEnabled && backends.length > 1
   const [selectedChatId, setSelectedChatId] = useState<string | undefined>(
     chatId
@@ -265,7 +271,7 @@ export function ChatInterface({
       onChatSelect?.(firstChatId)
     } else if (
       !deferSessionCreation &&
-      !backendSelectionLoading &&
+      backendSelectionReady &&
       chats.length === 0 &&
       !selectedChatId &&
       !autoCreateAttempted
@@ -297,13 +303,14 @@ export function ChatInterface({
     entityId,
     autoCreateAttempted,
     backendOverride,
-    backendSelectionLoading,
+    backendSelectionReady,
     isDraftChat,
     inWorkspaceChat,
     deferSessionCreation,
   ])
 
   const handleCreateChat = async () => {
+    if (!backendSelectionReady || createChatPending) return
     setNewChatDialogOpen(false)
 
     if (deferSessionCreation) {
@@ -332,7 +339,7 @@ export function ChatInterface({
     selectedTools?: string[],
     selectedMcpIntegrations?: string[]
   ) => {
-    if (!deferSessionCreation || createChatPending) {
+    if (!deferSessionCreation || !backendSelectionReady || createChatPending) {
       return null
     }
 
@@ -504,7 +511,7 @@ export function ChatInterface({
                         size="sm"
                         variant="ghost"
                         className="size-6 p-0"
-                        disabled={createChatPending || backendSelectionLoading}
+                        disabled={createChatPending || !backendSelectionReady}
                       >
                         <Plus className="h-4 w-4" />
                       </Button>
@@ -531,7 +538,10 @@ export function ChatInterface({
                 )}
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={() => void handleCreateChat()}>
+                  <AlertDialogAction
+                    disabled={createChatPending || !backendSelectionReady}
+                    onClick={() => void handleCreateChat()}
+                  >
                     Start new chat
                   </AlertDialogAction>
                 </AlertDialogFooter>
@@ -540,6 +550,26 @@ export function ChatInterface({
           </div>
         </div>
       </div>
+
+      {backendSelectionEnabled && backendsError && (
+        <div className="px-4 pb-2">
+          <Alert>
+            <AlertTitle>Unable to load chat backends</AlertTitle>
+            <AlertDescription>
+              Retry before starting a new chat. Existing chats are still
+              accessible.
+            </AlertDescription>
+            <Button
+              className="mt-2"
+              size="sm"
+              variant="outline"
+              onClick={() => void refetchBackends()}
+            >
+              Retry
+            </Button>
+          </Alert>
+        </div>
+      )}
 
       {/* Chat Body */}
       <div className={cn("flex flex-1 min-h-0 flex-col", bodyClassName)}>
@@ -562,7 +592,7 @@ export function ChatInterface({
           onCreateSessionBeforeSend={
             deferSessionCreation ? handleCreateSessionOnFirstSend : undefined
           }
-          draftInputDisabled={createChatPending}
+          draftInputDisabled={createChatPending || !backendSelectionReady}
           pendingMessage={pendingMessageText}
           onPendingMessageSent={handlePendingMessageSent}
           surface={surface}

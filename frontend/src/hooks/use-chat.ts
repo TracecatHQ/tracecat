@@ -783,12 +783,18 @@ export function useAgentBackends(
   workspaceId?: string,
   options?: { enabled?: boolean }
 ) {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isSuccess, error, refetch } = useQuery({
     queryKey: ["agent-backends", workspaceId],
     queryFn: () =>
       agentSessionsListAgentBackends({ workspaceId: workspaceId! }),
     enabled: Boolean(workspaceId) && (options?.enabled ?? true),
     staleTime: 60_000,
   })
-  return { backends: data ?? EMPTY_BACKENDS, backendsLoading: isLoading }
+  return {
+    backends: data ?? EMPTY_BACKENDS,
+    backendsLoading: isLoading,
+    backendsReady: isSuccess,
+    backendsError: error,
+    refetchBackends: refetch,
+  }
 }
