@@ -25,6 +25,11 @@ from tenacity import (
     wait_exponential,
 )
 
+from tracecat.agent.common.exceptions import (
+    UserMCPDiscoveryAuthError,
+    UserMCPDiscoveryError,
+    UserMCPDiscoveryUnavailableError,
+)
 from tracecat.agent.common.types import MCPHttpServerConfig, MCPToolDefinition
 from tracecat.agent.mcp.http_limits import (
     MCPResponseTooLargeError,
@@ -182,6 +187,32 @@ def _is_retryable_discovery_error(exc: BaseException) -> bool:
     )
 
 
+def _discovery_error_status_codes(exc: BaseException) -> set[int]:
+    return {
+        chained.response.status_code
+        for chained in _iter_exception_chain(exc)
+        if isinstance(chained, httpx.HTTPStatusError)
+    }
+
+
+def _typed_discovery_error(
+    server_name: str,
+    exc: BaseException,
+) -> UserMCPDiscoveryError:
+    """Map a discovery failure onto the typed error that carries its owner."""
+    status_codes = _discovery_error_status_codes(exc)
+    if status_codes & {
+        int(httpx.codes.UNAUTHORIZED),
+        int(httpx.codes.FORBIDDEN),
+    }:
+        return UserMCPDiscoveryAuthError(server_name)
+    if _is_retryable_discovery_error(exc):
+        return UserMCPDiscoveryUnavailableError(server_name, retryable=True)
+    if any(400 <= code < 500 for code in status_codes):
+        return UserMCPDiscoveryUnavailableError(server_name, retryable=False)
+    return UserMCPDiscoveryError(server_name)
+
+
 def _safe_discovery_error_summary(exc: BaseException) -> str:
     """Summarize a discovery error without response bodies or URLs."""
     if isinstance(exc, httpx.HTTPStatusError):
@@ -252,9 +283,7 @@ class UserMCPClient:
                 )
                 failed_servers[server_name] = error_summary
                 if fail_on_error:
-                    raise RuntimeError(
-                        f"Failed to discover tools from user MCP server '{server_name}'"
-                    ) from e
+                    raise _typed_discovery_error(server_name, e) from e
 
         logger.info(
             "Discovered user MCP tools",

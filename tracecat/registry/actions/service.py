@@ -714,6 +714,27 @@ class RegistryActionsService(BaseOrgService):
             )
         return actions
 
+    async def get_platform_action_names(self, action_names: list[str]) -> set[str]:
+        """Return the names a platform registry provides in any version."""
+        action_parts = [
+            tuple(action_name.rsplit(".", 1))
+            for action_name in action_names
+            if "." in action_name
+        ]
+        if not action_parts:
+            return set()
+        statement = (
+            select(PlatformRegistryIndex.namespace, PlatformRegistryIndex.name)
+            .where(
+                tuple_(PlatformRegistryIndex.namespace, PlatformRegistryIndex.name).in_(
+                    action_parts
+                )
+            )
+            .distinct()
+        )
+        result = await self.session.execute(statement)
+        return {f"{namespace}.{name}" for namespace, name in result.tuples()}
+
     async def _get_actions_from_index_once(
         self,
         action_names: list[str],

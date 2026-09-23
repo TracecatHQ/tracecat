@@ -13,6 +13,11 @@ from mcp.types import (
 )
 from pydantic import AnyUrl
 
+from tracecat.agent.common.exceptions import (
+    UserMCPDiscoveryAuthError,
+    UserMCPDiscoveryError,
+    UserMCPDiscoveryUnavailableError,
+)
 from tracecat.agent.common.types import MCPHttpServerConfig, MCPToolDefinition
 from tracecat.agent.mcp.http_limits import BoundedResponseTransport
 from tracecat.agent.mcp.user_client import UserMCPClient, _create_transport
@@ -86,6 +91,59 @@ async def test_discover_tools_fails_closed_in_strict_mode(
         match="Failed to discover tools from user MCP server 'broken'",
     ):
         await client.discover_tools(fail_on_error=True)
+
+
+def _http_status_error(status_code: int) -> httpx.HTTPStatusError:
+    request = httpx.Request("POST", "https://broken.example/mcp")
+    return httpx.HTTPStatusError(
+        "status error",
+        request=request,
+        response=httpx.Response(status_code, request=request),
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("error", "expected_type", "retryable"),
+    [
+        (_http_status_error(401), UserMCPDiscoveryAuthError, None),
+        (_http_status_error(403), UserMCPDiscoveryAuthError, None),
+        (_http_status_error(503), UserMCPDiscoveryUnavailableError, True),
+        (httpx.ConnectError("refused"), UserMCPDiscoveryUnavailableError, True),
+        (_http_status_error(404), UserMCPDiscoveryUnavailableError, False),
+        (ValueError("bad schema"), UserMCPDiscoveryError, None),
+    ],
+)
+async def test_discover_tools_strict_mode_raises_typed_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    error: BaseException,
+    expected_type: type[UserMCPDiscoveryError],
+    retryable: bool | None,
+) -> None:
+    async def fake_discover_server_tools(
+        self: UserMCPClient,
+        server_name: str,
+        config: MCPHttpServerConfig,
+    ) -> dict[str, MCPToolDefinition]:
+        del self, server_name, config
+        # Wrap like fastmcp does so the typed mapping must walk the chain.
+        raise RuntimeError("Client failed to connect") from error
+
+    monkeypatch.setattr(
+        UserMCPClient,
+        "_discover_server_tools",
+        fake_discover_server_tools,
+    )
+    client = UserMCPClient([_mcp_server("broken")])
+
+    with pytest.raises(UserMCPDiscoveryError) as exc_info:
+        await client.discover_tools(fail_on_error=True)
+
+    assert type(exc_info.value) is expected_type
+    assert exc_info.value.server_name == "broken"
+    if retryable is not None:
+        assert isinstance(exc_info.value, UserMCPDiscoveryUnavailableError)
+        assert exc_info.value.retryable is retryable
 
 
 # Regression: fastmcp's StreamableHttpTransport.connect_session merges any

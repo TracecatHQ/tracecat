@@ -439,3 +439,34 @@ async def test_search_actions_from_index_hides_custom_actions_without_entitlemen
     }
     assert actions_to_origin[shared_action] == DEFAULT_REGISTRY_ORIGIN
     assert custom_only_action not in actions_to_origin
+
+
+@pytest.mark.anyio
+async def test_get_platform_action_names_matches_any_platform_version(
+    svc_role: Role,
+    session: AsyncSession,
+) -> None:
+    await _seed_platform_registry(
+        session,
+        origin=DEFAULT_REGISTRY_ORIGIN,
+        version="platform-1.0",
+        action_names=["acme.platform.retired"],
+    )
+    await _seed_platform_registry(
+        session,
+        origin=DEFAULT_REGISTRY_ORIGIN,
+        version="platform-2.0",
+        action_names=["acme.platform.current"],
+    )
+
+    service = RegistryActionsService(session, role=svc_role)
+    names = await service.get_platform_action_names(
+        [
+            "acme.platform.retired",
+            "acme.platform.current",
+            "acme.custom.only",
+            "malformed",
+        ]
+    )
+
+    assert names == {"acme.platform.retired", "acme.platform.current"}

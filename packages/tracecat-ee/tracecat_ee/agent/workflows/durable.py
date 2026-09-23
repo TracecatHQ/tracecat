@@ -582,9 +582,9 @@ class DurableAgentWorkflow:
     def _initialize_run(self) -> None:
         """Initialize fallible workflow runtime state inside the interceptor."""
         if (workspace_id := self.role.workspace_id) is None:
-            raise_application_error_from_classification(invalid_agent_configuration())
+            raise_application_error_from_classification(agent_workflow_internal_error())
         if (organization_id := self.role.organization_id) is None:
-            raise_application_error_from_classification(invalid_agent_configuration())
+            raise_application_error_from_classification(agent_workflow_internal_error())
         self.workspace_id = workspace_id
         self.organization_id = organization_id
 
