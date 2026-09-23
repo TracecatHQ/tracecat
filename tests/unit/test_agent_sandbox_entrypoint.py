@@ -398,6 +398,67 @@ async def test_sandbox_socket_bridge_forwards_unchanged_without_hook(
 
 
 @pytest.mark.anyio
+async def test_sandbox_socket_bridge_forces_connection_close_upstream(
+    short_socket_dir: Path,
+) -> None:
+    """Keep-alive requests are rewritten so the upstream closes after one response."""
+    socket_path = short_socket_dir / "upstream.sock"
+    received: list[bytes] = []
+
+    async def handle_uds(
+        reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
+        data = await reader.read(4096)
+        received.append(data)
+        writer.write(
+            b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"
+        )
+        await writer.drain()
+        writer.close()
+
+    uds_server = await asyncio.start_unix_server(handle_uds, path=str(socket_path))
+    try:
+        bridge = SandboxSocketBridge(
+            socket_path=socket_path,
+            port=0,
+            max_body_size=LLM_MAX_BODY_SIZE,
+            on_uds_failure="error",
+            log_label="MCP bridge",
+        )
+        port = await bridge.start()
+        try:
+            reader, writer = await asyncio.open_connection("127.0.0.1", port)
+            writer.write(
+                b"POST /mcp HTTP/1.1\r\n"
+                b"Host: bridge\r\n"
+                b"Connection: keep-alive\r\n"
+                b"Content-Length: 4\r\n"
+                b"\r\n"
+                b"body"
+            )
+            await writer.drain()
+            response = await reader.read(4096)
+            writer.close()
+            await writer.wait_closed()
+        finally:
+            await bridge.stop()
+    finally:
+        uds_server.close()
+        await uds_server.wait_closed()
+
+    assert response.startswith(b"HTTP/1.1 200 OK")
+    assert received
+    header_lines = received[0].split(b"\r\n\r\n", 1)[0].split(b"\r\n")
+    connection_headers = [
+        line for line in header_lines if line.lower().startswith(b"connection:")
+    ]
+    assert connection_headers == [b"Connection: close"]
+    assert header_lines[0] == b"POST /mcp HTTP/1.1"
+    assert b"Content-Length: 4" in header_lines
+    assert received[0].endswith(b"\r\n\r\nbody")
+
+
+@pytest.mark.anyio
 async def test_sandbox_socket_bridge_returns_502_on_uds_failure_in_error_mode(
     short_socket_dir: Path,
 ) -> None:
