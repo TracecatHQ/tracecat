@@ -16,10 +16,13 @@ from tracecat_ee.scim.credentials import (
     authenticate_scim_connection,
 )
 
+from tracecat.auth import ip_allowlist_enforcement
 from tracecat.auth.api_keys import SCIM_API_KEY_PREFIX
+from tracecat.auth.ip_allowlist import OrgIPAllowlist, compile_allowlist
 from tracecat.auth.types import Role
 from tracecat.authz.controls import has_scope
 from tracecat.authz.scopes import ORG_ADMIN_SCOPES
+from tracecat.contexts import RequestAuditContext, ctx_request_audit
 from tracecat.db.models import Organization, User
 from tracecat.tiers import defaults as tier_defaults
 
@@ -225,3 +228,34 @@ async def test_last_used_at_is_recorded(
 
     await session.refresh(issued.connection)
     assert issued.connection.last_used_at is not None
+
+
+@pytest.mark.anyio
+async def test_org_ip_allowlist_applies_to_scim(
+    session: AsyncSession,
+    org: Organization,
+    admin_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
+    auth_session: None,
+) -> None:
+    """An enforced allowlist rejects an IdP push from outside it, before use is recorded."""
+    issued = await ScimConnectionService(session, role=admin_role).issue_token()
+
+    async def allowlist(organization_id: uuid.UUID) -> OrgIPAllowlist:
+        assert organization_id == org.id
+        return compile_allowlist(enabled=True, cidrs=["203.0.113.0/24"])
+
+    monkeypatch.setattr(ip_allowlist_enforcement, "get_org_ip_allowlist", allowlist)
+    token = ctx_request_audit.set(
+        RequestAuditContext(
+            client_ip="198.51.100.9", user_agent=None, raw_user_agent=None
+        )
+    )
+    try:
+        with pytest.raises(HTTPException) as exc:
+            await authenticate_scim_connection(_bearer(issued.token))
+    finally:
+        ctx_request_audit.reset(token)
+    assert exc.value.status_code == 403
+    await session.refresh(issued.connection)
+    assert issued.connection.last_used_at is None

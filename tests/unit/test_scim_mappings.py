@@ -6,7 +6,7 @@ import uuid
 from collections.abc import Iterator
 
 import pytest
-from sqlalchemy import select, update
+from sqlalchemy import event, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.rbac.router import list_groups
 from tracecat_ee.rbac.service import RBACService
@@ -742,7 +742,7 @@ async def test_activation_removes_existing_inactive_member_atomically(
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("user_count", [1, 100])
+@pytest.mark.parametrize("user_count", [0, 1, 100])
 async def test_activation_admits_every_pushed_user(
     session: AsyncSession, org: Organization, user_count: int
 ) -> None:
@@ -769,7 +769,25 @@ async def test_activation_admits_every_pushed_user(
     )
     await session.flush()
 
-    await SCIMService(session, _role(org))._admit_pushed_users()
+    queries: list[str] = []
+
+    def capture(
+        conn: object,
+        cursor: object,
+        statement: str,
+        parameters: object,
+        context: object,
+        executemany: bool,
+    ) -> None:
+        queries.append(statement)
+
+    bind = session.get_bind()
+    event.listen(bind, "before_cursor_execute", capture)
+    try:
+        await SCIMService(session, _role(org))._admit_pushed_users()
+    finally:
+        event.remove(bind, "before_cursor_execute", capture)
+    assert len(queries) == 3  # Inactive IDs, invitation revocation, membership upsert.
 
     admitted = set(
         await session.scalars(

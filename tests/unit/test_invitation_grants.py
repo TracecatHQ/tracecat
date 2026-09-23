@@ -15,6 +15,9 @@ from tests.support.membership import (
     grant_org_membership,
     grant_org_membership_via_group,
 )
+from tracecat import config
+from tracecat.auth import domain_policy
+from tracecat.auth.enums import AuthType
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
 from tracecat.authz.membership import ensure_member
@@ -605,6 +608,50 @@ class TestAcceptInvitationGrants:
 
         assignments = await _assignments(session, invitee.id, org.id)
         assert assignments == {workspace_a.id: editor_role_id}
+
+
+class TestSamlEnforcedAcceptance:
+    @pytest.mark.anyio
+    @pytest.mark.parametrize("via_sso", [False, True])
+    async def test_only_sso_accepts_under_enforcement(
+        self,
+        session: AsyncSession,
+        org: Organization,
+        admin: User,
+        invitee: User,
+        monkeypatch: pytest.MonkeyPatch,
+        via_sso: bool,
+    ):
+        """A password session cannot join an org that enforces SAML."""
+        service = InvitationService(session, role=_admin_role(org.id, admin.id))
+        role_id = await _role_id(session, org.id, "organization-admin")
+        invitation = await service.create_invitation(
+            InvitationCreate(
+                email=invitee.email, grants=[InvitationGrant(role_id=role_id)]
+            )
+        )
+        monkeypatch.setattr(
+            config, "TRACECAT__AUTH_TYPES", {AuthType.BASIC, AuthType.SAML}
+        )
+
+        async def enforced(key: str, **kwargs: object) -> bool:
+            return True
+
+        monkeypatch.setattr(domain_policy, "get_setting_from_bypass_session", enforced)
+
+        if via_sso:
+            await accept_invitation_for_user(
+                session, user_id=invitee.id, token=invitation.token, via_sso=True
+            )
+        else:
+            with pytest.raises(TracecatAuthorizationError, match="SSO"):
+                await accept_invitation_for_user(
+                    session, user_id=invitee.id, token=invitation.token
+                )
+        await session.refresh(invitation)
+        assert invitation.status == (
+            InvitationStatus.ACCEPTED if via_sso else InvitationStatus.PENDING
+        )
 
 
 class TestGrantWorkspaceDeletion:

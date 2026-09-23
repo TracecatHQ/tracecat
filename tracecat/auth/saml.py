@@ -897,6 +897,7 @@ async def sso_acs(
                 db_session,
                 user_id=user.id,  # pyright: ignore[reportArgumentType]
                 token=pending_invitation.token,
+                via_sso=True,
             )
             logger.info(
                 "Accepted pending org invitation during SAML login",

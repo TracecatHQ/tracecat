@@ -330,7 +330,11 @@ async def _authenticate_service(
         else None
     )
     role_type: Literal["service", "service_account"] = "service"
-    if request.headers.get("x-tracecat-role-type") == "service_account":
+    header_role_type = request.headers.get("x-tracecat-role-type")
+    if header_role_type == "scim":
+        # A connection's authority is fixed at its bearer token; never forward it.
+        raise HTTP_EXC("SCIM roles cannot be forwarded between services")
+    if header_role_type == "service_account":
         if service_account_id is None:
             raise HTTP_EXC("Missing x-tracecat-role-service-account-id header")
         if organization_id is None:
@@ -442,7 +446,7 @@ async def _authenticate_api_key(
 
 @contextmanager
 def TemporaryRole(
-    type: Literal["user", "service", "service_account", "scim"] = "service",
+    type: Literal["user", "service", "service_account"] = "service",
     user_id: uuid.UUID | None = None,
     service_id: InternalServiceID = "tracecat-service",
 ):
@@ -856,9 +860,10 @@ async def _role_dependency(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Unauthorized",
         )
-    # Org IP allowlist applies to end-user and service-account traffic only.
-    # Internal services and executors are not org clients; platform superusers
-    # bypass so an org cannot lock out its operators.
+    # Org IP allowlist applies to end-user and service-account traffic here, and
+    # to SCIM in its own token dependency. Internal services and executors are
+    # not org clients; platform superusers bypass so an org cannot lock out its
+    # operators.
     if role.type in ("user", "service_account") and role.organization_id is not None:
         await enforce_org_ip_allowlist(
             role.organization_id,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from enum import StrEnum
 from typing import Annotated, Any, Literal, Self
 from uuid import UUID
 
@@ -107,15 +108,18 @@ class ScimActivationRequest(BaseModel):
 # SCIM 2.0 protocol
 # =============================================================================
 
-USER_SCHEMA = "urn:ietf:params:scim:schemas:core:2.0:User"
-GROUP_SCHEMA = "urn:ietf:params:scim:schemas:core:2.0:Group"
-LIST_RESPONSE_SCHEMA = "urn:ietf:params:scim:api:messages:2.0:ListResponse"
-PATCH_OP_SCHEMA = "urn:ietf:params:scim:api:messages:2.0:PatchOp"
-ERROR_SCHEMA = "urn:ietf:params:scim:api:messages:2.0:Error"
-SERVICE_PROVIDER_CONFIG_SCHEMA = (
-    "urn:ietf:params:scim:schemas:core:2.0:ServiceProviderConfig"
-)
-RESOURCE_TYPE_SCHEMA = "urn:ietf:params:scim:schemas:core:2.0:ResourceType"
+
+class ScimSchema(StrEnum):
+    USER = "urn:ietf:params:scim:schemas:core:2.0:User"
+    GROUP = "urn:ietf:params:scim:schemas:core:2.0:Group"
+    LIST_RESPONSE = "urn:ietf:params:scim:api:messages:2.0:ListResponse"
+    PATCH_OP = "urn:ietf:params:scim:api:messages:2.0:PatchOp"
+    ERROR = "urn:ietf:params:scim:api:messages:2.0:Error"
+    SERVICE_PROVIDER_CONFIG = (
+        "urn:ietf:params:scim:schemas:core:2.0:ServiceProviderConfig"
+    )
+    RESOURCE_TYPE = "urn:ietf:params:scim:schemas:core:2.0:ResourceType"
+
 
 SCIM_CONTENT_TYPE = "application/scim+json"
 
@@ -170,7 +174,7 @@ class ScimUserRequest(ScimModel):
     failure, but nothing here maps onto a Tracecat column.
     """
 
-    schemas: list[str] = Field(default_factory=lambda: [USER_SCHEMA])
+    schemas: list[str] = Field(default_factory=lambda: [ScimSchema.USER])
     user_name: str = Field(alias="userName", max_length=USER_NAME_MAX_LENGTH)
     # Bounded by the stored column, so an oversized id is 400 invalidValue
     # rather than a database error the provider reads as 500.
@@ -200,7 +204,7 @@ class ScimUserRequest(ScimModel):
 class ScimUserResource(ScimModel):
     """A User resource as returned to the provider."""
 
-    schemas: list[str] = Field(default_factory=lambda: [USER_SCHEMA])
+    schemas: list[str] = Field(default_factory=lambda: [ScimSchema.USER])
     id: str
     user_name: str = Field(alias="userName", serialization_alias="userName")
     external_id: str | None = Field(
@@ -225,7 +229,7 @@ class ScimGroupMemberRef(ScimModel):
 class ScimGroupRequest(ScimModel):
     """An inbound Group resource on POST or PUT."""
 
-    schemas: list[str] = Field(default_factory=lambda: [GROUP_SCHEMA])
+    schemas: list[str] = Field(default_factory=lambda: [ScimSchema.GROUP])
     display_name: str = Field(alias="displayName", max_length=DISPLAY_NAME_MAX_LENGTH)
     external_id: str | None = Field(
         default=None, alias="externalId", max_length=EXTERNAL_ID_MAX_LENGTH
@@ -236,7 +240,7 @@ class ScimGroupRequest(ScimModel):
 class ScimGroupResource(ScimModel):
     """A Group resource as returned to the provider."""
 
-    schemas: list[str] = Field(default_factory=lambda: [GROUP_SCHEMA])
+    schemas: list[str] = Field(default_factory=lambda: [ScimSchema.GROUP])
     id: str
     display_name: str = Field(alias="displayName", serialization_alias="displayName")
     external_id: str | None = Field(
@@ -249,7 +253,7 @@ class ScimGroupResource(ScimModel):
 class ScimListResponse(ScimModel):
     """The envelope every SCIM query returns, paginated 1-based."""
 
-    schemas: list[str] = Field(default_factory=lambda: [LIST_RESPONSE_SCHEMA])
+    schemas: list[str] = Field(default_factory=lambda: [ScimSchema.LIST_RESPONSE])
     total_results: int = Field(alias="totalResults", serialization_alias="totalResults")
     start_index: int = Field(alias="startIndex", serialization_alias="startIndex")
     items_per_page: int = Field(
@@ -282,7 +286,7 @@ class ScimPatchOperation(ScimModel):
 class ScimPatchOp(ScimModel):
     """A PATCH request body."""
 
-    schemas: list[str] = Field(default_factory=lambda: [PATCH_OP_SCHEMA])
+    schemas: list[str] = Field(default_factory=lambda: [ScimSchema.PATCH_OP])
     operations: list[ScimPatchOperation] = Field(
         alias="Operations", serialization_alias="Operations"
     )
@@ -291,7 +295,7 @@ class ScimPatchOp(ScimModel):
 class ScimError(ScimModel):
     """The error envelope. ``status`` is a string by specification."""
 
-    schemas: list[str] = Field(default_factory=lambda: [ERROR_SCHEMA])
+    schemas: list[str] = Field(default_factory=lambda: [ScimSchema.ERROR])
     detail: str
     status: str
     scim_type: str | None = Field(

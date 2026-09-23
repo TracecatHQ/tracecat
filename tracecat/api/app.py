@@ -24,6 +24,9 @@ from tracecat_ee.scim.protocol import (
     scim_http_exception_handler,
     scim_validation_exception_handler,
 )
+from tracecat_ee.scim.protocol import router as scim_protocol_router
+from tracecat_ee.scim.router import connections_router as scim_connections_router
+from tracecat_ee.scim.router import mappings_router as scim_mappings_router
 from tracecat_ee.watchtower.router import router as watchtower_router
 
 from tracecat import __version__ as APP_VERSION
@@ -661,14 +664,6 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(rbac_assignments_router)
 
     # EE-only SCIM connection and mapping administration - gated by RBAC entitlement
-    from tracecat_ee.scim.protocol import router as scim_protocol_router
-    from tracecat_ee.scim.router import (
-        connections_router as scim_connections_router,
-    )
-    from tracecat_ee.scim.router import (
-        mappings_router as scim_mappings_router,
-    )
-
     app.include_router(scim_connections_router)
     app.include_router(scim_mappings_router)
     # The protocol surface authenticates with a connection token, so it carries

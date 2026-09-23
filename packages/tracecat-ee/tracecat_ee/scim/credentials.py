@@ -2,7 +2,9 @@
 
 The provider authenticates with a connection token rather than a user session,
 so this builds a ``scim`` role directly instead of going through ``RoleACL``.
-The role's authority is fixed here, not stored per connection.
+The role's authority is fixed here, not stored per connection. The org's IP
+allowlist applies, so an org that enforces one must allow its IdP's egress
+addresses.
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ from tracecat.auth.api_keys import (
     verify_api_key,
 )
 from tracecat.auth.credentials import UNAUTHORIZED_EXCEPTION
+from tracecat.auth.ip_allowlist_enforcement import enforce_org_ip_allowlist
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_auth_context_manager
@@ -50,6 +53,7 @@ async def authenticate_scim_connection(
     Raises:
         HTTPException(401): The token is absent, malformed, unknown, revoked,
             fails verification, or its organization is not entitled.
+        HTTPException(403): The organization's IP allowlist excludes the client.
     """
     if credentials is None:
         raise UNAUTHORIZED_EXCEPTION
@@ -69,6 +73,7 @@ async def authenticate_scim_connection(
             session, connection.organization_id, Entitlement.RBAC_ADDONS
         ):
             raise UNAUTHORIZED_EXCEPTION
+        await enforce_org_ip_allowlist(connection.organization_id)
 
         connection.last_used_at = datetime.now(UTC)
         session.add(connection)

@@ -5,6 +5,10 @@ retry, and Okta queries before creating but races itself; Entra handles a 409
 badly. So a POST for an email that already has an account links that account
 into this organization instead of failing.
 
+The provider only acts on addresses at domains this organization owns. That is
+what makes SCIM the source of truth for them: linking, admitting, and renaming
+an account are all bounded by the same domain policy the SAML callback applies.
+
 Account creation delegates to ``UserManager.provision_user_by_email``, the established
 create-or-link primitive: it validates the email, links by email, and generates
 and hashes a random password for a new user because ``hashed_password`` is
@@ -26,6 +30,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 
 from tracecat.audit.logger import audit_log
+from tracecat.auth.domain_policy import is_domain_allowed_for_org
 from tracecat.auth.users import (
     InvalidEmailException,
     get_user_db_context,
@@ -35,10 +40,12 @@ from tracecat.authz.enums import ScimConnectionStatus
 from tracecat.authz.membership import lock_role_changes
 from tracecat.db.models import (
     ExternalUser,
+    OrganizationDomain,
     ScimConnection,
     User,
 )
 from tracecat.exceptions import TracecatConflictError, TracecatValidationError
+from tracecat.organization.domains import normalize_domain
 from tracecat.service import BaseOrgService
 from tracecat_ee.scim.service import SCIMService
 
@@ -84,9 +91,11 @@ class ScimProvisioningService(BaseOrgService):
             The provisioned user and whether the account was newly created.
 
         Raises:
-            TracecatValidationError: The email is not a usable address.
+            TracecatValidationError: The email is not a usable address, or is
+                not at a domain this organization owns.
         """
         normalized = _normalize_email(email)
+        await self._require_owned_domain(normalized)
         existing = await self._user_by_email(normalized)
 
         if existing is None:
@@ -118,7 +127,7 @@ class ScimProvisioningService(BaseOrgService):
             await SCIMService(self.session, self.role).deprovision_user(user.id)
             await self.session.refresh(external_user)
         elif active and connection_active:
-            await SCIMService(self.session, self.role).admit_user(user.id)
+            await SCIMService(self.session, self.role).admit_users(user.id)
 
         await self.session.flush()
         return ProvisionedUser(user=user, external_user=external_user, created=created)
@@ -141,6 +150,58 @@ class ScimProvisioningService(BaseOrgService):
             raise TracecatConflictError("An external user already uses this externalId")
         external_user.external_id = external_id
         await self.session.flush()
+
+    @audit_log(resource_type="scim_user", action="update", resource_id_attr="user_id")
+    async def rename_user(self, *, user_id: UUID, email: str) -> None:
+        """Change the account's global email to the provider's new ``userName``.
+
+        Both addresses must be at domains this organization owns.
+
+        Raises:
+            TracecatValidationError: Either address is outside the owned domains.
+            TracecatConflictError: Another account already uses the new address.
+        """
+        normalized = _normalize_email(email)
+        user = await self.session.get_one(User, user_id)
+        await self._require_owned_domain(user.email)
+        await self._require_owned_domain(normalized)
+        if await self._user_by_email(normalized) is not None:
+            raise TracecatConflictError("Another account already uses this userName")
+        user.email = normalized
+        try:
+            await self.session.flush()
+        except IntegrityError as e:
+            raise TracecatConflictError(
+                "Another account already uses this userName"
+            ) from e
+
+    async def _require_owned_domain(self, email: str) -> None:
+        """Reject an address outside this organization's domain policy."""
+        _, _, raw_domain = email.rpartition("@")
+        try:
+            domain = normalize_domain(raw_domain).normalized_domain
+        except ValueError as e:
+            raise TracecatValidationError(
+                "userName is not a valid email address"
+            ) from e
+        active_domains = set(
+            (
+                await self.session.execute(
+                    select(OrganizationDomain.normalized_domain).where(
+                        OrganizationDomain.organization_id == self.organization_id,
+                        OrganizationDomain.is_active.is_(True),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if not is_domain_allowed_for_org(
+            normalized_domain=domain, active_domains=active_domains
+        ):
+            raise TracecatValidationError(
+                "userName must be at a domain this organization owns"
+            )
 
     async def _connection_is_active(self) -> bool:
         """Whether this organization's connection has been activated."""
