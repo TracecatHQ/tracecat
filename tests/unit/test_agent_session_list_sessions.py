@@ -89,15 +89,7 @@ async def test_list_sessions_parent_session_filter_excludes_legacy_chats() -> No
     )
 
     session.execute.assert_awaited_once()
-    assert results == [
-        AgentSessionRead.model_validate(
-            {
-                **vars(child_session),
-                "backend_available": True,
-                "history_available": True,
-            }
-        )
-    ]
+    assert results == [AgentSessionRead.model_validate(child_session)]
 
 
 @pytest.mark.anyio
@@ -120,9 +112,9 @@ async def test_list_sessions_filter_created_by_none_excludes_legacy_chats() -> N
     executed_stmt = session.execute.await_args.args[0]
     assert "agent_session.created_by IS NULL" in str(executed_stmt)
     assert results == [
-        AgentSessionRead.model_validate(
-            {**vars(session_row), "backend_available": True, "history_available": True}
-        ).model_copy(update={"is_readonly": True})
+        AgentSessionRead.model_validate(session_row).model_copy(
+            update={"is_readonly": True}
+        )
     ]
 
 
@@ -150,7 +142,9 @@ async def test_list_sessions_marks_teammate_sessions_read_only() -> None:
 @pytest.mark.parametrize(
     "backend_state", ["enabled", "disabled", "missing", "unsupported"]
 )
-async def test_list_sessions_reports_backend_availability(backend_state: str) -> None:
+async def test_list_sessions_derives_readonly_from_backend_state(
+    backend_state: str,
+) -> None:
     service, db, role = _build_service()
     assert role.workspace_id is not None
     row = _agent_session_row(
@@ -175,8 +169,6 @@ async def test_list_sessions_reports_backend_availability(backend_state: str) ->
         results = await service.list_sessions(parent_session_id=row.parent_session_id)
     assert len(results) == 1
     assert isinstance(results[0], AgentSessionRead)
-    assert results[0].backend_available is (backend_state == "enabled")
-    assert results[0].history_available is (backend_state != "missing")
     assert results[0].is_readonly is (backend_state != "enabled")
 
 

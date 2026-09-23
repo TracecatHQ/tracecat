@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, Mock, patch
 from uuid import uuid4
 
 import pytest
+from claude_agent_sdk.types import UserMessage
 from temporalio.api.workflowservice.v1 import StartWorkflowExecutionResponse
 from temporalio.client import (
     Client,
@@ -46,9 +47,13 @@ from tracecat.agent.session.types import AgentSessionEntity, TurnLifecycle
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import BasicChatRequest
-from tracecat.db.models import AgentSession
+from tracecat.db.models import AgentSession, AgentSessionHistory
 from tracecat.dsl._converter import get_data_converter
-from tracecat.exceptions import TracecatConflictError, TracecatValidationError
+from tracecat.exceptions import (
+    TracecatConflictError,
+    TracecatServiceError,
+    TracecatValidationError,
+)
 from tracecat.temporal.codec import TemporalPayloadCodecError
 
 
@@ -900,7 +905,7 @@ async def test_builtin_lost_ack_retains_ownership_without_raw_exception_context(
 
 
 @pytest.mark.anyio
-async def test_missing_backend_history_and_lifecycle_remain_readable():
+async def test_missing_backend_history_raises_and_lifecycle_reports_unavailable():
     ctx = context()
     ctx.session.curr_run_id = ctx.run_id
     service = AgentSessionService(ctx.db, ctx.role)
@@ -909,7 +914,8 @@ async def test_missing_backend_history_and_lifecycle_remain_readable():
     assert isinstance(ctx.db, AsyncMock)
     ctx.db.execute.return_value = result
     with patch.object(service, "get_session", return_value=ctx.session):
-        assert await service.list_messages(ctx.session.id) == []
+        with pytest.raises(TracecatServiceError, match="backend is not installed"):
+            await service.list_messages(ctx.session.id)
         lifecycle = await service.get_turn_lifecycle(ctx.session)
         assert lifecycle.lifecycle == TurnLifecycle.UNAVAILABLE
         assert lifecycle.run_id == ctx.run_id
@@ -921,12 +927,28 @@ async def test_missing_backend_history_and_lifecycle_remain_readable():
 
 
 @pytest.mark.anyio
-async def test_disabled_backend_keeps_history_projection():
+@pytest.mark.parametrize("native_history", [False, True])
+async def test_disabled_backend_keeps_saved_history_readable(native_history):
     ctx = context()
     service = AgentSessionService(ctx.db, ctx.role)
     provider = Mock(spec=DefaultBackend)
     provider.is_enabled.return_value = False
-    provider.history = Mock(load=AsyncMock(return_value=[]))
+    saved_content = {
+        "type": "user",
+        "message": {"type": "user", "content": "Saved message"},
+    }
+    entry = AgentSessionHistory(
+        id=uuid4(),
+        workspace_id=ctx.role.workspace_id,
+        session_id=ctx.session.id,
+        kind="chat-message",
+        content={"native_text": "Saved message"} if native_history else saved_content,
+    )
+    history = Mock(
+        load=AsyncMock(return_value=[entry]),
+        project=Mock(return_value=saved_content),
+    )
+    provider.history = history if native_history else None
     result = Mock()
     result.scalars.return_value.all.return_value = []
     assert isinstance(ctx.db, AsyncMock)
@@ -934,12 +956,28 @@ async def test_disabled_backend_keeps_history_projection():
     with (
         patch.object(service, "get_session", return_value=ctx.session),
         patch.object(
+            service, "_visible_history_entries", return_value=[entry]
+        ) as load_shared_history,
+        patch.object(
             registry, "get_agent_backends", return_value={"external": provider}
         ),
     ):
         assert not registry.agent_backend_available("external", "claude_code")
-        assert await service.list_messages(ctx.session.id) == []
-        provider.history.load.assert_awaited_once()
+        messages = await service.list_messages(ctx.session.id)
+        assert len(messages) == 1
+        assert isinstance(messages[0].message, UserMessage)
+        assert messages[0].message.content == "Saved message"
+        with pytest.raises(TracecatValidationError, match="unavailable"):
+            await service.validate_turn_request(
+                ctx.session.id, BasicChatRequest(message="New message")
+            )
+    if native_history:
+        history.load.assert_awaited_once()
+        history.project.assert_called_once_with(entry)
+        load_shared_history.assert_not_awaited()
+    else:
+        load_shared_history.assert_awaited_once()
+        history.load.assert_not_awaited()
 
 
 @pytest.mark.anyio

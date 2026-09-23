@@ -139,6 +139,7 @@ from tracecat.db.models import (
 from tracecat.exceptions import (
     TracecatConflictError,
     TracecatNotFoundError,
+    TracecatServiceError,
     TracecatValidationError,
 )
 from tracecat.identifiers import UserID
@@ -2804,6 +2805,12 @@ class AgentSessionService(BaseWorkspaceService):
             chat_service = ChatService(self.session, self.role)
             return await chat_service.list_legacy_messages(session_id, kinds=kinds)
 
+        backend = find_agent_backend(agent_session.backend_id)
+        if backend is None:
+            raise TracecatServiceError(
+                "Cannot read session history because its backend is not installed"
+            )
+
         session_ids = [session_id]
         if agent_session and agent_session.parent_session_id:
             session_ids.insert(0, agent_session.parent_session_id)
@@ -2815,9 +2822,6 @@ class AgentSessionService(BaseWorkspaceService):
             approval.tool_call_id: approval
             for approval in approval_result.scalars().all()
         }
-        backend = find_agent_backend(agent_session.backend_id)
-        if backend is None:
-            return []
         history = backend.history
         if history is not None:
             entries = await history.load(

@@ -181,7 +181,9 @@ async def test_get_session_rejects_non_preset_entity(monkeypatch):
 @pytest.mark.parametrize(
     "backend_state", ["enabled", "disabled", "missing", "unsupported"]
 )
-async def test_internal_session_read_reports_backend_availability(backend_state: str):
+async def test_internal_session_read_derives_readonly_from_backend_state(
+    backend_state: str,
+):
     preset_id = uuid.uuid4()
     claims = _build_claims(preset_id)
     now = datetime.now(UTC)
@@ -218,8 +220,6 @@ async def test_internal_session_read_reports_backend_availability(backend_state:
             {"session_id": str(session.id)}, claims
         )
     assert response["backend_id"] == "external"
-    assert response["backend_available"] is (backend_state == "enabled")
-    assert response["history_available"] is (backend_state != "missing")
     assert response["is_readonly"] is (backend_state != "enabled")
 
 

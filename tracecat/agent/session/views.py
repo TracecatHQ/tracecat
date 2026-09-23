@@ -1,6 +1,6 @@
-"""Build session API views with current backend availability."""
+"""Build session API views with actor-specific read-only state."""
 
-from tracecat.agent.backends.registry import agent_backend_available, find_agent_backend
+from tracecat.agent.backends.registry import agent_backend_available
 from tracecat.agent.session.schemas import AgentSessionRead
 from tracecat.agent.session.types import AgentSessionEntity, is_session_readonly
 from tracecat.agent.subagents import ResolvedAgentsConfig
@@ -19,8 +19,6 @@ def build_session_read(session: AgentSession, role: Role) -> AgentSessionRead:
         created_by=session.created_by,
         is_readonly=is_session_readonly(role, session.created_by) or not available,
         backend_id=session.backend_id,
-        backend_available=available,
-        history_available=find_agent_backend(session.backend_id) is not None,
         entity_type=AgentSessionEntity(session.entity_type),
         entity_id=session.entity_id,
         channel_context=session.channel_context,

@@ -52,6 +52,7 @@ from tracecat.exceptions import (
     EntitlementRequired,
     TracecatConflictError,
     TracecatNotFoundError,
+    TracecatServiceError,
 )
 
 
@@ -1884,31 +1885,31 @@ async def test_stream_session_events_requires_entitlement_for_legacy_workspace_c
 
 
 @pytest.mark.anyio
-async def test_missing_backend_session_stays_readable_and_reports_unavailability() -> (
-    None
-):
+@pytest.mark.parametrize("endpoint", [get_session, get_session_vercel])
+async def test_session_read_surfaces_history_failure(endpoint) -> None:
     session_stub = _agent_session_stub(
         backend_id="uninstalled", harness_type="custom_harness"
     )
     fake_svc = SimpleNamespace(
         get_session=AsyncMock(return_value=session_stub),
-        list_messages=AsyncMock(return_value=[]),
+        list_messages=AsyncMock(
+            side_effect=TracecatServiceError(
+                "Cannot read session history because its backend is not installed"
+            )
+        ),
         list_artifacts=Mock(return_value=[]),
     )
-    with patch(
-        "tracecat.agent.session.router.AgentSessionService", return_value=fake_svc
+    with (
+        patch(
+            "tracecat.agent.session.router.AgentSessionService", return_value=fake_svc
+        ),
+        pytest.raises(TracecatServiceError, match="backend is not installed"),
     ):
-        response = await cast(Any, get_session_vercel).__wrapped__(
+        await cast(Any, endpoint).__wrapped__(
             session_id=session_stub.id,
             role=_read_role(session_stub.workspace_id),
             session=AsyncMock(),
         )
-    data = response.model_dump()
-    assert data["backend_id"] == "uninstalled"
-    assert data["is_readonly"] is True
-    assert data["backend_available"] is False
-    assert data["history_available"] is False
-    assert data["messages"] == []
 
 
 @pytest.mark.anyio
@@ -1916,7 +1917,7 @@ async def test_missing_backend_session_stays_readable_and_reports_unavailability
 @pytest.mark.parametrize(
     "backend_state", ["enabled", "disabled", "missing", "unsupported"]
 )
-async def test_session_responses_report_current_backend_availability(
+async def test_session_responses_derive_readonly_from_backend_state(
     surface: str, backend_state: str
 ) -> None:
     session_stub = _agent_session_stub(
@@ -1980,6 +1981,4 @@ async def test_session_responses_report_current_backend_availability(
                     session_id=session_stub.id, role=role, session=AsyncMock()
                 )
     assert response.backend_id == "external"
-    assert response.backend_available is (backend_state == "enabled")
-    assert response.history_available is (backend_state != "missing")
     assert response.is_readonly is (backend_state != "enabled")

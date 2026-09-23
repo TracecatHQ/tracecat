@@ -1102,14 +1102,6 @@ export type AgentSessionRead = {
   agent_preset_version_id: string | null
   agents_binding?: ResolvedAgentsConfig | null
   backend_id?: string
-  /**
-   * Whether this session can execute; unavailable sessions remain readable
-   */
-  backend_available: boolean
-  /**
-   * Whether the installed backend can project this session's history
-   */
-  history_available: boolean
   harness_type: string | null
   last_error?: string | null
   last_stream_id?: string | null
@@ -1142,14 +1134,6 @@ export type AgentSessionReadVercel = {
   agent_preset_version_id: string | null
   agents_binding?: ResolvedAgentsConfig | null
   backend_id?: string
-  /**
-   * Whether this session can execute; unavailable sessions remain readable
-   */
-  backend_available: boolean
-  /**
-   * Whether the installed backend can project this session's history
-   */
-  history_available: boolean
   harness_type: string | null
   last_error?: string | null
   last_stream_id?: string | null
@@ -1186,14 +1170,6 @@ export type AgentSessionReadWithMessages = {
   agent_preset_version_id: string | null
   agents_binding?: ResolvedAgentsConfig | null
   backend_id?: string
-  /**
-   * Whether this session can execute; unavailable sessions remain readable
-   */
-  backend_available: boolean
-  /**
-   * Whether the installed backend can project this session's history
-   */
-  history_available: boolean
   harness_type: string | null
   last_error?: string | null
   last_stream_id?: string | null

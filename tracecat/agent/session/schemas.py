@@ -157,12 +157,6 @@ class AgentSessionRead(BaseModel):
     agent_preset_version_id: uuid.UUID | None
     agents_binding: ResolvedAgentsConfig | None = None
     backend_id: str = Field(default="oss")
-    backend_available: bool = Field(
-        description="Whether this session can execute; unavailable sessions remain readable",
-    )
-    history_available: bool = Field(
-        description="Whether the installed backend can project this session's history",
-    )
     # Harness
     harness_type: str | None
     # Terminal error of the most recent run, present iff it failed (errors are

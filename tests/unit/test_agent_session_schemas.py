@@ -4,9 +4,6 @@ import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
-import pytest
-from pydantic import ValidationError
-
 from tracecat.agent.session.schemas import (
     AgentSessionCreate,
     AgentSessionRead,
@@ -58,12 +55,7 @@ def test_agent_session_update_ignores_agents_binding_payload() -> None:
     assert "agents_binding" not in session_update.model_dump(mode="json")
 
 
-@pytest.mark.parametrize(
-    "missing_availability", [None, "backend_available", "history_available"]
-)
-def test_agent_session_read_requires_availability_and_defaults_binding(
-    missing_availability: str | None,
-) -> None:
+def test_agent_session_read_defaults_binding_without_availability_flags() -> None:
     now = datetime.now(UTC)
     source = SimpleNamespace(
         id=uuid.uuid4(),
@@ -78,17 +70,12 @@ def test_agent_session_read_requires_availability_and_defaults_binding(
         agent_preset_id=None,
         agent_preset_version_id=None,
         harness_type=None,
-        backend_available=True,
-        history_available=True,
         last_stream_id=None,
         parent_session_id=None,
         created_at=now,
         updated_at=now,
     )
-    if missing_availability is not None:
-        delattr(source, missing_availability)
-        with pytest.raises(ValidationError, match=missing_availability):
-            AgentSessionRead.model_validate(source, from_attributes=True)
-        return
     session = AgentSessionRead.model_validate(source, from_attributes=True)
     assert session.agents_binding is None
+    assert "backend_available" not in session.model_dump()
+    assert "history_available" not in session.model_dump()

@@ -474,16 +474,6 @@ export function ChatInterface({
             ) : null}
           </div>
 
-          {chat && "history_available" in chat && !chat.history_available ? (
-            <span className="text-xs text-muted-foreground">
-              History is unavailable until this chat is restored.
-            </span>
-          ) : null}
-          {chat && "backend_available" in chat && !chat.backend_available ? (
-            <span className="text-xs text-muted-foreground">
-              Chat unavailable
-            </span>
-          ) : null}
           {/* Right-side actions */}
           <div className="flex items-center gap-1">
             {headerActions}

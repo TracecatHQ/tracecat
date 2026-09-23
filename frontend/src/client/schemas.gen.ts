@@ -4260,18 +4260,6 @@ export const $AgentSessionRead = {
       title: "Backend Id",
       default: "oss",
     },
-    backend_available: {
-      type: "boolean",
-      title: "Backend Available",
-      description:
-        "Whether this session can execute; unavailable sessions remain readable",
-    },
-    history_available: {
-      type: "boolean",
-      title: "History Available",
-      description:
-        "Whether the installed backend can project this session's history",
-    },
     harness_type: {
       anyOf: [
         {
@@ -4348,8 +4336,6 @@ export const $AgentSessionRead = {
     "mcp_integrations",
     "agent_preset_id",
     "agent_preset_version_id",
-    "backend_available",
-    "history_available",
     "harness_type",
     "created_at",
     "updated_at",
@@ -4479,18 +4465,6 @@ export const $AgentSessionReadVercel = {
       title: "Backend Id",
       default: "oss",
     },
-    backend_available: {
-      type: "boolean",
-      title: "Backend Available",
-      description:
-        "Whether this session can execute; unavailable sessions remain readable",
-    },
-    history_available: {
-      type: "boolean",
-      title: "History Available",
-      description:
-        "Whether the installed backend can project this session's history",
-    },
     harness_type: {
       anyOf: [
         {
@@ -4575,8 +4549,6 @@ export const $AgentSessionReadVercel = {
     "mcp_integrations",
     "agent_preset_id",
     "agent_preset_version_id",
-    "backend_available",
-    "history_available",
     "harness_type",
     "created_at",
     "updated_at",
@@ -4706,18 +4678,6 @@ export const $AgentSessionReadWithMessages = {
       title: "Backend Id",
       default: "oss",
     },
-    backend_available: {
-      type: "boolean",
-      title: "Backend Available",
-      description:
-        "Whether this session can execute; unavailable sessions remain readable",
-    },
-    history_available: {
-      type: "boolean",
-      title: "History Available",
-      description:
-        "Whether the installed backend can project this session's history",
-    },
     harness_type: {
       anyOf: [
         {
@@ -4800,8 +4760,6 @@ export const $AgentSessionReadWithMessages = {
     "mcp_integrations",
     "agent_preset_id",
     "agent_preset_version_id",
-    "backend_available",
-    "history_available",
     "harness_type",
     "created_at",
     "updated_at",
