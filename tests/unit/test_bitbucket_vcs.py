@@ -492,3 +492,70 @@ async def test_pinned_base_branch_is_used_for_new_exports(remote: Path):
     assert local_git(remote, "rev-parse", "sync/pinned^") == local_git(
         remote, "rev-parse", "release/base"
     )
+
+
+@pytest.mark.anyio
+async def test_non_utf8_paths_survive_reads_and_writes(remote: Path):
+    parent = await seed(remote)
+    raw_path = b"unmanaged-\xff.txt"
+    unicode_path = "unmanaged-\ufffd.txt".encode()
+    with TemporaryDirectory() as directory:
+        git = LocalGit(directory, remote)
+        await git.initialize()
+        await git.fetch("", "main")
+        await git.run("read-tree", parent)
+        blob = (await git.run("hash-object", "-w", "--stdin", data=b"preserve")).strip()
+        await git.run(
+            "update-index",
+            "-z",
+            "--index-info",
+            data=b"".join(
+                b"100644 " + blob + b"\t" + path + b"\0"
+                for path in (raw_path, unicode_path)
+            ),
+        )
+        tree = (await git.run("write-tree")).decode().strip()
+        seeded = (
+            (await git.run("commit-tree", tree, "-p", parent, data=b"Raw filename"))
+            .decode()
+            .strip()
+        )
+        await git.push("", seeded, "main")
+
+    transport = LocalTransport(remote)
+    snapshot = await transport.read_files(url=URL, ref=seeded)
+    assert snapshot.files["workflows/a.yml"] == "old"
+    assert raw_path.decode("utf-8", errors="surrogateescape") in snapshot.blob_paths
+    result = await transport.write_files(
+        url=URL,
+        files={"workflows/a.yml": "updated"},
+        message="Sync",
+        branch="sync/workspace",
+        create_pr=False,
+        delete_missing_paths_under=("workflows",),
+    )
+    assert result.sha
+    updated = await transport.read_files(url=URL, ref=result.sha)
+    assert updated.files["workflows/a.yml"] == "updated"
+    raw_tree = subprocess.check_output(
+        ["git", "-C", str(remote), "ls-tree", "-r", "-z", result.sha]
+    )
+    for path in (raw_path, unicode_path):
+        assert b"100644 blob " + blob + b"\t" + path in raw_tree.split(b"\0")
+
+    # Editing and deleting a decoded path must also encode the original bytes.
+    with TemporaryDirectory() as directory:
+        git = LocalGit(directory, remote)
+        await git.initialize()
+        await git.fetch("", "sync/workspace")
+        decoded = raw_path.decode("utf-8", errors="surrogateescape")
+        changed = await git.commit(
+            result.sha, {decoded: "changed"}, set(), "Edit raw path"
+        )
+        assert changed
+        assert decoded in await git.entries(changed)
+        removed = await git.commit(changed, {}, {decoded}, "Delete raw path")
+        assert removed
+        remaining = await git.entries(removed)
+        assert decoded not in remaining
+        assert unicode_path.decode() in remaining

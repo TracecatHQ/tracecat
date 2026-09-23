@@ -145,7 +145,10 @@ class BitbucketGit:
             metadata, raw_path = record.split(b"\t", 1)
             mode, kind, object_sha = metadata.decode().split()
             if kind == "blob":
-                result[raw_path.decode("utf-8")] = GitEntry(mode, object_sha)
+                # Git paths are byte strings; preserve non-UTF-8 names reversibly.
+                result[raw_path.decode("utf-8", errors="surrogateescape")] = GitEntry(
+                    mode, object_sha
+                )
         return result
 
     async def commit(
@@ -158,7 +161,10 @@ class BitbucketGit:
         entries = await self.entries(parent)
         records: list[bytes] = []
         for path in sorted(deleted):
-            records.append(f"0 {'0' * 40}\t{path}".encode() + b"\0")
+            records.append(
+                f"0 {'0' * 40}\t{path}".encode("utf-8", errors="surrogateescape")
+                + b"\0"
+            )
         for path, content in files.items():
             sha = (
                 (await self.run("hash-object", "-w", "--stdin", data=content.encode()))
@@ -169,7 +175,10 @@ class BitbucketGit:
             mode = (
                 entry.mode if entry and entry.mode in {"100644", "100755"} else "100644"
             )
-            records.append(f"{mode} {sha}\t{path}".encode() + b"\0")
+            records.append(
+                f"{mode} {sha}\t{path}".encode("utf-8", errors="surrogateescape")
+                + b"\0"
+            )
         await self.run("update-index", "-z", "--index-info", data=b"".join(records))
         tree = (await self.run("write-tree")).decode().strip()
         old_tree = (await self.run("rev-parse", f"{parent}^{{tree}}")).decode().strip()
