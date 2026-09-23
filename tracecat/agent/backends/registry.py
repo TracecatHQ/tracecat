@@ -7,6 +7,8 @@ from importlib.metadata import EntryPoint, entry_points
 from types import MappingProxyType
 from typing import Any
 
+from temporalio import workflow
+
 from tracecat.agent.backends.base import AgentBackend
 from tracecat.agent.backends.types import SessionHistoryAdapter
 from tracecat.exceptions import TracecatValidationError
@@ -53,6 +55,29 @@ def _validate_backend(identifier: str, backend: AgentBackend[Any, Any]) -> None:
         if not callable(getattr(workflow_class, method, None)):
             raise TypeError(
                 f"Agent backend {identifier}: workflow.{method} must be callable"
+            )
+    # Check the same definitions consumed by Temporal's client and worker.
+    # Callable methods alone do not establish a registered workflow or update.
+    definition = workflow._Definition.from_class(workflow_class)
+    if definition is None or definition.name is None:
+        raise TypeError(
+            f"Agent backend {identifier}: workflow requires a named @workflow.defn"
+        )
+    if (
+        definition.run_fn is not workflow_class.run
+        or workflow._Definition.from_run_fn(workflow_class.run) is not definition
+    ):
+        raise TypeError(
+            f"Agent backend {identifier}: workflow.run must be the @workflow.run entry point"
+        )
+    for method in ("set_approvals", "request_cancel"):
+        handler = getattr(workflow_class, method)
+        if not isinstance(handler, workflow.UpdateMethodMultiParam) or not any(
+            update.fn is handler and update.name is not None
+            for update in definition.updates.values()
+        ):
+            raise TypeError(
+                f"Agent backend {identifier}: workflow.{method} requires a registered @workflow.update"
             )
     if backend.history is not None and not isinstance(
         backend.history, SessionHistoryAdapter

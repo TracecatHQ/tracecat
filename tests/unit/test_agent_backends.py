@@ -10,6 +10,7 @@ from uuid import uuid4
 
 import pytest
 from claude_agent_sdk.types import UserMessage
+from temporalio import workflow
 from temporalio.api.workflowservice.v1 import StartWorkflowExecutionResponse
 from temporalio.client import (
     Client,
@@ -29,6 +30,7 @@ from tracecat.agent.backends.default import DefaultBackend
 from tracecat.agent.backends.schemas import (
     AgentWorkflowArgs,
     WorkflowApprovalSubmission,
+    WorkflowCancelRequest,
 )
 from tracecat.agent.backends.types import (
     AgentControlRejected,
@@ -208,6 +210,67 @@ def test_discovery_rejects_missing_or_noncallable_workflow_methods(
         pytest.raises(TypeError, match=f"external: workflow.{method}"),
     ):
         registry.get_agent_backends()
+
+
+class UndecoratedWorkflow:
+    async def run(self, args: str) -> str:
+        return args
+
+    def set_approvals(self, submission: WorkflowApprovalSubmission) -> bool:
+        return True
+
+    def request_cancel(self, request: WorkflowCancelRequest) -> None:
+        pass
+
+
+@workflow.defn
+class RegisteredWorkflow:
+    @workflow.run
+    async def run(self, args: str) -> str:
+        return args
+
+    @workflow.update(name="approve")
+    def set_approvals(self, submission: WorkflowApprovalSubmission) -> bool:
+        return True
+
+    @workflow.update(name="cancel")
+    def request_cancel(self, request: WorkflowCancelRequest) -> None:
+        pass
+
+
+@pytest.mark.parametrize(
+    "missing", ["all", "defn", "run", "set_approvals", "request_cancel"]
+)
+def test_discovery_rejects_missing_temporal_definitions(missing: str):
+    provider = DefaultBackend()
+    with pytest.MonkeyPatch.context() as patcher:
+        if missing == "all":
+            candidate = UndecoratedWorkflow
+        elif missing == "defn":
+            # Inherited metadata does not register a subclass with Temporal.
+            candidate = type("UnregisteredWorkflow", (RegisteredWorkflow,), {})
+        else:
+            candidate = RegisteredWorkflow
+            # A callable replacement must not pass using stale class metadata.
+            patcher.setattr(candidate, missing, getattr(UndecoratedWorkflow, missing))
+        patcher.setattr(provider, "workflow", candidate)
+        patcher.setattr(
+            registry, "entry_points", lambda **_: [entry("external", lambda: provider)]
+        )
+        field = "workflow" if missing in {"all", "defn"} else f"workflow.{missing}"
+        with pytest.raises(TypeError, match=f"external: {field}"):
+            registry.get_agent_backends()
+
+
+def test_discovery_accepts_registered_updates_with_custom_names():
+    provider = DefaultBackend()
+    with (
+        patch.object(provider, "workflow", RegisteredWorkflow),
+        patch.object(
+            registry, "entry_points", return_value=[entry("external", lambda: provider)]
+        ),
+    ):
+        assert registry.get_agent_backend("external") is provider
 
 
 def test_discovery_accepts_inherited_backend_metadata():
