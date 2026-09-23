@@ -85,9 +85,9 @@ class AgentBackend[InputT, OutputT](ABC):
     async def prepare_fork(self, context: SessionForkContext) -> None:
         """Prepare the fork's native history and state from its parent.
 
-        Every backend must support session forks. The service supplies a new
-        session with backend, harness and parent identity already set. Prepare
-        any backend-specific state using the supplied transaction; do not commit
+        Every backend must support session forks. The service supplies a flushed,
+        uncommitted session with its ID, backend, harness and parent identity set.
+        Prepare any backend-specific state using the supplied transaction; do not commit
         or start execution. Reading or executing the fork must preserve the
         parent's history without mutating the parent.
         """

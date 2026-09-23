@@ -3368,7 +3368,6 @@ class AgentSessionService(BaseWorkspaceService):
 
         # Forked sessions are read-only "reviewer" sessions.
         forked_session = AgentSession(
-            id=uuid.uuid4(),
             workspace_id=self.workspace_id,
             # Metadata - inherit from parent, except entity_type if overridden
             title=f"{parent.title} (continued)",
@@ -3385,6 +3384,7 @@ class AgentSessionService(BaseWorkspaceService):
             parent_session_id=parent_session_id,
         )
         self.session.add(forked_session)
+        await self.session.flush()
         await backend.prepare_fork(
             SessionForkContext(
                 db=self.session, parent=parent, fork=forked_session, role=self.role

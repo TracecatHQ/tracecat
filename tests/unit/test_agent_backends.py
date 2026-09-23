@@ -556,9 +556,23 @@ async def test_fork_delegates_to_required_backend_operation(preparation_fails):
     assert isinstance(ctx.db, AsyncMock)
     service = AgentSessionService(ctx.db, ctx.role)
     provider = Mock(spec=DefaultBackend)
-    provider.prepare_fork = AsyncMock()
-    if preparation_fails:
-        provider.prepare_fork.side_effect = ValueError("Unable to prepare fork")
+    db = ctx.db
+    fork_id = uuid4()
+
+    async def flush_fork() -> None:
+        fork = db.add.call_args.args[0]
+        assert fork.id is None
+        fork.id = fork_id
+
+    async def prepare_fork(context: SessionForkContext) -> None:
+        db.flush.assert_awaited_once()
+        db.commit.assert_not_awaited()
+        assert context.fork.id == fork_id
+        if preparation_fails:
+            raise ValueError("Unable to prepare fork")
+
+    db.flush.side_effect = flush_fork
+    provider.prepare_fork = AsyncMock(side_effect=prepare_fork)
     with (
         patch.object(service, "get_session", return_value=ctx.session),
         patch(
