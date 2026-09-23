@@ -23,6 +23,7 @@ from tracecat_ee.agent.approvals.service import ApprovalService
 from tracecat_ee.agent.workflows.durable import DurableAgentWorkflow
 
 from tracecat.agent.backends import registry
+from tracecat.agent.backends.base import AgentBackend
 from tracecat.agent.backends.default import DefaultBackend
 from tracecat.agent.backends.schemas import (
     AgentWorkflowArgs,
@@ -111,6 +112,103 @@ def test_disabled_plugins_cannot_be_selected():
         pytest.raises(TracecatValidationError, match="unavailable"),
     ):
         registry.get_agent_backend("external")
+
+
+@pytest.mark.parametrize(
+    "missing",
+    ["name", "task_queue", "default_harness", "supported_harnesses", "workflow"],
+)
+def test_discovery_rejects_missing_required_attributes(missing: str):
+    class IncompleteBackend(AgentBackend[None, None]):
+        async def build_workflow_args(self, context: SessionTurnContext) -> None:
+            return None
+
+    attributes: dict[str, object] = {
+        "name": "Example backend",
+        "task_queue": "example-queue",
+        "default_harness": "custom",
+        "supported_harnesses": frozenset({"custom"}),
+        "workflow": DurableAgentWorkflow,
+    }
+    for field, value in attributes.items():
+        if field != missing:
+            setattr(IncompleteBackend, field, value)
+    with (
+        patch.object(
+            registry,
+            "entry_points",
+            return_value=[entry("external", IncompleteBackend)],
+        ),
+        pytest.raises((TypeError, ValueError), match=f"external: {missing}"),
+    ):
+        registry.get_agent_backends()
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("name", ""),
+        ("name", "  "),
+        ("name", 123),
+        ("task_queue", ""),
+        ("task_queue", "  "),
+        ("task_queue", 123),
+        ("default_harness", None),
+        ("default_harness", 123),
+        ("supported_harnesses", "claude_code"),
+        ("supported_harnesses", ["claude_code"]),
+        ("supported_harnesses", frozenset({"claude_code", 123})),
+        ("workflow", None),
+        ("workflow", object()),
+    ],
+)
+def test_discovery_rejects_malformed_required_attributes(field: str, value: object):
+    class MalformedBackend(DefaultBackend):
+        pass
+
+    setattr(MalformedBackend, field, value)
+    with (
+        patch.object(
+            registry, "entry_points", return_value=[entry("external", MalformedBackend)]
+        ),
+        pytest.raises((TypeError, ValueError), match=f"external: {field}"),
+    ):
+        registry.get_agent_backends()
+
+
+@pytest.mark.parametrize("method", ["run", "set_approvals", "request_cancel"])
+@pytest.mark.parametrize("missing", [False, True])
+def test_discovery_rejects_missing_or_noncallable_workflow_methods(
+    method: str, missing: bool
+):
+    methods: dict[str, object] = {
+        "run": AsyncMock(),
+        "set_approvals": Mock(),
+        "request_cancel": Mock(),
+    }
+    if missing:
+        del methods[method]
+    else:
+        methods[method] = None
+    provider = DefaultBackend()
+    with (
+        patch.object(provider, "workflow", type("IncompleteWorkflow", (), methods)),
+        patch.object(
+            registry, "entry_points", return_value=[entry("external", lambda: provider)]
+        ),
+        pytest.raises(TypeError, match=f"external: workflow.{method}"),
+    ):
+        registry.get_agent_backends()
+
+
+def test_discovery_accepts_inherited_backend_metadata():
+    class InheritedBackend(DefaultBackend):
+        pass
+
+    with patch.object(
+        registry, "entry_points", return_value=[entry("external", InheritedBackend)]
+    ):
+        assert isinstance(registry.get_agent_backend("external"), InheritedBackend)
 
 
 @pytest.mark.parametrize(

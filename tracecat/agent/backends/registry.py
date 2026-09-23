@@ -15,6 +15,51 @@ AGENT_BACKEND_ENTRY_POINT_GROUP = "tracecat.agent_backends"
 DEFAULT_AGENT_BACKEND = "oss"
 
 
+def _validate_backend(identifier: str, backend: AgentBackend[Any, Any]) -> None:
+    """Reject incomplete installed providers before exposing them to requests."""
+    # Plugin annotations do not enforce attribute presence at runtime. Dynamic
+    # inspection here gives missing and malformed fields the same clear error.
+    for field in ("name", "task_queue"):
+        value: object = getattr(backend, field, None)
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(
+                f"Agent backend {identifier}: {field} must be a nonempty string"
+            )
+    default_harness: object = getattr(backend, "default_harness", None)
+    if not isinstance(default_harness, str):
+        raise TypeError(f"Agent backend {identifier}: default_harness must be a string")
+    supported_harnesses: object = getattr(backend, "supported_harnesses", None)
+    if not isinstance(supported_harnesses, frozenset):
+        raise TypeError(
+            f"Agent backend {identifier}: supported_harnesses must be a frozenset"
+        )
+    if not supported_harnesses or default_harness not in supported_harnesses:
+        raise ValueError(f"Invalid default harness for agent backend: {identifier}")
+    for harness in supported_harnesses:
+        if not isinstance(harness, str):
+            raise TypeError(
+                f"Agent backend {identifier}: supported_harnesses must contain only strings"
+            )
+        if not re.fullmatch(r"[a-z][a-z0-9_]{0,49}", harness):
+            raise ValueError(
+                f"Invalid harness identifier for agent backend: {identifier}"
+            )
+
+    # Inspect the workflow dynamically for the same missing-attribute boundary.
+    workflow_class: object = getattr(backend, "workflow", None)
+    if not isinstance(workflow_class, type):
+        raise TypeError(f"Agent backend {identifier}: workflow must be a class")
+    for method in ("run", "set_approvals", "request_cancel"):
+        if not callable(getattr(workflow_class, method, None)):
+            raise TypeError(
+                f"Agent backend {identifier}: workflow.{method} must be callable"
+            )
+    if backend.history is not None and not isinstance(
+        backend.history, SessionHistoryAdapter
+    ):
+        raise TypeError(f"Invalid session history adapter: {identifier}")
+
+
 @lru_cache(maxsize=1)
 def get_agent_backends() -> Mapping[str, AgentBackend[Any, Any]]:
     """Load trusted installed factories once; reject conflicting registrations."""
@@ -39,20 +84,7 @@ def get_agent_backends() -> Mapping[str, AgentBackend[Any, Any]]:
         backend = factory()
         if not isinstance(backend, AgentBackend):
             raise TypeError(f"Invalid agent backend contract: {entry.name}")
-        if (
-            not backend.supported_harnesses
-            or backend.default_harness not in backend.supported_harnesses
-        ):
-            raise ValueError(f"Invalid default harness for agent backend: {entry.name}")
-        for harness in backend.supported_harnesses:
-            if not re.fullmatch(r"[a-z][a-z0-9_]{0,49}", harness):
-                raise ValueError(
-                    f"Invalid harness identifier for agent backend: {entry.name}"
-                )
-        if backend.history is not None and not isinstance(
-            backend.history, SessionHistoryAdapter
-        ):
-            raise TypeError(f"Invalid session history adapter: {entry.name}")
+        _validate_backend(entry.name, backend)
         backends[entry.name] = backend
     return MappingProxyType(backends)
 
