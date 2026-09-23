@@ -144,9 +144,14 @@ export function ChatInterface({
     chatId
   )
   const [newChatBackend, setNewChatBackend] = useState(SERVER_DEFAULT_BACKEND)
+  const selectedBackend = backends.some(
+    (backend) => backend.id === newChatBackend
+  )
+    ? newChatBackend
+    : SERVER_DEFAULT_BACKEND
   const backendOverride =
-    backendSelectionEnabled && newChatBackend !== SERVER_DEFAULT_BACKEND
-      ? newChatBackend
+    backendSelectionEnabled && selectedBackend !== SERVER_DEFAULT_BACKEND
+      ? selectedBackend
       : undefined
   const [newChatDialogOpen, setNewChatDialogOpen] = useState(false)
   const [autoCreateAttempted, setAutoCreateAttempted] = useState(false)
@@ -483,7 +488,7 @@ export function ChatInterface({
             {!selectedChatId && hasBackendChoice && (
               <BackendSelect
                 backends={backends}
-                value={newChatBackend}
+                value={selectedBackend}
                 onChange={setNewChatBackend}
               />
             )}
@@ -522,7 +527,7 @@ export function ChatInterface({
                 {hasBackendChoice && (
                   <BackendSelect
                     backends={backends}
-                    value={newChatBackend}
+                    value={selectedBackend}
                     onChange={setNewChatBackend}
                   />
                 )}

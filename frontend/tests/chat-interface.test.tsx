@@ -306,6 +306,61 @@ describe("ChatInterface backend selection", () => {
     )
   })
 
+  it.each([false, true])(
+    "falls back after the selected backend disappears (selector visible: %s)",
+    async (keepChoice) => {
+      mockUseFeatureFlag.mockReturnValue({
+        isFeatureEnabled: (flag) => flag === "agent-runtime",
+        isLoading: false,
+        hasFeatureData: true,
+      })
+      mockUseAgentBackends.mockReturnValue({
+        ...discoveryReady,
+        backends: multipleBackends,
+        backendsLoading: false,
+      })
+      const { rerender } = renderChat({ surface: "regular" })
+      fireEvent.keyDown(
+        screen.getByRole("combobox", { name: "Backend (dev)" }),
+        {
+          key: "ArrowDown",
+        }
+      )
+      fireEvent.click(await screen.findByRole("option", { name: "Enterprise" }))
+      mockUseAgentBackends.mockReturnValue({
+        ...discoveryReady,
+        backends: keepChoice
+          ? [multipleBackends[0], { id: "another", name: "Another backend" }]
+          : [multipleBackends[0]],
+        backendsLoading: false,
+      })
+      rerender(
+        <ChatInterface
+          entityId="workspace-1"
+          entityType="copilot"
+          surface="regular"
+        />
+      )
+      if (keepChoice) {
+        expect(
+          screen.getByRole("combobox", { name: "Backend (dev)" })
+        ).toHaveTextContent("Server default")
+        fireEvent.click(
+          screen.getByRole("button", { name: "Send first message" })
+        )
+      } else {
+        expect(
+          screen.queryByRole("combobox", { name: "Backend (dev)" })
+        ).not.toBeInTheDocument()
+      }
+      fireEvent.click(
+        screen.getByRole("button", { name: "Send first message" })
+      )
+      await waitFor(() => expect(mockCreateChat).toHaveBeenCalledTimes(1))
+      expect(mockCreateChat.mock.calls[0][0].backend_id).toBeUndefined()
+    }
+  )
+
   it.each(["regular", "workspace-chat"] as const)(
     "blocks new sessions on discovery failure on the %s surface",
     (surface) => {
@@ -370,7 +425,6 @@ describe("ChatInterface backend selection", () => {
       key: "ArrowDown",
     })
     fireEvent.click(await screen.findByRole("option", { name: "Enterprise" }))
-    fireEvent.click(screen.getByRole("button", { name: "Send first message" }))
     await waitFor(() => expect(mockCreateChat).toHaveBeenCalledTimes(1))
     expect(mockCreateChat).toHaveBeenCalledWith(
       expect.objectContaining({ backend_id: "ee" })
