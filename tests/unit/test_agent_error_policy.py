@@ -506,6 +506,15 @@ def test_mcp_discovery_failure_attributes_owner_by_cause(
             "Tracecat could not prepare the agent run",
         ),
         (
+            AgentToolResolutionError(
+                missing_actions=frozenset({"tools.acme.search"}),
+                entitlement_denied_actions=frozenset({"tools.acme.premium"}),
+            ),
+            RuntimeErrorOwner.USER,
+            RuntimeErrorKind.TENANT_ENTITLEMENT_DENIED,
+            "This feature requires an upgraded plan",
+        ),
+        (
             AgentToolResolutionError(failed_actions=frozenset({"core.http_request"})),
             RuntimeErrorOwner.PLATFORM,
             RuntimeErrorKind.AGENT_PREPARATION_FAILED,

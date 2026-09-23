@@ -222,22 +222,30 @@ async def build_agent_tools(
             collected_secrets.update(result.collected_secrets)
             tools.append(result.tool)
 
-        missing_platform_actions = (
-            await service.get_platform_action_names(sorted(missing_actions))
+        missing_platform = (
+            await service.classify_missing_platform_actions(sorted(missing_actions))
             if missing_actions
-            else set()
+            else None
         )
+    missing_platform_actions = missing_platform.platform if missing_platform else set()
+    entitlement_denied_actions = (
+        missing_platform.entitlement_denied if missing_platform else set()
+    )
 
     if missing_actions or failed_actions:
         logger.warning(
             "Unable to build the requested agent tools",
             missing_actions=sorted(missing_actions),
             missing_platform_actions=sorted(missing_platform_actions),
+            entitlement_denied_actions=sorted(entitlement_denied_actions),
             failed_actions=sorted(failed_actions),
         )
         raise AgentToolResolutionError(
-            missing_actions=frozenset(missing_actions - missing_platform_actions),
+            missing_actions=frozenset(
+                missing_actions - missing_platform_actions - entitlement_denied_actions
+            ),
             missing_platform_actions=frozenset(missing_platform_actions),
+            entitlement_denied_actions=frozenset(entitlement_denied_actions),
             failed_actions=frozenset(failed_actions),
         )
 

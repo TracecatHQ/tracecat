@@ -45,6 +45,7 @@ class AgentToolResolutionError(ValueError):
         *,
         missing_actions: frozenset[str] = frozenset(),
         missing_platform_actions: frozenset[str] = frozenset(),
+        entitlement_denied_actions: frozenset[str] = frozenset(),
         failed_actions: frozenset[str] = frozenset(),
     ) -> None:
         super().__init__("Unable to build the requested agent tools")
@@ -52,6 +53,8 @@ class AgentToolResolutionError(ValueError):
         """Missing actions that no platform registry provides."""
         self.missing_platform_actions = missing_platform_actions
         """Missing actions that a platform registry provides."""
+        self.entitlement_denied_actions = entitlement_denied_actions
+        """Missing platform actions that require a disabled entitlement."""
         self.failed_actions = failed_actions
         """Actions found in the registry whose tool build failed."""
 

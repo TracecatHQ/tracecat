@@ -127,6 +127,15 @@ class _ActionIndexRow(NamedTuple):
     source: str
 
 
+class MissingPlatformActions(NamedTuple):
+    """Platform attribution for actions absent from an index lookup."""
+
+    platform: set[str]
+    """Names a platform registry provides in some version."""
+    entitlement_denied: set[str]
+    """Names whose current platform version requires a disabled entitlement."""
+
+
 class _ActionMetadataRow(NamedTuple):
     """Action metadata row for batched index lookups."""
 
@@ -714,26 +723,68 @@ class RegistryActionsService(BaseOrgService):
             )
         return actions
 
-    async def get_platform_action_names(self, action_names: list[str]) -> set[str]:
-        """Return the names a platform registry provides in any version."""
+    async def classify_missing_platform_actions(
+        self, action_names: list[str]
+    ) -> MissingPlatformActions:
+        """Attribute actions that ``get_actions_from_index`` did not return.
+
+        A current platform row whose required entitlements are disabled is a
+        tenant entitlement gap. Any other platform row, including one only in
+        a retired version, marks the action as platform-provided.
+        """
         action_parts = [
             tuple(action_name.rsplit(".", 1))
             for action_name in action_names
             if "." in action_name
         ]
         if not action_parts:
-            return set()
+            return MissingPlatformActions(platform=set(), entitlement_denied=set())
         statement = (
-            select(PlatformRegistryIndex.namespace, PlatformRegistryIndex.name)
+            select(
+                PlatformRegistryIndex.namespace,
+                PlatformRegistryIndex.name,
+                PlatformRegistryIndex.options,
+                (
+                    PlatformRegistryRepository.current_version_id
+                    == PlatformRegistryIndex.registry_version_id
+                ).label("is_current"),
+            )
+            .join(
+                PlatformRegistryVersion,
+                PlatformRegistryIndex.registry_version_id == PlatformRegistryVersion.id,
+            )
+            .join(
+                PlatformRegistryRepository,
+                PlatformRegistryVersion.repository_id == PlatformRegistryRepository.id,
+            )
             .where(
                 tuple_(PlatformRegistryIndex.namespace, PlatformRegistryIndex.name).in_(
                     action_parts
                 )
             )
-            .distinct()
         )
         result = await self.session.execute(statement)
-        return {f"{namespace}.{name}" for namespace, name in result.tuples()}
+        platform: set[str] = set()
+        current_required: dict[str, set[str]] = {}
+        for namespace, name, options, is_current in result.tuples():
+            action_name = f"{namespace}.{name}"
+            platform.add(action_name)
+            if is_current:
+                current_required.setdefault(action_name, set()).update(
+                    self._normalize_required_entitlements(options or {})
+                )
+        entitlement_denied: set[str] = set()
+        if any(current_required.values()):
+            enabled = await self._get_enabled_entitlements()
+            entitlement_denied = {
+                action_name
+                for action_name, required in current_required.items()
+                if not required.issubset(enabled)
+            }
+        return MissingPlatformActions(
+            platform=platform - entitlement_denied,
+            entitlement_denied=entitlement_denied,
+        )
 
     async def _get_actions_from_index_once(
         self,

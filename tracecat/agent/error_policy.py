@@ -108,17 +108,19 @@ def agent_tool_limit_exceeded(
 def agent_tool_build_failure(error: ValueError) -> RuntimeErrorClassification:
     """Classify a failed agent tool build by owner.
 
-    Actions that only a custom registry could provide are the caller's to fix.
-    Missing platform actions and failed builds are platform-owned.
+    Missing platform actions and failed builds are platform-owned. Otherwise,
+    entitlement-gated platform actions are a tenant plan gap, and actions that
+    only a custom registry could provide are the caller's to fix.
     """
     if isinstance(error, AgentToolLimitExceededError):
         return agent_tool_limit_exceeded(error)
-    if (
-        isinstance(error, AgentToolResolutionError)
-        and error.missing_actions
-        and not error.missing_platform_actions
-        and not error.failed_actions
+    if not isinstance(error, AgentToolResolutionError) or (
+        error.missing_platform_actions or error.failed_actions
     ):
+        return agent_preparation_failed(error, retryable=False)
+    if error.entitlement_denied_actions:
+        return tenant_entitlement_denied(error)
+    if error.missing_actions:
         return agent_tools_not_found(error)
     return agent_preparation_failed(error, retryable=False)
 

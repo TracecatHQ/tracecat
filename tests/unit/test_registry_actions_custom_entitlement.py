@@ -59,6 +59,7 @@ async def _seed_platform_registry(
     origin: str,
     version: str,
     action_names: list[str],
+    options: dict | None = None,
 ) -> PlatformRegistryRepository:
     repo = await session.scalar(
         select(PlatformRegistryRepository).where(
@@ -91,7 +92,7 @@ async def _seed_platform_registry(
                 name=name,
                 action_type="udf",
                 description=f"Platform action {action_name}",
-                options={"include_in_schema": True},
+                options=options or {"include_in_schema": True},
             )
         )
     await session.commit()
@@ -442,7 +443,7 @@ async def test_search_actions_from_index_hides_custom_actions_without_entitlemen
 
 
 @pytest.mark.anyio
-async def test_get_platform_action_names_matches_any_platform_version(
+async def test_classify_missing_platform_actions_separates_entitlement_gaps(
     svc_role: Role,
     session: AsyncSession,
 ) -> None:
@@ -450,23 +451,28 @@ async def test_get_platform_action_names_matches_any_platform_version(
         session,
         origin=DEFAULT_REGISTRY_ORIGIN,
         version="platform-1.0",
-        action_names=["acme.platform.retired"],
+        action_names=["acme.platform.retired", "acme.platform.gated"],
     )
     await _seed_platform_registry(
         session,
         origin=DEFAULT_REGISTRY_ORIGIN,
         version="platform-2.0",
-        action_names=["acme.platform.current"],
+        action_names=["acme.platform.gated"],
+        options={"required_entitlements": ["agent_addons"]},
     )
 
     service = RegistryActionsService(session, role=svc_role)
-    names = await service.get_platform_action_names(
-        [
-            "acme.platform.retired",
-            "acme.platform.current",
-            "acme.custom.only",
-            "malformed",
-        ]
-    )
+    with patch.object(
+        service, "_get_enabled_entitlements", new=AsyncMock(return_value=set())
+    ):
+        missing = await service.classify_missing_platform_actions(
+            [
+                "acme.platform.retired",
+                "acme.platform.gated",
+                "acme.custom.only",
+                "malformed",
+            ]
+        )
 
-    assert names == {"acme.platform.retired", "acme.platform.current"}
+    assert missing.platform == {"acme.platform.retired"}
+    assert missing.entitlement_denied == {"acme.platform.gated"}
