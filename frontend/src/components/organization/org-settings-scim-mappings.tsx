@@ -1,16 +1,25 @@
 "use client"
 
-import { ArrowRightIcon, Loader2, Trash2Icon, UsersIcon } from "lucide-react"
-import { useState } from "react"
+import { AlertTriangleIcon, SearchIcon, UsersIcon, XIcon } from "lucide-react"
+import { type ReactNode, useState } from "react"
 import type {
   ExternalGroupMappingRead,
-  ScimActivationReviewRead,
+  ExternalGroupRead,
   ScimConnectionStatus,
 } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
-import { ConfirmDestructiveDialog } from "@/components/confirm-destructive-dialog"
 import { CenteredSpinner } from "@/components/loading/spinner"
-import { ScimReviewDialog } from "@/components/organization/scim-review-dialog"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Empty,
@@ -19,6 +28,7 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty"
+import { Input } from "@/components/ui/input"
 import {
   Select,
   SelectContent,
@@ -34,39 +44,65 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import {
-  useScimActivation,
-  useScimExternalGroups,
-  useScimMappings,
-} from "@/hooks/use-scim"
+import { useScimExternalGroups, useScimMappings } from "@/hooks/use-scim"
 import { useRbacGroups } from "@/lib/hooks"
+import { cn } from "@/lib/utils"
+
+/** A mapping the admin has proposed but not applied. */
+export type ScimMappingDraft = Pick<
+  ExternalGroupMappingRead,
+  | "external_group_id"
+  | "external_group_display_name"
+  | "group_id"
+  | "group_name"
+>
+
+type Target = ScimMappingDraft & { mapping?: ExternalGroupMappingRead }
+
+function ErrorAlert({ title, children }: { title: string; children?: string }) {
+  return (
+    <Alert>
+      <AlertTriangleIcon className="size-4 !text-destructive" />
+      <AlertTitle className="text-destructive">{title}</AlertTitle>
+      {children ? <AlertDescription>{children}</AlertDescription> : null}
+    </Alert>
+  )
+}
 
 /**
- * Map synced IdP groups onto Tracecat groups.
+ * Map synced IdP groups onto Tracecat groups, one row per IdP group.
  *
- * Without a mapping the projection has no rule to apply, so an IdP can push
- * users without granting them any access. `connected` reflects whether a SCIM
- * token exists; the editor explains that it stays inert until it does.
+ * While the connection is pending, additions are local drafts applied on
+ * activation. Once active, each addition is reviewed before it is created.
  */
 export function OrgSettingsScimMappings({
   connected,
   status,
   revoked,
+  drafts,
+  reviewIsPending,
+  onAdd,
+  onRemoveDraft,
+  onDiscardDrafts,
 }: {
   connected: boolean
   status?: ScimConnectionStatus
   revoked: boolean
+  drafts: ScimMappingDraft[]
+  reviewIsPending: boolean
+  onAdd: (draft: ScimMappingDraft) => void
+  onRemoveDraft: (draft: ScimMappingDraft) => void
+  onDiscardDrafts: () => void
 }) {
-  const { review, activate } = useScimActivation()
-  const [drafts, setDrafts] = useState<ExternalGroupMappingRead[]>([])
-  const [reviewActivation, setReviewActivation] = useState(false)
-  const [preview, setPreview] = useState<ScimActivationReviewRead | null>(null)
+  const canManage = useScopeCheck("org:scim:manage") === true
+  const isPending = status === "pending"
+  const canEdit = canManage && !revoked && (isPending || status === "active")
+
+  const [query, setQuery] = useState("")
+  const [unmappedOnly, setUnmappedOnly] = useState(false)
   const [removing, setRemoving] = useState<ExternalGroupMappingRead | null>(
     null
   )
-  const isPending = status === "pending"
-  const canEdit = !revoked && (isPending || status === "active")
-  const canManage = useScopeCheck("org:scim:manage")
 
   const {
     externalGroups,
@@ -83,8 +119,6 @@ export function OrgSettingsScimMappings({
     mappingsHasNextPage,
     mappingsIsFetchingNextPage,
     fetchNextMappings,
-    createMapping,
-    createMappingIsPending,
     deleteMapping,
     deleteMappingIsPending,
   } = useScimMappings()
@@ -94,78 +128,12 @@ export function OrgSettingsScimMappings({
     error: groupsError,
   } = useRbacGroups()
 
-  const [externalGroupId, setExternalGroupId] = useState<string>("")
-  const [groupId, setGroupId] = useState<string>("")
-
-  async function handleCreate() {
-    if (!externalGroupId || !groupId) {
-      return
-    }
-    if (isPending) {
-      const source = externalGroups?.find(
-        (group) => group.id === externalGroupId
-      )
-      const target = groups?.find((group) => group.id === groupId)
-      if (!source || !target) return
-      if (
-        !drafts.some(
-          (item) =>
-            item.external_group_id === externalGroupId &&
-            item.group_id === groupId
-        )
-      ) {
-        setDrafts([
-          ...drafts,
-          {
-            id: `${externalGroupId}-${groupId}`,
-            external_group_id: externalGroupId,
-            group_id: groupId,
-            external_group_external_id: source.external_id,
-            external_group_display_name: source.display_name,
-            group_name: target.name,
-          },
-        ])
-      }
-      setExternalGroupId("")
-      setGroupId("")
-      return
-    }
-    setReviewActivation(false)
-    setPreview(
-      await review.mutateAsync([
-        { external_group_id: externalGroupId, group_id: groupId },
-      ])
-    )
-  }
-
-  async function confirmReview() {
-    if (!preview) return
-    const proposed = preview.plans.map((plan) => ({
-      external_group_id: plan.external_group_id,
-      group_id: plan.group_id,
-    }))
-    if (reviewActivation) {
-      await activate.mutateAsync(proposed)
-      setDrafts([])
-    } else {
-      const mapping = proposed[0]
-      if (!mapping) return
-      await createMapping({
-        externalGroupId: mapping.external_group_id,
-        groupId: mapping.group_id,
-      })
-      setExternalGroupId("")
-      setGroupId("")
-    }
-    setPreview(null)
-  }
-
   const header = (
     <div className="space-y-1">
       <h3 className="text-lg font-medium">Group mappings</h3>
       <p className="text-sm text-muted-foreground">
-        Grant group access to active, admitted identity provider users. Pending
-        mappings are drafts until activation.
+        Members of a mapped IdP group get that Tracecat group&apos;s access.
+        Unmapped groups grant nothing.
       </p>
     </div>
   )
@@ -205,78 +173,46 @@ export function OrgSettingsScimMappings({
     groupsError
   ) {
     return (
-      <p role="alert">Unable to load group mappings. Reload to try again.</p>
+      <div className="space-y-4">
+        {header}
+        <ErrorAlert title="Unable to load group mappings">
+          Reload the page to try again.
+        </ErrorAlert>
+      </div>
     )
   }
 
-  const availableExternalGroups = externalGroups ?? []
-  const availableGroups = groups ?? []
-  const existingMappings = isPending ? drafts : (mappings ?? [])
+  const allGroups = externalGroups ?? []
+  const tracecatGroups = groups ?? []
+
+  function targetsFor(group: ExternalGroupRead): Target[] {
+    if (isPending) {
+      return drafts.filter((draft) => draft.external_group_id === group.id)
+    }
+    return (mappings ?? [])
+      .filter((mapping) => mapping.external_group_id === group.id)
+      .map((mapping) => ({ ...mapping, mapping }))
+  }
+
+  const rows = allGroups.map((group) => ({ group, targets: targetsFor(group) }))
+  const unmappedCount = rows.filter((row) => row.targets.length === 0).length
+  const needle = query.trim().toLowerCase()
+  const visibleRows = rows.filter(
+    (row) =>
+      (!unmappedOnly || row.targets.length === 0) &&
+      (!needle || row.group.display_name.toLowerCase().includes(needle))
+  )
 
   return (
     <div className="space-y-4">
       {header}
       {revoked && (
-        <p>Rotate the revoked token before changing SCIM configuration.</p>
-      )}
-      {isPending && (
-        <div className="space-y-2">
-          <p className="text-sm">
-            Directory pushes do not admit users until activation. Add optional
-            draft mappings, then review.
-          </p>
-          <Button
-            disabled={
-              !canEdit ||
-              canManage !== true ||
-              review.isPending ||
-              activate.isPending
-            }
-            onClick={() => {
-              setReviewActivation(true)
-              void review
-                .mutateAsync(
-                  drafts.map((item) => ({
-                    external_group_id: item.external_group_id,
-                    group_id: item.group_id,
-                  }))
-                )
-                .then(setPreview)
-                .catch(() => {})
-            }}
-          >
-            Review activation
-          </Button>
-        </div>
-      )}
-      {preview && (
-        <ScimReviewDialog
-          review={preview}
-          activation={reviewActivation}
-          pending={activate.isPending || createMappingIsPending}
-          onClose={() => setPreview(null)}
-          onConfirm={confirmReview}
-        />
-      )}
-      {removing && (
-        <ConfirmDestructiveDialog
-          open
-          onOpenChange={(open) => {
-            if (!open) setRemoving(null)
-          }}
-          confirmPhrase={removing.group_name}
-          title="Remove mapping"
-          confirmLabel="Remove mapping"
-          isPending={deleteMappingIsPending}
-          description="If this is the final mapping, current active, admitted IdP members will be retained as manual members. If other mappings remain, members supplied only by this mapping will lose this group path; other grants are preserved."
-          onConfirm={async () => {
-            await deleteMapping(removing.id)
-            setRemoving(null)
-          }}
-        />
+        <ErrorAlert title="Token revoked">
+          Rotate the token before changing SCIM configuration.
+        </ErrorAlert>
       )}
 
-      {availableExternalGroups.length === 0 ? (
+      {allGroups.length === 0 ? (
         <Empty className="gap-4 rounded-lg border py-12">
           <EmptyHeader>
             <EmptyMedia variant="icon">
@@ -284,163 +220,344 @@ export function OrgSettingsScimMappings({
             </EmptyMedia>
             <EmptyTitle>No synced groups yet</EmptyTitle>
             <EmptyDescription>
-              Your identity provider has not pushed any groups. Finish assigning
-              groups to the Tracecat application in your IdP — they appear here
-              once it sends them.
+              Assign groups to the Tracecat application in your identity
+              provider. They appear here once it pushes them.
             </EmptyDescription>
           </EmptyHeader>
         </Empty>
       ) : (
-        <div className="space-y-6 rounded-lg border p-6">
-          <div className="flex flex-wrap items-end gap-3">
-            <div className="min-w-[220px] flex-1 space-y-2">
-              <span className="text-sm text-muted-foreground">
-                Identity provider group
-              </span>
-              <Select
-                value={externalGroupId}
-                onValueChange={setExternalGroupId}
+        <div className="overflow-hidden rounded-lg border">
+          <div className="flex items-center gap-3 border-b px-4 py-3">
+            <div className="relative flex-1">
+              <SearchIcon className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search identity provider groups"
+                aria-label="Search identity provider groups"
+                className="pl-9"
+              />
+            </div>
+            <div className="flex gap-0.5 rounded-md border p-0.5">
+              <FilterButton
+                active={!unmappedOnly}
+                onClick={() => setUnmappedOnly(false)}
               >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a synced group" />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableExternalGroups.map((externalGroup) => (
-                    <SelectItem key={externalGroup.id} value={externalGroup.id}>
-                      {externalGroup.display_name} ({externalGroup.member_count}{" "}
-                      members)
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {externalGroupsError && (
-                <p role="alert" className="text-sm text-muted-foreground">
-                  Unable to load more synced groups. Try again.
-                </p>
-              )}
-              {externalGroupsHasNextPage && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={externalGroupsIsFetchingNextPage}
-                  onClick={() => {
-                    void fetchNextExternalGroups()
-                  }}
-                >
-                  {externalGroupsIsFetchingNextPage
-                    ? "Loading groups…"
-                    : "Load more groups"}
-                </Button>
-              )}
+                All {rows.length}
+              </FilterButton>
+              <FilterButton
+                active={unmappedOnly}
+                onClick={() => setUnmappedOnly(true)}
+              >
+                Unmapped {unmappedCount}
+              </FilterButton>
             </div>
-
-            <div className="min-w-[220px] flex-1 space-y-2">
-              <span className="text-sm text-muted-foreground">
-                Tracecat group
-              </span>
-              <Select value={groupId} onValueChange={setGroupId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a Tracecat group" />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableGroups.map((group) => (
-                    <SelectItem key={group.id} value={group.id}>
-                      {group.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <Button
-              onClick={() => {
-                void handleCreate().catch(() => {})
-              }}
-              disabled={
-                !canEdit ||
-                canManage !== true ||
-                !externalGroupId ||
-                !groupId ||
-                createMappingIsPending ||
-                review.isPending
-              }
-            >
-              {createMappingIsPending ? (
-                <Loader2 className="mr-2 size-4 animate-spin" />
-              ) : null}
-              {isPending ? "Add draft mapping" : "Review mapping"}
-            </Button>
           </div>
 
-          {existingMappings.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No mappings yet. Admitted users retain their existing grants and
-              organization membership.
-            </p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Identity provider group</TableHead>
-                  <TableHead>Tracecat group</TableHead>
-                  <TableHead className="w-16" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {existingMappings.map((mapping) => (
-                  <TableRow key={mapping.id}>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <span>{mapping.external_group_display_name}</span>
-                        <ArrowRightIcon className="size-3 text-muted-foreground" />
-                      </div>
-                    </TableCell>
-                    <TableCell>{mapping.group_name}</TableCell>
-                    <TableCell>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        disabled={
-                          !canEdit ||
-                          canManage !== true ||
-                          deleteMappingIsPending ||
-                          review.isPending
-                        }
-                        onClick={() => {
-                          if (isPending)
-                            setDrafts(
-                              drafts.filter((item) => item.id !== mapping.id)
+          <Table>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead>Identity provider group</TableHead>
+                <TableHead className="w-24">Members</TableHead>
+                <TableHead className="w-[340px]">Tracecat groups</TableHead>
+                <TableHead className="w-28">Status</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {visibleRows.map(({ group, targets }) => (
+                <TableRow key={group.id} className="hover:bg-transparent">
+                  <TableCell className="font-medium">
+                    {group.display_name}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {group.member_count}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {targets.map((target) => (
+                        <Badge
+                          key={target.group_id}
+                          variant="secondary"
+                          className="gap-1 pr-1 font-normal"
+                        >
+                          {target.group_name}
+                          <button
+                            type="button"
+                            className="rounded-sm p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-50"
+                            disabled={
+                              !canEdit ||
+                              reviewIsPending ||
+                              deleteMappingIsPending
+                            }
+                            aria-label={`Remove ${target.group_name} from ${group.display_name}`}
+                            onClick={() => {
+                              if (target.mapping) setRemoving(target.mapping)
+                              else onRemoveDraft(target)
+                            }}
+                          >
+                            <XIcon className="size-3" />
+                          </button>
+                        </Badge>
+                      ))}
+                      <AddTargetSelect
+                        group={group}
+                        tracecatGroups={tracecatGroups.filter(
+                          (candidate) =>
+                            !targets.some(
+                              (target) => target.group_id === candidate.id
                             )
-                          else setRemoving(mapping)
-                        }}
-                        aria-label={`Remove mapping for ${mapping.external_group_display_name}`}
-                      >
-                        <Trash2Icon className="size-4 text-muted-foreground" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-          {!isPending && mappingsError && (
-            <p role="alert">Unable to load more mappings. Try again.</p>
-          )}
-          {!isPending && mappingsHasNextPage && (
+                        )}
+                        hasTargets={targets.length > 0}
+                        disabled={!canEdit || reviewIsPending}
+                        onAdd={onAdd}
+                      />
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    {targets.length === 0 ? (
+                      <span className="text-sm text-muted-foreground">
+                        No access
+                      </span>
+                    ) : (
+                      <Badge variant="secondary" className="font-normal">
+                        {isPending ? "Draft" : "Mapped"}
+                      </Badge>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+              {visibleRows.length === 0 && (
+                <TableRow className="hover:bg-transparent">
+                  <TableCell
+                    colSpan={4}
+                    className="py-6 text-center text-sm text-muted-foreground"
+                  >
+                    No groups match.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+
+          <ListFooter
+            isPending={isPending}
+            drafts={drafts}
+            onDiscardDrafts={onDiscardDrafts}
+            externalGroupsError={Boolean(externalGroupsError)}
+            externalGroupsHasNextPage={Boolean(externalGroupsHasNextPage)}
+            externalGroupsIsFetchingNextPage={externalGroupsIsFetchingNextPage}
+            fetchNextExternalGroups={() => void fetchNextExternalGroups()}
+            mappingsError={Boolean(mappingsError)}
+            mappingsHasNextPage={Boolean(mappingsHasNextPage)}
+            mappingsIsFetchingNextPage={mappingsIsFetchingNextPage}
+            fetchNextMappings={() => void fetchNextMappings()}
+          />
+        </div>
+      )}
+
+      <AlertDialog
+        open={Boolean(removing)}
+        onOpenChange={(open) => {
+          if (!open && !deleteMappingIsPending) setRemoving(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove mapping</AlertDialogTitle>
+            <AlertDialogDescription>
+              {removing
+                ? `${removing.external_group_display_name} stops granting ${removing.group_name}. `
+                : ""}
+              If this is the final mapping, current members are retained as
+              manual members. Other grants are unchanged.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteMappingIsPending}>
+              Cancel
+            </AlertDialogCancel>
             <Button
-              variant="outline"
-              size="sm"
-              disabled={mappingsIsFetchingNextPage}
+              variant="destructive"
+              disabled={deleteMappingIsPending}
               onClick={() => {
-                void fetchNextMappings()
+                if (!removing) return
+                void deleteMapping(removing.id)
+                  .then(() => setRemoving(null))
+                  .catch(() => {})
               }}
             >
-              {mappingsIsFetchingNextPage
-                ? "Loading mappings…"
-                : "Load more mappings"}
+              Remove mapping
             </Button>
-          )}
-        </div>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  )
+}
+
+function FilterButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean
+  onClick: () => void
+  children: ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onClick}
+      className={cn(
+        "h-7 rounded-sm px-3 text-xs font-medium transition-colors",
+        active
+          ? "bg-muted text-foreground"
+          : "text-muted-foreground hover:text-foreground"
+      )}
+    >
+      {children}
+    </button>
+  )
+}
+
+function AddTargetSelect({
+  group,
+  tracecatGroups,
+  hasTargets,
+  disabled,
+  onAdd,
+}: {
+  group: ExternalGroupRead
+  tracecatGroups: { id: string; name: string }[]
+  hasTargets: boolean
+  disabled: boolean
+  onAdd: (draft: ScimMappingDraft) => void
+}) {
+  if (hasTargets && tracecatGroups.length === 0) {
+    return null
+  }
+  return (
+    <Select
+      value=""
+      disabled={disabled}
+      onValueChange={(groupId) => {
+        const target = tracecatGroups.find((item) => item.id === groupId)
+        if (!target) return
+        onAdd({
+          external_group_id: group.id,
+          external_group_display_name: group.display_name,
+          group_id: target.id,
+          group_name: target.name,
+        })
+      }}
+    >
+      <SelectTrigger
+        aria-label={`Add Tracecat group to ${group.display_name}`}
+        className={cn(
+          "h-7 text-xs",
+          hasTargets ? "w-auto gap-1 border-dashed" : "w-full"
+        )}
+      >
+        <SelectValue placeholder={hasTargets ? "Add" : "Select a group"} />
+      </SelectTrigger>
+      <SelectContent>
+        {tracecatGroups.map((target) => (
+          <SelectItem key={target.id} value={target.id}>
+            {target.name}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  )
+}
+
+function ListFooter({
+  isPending,
+  drafts,
+  onDiscardDrafts,
+  externalGroupsError,
+  externalGroupsHasNextPage,
+  externalGroupsIsFetchingNextPage,
+  fetchNextExternalGroups,
+  mappingsError,
+  mappingsHasNextPage,
+  mappingsIsFetchingNextPage,
+  fetchNextMappings,
+}: {
+  isPending: boolean
+  drafts: ScimMappingDraft[]
+  onDiscardDrafts: () => void
+  externalGroupsError: boolean
+  externalGroupsHasNextPage: boolean
+  externalGroupsIsFetchingNextPage: boolean
+  fetchNextExternalGroups: () => void
+  mappingsError: boolean
+  mappingsHasNextPage: boolean
+  mappingsIsFetchingNextPage: boolean
+  fetchNextMappings: () => void
+}) {
+  const showDrafts = isPending && drafts.length > 0
+  const showMappingPages = !isPending && (mappingsHasNextPage || mappingsError)
+  if (
+    !showDrafts &&
+    !showMappingPages &&
+    !externalGroupsHasNextPage &&
+    !externalGroupsError
+  ) {
+    return null
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-3 border-t bg-muted/30 px-4 py-2.5 text-sm">
+      {showDrafts ? (
+        <span className="flex-1 text-muted-foreground">
+          <span className="font-medium text-foreground">
+            {drafts.length} draft {drafts.length === 1 ? "mapping" : "mappings"}
+          </span>{" "}
+          · applied only when you activate
+        </span>
+      ) : (
+        <span className="flex-1" />
+      )}
+      {externalGroupsError && (
+        <span role="alert" className="text-muted-foreground">
+          Unable to load more groups.
+        </span>
+      )}
+      {(externalGroupsHasNextPage || externalGroupsError) && (
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={externalGroupsIsFetchingNextPage}
+          onClick={fetchNextExternalGroups}
+        >
+          {externalGroupsIsFetchingNextPage
+            ? "Loading groups…"
+            : "Load more groups"}
+        </Button>
+      )}
+      {!isPending && mappingsError && (
+        <span role="alert" className="text-muted-foreground">
+          Unable to load more mappings.
+        </span>
+      )}
+      {showMappingPages && (
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={mappingsIsFetchingNextPage}
+          onClick={fetchNextMappings}
+        >
+          {mappingsIsFetchingNextPage
+            ? "Loading mappings…"
+            : "Load more mappings"}
+        </Button>
+      )}
+      {showDrafts && (
+        <Button variant="ghost" size="sm" onClick={onDiscardDrafts}>
+          Discard drafts
+        </Button>
       )}
     </div>
   )

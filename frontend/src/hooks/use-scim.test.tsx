@@ -2,11 +2,13 @@ import { act, renderHook, waitFor } from "@testing-library/react"
 import type { ReactNode } from "react"
 import {
   scimGetScimConnection,
+  scimGetScimDirectorySummary,
   scimListExternalGroups,
   scimListScimMappings,
 } from "@/client"
 import {
   useScimConnection,
+  useScimDirectorySummary,
   useScimExternalGroups,
   useScimMappings,
 } from "@/hooks/use-scim"
@@ -14,6 +16,7 @@ import { QueryClient, QueryClientProvider } from "@/lib/query"
 
 jest.mock("@/client", () => ({
   scimGetScimConnection: jest.fn(),
+  scimGetScimDirectorySummary: jest.fn(),
   scimIssueScimToken: jest.fn(),
   scimRevokeScimToken: jest.fn(),
   scimListExternalGroups: jest.fn(),
@@ -163,4 +166,23 @@ it("loads mappings only when requested and keeps existing pages after a failure"
     cursor: "next-page",
   })
   expect(result.current.mappingsHasNextPage).toBe(false)
+})
+
+it("reads the directory summary only when enabled", async () => {
+  const summary = {
+    users: { total: 3, active: 2, inactive: 1 },
+    groups: { total: 2, unmapped: 1 },
+  }
+  jest.mocked(scimGetScimDirectorySummary).mockResolvedValue(summary)
+  const wrapper = createWrapper(createQueryClient())
+
+  const { result, rerender } = renderHook(
+    ({ enabled }) => useScimDirectorySummary({ enabled }),
+    { wrapper, initialProps: { enabled: false } }
+  )
+  expect(scimGetScimDirectorySummary).not.toHaveBeenCalled()
+
+  rerender({ enabled: true })
+  await waitFor(() => expect(result.current.directorySummary).toEqual(summary))
+  expect(scimGetScimDirectorySummary).toHaveBeenCalledTimes(1)
 })

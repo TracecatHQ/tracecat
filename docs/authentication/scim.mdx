@@ -1,0 +1,132 @@
+---
+title: SCIM provisioning
+description: "Provision users and groups from Okta, Microsoft Entra ID, or any SCIM 2.0 identity provider, and map synced groups onto Tracecat groups."
+icon: "lock"
+---
+
+<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
+
+## Overview
+
+SCIM lets your identity provider (IdP) create, update, and remove Tracecat users and sync group membership. You manage it in **Organization settings > SCIM**.
+
+SCIM provisioning requires the access control add-on and the `org:scim:manage` scope. Organization owners and admins hold this scope by default.
+
+## How provisioning works
+
+1. You generate a SCIM token in Tracecat and paste it, with the SCIM base URL, into your IdP.
+2. Your IdP pushes users and groups. The connection stays pending, and pushed users get no access yet.
+3. You map IdP groups onto Tracecat groups. While the connection is pending, mappings are drafts.
+4. You review and activate. Tracecat admits every active pushed user to the organization, revokes their pending invitations, and installs the draft mappings. Inactive users are skipped.
+
+After activation, Tracecat applies IdP changes as they arrive. Each new mapping is reviewed before Tracecat applies it.
+
+## Connect your identity provider
+
+In **Organization settings > SCIM**, select **Generate token**. The dialog shows two values:
+
+- `SCIM base URL`: `https://<your-tracecat-instance>/api/scim/v2`
+- `Bearer token`: shown once. Copy it before you close the dialog.
+
+Your IdP sends the token as `Authorization: Bearer <token>` on every request.
+
+### Okta
+
+Okta adds SCIM provisioning to an existing app integration. Create a SAML app for Tracecat first, as described in [SAML SSO](/authentication/saml#okta).
+
+<Steps>
+    <Step title="Enable SCIM on the app">
+        Open the Tracecat app, go to the **General** tab, and select **Edit** under **App Settings**.
+        Set **Provisioning** to **SCIM** and select **Save**.
+    </Step>
+    <Step title="Configure the connector">
+        Go to the **Provisioning** tab and select **Edit** under **Settings > Integration**.
+        - Set **SCIM connector base URL** to your SCIM base URL.
+        - Set **Unique identifier field for users** to `userName`.
+        - Select **Push New Users**, **Push Profile Updates**, and **Push Groups**.
+        - Set **Authentication Mode** to **HTTP Header** and paste the bearer token into **Authorization**.
+    </Step>
+    <Step title="Test and save">
+        Select **Test Connector Configuration**, then **Save**.
+    </Step>
+    <Step title="Enable provisioning to Tracecat">
+        Under **Settings > To App**, select **Edit** and enable **Create Users**, **Update User Attributes**, and **Deactivate Users**.
+    </Step>
+    <Step title="Assign users and push groups">
+        Assign users or groups on the **Assignments** tab.
+        On the **Push Groups** tab, push the groups you want to map in Tracecat.
+    </Step>
+</Steps>
+
+### Microsoft Entra ID
+
+<Steps>
+    <Step title="Create an enterprise application">
+        In the Microsoft Entra admin center, go to **Entra ID > Enterprise apps**.
+        Select **New application > Create your own application**, choose **Integrate any other application you don't find in the gallery**, and select **Add**.
+    </Step>
+    <Step title="Configure provisioning">
+        Select **Provisioning** and create a new configuration.
+        - Set **Tenant URL** to your SCIM base URL.
+        - Paste the bearer token into **Secret Token**.
+    </Step>
+    <Step title="Test the connection">
+        Select **Test Connection**, then save the configuration.
+    </Step>
+    <Step title="Check the user attribute mapping">
+        Under **Attribute mapping**, open the user mapping. Tracecat uses `userName` as the login email.
+        If your user principal names differ from email addresses, map `userName` to `mail`.
+    </Step>
+    <Step title="Assign users and groups">
+        On the **Users and groups** tab, assign the users and groups to provision.
+    </Step>
+    <Step title="Start provisioning">
+        Go to **Overview** and select **Start provisioning**.
+        Entra ID syncs on a fixed cycle, so pushed users and groups can take up to 40 minutes to appear.
+    </Step>
+</Steps>
+
+### Other providers
+
+Any IdP that speaks SCIM 2.0 with bearer token authentication works. Configure it with:
+
+- Base URL: your SCIM base URL.
+- Authentication: HTTP header, `Authorization: Bearer <token>`.
+- User identifier: `userName`, set to the user's email address.
+- Resources: `Users` and `Groups`.
+
+Tracecat supports `GET`, `POST`, `PUT`, `PATCH`, and `DELETE` on both resources, `userName eq` filters on users, and `displayName eq` filters on groups.
+
+## Map groups
+
+The **Group mappings** table lists every group your IdP has pushed, one row per group. Add one or more Tracecat groups to a row to grant that row's members those groups' access. A group with no mapping grants nothing.
+
+When a mapping applies, your IdP takes over membership of the Tracecat group:
+
+- Manual members who are also in the IdP group keep access through the IdP group.
+- Manual members who are not in the IdP group lose access through that Tracecat group.
+- Access from other roles and groups is unchanged.
+
+The review dialog lists every user who gains or loses access before you confirm.
+
+Removing the last mapping for a Tracecat group keeps its current members as manual members. Removing one of several mappings removes only the members that mapping supplied.
+
+## Deprovisioning
+
+When your IdP deactivates a user, sets `active` to `false`, or deletes the user, Tracecat removes that user from this organization. The user keeps any membership in other organizations.
+
+## Manage the token
+
+- Rotate token: issues a new token. The current token stops working immediately, so provisioning fails until you paste the new token into your IdP.
+- Revoke token: stops all provisioning. Existing mappings stay in place but stop receiving updates. Rotate the token to resume.
+
+## Limitations
+
+- Tracecat rejects changes to `userName` or `emails` for an existing user. Keep them unchanged in your IdP.
+- Bulk operations, sorting, ETags, and password changes are not supported.
+- Each organization has one SCIM connection.
+
+## Related pages
+
+- See [SAML SSO](/authentication/saml) to set up sign-in for the users you provision.
+- See [Custom roles and groups](/manage-platform/custom-roles) to create the Tracecat groups you map IdP groups onto.

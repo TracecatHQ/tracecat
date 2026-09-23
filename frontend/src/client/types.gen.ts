@@ -7599,6 +7599,31 @@ export type ScimConnectionTokenRead = {
 }
 
 /**
+ * Synced groups, and how many no mapping reads.
+ */
+export type ScimDirectoryGroupCounts = {
+  total: number
+  unmapped: number
+}
+
+/**
+ * What the provider has pushed into this organization.
+ */
+export type ScimDirectorySummaryRead = {
+  users: ScimDirectoryUserCounts
+  groups: ScimDirectoryGroupCounts
+}
+
+/**
+ * Pushed users, split by the provider's active flag.
+ */
+export type ScimDirectoryUserCounts = {
+  total: number
+  active: number
+  inactive: number
+}
+
+/**
  * A user the provider has pushed into this organization.
  */
 export type ScimDirectoryUserRead = {
@@ -15349,6 +15374,8 @@ export type ScimListExternalGroupsData = {
 
 export type ScimListExternalGroupsResponse = Page_ExternalGroupRead_
 
+export type ScimGetScimDirectorySummaryResponse = ScimDirectorySummaryRead
+
 export type ScimReviewScimActivationData = {
   requestBody: ScimActivationRequest
 }
@@ -22741,6 +22768,16 @@ export type $OpenApiTs = {
          * Validation Error
          */
         422: HTTPValidationError
+      }
+    }
+  }
+  "/scim/directory/summary": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ScimDirectorySummaryRead
       }
     }
   }

@@ -6,12 +6,14 @@ import {
   type ScimActivationReviewRead,
   type ScimConnectionRead,
   type ScimConnectionTokenRead,
+  type ScimDirectorySummaryRead,
   type ScimListExternalGroupsResponse,
   type ScimListScimMappingsResponse,
   scimActivateScimConnection,
   scimCreateScimMapping,
   scimDeleteScimMapping,
   scimGetScimConnection,
+  scimGetScimDirectorySummary,
   scimIssueScimToken,
   scimListExternalGroups,
   scimListScimMappings,
@@ -30,6 +32,7 @@ import {
 const SCIM_CONNECTION_KEY = ["scim-connection"]
 const SCIM_EXTERNAL_GROUPS_KEY = ["scim-external-groups"]
 const SCIM_MAPPINGS_KEY = ["scim-mappings"]
+const SCIM_DIRECTORY_SUMMARY_KEY = ["scim-directory-summary"]
 
 /** Report a failed SCIM mutation without leaking raw error shapes into the UI. */
 function toastScimError(title: string, error: TracecatApiError) {
@@ -141,6 +144,20 @@ export function useScimExternalGroups() {
   }
 }
 
+/** Count the users and groups the provider has pushed. */
+export function useScimDirectorySummary({ enabled }: { enabled: boolean }) {
+  const query = useQuery<ScimDirectorySummaryRead, TracecatApiError>({
+    queryKey: SCIM_DIRECTORY_SUMMARY_KEY,
+    queryFn: async () => await scimGetScimDirectorySummary(),
+    enabled,
+  })
+  return {
+    directorySummary: query.data,
+    directorySummaryIsLoading: query.isLoading,
+    directorySummaryError: query.error,
+  }
+}
+
 /**
  * List and edit the rules projecting IdP groups onto Tracecat groups.
  *
@@ -179,6 +196,9 @@ export function useScimMappings() {
         }),
       onSuccess: async (mapping) => {
         await queryClient.invalidateQueries({ queryKey: SCIM_MAPPINGS_KEY })
+        await queryClient.invalidateQueries({
+          queryKey: SCIM_DIRECTORY_SUMMARY_KEY,
+        })
         await queryClient.invalidateQueries({ queryKey: ["rbac-groups"] })
         toast({
           title: "Mapping created",
@@ -194,6 +214,9 @@ export function useScimMappings() {
         await scimDeleteScimMapping({ mappingId }),
       onSuccess: async () => {
         await queryClient.invalidateQueries({ queryKey: SCIM_MAPPINGS_KEY })
+        await queryClient.invalidateQueries({
+          queryKey: SCIM_DIRECTORY_SUMMARY_KEY,
+        })
         await queryClient.invalidateQueries({ queryKey: ["rbac-groups"] })
         toast({
           title: "Mapping removed",

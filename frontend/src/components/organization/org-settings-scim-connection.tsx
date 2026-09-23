@@ -1,5 +1,6 @@
 "use client"
 
+import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { KeyRoundIcon, Loader2 } from "lucide-react"
 import { useEffect, useState } from "react"
 import type { ScimConnectionRead } from "@/client"
@@ -8,6 +9,15 @@ import { ConfirmDestructiveDialog } from "@/components/confirm-destructive-dialo
 import { CopyButton } from "@/components/copy-button"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -18,6 +28,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import {
   Empty,
   EmptyContent,
   EmptyDescription,
@@ -27,14 +43,15 @@ import {
 } from "@/components/ui/empty"
 import { useScimConnection } from "@/hooks/use-scim"
 import { getBaseUrl } from "@/lib/api"
+import { formatRelative } from "@/lib/time"
 
-/** Render a nullable ISO timestamp as a readable local time. */
-function formatTimestamp(value: string | null | undefined): string {
-  if (!value) {
-    return "Never"
-  }
-  return new Date(value).toLocaleString()
-}
+const SCIM_DOCS_URL = "https://docs.tracecat.com/authentication/scim"
+
+const SETUP_GUIDES = [
+  { label: "Okta", anchor: "okta" },
+  { label: "Microsoft Entra ID", anchor: "microsoft-entra-id" },
+  { label: "Other SCIM 2.0", anchor: "other-providers" },
+]
 
 /**
  * Absolute SCIM base URL an administrator pastes into their IdP.
@@ -51,14 +68,26 @@ function useScimBaseUrl(): string | null {
   return baseUrl
 }
 
-function ConnectionDetails({ connection }: { connection: ScimConnectionRead }) {
-  const baseUrl = useScimBaseUrl()
+function tokenUsage(connection: ScimConnectionRead): string {
+  if (connection.revoked_at) {
+    return `Revoked ${formatRelative(connection.revoked_at) ?? ""}`.trim()
+  }
+  const lastUsed = formatRelative(connection.last_used_at)
+  return lastUsed ? `Last used ${lastUsed}` : "Never used"
+}
 
+function ConnectionDetails({
+  connection,
+  baseUrl,
+}: {
+  connection: ScimConnectionRead
+  baseUrl: string | null
+}) {
   return (
-    <dl className="grid grid-cols-[160px_1fr] gap-x-6 gap-y-3 text-sm">
+    <dl className="grid grid-cols-[140px_1fr] items-center gap-x-6 gap-y-3 px-5 py-4 text-sm">
       <dt className="text-muted-foreground">SCIM base URL</dt>
       <dd className="flex min-w-0 items-center gap-2">
-        <code className="min-w-0 truncate font-mono text-foreground/90 select-all">
+        <code className="min-w-0 truncate rounded bg-muted px-2 py-1 font-mono text-xs select-all">
           {baseUrl ?? "Loading…"}
         </code>
         {baseUrl && (
@@ -70,27 +99,12 @@ function ConnectionDetails({ connection }: { connection: ScimConnectionRead }) {
         )}
       </dd>
 
-      <dt className="text-muted-foreground">Token</dt>
-      <dd className="font-mono text-foreground/90">{connection.preview}</dd>
-
-      <dt className="text-muted-foreground">Last used</dt>
-      <dd>{formatTimestamp(connection.last_used_at)}</dd>
-
-      <dt className="text-muted-foreground">Provisioning status</dt>
-      <dd>
-        {
-          {
-            active: "Active",
-            pending: "Pending activation",
-            disabled: "Disabled",
-          }[connection.status]
-        }
-      </dd>
-      <dt className="text-muted-foreground">Token status</dt>
-      <dd>
-        {connection.revoked_at
-          ? `Revoked ${formatTimestamp(connection.revoked_at)}`
-          : "Valid"}
+      <dt className="text-muted-foreground">Bearer token</dt>
+      <dd className="flex min-w-0 items-center gap-3">
+        <code className="font-mono text-xs">{connection.preview}</code>
+        <span className="text-xs text-muted-foreground">
+          {tokenUsage(connection)}
+        </span>
       </dd>
     </dl>
   )
@@ -105,6 +119,7 @@ function ConnectionDetails({ connection }: { connection: ScimConnectionRead }) {
  */
 export function OrgSettingsScimConnection() {
   const canManage = useScopeCheck("org:scim:manage")
+  const baseUrl = useScimBaseUrl()
   const {
     connection,
     connectionIsLoading,
@@ -127,8 +142,11 @@ export function OrgSettingsScimConnection() {
   }
 
   async function handleRotate() {
-    await handleIssue()
-    setRotateOpen(false)
+    try {
+      await handleIssue()
+    } finally {
+      setRotateOpen(false)
+    }
   }
 
   async function handleRevoke() {
@@ -144,17 +162,6 @@ export function OrgSettingsScimConnection() {
 
   return (
     <div className="space-y-4">
-      <div className="space-y-1">
-        <h3 className="text-lg font-medium">Connection</h3>
-        <p className="text-sm text-muted-foreground">
-          Your identity provider authenticates to Tracecat with this token.
-        </p>
-        <p className="text-sm text-muted-foreground">
-          SCIM username and email changes are not supported yet. Updates that
-          change an existing user&apos;s login address are rejected.
-        </p>
-      </div>
-
       {connectionError && (
         <Alert>
           <AlertTitle>Could not load SCIM connection</AlertTitle>
@@ -175,11 +182,12 @@ export function OrgSettingsScimConnection() {
       )}
 
       {!connectionError && connection && (
-        <div className="space-y-6 rounded-lg border p-6">
-          <ConnectionDetails connection={connection} />
-          <div className="flex gap-2">
+        <div className="rounded-lg border">
+          <div className="flex items-center gap-3 border-b px-5 py-3">
+            <h3 className="flex-1 text-sm font-semibold">Connection</h3>
             <Button
               variant="outline"
+              size="sm"
               onClick={() => setRotateOpen(true)}
               disabled={canManage !== true || issueTokenIsPending}
             >
@@ -189,14 +197,52 @@ export function OrgSettingsScimConnection() {
               Rotate token
             </Button>
             {isActive ? (
-              <Button
-                variant="outline"
-                onClick={() => setRevokeOpen(true)}
-                disabled={canManage !== true || revokeTokenIsPending}
-              >
-                Revoke token
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="size-8"
+                    aria-label="More connection actions"
+                  >
+                    <DotsHorizontalIcon className="size-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    className="text-rose-500 focus:text-rose-600"
+                    disabled={canManage !== true || revokeTokenIsPending}
+                    onSelect={() => setRevokeOpen(true)}
+                  >
+                    Revoke token
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             ) : null}
+          </div>
+          <ConnectionDetails connection={connection} baseUrl={baseUrl} />
+          <div className="flex items-center gap-4 rounded-b-lg border-t bg-muted/30 px-5 py-3 text-xs">
+            <span className="text-muted-foreground">Setup guides</span>
+            {SETUP_GUIDES.map((guide) => (
+              <a
+                key={guide.anchor}
+                href={`${SCIM_DOCS_URL}#${guide.anchor}`}
+                target="_blank"
+                rel="noreferrer"
+                className="underline decoration-muted-foreground/40 underline-offset-4 hover:decoration-foreground"
+              >
+                {guide.label}
+              </a>
+            ))}
+            <span className="flex-1" />
+            <a
+              href={`${SCIM_DOCS_URL}#limitations`}
+              target="_blank"
+              rel="noreferrer"
+              className="underline decoration-muted-foreground/40 underline-offset-4 hover:decoration-foreground"
+            >
+              Known limitations
+            </a>
           </div>
         </div>
       )}
@@ -210,12 +256,12 @@ export function OrgSettingsScimConnection() {
             <EmptyTitle>SCIM is not configured</EmptyTitle>
             <EmptyDescription>
               Generate a token, then paste it along with the SCIM base URL into
-              your identity provider to start provisioning users and groups.
+              your identity provider.
             </EmptyDescription>
           </EmptyHeader>
           <EmptyContent>
             <Button
-              onClick={handleIssue}
+              onClick={() => void handleIssue().catch(() => {})}
               disabled={canManage !== true || issueTokenIsPending}
             >
               {issueTokenIsPending ? (
@@ -235,26 +281,18 @@ export function OrgSettingsScimConnection() {
           }
         }}
       >
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Copy SCIM token</DialogTitle>
+            <DialogTitle>Copy SCIM credentials</DialogTitle>
             <DialogDescription>
-              This token is only shown once. Copy it now before closing this
-              dialog — it cannot be retrieved again, only rotated.
+              Paste both into your identity provider. The token is only shown
+              once.
             </DialogDescription>
           </DialogHeader>
           {issuedToken ? (
-            <div className="flex min-w-0 max-w-full items-center gap-3 rounded-lg bg-muted/60 px-4 py-3.5">
-              <code className="min-w-0 flex-1 truncate font-mono text-sm text-foreground/90 select-all">
-                {issuedToken}
-              </code>
-              <CopyButton
-                value={issuedToken}
-                toastMessage="SCIM token copied"
-                tooltipMessage="Copy token"
-                className="size-6 shrink-0"
-                iconClassName="size-4 text-foreground/70"
-              />
+            <div className="space-y-3">
+              <CredentialRow label="SCIM base URL" value={baseUrl ?? ""} />
+              <CredentialRow label="Bearer token" value={issuedToken} />
             </div>
           ) : null}
           <DialogFooter>
@@ -265,16 +303,29 @@ export function OrgSettingsScimConnection() {
         </DialogContent>
       </Dialog>
 
-      <ConfirmDestructiveDialog
-        open={rotateOpen}
-        onOpenChange={setRotateOpen}
-        confirmPhrase="rotate"
-        title="Rotate SCIM token"
-        description="The current token stops working immediately. Provisioning fails until you paste the new token into your identity provider."
-        confirmLabel="Rotate token"
-        isPending={issueTokenIsPending}
-        onConfirm={handleRotate}
-      />
+      <AlertDialog open={rotateOpen} onOpenChange={setRotateOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Rotate SCIM token</AlertDialogTitle>
+            <AlertDialogDescription>
+              The current token stops working immediately. Provisioning fails
+              until you paste the new token into your identity provider.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={issueTokenIsPending}>
+              Cancel
+            </AlertDialogCancel>
+            <Button
+              variant="destructive"
+              disabled={issueTokenIsPending}
+              onClick={() => void handleRotate().catch(() => {})}
+            >
+              Rotate token
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <ConfirmDestructiveDialog
         open={revokeOpen}
@@ -286,6 +337,26 @@ export function OrgSettingsScimConnection() {
         isPending={revokeTokenIsPending}
         onConfirm={handleRevoke}
       />
+    </div>
+  )
+}
+
+function CredentialRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="space-y-1.5">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <div className="flex min-w-0 items-start gap-3 rounded-lg bg-muted/60 px-4 py-3">
+        <code className="min-w-0 flex-1 break-all font-mono text-sm text-foreground/90 select-all">
+          {value}
+        </code>
+        <CopyButton
+          value={value}
+          toastMessage={`${label} copied`}
+          tooltipMessage={`Copy ${label.toLowerCase()}`}
+          className="size-6 shrink-0"
+          iconClassName="size-4 text-foreground/70"
+        />
+      </div>
     </div>
   )
 }

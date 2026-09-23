@@ -24875,6 +24875,59 @@ export const $ScimConnectionTokenRead = {
     "A freshly issued token. The raw value is returned exactly once.",
 } as const
 
+export const $ScimDirectoryGroupCounts = {
+  properties: {
+    total: {
+      type: "integer",
+      title: "Total",
+    },
+    unmapped: {
+      type: "integer",
+      title: "Unmapped",
+    },
+  },
+  type: "object",
+  required: ["total", "unmapped"],
+  title: "ScimDirectoryGroupCounts",
+  description: "Synced groups, and how many no mapping reads.",
+} as const
+
+export const $ScimDirectorySummaryRead = {
+  properties: {
+    users: {
+      $ref: "#/components/schemas/ScimDirectoryUserCounts",
+    },
+    groups: {
+      $ref: "#/components/schemas/ScimDirectoryGroupCounts",
+    },
+  },
+  type: "object",
+  required: ["users", "groups"],
+  title: "ScimDirectorySummaryRead",
+  description: "What the provider has pushed into this organization.",
+} as const
+
+export const $ScimDirectoryUserCounts = {
+  properties: {
+    total: {
+      type: "integer",
+      title: "Total",
+    },
+    active: {
+      type: "integer",
+      title: "Active",
+    },
+    inactive: {
+      type: "integer",
+      title: "Inactive",
+    },
+  },
+  type: "object",
+  required: ["total", "active", "inactive"],
+  title: "ScimDirectoryUserCounts",
+  description: "Pushed users, split by the provider's active flag.",
+} as const
+
 export const $ScimDirectoryUserRead = {
   properties: {
     id: {
