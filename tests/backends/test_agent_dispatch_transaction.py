@@ -281,6 +281,10 @@ async def test_caller_cancellation_settles_commit_dispatch_and_cleanup(
             ),
             patch.object(db, "commit", side_effect=commit_at_boundary),
             patch.object(db, "rollback", rollback),
+            patch(
+                "tracecat.agent.backends.base.get_async_session_context_manager",
+                side_effect=lambda: AsyncSession(connection),
+            ),
         ):
             turn = asyncio.create_task(backend.start_turn(context))
             try:
@@ -317,6 +321,63 @@ async def test_caller_cancellation_settles_commit_dispatch_and_cleanup(
                 assert saved.active_stream_id is None
             rows = list(await reader.scalars(select(AgentSessionHistory)))
             assert len(rows) == (1 if outcome == "commit_failure" else 2)
+
+
+@pytest.mark.parametrize(
+    "mismatch", [None, "workspace_id", "curr_run_id", "active_stream_id"]
+)
+async def test_lost_commit_acknowledgement_releases_only_matching_reservation(
+    connection: AsyncConnection, mismatch: str | None
+) -> None:
+    async with AsyncSession(connection, expire_on_commit=False) as db:
+        context = await make_context(db)
+        session_id = context.session.id
+        commit = db.commit
+        replacement_id = uuid4()
+
+        async def commit_then_lose_acknowledgement() -> None:
+            await commit()
+            if mismatch is not None:
+                # Simulate ownership changing before reconciliation.
+                async with AsyncSession(connection) as writer:
+                    await writer.execute(
+                        update(AgentSession)
+                        .where(AgentSession.id == session_id)
+                        .values(**{mismatch: replacement_id})
+                    )
+                    await writer.commit()
+            raise ConnectionError("lost commit acknowledgement")
+
+        rpc = AsyncMock(return_value=StartWorkflowExecutionResponse(run_id="run-1"))
+        with (
+            patch(
+                "tracecat.agent.backends.base.get_temporal_client",
+                return_value=temporal_client(rpc),
+            ),
+            patch.object(db, "commit", side_effect=commit_then_lose_acknowledgement),
+            patch(
+                "tracecat.agent.backends.base.get_async_session_context_manager",
+                side_effect=lambda: AsyncSession(connection),
+            ) as fresh_session,
+            pytest.raises(RuntimeError) as caught,
+        ):
+            await DefaultBackend().start_turn(context)
+        assert isinstance(caught.value, SessionDispatchUncertain) == (
+            mismatch is not None
+        )
+        fresh_session.assert_called_once()
+        rpc.assert_not_awaited()
+        async with AsyncSession(connection) as reader:
+            saved = await reader.scalar(
+                select(AgentSession).where(AgentSession.id == session_id)
+            )
+            assert saved is not None
+            if mismatch is None:
+                assert saved.curr_run_id is None
+                assert saved.active_stream_id is None
+            else:
+                assert saved.curr_run_id is not None
+                assert saved.active_stream_id is not None
 
 
 @pytest.mark.parametrize(

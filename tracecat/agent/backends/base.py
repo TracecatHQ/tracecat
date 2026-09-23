@@ -39,6 +39,8 @@ from tracecat.agent.backends.types import (
 from tracecat.agent.cancellation import signal_turn_cancel
 from tracecat.agent.session.types import TurnLifecycle
 from tracecat.concurrency import rejoin_future_on_cancel
+from tracecat.contexts import ctx_role
+from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import AgentSession
 from tracecat.dsl.client import get_temporal_client
 from tracecat.exceptions import TracecatConflictError
@@ -120,6 +122,7 @@ class AgentBackend[InputT, OutputT](ABC):
         session = context.session
         session_id = session.id
         dispatch = TurnDispatchClient(client.service_client, context.db.commit)
+        commit_reconciled = False
         try:
             args = await self.build_workflow_args(context)
             search_attributes = self._search_attributes(context)
@@ -150,10 +153,17 @@ class AgentBackend[InputT, OutputT](ABC):
             raise
         except Exception:
             if not dispatch.committed:
-                await context.db.rollback()
+                if dispatch.commit_attempted:
+                    commit_reconciled = await self._reconcile_failed_commit(
+                        context, session_id
+                    )
+                else:
+                    await context.db.rollback()
         else:
             return
         if not dispatch.committed:
+            if dispatch.commit_attempted and not commit_reconciled:
+                raise SessionDispatchUncertain("Dispatch requires reconciliation")
             raise RuntimeError("Agent workflow start failed before dispatch")
         if dispatch.rejected:
             # Do this in the shared lifecycle so non-HTTP callers also release
@@ -181,6 +191,39 @@ class AgentBackend[InputT, OutputT](ABC):
         # Raise outside the handler so SDK context cannot leak. Ownership stays
         # reserved because a lost acknowledgement cannot prove dispatch failed.
         raise SessionDispatchUncertain("Dispatch requires reconciliation")
+
+    @staticmethod
+    async def _reconcile_failed_commit(
+        context: SessionTurnContext, session_id: UUID
+    ) -> bool:
+        """Release only this reservation when commit raised before any start RPC."""
+        role_token = ctx_role.set(context.role)
+        try:
+            # A lost acknowledgement can leave the original session unusable.
+            # Release its connection before checking ownership in a fresh session.
+            try:
+                await context.db.rollback()
+            except Exception:
+                await context.db.invalidate()
+            async with get_async_session_context_manager() as db:
+                released = await db.scalar(
+                    update(AgentSession)
+                    .where(
+                        AgentSession.id == session_id,
+                        AgentSession.workspace_id == context.role.workspace_id,
+                        AgentSession.curr_run_id == context.run_id,
+                        AgentSession.active_stream_id == context.stream_id,
+                    )
+                    .values(curr_run_id=None, active_stream_id=None)
+                    .returning(AgentSession.id)
+                )
+                await db.commit()
+            # If ownership changed, suppress the router's less restrictive cleanup.
+            return released is not None
+        except Exception:
+            return False
+        finally:
+            ctx_role.reset(role_token)
 
     @staticmethod
     def _search_attributes(context: SessionTurnContext) -> TypedSearchAttributes:

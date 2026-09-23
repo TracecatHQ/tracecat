@@ -665,6 +665,54 @@ async def test_rejection_cleanup_failure_preserves_uncertainty(failure):
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    "failure", [None, "rollback", "execute", "commit", "ownership"]
+)
+async def test_commit_failure_reconciles_with_a_fresh_session(failure):
+    ctx = context()
+    assert isinstance(ctx.db, AsyncMock)
+    client, rpc = temporal_client()
+    ctx.db.commit.side_effect = ConnectionError("private commit details")
+    cleanup_db = AsyncMock()
+    cleanup_db.scalar.return_value = ctx.session.id
+    if failure == "rollback":
+        ctx.db.rollback.side_effect = ConnectionError("broken connection")
+    elif failure == "execute":
+        cleanup_db.scalar.side_effect = ConnectionError("cleanup unavailable")
+    elif failure == "commit":
+        cleanup_db.commit.side_effect = ConnectionError("cleanup acknowledgement lost")
+    elif failure == "ownership":
+        cleanup_db.scalar.return_value = None
+
+    @contextlib.asynccontextmanager
+    async def cleanup_session():
+        assert isinstance(ctx.db, AsyncMock)
+        ctx.db.rollback.assert_awaited_once()
+        yield cleanup_db
+
+    with (
+        patch("tracecat.agent.backends.base.get_temporal_client", return_value=client),
+        patch(
+            "tracecat.agent.backends.base.get_async_session_context_manager",
+            cleanup_session,
+        ),
+        pytest.raises(RuntimeError) as caught,
+    ):
+        await DefaultBackend().start_turn(ctx)
+    assert isinstance(caught.value, SessionDispatchUncertain) == (
+        failure in {"execute", "commit", "ownership"}
+    )
+    assert caught.value.__context__ is None
+    assert "private" not in str(caught.value)
+    rpc.assert_not_awaited()
+    ctx.db.commit.assert_awaited_once()
+    if failure == "rollback":
+        ctx.db.invalidate.assert_awaited_once()
+    else:
+        ctx.db.invalidate.assert_not_awaited()
+
+
+@pytest.mark.anyio
 async def test_rpc_error_after_successful_start_does_not_release_reservation():
     ctx = context()
     assert isinstance(ctx.db, AsyncMock)

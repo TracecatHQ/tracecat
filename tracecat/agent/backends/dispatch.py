@@ -35,6 +35,7 @@ class TurnDispatchClient(ServiceClient):
         super().__init__(wrapped.config)
         self._wrapped = wrapped
         self._commit = commit
+        self.commit_attempted = False
         self.committed = False
         self.rejected = False
 
@@ -66,8 +67,9 @@ class TurnDispatchClient(ServiceClient):
         # operation while preparation holds the session lock.
         if service != "workflow" or rpc != "start_workflow_execution":
             raise RuntimeError("Turn dispatch only supports starting a workflow")
-        if self.committed:
+        if self.commit_attempted:
             raise RuntimeError("Turn dispatch only supports one start attempt")
+        self.commit_attempted = True
         await self._commit()
         self.committed = True
         try:
