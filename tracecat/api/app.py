@@ -26,6 +26,7 @@ from tracecat.admin.agent.router import router as admin_agent_router
 from tracecat.admin.maintenance.router import router as admin_maintenance_router
 from tracecat.admin.registry.router import router as admin_registry_router
 from tracecat.agent.access.router import router as agent_model_access_router
+from tracecat.agent.backends.registry import get_agent_backends
 from tracecat.agent.catalog.loader import load_platform_catalog_on_startup
 from tracecat.agent.catalog.router import router as agent_catalog_router
 from tracecat.agent.channels.management_router import (
@@ -156,6 +157,7 @@ from tracecat.query.errors import (
 from tracecat.registry.actions.router import router as registry_actions_router
 from tracecat.registry.repositories.router import router as registry_repos_router
 from tracecat.registry.sync.jobs import sync_platform_registry_on_startup
+from tracecat.search.embeddings.router import router as embedding_configuration_router
 from tracecat.secrets.router import org_router as org_secrets_router
 from tracecat.secrets.router import router as secrets_router
 from tracecat.service_accounts.router import (
@@ -197,6 +199,7 @@ from tracecat.workspaces.service import WorkspaceService
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    get_agent_backends()  # Fail startup on invalid or duplicate installed plugins.
     # USER_AUTH_SECRET is required for all auth types — UserManager uses it
     # for password reset and email verification token signing. Validated here
     # (not in create_app) because the app module is imported at collection time
@@ -493,6 +496,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(webhook_router)
     app.include_router(agent_channels_router)
     app.include_router(workspaces_router)
+    app.include_router(embedding_configuration_router)
     app.include_router(workspace_service_accounts_router)
     app.include_router(mcp_personal_access_tokens_router)
     _include_workspace_scoped_router(app, workflow_management_router)

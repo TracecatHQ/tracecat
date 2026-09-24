@@ -406,6 +406,14 @@ export type AgentArtifact = {
 }
 
 /**
+ * An enabled installed backend available for session creation.
+ */
+export type AgentBackendRead = {
+  id: string
+  name: string
+}
+
+/**
  * List catalog entries with pagination.
  */
 export type AgentCatalogListResponse = {
@@ -1031,9 +1039,13 @@ export type AgentSessionCreate = {
    */
   agent_preset_version_id?: string | null
   /**
-   * Agent harness type
+   * Opaque agent backend identifier
    */
-  harness_type?: HarnessType
+  backend_id?: string
+  /**
+   * Execution harness; defaults to the selected backend's harness
+   */
+  harness_type?: string | null
 }
 
 /**
@@ -1089,6 +1101,7 @@ export type AgentSessionRead = {
   agent_preset_id: string | null
   agent_preset_version_id: string | null
   agents_binding?: ResolvedAgentsConfig | null
+  backend_id?: string
   harness_type: string | null
   last_error?: string | null
   last_stream_id?: string | null
@@ -1120,6 +1133,7 @@ export type AgentSessionReadVercel = {
   agent_preset_id: string | null
   agent_preset_version_id: string | null
   agents_binding?: ResolvedAgentsConfig | null
+  backend_id?: string
   harness_type: string | null
   last_error?: string | null
   last_stream_id?: string | null
@@ -1155,6 +1169,7 @@ export type AgentSessionReadWithMessages = {
   agent_preset_id: string | null
   agent_preset_version_id: string | null
   agents_binding?: ResolvedAgentsConfig | null
+  backend_id?: string
   harness_type: string | null
   last_error?: string | null
   last_stream_id?: string | null
@@ -1193,9 +1208,13 @@ export type AgentSessionUpdate = {
    */
   agent_preset_version_id?: string | null
   /**
-   * Agent harness type
+   * Immutable agent backend identifier
    */
-  harness_type?: HarnessType | null
+  backend_id?: string | null
+  /**
+   * Immutable execution harness
+   */
+  harness_type?: string | null
 }
 
 export type AgentSettingsRead = {
@@ -3983,6 +4002,17 @@ export type DeferredToolUse = {
 }
 
 /**
+ * Lifecycle states of a row document within an index generation.
+ */
+export type DocumentState =
+  | "pending"
+  | "building"
+  | "ready"
+  | "empty"
+  | "failed"
+  | "deleted"
+
+/**
  * Event for when a case dropdown value is changed.
  */
 export type DropdownValueChangedEventRead = {
@@ -4142,6 +4172,75 @@ export type EffectiveEntitlements = {
    */
   watchtower?: boolean
 }
+
+/**
+ * Availability from existing provider settings and current indexing state.
+ */
+export type EmbeddingConfigurationRead = {
+  available: boolean
+  version: number
+  state: SearchState
+  configuration?: EmbeddingModelRead | null
+  reindex_required?: boolean
+}
+
+/**
+ * Stable public failures; provider messages must never cross this boundary.
+ */
+export type EmbeddingErrorCode =
+  | "CREDENTIAL_INVALID"
+  | "CONFIGURATION_INVALID"
+  | "CONFIGURATION_CHANGED"
+  | "INPUT_INVALID"
+  | "RATE_LIMITED"
+  | "TIMEOUT"
+  | "UNAVAILABLE"
+  | "RESPONSE_INVALID"
+  | "NOT_CONFIGURED"
+
+export type EmbeddingErrorRead = {
+  code: EmbeddingErrorCode
+  retryable: boolean
+  retry_after?: number | null
+}
+
+export type EmbeddingErrorResponse = {
+  detail: EmbeddingErrorRead
+}
+
+/**
+ * Public metadata needed for status and bounded chunk preparation.
+ */
+export type EmbeddingModelRead = {
+  provider: "openai" | "gemini" | "bedrock" | "ollama" | "vllm"
+  model:
+    | "text-embedding-3-small"
+    | "text-embedding-3-large"
+    | "gemini-embedding-001"
+    | "amazon.titan-embed-text-v2:0"
+    | "all-minilm"
+    | "all-minilm:latest"
+    | "all-minilm:22m"
+    | "sentence-transformers/all-MiniLM-L6-v2"
+  dimensions: number
+  tokenizer: string
+  input_token_limit: number
+  input_character_limit: number
+  batch_size_limit: number
+  batch_token_limit: number
+}
+
+export type provider = "openai" | "gemini" | "bedrock" | "ollama" | "vllm"
+
+export type model =
+  | "text-embedding-3-small"
+  | "text-embedding-3-large"
+  | "gemini-embedding-001"
+  | "amazon.titan-embed-text-v2:0"
+  | "all-minilm"
+  | "all-minilm:latest"
+  | "all-minilm:22m"
+  | "sentence-transformers/all-MiniLM-L6-v2"
 
 /**
  * TypedDict for tier entitlements stored in JSONB.
@@ -4333,6 +4432,7 @@ export type FeatureFlag =
   | "workflow-concurrency-limits"
   | "agent-channels"
   | "agent-fs-persistence"
+  | "agent-runtime"
 
 /**
  * Response model for feature flags.
@@ -4811,11 +4911,6 @@ export type GroupUpdate = {
 export type HTTPValidationError = {
   detail?: Array<ValidationError>
 }
-
-/**
- * Supported agent harnesses.
- */
-export type HarnessType = "claude_code"
 
 export type HealthResponse = {
   status: string
@@ -7414,6 +7509,46 @@ export type ScopeRead = {
 export type ScopeSource = "platform" | "custom"
 
 /**
+ * Stable error codes safe to expose without source text or credentials.
+ */
+export type SearchErrorCode =
+  | "NOT_FOUND"
+  | "INDEX_NOT_READY"
+  | "STALE_CLAIM"
+  | "MANIFEST_CONFLICT"
+  | "INVALID_VECTOR"
+  | "CONFIGURATION_CHANGED"
+  | "PROVIDER_UNAVAILABLE"
+  | "INVALID_CURSOR"
+
+/**
+ * Index availability and document counts for a collection.
+ *
+ * Attributes:
+ * state: Effective workspace or collection search state.
+ * pending: Documents awaiting work for the current index configuration.
+ * failed: Documents that failed in the current index generation.
+ * empty: Current documents that contain no searchable chunks.
+ * ready: Current documents whose complete embeddings are published.
+ * backfill_complete: Whether all source rows have been enumerated.
+ * partial: Whether the index is unavailable or results may be incomplete.
+ */
+export type SearchIndexStatus = {
+  state: SearchState
+  pending?: number
+  failed?: number
+  empty?: number
+  ready?: number
+  backfill_complete?: boolean
+  partial?: boolean
+}
+
+/**
+ * Workspace availability states controlling search and indexing.
+ */
+export type SearchState = "disabled" | "active" | "paused" | "reindex_required"
+
+/**
  * Secret artifact stub. Extend when secret surfaces are wired.
  */
 export type SecretArtifact = {
@@ -8447,6 +8582,96 @@ export type TableRowUpdate = {
   data: {
     [key: string]: unknown
   }
+}
+
+/**
+ * Persisted selection with truthful readiness; never includes credentials.
+ */
+export type TableSearchConfiguration = {
+  generation?: number
+  selected_column_ids?: Array<string>
+  status?: TableSearchDisplayState
+  index?: SearchIndexStatus | null
+}
+
+export type TableSearchDisplayState =
+  | "disabled"
+  | "unavailable"
+  | "indexing"
+  | "ready"
+  | "updating"
+  | "needs_attention"
+
+/**
+ * Bounded progress sample; chunk totals remain unknown until enumeration ends.
+ */
+export type TableSearchDocumentProgress = {
+  document_id: string
+  row_id: string
+  state: DocumentState
+  revision: number
+  expected_chunks: number | null
+  sampled_chunks: number
+  sampled_embedded: number
+  chunks_capped: boolean
+  error_code: string | null
+}
+
+/**
+ * Safe domain failure, including a stale generation precondition.
+ */
+export type TableSearchErrorRead = {
+  code: SearchErrorCode | "INVALID_SELECTION"
+}
+
+export type TableSearchErrorResponse = {
+  detail: TableSearchErrorRead
+}
+
+export type TableSearchProgressPage = {
+  generation: number
+  items: Array<TableSearchDocumentProgress>
+  next_cursor?: string | null
+  prev_cursor?: string | null
+  has_more?: boolean
+  has_previous?: boolean
+}
+
+/**
+ * Standard FastAPI request validation fields for the selection endpoint.
+ */
+export type TableSearchRequestValidationError = {
+  loc: Array<string | number>
+  msg: string
+  type: string
+  input?: JsonValue
+  ctx?: {
+    [key: string]: JsonValue
+  } | null
+}
+
+/**
+ * Retry a bounded explicit set of failed documents in the current generation.
+ */
+export type TableSearchRetry = {
+  expected_generation: number
+  document_ids: Array<string>
+}
+
+/**
+ * Set one selection; generation zero denotes an absent collection.
+ */
+export type TableSearchSelection = {
+  column_id: string
+  enabled: boolean
+  expected_generation: number
+}
+
+/**
+ * Invalid column selection or malformed request parameters.
+ */
+export type TableSearchSelectionErrorResponse = {
+  detail: TableSearchErrorRead | Array<TableSearchRequestValidationError>
 }
 
 /**
@@ -10989,6 +11214,12 @@ export type WorkspacesRevokeWorkspaceInvitationData = {
 
 export type WorkspacesRevokeWorkspaceInvitationResponse = void
 
+export type SearchGetEmbeddingConfigurationData = {
+  workspaceId: string
+}
+
+export type SearchGetEmbeddingConfigurationResponse = EmbeddingConfigurationRead
+
 export type ServiceAccountsListWorkspaceServiceAccountsData = {
   cursor?: string | null
   limit?: number
@@ -12681,6 +12912,12 @@ export type AgentSkillsRemoveSkillTagData = {
 
 export type AgentSkillsRemoveSkillTagResponse = void
 
+export type AgentSessionsListAgentBackendsData = {
+  workspaceId: string
+}
+
+export type AgentSessionsListAgentBackendsResponse = Array<AgentBackendRead>
+
 export type AgentSessionsCreateSessionData = {
   requestBody: AgentSessionCreate
   workspaceId: string
@@ -13629,6 +13866,39 @@ export type TablesImportCsvData = {
 }
 
 export type TablesImportCsvResponse = TableRowInsertBatchResponse
+
+export type TablesGetTableSearchData = {
+  tableId: string
+  workspaceId: string
+}
+
+export type TablesGetTableSearchResponse = TableSearchConfiguration
+
+export type TablesSelectTableSearchColumnData = {
+  requestBody: TableSearchSelection
+  tableId: string
+  workspaceId: string
+}
+
+export type TablesSelectTableSearchColumnResponse = TableSearchConfiguration
+
+export type TablesRetryTableSearchData = {
+  requestBody: TableSearchRetry
+  tableId: string
+  workspaceId: string
+}
+
+export type TablesRetryTableSearchResponse = void
+
+export type TablesGetTableSearchProgressData = {
+  cursor?: string | null
+  generation: number
+  limit?: number
+  tableId: string
+  workspaceId: string
+}
+
+export type TablesGetTableSearchProgressResponse = TableSearchProgressPage
 
 export type CasesListCasesData = {
   /**
@@ -15236,6 +15506,41 @@ export type $OpenApiTs = {
          * Validation Error
          */
         422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/search/configuration": {
+    get: {
+      req: SearchGetEmbeddingConfigurationData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: EmbeddingConfigurationRead
+        /**
+         * Bad Request
+         */
+        400: EmbeddingErrorResponse
+        /**
+         * Conflict
+         */
+        409: EmbeddingErrorResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+        /**
+         * Too Many Requests
+         */
+        429: EmbeddingErrorResponse
+        /**
+         * Bad Gateway
+         */
+        502: EmbeddingErrorResponse
+        /**
+         * Gateway Timeout
+         */
+        504: EmbeddingErrorResponse
       }
     }
   }
@@ -18313,6 +18618,21 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workspaces/{workspace_id}/agent/sessions/backends": {
+    get: {
+      req: AgentSessionsListAgentBackendsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<AgentBackendRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workspaces/{workspace_id}/agent/sessions": {
     post: {
       req: AgentSessionsCreateSessionData
@@ -20070,6 +20390,102 @@ export type $OpenApiTs = {
          * Successful Response
          */
         201: TableRowInsertBatchResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/tables/{table_id}/search": {
+    get: {
+      req: TablesGetTableSearchData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: TableSearchConfiguration
+        /**
+         * Not Found
+         */
+        404: TableSearchErrorResponse
+        /**
+         * Conflict
+         */
+        409: TableSearchErrorResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/tables/{table_id}/search/selection": {
+    patch: {
+      req: TablesSelectTableSearchColumnData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: TableSearchConfiguration
+        /**
+         * Not Found
+         */
+        404: TableSearchErrorResponse
+        /**
+         * Conflict
+         */
+        409: TableSearchErrorResponse
+        /**
+         * Unprocessable Entity
+         */
+        422: TableSearchSelectionErrorResponse
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/tables/{table_id}/search/retry": {
+    post: {
+      req: TablesRetryTableSearchData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Not Found
+         */
+        404: TableSearchErrorResponse
+        /**
+         * Conflict
+         */
+        409: TableSearchErrorResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/tables/{table_id}/search/documents": {
+    get: {
+      req: TablesGetTableSearchProgressData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: TableSearchProgressPage
+        /**
+         * Bad Request
+         */
+        400: TableSearchErrorResponse
+        /**
+         * Not Found
+         */
+        404: TableSearchErrorResponse
+        /**
+         * Conflict
+         */
+        409: TableSearchErrorResponse
         /**
          * Validation Error
          */

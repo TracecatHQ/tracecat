@@ -15,7 +15,7 @@ from fastapi_users.db import (
 from fastapi_users_db_sqlalchemy.access_token import SQLAlchemyBaseAccessTokenTableUUID
 from numpy.typing import NDArray
 from pgvector.sqlalchemy import Vector
-from pydantic import GetCoreSchemaHandler
+from pydantic import GetCoreSchemaHandler, JsonValue
 from pydantic_core import CoreSchema, core_schema, to_json
 from sqlalchemy import (
     TIMESTAMP,
@@ -3103,6 +3103,10 @@ class AgentSession(WorkspaceModel):
         nullable=True,
         doc="Normalized subagent bindings for this session",
     )
+    # Stable dispatcher identity, independent of the execution harness.
+    backend_id: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="oss", server_default="oss"
+    )
     # Agent harness fields
     harness_type: Mapped[str | None] = mapped_column(
         String(50),
@@ -5829,6 +5833,8 @@ class SearchEmbeddingConfig(TimestampMixin, Base):
 
     Records contain no credential secrets. Collections and chunks reference the
     configuration version, and chunks must match its embedding dimensions.
+    Embedding semantics are immutable within a version; only the credential
+    reference/environment may rotate after validation without rebuilding vectors.
     """
 
     __tablename__ = "search_embedding_config"
@@ -5849,6 +5855,8 @@ class SearchEmbeddingConfig(TimestampMixin, Base):
     credential_environment: Mapped[str] = mapped_column(Text)
     dimensions: Mapped[int] = mapped_column(Integer)
     input_token_limit: Mapped[int] = mapped_column(Integer)
+    # NULL identifies configurations written before recipe pinning.
+    recipe_revision: Mapped[str | None] = mapped_column(Text)
 
 
 class SearchCollection(TimestampMixin, Base):
@@ -5881,7 +5889,7 @@ class SearchCollection(TimestampMixin, Base):
     source_id: Mapped[uuid.UUID] = mapped_column(UUID)
     selected_column_ids: Mapped[list[uuid.UUID]] = mapped_column(ARRAY(UUID))
     generation: Mapped[int] = mapped_column(BigInteger, server_default="1")
-    config_version: Mapped[int] = mapped_column(BigInteger)
+    config_version: Mapped[int | None] = mapped_column(BigInteger)
     chunker_settings: Mapped[dict[str, str | int]] = mapped_column(JSONB)
     enabled: Mapped[bool] = mapped_column(Boolean, server_default="false")
     backfill_cursor: Mapped[uuid.UUID | None] = mapped_column(UUID)
@@ -5945,7 +5953,7 @@ class SearchDocument(TimestampMixin, Base):
     build_revision: Mapped[int | None] = mapped_column(BigInteger)
     indexed_revision: Mapped[int | None] = mapped_column(BigInteger)
     state: Mapped[str] = mapped_column(Text, server_default="pending")
-    enumeration_cursor: Mapped[dict[str, int] | None] = mapped_column(JSONB)
+    enumeration_cursor: Mapped[dict[str, JsonValue] | None] = mapped_column(JSONB)
     enumeration_complete: Mapped[bool] = mapped_column(Boolean, server_default="false")
     expected_chunks: Mapped[int] = mapped_column(BigInteger, server_default="0")
     fence: Mapped[int] = mapped_column(BigInteger, server_default="0")

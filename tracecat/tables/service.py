@@ -47,6 +47,7 @@ from tracecat.pagination import (
 )
 from tracecat.query.compiler import compile_aggregation, compile_filter
 from tracecat.query.execution import query_execution_context
+from tracecat.search.types import SearchScope
 from tracecat.service import BaseWorkspaceService
 from tracecat.tables.common import (
     INTERNAL_COLUMN_PREFIX as INTERNAL_COLUMN_PREFIX,
@@ -94,6 +95,7 @@ from tracecat.tables.schemas import (
     TableRowInsert,
     TableUpdate,
 )
+from tracecat.tables.search.service import TableSearchService
 
 _RETRYABLE_DB_EXCEPTIONS = (
     InvalidCachedStatementError,
@@ -141,6 +143,9 @@ class BaseTablesService(BaseWorkspaceService):
     def __init__(self, session: AsyncSession, role: Role | None = None):
         super().__init__(session, role)
         self.ws_uuid = WorkspaceUUID.new(self.workspace_id)
+        self.search = TableSearchService(
+            session, SearchScope(self.organization_id, self.workspace_id)
+        )
 
     def _sanitize_identifier(self, identifier: str) -> str:
         """Normalize a stored identifier to its physical SQL name."""
@@ -526,6 +531,8 @@ class BaseTablesService(BaseWorkspaceService):
     @audit_log(resource_type="table", action="update")
     async def update_table(self, table: Table, params: TableUpdate) -> Table:
         """Update a lookup table."""
+        await self.search.for_table(table.id)
+        table = await self.search.table(table.id)
         # We need to update the table name in the physical table
         set_fields = params.model_dump(exclude_unset=True)
         if new_name := set_fields.get("name"):
@@ -558,6 +565,10 @@ class BaseTablesService(BaseWorkspaceService):
     @audit_log(resource_type="table", action="delete")
     async def delete_table(self, table: Table) -> None:
         """Delete a lookup table."""
+        collection = await self.search.for_table(table.id)
+        table = await self.search.table(table.id)
+        if collection is not None:
+            await self.search.tombstone_collection(collection.id)
         # Delete the metadata first
         await self.session.delete(table)
 
@@ -609,6 +620,7 @@ class BaseTablesService(BaseWorkspaceService):
         """
         self._assert_user_column_name_allowed(params.name)
         column_name = validate_identifier(params.name)
+        await self.search.for_table(table.id)
         full_table_name = self._full_table_name(table.name)
 
         # Validate SQL type first
@@ -688,6 +700,8 @@ class BaseTablesService(BaseWorkspaceService):
             ValueError: If the column type is invalid
             ProgrammingError: If the database operation fails
         """
+        collection = await self.search.for_table(column.table_id)
+        await self.session.refresh(column)
         set_fields = params.model_dump(exclude_unset=True)
         self._assert_user_column_name_allowed(column.name)
         if "name" in set_fields:
@@ -727,6 +741,7 @@ class BaseTablesService(BaseWorkspaceService):
             elif target_type not in (SqlType.SELECT, SqlType.MULTI_SELECT):
                 set_fields["options"] = None
 
+        old_type = column.type
         old_name = self._sanitize_identifier(column.name)
         new_name = self._sanitize_identifier(
             set_fields["name"] if "name" in set_fields else column.name
@@ -805,6 +820,8 @@ class BaseTablesService(BaseWorkspaceService):
         for key, value in set_fields.items():
             setattr(column, key, value)
 
+        if old_name != column.name or old_type != column.type:
+            await self.search.column_changed(collection, column)
         await self.session.flush()
         return column
 
@@ -817,6 +834,7 @@ class BaseTablesService(BaseWorkspaceService):
             raise ValueError("Table cannot have multiple unique indexes")
 
         # Get the fully qualified table name with schema
+        await self.search.for_table(table.id)
         full_table_name = self._full_table_name(table.name)
 
         # Sanitize column names to prevent SQL injection
@@ -855,6 +873,7 @@ class BaseTablesService(BaseWorkspaceService):
     async def drop_unique_index(self, table: Table, column_name: str) -> None:
         """Drop the unique index on the specified column."""
 
+        await self.search.for_table(table.id)
         schema_name = self._get_schema_name()
 
         resolved_column_name = self._resolve_external_column_name(table, column_name)
@@ -888,6 +907,8 @@ class BaseTablesService(BaseWorkspaceService):
     @audit_log(resource_type="table_column", action="delete")
     async def delete_column(self, column: TableColumn) -> None:
         """Remove a column from an existing table."""
+        collection = await self.search.for_table(column.table_id)
+        await self.search.column_changed(collection, column, removed=True)
         self._assert_user_column_name_allowed(column.name)
         full_table_name = self._full_table_name(column.table.name)
         sanitized_column = self._sanitize_identifier(column.name)
@@ -973,6 +994,8 @@ class BaseTablesService(BaseWorkspaceService):
             ValueError: If conflict keys are specified but not present in the data
             DBAPIError: If there's no unique index on the specified conflict keys
         """
+        collection = await self.search.for_table(table.id)
+        table = await self.search.table(table.id)
         schema_name = self._get_schema_name()
         conn = await self.session.connection()
 
@@ -1027,6 +1050,11 @@ class BaseTablesService(BaseWorkspaceService):
                 if col not in index  # Don't update the unique columns
             }
 
+            existed = await self.session.scalar(
+                select(sa.column("id"))
+                .select_from(table_obj)
+                .where(*[sa.column(key) == value_clauses[key] for key in index])
+            )
             try:
                 # Complete the statement with on_conflict_do_update
                 stmt = pg_stmt.on_conflict_do_update(
@@ -1036,6 +1064,10 @@ class BaseTablesService(BaseWorkspaceService):
                 result = await conn.execute(stmt)
                 await self.session.flush()
                 row = result.mappings().one()
+                if existed is None or self.search.selected_names(
+                    collection, table
+                ).intersection(update_dict):
+                    await self.search.record_rows(collection, [row["id"]])
                 return dict(row)
             except ProgrammingError as e:
                 # Drill down to the root cause
@@ -1065,6 +1097,7 @@ class BaseTablesService(BaseWorkspaceService):
             result = await conn.execute(stmt)
             await self.session.flush()
             row = result.mappings().one()
+            await self.search.record_rows(collection, [row["id"]])
             return dict(row)
         except IntegrityError as e:
             # Drill down to the root cause
@@ -1102,6 +1135,8 @@ class BaseTablesService(BaseWorkspaceService):
         Raises:
             TracecatNotFoundError: If the row does not exist
         """
+        collection = await self.search.for_table(table.id)
+        table = await self.search.table(table.id)
         schema_name = self._get_schema_name()
         conn = await self.session.connection()
 
@@ -1134,16 +1169,23 @@ class BaseTablesService(BaseWorkspaceService):
                 f"Row {row_id} not found in table {table.name}"
             ) from None
 
+        if self.search.selected_names(collection, table).intersection(normalised_data):
+            await self.search.record_rows(collection, [row_id])
         return dict(row)
 
     async def delete_row(self, table: Table, row_id: UUID) -> None:
         """Delete a row from the table."""
+        collection = await self.search.for_table(table.id)
+        table = await self.search.table(table.id)
         schema_name = self._get_schema_name()
         sanitized_table_name = self._sanitize_identifier(table.name)
         conn = await self.session.connection()
         table_clause = sa.table(sanitized_table_name, schema=schema_name)
         stmt = sa.delete(table_clause).where(sa.column("id") == row_id)
-        await conn.execute(stmt)
+        deleted_ids = (
+            (await conn.execute(stmt.returning(sa.column("id")))).scalars().all()
+        )
+        await self.search.record_rows(collection, deleted_ids, deleted=True)
         await self.session.flush()
 
     async def batch_delete_rows(self, table: Table, row_ids: list[UUID]) -> int:
@@ -1156,14 +1198,19 @@ class BaseTablesService(BaseWorkspaceService):
         Returns:
             Number of rows deleted
         """
+        collection = await self.search.for_table(table.id)
+        table = await self.search.table(table.id)
         schema_name = self._get_schema_name()
         sanitized_table_name = self._sanitize_identifier(table.name)
         conn = await self.session.connection()
         table_clause = sa.table(sanitized_table_name, schema=schema_name)
         stmt = sa.delete(table_clause).where(sa.column("id").in_(row_ids))
-        result = await conn.execute(stmt)
+        deleted_ids = (
+            (await conn.execute(stmt.returning(sa.column("id")))).scalars().all()
+        )
+        await self.search.record_rows(collection, deleted_ids, deleted=True)
         await self.session.flush()
-        return result.rowcount
+        return len(deleted_ids)
 
     async def batch_update_rows(
         self, table: Table, row_ids: list[UUID], data: dict[str, Any]
@@ -1178,6 +1225,8 @@ class BaseTablesService(BaseWorkspaceService):
         Returns:
             Number of rows updated
         """
+        collection = await self.search.for_table(table.id)
+        table = await self.search.table(table.id)
         schema_name = self._get_schema_name()
         conn = await self.session.connection()
 
@@ -1198,9 +1247,13 @@ class BaseTablesService(BaseWorkspaceService):
             .values(**value_clauses)
         )
 
-        result = await conn.execute(stmt)
+        changed_ids = (
+            (await conn.execute(stmt.returning(sa.column("id")))).scalars().all()
+        )
+        if self.search.selected_names(collection, table).intersection(normalised_data):
+            await self.search.record_rows(collection, changed_ids)
         await self.session.flush()
-        return result.rowcount
+        return len(changed_ids)
 
     async def aggregate_rows(
         self,
@@ -1680,6 +1733,8 @@ class BaseTablesService(BaseWorkspaceService):
         if len(rows) > chunk_size:
             raise ValueError(f"Batch size {len(rows)} exceeds maximum of {chunk_size}")
 
+        collection = await self.search.for_table(table.id)
+        table = await self.search.table(table.id)
         schema_name = self._get_schema_name()
 
         sanitized_table_name = self._sanitize_identifier(table.name)
@@ -1768,9 +1823,42 @@ class BaseTablesService(BaseWorkspaceService):
                     # Nothing to update (e.g., the only columns present are the unique index)
                     stmt = pg_stmt.on_conflict_do_nothing(index_elements=index)
 
+            if upsert and collection is not None and collection.enabled:
+                assert index is not None
+                key = index[0]
+                selected = self.search.selected_names(collection, table) - set(index)
+                # Compare unique values in PostgreSQL: JSON/array keys need not
+                # be hashable Python objects. Project only row IDs and a flag.
+                changed_values = [
+                    row[key]
+                    for row in group_rows
+                    if any(row.get(name) is not None for name in selected)
+                ]
+                existing_rows = (
+                    await conn.execute(
+                        select(sa.column("id"), table_obj.c[key].in_(changed_values))
+                        .select_from(table_obj)
+                        .where(table_obj.c[key].in_([row[key] for row in group_rows]))
+                    )
+                ).all()
+                existing_ids = {row_id for row_id, _ in existing_rows}
+                changed_ids = {row_id for row_id, changed in existing_rows if changed}
+            else:
+                existing_ids = set()
+                changed_ids = set()
             try:
-                result = await conn.execute(stmt)
-                total_affected += result.rowcount
+                written = (
+                    (await conn.execute(stmt.returning(sa.column("id"))))
+                    .scalars()
+                    .all()
+                )
+                total_affected += len(written)
+                ids = [
+                    row_id
+                    for row_id in written
+                    if row_id not in existing_ids or row_id in changed_ids
+                ]
+                await self.search.record_rows(collection, ids)
             except Exception as e:
                 # Re-raise as DBAPIError for consistency
                 raise DBAPIError("Failed to insert batch", str(e), e) from e
@@ -2032,6 +2120,23 @@ class TableEditorService(BaseWorkspaceService):
         self.schema_name = schema_name
         self._visible_columns_cache: list[sa.ColumnClause] | None = None
 
+    async def _managed_table(self) -> tuple[BaseTablesService, Table] | None:
+        """Delegate managed table writes; custom-field schemas stay independent."""
+        service = BaseTablesService(self.session, self.role)
+        if self.schema_name != service._get_schema_name():
+            return None
+        # Use the same lock even if metadata is absent or being created/renamed.
+        await service.search.lock_scope()
+        table = await self.session.scalar(
+            select(Table)
+            .where(
+                Table.workspace_id == self.workspace_id, Table.name == self.table_name
+            )
+            .options(selectinload(Table.columns))
+            .execution_options(populate_existing=True)
+        )
+        return (service, table) if table is not None else None
+
     def _full_table_name(self) -> str:
         """Get the full table name for the current role."""
         return f'"{self.schema_name}"."{self.table_name}"'
@@ -2092,6 +2197,11 @@ class TableEditorService(BaseWorkspaceService):
         Raises:
             ValueError: If the column type is invalid
         """
+        if managed := await self._managed_table():
+            service, table = managed
+            await service.create_column(table, params)
+            self._invalidate_visible_columns_cache()
+            return
 
         self._assert_user_column_name_allowed(params.name)
         column_name = validate_identifier(params.name)
@@ -2149,6 +2259,16 @@ class TableEditorService(BaseWorkspaceService):
             ValueError: If the column type is invalid
             ProgrammingError: If the database operation fails
         """
+        self._assert_user_column_name_allowed(column_name)
+        if managed := await self._managed_table():
+            service, table = managed
+            column = next((c for c in table.columns if c.name == column_name), None)
+            if column is None:
+                raise TracecatNotFoundError("Column not found")
+            await service.update_column(column, params)
+            self._invalidate_visible_columns_cache()
+            return
+
         self._assert_user_column_name_allowed(column_name)
         set_fields = params.model_dump(exclude_unset=True)
         conn = await self.session.connection()
@@ -2228,6 +2348,16 @@ class TableEditorService(BaseWorkspaceService):
 
     async def delete_column(self, column_name: str) -> None:
         """Remove a column from an existing table."""
+        self._assert_user_column_name_allowed(column_name)
+        if managed := await self._managed_table():
+            service, table = managed
+            column = next((c for c in table.columns if c.name == column_name), None)
+            if column is None:
+                raise TracecatNotFoundError("Column not found")
+            await service.delete_column(column)
+            self._invalidate_visible_columns_cache()
+            return
+
         self._assert_user_column_name_allowed(column_name)
         sanitized_column = validate_identifier(column_name)
 
@@ -2324,6 +2454,12 @@ class TableEditorService(BaseWorkspaceService):
         Returns:
             A mapping containing the inserted row data
         """
+        for column_name in params.data:
+            self._assert_user_column_name_allowed(column_name)
+        if managed := await self._managed_table():
+            service, table = managed
+            return await service.insert_row(table, params)
+
         conn = await self.session.connection()
 
         row_data = params.data
@@ -2376,6 +2512,12 @@ class TableEditorService(BaseWorkspaceService):
         Raises:
             TracecatNotFoundError: If the row does not exist
         """
+        for column_name in data:
+            self._assert_user_column_name_allowed(column_name)
+        if managed := await self._managed_table():
+            service, table = managed
+            return await service.update_row(table, row_id, data)
+
         conn = await self.session.connection()
         for column_name in data:
             self._assert_user_column_name_allowed(column_name)
@@ -2427,6 +2569,11 @@ class TableEditorService(BaseWorkspaceService):
 
     async def delete_row(self, row_id: UUID) -> None:
         """Delete a row from the table."""
+        if managed := await self._managed_table():
+            service, table = managed
+            await service.delete_row(table, row_id)
+            return
+
         conn = await self.session.connection()
         table_clause = sa.table(self.table_name, schema=self.schema_name)
         stmt = sa.delete(table_clause).where(sa.column("id") == row_id)

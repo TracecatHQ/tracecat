@@ -1453,6 +1453,23 @@ export const $AgentArtifact = {
   description: "Agent preset artifact shown in artifact-capable chat surfaces.",
 } as const
 
+export const $AgentBackendRead = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+  },
+  type: "object",
+  required: ["id", "name"],
+  title: "AgentBackendRead",
+  description: "An enabled installed backend available for session creation.",
+} as const
+
 export const $AgentCatalogListResponse = {
   properties: {
     items: {
@@ -4046,10 +4063,30 @@ export const $AgentSessionCreate = {
       description:
         "Pinned preset version used for this session. If null, the session follows the preset's current version.",
     },
+    backend_id: {
+      type: "string",
+      maxLength: 50,
+      minLength: 1,
+      pattern: "^[a-z][a-z0-9_]*$",
+      title: "Backend Id",
+      description: "Opaque agent backend identifier",
+      default: "oss",
+    },
     harness_type: {
-      $ref: "#/components/schemas/HarnessType",
-      description: "Agent harness type",
-      default: "claude_code",
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 50,
+          minLength: 1,
+          pattern: "^[a-z][a-z0-9_]*$",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Harness Type",
+      description:
+        "Execution harness; defaults to the selected backend's harness",
     },
   },
   type: "object",
@@ -4217,6 +4254,11 @@ export const $AgentSessionRead = {
           type: "null",
         },
       ],
+    },
+    backend_id: {
+      type: "string",
+      title: "Backend Id",
+      default: "oss",
     },
     harness_type: {
       anyOf: [
@@ -4417,6 +4459,11 @@ export const $AgentSessionReadVercel = {
           type: "null",
         },
       ],
+    },
+    backend_id: {
+      type: "string",
+      title: "Backend Id",
+      default: "oss",
     },
     harness_type: {
       anyOf: [
@@ -4626,6 +4673,11 @@ export const $AgentSessionReadWithMessages = {
         },
       ],
     },
+    backend_id: {
+      type: "string",
+      title: "Backend Id",
+      default: "oss",
+    },
     harness_type: {
       anyOf: [
         {
@@ -4792,16 +4844,35 @@ export const $AgentSessionUpdate = {
       description:
         "Pinned preset version to use for this session. Set null to follow the preset's current version.",
     },
-    harness_type: {
+    backend_id: {
       anyOf: [
         {
-          $ref: "#/components/schemas/HarnessType",
+          type: "string",
+          maxLength: 50,
+          minLength: 1,
+          pattern: "^[a-z][a-z0-9_]*$",
         },
         {
           type: "null",
         },
       ],
-      description: "Agent harness type",
+      title: "Backend Id",
+      description: "Immutable agent backend identifier",
+    },
+    harness_type: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 50,
+          minLength: 1,
+          pattern: "^[a-z][a-z0-9_]*$",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Harness Type",
+      description: "Immutable execution harness",
     },
   },
   type: "object",
@@ -13420,6 +13491,13 @@ export const $DeferredToolUse = {
   title: "DeferredToolUse",
 } as const
 
+export const $DocumentState = {
+  type: "string",
+  enum: ["pending", "building", "ready", "empty", "failed", "deleted"],
+  title: "DocumentState",
+  description: "Lifecycle states of a row document within an index generation.",
+} as const
+
 export const $DropdownValueChangedEventRead = {
   properties: {
     wf_exec_id: {
@@ -13906,6 +13984,159 @@ export const $EffectiveEntitlements = {
   description: `Effective feature entitlements for an organization.
 
 Values are resolved from org overrides falling back to tier defaults.`,
+} as const
+
+export const $EmbeddingConfigurationRead = {
+  properties: {
+    available: {
+      type: "boolean",
+      title: "Available",
+    },
+    version: {
+      type: "integer",
+      title: "Version",
+    },
+    state: {
+      $ref: "#/components/schemas/SearchState",
+    },
+    configuration: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/EmbeddingModelRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    reindex_required: {
+      type: "boolean",
+      title: "Reindex Required",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["available", "version", "state"],
+  title: "EmbeddingConfigurationRead",
+  description:
+    "Availability from existing provider settings and current indexing state.",
+} as const
+
+export const $EmbeddingErrorCode = {
+  type: "string",
+  enum: [
+    "CREDENTIAL_INVALID",
+    "CONFIGURATION_INVALID",
+    "CONFIGURATION_CHANGED",
+    "INPUT_INVALID",
+    "RATE_LIMITED",
+    "TIMEOUT",
+    "UNAVAILABLE",
+    "RESPONSE_INVALID",
+    "NOT_CONFIGURED",
+  ],
+  title: "EmbeddingErrorCode",
+  description:
+    "Stable public failures; provider messages must never cross this boundary.",
+} as const
+
+export const $EmbeddingErrorRead = {
+  properties: {
+    code: {
+      $ref: "#/components/schemas/EmbeddingErrorCode",
+    },
+    retryable: {
+      type: "boolean",
+      title: "Retryable",
+    },
+    retry_after: {
+      anyOf: [
+        {
+          type: "number",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Retry After",
+    },
+  },
+  type: "object",
+  required: ["code", "retryable"],
+  title: "EmbeddingErrorRead",
+} as const
+
+export const $EmbeddingErrorResponse = {
+  properties: {
+    detail: {
+      $ref: "#/components/schemas/EmbeddingErrorRead",
+    },
+  },
+  type: "object",
+  required: ["detail"],
+  title: "EmbeddingErrorResponse",
+} as const
+
+export const $EmbeddingModelRead = {
+  properties: {
+    provider: {
+      type: "string",
+      enum: ["openai", "gemini", "bedrock", "ollama", "vllm"],
+      title: "Provider",
+    },
+    model: {
+      type: "string",
+      enum: [
+        "text-embedding-3-small",
+        "text-embedding-3-large",
+        "gemini-embedding-001",
+        "amazon.titan-embed-text-v2:0",
+        "all-minilm",
+        "all-minilm:latest",
+        "all-minilm:22m",
+        "sentence-transformers/all-MiniLM-L6-v2",
+      ],
+      title: "Model",
+    },
+    dimensions: {
+      type: "integer",
+      title: "Dimensions",
+    },
+    tokenizer: {
+      type: "string",
+      title: "Tokenizer",
+    },
+    input_token_limit: {
+      type: "integer",
+      title: "Input Token Limit",
+    },
+    input_character_limit: {
+      type: "integer",
+      title: "Input Character Limit",
+    },
+    batch_size_limit: {
+      type: "integer",
+      title: "Batch Size Limit",
+    },
+    batch_token_limit: {
+      type: "integer",
+      title: "Batch Token Limit",
+    },
+  },
+  type: "object",
+  required: [
+    "provider",
+    "model",
+    "dimensions",
+    "tokenizer",
+    "input_token_limit",
+    "input_character_limit",
+    "batch_size_limit",
+    "batch_token_limit",
+  ],
+  title: "EmbeddingModelRead",
+  description:
+    "Public metadata needed for status and bounded chunk preparation.",
 } as const
 
 export const $EntitlementsDict = {
@@ -14468,6 +14699,7 @@ export const $FeatureFlag = {
     "workflow-concurrency-limits",
     "agent-channels",
     "agent-fs-persistence",
+    "agent-runtime",
   ],
   title: "FeatureFlag",
   description: "Feature flag enum reserved for engineering rollouts.",
@@ -15805,13 +16037,6 @@ export const $HTTPValidationError = {
   },
   type: "object",
   title: "HTTPValidationError",
-} as const
-
-export const $HarnessType = {
-  type: "string",
-  enum: ["claude_code"],
-  title: "HarnessType",
-  description: "Supported agent harnesses.",
 } as const
 
 export const $HealthResponse = {
@@ -24338,6 +24563,85 @@ export const $ScopeSource = {
   description: "Source/ownership of a scope definition.",
 } as const
 
+export const $SearchErrorCode = {
+  type: "string",
+  enum: [
+    "NOT_FOUND",
+    "INDEX_NOT_READY",
+    "STALE_CLAIM",
+    "MANIFEST_CONFLICT",
+    "INVALID_VECTOR",
+    "CONFIGURATION_CHANGED",
+    "PROVIDER_UNAVAILABLE",
+    "INVALID_CURSOR",
+  ],
+  title: "SearchErrorCode",
+  description:
+    "Stable error codes safe to expose without source text or credentials.",
+} as const
+
+export const $SearchIndexStatus = {
+  properties: {
+    state: {
+      $ref: "#/components/schemas/SearchState",
+    },
+    pending: {
+      type: "integer",
+      minimum: 0,
+      title: "Pending",
+      default: 0,
+    },
+    failed: {
+      type: "integer",
+      minimum: 0,
+      title: "Failed",
+      default: 0,
+    },
+    empty: {
+      type: "integer",
+      minimum: 0,
+      title: "Empty",
+      default: 0,
+    },
+    ready: {
+      type: "integer",
+      minimum: 0,
+      title: "Ready",
+      default: 0,
+    },
+    backfill_complete: {
+      type: "boolean",
+      title: "Backfill Complete",
+      default: false,
+    },
+    partial: {
+      type: "boolean",
+      title: "Partial",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["state"],
+  title: "SearchIndexStatus",
+  description: `Index availability and document counts for a collection.
+
+Attributes:
+    state: Effective workspace or collection search state.
+    pending: Documents awaiting work for the current index configuration.
+    failed: Documents that failed in the current index generation.
+    empty: Current documents that contain no searchable chunks.
+    ready: Current documents whose complete embeddings are published.
+    backfill_complete: Whether all source rows have been enumerated.
+    partial: Whether the index is unavailable or results may be incomplete.`,
+} as const
+
+export const $SearchState = {
+  type: "string",
+  enum: ["disabled", "active", "paused", "reindex_required"],
+  title: "SearchState",
+  description: "Workspace availability states controlling search and indexing.",
+} as const
+
 export const $SecretArtifact = {
   properties: {
     id: {
@@ -27736,6 +28040,332 @@ export const $TableRowUpdate = {
   required: ["data"],
   title: "TableRowUpdate",
   description: "Update model for a table row.",
+} as const
+
+export const $TableSearchConfiguration = {
+  properties: {
+    generation: {
+      type: "integer",
+      minimum: 0,
+      title: "Generation",
+      default: 0,
+    },
+    selected_column_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      title: "Selected Column Ids",
+    },
+    status: {
+      $ref: "#/components/schemas/TableSearchDisplayState",
+      default: "disabled",
+    },
+    index: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/SearchIndexStatus",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  title: "TableSearchConfiguration",
+  description:
+    "Persisted selection with truthful readiness; never includes credentials.",
+} as const
+
+export const $TableSearchDisplayState = {
+  type: "string",
+  enum: [
+    "disabled",
+    "unavailable",
+    "indexing",
+    "ready",
+    "updating",
+    "needs_attention",
+  ],
+  title: "TableSearchDisplayState",
+} as const
+
+export const $TableSearchDocumentProgress = {
+  properties: {
+    document_id: {
+      type: "string",
+      format: "uuid",
+      title: "Document Id",
+    },
+    row_id: {
+      type: "string",
+      format: "uuid",
+      title: "Row Id",
+    },
+    state: {
+      $ref: "#/components/schemas/DocumentState",
+    },
+    revision: {
+      type: "integer",
+      title: "Revision",
+    },
+    expected_chunks: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Expected Chunks",
+    },
+    sampled_chunks: {
+      type: "integer",
+      title: "Sampled Chunks",
+    },
+    sampled_embedded: {
+      type: "integer",
+      title: "Sampled Embedded",
+    },
+    chunks_capped: {
+      type: "boolean",
+      title: "Chunks Capped",
+    },
+    error_code: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Error Code",
+    },
+  },
+  type: "object",
+  required: [
+    "document_id",
+    "row_id",
+    "state",
+    "revision",
+    "expected_chunks",
+    "sampled_chunks",
+    "sampled_embedded",
+    "chunks_capped",
+    "error_code",
+  ],
+  title: "TableSearchDocumentProgress",
+  description:
+    "Bounded progress sample; chunk totals remain unknown until enumeration ends.",
+} as const
+
+export const $TableSearchErrorRead = {
+  properties: {
+    code: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/SearchErrorCode",
+        },
+        {
+          type: "string",
+          const: "INVALID_SELECTION",
+        },
+      ],
+      title: "Code",
+    },
+  },
+  type: "object",
+  required: ["code"],
+  title: "TableSearchErrorRead",
+  description:
+    "Safe domain failure, including a stale generation precondition.",
+} as const
+
+export const $TableSearchErrorResponse = {
+  properties: {
+    detail: {
+      $ref: "#/components/schemas/TableSearchErrorRead",
+    },
+  },
+  type: "object",
+  required: ["detail"],
+  title: "TableSearchErrorResponse",
+} as const
+
+export const $TableSearchProgressPage = {
+  properties: {
+    generation: {
+      type: "integer",
+      title: "Generation",
+    },
+    items: {
+      items: {
+        $ref: "#/components/schemas/TableSearchDocumentProgress",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["generation", "items"],
+  title: "TableSearchProgressPage",
+} as const
+
+export const $TableSearchRequestValidationError = {
+  properties: {
+    loc: {
+      items: {
+        anyOf: [
+          {
+            type: "string",
+          },
+          {
+            type: "integer",
+          },
+        ],
+      },
+      type: "array",
+      title: "Loc",
+    },
+    msg: {
+      type: "string",
+      title: "Msg",
+    },
+    type: {
+      type: "string",
+      title: "Type",
+    },
+    input: {
+      $ref: "#/components/schemas/JsonValue",
+    },
+    ctx: {
+      anyOf: [
+        {
+          additionalProperties: {
+            $ref: "#/components/schemas/JsonValue",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Ctx",
+    },
+  },
+  type: "object",
+  required: ["loc", "msg", "type"],
+  title: "TableSearchRequestValidationError",
+  description:
+    "Standard FastAPI request validation fields for the selection endpoint.",
+} as const
+
+export const $TableSearchRetry = {
+  properties: {
+    expected_generation: {
+      type: "integer",
+      minimum: 1,
+      title: "Expected Generation",
+    },
+    document_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      maxItems: 100,
+      minItems: 1,
+      title: "Document Ids",
+    },
+  },
+  type: "object",
+  required: ["expected_generation", "document_ids"],
+  title: "TableSearchRetry",
+  description:
+    "Retry a bounded explicit set of failed documents in the current generation.",
+} as const
+
+export const $TableSearchSelection = {
+  properties: {
+    column_id: {
+      type: "string",
+      format: "uuid",
+      title: "Column Id",
+    },
+    enabled: {
+      type: "boolean",
+      title: "Enabled",
+    },
+    expected_generation: {
+      type: "integer",
+      minimum: 0,
+      title: "Expected Generation",
+    },
+  },
+  type: "object",
+  required: ["column_id", "enabled", "expected_generation"],
+  title: "TableSearchSelection",
+  description:
+    "Set one selection; generation zero denotes an absent collection.",
+} as const
+
+export const $TableSearchSelectionErrorResponse = {
+  properties: {
+    detail: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/TableSearchErrorRead",
+        },
+        {
+          items: {
+            $ref: "#/components/schemas/TableSearchRequestValidationError",
+          },
+          type: "array",
+        },
+      ],
+      title: "Detail",
+    },
+  },
+  type: "object",
+  required: ["detail"],
+  title: "TableSearchSelectionErrorResponse",
+  description: "Invalid column selection or malformed request parameters.",
 } as const
 
 export const $TableUpdate = {
