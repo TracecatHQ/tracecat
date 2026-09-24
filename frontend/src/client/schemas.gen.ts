@@ -5625,6 +5625,12 @@ export const $AssistantMessage = {
           {
             $ref: "#/components/schemas/ToolResultBlock",
           },
+          {
+            $ref: "#/components/schemas/ServerToolUseBlock",
+          },
+          {
+            $ref: "#/components/schemas/ServerToolResultBlock",
+          },
         ],
       },
       type: "array",
@@ -10646,6 +10652,9 @@ export const $ChatMessage = {
           $ref: "#/components/schemas/RateLimitEvent",
         },
         {
+          $ref: "#/components/schemas/ConversationResetMessage",
+        },
+        {
           type: "null",
         },
       ],
@@ -11721,6 +11730,26 @@ export const $ContinueRunRequest = {
   required: ["decisions"],
   title: "ContinueRunRequest",
   description: "Payload to continue a CE run after collecting approvals.",
+} as const
+
+export const $ConversationResetMessage = {
+  properties: {
+    new_conversation_id: {
+      type: "string",
+      title: "New Conversation Id",
+    },
+    uuid: {
+      type: "string",
+      title: "Uuid",
+    },
+    session_id: {
+      type: "string",
+      title: "Session Id",
+    },
+  },
+  type: "object",
+  required: ["new_conversation_id", "uuid", "session_id"],
+  title: "ConversationResetMessage",
 } as const
 
 export const $CreatedEventRead = {
@@ -13462,6 +13491,27 @@ export const $DefaultModelSelectionUpdate = {
   title: "DefaultModelSelectionUpdate",
   description:
     "Payload for updating the organization's default model selection.",
+} as const
+
+export const $DeferredToolUse = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    input: {
+      additionalProperties: true,
+      type: "object",
+      title: "Input",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "input"],
+  title: "DeferredToolUse",
 } as const
 
 export const $DropdownValueChangedEventRead = {
@@ -19009,6 +19059,62 @@ export const $MessageKind = {
   description: "The type/kind of message stored in the chat.",
 } as const
 
+export const $MessageOrigin = {
+  properties: {
+    kind: {
+      type: "string",
+      enum: [
+        "human",
+        "channel",
+        "peer",
+        "task-notification",
+        "coordinator",
+        "unclassified",
+        "observer",
+        "auto-continuation",
+        "observer-activity",
+      ],
+      title: "Kind",
+    },
+    server: {
+      type: "string",
+      title: "Server",
+    },
+    from: {
+      type: "string",
+      title: "From",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    fromSession: {
+      type: "string",
+      title: "Fromsession",
+    },
+    senderTaskId: {
+      type: "string",
+      title: "Sendertaskid",
+    },
+    body: {
+      type: "string",
+      title: "Body",
+    },
+    verifiedPeerPid: {
+      type: "integer",
+      title: "Verifiedpeerpid",
+    },
+    subkind: {
+      type: "string",
+      enum: ["scheduled-trigger", "peer-send-message"],
+      title: "Subkind",
+    },
+  },
+  type: "object",
+  required: ["kind"],
+  title: "MessageOrigin",
+} as const
+
 export const $ModelConfig = {
   properties: {
     name: {
@@ -19119,6 +19225,67 @@ export const $ModelSecretConfig = {
   },
   type: "object",
   title: "ModelSecretConfig",
+} as const
+
+export const $ModelUsage = {
+  properties: {
+    inputTokens: {
+      type: "integer",
+      title: "Inputtokens",
+    },
+    outputTokens: {
+      type: "integer",
+      title: "Outputtokens",
+    },
+    cacheReadInputTokens: {
+      type: "integer",
+      title: "Cachereadinputtokens",
+    },
+    cacheCreationInputTokens: {
+      type: "integer",
+      title: "Cachecreationinputtokens",
+    },
+    webSearchRequests: {
+      type: "integer",
+      title: "Websearchrequests",
+    },
+    costUSD: {
+      type: "number",
+      title: "Costusd",
+    },
+    contextWindow: {
+      type: "integer",
+      title: "Contextwindow",
+    },
+    maxOutputTokens: {
+      type: "integer",
+      title: "Maxoutputtokens",
+    },
+    canonicalModel: {
+      type: "string",
+      title: "Canonicalmodel",
+    },
+    provider: {
+      type: "string",
+      title: "Provider",
+    },
+  },
+  type: "object",
+  required: [
+    "inputTokens",
+    "outputTokens",
+    "cacheReadInputTokens",
+    "cacheCreationInputTokens",
+    "webSearchRequests",
+    "costUSD",
+    "contextWindow",
+    "maxOutputTokens",
+  ],
+  title: "ModelUsage",
+  description: `Per-model token usage and cost breakdown.
+
+Keys match the TypeScript SDK's \`\`ModelUsage\`\` shape (camelCase), since
+the value is passed through verbatim from the CLI's \`\`modelUsage\`\` field.`,
 } as const
 
 export const $OAuth2AuthorizeResponse = {
@@ -23104,7 +23271,9 @@ export const $ResultMessage = {
     model_usage: {
       anyOf: [
         {
-          additionalProperties: true,
+          additionalProperties: {
+            $ref: "#/components/schemas/ModelUsage",
+          },
           type: "object",
         },
         {
@@ -23125,6 +23294,16 @@ export const $ResultMessage = {
       ],
       title: "Permission Denials",
     },
+    deferred_tool_use: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/DeferredToolUse",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
     errors: {
       anyOf: [
         {
@@ -23139,6 +23318,17 @@ export const $ResultMessage = {
       ],
       title: "Errors",
     },
+    api_error_status: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Api Error Status",
+    },
     uuid: {
       anyOf: [
         {
@@ -23149,6 +23339,27 @@ export const $ResultMessage = {
         },
       ],
       title: "Uuid",
+    },
+    terminal_reason: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Terminal Reason",
+    },
+    origin: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/MessageOrigin",
+        },
+        {
+          type: "null",
+        },
+      ],
     },
   },
   type: "object",
@@ -24896,6 +25107,54 @@ export const $Select = {
   },
   type: "object",
   title: "Select",
+} as const
+
+export const $ServerToolResultBlock = {
+  properties: {
+    tool_use_id: {
+      type: "string",
+      title: "Tool Use Id",
+    },
+    content: {
+      additionalProperties: true,
+      type: "object",
+      title: "Content",
+    },
+  },
+  type: "object",
+  required: ["tool_use_id", "content"],
+  title: "ServerToolResultBlock",
+} as const
+
+export const $ServerToolUseBlock = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      enum: [
+        "advisor",
+        "web_search",
+        "web_fetch",
+        "code_execution",
+        "bash_code_execution",
+        "text_editor_code_execution",
+        "tool_search_tool_regex",
+        "tool_search_tool_bm25",
+      ],
+      title: "Name",
+    },
+    input: {
+      additionalProperties: true,
+      type: "object",
+      title: "Input",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "input"],
+  title: "ServerToolUseBlock",
 } as const
 
 export const $ServiceAccountApiKeyCounts = {
@@ -29826,6 +30085,12 @@ export const $UserMessage = {
               {
                 $ref: "#/components/schemas/ToolResultBlock",
               },
+              {
+                $ref: "#/components/schemas/ServerToolUseBlock",
+              },
+              {
+                $ref: "#/components/schemas/ServerToolResultBlock",
+              },
             ],
           },
           type: "array",
@@ -29866,6 +30131,16 @@ export const $UserMessage = {
         },
       ],
       title: "Tool Use Result",
+    },
+    origin: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/MessageOrigin",
+        },
+        {
+          type: "null",
+        },
+      ],
     },
   },
   type: "object",

@@ -44,11 +44,26 @@ class ClaudeShimInitPayload(TypedDict):
     mcp_bridge_fd: NotRequired[int | None]
 
 
-class SandboxSocketBridge:
-    """Pure byte-pipe: 127.0.0.1:<port> -> UDS at ``socket_path``.
+def _force_connection_close(headers_data: bytes) -> bytes:
+    """Rewrite request headers so the upstream closes after one response.
 
-    Holds no credentials and applies no policy beyond the body cap and
-    UDS-failure mode passed at construction.
+    The bridge serves exactly one request per client connection, so it must
+    prevent HTTP keep-alive: a client that reuses the connection for a second
+    request would otherwise hang until the upstream idle timeout and then see
+    the connection reset.
+    """
+    lines = headers_data.split(b"\r\n")
+    kept = [line for line in lines[:-2] if not line.lower().startswith(b"connection:")]
+    kept.append(b"Connection: close")
+    return b"\r\n".join(kept) + b"\r\n\r\n"
+
+
+class SandboxSocketBridge:
+    """Byte-pipe for one HTTP request per connection: 127.0.0.1:<port> -> UDS.
+
+    Holds no credentials and applies no policy beyond the body cap, the
+    forced ``Connection: close``, and the UDS-failure mode passed at
+    construction.
     """
 
     def __init__(
@@ -223,7 +238,7 @@ class SandboxSocketBridge:
         body = b""
         if content_length > 0:
             body = await reader.readexactly(content_length)
-        return headers_data + body
+        return _force_connection_close(headers_data) + body
 
     async def _send_error_response(
         self,
