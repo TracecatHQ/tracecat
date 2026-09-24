@@ -7503,6 +7503,7 @@ export type SearchErrorCode =
   | "CONFIGURATION_CHANGED"
   | "PROVIDER_UNAVAILABLE"
   | "INVALID_CURSOR"
+  | "INVALID_TABLE_NAME"
 
 /**
  * Index availability and document counts for a collection.

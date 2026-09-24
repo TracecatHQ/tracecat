@@ -2637,7 +2637,7 @@ Tables: `core.table.aggregate_rows`, `core.table.create_column`, `core.table.cre
 `core.table.delete_column`, `core.table.delete_row`, `core.table.download`,
 `core.table.get_table_metadata`, `core.table.insert_row`,
 `core.table.insert_rows`, `core.table.is_in`, `core.table.list_tables`,
-`core.table.lookup`, `core.table.lookup_many`, `core.table.search_rows`,
+`core.table.lookup`, `core.table.lookup_many`, `core.table.search`, `core.table.search_rows`,
 `core.table.update_column`, `core.table.update_row`, `core.table.update_table`
 
 Cases: `core.cases.add_case_tag`, `core.cases.aggregate_cases`, `core.cases.assign_user`,
