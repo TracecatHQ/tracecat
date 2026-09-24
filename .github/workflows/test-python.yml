@@ -22,8 +22,23 @@ on:
       - .github/workflows/test-python.yml
   pull_request:
     branches: ["main", "staging"]
-    # These jobs are required by branch rules, including for frontend-only PRs.
-    # A path filter would leave their required checks waiting indefinitely.
+    paths:
+      - tracecat/**
+      - registry/**
+      - tests/**
+      - packages/tracecat-ee/**
+      - packages/tracecat-registry/**
+      - pyproject.toml
+      - uv.lock
+      - docker-compose.yml
+      - docker-compose.local.yml
+      - docker-compose.dev.yml
+      - deployments/postgres/**
+      - scripts/postgres/**
+      - scripts/tests/test_pgvector*.sh
+      - .env.example
+      - env.sh
+      - .github/workflows/test-python.yml
 
 permissions:
   contents: read
