@@ -668,6 +668,8 @@ import type {
   SchedulesSearchSchedulesResponse,
   SchedulesUpdateScheduleData,
   SchedulesUpdateScheduleResponse,
+  SearchGetEmbeddingConfigurationData,
+  SearchGetEmbeddingConfigurationResponse,
   SecretsCreateSecretData,
   SecretsCreateSecretResponse,
   SecretsDeleteSecretByIdData,
@@ -1594,6 +1596,34 @@ export const workspacesRevokeWorkspaceInvitation = (
     },
     errors: {
       422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Embedding Configuration
+ * Read automatic embedding availability without credential metadata.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns EmbeddingConfigurationRead Successful Response
+ * @throws ApiError
+ */
+export const searchGetEmbeddingConfiguration = (
+  data: SearchGetEmbeddingConfigurationData
+): CancelablePromise<SearchGetEmbeddingConfigurationResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/search/configuration",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      400: "Bad Request",
+      409: "Conflict",
+      422: "Validation Error",
+      429: "Too Many Requests",
+      502: "Bad Gateway",
+      504: "Gateway Timeout",
     },
   })
 }

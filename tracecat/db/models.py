@@ -5833,6 +5833,8 @@ class SearchEmbeddingConfig(TimestampMixin, Base):
 
     Records contain no credential secrets. Collections and chunks reference the
     configuration version, and chunks must match its embedding dimensions.
+    Embedding semantics are immutable within a version; only the credential
+    reference/environment may rotate after validation without rebuilding vectors.
     """
 
     __tablename__ = "search_embedding_config"
@@ -5853,6 +5855,8 @@ class SearchEmbeddingConfig(TimestampMixin, Base):
     credential_environment: Mapped[str] = mapped_column(Text)
     dimensions: Mapped[int] = mapped_column(Integer)
     input_token_limit: Mapped[int] = mapped_column(Integer)
+    # NULL identifies configurations written before recipe pinning.
+    recipe_revision: Mapped[str | None] = mapped_column(Text)
 
 
 class SearchCollection(TimestampMixin, Base):

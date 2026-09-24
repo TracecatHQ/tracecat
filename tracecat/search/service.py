@@ -160,6 +160,7 @@ class SearchStorage(BaseService):
         credential_environment: str,
         dimensions: int,
         input_token_limit: int,
+        recipe_revision: str | None = None,
     ) -> SearchEmbeddingConfig:
         """Persist an upstream-validated config; invalidate old versions atomically.
 
@@ -182,6 +183,7 @@ class SearchStorage(BaseService):
             credential_environment=credential_environment,
             dimensions=dimensions,
             input_token_limit=input_token_limit,
+            recipe_revision=recipe_revision,
         )
         self.session.add(config)
         state.current_version = version

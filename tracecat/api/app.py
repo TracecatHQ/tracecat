@@ -157,6 +157,7 @@ from tracecat.query.errors import (
 from tracecat.registry.actions.router import router as registry_actions_router
 from tracecat.registry.repositories.router import router as registry_repos_router
 from tracecat.registry.sync.jobs import sync_platform_registry_on_startup
+from tracecat.search.embeddings.router import router as embedding_configuration_router
 from tracecat.secrets.router import org_router as org_secrets_router
 from tracecat.secrets.router import router as secrets_router
 from tracecat.service_accounts.router import (
@@ -495,6 +496,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(webhook_router)
     app.include_router(agent_channels_router)
     app.include_router(workspaces_router)
+    app.include_router(embedding_configuration_router)
     app.include_router(workspace_service_accounts_router)
     app.include_router(mcp_personal_access_tokens_router)
     _include_workspace_scoped_router(app, workflow_management_router)
