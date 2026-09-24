@@ -1,0 +1,110 @@
+---
+title: Operate semantic search
+description: Prepare table semantic search, pause indexing, and recover safely after an outage or rollback.
+---
+
+## Prepare the deployment
+
+Install [pgvector](/self-hosting/pgvector) in the application database before
+running Tracecat migrations. Keep your existing PostgreSQL backup and restore
+procedure available. The Temporal database does not require pgvector.
+
+Deploy the additive schema, then compatible API, DSL worker, executor/action
+gateway, and all other table writers. Verify every writer records search changes
+in the same transaction as its source writes before you select columns for
+indexing. Keep the feature unused until that verification completes.
+
+| Deployment | Verify before selecting columns |
+| --- | --- |
+| Docker Compose | The application database has pgvector; migrations finish; the DSL worker, Redis, and Temporal are healthy. |
+| Fargate | The managed application database supports pgvector 0.8.0 or newer; the migration role can enable it; all writer tasks use the compatible release. |
+| Kubernetes | The separate deployment repository provisions the extension and completes its migration job; all writer pods have rolled forward. Track any required deployment change separately. |
+
+Verify the application database extension and migration revision:
+
+```sql
+SELECT e.extversion, n.nspname
+FROM pg_extension e JOIN pg_namespace n ON n.oid = e.extnamespace
+WHERE e.extname = 'vector';
+SELECT version_num FROM alembic_version;
+```
+
+The extension must be in `public`. Compare the deployed revision with the release's
+single Alembic head. A successful application rollout alone does not establish
+that migrations or all background writers are current.
+
+Configure an eligible provider through existing AI settings. Then follow
+[Semantic search](/automations/tables#semantic-search) to select columns and wait
+for Ready. Start with synthetic records and a small internal cohort. Record the
+provider, model, dimensions, release, dataset size, and measured results before
+expanding usage.
+
+## Observe indexing
+
+The DSL worker maintains Temporal schedule `semantic-search-dispatch-v1`.
+Verify it exists in the deployment's Temporal namespace and that recent runs
+complete. Registration failure leaves the worker running and retries later;
+worker health alone does not prove the schedule exists.
+
+Inspect table readiness and failed-document details alongside the
+`search.indexing.*` metrics. Track provider calls and reported tokens, indexing
+lag, chunk storage, search latency, and ordinary table read/write latency during
+backfill. Unknown provider usage is not zero usage. The pending and failed row
+metrics are bounded samples, not exact totals for a large table.
+
+Measure your workload before adopting the initial short-row freshness target of
+60 seconds. Large rows and backfills have no fixed completion promise. Exact
+ranking has a two-second database timeout; the full request also includes query
+embedding and transport time.
+
+## Pause and resume
+
+Pause `semantic-search-dispatch-v1` in the Temporal UI to stop new scheduled
+indexing runs. Already-running activities finish their bounded turns. Startup
+reconciliation preserves an operator's schedule pause. Ordinary writes retain
+pending indexing bookkeeping.
+
+A schedule pause stops background dispatch; it does not disable searches against
+already-ready data. To pause both indexing publication and semantic queries for a
+workspace, use an operator maintenance session with the scoped
+`SearchStorage.set_state(SearchState.PAUSED)` operation and commit it.
+There is no embedding-specific public settings endpoint for this operation.
+Keep API and writer code that records pending changes deployed during the pause.
+
+After resolving the problem, set the workspace state to `ACTIVE` only if its
+configuration is still valid, then unpause the schedule. The dispatcher resumes
+saved work. Wait for Ready before resuming workflows that require complete
+results. Never clear checkpoints or remove source rows to recover a transient
+provider outage.
+
+## Recover failures
+
+| Symptom | Recovery |
+| --- | --- |
+| No eligible provider | Restore an allowed provider through AI settings. Selected collections are revisited automatically. |
+| Rate limits or timeouts | Check provider capacity and service connectivity. Allow bounded retries; use table Retry after exhausted failures. |
+| Invalid credentials | Correct the existing provider credentials, then retry affected documents. Search does not switch providers on an error. |
+| Worker restart or expired lease | Restore workers and verify dispatch resumes. Completed chunks are reused within the same revision. |
+| Invalid chunk checkpoint | Rebuild the affected collection through operator maintenance after inspecting the typed error. Do not invent or manually edit checkpoint offsets. |
+
+Credential-only rotation preserves the embedding version. Provider, model,
+region, or preprocessing changes can invalidate it and require a rebuild.
+Check readiness after any settings change, including a change made while
+indexing is in flight.
+
+## Roll back application code
+
+If the target release predates transactional search tracking, disable semantic
+search before allowing old writers to run. Pause its schedule and prevent semantic
+queries through the rollout. Old writers can change rows without recording pending
+work, so resuming an old index is unsafe even if its stored status says Ready.
+
+After restoring compatible writers, mark each affected workspace
+`REINDEX_REQUIRED` through the scoped storage service, preserving the source rows
+and column selections. Keep it paused until the operator is ready to reconcile
+provider configuration and rebuild selected collections. Verify the new generation
+has completed backfill and reached Ready before allowing semantic queries again.
+
+Application rollback does not roll back the database. Preserve the additive search
+schema. Do not downgrade migrations or delete database volumes as a recovery step.
+Use your backup/restore procedure if database recovery is necessary.

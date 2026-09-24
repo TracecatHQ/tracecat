@@ -114,6 +114,7 @@
               "self-hosting/temporal-retention",
               "self-hosting/architecture",
               "self-hosting/pgvector",
+              "self-hosting/semantic-search",
               "self-hosting/tls",
               "self-hosting/environment-variables",
               "self-hosting/security"

@@ -79,6 +79,66 @@ For example, use `core.table.search_rows` when you want to search across rows:
 `core.table.search_rows` also filters on row creation time: `start_time` and `end_time` bound each row's `created_at` timestamp.
 The `limit` ceiling is 200 and larger values raise an error; page with `paginate: true` and `cursor` to read more rows, or use `core.table.download`, which returns up to 1000 rows.
 
+## Semantic search
+
+Use `core.table.search` to find rows by meaning across selected TEXT columns.
+Configure an eligible AI provider in your existing organization AI settings and
+allow its models in the workspace. In each TEXT column menu, choose **Include in
+semantic search**. You can select multiple columns independently of the unique
+index used for upserts. Selecting a column opts its text into provider processing.
+
+Wait until the table shows **Ready**, then run:
+
+```yaml
+- ref: find_related_records
+  action: core.table.search
+  args:
+    table: incident_notes
+    query: Someone signed in using stolen credentials
+    limit: 10
+```
+
+Read `ACTIONS.find_related_records.result.items`. Each item contains `row_id`,
+`score`, `indexed_revision`, and `match`. The match identifies the source column
+and includes at most 1,000 characters in `text`; `start` and `end` are character
+offsets into the original value, with `end` excluded. `shortened` means the
+excerpt omits part of the winning passage. Fetch the source row separately when
+you need its full contents. A row appears once even when several passages match.
+
+Long values are indexed in chunks. Allow more time and provider usage for long
+rows or large backfills. Search finds passages; it may miss relationships that
+require combining distant passages. A similarity score is not a confidence level,
+and the nearest results can still be irrelevant.
+
+### Readiness and changes
+
+The default `allow_partial: false` rejects searches while the index is incomplete.
+Set `allow_partial: true` only when your workflow can accept missing rows, and
+inspect `result.index.partial`. Partial search still returns only complete,
+current row revisions.
+
+Editing selected text removes the old revision from search immediately and
+queues a replacement. Editing an unselected field leaves indexing unchanged.
+Renaming a selected column rebuilds its embedded label. Provider or model changes
+can also require a rebuild. Check the table status and use **Retry** after fixing
+an indexing error.
+
+Without an eligible provider, semantic search returns `NOT_CONFIGURED`. Literal
+`core.table.search_rows`, lookups, and table writes remain available during a
+provider outage or indexing delay.
+
+### Continue results
+
+Pass `result.next_cursor` as `cursor` with the same table, query, limit, and
+`allow_partial` values. Check `has_more` before continuing. Cursors expire five
+minutes after the first search; start a new search after expiry or a configuration
+change. Rows edited or deleted between pages are omitted. New matches require a
+new search.
+
+Pages contain at most 100 rows, and each search keeps a ranked window of at most
+100 distinct rows. `capped: true` means additional candidates were excluded.
+Pagination is for this bounded search window; use table export for bulk retrieval.
+
 ## Index and upsert
 
 You'll often need to deduplicate data or require all values in a column to be unique.

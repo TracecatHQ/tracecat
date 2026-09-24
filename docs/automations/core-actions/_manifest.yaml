@@ -736,6 +736,13 @@ pages:
       - id: core.table.lookup_many
         examples:
           - tables-lookup
+      - id: core.table.search
+        info: |
+          Select TEXT columns and wait for Ready before running this action.
+          See [Semantic search](/automations/tables#semantic-search) for setup,
+          readiness, excerpts, and pagination limits.
+        examples:
+          - tables-semantic-search
       - id: core.table.search_rows
         examples:
           - tables-search
