@@ -15,7 +15,12 @@ from tracecat_ee.workspace_chat.policy import (
 
 from tracecat import config
 from tracecat.agent.adapter import vercel
+from tracecat.agent.backends.registry import (
+    get_agent_backends,
+)
+from tracecat.agent.backends.types import SessionDispatchUncertain
 from tracecat.agent.session.schemas import (
+    AgentBackendRead,
     AgentSessionArtifactsRead,
     AgentSessionCancelRequest,
     AgentSessionCancelResponse,
@@ -32,10 +37,10 @@ from tracecat.agent.session.types import (
     TurnLifecycle,
     is_session_readonly,
 )
+from tracecat.agent.session.views import build_session_read
 from tracecat.agent.stream.artifacts import artifact_stream_event
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamFormat
-from tracecat.agent.subagents import ResolvedAgentsConfig
 from tracecat.artifacts.bindings import ArtifactSideEffect
 from tracecat.artifacts.schemas import ArtifactType
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
@@ -53,6 +58,7 @@ from tracecat.exceptions import (
     EntitlementRequired,
     TracecatConflictError,
     TracecatNotFoundError,
+    TracecatValidationError,
 )
 from tracecat.logger import logger
 from tracecat.observability.otel import set_current_span_attributes
@@ -133,6 +139,19 @@ async def _require_workspace_chat_entitlement_for_session_tree(
         current = await svc.get_session(parent_session_id)
 
 
+@router.get("/backends")
+@require_scope("agent:read")
+async def list_agent_backends(
+    role: WorkspaceActorRouteRole,
+) -> list[AgentBackendRead]:
+    """List enabled installed backends available to new sessions."""
+    return [
+        AgentBackendRead(id=key, name=backend.name)
+        for key, backend in get_agent_backends().items()
+        if backend.is_enabled()
+    ]
+
+
 @router.post("")
 @require_scope("agent:execute")
 async def create_session(
@@ -147,8 +166,13 @@ async def create_session(
         entity_type=request.entity_type,
     )
     svc = AgentSessionService(session, role)
-    agent_session = await svc.create_session(request)
-    return AgentSessionRead.model_validate(agent_session, from_attributes=True)
+    try:
+        agent_session = await svc.create_session(request)
+    except TracecatValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+    return build_session_read(agent_session, role)
 
 
 @router.get("")
@@ -229,29 +253,7 @@ async def get_session(
         messages = await svc.list_messages(session_id)
         logger.info("Session read", session_id=agent_session.id, messages=len(messages))
         return AgentSessionReadWithMessages(
-            id=agent_session.id,
-            workspace_id=agent_session.workspace_id,
-            title=agent_session.title,
-            created_by=agent_session.created_by,
-            is_readonly=is_session_readonly(role, agent_session.created_by),
-            entity_type=AgentSessionEntity(agent_session.entity_type),
-            entity_id=agent_session.entity_id,
-            channel_context=agent_session.channel_context,
-            tools=agent_session.tools,
-            mcp_integrations=agent_session.mcp_integrations,
-            agent_preset_id=agent_session.agent_preset_id,
-            agent_preset_version_id=agent_session.agent_preset_version_id,
-            agents_binding=(
-                ResolvedAgentsConfig.model_validate(agent_session.agents_binding)
-                if agent_session.agents_binding is not None
-                else None
-            ),
-            harness_type=agent_session.harness_type,
-            last_error=agent_session.last_error,
-            created_at=agent_session.created_at,
-            updated_at=agent_session.updated_at,
-            last_stream_id=agent_session.last_stream_id,
-            artifacts=svc.list_artifacts(agent_session),
+            **build_session_read(agent_session, role).model_dump(),
             messages=messages,
         )
 
@@ -313,29 +315,7 @@ async def get_session_vercel(
         messages = await svc.list_messages(session_id)
         ui_messages = vercel.convert_chat_messages_to_ui(messages)
         return AgentSessionReadVercel(
-            id=agent_session.id,
-            workspace_id=agent_session.workspace_id,
-            title=agent_session.title,
-            created_by=agent_session.created_by,
-            is_readonly=is_session_readonly(role, agent_session.created_by),
-            entity_type=AgentSessionEntity(agent_session.entity_type),
-            entity_id=agent_session.entity_id,
-            channel_context=agent_session.channel_context,
-            tools=agent_session.tools,
-            mcp_integrations=agent_session.mcp_integrations,
-            agent_preset_id=agent_session.agent_preset_id,
-            agent_preset_version_id=agent_session.agent_preset_version_id,
-            agents_binding=(
-                ResolvedAgentsConfig.model_validate(agent_session.agents_binding)
-                if agent_session.agents_binding is not None
-                else None
-            ),
-            harness_type=agent_session.harness_type,
-            last_error=agent_session.last_error,
-            created_at=agent_session.created_at,
-            updated_at=agent_session.updated_at,
-            last_stream_id=agent_session.last_stream_id,
-            artifacts=svc.list_artifacts(agent_session),
+            **build_session_read(agent_session, role).model_dump(),
             messages=ui_messages,
         )
 
@@ -403,8 +383,13 @@ async def update_session(
         entity_type=agent_session.entity_type,
     )
 
-    updated = await svc.update_session(agent_session, params=params)
-    return AgentSessionRead.model_validate(updated, from_attributes=True)
+    try:
+        updated = await svc.update_session(agent_session, params=params)
+    except TracecatValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+    return build_session_read(updated, role)
 
 
 @router.delete("/{session_id}/artifacts/{artifact_type}/{artifact_id}")
@@ -599,6 +584,10 @@ async def send_message(
                         active_stream_id=stream_id,
                         is_first_prompt=is_first_prompt,
                     )
+                except SessionDispatchUncertain:
+                    # The workflow may already be producing a reply. Preserve
+                    # both its reservation and stream so reconnect can resume it.
+                    raise
                 except Exception as turn_exc:
                     logger.warning(
                         "Failed to start agent turn",
@@ -834,7 +823,7 @@ async def fork_session(
             entity_type=entity_type,
         )
         forked = await svc.fork_session(session_id, entity_type=entity_type)
-        return AgentSessionRead.model_validate(forked, from_attributes=True)
+        return build_session_read(forked, role)
     except TracecatNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

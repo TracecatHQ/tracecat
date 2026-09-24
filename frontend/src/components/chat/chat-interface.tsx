@@ -5,6 +5,7 @@ import { ArrowRight, ChevronDown, Plus } from "lucide-react"
 import Link from "next/link"
 import { type ReactNode, useEffect, useState } from "react"
 import type {
+  AgentBackendRead,
   AgentPresetRead,
   AgentSessionEntity,
   AgentSessionsGetSessionVercelResponse,
@@ -39,6 +40,14 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -48,12 +57,14 @@ import { toast } from "@/components/ui/use-toast"
 import { useAuth } from "@/hooks/use-auth"
 import {
   parseChatError,
+  useAgentBackends,
   useCreateChat,
   useGetChatVercel,
   useListChats,
   useUpdateChat,
 } from "@/hooks/use-chat"
 import { useChatPresetManager } from "@/hooks/use-chat-preset-manager"
+import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { getApiErrorDetail } from "@/lib/errors"
 import { useChatReadiness } from "@/lib/hooks"
 import { useQueryClient } from "@/lib/query"
@@ -95,6 +106,7 @@ type PresetConfigLike = Pick<
 >
 
 const NOOP = () => {}
+const SERVER_DEFAULT_BACKEND = "server-default"
 
 export function ChatInterface({
   chatId,
@@ -114,9 +126,33 @@ export function ChatInterface({
   const workspaceId = useWorkspaceId()
   const queryClient = useQueryClient()
   const { user } = useAuth()
+  const { isFeatureEnabled, isLoading: featureFlagsLoading } = useFeatureFlag()
+  const backendSelectionEnabled = isFeatureEnabled("agent-runtime")
+  const {
+    backends,
+    backendsLoading,
+    backendsReady,
+    backendsError,
+    refetchBackends,
+  } = useAgentBackends(workspaceId, { enabled: backendSelectionEnabled })
+  const backendSelectionLoading =
+    featureFlagsLoading || (backendSelectionEnabled && backendsLoading)
+  const backendSelectionReady =
+    !featureFlagsLoading && (!backendSelectionEnabled || backendsReady)
+  const hasBackendChoice = backendSelectionEnabled && backends.length > 1
   const [selectedChatId, setSelectedChatId] = useState<string | undefined>(
     chatId
   )
+  const [newChatBackend, setNewChatBackend] = useState(SERVER_DEFAULT_BACKEND)
+  const selectedBackend = backends.some(
+    (backend) => backend.id === newChatBackend
+  )
+    ? newChatBackend
+    : SERVER_DEFAULT_BACKEND
+  const backendOverride =
+    backendSelectionEnabled && selectedBackend !== SERVER_DEFAULT_BACKEND
+      ? selectedBackend
+      : undefined
   const [newChatDialogOpen, setNewChatDialogOpen] = useState(false)
   const [autoCreateAttempted, setAutoCreateAttempted] = useState(false)
   const [isDraftChat, setIsDraftChat] = useState(false)
@@ -146,6 +182,11 @@ export function ChatInterface({
     chatId: selectedChatId,
     workspaceId,
   })
+  const currentBackendId =
+    chat && "backend_id" in chat ? chat.backend_id : "oss"
+  const currentBackendName =
+    backends.find((backend) => backend.id === currentBackendId)?.name ??
+    (currentBackendId === "oss" ? "Open source" : "Unavailable")
   const { updateChat, isUpdating } = useUpdateChat(workspaceId)
 
   useEffect(() => {
@@ -166,7 +207,8 @@ export function ChatInterface({
   const inWorkspaceChat = surface === "workspace-chat"
   // Surfaces that defer server-side session creation until the first message,
   // showing a draft composer instead of an eagerly-created empty session.
-  const deferSessionCreation = entityType === "case" || inWorkspaceChat
+  const deferSessionCreation =
+    entityType === "case" || inWorkspaceChat || hasBackendChoice
 
   // Mirror the active workspace-chat session into the URL so sessions are
   // deep-linkable (/chat/:sessionId). Uses replaceState to avoid remounting the
@@ -224,7 +266,7 @@ export function ChatInterface({
       chats.length > 0 &&
       !selectedChatId &&
       !inWorkspaceChat &&
-      !(entityType === "case" && isDraftChat)
+      !(deferSessionCreation && isDraftChat)
     ) {
       // Prefer the current user's latest writable chat before falling back to
       // the newest teammate session.
@@ -234,6 +276,7 @@ export function ChatInterface({
       onChatSelect?.(firstChatId)
     } else if (
       !deferSessionCreation &&
+      backendSelectionReady &&
       chats.length === 0 &&
       !selectedChatId &&
       !autoCreateAttempted
@@ -244,6 +287,7 @@ export function ChatInterface({
         title: "Chat 1",
         entity_type: entityType,
         entity_id: entityId,
+        backend_id: backendOverride,
       })
         .then((newChat) => {
           setSelectedChatId(newChat.id)
@@ -263,12 +307,15 @@ export function ChatInterface({
     entityType,
     entityId,
     autoCreateAttempted,
+    backendOverride,
+    backendSelectionReady,
     isDraftChat,
     inWorkspaceChat,
     deferSessionCreation,
   ])
 
   const handleCreateChat = async () => {
+    if (!backendSelectionReady || createChatPending) return
     setNewChatDialogOpen(false)
 
     if (deferSessionCreation) {
@@ -283,6 +330,7 @@ export function ChatInterface({
         title: `Chat ${(chats?.length || 0) + 1}`,
         entity_type: entityType,
         entity_id: entityId,
+        backend_id: backendOverride,
       })
       setSelectedChatId(newChat.id)
       onChatSelect?.(newChat.id)
@@ -296,7 +344,7 @@ export function ChatInterface({
     selectedTools?: string[],
     selectedMcpIntegrations?: string[]
   ) => {
-    if (!deferSessionCreation || createChatPending) {
+    if (!deferSessionCreation || !backendSelectionReady || createChatPending) {
       return null
     }
 
@@ -309,6 +357,7 @@ export function ChatInterface({
         title: `Chat ${(chats?.length || 0) + 1}`,
         entity_type: entityType,
         entity_id: entityId,
+        backend_id: backendOverride,
         tools: selectedTools,
         mcp_integrations: selectedMcpIntegrations,
         agent_preset_id: pendingPreset.presetId,
@@ -358,6 +407,7 @@ export function ChatInterface({
   // Show loading while chats are loading or being auto-created
   if (
     chatsLoading ||
+    (!selectedChatId && backendSelectionLoading) ||
     (!deferSessionCreation && chats && chats.length === 0 && createChatPending)
   ) {
     return (
@@ -432,6 +482,16 @@ export function ChatInterface({
           {/* Right-side actions */}
           <div className="flex items-center gap-1">
             {headerActions}
+            {backendSelectionEnabled && selectedChatId && chat ? (
+              <Badge variant="outline">{currentBackendName}</Badge>
+            ) : null}
+            {!selectedChatId && hasBackendChoice && (
+              <BackendSelect
+                backends={backends}
+                value={selectedBackend}
+                onChange={setNewChatBackend}
+              />
+            )}
             {/* New chat icon button with tooltip */}
             <AlertDialog
               open={newChatDialogOpen}
@@ -442,10 +502,11 @@ export function ChatInterface({
                   <AlertDialogTrigger asChild>
                     <TooltipTrigger asChild>
                       <Button
+                        aria-label="New chat"
                         size="sm"
                         variant="ghost"
                         className="size-6 p-0"
-                        disabled={createChatPending}
+                        disabled={createChatPending || !backendSelectionReady}
                       >
                         <Plus className="h-4 w-4" />
                       </Button>
@@ -463,9 +524,19 @@ export function ChatInterface({
                       : "This will create a new conversation. Your current chat will remain accessible from the conversations menu."}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
+                {hasBackendChoice && (
+                  <BackendSelect
+                    backends={backends}
+                    value={selectedBackend}
+                    onChange={setNewChatBackend}
+                  />
+                )}
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={() => void handleCreateChat()}>
+                  <AlertDialogAction
+                    disabled={createChatPending || !backendSelectionReady}
+                    onClick={() => void handleCreateChat()}
+                  >
                     Start new chat
                   </AlertDialogAction>
                 </AlertDialogFooter>
@@ -474,6 +545,26 @@ export function ChatInterface({
           </div>
         </div>
       </div>
+
+      {backendSelectionEnabled && backendsError && (
+        <div className="px-4 pb-2">
+          <Alert>
+            <AlertTitle>Unable to load chat backends</AlertTitle>
+            <AlertDescription>
+              Retry before starting a new chat. Existing chats are still
+              accessible.
+            </AlertDescription>
+            <Button
+              className="mt-2"
+              size="sm"
+              variant="outline"
+              onClick={() => void refetchBackends()}
+            >
+              Retry
+            </Button>
+          </Alert>
+        </div>
+      )}
 
       {/* Chat Body */}
       <div className={cn("flex flex-1 min-h-0 flex-col", bodyClassName)}>
@@ -496,7 +587,7 @@ export function ChatInterface({
           onCreateSessionBeforeSend={
             deferSessionCreation ? handleCreateSessionOnFirstSend : undefined
           }
-          draftInputDisabled={createChatPending}
+          draftInputDisabled={createChatPending || !backendSelectionReady}
           pendingMessage={pendingMessageText}
           onPendingMessageSent={handlePendingMessageSent}
           surface={surface}
@@ -506,6 +597,44 @@ export function ChatInterface({
         />
       </div>
     </div>
+  )
+}
+
+function BackendSelect({
+  backends,
+  value,
+  onChange,
+}: {
+  backends: AgentBackendRead[]
+  value: string
+  onChange: (value: string) => void
+}) {
+  return (
+    <Select
+      value={value}
+      onValueChange={(next) => {
+        if (
+          next === SERVER_DEFAULT_BACKEND ||
+          backends.some((backend) => backend.id === next)
+        ) {
+          onChange(next)
+        }
+      }}
+    >
+      <SelectTrigger aria-label="Backend (dev)" className="w-36">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectGroup>
+          <SelectItem value={SERVER_DEFAULT_BACKEND}>Server default</SelectItem>
+          {backends.map((backend) => (
+            <SelectItem key={backend.id} value={backend.id}>
+              {backend.name}
+            </SelectItem>
+          ))}
+        </SelectGroup>
+      </SelectContent>
+    </Select>
   )
 }
 

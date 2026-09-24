@@ -3103,6 +3103,10 @@ class AgentSession(WorkspaceModel):
         nullable=True,
         doc="Normalized subagent bindings for this session",
     )
+    # Stable dispatcher identity, independent of the execution harness.
+    backend_id: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="oss", server_default="oss"
+    )
     # Agent harness fields
     harness_type: Mapped[str | None] = mapped_column(
         String(50),

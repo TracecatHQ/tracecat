@@ -26,6 +26,7 @@ from tracecat.admin.agent.router import router as admin_agent_router
 from tracecat.admin.maintenance.router import router as admin_maintenance_router
 from tracecat.admin.registry.router import router as admin_registry_router
 from tracecat.agent.access.router import router as agent_model_access_router
+from tracecat.agent.backends.registry import get_agent_backends
 from tracecat.agent.catalog.loader import load_platform_catalog_on_startup
 from tracecat.agent.catalog.router import router as agent_catalog_router
 from tracecat.agent.channels.management_router import (
@@ -197,6 +198,7 @@ from tracecat.workspaces.service import WorkspaceService
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    get_agent_backends()  # Fail startup on invalid or duplicate installed plugins.
     # USER_AUTH_SECRET is required for all auth types — UserManager uses it
     # for password reset and email verification token signing. Validated here
     # (not in create_app) because the app module is imported at collection time

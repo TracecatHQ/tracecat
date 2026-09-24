@@ -406,6 +406,14 @@ export type AgentArtifact = {
 }
 
 /**
+ * An enabled installed backend available for session creation.
+ */
+export type AgentBackendRead = {
+  id: string
+  name: string
+}
+
+/**
  * List catalog entries with pagination.
  */
 export type AgentCatalogListResponse = {
@@ -1031,9 +1039,13 @@ export type AgentSessionCreate = {
    */
   agent_preset_version_id?: string | null
   /**
-   * Agent harness type
+   * Opaque agent backend identifier
    */
-  harness_type?: HarnessType
+  backend_id?: string
+  /**
+   * Execution harness; defaults to the selected backend's harness
+   */
+  harness_type?: string | null
 }
 
 /**
@@ -1089,6 +1101,7 @@ export type AgentSessionRead = {
   agent_preset_id: string | null
   agent_preset_version_id: string | null
   agents_binding?: ResolvedAgentsConfig | null
+  backend_id?: string
   harness_type: string | null
   last_error?: string | null
   last_stream_id?: string | null
@@ -1120,6 +1133,7 @@ export type AgentSessionReadVercel = {
   agent_preset_id: string | null
   agent_preset_version_id: string | null
   agents_binding?: ResolvedAgentsConfig | null
+  backend_id?: string
   harness_type: string | null
   last_error?: string | null
   last_stream_id?: string | null
@@ -1155,6 +1169,7 @@ export type AgentSessionReadWithMessages = {
   agent_preset_id: string | null
   agent_preset_version_id: string | null
   agents_binding?: ResolvedAgentsConfig | null
+  backend_id?: string
   harness_type: string | null
   last_error?: string | null
   last_stream_id?: string | null
@@ -1193,9 +1208,13 @@ export type AgentSessionUpdate = {
    */
   agent_preset_version_id?: string | null
   /**
-   * Agent harness type
+   * Immutable agent backend identifier
    */
-  harness_type?: HarnessType | null
+  backend_id?: string | null
+  /**
+   * Immutable execution harness
+   */
+  harness_type?: string | null
 }
 
 export type AgentSettingsRead = {
@@ -4323,6 +4342,7 @@ export type FeatureFlag =
   | "workflow-concurrency-limits"
   | "agent-channels"
   | "agent-fs-persistence"
+  | "agent-runtime"
 
 /**
  * Response model for feature flags.
@@ -4801,11 +4821,6 @@ export type GroupUpdate = {
 export type HTTPValidationError = {
   detail?: Array<ValidationError>
 }
-
-/**
- * Supported agent harnesses.
- */
-export type HarnessType = "claude_code"
 
 export type HealthResponse = {
   status: string
@@ -12633,6 +12648,12 @@ export type AgentSkillsRemoveSkillTagData = {
 
 export type AgentSkillsRemoveSkillTagResponse = void
 
+export type AgentSessionsListAgentBackendsData = {
+  workspaceId: string
+}
+
+export type AgentSessionsListAgentBackendsResponse = Array<AgentBackendRead>
+
 export type AgentSessionsCreateSessionData = {
   requestBody: AgentSessionCreate
   workspaceId: string
@@ -18258,6 +18279,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/sessions/backends": {
+    get: {
+      req: AgentSessionsListAgentBackendsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<AgentBackendRead>
         /**
          * Validation Error
          */

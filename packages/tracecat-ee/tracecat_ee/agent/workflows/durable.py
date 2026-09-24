@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 from temporalio import workflow
 from temporalio.common import TypedSearchAttributes
 from temporalio.exceptions import (
@@ -20,6 +20,15 @@ from temporalio.exceptions import TimeoutError as TemporalTimeoutError
 
 with workflow.unsafe.imports_passed_through():
     from tracecat import config
+    from tracecat.agent.backends.schemas import (
+        AgentWorkflowArgs as AgentWorkflowArgs,
+    )
+    from tracecat.agent.backends.schemas import (
+        WorkflowApprovalSubmission as WorkflowApprovalSubmission,
+    )
+    from tracecat.agent.backends.schemas import (
+        WorkflowCancelRequest as WorkflowCancelRequest,
+    )
     from tracecat.agent.common.stream_types import HarnessType
     from tracecat.agent.common.types import (
         MCPToolDefinition,
@@ -69,7 +78,7 @@ with workflow.unsafe.imports_passed_through():
         ResolvedAgentsRuntimeConfig,
         ResolvedSubagentConfig,
     )
-    from tracecat.agent.schemas import AgentOutput, RunAgentArgs, RunUsage, ToolFilters
+    from tracecat.agent.schemas import AgentOutput, RunUsage, ToolFilters
     from tracecat.agent.session.activities import (
         CreateSessionInput,
         FinalizeTurnInput,
@@ -113,10 +122,10 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.logger import logger
     from tracecat.registry.lock.types import RegistryLock
     from tracecat.runtime.errors import RuntimeErrorClassification
+    from tracecat.temporal.error_chain import iter_error_chain
     from tracecat.temporal.errors import (
         build_error_transport_detail,
         extract_error_classifications,
-        iter_error_chain,
         raise_application_error_from_classification,
         raise_wrapped_application_error,
     )
@@ -140,7 +149,7 @@ with workflow.unsafe.imports_passed_through():
         EmitSessionErrorInputs,
         ExecuteRemoteMCPToolArgs,
     )
-    from tracecat_ee.agent.approvals.service import ApprovalManager, ApprovalMap
+    from tracecat_ee.agent.approvals.service import ApprovalManager
     from tracecat_ee.agent.context import AgentContext
     from tracecat_ee.agent.types import AgentWorkflowID
 
@@ -452,72 +461,6 @@ class CompiledAgentRun(BaseModel):
     @property
     def sandbox_subagents(self) -> list[SandboxSubagentConfig]:
         return [subagent.to_sandbox_subagent() for subagent in self.subagents]
-
-
-class AgentWorkflowArgs(BaseModel):
-    """Arguments for starting an agent workflow."""
-
-    # Temporal stores the original workflow input in history. Keep stale keys
-    # replayable after workflow args evolve, including the removed legacy
-    # ``use_workspace_credentials`` flag.
-    model_config = ConfigDict(extra="ignore")
-
-    role: Role
-    agent_args: RunAgentArgs
-    # Session metadata
-    title: str = Field(default="New Chat", description="Session title")
-    entity_type: AgentSessionEntity = Field(
-        ..., description="Type of entity this session is associated with"
-    )
-    entity_id: uuid.UUID = Field(..., description="ID of the associated entity")
-    tools: list[str] | None = Field(
-        default=None, description="Tools available to the agent"
-    )
-    agent_preset_id: uuid.UUID | None = Field(
-        default=None, description="Agent preset used for this session"
-    )
-    agent_preset_version_id: uuid.UUID | None = Field(
-        default=None,
-        description=(
-            "Pinned preset version used for this workflow run. "
-            "If null, the run follows the preset's current version."
-        ),
-    )
-    harness_type: HarnessType | None = Field(
-        default=None,
-        description="Agent harness type. Reserved for future multi-harness support.",
-    )
-    continue_existing_session: bool = Field(
-        default=False,
-        description=("If true, session_id is caller-supplied and must already exist."),
-    )
-    unsafe_disable_secret_error_withholding: bool = Field(
-        default=False,
-        description=(
-            "Cascade the parent agent action's 'Show error details' opt-in to "
-            "every registry tool the agent calls. Still gated by the org's "
-            "workspace allow-list at execution time."
-        ),
-    )
-
-
-class WorkflowApprovalSubmission(BaseModel):
-    approvals: ApprovalMap
-    approved_by: uuid.UUID | None = None
-    decision_metadata: dict[str, dict[str, Any]] | None = None
-    new_stream_id: uuid.UUID | None = Field(
-        default=None,
-        description=(
-            "Rotated per-turn Redis stream ID. When set, the workflow sends every "
-            "event emitted after approval resumes to this new stream instead of "
-            "the stream that ended at the approval pause, which may already have "
-            "expired."
-        ),
-    )
-
-
-class WorkflowCancelRequest(BaseModel):
-    reason: Literal["user_cancel"] = "user_cancel"
 
 
 def _resolve_agent_output(

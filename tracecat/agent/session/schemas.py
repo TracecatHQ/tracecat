@@ -9,7 +9,6 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from tracecat.agent.adapter.vercel import UIMessage
-from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.subagents import ResolvedAgentsConfig
 from tracecat.artifacts.schemas import Artifact
@@ -62,9 +61,20 @@ class AgentSessionCreate(BaseModel):
             "If null, the session follows the preset's current version."
         ),
     )
-    # Harness fields
-    harness_type: HarnessType = Field(
-        default=HarnessType.CLAUDE_CODE, description="Agent harness type"
+    backend_id: str = Field(
+        default="oss",
+        description="Opaque agent backend identifier",
+        min_length=1,
+        max_length=50,
+        pattern=r"^[a-z][a-z0-9_]*$",
+    )
+    # Omitted harnesses resolve to the selected backend's default.
+    harness_type: str | None = Field(
+        default=None,
+        description="Execution harness; defaults to the selected backend's harness",
+        min_length=1,
+        max_length=50,
+        pattern=r"^[a-z][a-z0-9_]*$",
     )
 
 
@@ -94,8 +104,19 @@ class AgentSessionUpdate(BaseModel):
             "Set null to follow the preset's current version."
         ),
     )
-    harness_type: HarnessType | None = Field(
-        default=None, description="Agent harness type"
+    backend_id: str | None = Field(
+        default=None,
+        description="Immutable agent backend identifier",
+        min_length=1,
+        max_length=50,
+        pattern=r"^[a-z][a-z0-9_]*$",
+    )
+    harness_type: str | None = Field(
+        default=None,
+        description="Immutable execution harness",
+        min_length=1,
+        max_length=50,
+        pattern=r"^[a-z][a-z0-9_]*$",
     )
 
 
@@ -135,6 +156,7 @@ class AgentSessionRead(BaseModel):
     agent_preset_id: uuid.UUID | None
     agent_preset_version_id: uuid.UUID | None
     agents_binding: ResolvedAgentsConfig | None = None
+    backend_id: str = Field(default="oss")
     # Harness
     harness_type: str | None
     # Terminal error of the most recent run, present iff it failed (errors are
@@ -197,3 +219,10 @@ class AgentSessionCancelResponse(BaseModel):
     session_id: uuid.UUID
     run_id: uuid.UUID
     reason: str
+
+
+class AgentBackendRead(BaseModel):
+    """An enabled installed backend available for session creation."""
+
+    id: str
+    name: str

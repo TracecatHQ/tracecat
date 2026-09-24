@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import copy
 import hashlib
 import uuid
 from collections.abc import AsyncIterator, Mapping, Sequence
@@ -30,16 +29,10 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID, insert
 from sqlalchemy.exc import SQLAlchemyError
-from temporalio.client import (
-    WorkflowUpdateRPCTimeoutOrCancelledError,
-)
-from temporalio.common import Priority, TypedSearchAttributes
-from temporalio.service import RPCError
 from tracecat_ee.workspace_chat.policy import is_workspace_chat_entitled
 from tracecat_registry._internal.exceptions import SecretNotFoundError
 
 import tracecat.artifacts.projection as artifact_projection
-from tracecat import config
 from tracecat.agent.adapter.vercel import is_text_ui_part
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.approvals.types import (
@@ -48,7 +41,18 @@ from tracecat.agent.approvals.types import (
     ToolApprovedDecision,
     ToolDeniedDecision,
 )
-from tracecat.agent.cancellation import signal_turn_cancel
+from tracecat.agent.backends.base import AgentBackend
+from tracecat.agent.backends.registry import (
+    find_agent_backend,
+    get_agent_backend,
+)
+from tracecat.agent.backends.schemas import WorkflowApprovalSubmission
+from tracecat.agent.backends.types import (
+    AgentControlRejected,
+    SessionForkContext,
+    SessionHistoryAdapter,
+    SessionTurnContext,
+)
 from tracecat.agent.common.stream_types import (
     ApprovalStreamStatus,
     ToolCallContent,
@@ -69,7 +73,6 @@ from tracecat.agent.runtime.claude_code.session_lines import (
     is_model_context_session_line,
     session_line_uuid,
 )
-from tracecat.agent.schemas import RunAgentArgs
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.session.history import (
     SessionHistoryContent,
@@ -88,8 +91,8 @@ from tracecat.agent.session.types import (
     PreparedAgentTurn,
     TurnLifecycle,
     TurnLifecycleResult,
-    is_session_readonly,
 )
+from tracecat.agent.session.views import build_session_read
 from tracecat.agent.skill.builtin import BUILTIN_WORKSPACE_CHAT_SKILLS
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.subagents import (
@@ -133,11 +136,10 @@ from tracecat.db.models import (
     User,
     Workflow,
 )
-from tracecat.dsl.client import get_temporal_client
-from tracecat.dsl.common import RETRY_POLICIES
 from tracecat.exceptions import (
     TracecatConflictError,
     TracecatNotFoundError,
+    TracecatServiceError,
     TracecatValidationError,
 )
 from tracecat.identifiers import UserID
@@ -146,12 +148,6 @@ from tracecat.redis.client import RedisClient, get_redis_client
 from tracecat.service import BaseWorkspaceService
 from tracecat.tiers.entitlements import check_entitlement
 from tracecat.tiers.enums import Entitlement
-from tracecat.workflow.executions.correlation import build_agent_session_correlation_id
-from tracecat.workflow.executions.enums import (
-    ExecutionType,
-    TemporalSearchAttr,
-    TriggerType,
-)
 from tracecat.workspaces.prompts import WorkspaceCopilotPrompts
 
 if TYPE_CHECKING:
@@ -472,29 +468,6 @@ class AgentSessionService(BaseWorkspaceService):
         preset_service = AgentPresetService(self.session, self.role)
         await preset_service.load_selected_mcp_integrations(mcp_integrations)
 
-    def _build_direct_agent_search_attributes(
-        self, session_id: uuid.UUID
-    ) -> TypedSearchAttributes:
-        """Build Temporal search attributes for direct (non-child) agent runs."""
-        pairs = [
-            TriggerType.MANUAL.to_temporal_search_attr_pair(),
-            ExecutionType.PUBLISHED.to_temporal_search_attr_pair(),
-            TemporalSearchAttr.CORRELATION_ID.create_pair(
-                build_agent_session_correlation_id(session_id)
-            ),
-        ]
-        if self.role.user_id is not None:
-            pairs.append(
-                TemporalSearchAttr.TRIGGERED_BY_USER_ID.create_pair(
-                    str(self.role.user_id)
-                )
-            )
-        if self.role.workspace_id is not None:
-            pairs.append(
-                TemporalSearchAttr.WORKSPACE_ID.create_pair(str(self.role.workspace_id))
-            )
-        return TypedSearchAttributes(search_attributes=pairs)
-
     async def create_session(
         self,
         args: AgentSessionCreate,
@@ -516,6 +489,7 @@ class AgentSessionService(BaseWorkspaceService):
         Returns:
             The created AgentSession model.
         """
+        backend = get_agent_backend(args.backend_id, harness_type=args.harness_type)
         # Apply default tools based on entity type if tools not provided.
         # Workspace chat merges its always-on defaults at runtime instead, so
         # ``tools`` stores only the extras the user added (never the defaults).
@@ -563,7 +537,8 @@ class AgentSessionService(BaseWorkspaceService):
             agent_preset_version_id=pinned_preset_version_id,
             agents_binding=resolved_agents_binding,
             # Harness
-            harness_type=args.harness_type,
+            backend_id=args.backend_id,
+            harness_type=args.harness_type or backend.default_harness,
         )
         # Use provided ID if given, otherwise DB default generates one
         if args.id:
@@ -889,12 +864,7 @@ class AgentSessionService(BaseWorkspaceService):
             legacy_chats = list(chat_result.scalars().all())
 
         items: list[AgentSessionRead | ChatReadMinimal] = [
-            AgentSessionRead.model_validate(s, from_attributes=True).model_copy(
-                update={
-                    "is_readonly": is_session_readonly(self.role, s.created_by),
-                }
-            )
-            for s in sessions
+            build_session_read(s, self.role) for s in sessions
         ]
         items.extend(
             ChatReadMinimal.model_validate(chat, from_attributes=True)
@@ -919,6 +889,16 @@ class AgentSessionService(BaseWorkspaceService):
         Returns:
             The updated AgentSession.
         """
+        if (
+            "backend_id" in params.model_fields_set
+            and params.backend_id != agent_session.backend_id
+        ):
+            raise TracecatValidationError("Start a new chat to change its backend")
+        if (
+            "harness_type" in params.model_fields_set
+            and params.harness_type != agent_session.harness_type
+        ):
+            raise TracecatValidationError("Start a new chat to change its backend")
         set_fields = params.model_dump(exclude_unset=True)
         preset_id_updated = "agent_preset_id" in set_fields
         version_id_updated = "agent_preset_version_id" in set_fields
@@ -1918,6 +1898,15 @@ class AgentSessionService(BaseWorkspaceService):
             session_id,
             BasicChatRequest(message=prompt),
         )
+        # This caller constructs the built-in workflow's arguments directly.
+        # Keep that integration restriction explicit until it uses the contract.
+        if agent_session.backend_id != "oss":
+            raise TracecatValidationError(
+                "This backend does not support caller-owned workflows"
+            )
+        get_agent_backend(
+            agent_session.backend_id, harness_type=agent_session.harness_type
+        )
         async with self._build_agent_config(agent_session) as agent_config:
             if agent_config.tool_approvals:
                 await check_entitlement(
@@ -1958,10 +1947,10 @@ class AgentSessionService(BaseWorkspaceService):
         active_stream_id: uuid.UUID | None = None,
         is_first_prompt: bool | None = None,
     ) -> ChatResponse | None:
-        """Run a session turn by spawning a DurableAgentWorkflow.
+        """Run a session turn through its registered backend.
 
-        This method prepares the chat turn and spawns a DurableAgentWorkflow
-        on the agent-action-queue for durable execution.
+        This method prepares the chat turn and delegates durable execution to
+        the agent backend.
 
         Args:
             session_id: The ID of the session.
@@ -1983,12 +1972,6 @@ class AgentSessionService(BaseWorkspaceService):
             TracecatNotFoundError: If the session is not found.
             ValueError: If the request/entity type is unsupported.
         """
-        from tracecat_ee.agent.types import AgentWorkflowID
-        from tracecat_ee.agent.workflows.durable import (
-            AgentWorkflowArgs,
-            DurableAgentWorkflow,
-        )
-
         workspace_id = self.role.workspace_id
         if workspace_id is None:
             raise ValueError("Workspace ID is required")
@@ -2057,63 +2040,19 @@ class AgentSessionService(BaseWorkspaceService):
             # stale-turn overwrite race).
             stream_id = active_stream_id or uuid.uuid4()
 
-            args = RunAgentArgs(
-                user_prompt=user_prompt or "",
-                session_id=session_id,
-                active_stream_id=stream_id,
-                curr_run_id=run_id,
-                config=agent_config,
+            backend = get_agent_backend(
+                agent_session.backend_id, harness_type=agent_session.harness_type
             )
-
-            client = await get_temporal_client()
-            workflow_id = AgentWorkflowID(run_id)
-
-            workflow_args = AgentWorkflowArgs(
-                role=self.execution_role,
-                agent_args=args,
-                title=agent_session.title,
-                entity_type=AgentSessionEntity(agent_session.entity_type),
-                entity_id=agent_session.entity_id,
-                tools=agent_session.tools,
-                agent_preset_id=agent_session.agent_preset_id,
-                agent_preset_version_id=agent_session.agent_preset_version_id,
-            )
-
-            # Pin run_id (approval lookups) and the per-turn stream id before
-            # launching the workflow. Clear last_error in the same transaction
-            # that records the new run id: create_session_activity also clears
-            # it, but that runs inside the workflow on the agent worker. If the
-            # worker is queued/unavailable after a retry, the stale last_error
-            # would otherwise make _resolve_live_statuses report the old failure
-            # for a turn that is actually starting.
-            agent_session.curr_run_id = run_id
-            agent_session.active_stream_id = stream_id
-            agent_session.last_error = None
-            self.session.add(agent_session)
-            await self.session.commit()
-
-            logger.info(
-                "Spawning DurableAgentWorkflow",
-                workflow_id=str(workflow_id),
-                session_id=str(session_id),
-                run_id=str(run_id),
-                entity_type=agent_session.entity_type,
-                entity_id=str(agent_session.entity_id)
-                if agent_session.entity_id
-                else None,
-                task_queue=config.TRACECAT__AGENT_QUEUE,
-            )
-
-            await client.start_workflow(
-                DurableAgentWorkflow.run,
-                workflow_args,
-                id=str(workflow_id),
-                task_queue=config.TRACECAT__AGENT_QUEUE,
-                retry_policy=RETRY_POLICIES["workflow:fail_fast"],
-                priority=Priority(priority_key=1),
-                search_attributes=self._build_direct_agent_search_attributes(
-                    session_id
-                ),
+            await backend.start_turn(
+                SessionTurnContext(
+                    db=self.session,
+                    session=agent_session,
+                    role=self.execution_role,
+                    config=agent_config,
+                    prompt=user_prompt or "",
+                    run_id=run_id,
+                    stream_id=stream_id,
+                )
             )
 
             # Spawn after the workflow starts so a rejected/failed turn never
@@ -2144,54 +2083,15 @@ class AgentSessionService(BaseWorkspaceService):
     async def get_turn_lifecycle(
         self, agent_session: AgentSession
     ) -> TurnLifecycleResult:
-        """Resolve the live turn lifecycle from Temporal (cold reconnect path).
-
-        Temporal owns lifecycle - we never cache it in the DB. Returns the
-        decision plus the run id used to compute it (None when there is no
-        current run). On any describe error we fall back to FAILED so a
-        reconnecting client gets a terminal frame instead of hanging.
-        """
-        from temporalio.client import WorkflowExecutionStatus
-        from tracecat_ee.agent.types import AgentWorkflowID
-        from tracecat_ee.agent.workflows.durable import DurableAgentWorkflow
-
+        """Resolve live execution state through the session's backend."""
         curr_run_id = agent_session.curr_run_id
         if curr_run_id is None:
             return TurnLifecycleResult(TurnLifecycle.NONE, None)
-
-        client = await get_temporal_client()
-        handle = client.get_workflow_handle_for(
-            DurableAgentWorkflow.run, AgentWorkflowID(curr_run_id)
-        )
-        try:
-            description = await handle.describe()
-        except RPCError:
-            # Workflow history already gone / never started -> treat as failed so
-            # the client receives a terminal frame and refetches DB history.
-            logger.warning(
-                "Failed to describe agent workflow for reconnect",
-                session_id=str(agent_session.id),
-                run_id=str(curr_run_id),
-            )
-            return TurnLifecycleResult(TurnLifecycle.FAILED, curr_run_id)
-
-        match description.status:
-            case (
-                WorkflowExecutionStatus.RUNNING
-                | WorkflowExecutionStatus.CONTINUED_AS_NEW
-            ):
-                # CONTINUED_AS_NEW is not currently reachable - DurableAgentWorkflow
-                # loops turns internally rather than calling continue_as_new - but
-                # treat it as still-running (not failed) for consistency with how
-                # the inbox provider classifies Temporal workflow statuses.
-                return TurnLifecycleResult(TurnLifecycle.RUNNING, curr_run_id)
-            case WorkflowExecutionStatus.COMPLETED:
-                return TurnLifecycleResult(TurnLifecycle.COMPLETED, curr_run_id)
-            case WorkflowExecutionStatus.CANCELED:
-                return TurnLifecycleResult(TurnLifecycle.CANCELLED, curr_run_id)
-            case _:
-                # FAILED | TERMINATED | TIMED_OUT
-                return TurnLifecycleResult(TurnLifecycle.FAILED, curr_run_id)
+        backend = find_agent_backend(agent_session.backend_id)
+        if backend is None:
+            return TurnLifecycleResult(TurnLifecycle.UNAVAILABLE, curr_run_id)
+        lifecycle = await backend.get_turn_lifecycle(curr_run_id)
+        return TurnLifecycleResult(lifecycle, curr_run_id)
 
     async def _is_attachable_continuation(self, agent_session: AgentSession) -> bool:
         """Probe whether the active stream is an open approval continuation.
@@ -2245,6 +2145,9 @@ class AgentSessionService(BaseWorkspaceService):
         if not agent_session:
             raise TracecatNotFoundError(f"Session with ID {session_id} not found")
 
+        get_agent_backend(
+            agent_session.backend_id, harness_type=agent_session.harness_type
+        )
         match request:
             case ContinueRunRequest():
                 if agent_session.curr_run_id is None:
@@ -2355,41 +2258,26 @@ class AgentSessionService(BaseWorkspaceService):
         curr_run_id: uuid.UUID,
         attempt: ApprovalContinuationAttempt,
         validated: _ValidatedContinuation,
-        handle: Any,
+        backend: AgentBackend[Any, Any],
     ) -> bool:
-        """Submit the Temporal update, preserving the attempt on ambiguous failure.
-
-        Ambiguous transport failures leave the attempt intact so a retry reuses
-        the same Temporal update id; definitive rejections roll it back.
-        """
-        from tracecat_ee.agent.workflows.durable import (
-            DurableAgentWorkflow,
-            WorkflowApprovalSubmission,
-        )
-
+        """Preserve an uncertain attempt; roll back only a definitive rejection."""
         try:
-            resumed = await handle.execute_update(
-                DurableAgentWorkflow.set_approvals,
+            return await backend.submit_approvals(
+                curr_run_id,
                 WorkflowApprovalSubmission(
                     approvals=validated.approval_map,
                     approved_by=self.role.user_id,
                     decision_metadata=validated.decision_metadata or None,
                     new_stream_id=attempt.stream_id,
                 ),
-                id=f"set-approvals:{attempt.stream_id}",
             )
-        except BaseException as exc:
-            if isinstance(exc, Exception) and not isinstance(
-                exc,
-                (WorkflowUpdateRPCTimeoutOrCancelledError, RPCError),
-            ):
-                await self._rollback_rejected_approval_continuation(
-                    agent_session=agent_session,
-                    curr_run_id=curr_run_id,
-                    attempt=attempt,
-                )
+        except AgentControlRejected:
+            await self._rollback_rejected_approval_continuation(
+                agent_session=agent_session,
+                curr_run_id=curr_run_id,
+                attempt=attempt,
+            )
             raise
-        return resumed is not False
 
     async def _continue_with_approvals(
         self,
@@ -2398,16 +2286,13 @@ class AgentSessionService(BaseWorkspaceService):
     ) -> ChatResponse | None:
         """Continue an agent workflow by submitting approval decisions.
 
-        Two idempotency layers converge concurrent submissions (Slack <->
-        inbox): the DB CAS on ``active_stream_id`` picks a single winning rotated
-        stream, and the Temporal update id ``set-approvals:{stream_id}`` dedups
-        server-side so duplicate submitters get the same result.
+        The DB CAS on ``active_stream_id`` selects one continuation stream.
+        The backend uses that identity to deduplicate approval delivery across
+        concurrent submissions and retries.
 
         Raises:
             TracecatNotFoundError: If no active session exists.
         """
-        from tracecat_ee.agent.types import AgentWorkflowID
-        from tracecat_ee.agent.workflows.durable import DurableAgentWorkflow
 
         agent_session = await self.get_session(session_id)
         if agent_session is None:
@@ -2442,18 +2327,13 @@ class AgentSessionService(BaseWorkspaceService):
             )
             return None
 
-        # Resolve the workflow handle first. These operations do not mutate
-        # continuation state, so failures here should not suppress a later retry.
-        client = await get_temporal_client()
-        workflow_id = AgentWorkflowID(curr_run_id)
-        handle = client.get_workflow_handle_for(
-            DurableAgentWorkflow.run,
-            str(workflow_id),
+        # Validate backend availability before reserving a continuation attempt.
+        backend = get_agent_backend(
+            agent_session.backend_id, harness_type=agent_session.harness_type
         )
 
         logger.info(
             "Submitting approval decisions to workflow",
-            workflow_id=str(workflow_id),
             session_id=str(session_id),
             run_id=str(curr_run_id),
             num_decisions=len(validated.approval_map),
@@ -2461,7 +2341,7 @@ class AgentSessionService(BaseWorkspaceService):
 
         # Install the retryable stream; the database CAS converges concurrent
         # setup on a single winning rotated stream. Duplicate submitters reuse
-        # the installed attempt (marker match) and its Temporal update id.
+        # the installed attempt (marker match) and its backend submission identity.
         submission_key = self._approval_submission_key(
             workspace_id=self.workspace_id,
             session_id=session_id,
@@ -2520,18 +2400,10 @@ class AgentSessionService(BaseWorkspaceService):
                 curr_run_id=curr_run_id,
                 attempt=attempt,
                 validated=validated,
-                handle=handle,
+                backend=backend,
             )
-        except BaseException as exc:
-            is_ambiguous = isinstance(
-                exc, (WorkflowUpdateRPCTimeoutOrCancelledError, RPCError)
-            )
-            if (
-                dedup_client is not None
-                and claimed_submission
-                and isinstance(exc, Exception)
-                and not is_ambiguous
-            ):
+        except AgentControlRejected:
+            if dedup_client is not None and claimed_submission:
                 with contextlib.suppress(Exception):
                     await dedup_client.delete(submission_key)
             raise
@@ -2550,7 +2422,6 @@ class AgentSessionService(BaseWorkspaceService):
 
         logger.info(
             "Approval decisions submitted successfully",
-            workflow_id=str(workflow_id),
             session_id=str(session_id),
             new_stream_id=str(attempt.stream_id),
             resumed=did_resume,
@@ -2575,12 +2446,6 @@ class AgentSessionService(BaseWorkspaceService):
             TracecatNotFoundError: If no session exists with this ID.
             TracecatConflictError: If the session has no active (RUNNING) turn.
         """
-        from tracecat_ee.agent.types import AgentWorkflowID
-        from tracecat_ee.agent.workflows.durable import (
-            DurableAgentWorkflow,
-            WorkflowCancelRequest,
-        )
-
         agent_session = await self.get_session(session_id)
         if agent_session is None:
             raise TracecatNotFoundError(f"Session with ID {session_id} not found")
@@ -2598,41 +2463,9 @@ class AgentSessionService(BaseWorkspaceService):
                 detail={"lifecycle": lifecycle.value},
             )
 
-        client = await get_temporal_client()
-        workflow_id = AgentWorkflowID(curr_run_id)
-        handle = client.get_workflow_handle_for(
-            DurableAgentWorkflow.run,
-            str(workflow_id),
-        )
-
-        logger.info(
-            "Requesting agent turn cancellation",
-            workflow_id=str(workflow_id),
-            session_id=str(session_id),
-            run_id=str(curr_run_id),
-            reason=reason,
-        )
-
-        # Out-of-band fast path: the executor activity polls this signal and
-        # interrupts the live runtime directly. Temporal activity cancellation
-        # only reaches a running activity via throttled heartbeat RPCs, so a
-        # turn can otherwise finish before the cancel is ever delivered. Write
-        # it before the workflow update to minimize stop latency; best-effort
-        # because the update-driven path still cancels (slower) without it.
-        try:
-            await signal_turn_cancel(str(curr_run_id), reason=reason)
-        except Exception as e:
-            logger.warning(
-                "Failed to write turn cancel signal",
-                session_id=str(session_id),
-                run_id=str(curr_run_id),
-                error=str(e),
-            )
-
-        await handle.execute_update(
-            DurableAgentWorkflow.request_cancel,
-            WorkflowCancelRequest(reason=reason),
-        )
+        await get_agent_backend(
+            agent_session.backend_id, harness_type=agent_session.harness_type
+        ).cancel(curr_run_id)
 
         return AgentSessionCancelResponse(
             session_id=session_id,
@@ -2972,6 +2805,12 @@ class AgentSessionService(BaseWorkspaceService):
             chat_service = ChatService(self.session, self.role)
             return await chat_service.list_legacy_messages(session_id, kinds=kinds)
 
+        backend = find_agent_backend(agent_session.backend_id)
+        if backend is None:
+            raise TracecatServiceError(
+                "Cannot read session history because its backend is not installed"
+            )
+
         session_ids = [session_id]
         if agent_session and agent_session.parent_session_id:
             session_ids.insert(0, agent_session.parent_session_id)
@@ -2983,15 +2822,25 @@ class AgentSessionService(BaseWorkspaceService):
             approval.tool_call_id: approval
             for approval in approval_result.scalars().all()
         }
-        entries = await self._visible_history_entries(
-            session_ids=session_ids,
-            current_run_id=agent_session.curr_run_id,
-            approval_tool_call_ids=set(approval_by_tool_id),
-            include_active=include_active,
-        )
+        history = backend.history
+        if history is not None:
+            entries = await history.load(
+                self.session,
+                agent_session,
+                approval_tool_call_ids=set(approval_by_tool_id),
+                include_active=include_active,
+            )
+        else:
+            entries = await self._visible_history_entries(
+                session_ids=session_ids,
+                current_run_id=agent_session.curr_run_id,
+                approval_tool_call_ids=set(approval_by_tool_id),
+                include_active=include_active,
+            )
 
         return self._render_history_entries(
             entries,
+            history=history,
             approvals_by_tool_id=approval_by_tool_id,
             kinds=kinds,
         )
@@ -3002,13 +2851,14 @@ class AgentSessionService(BaseWorkspaceService):
         *,
         approvals_by_tool_id: dict[str, Approval],
         kinds: Sequence[MessageKind] | None,
+        history: SessionHistoryAdapter | None = None,
     ) -> list[ChatMessage]:
         """Render visible history rows into the interleaved chat timeline."""
         messages: list[ChatMessage] = []
         internal_uuids: set[str] = set()
 
         for entry in entries:
-            content = entry.content
+            content = history.project(entry) if history is not None else entry.content
             if not content:
                 continue
 
@@ -3514,6 +3364,8 @@ class AgentSessionService(BaseWorkspaceService):
                 f"Parent session with ID {parent_session_id} not found"
             )
 
+        backend = get_agent_backend(parent.backend_id, harness_type=parent.harness_type)
+
         # Forked sessions are read-only "reviewer" sessions.
         forked_session = AgentSession(
             workspace_id=self.workspace_id,
@@ -3525,13 +3377,19 @@ class AgentSessionService(BaseWorkspaceService):
             channel_context=parent.channel_context,
             tools=[],
             agent_preset_id=None,
-            work_dir_snapshot=copy.deepcopy(parent.work_dir_snapshot),
             # Harness - inherit from parent
+            backend_id=parent.backend_id,
             harness_type=parent.harness_type,
             # Fork reference
             parent_session_id=parent_session_id,
         )
         self.session.add(forked_session)
+        await self.session.flush()
+        await backend.prepare_fork(
+            SessionForkContext(
+                db=self.session, parent=parent, fork=forked_session, role=self.role
+            )
+        )
         await self.session.commit()
         await self.session.refresh(forked_session)
 
