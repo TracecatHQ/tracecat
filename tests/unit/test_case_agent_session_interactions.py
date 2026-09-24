@@ -139,7 +139,7 @@ async def test_record_normalizes_nested_fork_to_root_session(
         title="Child session",
         entity_type="approval",
         entity_id=uuid.uuid4(),
-        parent_session_id=root_session.id,
+        forked_from_session_id=root_session.id,
     )
     grandchild_session = AgentSession(
         id=uuid.uuid4(),
@@ -147,7 +147,7 @@ async def test_record_normalizes_nested_fork_to_root_session(
         title="Grandchild session",
         entity_type="approval",
         entity_id=uuid.uuid4(),
-        parent_session_id=child_session.id,
+        forked_from_session_id=child_session.id,
     )
     session.add_all([child_session, grandchild_session])
     await session.commit()

@@ -701,7 +701,8 @@ async def test_fork_delegates_to_required_backend_operation(preparation_fails):
         if not preparation_fails:
             fork = await service.fork_session(ctx.session.id)
             assert fork.backend_id == ctx.session.backend_id
-            assert fork.parent_session_id == ctx.session.id
+            assert fork.parent_session_id is None
+            assert fork.forked_from_session_id == ctx.session.id
             ctx.db.commit.assert_awaited_once()
             submitted = provider.prepare_fork.await_args.args[0]
             assert submitted.db is ctx.db

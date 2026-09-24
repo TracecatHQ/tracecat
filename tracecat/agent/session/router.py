@@ -119,24 +119,30 @@ async def _require_workspace_chat_entitlement_for_session_tree(
     role: WorkspaceActorRouteRole,
     agent_session: Any,
 ) -> None:
-    """Require Workspace Chat access for a session and inherited parents."""
+    """Require Workspace Chat access for all related session sources."""
     seen: set[uuid.UUID] = set()
-    current = agent_session
-    while current is not None:
-        current_id = getattr(current, "id", None)
-        if isinstance(current_id, uuid.UUID):
-            if current_id in seen:
-                return
-            seen.add(current_id)
+    pending = [agent_session]
+    while pending:
+        current = pending.pop()
+        if current.id in seen:
+            continue
+        seen.add(current.id)
         await require_workspace_chat_entitlement_for_entity(
             session=session,
             role=role,
             entity_type=AgentSessionEntity(current.entity_type),
         )
-        parent_session_id = getattr(current, "parent_session_id", None)
-        if parent_session_id is None:
-            return
-        current = await svc.get_session(parent_session_id)
+        for related_id in (
+            current.parent_session_id,
+            current.forked_from_session_id,
+        ):
+            if related_id is not None:
+                related = await svc.get_session(related_id)
+                if related is None:
+                    raise TracecatNotFoundError(
+                        "Related session not found in workspace"
+                    )
+                pending.append(related)
 
 
 @router.get("/backends")
@@ -167,10 +173,22 @@ async def create_session(
     )
     svc = AgentSessionService(session, role)
     try:
+        if request.parent_session_id is not None:
+            parent = await svc.get_session(request.parent_session_id)
+            if parent is None:
+                raise TracecatNotFoundError("Parent session not found in workspace")
+            _require_session_write_access(role, parent)
+            await _require_workspace_chat_entitlement_for_session_tree(
+                svc=svc, session=session, role=role, agent_session=parent
+            )
         agent_session = await svc.create_session(request)
     except TracecatValidationError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+    except TracecatNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
         ) from exc
     return build_session_read(agent_session, role)
 
@@ -192,7 +210,13 @@ async def list_sessions(
         None, description="Entity types to exclude from results"
     ),
     parent_session_id: uuid.UUID | None = Query(
-        None, description="Filter by parent session ID (for finding forked sessions)"
+        None, description="Filter by spawning parent session ID"
+    ),
+    forked_from_session_id: uuid.UUID | None = Query(
+        None, description="Filter by history source session ID"
+    ),
+    include_children: bool = Query(
+        False, description="Include spawned children without a parent filter"
     ),
     limit: int = Query(
         config.TRACECAT__LIMIT_AGENT_SESSIONS_DEFAULT,
@@ -203,8 +227,9 @@ async def list_sessions(
 ) -> list[AgentSessionRead | ChatReadMinimal]:
     """List agent sessions for the current workspace with optional filtering.
 
-    Returns a list of sessions including both active AgentSessions and legacy
-    Chat records. Legacy chats have is_readonly=True.
+    Returns root sessions by default, including standalone history forks and
+    legacy chats. Filter by parent_session_id to find spawned children.
+    Legacy chats have is_readonly=True.
     """
     if entity_type is AgentSessionEntity.WORKSPACE_CHAT:
         await require_workspace_chat_entitlement_for_entity(
@@ -224,6 +249,8 @@ async def list_sessions(
         entity_id=entity_id,
         exclude_entity_types=exclude_entity_types,
         parent_session_id=parent_session_id,
+        forked_from_session_id=forked_from_session_id,
+        include_children=include_children,
         limit=limit,
     )
 
@@ -795,7 +822,7 @@ async def fork_session(
 ) -> AgentSessionRead:
     """Fork an existing session to continue conversation post-decision.
 
-    Creates a new session linked to the parent session, allowing users
+    Creates a new session linked to a history source, allowing users
     to ask the agent for context after making approval decisions.
 
     Set entity_type to 'approval' for inbox forks to hide from main chat list.
@@ -822,7 +849,18 @@ async def fork_session(
             role=role,
             entity_type=entity_type,
         )
-        forked = await svc.fork_session(session_id, entity_type=entity_type)
+        spawning_parent_id = request.parent_session_id if request else None
+        if spawning_parent_id is not None:
+            spawning_parent = await svc.get_session(spawning_parent_id)
+            if spawning_parent is None:
+                raise TracecatNotFoundError("Parent session not found in workspace")
+            _require_session_write_access(role, spawning_parent)
+            await _require_workspace_chat_entitlement_for_session_tree(
+                svc=svc, session=session, role=role, agent_session=spawning_parent
+            )
+        forked = await svc.fork_session(
+            session_id, entity_type=entity_type, parent_session_id=spawning_parent_id
+        )
         return build_session_read(forked, role)
     except TracecatNotFoundError as e:
         raise HTTPException(

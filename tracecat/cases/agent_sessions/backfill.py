@@ -456,6 +456,7 @@ class CaseAgentSessionBackfill:
                         AgentSession.workspace_id,
                         AgentSession.id,
                         AgentSession.parent_session_id,
+                        AgentSession.forked_from_session_id,
                     )
                     .where(
                         tuple_(AgentSession.workspace_id, AgentSession.id).in_(
@@ -467,8 +468,8 @@ class CaseAgentSessionBackfill:
                 )
             ).tuples()
             parents = {
-                (workspace_id, session_id): parent_id
-                for workspace_id, session_id, parent_id in rows
+                (workspace_id, session_id): parent_id or forked_from_id
+                for workspace_id, session_id, parent_id, forked_from_id in rows
             }
 
             next_level: dict[_Session, uuid.UUID] = {}

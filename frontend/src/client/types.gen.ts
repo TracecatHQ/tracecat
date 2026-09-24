@@ -1007,6 +1007,10 @@ export type AgentSessionCreate = {
    */
   id?: string | null
   /**
+   * Session that spawned this fresh child
+   */
+  parent_session_id?: string | null
+  /**
    * Human-readable title for the session
    */
   title?: string
@@ -1077,6 +1081,10 @@ export type AgentSessionForkRequest = {
    * Override entity type for the forked session. Use 'approval' for inbox forks to hide from main chat list.
    */
   entity_type?: AgentSessionEntity | null
+  /**
+   * Session that spawned this forked child
+   */
+  parent_session_id?: string | null
 }
 
 /**
@@ -1107,6 +1115,7 @@ export type AgentSessionRead = {
   last_stream_id?: string | null
   artifacts?: Array<Artifact>
   parent_session_id?: string | null
+  forked_from_session_id?: string | null
   created_at: string
   updated_at: string
 }
@@ -1139,6 +1148,7 @@ export type AgentSessionReadVercel = {
   last_stream_id?: string | null
   artifacts?: Array<Artifact>
   parent_session_id?: string | null
+  forked_from_session_id?: string | null
   created_at: string
   updated_at: string
   /**
@@ -1175,6 +1185,7 @@ export type AgentSessionReadWithMessages = {
   last_stream_id?: string | null
   artifacts?: Array<Artifact>
   parent_session_id?: string | null
+  forked_from_session_id?: string | null
   created_at: string
   updated_at: string
   /**
@@ -12670,11 +12681,19 @@ export type AgentSessionsListSessionsData = {
    */
   excludeEntityTypes?: Array<AgentSessionEntity> | null
   /**
+   * Filter by history source session ID
+   */
+  forkedFromSessionId?: string | null
+  /**
+   * Include spawned children without a parent filter
+   */
+  includeChildren?: boolean
+  /**
    * Maximum number of sessions to return
    */
   limit?: number
   /**
-   * Filter by parent session ID (for finding forked sessions)
+   * Filter by spawning parent session ID
    */
   parentSessionId?: string | null
   workspaceId: string

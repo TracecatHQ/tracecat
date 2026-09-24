@@ -3164,13 +3164,30 @@ class AgentSession(WorkspaceModel):
         server_default=text("'[]'::jsonb"),
         doc="Durable artifact panel projection for artifact-capable sessions",
     )
-    # Parent session for forked sessions (approval continuations)
+    # Spawning parent; independent of history inheritance.
     parent_session_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID,
         ForeignKey("agent_session.id", ondelete="SET NULL", use_alter=True),
         nullable=True,
         index=True,
-        doc="Parent session ID for forked sessions (e.g., approval continuations)",
+        doc="Session that spawned this child agent",
+    )
+    forked_from_session_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("agent_session.id", ondelete="SET NULL", use_alter=True),
+        nullable=True,
+        index=True,
+        doc="Session whose history this session inherited",
+    )
+    forked_from_history_id: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        doc="Last source history row included when the fork was created",
+    )
+    forked_from_sdk_session_id: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        doc="Native source identity captured at fork creation",
     )
 
     # Relationships
@@ -3179,6 +3196,9 @@ class AgentSession(WorkspaceModel):
         "AgentSession",
         remote_side=[id],
         foreign_keys=[parent_session_id],
+    )
+    forked_from_session: Mapped[AgentSession | None] = relationship(
+        "AgentSession", remote_side=[id], foreign_keys=[forked_from_session_id]
     )
     history: Mapped[list[AgentSessionHistory]] = relationship(
         "AgentSessionHistory",

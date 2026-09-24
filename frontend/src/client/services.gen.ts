@@ -7255,15 +7255,18 @@ export const agentSessionsCreateSession = (
  * List Sessions
  * List agent sessions for the current workspace with optional filtering.
  *
- * Returns a list of sessions including both active AgentSessions and legacy
- * Chat records. Legacy chats have is_readonly=True.
+ * Returns root sessions by default, including standalone history forks and
+ * legacy chats. Filter by parent_session_id to find spawned children.
+ * Legacy chats have is_readonly=True.
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.entityType Filter by entity type
  * @param data.entityId Filter by entity ID
  * @param data.createdBy Filter by session creator. Omit to list the entire workspace.
  * @param data.excludeEntityTypes Entity types to exclude from results
- * @param data.parentSessionId Filter by parent session ID (for finding forked sessions)
+ * @param data.parentSessionId Filter by spawning parent session ID
+ * @param data.forkedFromSessionId Filter by history source session ID
+ * @param data.includeChildren Include spawned children without a parent filter
  * @param data.limit Maximum number of sessions to return
  * @returns unknown Successful Response
  * @throws ApiError
@@ -7283,6 +7286,8 @@ export const agentSessionsListSessions = (
       created_by: data.createdBy,
       exclude_entity_types: data.excludeEntityTypes,
       parent_session_id: data.parentSessionId,
+      forked_from_session_id: data.forkedFromSessionId,
+      include_children: data.includeChildren,
       limit: data.limit,
     },
     errors: {
@@ -7498,7 +7503,7 @@ export const agentSessionsStreamSessionEvents = (
  * Fork Session
  * Fork an existing session to continue conversation post-decision.
  *
- * Creates a new session linked to the parent session, allowing users
+ * Creates a new session linked to a history source, allowing users
  * to ask the agent for context after making approval decisions.
  *
  * Set entity_type to 'approval' for inbox forks to hide from main chat list.
