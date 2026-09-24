@@ -1,7 +1,10 @@
 # Background semantic indexing
 
 The DSL worker reconciles Temporal schedule `semantic-search-dispatch-v1` at
-startup. Every ten seconds it starts `SearchIndexDispatcher`; overlap is skipped.
+startup in a managed background task. Each reconciliation attempt has a
+30-second timeout; failures log only their type and retry after 30 seconds.
+Registration failure does not stop DSL polling, and shutdown cancels the task.
+Every ten seconds it starts `SearchIndexDispatcher`; overlap is skipped.
 The dispatcher keyset-scans 32 collections at a time, including disabled or
 unconfigured collections, with up to six independent workspace jobs in flight.
 Within each page, a free slot starts the next eligible job immediately; jobs for
@@ -27,10 +30,14 @@ The database column's type stays JSONB; there is no new migration.
 Malformed checkpoints become durable `MANIFEST_CONFLICT` failures and stop
 automatic retries. Rebuild the collection to replace its invalid checkpoints.
 
-Preparation saves at most 32 manifests per turn. Embedding reconstructs only
-missing chunks, verifies their hashes, and respects both the provider's input
-count and total-budget limits. The database connection is closed before the
-network call. Publication requires complete enumeration and every expected
+Preparation saves at most 32 manifests per turn. Newly prepared text and token
+counts are reused directly. Missing chunks from a previous turn are reconstructed
+and their hashes verified. Both paths respect the same provider input-count and
+total-token limits; manifests outside the current provider budget stay saved for
+the next turn. Tokenizer initialization and bounded tokenization/chunk computation
+run in threads; database reads remain on their owning async event loop. The
+database connection is closed before the network call. Publication requires
+complete enumeration and every expected
 chunk, guarded by the same revision, generation, config and fence as source
 writes. A crash can repeat a billed call, but cannot publish an incomplete row.
 Storage owns document eligibility, claim transitions, and the shared manifest

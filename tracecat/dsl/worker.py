@@ -45,7 +45,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.observability.sentry import (
         initialize_worker_sentry_from_environment,
     )
-    from tracecat.search.indexing_schedule import ensure_search_schedule
+    from tracecat.search.indexing_schedule import search_schedule_lifespan
     from tracecat.search.indexing_workflow import (
         SearchIndexDispatcher,
         discover_search_collections,
@@ -173,20 +173,22 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
                 SearchIndexDispatcher,
             ]
 
-            async with Worker(
-                client,
-                task_queue=task_queue,
-                activities=activities,
-                workflows=workflows,
-                workflow_runner=new_sandbox_runner(),
-                interceptors=interceptors,
-                disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,
-                activity_executor=executor,
-                max_concurrent_activities=max_concurrent_activities,
-                max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
-                graceful_shutdown_timeout=timedelta(seconds=30),
+            async with (
+                Worker(
+                    client,
+                    task_queue=task_queue,
+                    activities=activities,
+                    workflows=workflows,
+                    workflow_runner=new_sandbox_runner(),
+                    interceptors=interceptors,
+                    disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,
+                    activity_executor=executor,
+                    max_concurrent_activities=max_concurrent_activities,
+                    max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
+                    graceful_shutdown_timeout=timedelta(seconds=30),
+                ),
+                search_schedule_lifespan(client, task_queue),
             ):
-                await ensure_search_schedule(client, task_queue)
                 logger.info(
                     "Worker started, ctrl+c to exit",
                     disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,

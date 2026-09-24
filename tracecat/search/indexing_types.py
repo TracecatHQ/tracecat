@@ -1,10 +1,12 @@
 """Text-free Temporal inputs and bounded indexing summaries."""
 
+from enum import StrEnum
 from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from tracecat.search.types import SearchScope
+from tracecat.search.embeddings.types import EmbeddingErrorCode
+from tracecat.search.types import SearchErrorCode, SearchScope
 
 
 class CollectionWork(BaseModel):
@@ -22,8 +24,19 @@ class DispatchPage(BaseModel):
     next_cursor: UUID | None = None
 
 
+class IndexingOutcome(StrEnum):
+    """Successful or deferred work outcomes; failures use existing error enums."""
+
+    IDLE = "idle"
+    CAPACITY = "capacity"
+    UNAVAILABLE = "unavailable"
+    PAUSED = "paused"
+    PUBLISHED = "published"
+    PROGRESS = "progress"
+
+
 class IndexingProgress(BaseModel):
-    outcome: str
+    outcome: IndexingOutcome | SearchErrorCode | EmbeddingErrorCode
     discovered: int = Field(default=0, ge=0)
     prepared: int = Field(default=0, ge=0)
     embedded: int = Field(default=0, ge=0)

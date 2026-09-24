@@ -9,6 +9,7 @@ import pytest
 from tracecat.search.indexing_types import (
     CollectionWork,
     DispatchPage,
+    IndexingOutcome,
     IndexingProgress,
 )
 from tracecat.search.indexing_workflow import (
@@ -45,7 +46,7 @@ async def test_dispatch_replenishes_slots_and_serializes_each_workspace():
             await release[argument.collection_id].wait()
         finally:
             active.remove(argument.workspace_id)
-        return IndexingProgress(outcome="idle")
+        return IndexingProgress(outcome=IndexingOutcome.IDLE)
 
     with patch(
         "tracecat.search.indexing_workflow.workflow.execute_activity", new=execute

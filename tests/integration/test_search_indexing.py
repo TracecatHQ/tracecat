@@ -4,6 +4,7 @@ import json
 import threading
 from collections.abc import Iterator
 from contextlib import AsyncExitStack
+from dataclasses import replace
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from uuid import uuid4
@@ -11,6 +12,7 @@ from uuid import uuid4
 import httpx
 import pytest
 import sqlalchemy as sa
+from sqlalchemy import event
 from temporalio import activity
 from temporalio.contrib.pydantic import pydantic_data_converter
 from temporalio.testing import WorkflowEnvironment
@@ -25,6 +27,7 @@ from tracecat.db.models import SearchChunk, SearchDocument, Table
 from tracecat.redis.client import RedisClient
 from tracecat.search.capacity import search_capacity
 from tracecat.search.chunking_types import ChunkCheckpoint
+from tracecat.search.embeddings.catalog import token_counter
 from tracecat.search.embeddings.client import EmbeddingClient
 from tracecat.search.embeddings.types import (
     EmbeddingError,
@@ -35,7 +38,11 @@ from tracecat.search.embeddings.types import (
 )
 from tracecat.search.indexing import index_collection
 from tracecat.search.indexing_schedule import SCHEDULE_ID, ensure_search_schedule
-from tracecat.search.indexing_types import CollectionWork, IndexingProgress
+from tracecat.search.indexing_types import (
+    CollectionWork,
+    IndexingOutcome,
+    IndexingProgress,
+)
 from tracecat.search.indexing_workflow import (
     SearchIndexDispatcher,
     discover_search_collections,
@@ -276,7 +283,7 @@ async def test_temporal_dispatch_discovers_committed_row_and_schedule(
     @activity.defn(name="index_search_collection")
     async def controlled_activity(item: CollectionWork) -> IndexingProgress:
         if item.collection_id != work.collection_id:
-            return IndexingProgress(outcome="idle")
+            return IndexingProgress(outcome=IndexingOutcome.IDLE)
         return await index_collection(item, pinned, embed)
 
     async with await WorkflowEnvironment.start_local(
@@ -430,3 +437,79 @@ async def test_corrupt_checkpoint_becomes_a_durable_failure(
     assert (await index_collection(work, pinned, unexpected_embed)).outcome == "idle"
     await tables.session.refresh(doc)
     assert doc.fence == fence
+
+
+async def test_fresh_inputs_do_not_reread_source_after_checkpoint(
+    tables: TablesService, table: Table, indexing
+):
+    work, pinned, embed = indexing
+    await tables.insert_row(
+        table, TableRowInsert(data={"body": "synthetic short text"})
+    )
+    reads: list[str] = []
+
+    def record_slice(conn, cursor, statement, parameters, context, executemany):
+        if "substr(" in statement:
+            reads.append(statement)
+
+    event.listen(sa.engine.Engine, "before_cursor_execute", record_slice)
+    try:
+        result = await index_collection(work, pinned, embed)
+    finally:
+        event.remove(sa.engine.Engine, "before_cursor_execute", record_slice)
+    assert result.outcome == "published" and result.prepared == 1
+    # Preparation reads this one-window row once; embedding reuses that text.
+    assert len(reads) == 1
+
+
+@pytest.mark.parametrize("limit", ["inputs", "tokens"])
+async def test_fresh_and_resumed_inputs_use_the_same_provider_budget(
+    tables: TablesService, table: Table, indexing, limit: str
+):
+    work, pinned, _embed = indexing
+    pinned = replace(
+        pinned,
+        spec=replace(
+            pinned.spec,
+            batch_size_limit=1 if limit == "inputs" else 32,
+            batch_token_limit=100 if limit == "inputs" else 40,
+        ),
+    )
+    await tables.insert_row(
+        table, TableRowInsert(data={"body": "synthetic budget boundary. " * 100})
+    )
+    captured: list[EmbeddingRequest] = []
+
+    async def crash_after_commit(request: EmbeddingRequest):
+        captured.append(request)
+        raise RuntimeError("synthetic process exit")
+
+    with pytest.raises(RuntimeError):
+        await index_collection(work, pinned, crash_after_commit)
+    await tables.session.rollback()
+    doc = await tables.session.scalar(
+        sa.select(SearchDocument).where(
+            SearchDocument.collection_id == work.collection_id
+        )
+    )
+    assert doc is not None
+    checkpoint = doc.enumeration_cursor
+    manifests = await tables.session.scalar(
+        sa.select(sa.func.count())
+        .select_from(SearchChunk)
+        .where(SearchChunk.document_id == doc.id)
+    )
+    assert manifests and manifests > len(captured[0].items)
+    doc.lease_until = datetime.now(UTC)
+    await tables.session.commit()
+    with pytest.raises(RuntimeError):
+        await index_collection(work, pinned, crash_after_commit)
+    assert captured[0].items == captured[1].items
+    assert 1 <= len(captured[0].items) <= pinned.spec.batch_size_limit
+    counter = token_counter(pinned.spec)
+    assert (
+        sum(counter.count_tokens(c.text) for c in captured[0].items)
+        <= pinned.spec.batch_token_limit
+    )
+    await tables.session.refresh(doc)
+    assert doc.enumeration_cursor == checkpoint

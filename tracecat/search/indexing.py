@@ -1,6 +1,7 @@
 """Bounded indexing work; transactions never cross embedding calls."""
 
-from collections.abc import Awaitable, Callable
+import asyncio
+from collections.abc import AsyncIterator, Awaitable, Callable
 from uuid import UUID
 
 import sqlalchemy as sa
@@ -21,7 +22,11 @@ from tracecat.search.embeddings.types import (
     EmbeddingError,
     PinnedConfiguration,
 )
-from tracecat.search.indexing_types import CollectionWork, IndexingProgress
+from tracecat.search.indexing_types import (
+    CollectionWork,
+    IndexingOutcome,
+    IndexingProgress,
+)
 from tracecat.search.types import (
     BuildClaim,
     ChunkerSettings,
@@ -143,12 +148,16 @@ async def _claim_next(
             return None
         state = await source._state()
         if configuration is None or state.state == SearchState.PAUSED:
-            progress.outcome = "unavailable" if configuration is None else "paused"
+            progress.outcome = (
+                IndexingOutcome.UNAVAILABLE
+                if configuration is None
+                else IndexingOutcome.PAUSED
+            )
             await source.session.commit()
             return None
         if configuration.version != state.current_version:
             raise SearchError(SearchErrorCode.CONFIGURATION_CHANGED)
-        settings = settings_for(configuration)
+        settings = await asyncio.to_thread(settings_for, configuration)
         if (
             collection.config_version != configuration.version
             or collection.chunker_settings != settings.model_dump()
@@ -205,14 +214,16 @@ async def _prepare_inputs(
     configuration: PinnedConfiguration,
     progress: IndexingProgress,
 ) -> tuple[EmbeddingInput, ...]:
-    """Persist full enumeration progress and reconstruct a bounded provider batch."""
+    """Persist enumeration and reuse fresh text, reconstructing only resumed work."""
     async with TableSearchSource.with_session(scope=work.scope) as source:
         collection, document = await source._fenced(claim)
         table = await source.table(collection.source_id)
-        chunker = make_chunker(
+        settings = await asyncio.to_thread(settings_for, configuration)
+        chunker = await asyncio.to_thread(
+            make_chunker,
             source,
             claim,
-            settings_for(configuration),
+            settings,
             [
                 TextColumn(UUID(str(c.id)), c.name)
                 for c in table.columns
@@ -236,6 +247,7 @@ async def _prepare_inputs(
             .limit(min(32, configuration.spec.batch_size_limit))
         )
         chunks = (await source.session.scalars(pending)).all()
+        batch = None
         if not chunks and not document.enumeration_complete:
             batch = await chunker.prepare_batch(
                 source, before if isinstance(before, ChunkCheckpoint) else None
@@ -258,29 +270,47 @@ async def _prepare_inputs(
                 complete=batch.complete,
             )
             progress.prepared = len(batch.chunks)
-            chunks = (await source.session.scalars(pending)).all()
         inputs: list[EmbeddingInput] = []
         units = 0
-        counter = token_counter(configuration.spec)
-        for chunk in chunks:
-            text = await chunker.reconstruct_input(
-                source,
-                ChunkReference(
-                    identity=chunker.identity,
-                    config_hash=chunker.initial_checkpoint().config_hash,
-                    column_id=chunk.column_id,
-                    column_name=chunk.column_name,
-                    ordinal=chunk.ordinal,
-                    start=chunk.start_offset,
-                    end=chunk.end_offset,
-                    input_hash=chunk.input_hash,
-                ),
-            )
-            count = counter.count_tokens(text)
+
+        async def candidates() -> AsyncIterator[tuple[EmbeddingInput, int]]:
+            if batch is not None:
+                for chunk in batch.chunks:
+                    metadata = chunk.metadata
+                    yield (
+                        EmbeddingInput(
+                            metadata.ordinal, metadata.input_hash, chunk.text
+                        ),
+                        metadata.token_count,
+                    )
+                return
+            counter = await asyncio.to_thread(token_counter, configuration.spec)
+            for saved in chunks:
+                text = await chunker.reconstruct_input(
+                    source,
+                    ChunkReference(
+                        identity=chunker.identity,
+                        config_hash=chunker.initial_checkpoint().config_hash,
+                        column_id=saved.column_id,
+                        column_name=saved.column_name,
+                        ordinal=saved.ordinal,
+                        start=saved.start_offset,
+                        end=saved.end_offset,
+                        input_hash=saved.input_hash,
+                    ),
+                )
+                yield (
+                    EmbeddingInput(saved.ordinal, saved.input_hash, text),
+                    await asyncio.to_thread(counter.count_tokens, text),
+                )
+
+        async for item, count in candidates():
             if units + count > configuration.spec.batch_token_limit:
                 break
-            inputs.append(EmbeddingInput(chunk.ordinal, chunk.input_hash, text))
+            inputs.append(item)
             units += count
+            if len(inputs) == min(32, configuration.spec.batch_size_limit):
+                break
         await source.session.commit()
     return tuple(inputs)
 
@@ -300,7 +330,7 @@ async def _finish_batch(
                 result.prompt_tokens,
                 result.total_tokens,
             )
-        progress.outcome = await source.finish_or_yield(claim)
+        progress.outcome = IndexingOutcome(await source.finish_or_yield(claim))
         await source.session.commit()
 
 
@@ -308,7 +338,7 @@ async def index_collection(
     work: CollectionWork, configuration: PinnedConfiguration | None, embed: Embed
 ) -> IndexingProgress:
     """Backfill one page and advance one document by one bounded work unit."""
-    progress = IndexingProgress(outcome="idle")
+    progress = IndexingProgress(outcome=IndexingOutcome.IDLE)
     claim: BuildClaim | None = None
     try:
         claim = await _claim_next(work, configuration, progress)
@@ -334,8 +364,8 @@ async def index_collection(
         if claim is not None:
             await record_failure(work, claim, exc)
         progress.outcome = (
-            exc.code.value
+            exc.code
             if isinstance(exc, (EmbeddingError, SearchError))
-            else "MANIFEST_CONFLICT"
+            else SearchErrorCode.MANIFEST_CONFLICT
         )
     return progress

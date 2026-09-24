@@ -27,6 +27,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.search.indexing_types import (
         CollectionWork,
         DispatchPage,
+        IndexingOutcome,
         IndexingProgress,
     )
     from tracecat.search.types import SearchError
@@ -71,7 +72,7 @@ async def index_search_collection(work: CollectionWork) -> IndexingProgress:
             search_capacity(work.scope, background=True) as acquired,
         ):
             if not acquired:
-                return IndexingProgress(outcome="capacity")
+                return IndexingProgress(outcome=IndexingOutcome.CAPACITY)
             configuration = await resolve_embedding_configuration(work.scope)
             async with httpx.AsyncClient() as http:
                 client = EmbeddingClient(http)

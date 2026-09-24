@@ -24,6 +24,7 @@ from tracecat.agent.preset.activities import (
 from tracecat.agent.worker import get_activities as get_agent_worker_activities
 from tracecat.dsl.interceptor import RuntimeErrorAttributionInterceptor
 from tracecat.dsl.worker import get_activities as get_dsl_worker_activities
+from tracecat.search import indexing_schedule
 
 
 @pytest.fixture(scope="session")
@@ -230,10 +231,10 @@ async def test_dsl_worker_treats_empty_concurrency_env_vars_as_defaults(
 ) -> None:
     from tracecat.dsl import worker
 
-    schedule = AsyncMock()
-    monkeypatch.setattr(worker, "ensure_search_schedule", schedule)
-    captured: dict[str, object] = {}
     shutdown_event = asyncio.Event()
+    schedule = AsyncMock(side_effect=lambda *_: shutdown_event.set())
+    monkeypatch.setattr(indexing_schedule, "ensure_search_schedule", schedule)
+    captured: dict[str, object] = {}
 
     class _FakeWorker:
         def __init__(
@@ -268,7 +269,6 @@ async def test_dsl_worker_treats_empty_concurrency_env_vars_as_defaults(
             captured["graceful_shutdown_timeout"] = graceful_shutdown_timeout
 
         async def __aenter__(self) -> _FakeWorker:
-            shutdown_event.set()
             return self
 
         async def __aexit__(
@@ -290,7 +290,7 @@ async def test_dsl_worker_treats_empty_concurrency_env_vars_as_defaults(
     monkeypatch.setattr(worker, "new_sandbox_runner", lambda: object())
     monkeypatch.setattr(worker, "close_storage_client_cache", AsyncMock())
 
-    await worker.main(shutdown_event=shutdown_event)
+    await asyncio.wait_for(worker.main(shutdown_event=shutdown_event), 2)
 
     schedule.assert_awaited_once()
     assert schedule.await_args is not None
