@@ -5554,6 +5554,12 @@ export const $AssistantMessage = {
           {
             $ref: "#/components/schemas/ToolResultBlock",
           },
+          {
+            $ref: "#/components/schemas/ServerToolUseBlock",
+          },
+          {
+            $ref: "#/components/schemas/ServerToolResultBlock",
+          },
         ],
       },
       type: "array",
@@ -13391,6 +13397,27 @@ export const $DefaultModelSelectionUpdate = {
   title: "DefaultModelSelectionUpdate",
   description:
     "Payload for updating the organization's default model selection.",
+} as const
+
+export const $DeferredToolUse = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    input: {
+      additionalProperties: true,
+      type: "object",
+      title: "Input",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "input"],
+  title: "DeferredToolUse",
 } as const
 
 export const $DropdownValueChangedEventRead = {
@@ -23060,6 +23087,16 @@ export const $ResultMessage = {
       ],
       title: "Permission Denials",
     },
+    deferred_tool_use: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/DeferredToolUse",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
     errors: {
       anyOf: [
         {
@@ -23073,6 +23110,17 @@ export const $ResultMessage = {
         },
       ],
       title: "Errors",
+    },
+    api_error_status: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Api Error Status",
     },
     uuid: {
       anyOf: [
@@ -24831,6 +24879,54 @@ export const $Select = {
   },
   type: "object",
   title: "Select",
+} as const
+
+export const $ServerToolResultBlock = {
+  properties: {
+    tool_use_id: {
+      type: "string",
+      title: "Tool Use Id",
+    },
+    content: {
+      additionalProperties: true,
+      type: "object",
+      title: "Content",
+    },
+  },
+  type: "object",
+  required: ["tool_use_id", "content"],
+  title: "ServerToolResultBlock",
+} as const
+
+export const $ServerToolUseBlock = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      enum: [
+        "advisor",
+        "web_search",
+        "web_fetch",
+        "code_execution",
+        "bash_code_execution",
+        "text_editor_code_execution",
+        "tool_search_tool_regex",
+        "tool_search_tool_bm25",
+      ],
+      title: "Name",
+    },
+    input: {
+      additionalProperties: true,
+      type: "object",
+      title: "Input",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "input"],
+  title: "ServerToolUseBlock",
 } as const
 
 export const $ServiceAccountApiKeyCounts = {
@@ -29760,6 +29856,12 @@ export const $UserMessage = {
               },
               {
                 $ref: "#/components/schemas/ToolResultBlock",
+              },
+              {
+                $ref: "#/components/schemas/ServerToolUseBlock",
+              },
+              {
+                $ref: "#/components/schemas/ServerToolResultBlock",
               },
             ],
           },
