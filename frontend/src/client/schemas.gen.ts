@@ -1453,6 +1453,23 @@ export const $AgentArtifact = {
   description: "Agent preset artifact shown in artifact-capable chat surfaces.",
 } as const
 
+export const $AgentBackendRead = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+  },
+  type: "object",
+  required: ["id", "name"],
+  title: "AgentBackendRead",
+  description: "An enabled installed backend available for session creation.",
+} as const
+
 export const $AgentCatalogListResponse = {
   properties: {
     items: {
@@ -4046,10 +4063,30 @@ export const $AgentSessionCreate = {
       description:
         "Pinned preset version used for this session. If null, the session follows the preset's current version.",
     },
+    backend_id: {
+      type: "string",
+      maxLength: 50,
+      minLength: 1,
+      pattern: "^[a-z][a-z0-9_]*$",
+      title: "Backend Id",
+      description: "Opaque agent backend identifier",
+      default: "oss",
+    },
     harness_type: {
-      $ref: "#/components/schemas/HarnessType",
-      description: "Agent harness type",
-      default: "claude_code",
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 50,
+          minLength: 1,
+          pattern: "^[a-z][a-z0-9_]*$",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Harness Type",
+      description:
+        "Execution harness; defaults to the selected backend's harness",
     },
   },
   type: "object",
@@ -4217,6 +4254,11 @@ export const $AgentSessionRead = {
           type: "null",
         },
       ],
+    },
+    backend_id: {
+      type: "string",
+      title: "Backend Id",
+      default: "oss",
     },
     harness_type: {
       anyOf: [
@@ -4417,6 +4459,11 @@ export const $AgentSessionReadVercel = {
           type: "null",
         },
       ],
+    },
+    backend_id: {
+      type: "string",
+      title: "Backend Id",
+      default: "oss",
     },
     harness_type: {
       anyOf: [
@@ -4626,6 +4673,11 @@ export const $AgentSessionReadWithMessages = {
         },
       ],
     },
+    backend_id: {
+      type: "string",
+      title: "Backend Id",
+      default: "oss",
+    },
     harness_type: {
       anyOf: [
         {
@@ -4792,16 +4844,35 @@ export const $AgentSessionUpdate = {
       description:
         "Pinned preset version to use for this session. Set null to follow the preset's current version.",
     },
-    harness_type: {
+    backend_id: {
       anyOf: [
         {
-          $ref: "#/components/schemas/HarnessType",
+          type: "string",
+          maxLength: 50,
+          minLength: 1,
+          pattern: "^[a-z][a-z0-9_]*$",
         },
         {
           type: "null",
         },
       ],
-      description: "Agent harness type",
+      title: "Backend Id",
+      description: "Immutable agent backend identifier",
+    },
+    harness_type: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 50,
+          minLength: 1,
+          pattern: "^[a-z][a-z0-9_]*$",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Harness Type",
+      description: "Immutable execution harness",
     },
   },
   type: "object",
@@ -14441,6 +14512,7 @@ export const $FeatureFlag = {
     "workflow-concurrency-limits",
     "agent-channels",
     "agent-fs-persistence",
+    "agent-runtime",
   ],
   title: "FeatureFlag",
   description: "Feature flag enum reserved for engineering rollouts.",
@@ -15778,13 +15850,6 @@ export const $HTTPValidationError = {
   },
   type: "object",
   title: "HTTPValidationError",
-} as const
-
-export const $HarnessType = {
-  type: "string",
-  enum: ["claude_code"],
-  title: "HarnessType",
-  description: "Supported agent harnesses.",
 } as const
 
 export const $HealthResponse = {

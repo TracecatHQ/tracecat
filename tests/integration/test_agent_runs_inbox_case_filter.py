@@ -9,6 +9,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.inbox.providers.agent_runs import AgentRunsInboxProvider
 
+from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.auth.types import Role
 from tracecat.cases.enums import (
@@ -19,6 +20,7 @@ from tracecat.cases.enums import (
 )
 from tracecat.db.models import (
     AgentSession,
+    Approval,
     Case,
     CaseAgentSessionInteraction,
     Workspace,
@@ -167,3 +169,73 @@ async def test_case_filter_is_scoped_deduplicated_and_paginated(
     assert unrelated.id in {item.source_id for item in unfiltered.items}
     isolated = await provider.list_items(case_id=foreign_case.id)
     assert isolated.items == []
+
+
+async def test_backend_compatibility_preserves_eligibility_and_count_rules(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """Only backend restrictions change; harness and approval rules stay intact."""
+    assert svc_role.workspace_id is not None
+    workspace_id = svc_role.workspace_id
+    base_time = datetime(2026, 1, 1, tzinfo=UTC)
+    rows = []
+    for index, (backend_id, harness, entity_type, pending) in enumerate(
+        [
+            ("oss", HarnessType.CLAUDE_CODE, "case", False),
+            ("ee", HarnessType.CLAUDE_CODE, "case", False),
+            ("oss", "pi", "case", False),
+            ("ee", "pi", "case", False),
+            ("ee", "pi", "case", True),
+            ("oss", "pi", "approval", True),
+            ("ee", "pi", "approval", True),
+        ]
+    ):
+        row = _agent_session(
+            workspace_id,
+            f"session-{index}",
+            base_time + timedelta(minutes=index),
+            entity_id=uuid.uuid4(),
+        )
+        row.backend_id = backend_id
+        row.harness_type = harness
+        row.entity_type = entity_type
+        session.add(row)
+        await session.flush()
+        if pending:
+            for tool_index in range(2):
+                session.add(
+                    Approval(
+                        workspace_id=workspace_id,
+                        session_id=row.id,
+                        tool_call_id=f"call-{tool_index}",
+                        tool_name="test_tool",
+                        status=ApprovalStatus.PENDING,
+                    )
+                )
+        rows.append(row)
+    child = _agent_session(workspace_id, "child", base_time, entity_id=uuid.uuid4())
+    child.backend_id = "ee"
+    child.parent_session_id = rows[4].id
+    session.add(child)
+    await session.flush()
+    session.add(
+        Approval(
+            workspace_id=workspace_id,
+            session_id=child.id,
+            tool_call_id="child-call",
+            tool_name="test_tool",
+            status=ApprovalStatus.PENDING,
+        )
+    )
+    await session.commit()
+    expected_ids = [rows[index].id for index in (0, 1, 4)]
+    # Read through the real load_only projection rather than the identity map.
+    session.expunge_all()
+    provider = AgentRunsInboxProvider(session, svc_role)
+
+    page = await provider.list_items(limit=20, sort="asc")
+    assert [item.source_id for item in page.items] == expected_ids
+    # Existing counts include approval-type roots, although listing hides them.
+    # Multiple approvals on one session still count as one item; children do not.
+    assert await provider.count_pending_items() == 3

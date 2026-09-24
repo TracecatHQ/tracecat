@@ -191,6 +191,8 @@ import type {
   AgentSessionsGetSessionResponse,
   AgentSessionsGetSessionVercelData,
   AgentSessionsGetSessionVercelResponse,
+  AgentSessionsListAgentBackendsData,
+  AgentSessionsListAgentBackendsResponse,
   AgentSessionsListSessionsData,
   AgentSessionsListSessionsResponse,
   AgentSessionsRemoveSessionArtifactData,
@@ -7192,6 +7194,29 @@ export const agentSkillsRemoveSkillTag = (
     path: {
       skill_id: data.skillId,
       tag_id: data.tagId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Agent Backends
+ * List enabled installed backends available to new sessions.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns AgentBackendRead Successful Response
+ * @throws ApiError
+ */
+export const agentSessionsListAgentBackends = (
+  data: AgentSessionsListAgentBackendsData
+): CancelablePromise<AgentSessionsListAgentBackendsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/agent/sessions/backends",
+    path: {
       workspace_id: data.workspaceId,
     },
     errors: {
