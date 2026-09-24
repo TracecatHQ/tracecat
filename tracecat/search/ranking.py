@@ -8,7 +8,7 @@ from tracecat.search.cursors import RankedReference
 from tracecat.search.query import eligible_chunks
 from tracecat.search.schemas import SearchMatch, SearchResult
 from tracecat.tables.common import sanitize_identifier
-from tracecat.tables.search_source import TableSearchSource
+from tracecat.tables.search.source import TableSearchSource
 
 
 def source_chunks(
@@ -49,7 +49,9 @@ async def rank_rows(
         .cte("eligible")
         .prefix_with("MATERIALIZED")
     )
-    score = 1 - eligible.c.embedding.cosine_distance(list(vector))
+    score: sa.ColumnElement[float] = 1 - eligible.c.embedding.cosine_distance(
+        list(vector)
+    )
     winners = sa.select(
         eligible.c.row_id,
         eligible.c.chunk_id,

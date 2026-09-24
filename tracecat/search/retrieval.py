@@ -35,7 +35,7 @@ from tracecat.search.types import (
     SearchScope,
     SearchState,
 )
-from tracecat.tables.search_source import TableSearchSource
+from tracecat.tables.search.source import TableSearchSource
 from tracecat.tables.service import TablesService
 
 
