@@ -12,10 +12,10 @@ import uuid
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from datetime import timedelta
-from typing import Self
+from typing import Literal, Self
 
 import numpy as np
-from sqlalchemy import and_, delete, func, select, text
+from sqlalchemy import Select, and_, delete, func, or_, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,11 +30,15 @@ from tracecat.db.models import (
     Workspace,
 )
 from tracecat.db.rls import set_rls_context
+from tracecat.search.chunking_types import ChunkCheckpoint
+from tracecat.search.embeddings.types import EmbeddingErrorCode
 from tracecat.search.schemas import SearchIndexStatus
 from tracecat.search.types import (
+    BacklogSample,
     BuildClaim,
     ChunkerSettings,
     ChunkManifest,
+    ClaimedDocument,
     DocumentState,
     EmbeddingResult,
     EnumerationCursor,
@@ -42,6 +46,7 @@ from tracecat.search.types import (
     SearchErrorCode,
     SearchScope,
     SearchState,
+    decode_enumeration_cursor,
 )
 from tracecat.service import BaseService
 
@@ -379,6 +384,36 @@ class SearchStorage(BaseService):
         ):
             raise SearchError(SearchErrorCode.INDEX_NOT_READY)
 
+    def _claimable_documents(
+        self, collection: SearchCollection
+    ) -> Select[tuple[SearchDocument]]:
+        """One eligibility predicate for explicit and scheduler-selected claims."""
+        now = func.clock_timestamp()
+        due = and_(
+            SearchDocument.state.in_(["pending", "building", "failed"]),
+            or_(
+                SearchDocument.state != "failed",
+                SearchDocument.next_attempt_at.is_not(None),
+            ),
+            or_(
+                SearchDocument.next_attempt_at.is_(None),
+                SearchDocument.next_attempt_at <= now,
+            ),
+            or_(
+                SearchDocument.lease_until.is_(None), SearchDocument.lease_until <= now
+            ),
+        )
+        return (
+            select(SearchDocument)
+            .execution_options(populate_existing=True)
+            .where(
+                self._scope(SearchDocument),
+                SearchDocument.collection_id == collection.id,
+                SearchDocument.deleted_at.is_(None),
+                or_(SearchDocument.generation != collection.generation, due),
+            )
+        )
+
     async def claim(
         self,
         collection_id: uuid.UUID,
@@ -394,20 +429,49 @@ class SearchStorage(BaseService):
         document = await self._document(document_id)
         if document.collection_id != collection_id:
             raise SearchError(SearchErrorCode.NOT_FOUND)
+        eligible = await self.session.scalar(
+            self._claimable_documents(collection).where(
+                SearchDocument.id == document_id
+            )
+        )
+        if eligible is None:
+            return None
+        return await self._lease_document(collection, eligible, lease_seconds)
+
+    async def claim_next_due(
+        self, collection_id: uuid.UUID, *, lease_seconds: int = 120
+    ) -> ClaimedDocument | None:
+        """Lease the oldest eligible document under the workspace write lock."""
+        if not 1 <= lease_seconds <= 300:
+            raise ValueError("lease_seconds must be between 1 and 300")
+        collection = await self.collection(collection_id)
+        await self._active(collection)
+        document = await self.session.scalar(
+            self._claimable_documents(collection)
+            .order_by(SearchDocument.updated_at, SearchDocument.id)
+            .limit(1)
+        )
+        if document is None:
+            return None
+        waited = await self.session.scalar(
+            select(
+                func.extract(
+                    "epoch", func.clock_timestamp() - SearchDocument.updated_at
+                )
+            ).where(SearchDocument.id == document.id)
+        )
+        claim = await self._lease_document(collection, document, lease_seconds)
+        return ClaimedDocument(
+            claim=claim, queue_wait_seconds=max(0, float(waited or 0))
+        )
+
+    async def _lease_document(
+        self, collection: SearchCollection, document: SearchDocument, lease_seconds: int
+    ) -> BuildClaim:
+        if document.generation != collection.generation:
+            document = await self.touch_document(collection.id, document.source_row_id)
         now = await self.session.scalar(select(func.clock_timestamp()))
         assert now is not None
-        if document.deleted_at is not None:
-            return None
-        if document.generation != collection.generation:
-            document = await self.touch_document(collection_id, document.source_row_id)
-        if document.state == DocumentState.FAILED and document.next_attempt_at is None:
-            return None
-        if document.state in (DocumentState.READY, DocumentState.EMPTY):
-            return None
-        if (document.lease_until is not None and document.lease_until > now) or (
-            document.next_attempt_at is not None and document.next_attempt_at > now
-        ):
-            return None
         document.fence += 1
         document.build_revision = document.desired_revision
         document.lease_until = now + timedelta(seconds=lease_seconds)
@@ -423,6 +487,42 @@ class SearchStorage(BaseService):
             revision=document.desired_revision,
             fence=document.fence,
         )
+
+    async def sample_backlog(self, collection_id: uuid.UUID) -> BacklogSample:
+        """Read bounded telemetry without acquiring the workspace write lock."""
+        sample = (
+            select(
+                SearchDocument.state,
+                SearchDocument.generation,
+                SearchDocument.indexed_revision,
+                SearchDocument.desired_revision,
+                SearchCollection.generation.label("collection_generation"),
+            )
+            .join(SearchCollection, SearchCollection.id == SearchDocument.collection_id)
+            .where(
+                self._scope(SearchDocument),
+                self._scope(SearchCollection),
+                SearchDocument.collection_id == collection_id,
+                SearchDocument.deleted_at.is_(None),
+            )
+            .limit(100)
+            .subquery()
+        )
+        current = sample.c.generation == sample.c.collection_generation
+        total, ready, failed = (
+            await self.session.execute(
+                select(
+                    func.count(),
+                    func.count().filter(
+                        current
+                        & (sample.c.indexed_revision == sample.c.desired_revision)
+                        & sample.c.state.in_(["ready", "empty"])
+                    ),
+                    func.count().filter(current & (sample.c.state == "failed")),
+                ).select_from(sample)
+            )
+        ).one()
+        return BacklogSample(pending=total - ready - failed, failed=failed)
 
     async def _fenced(
         self, claim: BuildClaim
@@ -452,14 +552,14 @@ class SearchStorage(BaseService):
         self,
         claim: BuildClaim,
         *,
-        before: EnumerationCursor,
-        after: EnumerationCursor,
+        before: EnumerationCursor | ChunkCheckpoint,
+        after: EnumerationCursor | ChunkCheckpoint,
         chunks: tuple[ChunkManifest, ...],
         complete: bool = False,
     ) -> None:
         """Atomically append a contiguous manifest and persist its source cursor."""
         collection, document = await self._fenced(claim)
-        current = EnumerationCursor.model_validate(document.enumeration_cursor or {})
+        current = decode_enumeration_cursor(document.enumeration_cursor)
         if current == after and document.enumeration_complete == complete:
             existing = (
                 await self.session.scalars(
@@ -491,6 +591,22 @@ class SearchStorage(BaseService):
             raise SearchError(SearchErrorCode.MANIFEST_CONFLICT)
         if document.enumeration_complete or current != before:
             raise SearchError(SearchErrorCode.MANIFEST_CONFLICT)
+        if isinstance(after, ChunkCheckpoint):
+            identity = after.identity
+            if (
+                identity.organization_id != self.scope.organization_id
+                or identity.workspace_id != self.scope.workspace_id
+                or identity.collection_id != claim.collection_id
+                or identity.document_id != claim.document_id
+                or identity.generation != claim.generation
+                or identity.config_version != claim.config_version
+                or identity.revision != claim.revision
+                or (
+                    isinstance(before, ChunkCheckpoint)
+                    and before.config_hash != after.config_hash
+                )
+            ):
+                raise SearchError(SearchErrorCode.MANIFEST_CONFLICT)
         if len(chunks) > 32 or after.next_ordinal != before.next_ordinal + len(chunks):
             raise SearchError(SearchErrorCode.MANIFEST_CONFLICT)
         if (after.column_index, after.character_offset) < (
@@ -533,7 +649,7 @@ class SearchStorage(BaseService):
                     input_hash=chunk.input_hash,
                 )
             )
-        document.enumeration_cursor = after.model_dump()
+        document.enumeration_cursor = after.model_dump(mode="json")
         document.enumeration_complete = complete
         document.expected_chunks = after.next_ordinal
         await self.session.flush()
@@ -603,6 +719,24 @@ class SearchStorage(BaseService):
         ):
             return
         _, document = await self._fenced(claim)
+        if not await self._publish_if_complete(claim, document):
+            raise SearchError(SearchErrorCode.INDEX_NOT_READY)
+
+    async def finish_or_yield(
+        self, claim: BuildClaim
+    ) -> Literal["published", "progress"]:
+        """Publish a complete manifest, otherwise release this bounded work unit."""
+        _, document = await self._fenced(claim)
+        if await self._publish_if_complete(claim, document):
+            return "published"
+        await self.yield_claim(claim)
+        return "progress"
+
+    async def _publish_if_complete(
+        self, claim: BuildClaim, document: SearchDocument
+    ) -> bool:
+        if not document.enumeration_complete:
+            return False
         count, embedded, minimum, maximum = (
             await self.session.execute(
                 select(
@@ -619,23 +753,23 @@ class SearchStorage(BaseService):
                 )
             )
         ).one()
-        if (
-            not document.enumeration_complete
-            or count != document.expected_chunks
-            or embedded != count
-            or (count > 0 and (minimum != 0 or maximum != count - 1))
+        if count != document.expected_chunks or (
+            count > 0 and (minimum != 0 or maximum != count - 1)
         ):
             raise SearchError(SearchErrorCode.INDEX_NOT_READY)
+        if embedded != count:
+            return False
         document.indexed_revision = claim.revision
         document.state = DocumentState.READY if count else DocumentState.EMPTY
         document.lease_until = None
         document.error_code = None
         await self.session.flush()
+        return True
 
     async def fail(
         self,
         claim: BuildClaim,
-        code: SearchErrorCode,
+        code: SearchErrorCode | EmbeddingErrorCode,
         *,
         retry_seconds: int | None = None,
     ) -> None:
@@ -651,6 +785,16 @@ class SearchStorage(BaseService):
             if retry_seconds is not None
             else None
         )
+        await self.session.flush()
+
+    async def yield_claim(self, claim: BuildClaim) -> None:
+        """Release a successful bounded batch without consuming a failure attempt."""
+        _, document = await self._fenced(claim)
+        document.state = DocumentState.PENDING
+        document.lease_until = None
+        document.next_attempt_at = None
+        document.attempts = 0
+        document.error_code = None
         await self.session.flush()
 
     async def tombstone_collection(self, collection_id: uuid.UUID) -> None:
