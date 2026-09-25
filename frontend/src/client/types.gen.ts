@@ -1461,7 +1461,14 @@ export type AssigneeChangedEventRead = {
 }
 
 export type AssistantMessage = {
-  content: Array<TextBlock | ThinkingBlock | ToolUseBlock | ToolResultBlock>
+  content: Array<
+    | TextBlock
+    | ThinkingBlock
+    | ToolUseBlock
+    | ToolResultBlock
+    | ServerToolUseBlock
+    | ServerToolResultBlock
+  >
   model: string
   parent_tool_use_id?: string | null
   error?:
@@ -3984,6 +3991,14 @@ export type DefaultModelSelection = {
  */
 export type DefaultModelSelectionUpdate = {
   catalog_id: string
+}
+
+export type DeferredToolUse = {
+  id: string
+  name: string
+  input: {
+    [key: string]: unknown
+  }
 }
 
 /**
@@ -7104,7 +7119,9 @@ export type ResultMessage = {
     [key: string]: unknown
   } | null
   permission_denials?: Array<unknown> | null
+  deferred_tool_use?: DeferredToolUse | null
   errors?: Array<string> | null
+  api_error_status?: number | null
   uuid?: string | null
 }
 
@@ -7688,6 +7705,39 @@ export type Select = {
   options?: Array<string> | null
   multiple?: boolean
 }
+
+export type ServerToolResultBlock = {
+  tool_use_id: string
+  content: {
+    [key: string]: unknown
+  }
+}
+
+export type ServerToolUseBlock = {
+  id: string
+  name:
+    | "advisor"
+    | "web_search"
+    | "web_fetch"
+    | "code_execution"
+    | "bash_code_execution"
+    | "text_editor_code_execution"
+    | "tool_search_tool_regex"
+    | "tool_search_tool_bm25"
+  input: {
+    [key: string]: unknown
+  }
+}
+
+export type name =
+  | "advisor"
+  | "web_search"
+  | "web_fetch"
+  | "code_execution"
+  | "bash_code_execution"
+  | "text_editor_code_execution"
+  | "tool_search_tool_regex"
+  | "tool_search_tool_bm25"
 
 export type ServiceAccountApiKeyCounts = {
   total?: number
@@ -9257,7 +9307,14 @@ export type UserCreate = {
 export type UserMessage = {
   content:
     | string
-    | Array<TextBlock | ThinkingBlock | ToolUseBlock | ToolResultBlock>
+    | Array<
+        | TextBlock
+        | ThinkingBlock
+        | ToolUseBlock
+        | ToolResultBlock
+        | ServerToolUseBlock
+        | ServerToolResultBlock
+      >
   uuid?: string | null
   parent_tool_use_id?: string | null
   tool_use_result?: {
