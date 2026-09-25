@@ -21,6 +21,7 @@ from tracecat.agent.sandbox.llm_proxy import (
     LLMRoutingPlan,
     LLMSocketProxy,
     _http_error_classification,
+    _rewrite_json_body,
 )
 from tracecat.agent.tokens import LLMRouteClaim, mint_llm_token
 from tracecat.runtime.errors import (
@@ -2176,3 +2177,93 @@ async def test_successful_managed_request_skips_diagnostic_token_verification(
             cast(asyncio.StreamWriter, _FakeWriter()),
         )
     verify.assert_not_called()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("streaming", [True, False])
+async def test_forward_request_normalizes_read_tool_use_before_sandbox(
+    tmp_path: Path, streaming: bool
+) -> None:
+    """Malformed Read inputs are fixed in the response the CLI validates."""
+    bad_input = {"file_path": "/skills/demo/references/api.md", "pages": ""}
+    if streaming:
+        upstream_body = (
+            b'event: content_block_start\ndata: {"type":"content_block_start",'
+            b'"index":0,"content_block":{"type":"tool_use","id":"toolu_1",'
+            b'"name":"Read","input":{}}}\n\n'
+            b'event: content_block_delta\ndata: {"type":"content_block_delta",'
+            b'"index":0,"delta":{"type":"input_json_delta","partial_json":'
+            + orjson.dumps(orjson.dumps(bad_input).decode())
+            + b"}}\n\n"
+            b'event: content_block_stop\ndata: {"type":"content_block_stop",'
+            b'"index":0}\n\n'
+            b'event: message_stop\ndata: {"type":"message_stop"}\n\n'
+        )
+        content_type = "text/event-stream"
+    else:
+        upstream_body = orjson.dumps(
+            {
+                "type": "message",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "toolu_1",
+                        "name": "Read",
+                        "input": bad_input,
+                    }
+                ],
+            }
+        )
+        content_type = "application/json"
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, headers={"Content-Type": content_type}, content=upstream_body
+        )
+
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=_routing_plan(),
+    )
+    socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    socket_proxy._direct_client = socket_proxy._client
+    writer = _FakeWriter()
+    try:
+        await socket_proxy._forward_request(
+            {
+                "method": "POST",
+                "path": "/v1/messages",
+                "headers": {"Content-Type": "application/json"},
+                "body": orjson.dumps({"stream": streaming, "messages": []}),
+            },
+            cast(asyncio.StreamWriter, writer),
+        )
+    finally:
+        await socket_proxy._client.aclose()
+
+    head, _, body = bytes(writer.buffer).partition(b"\r\n\r\n")
+    assert b"HTTP/1.1 200" in head
+    assert b'"pages"' not in body
+    assert b"/skills/demo/references/api.md" in body
+    if not streaming:
+        assert b"Content-Length" not in head
+        payload = orjson.loads(body)
+        assert payload["content"][0]["input"] == {
+            "file_path": "/skills/demo/references/api.md"
+        }
+
+
+@pytest.mark.anyio
+async def test_rewrite_json_body_passes_through_oversized_bodies() -> None:
+    chunk = b"x" * (1024 * 1024)
+    chunks = [chunk] * 12
+
+    async def source() -> AsyncIterator[bytes]:
+        for item in chunks:
+            yield item
+
+    out = [piece async for piece in _rewrite_json_body(source())]
+
+    assert b"".join(out) == b"".join(chunks)
+    # 11 chunks are flushed as one buffered piece; the 12th streams through.
+    assert len(out) == 2
