@@ -12,6 +12,7 @@ import contextlib
 import json
 import logging
 import os
+import re
 import resource
 import socket
 import sys
@@ -34,6 +35,131 @@ LLM_MAX_BODY_SIZE = 10 * 1024 * 1024
 OTEL_MAX_BODY_SIZE = 16 * 1024 * 1024
 
 
+# Shared with the host proxy. Keep this reader here so the copied, standalone
+# shim and the host use identical framing rules without extra jailed imports.
+HTTP_HEADER_LIMIT = 64 * 1024
+
+
+class HTTPRequestError(ValueError):
+    """A request framing error with a safe, client-facing message."""
+
+    def __init__(self, message: str, status_code: int = 400) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
+async def _read_http_line(reader: asyncio.StreamReader) -> bytes:
+    try:
+        line = await reader.readline()
+    except ValueError:
+        raise HTTPRequestError("HTTP line too long", 431) from None
+    if not line.endswith(b"\r\n"):
+        raise HTTPRequestError("Incomplete HTTP request")
+    return line
+
+
+def _http_header_name(line: bytes) -> bytes:
+    name, sep, value = line[:-2].partition(b":")
+    if not sep or re.fullmatch(rb"[!#$%&'*+.^_`|~0-9A-Za-z-]+", name) is None:
+        raise HTTPRequestError("Invalid HTTP header")
+    if any(byte < 32 and byte != 9 or byte == 127 for byte in value):
+        raise HTTPRequestError("Invalid HTTP header")
+    return name.lower()
+
+
+async def _read_chunked_body(reader: asyncio.StreamReader, max_body_size: int) -> bytes:
+    body = bytearray()
+    while True:
+        line = await _read_http_line(reader)
+        size_text = line[:-2].split(b";", 1)[0]
+        if re.fullmatch(rb"[0-9a-fA-F]+", size_text) is None:
+            raise HTTPRequestError("Invalid HTTP chunk size")
+        size = int(size_text, 16)
+        if size > max_body_size - len(body):
+            raise HTTPRequestError("Request body too large", 413)
+        if size == 0:
+            break
+        body.extend(await reader.readexactly(size))
+        if await reader.readexactly(2) != b"\r\n":
+            raise HTTPRequestError("Invalid HTTP chunk terminator")
+
+    # Trailers are consumed but never promoted into trusted request headers.
+    trailer_size = 0
+    while True:
+        line = await _read_http_line(reader)
+        trailer_size += len(line)
+        if trailer_size > HTTP_HEADER_LIMIT:
+            raise HTTPRequestError("HTTP trailers too large", 431)
+        if line == b"\r\n":
+            return bytes(body)
+        if _http_header_name(line) in {b"content-length", b"transfer-encoding"}:
+            raise HTTPRequestError("Invalid HTTP framing trailer")
+
+
+async def read_http_request(
+    reader: asyncio.StreamReader, *, max_body_size: int
+) -> tuple[bytes, bytes] | None:
+    """Read one bounded HTTP request, normalizing chunked bodies to Content-Length.
+
+    Returns the header block and decoded body, or None for a clean EOF. Rejects
+    ambiguous framing before forwarding anything to the upstream socket.
+    """
+    # A clean EOF is normal; EOF anywhere after the request starts is truncated.
+    try:
+        request_line = await reader.readline()
+    except ValueError:
+        raise HTTPRequestError("HTTP line too long", 431) from None
+    if not request_line:
+        return None
+    if not request_line.endswith(b"\r\n"):
+        raise HTTPRequestError("Incomplete HTTP request")
+    header_size = len(request_line)
+    headers: list[tuple[bytes, bytes]] = []
+    framing: dict[bytes, bytes] = {}
+    while True:
+        line = await _read_http_line(reader)
+        header_size += len(line)
+        if header_size > HTTP_HEADER_LIMIT:
+            raise HTTPRequestError("HTTP headers too large", 431)
+        if line == b"\r\n":
+            break
+        name = _http_header_name(line)
+        headers.append((name, line))
+        if name in {b"content-length", b"transfer-encoding"}:
+            if name in framing:
+                raise HTTPRequestError("Duplicate HTTP framing header")
+            framing[name] = line[:-2].split(b":", 1)[1].strip()
+
+    length = framing.get(b"content-length")
+    encoding = framing.get(b"transfer-encoding")
+    if encoding is not None:
+        if length is not None:
+            raise HTTPRequestError("Ambiguous HTTP request framing")
+        if encoding.lower() != b"chunked":
+            raise HTTPRequestError("Unsupported HTTP transfer encoding")
+        body = await _read_chunked_body(reader, max_body_size)
+        header_block = request_line + b"".join(
+            line
+            for name, line in headers
+            if name not in {b"transfer-encoding", b"trailer"}
+        )
+        header_block += f"Content-Length: {len(body)}\r\n\r\n".encode()
+        LOGGER.debug("Decoded chunked HTTP request (%d body bytes)", len(body))
+        return header_block, body
+
+    if length is not None and re.fullmatch(rb"[0-9]+", length) is None:
+        raise HTTPRequestError("Invalid HTTP content length")
+    # Bound the conversion too: oversized decimal values need no allocation.
+    significant_length = (length or b"0").lstrip(b"0") or b"0"
+    if len(significant_length) > len(str(max_body_size)):
+        raise HTTPRequestError("Request body too large", 413)
+    content_length = int(significant_length)
+    if content_length > max_body_size:
+        raise HTTPRequestError("Request body too large", 413)
+    body = await reader.readexactly(content_length)
+    return request_line + b"".join(line for _, line in headers) + b"\r\n", body
+
+
 class ClaudeShimInitPayload(TypedDict):
     """Init payload consumed by the sandbox shim process."""
 
@@ -45,10 +171,10 @@ class ClaudeShimInitPayload(TypedDict):
 
 
 class SandboxSocketBridge:
-    """Pure byte-pipe: 127.0.0.1:<port> -> UDS at ``socket_path``.
+    """HTTP bridge: 127.0.0.1:<port> -> UDS at ``socket_path``.
 
-    Holds no credentials and applies no policy beyond the body cap and
-    UDS-failure mode passed at construction.
+    Holds no credentials. Normalizes request framing and enforces the body cap
+    and UDS-failure mode passed at construction.
     """
 
     def __init__(
@@ -160,6 +286,12 @@ class SandboxSocketBridge:
                 with contextlib.suppress(Exception):
                     await sock_writer.wait_closed()
 
+        except HTTPRequestError as exc:
+            LOGGER.warning("%s rejected HTTP framing: %s", self._log_label, exc)
+            with contextlib.suppress(ConnectionError):
+                await self._send_error_response(
+                    client_writer, status_code=exc.status_code, message=str(exc)
+                )
         except asyncio.IncompleteReadError:
             LOGGER.debug("%s client disconnected during request", self._log_label)
         except Exception as exc:
@@ -193,37 +325,11 @@ class SandboxSocketBridge:
 
     async def _read_http_request(self, reader: asyncio.StreamReader) -> bytes | None:
         """Read a full HTTP request including headers and optional body."""
-        headers_data = b""
-        while True:
-            line = await reader.readline()
-            if not line:
-                return None
-            headers_data += line
-            if line == b"\r\n":
-                break
-
-        content_length = 0
-        for line in headers_data.split(b"\r\n"):
-            if line.lower().startswith(b"content-length:"):
-                with contextlib.suppress(ValueError, IndexError):
-                    content_length = int(line.split(b":", 1)[1].strip())
-                break
-
-        if content_length > self._max_body_size:
-            LOGGER.warning(
-                "%s request body too large",
-                self._log_label,
-                extra={
-                    "content_length": content_length,
-                    "max_size": self._max_body_size,
-                },
-            )
+        request = await read_http_request(reader, max_body_size=self._max_body_size)
+        if request is None:
             return None
-
-        body = b""
-        if content_length > 0:
-            body = await reader.readexactly(content_length)
-        return headers_data + body
+        headers, body = request
+        return headers + body
 
     async def _send_error_response(
         self,
@@ -234,6 +340,9 @@ class SandboxSocketBridge:
     ) -> None:
         """Send a minimal JSON HTTP error response."""
         status_messages = {
+            400: "Bad Request",
+            413: "Content Too Large",
+            431: "Request Header Fields Too Large",
             500: "Internal Server Error",
             502: "Bad Gateway",
             503: "Service Unavailable",
