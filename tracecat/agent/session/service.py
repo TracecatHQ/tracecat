@@ -1897,6 +1897,7 @@ class AgentSessionService(BaseWorkspaceService):
         agent_session = await self.validate_turn_request(
             session_id,
             BasicChatRequest(message=prompt),
+            allow_running_turn=True,
         )
         # This caller constructs the built-in workflow's arguments directly.
         # Keep that integration restriction explicit until it uses the contract.
@@ -1970,6 +1971,8 @@ class AgentSessionService(BaseWorkspaceService):
 
         Raises:
             TracecatNotFoundError: If the session is not found.
+            TracecatConflictError: If a new chat turn is requested while the
+                session's current turn is still running.
             ValueError: If the request/entity type is unsupported.
         """
         workspace_id = self.role.workspace_id
@@ -2139,8 +2142,27 @@ class AgentSessionService(BaseWorkspaceService):
         self,
         session_id: uuid.UUID,
         request: ChatRequest | ContinueRunRequest | BasicChatRequest,
+        *,
+        allow_running_turn: bool = False,
     ) -> AgentSession:
-        """Assert a turn can start before mutating session or stream state."""
+        """Assert a turn can start before mutating session or stream state.
+
+        Args:
+            session_id: The session receiving the turn.
+            request: The start or continuation request.
+            allow_running_turn: Skip the RUNNING-turn conflict check. Only for
+                callers that reuse the persisted run identity on retry (the
+                caller-owned workflow path), where the current run may
+                legitimately still be RUNNING.
+
+        Raises:
+            TracecatNotFoundError: If the session does not exist, or a
+                continuation targets a session with no run.
+            TracecatConflictError: If a new chat turn is requested while the
+                session's current turn is still RUNNING in Temporal.
+            ValueError: If a new chat turn is requested while approvals are
+                pending, or the request type is unsupported.
+        """
         agent_session = await self.get_session(session_id)
         if not agent_session:
             raise TracecatNotFoundError(f"Session with ID {session_id} not found")
@@ -2160,6 +2182,19 @@ class AgentSessionService(BaseWorkspaceService):
                     raise ValueError(
                         "This session is waiting for approval decisions. "
                         "Submit all pending approvals before sending another message."
+                    )
+                if allow_running_turn:
+                    return agent_session
+                lifecycle, curr_run_id = await self.get_turn_lifecycle(agent_session)
+                if lifecycle is TurnLifecycle.RUNNING:
+                    raise TracecatConflictError(
+                        "This session already has a turn in progress. "
+                        "Wait for it to finish or cancel it before sending "
+                        "another message.",
+                        detail={
+                            "lifecycle": lifecycle.value,
+                            "curr_run_id": str(curr_run_id),
+                        },
                     )
                 return agent_session
             case _:
