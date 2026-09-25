@@ -38,7 +38,7 @@ publish from a request to inspect or prepare a release.
   release on that train.
 - Both alpha hotfixes and stable patches contain fixes that landed on `main`
   first and were cherry-picked onto the release branch. Verify the full diff
-  from the previous release: no new migrations, database-schema changes,
+  from the previous release: no migration changes, database-schema changes,
   backfills, or new registry actions. If a fix depends on those changes,
   exclude it rather than pulling its feature dependencies into the patch.
 
@@ -65,9 +65,40 @@ cherry-picks and verify they fast-forward the remote tip before pushing.
 Use an isolated worktree if the branch is checked out elsewhere. Do not
 stash, reset, or overwrite unrelated working changes.
 
+### Strict invariant: patches cannot contain database migrations
+
+Every patch release, including alpha hotfixes (`X.Y.0-alpha.N.M`) and stable
+patches (`X.Y.Z`, where `Z > 0`), must pass this gate before any version bump,
+release commit, push, tag, image build/rebuild, or publication. Prerelease
+status does not exempt a patch. Never deploy a patch that violates this
+invariant; deployment remains outside this skill's scope.
+
+Resolve and pin `PREV_TAG` using the published-release baseline rules in
+**Release notes** below, before mutation. Require it to be an ancestor of
+`COMMIT_SHA`. Compare the complete release trees, not just the latest commit
+or the cherry-picked fixes:
+
+```sh
+git diff --name-status "$PREV_TAG" "$COMMIT_SHA" -- alembic/versions/
+git diff "$PREV_TAG" "$COMMIT_SHA"
+```
+
+Any added, modified, deleted, or renamed migration is a hard blocker, including
+edits to an already-published migration. Inspect the full diff for migrations
+outside that directory, database-schema changes, and data backfills; those
+also block the patch. Existing migrations unchanged from the baseline are
+allowed. If the baseline or inspection cannot be verified, stop.
+
+On a blocker, refuse the patch release and report the baseline, candidate SHA,
+and offending files. Release approval, urgency, successful CI, or claims that
+a migration is safe do not waive this invariant. Exclude the change and its
+dependencies from the patch, or propose a separately approved non-patch
+release. Never silently change the requested version to bypass the gate.
+
 Before mutation, show:
 
 - Base commit and CI evidence; branch to create or reuse.
+- For a patch, the pinned baseline and evidence that the migration gate passed.
 - Public tag and whether the GitHub release is stable or a prerelease.
 - Version-bump, branch-push, tag-push, and release-publication commands.
 - Stable image tags update `latest`; prereleases leave `latest` unchanged.
@@ -86,7 +117,9 @@ and `1.2.0-alpha.1.2` becomes `1.2.0a1.post2`).
 Verify both application and registry versions agree, and validate the Python
 version with `packaging.version.Version` through `uv run python`.
 
-Review the generated diff, stage only the changed files individually, and
+Review the generated diff and, for a patch, repeat the migration gate against
+the final release tree (including all version-bump edits) before committing or
+pushing. Stage only the changed files individually, and
 create a signed `release: <tag>` commit. Never bypass hooks or signing. Push
 `BRANCH`. For a prerelease, record both current `latest` image digests before
 pushing the tag. Create an annotated `<tag>` on the version-bump commit and push
