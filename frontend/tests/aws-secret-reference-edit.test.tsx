@@ -43,6 +43,12 @@ jest.mock("@/components/workspaces/edit-workspace-secret", () => ({
   EditCredentialsDialog: ({ children }: PropsWithChildren) => children,
   EditCredentialsDialogTrigger: ({ children }: PropsWithChildren) => children,
 }))
+jest.mock("@/hooks/use-entitlements", () => ({
+  useEntitlements: () => ({ hasEntitlement: () => true }),
+}))
+jest.mock("@/components/auth/scope-guard", () => ({
+  useScopeCheck: () => true,
+}))
 jest.mock("@/components/workspaces/delete-workspace-secret", () => ({
   DeleteSecretAlertDialog: ({ children }: PropsWithChildren) => children,
   DeleteSecretAlertDialogTrigger: ({ children }: PropsWithChildren) => children,

@@ -144,6 +144,8 @@ class SecretStoresService(BaseOrgService):
         fields = params.model_dump(exclude_unset=True)
         fields.pop("config", None)
         if params.config is not None:
+            # Block concurrent reference creation between the check and commit.
+            await self.session.refresh(store, with_for_update=True)
             current = parse_store_config(store)
             config = get_backend(store.provider).update_config(current, params.config)
             # Saved ARN references were validated against the current region.
