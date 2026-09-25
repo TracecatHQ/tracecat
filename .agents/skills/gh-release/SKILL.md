@@ -13,27 +13,41 @@ version policy in `CONTRIBUTING.md`.
 ## Choose the version and branch
 
 Parse `$ARGUMENTS` as `<tag> [<commit>]`. Tags are bare public versions without
-`v`: `1.2.0-alpha.1`, `1.2.0-rc.1`, `1.2.0`, or `1.2.1`. Validate numeric
-components without leading zeros. Prereleases use `alpha.N` or `rc.N` and only
-attach to a `.0`; patches are stable. If no tag was given, inspect published
-releases and ask which version to cut. Do not infer permission to publish from
-a request to inspect or prepare a release.
+`v`: `1.2.0-alpha.1`, `1.2.0-alpha.1.1`, `1.2.0-rc.1`, `1.2.0`, or `1.2.1`.
+Validate numeric components without leading zeros. Prereleases use `alpha.N`,
+`alpha.N.M` (a hotfix of alpha `N`), or `rc.N` and only attach to a `.0`.
+Stable patches increment the patch component. If no tag was given, inspect
+published releases and ask which version to cut. Do not infer permission to
+publish from a request to inspect or prepare a release.
 
-- Before freeze, an alpha starts from the chosen merged `main` commit (default
-  `origin/main`) on a new `release/<tag>` snapshot branch.
+- Before freeze, a new alpha `X.Y.0-alpha.N` starts from the chosen merged `main`
+  commit (default `origin/main`) on `release/X.Y.0-alpha.N`.
+- An alpha hotfix `X.Y.0-alpha.N.M` reuses `release/X.Y.0-alpha.N`. Require the
+  existing branch and a published alpha on that line; no stable release is
+  required. Cherry-pick fixes onto it and add successive immutable tags. Never
+  create a branch per hotfix or start the hotfix from newer `main` code.
+  For example, `1.1.0-alpha.1.1` and `1.1.0-alpha.1.2` both use
+  `release/1.1.0-alpha.1`; `1.1.0-alpha.2` starts a new alpha line from `main`.
 - At freeze, create `release/<major>.<minor>` from the chosen merged `main`
   commit. RCs, stable minors, and subsequent patches use that train branch.
-- For an existing train, default to its current remote tip. An explicit commit
-  must be that tip; prepare any required cherry-picks separately first. Never
-  reset a train to `main` or create a patch train from newer trunk code.
-- A patch requires an existing train branch and a published stable release on
-  that train. Fixes land on `main` first and are cherry-picked onto the train;
-  exclude new migrations and registry actions.
+- For an existing alpha line or frozen train, default to its current remote
+  tip. An explicit commit must be that tip; prepare any required cherry-picks
+  separately first. Never reset a release branch to `main` or create a patch
+  branch from newer trunk code.
+- A stable patch requires an existing train branch and a published stable
+  release on that train.
+- Both alpha hotfixes and stable patches contain fixes that landed on `main`
+  first and were cherry-picked onto the release branch. Verify the full diff
+  from the previous release: no new migrations, database-schema changes,
+  backfills, or new registry actions. If a fix depends on those changes,
+  exclude it rather than pulling its feature dependencies into the patch.
 
 Resolve the selected commit to an immutable `COMMIT_SHA` and the branch to
-`BRANCH`. An alpha base or a new train's base must be reachable from
-`origin/main`; do not release an unmerged PR. Check the selected commit's CI
-and stop on missing or failing evidence unless the user explicitly accepts it.
+`BRANCH`. A new alpha line's base or a new train's base must be reachable from
+`origin/main`; hotfix commits instead descend from their release branch and
+retain the source commits' cherry-pick provenance. Do not release an unmerged
+PR. Check the selected commit's CI and stop on missing or failing evidence
+unless the user explicitly accepts it.
 Verify the selected branch contains the stable-only image guard and the current
 release workflow before cutting its tag; old train branches may need those
 changes cherry-picked first.
@@ -44,9 +58,11 @@ Fetch branches and tags, inspect the working tree, and verify the public tag is
 absent locally, remotely, and from GitHub releases. Distinguish a missing release
 from an API/authentication error. If the tag exists, stop; never move it.
 
-A new snapshot branch must be absent remotely and locally. For a train branch,
-reuse its remote tip or create it at the verified base if this is the initial
-freeze. Use an isolated worktree if the branch is checked out elsewhere. Do not
+A new alpha line's branch must be absent remotely and locally. For an alpha
+hotfix or an existing frozen train, reuse the existing release branch; create
+a train branch only at its initial freeze. Preserve any prepared local
+cherry-picks and verify they fast-forward the remote tip before pushing.
+Use an isolated worktree if the branch is checked out elsewhere. Do not
 stash, reset, or overwrite unrelated working changes.
 
 Before mutation, show:
@@ -65,7 +81,8 @@ release plan. Approval to merge or fix a PR is not release authorization.
 Create or switch to `BRANCH` at the verified commit. Run
 `just update-version <tag>` and answer its overwrite prompt only for the
 approved release. It writes the public tag to `__version__` and its PEP 440
-value to `__pep440_version__` (for example, `1.2.0-alpha.1` becomes `1.2.0a1`).
+value to `__pep440_version__` (for example, `1.2.0-alpha.1` becomes `1.2.0a1`,
+and `1.2.0-alpha.1.2` becomes `1.2.0a1.post2`).
 Verify both application and registry versions agree, and validate the Python
 version with `packaging.version.Version` through `uv run python`.
 
@@ -102,10 +119,15 @@ successful run.
 
 ## Release notes
 
-Resolve `PREV_TAG` from published releases, paginating the full list. Use the
-previous version on the same major/minor train, ordered by semantic version
-(alpha before RC before stable, then patches). For the first alpha of a new
-train, use the preceding stable version. If a train skips alphas, its first
+Resolve `PREV_TAG` from published releases, paginating the full list. For an
+alpha hotfix, use the previous published hotfix on the same `alpha.N` line,
+or its original alpha tag for the first hotfix. For `1.1.0-alpha.1.2`, the
+baseline is `1.1.0-alpha.1.1`, even if `1.1.0-alpha.2` has already shipped.
+Verify the baseline is an ancestor of the selected release commit.
+For other releases, use the previous version on the same major/minor train,
+ordered by semantic version (alpha before RC before stable, then patches).
+For the first alpha of a new train, use the preceding stable version. If a
+train skips alphas, its first
 release also uses the preceding stable version. Never pick an unrelated train
 merely because it was published most recently. If there is no unambiguous
 baseline, ask before publication.
@@ -180,7 +202,7 @@ Run only the command for the approved release type. If the range contains no
 changes, state `No changes since <PREV_TAG>.` rather than reusing older notes.
 
 Report the branch, immutable tag/commit, GitHub release URL, image-build run,
-and manifest verification. Never delete
-the train branch, force-push, amend existing release commits, or deploy as part
-of this skill. If signing or a publication step fails, stop and report the
-concrete state before attempting further external mutations.
+and manifest verification. Never delete the alpha-line or train branch,
+force-push, amend existing release commits, or deploy as part of this skill.
+If signing or a publication step fails, stop and report the concrete state
+before attempting further external mutations.
