@@ -2,11 +2,12 @@
 
 import {
   AlertTriangleIcon,
+  ArrowRightIcon,
   ChevronDownIcon,
   SearchIcon,
   UsersIcon,
 } from "lucide-react"
-import { useState } from "react"
+import { type ReactNode, useState } from "react"
 import type {
   ExternalGroupMappingRead,
   ExternalGroupRead,
@@ -257,21 +258,27 @@ export function OrgSettingsScimMappings({
           <Table>
             <TableHeader>
               <TableRow className="hover:bg-transparent">
-                <TableHead>Identity provider group</TableHead>
+                <TableHead>IdP group</TableHead>
                 <TableHead className="w-24">Members</TableHead>
-                <TableHead className="w-[320px]">Tracecat group</TableHead>
+                <TableHead className="w-8" />
+                <TableHead className="w-[320px]">Tracecat groups</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {visibleRows.map(({ group, targets }) => (
                 <TableRow key={group.id} className="hover:bg-transparent">
-                  <TableCell className="font-medium">
-                    {group.display_name}
+                  <TableCell className="align-top font-medium">
+                    <RowLine>{group.display_name}</RowLine>
                   </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {group.member_count}
+                  <TableCell className="align-top text-muted-foreground">
+                    <RowLine>{group.member_count}</RowLine>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="align-top px-0">
+                    <RowLine className="justify-center">
+                      <ArrowRightIcon className="size-4 text-muted-foreground/60" />
+                    </RowLine>
+                  </TableCell>
+                  <TableCell className="align-top">
                     <TargetPicker
                       group={group}
                       targets={targets}
@@ -288,7 +295,7 @@ export function OrgSettingsScimMappings({
               {visibleRows.length === 0 && (
                 <TableRow className="hover:bg-transparent">
                   <TableCell
-                    colSpan={3}
+                    colSpan={4}
                     className="py-6 text-center text-sm text-muted-foreground"
                   >
                     No groups match.
@@ -319,10 +326,17 @@ export function OrgSettingsScimMappings({
   )
 }
 
-function pickerLabel(targets: Target[]): string {
-  if (targets.length === 0) return "Not mapped"
-  if (targets.length === 1) return targets[0]?.group_name ?? ""
-  return `${targets.length} groups`
+/** Centers a cell's content on the picker's first line. */
+function RowLine({
+  className,
+  children,
+}: {
+  className?: string
+  children: ReactNode
+}) {
+  return (
+    <div className={cn("flex h-9 items-center", className)}>{children}</div>
+  )
 }
 
 /** One picker per IdP group: shows its Tracecat groups, toggles each one. */
@@ -342,7 +356,9 @@ function TargetPicker({
   onRemove: (target: Target) => void
 }) {
   const [open, setOpen] = useState(false)
-  const mapped = targets.length > 0
+  const names = targets
+    .map((target) => target.group_name)
+    .sort((a, b) => a.localeCompare(b))
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -351,21 +367,25 @@ function TargetPicker({
           disabled={disabled}
           aria-label={`Tracecat groups for ${group.display_name}`}
           className={cn(
-            "h-9 w-full justify-between px-3 font-normal shadow-none",
-            !mapped && "border-dashed bg-muted/30 text-muted-foreground"
+            "h-auto min-h-9 w-full items-start justify-between whitespace-normal px-3 py-[7px] font-normal shadow-none",
+            names.length === 0 &&
+              "border-dashed bg-muted/30 text-muted-foreground"
           )}
         >
-          <span
-            className="truncate"
-            title={
-              targets.length > 1
-                ? targets.map((target) => target.group_name).join(", ")
-                : undefined
-            }
-          >
-            {pickerLabel(targets)}
+          <span className="flex min-w-0 flex-col text-left">
+            {names.length === 0 ? (
+              <span>Not mapped</span>
+            ) : (
+              names.map((name) => (
+                <span key={name} className="truncate">
+                  {name}
+                </span>
+              ))
+            )}
           </span>
-          <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground" />
+          <span className="flex h-5 items-center">
+            <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground" />
+          </span>
         </Button>
       </PopoverTrigger>
       <PopoverContent
