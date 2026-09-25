@@ -134,10 +134,11 @@ Common role types:
 - Prefer `orjson` over stdlib `json` when the dependency is available.
 - Expression errors can carry secret plaintext: failing operations echo their
   operand, and `repr()` escaping means exact-string masking will not match it.
-  `Expression.result()` withholds the error when the parse tree references a
-  secret. Callers that evaluate templates against a secret-bearing operand wrap
-  the call themselves and mask with the secrets in that operand — see the
-  `call_with_masked_errors()` sites.
+  `Expression.result()` uses input provenance and observed AST intermediate
+  values to mask diagnostics. The executor shares an invocation-scoped mask
+  collector across template steps and sanitizes errors before transport.
+  Transformations inside opaque action code are not tracked; do not claim
+  complete redaction of values the evaluator has not observed.
 - A sanitized replacement exception must be raised only after the handler has
   exited: `raise ... from None` clears `__cause__` but not `__context__`, so
   raising in place leaves the plaintext original attached. Use

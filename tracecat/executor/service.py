@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import itertools
-from collections.abc import Collection, Iterator, Mapping, MutableMapping
+from collections.abc import Iterator, Mapping, MutableMapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, cast
 
 from aiocache import Cache
-from async_lru import alru_cache
 from pydantic import ValidationError
 from sqlalchemy import and_, or_, select, union_all
 
@@ -20,6 +19,7 @@ from tracecat.contexts import (
     ctx_interaction,
     ctx_logical_time,
     ctx_role,
+    ctx_secret_masks,
 )
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import (
@@ -66,26 +66,22 @@ from tracecat.expressions.expectations import create_expectation_model
 from tracecat.expressions.policy import (
     ActionArgumentPlan,
     ProvenanceMap,
-    TaintState,
     build_provenance,
     resolve_action_args,
 )
-from tracecat.identifiers import OrganizationID, WorkspaceID
+from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
 from tracecat.observability.sentry import capture_activity_failure
 from tracecat.registry.actions.schemas import TemplateActionDefinition
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
-from tracecat.registry.lock.types import RegistryLock
 from tracecat.runtime.errors import RuntimeErrorClassification, RuntimeErrorOwner
 from tracecat.secrets import secrets_manager
 from tracecat.secrets.common import (
     apply_masks_object,
     await_with_masked_errors,
     call_with_masked_errors,
-    ctx_unsafe_disable_secret_error_withholding,
-    secret_error_withholding_disabled,
 )
-from tracecat.settings.service import workspace_allows_error_details
+from tracecat.secrets.masking import SecretMaskCollector
 from tracecat.variables.schemas import VariableSearch
 from tracecat.variables.service import VariablesService
 
@@ -96,28 +92,24 @@ type ArgsT = Mapping[str, Any]
 type ExecutionResult = Any | ExecutorActionErrorInfo
 
 
-def _withhold_error_info(
+def _sanitize_error_info(
     info: ExecutorActionErrorInfo,
     classification: RuntimeErrorClassification | None,
 ) -> ExecutorActionErrorInfo:
-    """Replace unsafe diagnostics, retaining policy-authored platform messages."""
-    if secret_error_withholding_disabled():
-        return info
-    return info.model_copy(
-        update={
-            "message": classification.message
-            if classification is not None
-            and classification.owner is RuntimeErrorOwner.PLATFORM
-            else "The action failed. Details withheld: secrets may be in scope.",
-            "loop_vars": None,
-        }
+    """Keep diagnostics, masking observed secrets before transport or logging."""
+    if (
+        classification is not None
+        and classification.owner is RuntimeErrorOwner.PLATFORM
+    ):
+        info = info.model_copy(update={"message": classification.message})
+    masks = ctx_secret_masks.get()
+    return (
+        ExecutorActionErrorInfo.model_validate(
+            {key: masks.redact(value) for key, value in info.model_dump().items()}
+        )
+        if masks is not None
+        else info.model_copy()
     )
-
-
-def _error_may_contain_secrets(
-    args: Mapping[str, Any], masks: Collection[str] | None
-) -> bool:
-    return bool(masks) or TaintState().step_args_are_secret_dependent(args)
 
 
 def _execution_origin_for_role(role: Role) -> ExecutionOrigin:
@@ -339,31 +331,6 @@ def _sanitized_validation_message(
     return f"Validation error for template action {action!r}: {joined}"
 
 
-async def _step_action_reaches_secrets(
-    action_name: str,
-    registry_lock: RegistryLock,
-    organization_id: OrganizationID | None,
-) -> bool:
-    """Whether a step's action declares secrets, walking nested templates.
-
-    Fails closed: an unresolvable manifest taints the step.
-    """
-    if organization_id is None:
-        # Unreachable: run_action_from_input rejects a missing organization.
-        raise ValueError("organization_id is required for template step execution")
-    try:
-        secrets = await registry_resolver.collect_action_secrets_from_manifest(
-            action_name, registry_lock, organization_id
-        )
-    except Exception:
-        logger.warning(
-            "Could not resolve step action secrets; tainting step",
-            step_action=action_name,
-        )
-        return True
-    return bool(secrets)
-
-
 async def _prepare_step_context(
     step_action: str,
     evaluated_args: dict[str, Any],
@@ -412,7 +379,6 @@ async def _invoke_template_step(
     ctx: DispatchActionContext,
     timeout: float,
     provenance: ProvenanceMap,
-    taint: TaintState,
     step_ref: str,
     step_action: str,
 ) -> Any:
@@ -431,11 +397,12 @@ async def _invoke_template_step(
             provenance=provenance,
         )
     except ExecutionError as e:
-        if e.info is None or step_ref not in taint.tainted_steps:
+        if e.info is None:
             raise
         classification = chained_error_classification(e)
+        info = _sanitize_error_info(e.info, classification)
         error = ExecutionError(
-            info=_withhold_error_info(e.info, classification),
+            info=info,
             classification=classification,
             sentry_capture=e.sentry_capture,
         )
@@ -448,8 +415,7 @@ async def _invoke_template_step(
         )
         info = ExecutorActionErrorInfo.from_exc(e, action_name=step_action)
         classification = chained_error_classification(e)
-        if step_ref in taint.tainted_steps:
-            info = _withhold_error_info(info, classification)
+        info = _sanitize_error_info(info, classification)
         error = ExecutionError(
             info=info,
             classification=classification,
@@ -555,8 +521,6 @@ async def _execute_template_action(
         steps=len(template_def.steps),
     )
 
-    taint = TaintState(provenance=provenance)
-
     # Execute each step
     for step in template_def.steps:
         logger.trace(
@@ -565,22 +529,11 @@ async def _execute_template_action(
             step_action=step.action,
         )
 
-        # Declared secrets reach the step through the environment sandbox, never
-        # through authored args; the manifest walk already recurses nested steps.
-        taint = taint.after_step(
-            step.ref,
-            step.args,
-            action_reaches_secrets=await _step_action_reaches_secrets(
-                step.action, input.registry_lock, role.organization_id
-            ),
-        )
-
         evaled_args = resolve_action_args(
             step.action,
             step.args,
             template_context,
             provenance,
-            taint,
         )
 
         # Prepare step context (reuses parent secrets, no re-fetch)
@@ -594,7 +547,7 @@ async def _execute_template_action(
 
         # Nested templates receive provenance derived in this scope.
         child_provenance = (
-            build_provenance(step.args, provenance, taint=taint)
+            build_provenance(step.args, provenance)
             if step_resolved.action_impl.type == "template"
             else {}
         )
@@ -607,7 +560,6 @@ async def _execute_template_action(
             ctx=ctx,
             timeout=timeout,
             provenance=child_provenance,
-            taint=taint,
             step_ref=step.ref,
             step_action=step.action,
         )
@@ -620,7 +572,7 @@ async def _execute_template_action(
 
     # Evaluate returns expression with final template context
     return eval_templated_object(
-        template_def.returns, operand=template_context, taint=taint
+        template_def.returns, operand=template_context, provenance=provenance
     )
 
 
@@ -685,7 +637,7 @@ def _attach_loop_context(info: ExecutorActionErrorInfo, iteration: int | None) -
     """Record which for_each iteration failed, when running inside one."""
     if iteration is None:
         return
-    # Loop values are runtime carriers and are withheld like `var.*`.
+    # Keep the iteration number without copying the whole runtime loop value.
     info.loop_iteration = iteration
 
 
@@ -757,6 +709,9 @@ async def prepare_resolved_context(
         else collect_mask_values([secrets])
     )
 
+    if masks := ctx_secret_masks.get():
+        masks.observe(secrets)
+
     # Extract and set logical_time BEFORE evaluating args
     # This ensures FN.now(), FN.utcnow(), FN.today() use the deterministic time
     env_context = context.get(ExprContext.ENV) or {}
@@ -810,6 +765,10 @@ async def prepare_resolved_context(
     else:
         mask_values = early_mask_values | set(secret_projection.mask_values)
 
+    if masks := ctx_secret_masks.get():
+        for value in secret_projection.mask_values:
+            masks.observe(value)
+
     # Generate executor token for SDK authentication
     executor_token = _mint_action_executor_token(input, role)
 
@@ -831,28 +790,6 @@ async def prepare_resolved_context(
         mask_values=mask_values,
         provenance=provenance,
     )
-
-
-async def _workspace_allows_error_details(role: Role) -> bool:
-    """Whether the org allow-lists this workspace for per-action error details."""
-    if role.organization_id is None or role.workspace_id is None:
-        return False
-    return await _workspace_allows_error_details_cached(
-        role.organization_id, role.workspace_id
-    )
-
-
-@alru_cache(maxsize=4096, ttl=15)
-async def _workspace_allows_error_details_cached(
-    organization_id: OrganizationID, workspace_id: WorkspaceID
-) -> bool:
-    """TTL-cached allow-list lookup so hot loops don't hit the DB per action."""
-    async with get_async_session_bypass_rls_context_manager() as session:
-        return await workspace_allows_error_details(
-            organization_id=organization_id,
-            workspace_id=workspace_id,
-            session=session,
-        )
 
 
 async def invoke_once(
@@ -880,15 +817,9 @@ async def invoke_once(
     # Bound before the try so context-preparation failures stay safe.
     mask_values: set[str] | None = None
 
-    # The per-action opt-in only takes effect when the org allows it. The
-    # lookup is inside the error wrapper so a failure here still withholds.
-    withholding_token = ctx_unsafe_disable_secret_error_withholding.set(False)
+    masks = SecretMaskCollector()
+    masks_token = ctx_secret_masks.set(masks)
     try:
-        if input.task.unsafe_disable_secret_error_withholding:
-            ctx_unsafe_disable_secret_error_withholding.set(
-                await _workspace_allows_error_details(role)
-            )
-
         # Prefetch registry lock manifests into cache for O(1) resolution.
         # Keep this inside the error wrapper so entitlement failures are
         # normalized into ExecutionError and then ApplicationError at activity
@@ -901,6 +832,8 @@ async def invoke_once(
         prepared = await prepare_resolved_context(input, role)
         resolved_context = prepared.resolved_context
         mask_values = prepared.mask_values
+        for value in mask_values or ():
+            masks.observe(value)
 
         # Set logical_time for deterministic FN.now() (applies to in-process backends)
         # Sandboxed backends set this in their subprocess from resolved_context.logical_time
@@ -921,16 +854,9 @@ async def invoke_once(
         # ExecutionError already has proper error info, just add loop context if needed
         if e.info is None:
             raise
-        if not _error_may_contain_secrets(input.task.args, mask_values):
-            _attach_loop_context(e.info, iteration)
-            raise
         classification = chained_error_classification(e)
-        exec_result = _withhold_error_info(e.info, classification).model_copy()
+        exec_result = _sanitize_error_info(e.info, classification).model_copy()
         _attach_loop_context(exec_result, iteration)
-        if mask_values:
-            exec_result = ExecutorActionErrorInfo.model_validate(
-                apply_masks_object(exec_result.model_dump(), masks=mask_values)
-            )
         safe_error = ExecutionError(
             info=exec_result,
             classification=classification,
@@ -941,12 +867,7 @@ async def invoke_once(
         exec_result = ExecutorActionErrorInfo.from_exc(e, action_name=action_name)
         classification = chained_error_classification(e)
         _attach_loop_context(exec_result, iteration)
-        if _error_may_contain_secrets(input.task.args, mask_values):
-            exec_result = _withhold_error_info(exec_result, classification)
-        if mask_values:
-            exec_result = ExecutorActionErrorInfo.model_validate(
-                apply_masks_object(exec_result.model_dump(), masks=mask_values)
-            )
+        exec_result = _sanitize_error_info(exec_result, classification)
         # Log only the safe diagnostic when secrets may be in scope.
         logger.error(
             "Backend execution failed",
@@ -978,7 +899,7 @@ async def invoke_once(
             )
         return action_result
     finally:
-        ctx_unsafe_disable_secret_error_withholding.reset(withholding_token)
+        ctx_secret_masks.reset(masks_token)
     # Raise outside the handlers so the plaintext original is not attached.
     raise safe_error
 

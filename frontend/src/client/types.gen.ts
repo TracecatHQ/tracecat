@@ -34,7 +34,7 @@ export type ActionControlFlow = {
    */
   mask_output?: boolean
   /**
-   * UNSAFE: if true, surface this action's original error message even when secrets are in scope, instead of the generic 'Details withheld' message. Known secret values are still masked.
+   * Legacy field, ignored. Error diagnostics always mask known secrets and observed secret-derived values.
    */
   unsafe_disable_secret_error_withholding?: boolean
 }
@@ -194,7 +194,7 @@ export type ActionStatement_Input = {
    */
   mask_output?: boolean
   /**
-   * UNSAFE: if true, surface this action's original error message even when secrets are in scope, instead of the generic 'Details withheld' message. Known secret values are still masked, but the original text may echo transformed secret values that exact-string masking cannot catch.
+   * Legacy field, ignored. Error diagnostics always mask known secrets and observed secret-derived values.
    */
   unsafe_disable_secret_error_withholding?: boolean
 }
@@ -256,7 +256,7 @@ export type ActionStatement_Output = {
    */
   mask_output?: boolean
   /**
-   * UNSAFE: if true, surface this action's original error message even when secrets are in scope, instead of the generic 'Details withheld' message. Known secret values are still masked, but the original text may echo transformed secret values that exact-string masking cannot catch.
+   * Legacy field, ignored. Error diagnostics always mask known secrets and observed secret-derived values.
    */
   unsafe_disable_secret_error_withholding?: boolean
 }
@@ -1331,7 +1331,7 @@ export type AppSettingsUpdate = {
    */
   app_action_form_mode_enabled?: boolean
   /**
-   * UNSAFE: workspaces whose actions may opt into showing their original error message when secrets are in scope. Each action must still enable 'Show error details' individually. Known secret values are still masked.
+   * Legacy allow-list, ignored by action execution. Error diagnostics always mask known secrets and observed secret-derived values.
    */
   app_unsafe_disable_secret_error_withholding_workspace_ids?: Array<string>
 }

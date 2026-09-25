@@ -508,10 +508,9 @@ TRACECAT__UNSAFE_DISABLE_SM_MASKING = env_bool(
 TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING = env_bool(
     "TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING", default=False
 )
-"""UNSAFE: surface original action and expression error details even when
-secrets are in scope, instead of the generic "Details withheld" message. The
-original text may echo transformed secret values that exact-string masking
-cannot catch. Not recommended outside debugging.
+"""Legacy setting accepted by existing deployments; no longer changes behavior.
+Action and expression errors always use selective masking of known secrets and
+observed secret-derived values.
 """
 
 # === M2M config === #

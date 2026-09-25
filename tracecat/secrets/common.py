@@ -3,43 +3,29 @@ from __future__ import annotations
 import re
 import traceback
 from collections.abc import Callable, Coroutine, Iterable, Mapping, Sequence
-from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any
 
-from tracecat import config
 from tracecat.exceptions import TracecatException
 from tracecat.secrets.constants import MASK_VALUE
 
-ctx_unsafe_disable_secret_error_withholding: ContextVar[bool] = ContextVar(
-    "unsafe-disable-secret-error-withholding", default=False
-)
-"""Per-action opt-in to surface original error text, resolved by the executor.
 
-Set for the duration of one action invocation once the action's toggle has been
-checked against the workspace-level allow setting.
-"""
-
-
-def secret_error_withholding_disabled() -> bool:
-    """Whether original error text may surface despite secrets in scope.
-
-    True when the deployment-wide knob is on, or the current action opted in
-    and its organization allow-lists the workspace. Known secret values are
-    still exact-string masked downstream.
-    """
-    return (
-        config.TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING
-        or ctx_unsafe_disable_secret_error_withholding.get()
-    )
-
-
-def _compile_mask_pattern(masks: Iterable[str]) -> re.Pattern[str] | None:
+def _compile_mask_pattern(
+    masks: Iterable[str], *, include_short: bool = False
+) -> re.Pattern[str] | None:
     """Compile a reusable pattern for the provided secret values."""
-    # Filter out single-character masks to prevent over-aggressive masking.
-    filtered_masks = [mask for mask in masks if len(mask) > 1]
+    # Result masking historically excludes short values. Error diagnostics opt
+    # in because there is no blanket withholding fallback. Never match empties.
+    filtered_masks = [
+        mask for mask in masks if mask and (include_short or len(mask) > 1)
+    ]
     if not filtered_masks:
         return None
+
+    if include_short:
+        # Preserve the replacement token on subsequent masking passes, even
+        # when a secret or observed slice contains a single asterisk.
+        filtered_masks.append(MASK_VALUE)
 
     # Sort longest-first so a longer secret is not partially matched by a
     # shorter substring that happens to appear earlier in the alternation.
@@ -57,24 +43,43 @@ def apply_masks(value: str, masks: Iterable[str]) -> str:
     return _apply_mask_pattern(value, _compile_mask_pattern(masks))
 
 
-def _apply_masks_object[T](obj: T, pattern: re.Pattern[str] | None) -> T:
+def _apply_masks_object[T](
+    obj: T, pattern: re.Pattern[str] | None, *, mask_keys: bool = False
+) -> T:
     match obj:
         case str():
             return _apply_mask_pattern(obj, pattern)
         case Sequence():
-            return type(obj)(_apply_masks_object(item, pattern) for item in obj)  # pyright: ignore[reportCallIssue]
+            masked_sequence = (
+                _apply_masks_object(item, pattern, mask_keys=mask_keys) for item in obj
+            )
+            return type(obj)(masked_sequence)  # pyright: ignore[reportCallIssue]
         case Mapping():
             masked_items = (
-                (k, _apply_masks_object(v, pattern)) for k, v in obj.items()
+                (
+                    _apply_masks_object(k, pattern, mask_keys=True) if mask_keys else k,
+                    _apply_masks_object(v, pattern, mask_keys=mask_keys),
+                )
+                for k, v in obj.items()
             )
             return type(obj)(masked_items)  # pyright: ignore[reportCallIssue]
         case _:
             return obj
 
 
-def apply_masks_object[T](obj: T, masks: Iterable[str]) -> T:
+def apply_masks_object[T](
+    obj: T,
+    masks: Iterable[str],
+    *,
+    include_short: bool = False,
+    mask_keys: bool = False,
+) -> T:
     """Mask secret values in strings, sequences, and mappings."""
-    return _apply_masks_object(obj, _compile_mask_pattern(masks))
+    return _apply_masks_object(
+        obj,
+        _compile_mask_pattern(masks, include_short=include_short),
+        mask_keys=mask_keys,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,12 +145,12 @@ def mask_exception(exc: BaseException, masks: Iterable[str]) -> Exception:
 
     The failing location is copied out first so callers keep it.
     """
-    pattern = _compile_mask_pattern(masks)
+    pattern = _compile_mask_pattern(masks, include_short=True)
     masked_message = _apply_mask_pattern(str(exc), pattern)
     detail = getattr(exc, "detail", None)
     masked = MaskedSecretError(masked_message)
     if detail is not None:
-        masked.detail = _apply_masks_object(detail, pattern)
+        masked.detail = _apply_masks_object(detail, pattern, mask_keys=True)
     if exc.__traceback__ is not None:
         masked.captured = CapturedFailure.from_exc(exc)
     return masked

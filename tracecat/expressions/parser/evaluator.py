@@ -1,4 +1,4 @@
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any, TypeVar
 
 from lark import Token, Transformer, Tree, v_args
@@ -22,11 +22,16 @@ class ExprEvaluator(Transformer[Token, Any]):
     _visitor_name: str = "ExprEvaluator"
 
     def __init__(
-        self, operand: ExprOperand[str] | None = None, strict: bool = False
+        self,
+        operand: ExprOperand[str] | None = None,
+        strict: bool = False,
+        *,
+        observe: Callable[[Tree[Token], Any], None] | None = None,
     ) -> None:
         super().__init__()
         self._operand: ExprOperand[str] = operand or {}
         self._strict = strict
+        self._observe = observe
         self.logger = logger.bind(visitor=self._visitor_name)
 
     def evaluate(self, tree: Tree[Token]) -> Any:
@@ -55,8 +60,12 @@ class ExprEvaluator(Transformer[Token, Any]):
                 "Visiting ternary",
                 selected_branch="true" if condition else "false",
             )
-            return selected_value
-        return super()._transform_tree(tree)
+            result = selected_value
+        else:
+            result = super()._transform_tree(tree)
+        if self._observe is not None:
+            self._observe(tree, result)
+        return result
 
     def _transform_child(self, child: Tree[Token] | Token) -> Any:
         if isinstance(child, Tree):
