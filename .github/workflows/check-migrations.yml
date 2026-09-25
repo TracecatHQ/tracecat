@@ -1,0 +1,56 @@
+name: Check migrations
+
+# Run for every PR so this check can be required without path-filter gaps.
+on:
+  pull_request:
+    branches: ["main", "staging"]
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-migrations-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  migration-history:
+    name: Alembic migration history
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # The default PR checkout validates the candidate merged with its base.
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        with:
+          version: "0.9.7"
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+
+      - name: Set up Python 3.12
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --frozen --python 3.12
+
+      - name: Test the migration checker
+        # Skip project fixtures, which require Postgres, Redis and MinIO.
+        run: uv run --no-sync pytest --noconftest -q tests/unit/test_check_migrations.py
+
+      # Compare with the exact base used by this event, not a moving branch tip.
+      - name: Check out previous migration history
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.event.before }}
+          path: .migration-base
+          persist-credentials: false
+
+      - name: Check Alembic migration history
+        run: uv run --no-sync python scripts/check_migrations.py --base-dir .migration-base/alembic

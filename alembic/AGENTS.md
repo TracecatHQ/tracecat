@@ -95,6 +95,19 @@ tables in workspace schemas. For these migrations:
 
 ## Authoring a revision
 
+- New revisions must extend the current head in a single linear chain. CI checks
+  the PR merge result with `uv run python scripts/check_migrations.py`, without
+  running migrations or connecting to a database.
+- CI also compares existing revisions against the PR base (or previous commit
+  on push). Revision IDs, metadata, and file contents must stay unchanged,
+  including comments and formatting. Add a new revision for new operations;
+  inserting a migration behind the previous head is rejected.
+  To run that comparison locally, add `--base-dir <base-checkout>/alembic`.
+- If another migration lands first, rebase your unmerged revision's
+  `down_revision` onto the latest head. Do not add merge revisions or `depends_on`
+  links, and do not rewrite deployed revisions.
+- Historical branches and merges through `2f14222e0d12` are preserved. That
+  one-time merge establishes the boundary for linear history going forward.
 - Bring the database up first (`just cluster up -d`) and check the port with
   `just cluster ports`.
 - Prefer `uv run alembic revision --autogenerate` before manually editing a
