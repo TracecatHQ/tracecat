@@ -357,11 +357,14 @@ class AwsSecretsManagerBackend:
     def validate_reference(
         self, config: AwsSecretsManagerStoreConfig, key: str
     ) -> None:
-        """Reject an ARN whose region disagrees with the store region."""
+        """Reject an ARN whose region or partition disagrees with the store."""
         if not reference_region_matches(key, config.region):
             raise ValueError(
                 f"Secret ARN region must match the store region {config.region!r}."
             )
+        partition = config.role_arn.split(":")[1]
+        if is_secret_arn(key) and key.split(":")[1] != partition:
+            raise ValueError(f"Secret ARN partition must be {partition!r}.")
 
     async def resolve(
         self, references: Sequence[ExternalSecretReference]

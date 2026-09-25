@@ -33,6 +33,7 @@ from tracecat.secrets.schemas import (
     AwsSecretKeyMapping,
     AwsSecretReferenceCreate,
     AwsSecretReferenceUpdate,
+    AwsSecretsManagerStoreConfig,
     AwsSecretsManagerStoreCreate,
     AwsSecretsManagerStoreUpdate,
     SecretReferenceCheckRequest,
@@ -295,6 +296,23 @@ def test_store_config_rejects_mixed_partitions(role_arn: str, region: str) -> No
         AwsSecretsManagerBackend().update_config(
             config, AwsSecretsManagerStoreUpdate(role_arn=role_arn, region=region)
         )
+
+
+def test_reference_arn_partition_must_match_store() -> None:
+    config = AwsSecretsManagerStoreConfig(
+        role_arn="arn:aws-cn:iam::123456789012:role/reader",
+        region="cn-north-1",
+        external_id="synthetic",
+    )
+    backend = AwsSecretsManagerBackend()
+    with pytest.raises(ValueError, match="partition"):
+        backend.validate_reference(
+            config, "arn:aws:secretsmanager:cn-north-1:123456789012:secret:app-AbCdEf"
+        )
+    backend.validate_reference(
+        config, "arn:aws-cn:secretsmanager:cn-north-1:123456789012:secret:app-AbCdEf"
+    )
+    backend.validate_reference(config, "app/api")
 
 
 def test_store_config_allows_regions_unknown_to_botocore() -> None:
