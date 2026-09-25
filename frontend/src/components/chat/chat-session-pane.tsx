@@ -5,6 +5,7 @@ import {
   type ChatStatus,
   getToolName,
   isToolUIPart,
+  type ToolUIPart,
   type UIDataTypes,
   type UIMessage,
   type UIMessagePart,
@@ -12,6 +13,7 @@ import {
 } from "ai"
 import {
   CheckIcon,
+  ChevronRightIcon,
   Loader2,
   MousePointerClickIcon,
   PencilIcon,
@@ -86,6 +88,11 @@ import { MentionPopover } from "@/components/mentions/mention-popover"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
 import {
@@ -98,6 +105,10 @@ import {
 } from "@/hooks/use-chat"
 import { useMentions } from "@/hooks/use-mentions"
 import { useOverflowBadges } from "@/hooks/use-overflow-badges"
+import {
+  SubagentStreamContext,
+  useSubagentTranscript,
+} from "@/hooks/use-subagent-stream"
 import { isAgentToolSelectable } from "@/lib/agent-tools"
 import {
   type ApprovalCard,
@@ -116,6 +127,7 @@ import {
 import { useBuilderRegistryActions, useListMcpIntegrations } from "@/lib/hooks"
 import { findAgentMention, type MentionRange } from "@/lib/mentions"
 import { useQueryClient } from "@/lib/query"
+import { getSubagentSessionId, SUBAGENT_TOOL_NAME } from "@/lib/subagent-stream"
 import { cn } from "@/lib/utils"
 import type { ChatSurface } from "@/types/chat-surface"
 import { ARTIFACT_DATA_PART_TYPE } from "@/types/workspace-chat-artifacts"
@@ -361,12 +373,16 @@ export function ChatSessionPane({
     enabled: toolsEnabled && sessionMcpEnabled,
   })
 
-  // Check if this is a legacy read-only session
+  // Read-only sessions retain their transcript without a composer.
   const isReadonly = chat ? "is_readonly" in chat && chat.is_readonly : false
-  const readonlyDescription =
+  let readonlyDescription =
     chat && "user_id" in chat
       ? "This legacy conversation is read-only."
       : "This conversation belongs to a teammate."
+  if (chat && "parent_session_id" in chat && chat.parent_session_id) {
+    readonlyDescription =
+      "This subagent conversation is read-only. Message the parent conversation instead."
+  }
 
   const uiMessages = useMemo(
     () => (chat?.messages || []).map(toUIMessage),
@@ -390,6 +406,7 @@ export function ChatSessionPane({
     regenerate,
     lastError,
     clearError,
+    subagentStore,
   } = useVercelChat({
     chatId: chat?.id,
     workspaceId,
@@ -398,6 +415,10 @@ export function ChatSessionPane({
     onData,
     resume,
   })
+  const subagentStreamContext = useMemo(
+    () => (subagentStore ? { store: subagentStore, workspaceId } : null),
+    [subagentStore, workspaceId]
+  )
 
   // Prefer the live streaming error; fall back to the persisted last_error so a
   // reopened session whose last run failed still surfaces why (the live error
@@ -1276,7 +1297,7 @@ export function ChatSessionPane({
     )
   }
 
-  return (
+  const conversationView = (
     <div className={cn("flex h-full min-h-0 flex-col", className)}>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <div className="flex min-h-0 flex-1 flex-col">
@@ -1395,6 +1416,12 @@ export function ChatSessionPane({
         </div>
       </div>
     </div>
+  )
+
+  return (
+    <SubagentStreamContext.Provider value={subagentStreamContext}>
+      {conversationView}
+    </SubagentStreamContext.Provider>
   )
 }
 
@@ -1740,6 +1767,16 @@ export function MessagePart({
     } else {
       derivedState = part.state
     }
+    if (toolName === SUBAGENT_TOOL_NAME) {
+      return (
+        <SubagentToolPart
+          key={`${id}-${partIdx}`}
+          part={part}
+          state={derivedState}
+          errorText={derivedErrorText}
+        />
+      )
+    }
     return (
       <Tool key={`${id}-${partIdx}`}>
         <ToolHeader
@@ -1763,6 +1800,130 @@ export function MessagePart({
   }
 
   return null
+}
+
+function getNonEmptyString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null
+}
+
+/**
+ * Card for a `subagent` tool call: the child's alias, its task, a status, and
+ * the child session's transcript (live while streaming, persisted once done).
+ * Read-only: child approvals and input are not handled here.
+ */
+function SubagentToolPart({
+  part,
+  state,
+  errorText,
+}: {
+  part: ToolUIPart
+  state: ToolHeaderProps["state"]
+  errorText?: string
+}) {
+  const input = asInputRecord(part.input)
+  const alias = getNonEmptyString(input?.alias) ?? "Subagent"
+  const task = getNonEmptyString(input?.task)
+  // A preliminary output only links the child session; the child is running.
+  const isPreliminary =
+    part.state === "output-available" && part.preliminary === true
+  const cardState = isPreliminary ? "input-available" : state
+  const finished =
+    cardState !== "input-streaming" && cardState !== "input-available"
+
+  // Error outputs may drop the session id the preliminary output carried, so
+  // keep the last one seen for this card.
+  const outputSessionId =
+    getSubagentSessionId(part.output) ?? getSubagentSessionId(errorText)
+  const lastSessionIdRef = useRef<string | null>(null)
+  if (outputSessionId) {
+    lastSessionIdRef.current = outputSessionId
+  }
+  const sessionId = outputSessionId ?? lastSessionIdRef.current
+
+  return (
+    <Tool defaultOpen>
+      <ToolHeader
+        title={alias}
+        type={part.type}
+        state={cardState}
+        icon={
+          <MousePointerClickIcon className="size-4 text-muted-foreground" />
+        }
+      />
+      <ToolContent>
+        {task ? (
+          <Collapsible>
+            <CollapsibleTrigger className="group/task flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground">
+              <ChevronRightIcon className="size-3 transition-transform group-data-[state=open]/task:rotate-90" />
+              Task
+            </CollapsibleTrigger>
+            <CollapsibleContent className="pt-1.5">
+              <p className="whitespace-pre-wrap text-xs text-muted-foreground">
+                {task}
+              </p>
+            </CollapsibleContent>
+          </Collapsible>
+        ) : null}
+        <SubagentTranscript sessionId={sessionId} finished={finished} />
+        {cardState === "output-interrupted" ? (
+          <div className="text-[11px] text-muted-foreground">
+            Stopped before completion
+          </div>
+        ) : null}
+        {cardState === "output-error" && typeof errorText === "string" ? (
+          <ToolOutput output={undefined} errorText={errorText} />
+        ) : null}
+      </ToolContent>
+    </Tool>
+  )
+}
+
+function SubagentTranscript({
+  sessionId,
+  finished,
+}: {
+  sessionId: string | null
+  finished: boolean
+}) {
+  const { messages, isLive, isLoading } = useSubagentTranscript({
+    sessionId,
+    finished,
+  })
+
+  if (messages.length === 0) {
+    let placeholder = "Waiting for the agent to start..."
+    if (isLoading) {
+      placeholder = "Loading transcript..."
+    } else if (finished) {
+      placeholder = "No transcript available"
+    }
+    return <p className="text-xs text-muted-foreground">{placeholder}</p>
+  }
+
+  const status: ChatStatus | undefined =
+    isLive && !finished ? "streaming" : undefined
+  const lastMessageId = messages[messages.length - 1].id
+  return (
+    <div className="space-y-2 border-l pl-3">
+      {messages.map(({ id, role, parts }) => (
+        <div key={id}>
+          {parts
+            .filter((part) => part.type !== ARTIFACT_DATA_PART_TYPE)
+            .map((part, partIdx) => (
+              <MemoizedMessagePart
+                key={`${id}-${part.type}-${partIdx}`}
+                part={part}
+                partIdx={partIdx}
+                id={id}
+                role={role}
+                status={status}
+                isLastMessage={id === lastMessageId}
+              />
+            ))}
+        </div>
+      ))}
+    </div>
+  )
 }
 
 function getToolTitle(toolName: string, input: unknown): string {

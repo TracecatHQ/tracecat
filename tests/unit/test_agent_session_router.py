@@ -53,6 +53,7 @@ from tracecat.exceptions import (
     TracecatConflictError,
     TracecatNotFoundError,
     TracecatServiceError,
+    TracecatValidationError,
 )
 
 
@@ -1279,7 +1280,16 @@ async def test_send_message_rejects_teammate_session() -> None:
 
 
 @pytest.mark.anyio
-async def test_send_message_does_not_reset_stream_when_validation_fails() -> None:
+@pytest.mark.parametrize(
+    ("error", "status_code"),
+    [
+        (TracecatNotFoundError("No active workflow run"), 404),
+        (TracecatValidationError("Subagent preset uses manual approvals"), 400),
+    ],
+)
+async def test_send_message_does_not_reset_stream_when_validation_fails(
+    error: Exception, status_code: int
+) -> None:
     session_id = uuid.uuid4()
     workspace_id = uuid.uuid4()
     role = Role(
@@ -1301,9 +1311,7 @@ async def test_send_message_does_not_reset_stream_when_validation_fails() -> Non
 
     fake_svc = SimpleNamespace(
         is_legacy_session=AsyncMock(return_value=False),
-        validate_turn_request=AsyncMock(
-            side_effect=TracecatNotFoundError("No active workflow run")
-        ),
+        validate_turn_request=AsyncMock(side_effect=error),
         run_turn=AsyncMock(return_value=None),
     )
     fake_stream = SimpleNamespace(
@@ -1323,7 +1331,7 @@ async def test_send_message_does_not_reset_stream_when_validation_fails() -> Non
         ) as stream_new_mock,
     ):
         raw_send_message = cast(Any, send_message).__wrapped__
-        with pytest.raises(HTTPException, match="No active workflow run") as exc_info:
+        with pytest.raises(HTTPException) as exc_info:
             await raw_send_message(
                 session_id=session_id,
                 request=request,
@@ -1334,7 +1342,8 @@ async def test_send_message_does_not_reset_stream_when_validation_fails() -> Non
                 ),
             )
 
-    assert exc_info.value.status_code == 404
+    assert exc_info.value.status_code == status_code
+    assert exc_info.value.detail == str(error)
     with_session_mock.assert_called_once_with(role=role)
     # The stream is created only after validation passes, so a validation
     # failure never mints a stream.
@@ -1453,6 +1462,46 @@ async def test_fork_session_requires_entitlement_for_workspace_chat_parent() -> 
             )
 
     fake_svc.fork_session.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_fork_session_maps_backend_rejection_to_bad_request() -> None:
+    source_session = _agent_session_stub(entity_type=AgentSessionEntity.CASE)
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=source_session.workspace_id,
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"agent:execute"}),
+    )
+    fake_svc = SimpleNamespace(
+        get_session=AsyncMock(return_value=source_session),
+        fork_session=AsyncMock(
+            side_effect=TracecatValidationError("Pi sessions do not support forks yet")
+        ),
+    )
+
+    with (
+        patch(
+            "tracecat.agent.session.router.AgentSessionService",
+            return_value=fake_svc,
+        ),
+        patch(
+            "tracecat.agent.session.router.require_workspace_chat_entitlement_for_entity",
+            AsyncMock(return_value=None),
+        ),
+    ):
+        raw_fork_session = cast(Any, fork_session).__wrapped__
+        with pytest.raises(HTTPException) as exc_info:
+            await raw_fork_session(
+                session_id=source_session.id,
+                role=role,
+                session=AsyncMock(),
+                request=None,
+            )
+
+    assert exc_info.value.status_code == status.HTTP_400_BAD_REQUEST
+    assert exc_info.value.detail == "Pi sessions do not support forks yet"
 
 
 @pytest.mark.anyio
@@ -2015,17 +2064,19 @@ async def test_update_session_rejects_backend_changes_with_bad_request(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("is_child", [False, True])
 @pytest.mark.parametrize("surface", ["create", "get", "vercel", "update", "fork"])
 @pytest.mark.parametrize(
     "backend_state", ["enabled", "disabled", "missing", "unsupported"]
 )
 async def test_session_responses_derive_readonly_from_backend_state(
-    surface: str, backend_state: str
+    surface: str, backend_state: str, is_child: bool
 ) -> None:
     session_stub = _agent_session_stub(
         backend_id="external",
         harness_type="unsupported" if backend_state == "unsupported" else "claude_code",
     )
+    session_stub.parent_session_id = uuid.uuid4() if is_child else None
     role = Role(
         type="user",
         service_id="tracecat-api",
@@ -2083,4 +2134,4 @@ async def test_session_responses_derive_readonly_from_backend_state(
                     session_id=session_stub.id, role=role, session=AsyncMock()
                 )
     assert response.backend_id == "external"
-    assert response.is_readonly is (backend_state != "enabled")
+    assert response.is_readonly is (is_child or backend_state != "enabled")

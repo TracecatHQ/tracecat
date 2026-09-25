@@ -135,6 +135,43 @@ describe("ChatSessionPane optimistic first send", () => {
     mockUseVercelChatResult.status = "ready"
   })
 
+  it("keeps child history readable and disables direct messages", () => {
+    const description =
+      "This subagent conversation is read-only. Message the parent conversation instead."
+    const message: UIMessage = {
+      id: "child-message",
+      role: "assistant",
+      parts: [{ type: "text", text: "Child result" }],
+    }
+    mockUseVercelChatResult.messages = [message]
+    renderChatSessionPane({
+      chat: {
+        id: "child-session",
+        workspace_id: "workspace-1",
+        title: "Child",
+        created_by: "user-1",
+        is_readonly: true,
+        parent_session_id: "parent-session",
+        entity_type: "agent_preset",
+        entity_id: "preset-1",
+        channel_context: null,
+        tools: [],
+        mcp_integrations: [],
+        agent_preset_id: "preset-1",
+        agent_preset_version_id: null,
+        harness_type: "pi",
+        created_at: "2026-09-25T00:00:00Z",
+        updated_at: "2026-09-25T00:00:00Z",
+        messages: [message],
+      },
+    })
+    expect(screen.getByText("Child result")).toBeInTheDocument()
+    expect(screen.getByText(description)).toBeInTheDocument()
+    expect(screen.getByPlaceholderText(description)).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Submit" })).toBeDisabled()
+    expect(mockUseVercelChatResult.sendMessage).not.toHaveBeenCalled()
+  })
+
   it("shows the submitted message and loading dots before a session exists", async () => {
     const onBeforeSend = jest.fn(
       () => new Promise<string | null>(() => undefined)

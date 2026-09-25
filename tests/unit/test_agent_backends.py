@@ -6,7 +6,7 @@ from collections.abc import Iterator
 from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from claude_agent_sdk.types import UserMessage
@@ -524,6 +524,90 @@ async def test_recovery_rechecks_ownership_after_releasing_the_lock():
     ctx.db.commit.assert_awaited_once()
     assert ctx.db.scalar.await_count == 3
     assert newer_session.curr_run_id != ctx.run_id
+    rpc.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_default_backend_releases_terminal_turn_and_dispatches():
+    ctx = context()
+    assert isinstance(ctx.db, AsyncMock)
+    old_run_id = uuid4()
+    ctx.session.curr_run_id = old_run_id
+    ctx.session.active_stream_id = uuid4()
+    released = AgentSession(
+        id=ctx.session.id,
+        workspace_id=ctx.session.workspace_id,
+        title=ctx.session.title,
+        entity_type=ctx.session.entity_type,
+        entity_id=ctx.session.entity_id,
+        backend_id=ctx.session.backend_id,
+        harness_type=ctx.session.harness_type,
+    )
+    # Lock, release UPDATE ... RETURNING, then the re-locked released row.
+    ctx.db.scalar.side_effect = [ctx.session, ctx.session.id, released]
+    backend = DefaultBackend()
+    client, rpc = temporal_client()
+    handle = Mock(
+        describe=AsyncMock(
+            return_value=SimpleNamespace(status=WorkflowExecutionStatus.COMPLETED)
+        )
+    )
+    with (
+        patch("tracecat.agent.backends.base.get_temporal_client", return_value=client),
+        patch.object(backend, "handle", return_value=handle),
+        patch.object(
+            backend,
+            "retains_terminal_ownership",
+            wraps=backend.retains_terminal_ownership,
+        ) as retains,
+    ):
+        await backend.start_turn(ctx)
+    retains.assert_awaited_once_with(ctx, old_run_id)
+    assert ctx.db.commit.await_count == 2
+    assert released.curr_run_id == ctx.run_id
+    rpc.assert_awaited_once()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("status", "consulted"),
+    [
+        (WorkflowExecutionStatus.COMPLETED, True),
+        (WorkflowExecutionStatus.CANCELED, True),
+        (WorkflowExecutionStatus.RUNNING, False),
+    ],
+)
+async def test_backend_can_retain_ownership_of_terminal_turn(status, consulted):
+    ctx = context()
+    assert isinstance(ctx.db, AsyncMock)
+    old_run_id, old_stream_id = uuid4(), uuid4()
+    ctx.session.curr_run_id = old_run_id
+    ctx.session.active_stream_id = old_stream_id
+    checked: list[tuple[AgentSession, UUID]] = []
+
+    class RetainingBackend(DefaultBackend):
+        async def retains_terminal_ownership(
+            self, context: SessionTurnContext, run_id: UUID
+        ) -> bool:
+            checked.append((context.session, run_id))
+            return True
+
+    backend = RetainingBackend()
+    client, rpc = temporal_client()
+    handle = Mock(describe=AsyncMock(return_value=SimpleNamespace(status=status)))
+    with (
+        patch("tracecat.agent.backends.base.get_temporal_client", return_value=client),
+        patch.object(backend, "handle", return_value=handle),
+        patch.object(backend, "build_workflow_args") as prepare,
+        pytest.raises(TracecatConflictError),
+    ):
+        await backend.start_turn(ctx)
+    assert checked == ([(ctx.session, old_run_id)] if consulted else [])
+    prepare.assert_not_called()
+    assert ctx.session.curr_run_id == old_run_id
+    assert ctx.session.active_stream_id == old_stream_id
+    ctx.db.scalar.assert_awaited_once()
+    ctx.db.commit.assert_not_awaited()
     rpc.assert_not_awaited()
 
 

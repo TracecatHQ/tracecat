@@ -11,7 +11,12 @@ import pytest
 
 from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
 from tracecat.agent.stream.connector import AgentStream
-from tracecat.agent.stream.events import StreamDelta, StreamEnd, StreamKeepAlive
+from tracecat.agent.stream.events import (
+    StreamDelta,
+    StreamEnd,
+    StreamKeepAlive,
+    StreamSessionEvent,
+)
 from tracecat.chat import tokens
 from tracecat.redis.client import RedisClient
 
@@ -442,3 +447,175 @@ async def test_stream_events_does_not_expire_when_not_completed() -> None:
     assert len(events) == 1
     assert isinstance(events[0], StreamDelta)
     raw_client.expire.assert_not_awaited()
+
+
+def _stream_with_entries(
+    entries: list[tuple[str, dict[str, object]]],
+) -> AgentStream:
+    workspace_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    client = SimpleNamespace(
+        xread=AsyncMock(
+            return_value=[
+                (
+                    f"agent-stream:{workspace_id}:{session_id}",
+                    [
+                        (msg_id, {tokens.DATA_KEY: orjson.dumps(payload)})
+                        for msg_id, payload in entries
+                    ],
+                )
+            ]
+        ),
+    )
+    return AgentStream(
+        client=cast(RedisClient, client),
+        workspace_id=workspace_id,
+        session_id=session_id,
+    )
+
+
+@pytest.mark.anyio
+async def test_stream_events_yields_session_event_separately_from_root() -> None:
+    child_session_id = uuid.uuid4()
+    stream = _stream_with_entries(
+        [
+            ("1-0", {"type": "text_delta", "part_id": 0, "text": "root"}),
+            (
+                "2-0",
+                {
+                    "kind": "session-event",
+                    "session_id": str(child_session_id),
+                    "event_id": "child-event-1",
+                    "event": {"type": "text_delta", "part_id": 0, "text": "child"},
+                },
+            ),
+        ]
+    )
+
+    events = [
+        event
+        async for event in stream._stream_events(
+            AsyncMock(side_effect=[False, True]), last_id="0-0"
+        )
+    ]
+
+    assert len(events) == 2
+    root, child = events
+    assert isinstance(root, StreamDelta)
+    assert root.event.text == "root"
+    assert isinstance(child, StreamSessionEvent)
+    assert child.id == "2-0"
+    assert child.session_id == child_session_id
+    assert child.event_id == "child-event-1"
+    assert child.event.type is StreamEventType.TEXT_DELTA
+    assert child.event.text == "child"
+
+
+@pytest.mark.anyio
+async def test_stream_events_skips_malformed_session_events_and_unknown_kinds() -> None:
+    stream = _stream_with_entries(
+        [
+            ("1-0", {"kind": "some-future-kind", "value": 1}),
+            (
+                "2-0",
+                {
+                    "kind": "session-event",
+                    "session_id": "not-a-uuid",
+                    "event_id": "e1",
+                    "event": {"type": "text_delta"},
+                },
+            ),
+            (
+                "3-0",
+                {
+                    "kind": "session-event",
+                    "session_id": str(uuid.uuid4()),
+                    "event_id": "e2",
+                    "event": {"type": "not_a_real_type"},
+                },
+            ),
+            (
+                "4-0",
+                {
+                    "kind": "session-event",
+                    "session_id": str(uuid.uuid4()),
+                    "event": {"type": "text_delta"},
+                },
+            ),
+            ("5-0", {"type": "text_delta", "part_id": 0, "text": "after"}),
+        ]
+    )
+
+    events = [
+        event
+        async for event in stream._stream_events(
+            AsyncMock(side_effect=[False, True]), last_id="0-0"
+        )
+    ]
+
+    # Only the valid root delta survives; nothing surfaces as a stream error.
+    assert len(events) == 1
+    assert isinstance(events[0], StreamDelta)
+    assert events[0].event.text == "after"
+
+
+@pytest.mark.anyio
+async def test_simple_sse_passes_session_event_envelope_through() -> None:
+    child_session_id = uuid.uuid4()
+    stream = _stream_with_entries(
+        [
+            (
+                "1-0",
+                {
+                    "kind": "session-event",
+                    "session_id": str(child_session_id),
+                    "event_id": "child-event-1",
+                    "event": {"type": "text_delta", "part_id": 0, "text": "child"},
+                },
+            ),
+        ]
+    )
+
+    frames = [
+        frame
+        async for frame in stream.simple_sse(
+            AsyncMock(side_effect=[False, True]), last_id="0-0"
+        )
+    ]
+
+    session_frames = [f for f in frames if "event: session-event" in f]
+    assert len(session_frames) == 1
+    lines = session_frames[0].splitlines()
+    assert lines[0] == "id: 1-0"
+    payload = orjson.loads(lines[2].removeprefix("data: "))
+    assert payload["session_id"] == str(child_session_id)
+    assert payload["event_id"] == "child-event-1"
+    assert payload["event"]["type"] == "text_delta"
+    assert payload["event"]["text"] == "child"
+    assert not any("event: delta" in f for f in frames)
+
+
+def test_unified_stream_event_preliminary_wire_round_trip() -> None:
+    preliminary = UnifiedStreamEvent.from_dict(
+        {
+            "type": "tool_result",
+            "tool_call_id": "call_subagent",
+            "tool_name": "subagent",
+            "tool_output": {"session_id": str(uuid.uuid4()), "status": "running"},
+            "preliminary": True,
+        }
+    )
+    final = UnifiedStreamEvent.from_dict(
+        {
+            "type": "tool_result",
+            "tool_call_id": "call_subagent",
+            "tool_name": "subagent",
+            "tool_output": {"session_id": str(uuid.uuid4())},
+        }
+    )
+
+    assert preliminary.preliminary is True
+    assert preliminary.to_dict()["preliminary"] is True
+    # Default stays off and is omitted, keeping existing payloads unchanged.
+    assert final.preliminary is False
+    assert "preliminary" not in final.to_dict()

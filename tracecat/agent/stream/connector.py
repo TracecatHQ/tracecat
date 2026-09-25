@@ -26,6 +26,7 @@ from tracecat.agent.stream.events import (
     StreamEvent,
     StreamFormat,
     StreamKeepAlive,
+    StreamSessionEvent,
     UnifiedStreamEventTA,
 )
 from tracecat.agent.types import StreamKey
@@ -52,6 +53,7 @@ class AgentStream:
     KEEPALIVE_INTERVAL_SECONDS = 10
     COMPLETED_STREAM_TTL_SECONDS = 5 * 60
     CONTINUATION_START_KIND = "approval-continuation-start"
+    SESSION_EVENT_KIND = "session-event"
 
     def __init__(
         self,
@@ -231,7 +233,8 @@ class AgentStream:
                 frames; the adapter then drops frames already seen by the client.
 
         Yields:
-            StreamEvent: StreamDelta, StreamError, or StreamEnd.
+            StreamEvent: StreamDelta, StreamSessionEvent (child session events),
+            StreamError, or StreamEnd.
 
         Note:
             - Read-only: never writes last_stream_id (browser owns the cursor).
@@ -262,6 +265,12 @@ class AgentStream:
                         # newly rotated suffix from the closed approval-pause
                         # stream while approval decisions are still committing.
                         yield StreamKeepAlive()
+                    case {"kind": AgentStream.SESSION_EVENT_KIND}:
+                        # Child session event fanned into this (parent) stream.
+                        # Kept separate from root deltas so it never merges into
+                        # the root transcript.
+                        if session_event := _parse_session_event(msg_id, data):
+                            yield session_event
                     case {"type": _}:
                         unified_event = UnifiedStreamEventTA.validate_python(data)
                         yield StreamDelta(id=msg_id, event=unified_event)
@@ -448,7 +457,7 @@ class AgentStream:
                     case StreamEnd():
                         yield event.sse()
                         break
-                    case StreamDelta():
+                    case StreamDelta() | StreamSessionEvent():
                         yield event.sse()
                     case _:
                         logger.warning(
@@ -458,3 +467,40 @@ class AgentStream:
                         )
         finally:
             yield StreamEnd.sse()
+
+
+def _parse_session_event(msg_id: str, data: object) -> StreamSessionEvent | None:
+    """Validate a child session envelope, skipping it when malformed.
+
+    A malformed child event must not surface as an error in the parent's
+    transcript, so it is logged and dropped instead of raised.
+    """
+    match data:
+        case {
+            "session_id": str(raw_session_id),
+            "event_id": str(event_id),
+            "event": dict(raw_event),
+        } if event_id:
+            pass
+        case _:
+            logger.warning(
+                "Invalid session event envelope",
+                message_id=msg_id,
+            )
+            return None
+    try:
+        session_id = uuid.UUID(raw_session_id)
+        event = UnifiedStreamEventTA.validate_python(raw_event)
+    except ValueError as exc:
+        logger.warning(
+            "Invalid session event payload",
+            message_id=msg_id,
+            error=str(exc),
+        )
+        return None
+    return StreamSessionEvent(
+        id=msg_id,
+        session_id=session_id,
+        event_id=event_id,
+        event=event,
+    )

@@ -2174,6 +2174,12 @@ class AgentSessionService(BaseWorkspaceService):
         agent_session = await self.get_session(session_id)
         if not agent_session:
             raise TracecatNotFoundError(f"Session with ID {session_id} not found")
+        # Only the parent's runtime executes a spawned child; a direct turn would
+        # target a harness binding it does not own.
+        if agent_session.parent_session_id is not None:
+            raise ValueError(
+                "Subagent sessions are read-only; message the parent session instead"
+            )
 
         get_agent_backend(
             agent_session.backend_id, harness_type=agent_session.harness_type

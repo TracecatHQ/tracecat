@@ -52,9 +52,11 @@ from tracecat.agent.stream.events import (
     StreamError,
     StreamEvent,
     StreamKeepAlive,
+    StreamSessionEvent,
 )
 from tracecat.artifacts.schemas import ARTIFACT_DATA_PART_TYPE
 from tracecat.chat.constants import (
+    AGENT_CHUNK_DATA_PART_TYPE,
     APPROVAL_DATA_PART_TYPE,
     APPROVAL_REQUEST_HEADER,
     CANCELLED_DATA_PART_TYPE,
@@ -527,6 +529,18 @@ class ToolOutputAvailableEventPayload:
 
 
 @dataclasses.dataclass(slots=True, kw_only=True)
+class PreliminaryToolOutputAvailableEventPayload:
+    """Progress output for a tool call that a later final output replaces."""
+
+    type: Literal["tool-output-available"] = dataclasses.field(
+        init=False, default="tool-output-available"
+    )
+    toolCallId: str
+    output: Any
+    preliminary: Literal[True] = dataclasses.field(init=False, default=True)
+
+
+@dataclasses.dataclass(slots=True, kw_only=True)
 class CompactionDataPayload:
     phase: Literal["started", "completed", "failed"]
     pre_tokens: int | None = None
@@ -549,6 +563,30 @@ class ErrorEventPayload:
     errorText: str
 
 
+@dataclasses.dataclass(slots=True, kw_only=True)
+class AgentChunkData:
+    """One child-session UI chunk, addressed for client-side routing."""
+
+    session_id: str
+    event_id: str
+    index: int
+    """Position of ``chunk`` among the chunks produced for ``event_id``.
+
+    ``(event_id, index)`` is the client dedupe key; stream reconnects replay the
+    turn from the start and reproduce the same keys.
+    """
+    chunk: VercelSSEPayload
+
+
+@dataclasses.dataclass(slots=True, kw_only=True)
+class AgentChunkEventPayload:
+    """Transient data part wrapping a child session's UI chunk."""
+
+    type: str = dataclasses.field(init=False, default=AGENT_CHUNK_DATA_PART_TYPE)
+    transient: Literal[True] = dataclasses.field(init=False, default=True)
+    data: AgentChunkData
+
+
 VercelSSEPayload = (
     StartEventPayload
     | FinishEventPayload
@@ -562,8 +600,10 @@ VercelSSEPayload = (
     | ToolInputDeltaEventPayload
     | ToolInputAvailableEventPayload
     | ToolOutputAvailableEventPayload
+    | PreliminaryToolOutputAvailableEventPayload
     | DataEventPayload
     | ErrorEventPayload
+    | AgentChunkEventPayload
 )
 
 
@@ -613,6 +653,11 @@ class VercelStreamContext:
     # exist in the original stream, so sse_vercel must emit them but neither count
     # them toward the composite frame index nor apply the resume-drop filter.
     repair_frames: int = 0
+    # Stable seed for part ids created while converting the current event. Child
+    # session contexts set it to the runtime's event id so a replay from the
+    # start recreates the same part ids, keeping client-side chunk dedupe valid.
+    # Root contexts leave it unset and use random ids.
+    part_id_seed: str | None = None
 
     def _create_part_state(
         self,
@@ -621,7 +666,10 @@ class VercelStreamContext:
         tool_call: ToolCallContent | None = None,
     ) -> _PartState:
         """Register a fresh part and return its tracking record."""
-        part_id = f"msg_{uuid.uuid4().hex}"
+        if self.part_id_seed is None:
+            part_id = f"msg_{uuid.uuid4().hex}"
+        else:
+            part_id = f"msg_{self.part_id_seed}:{index}"
         state = _PartState(part_id=part_id, part_type=part_type, tool_call=tool_call)
         self.part_states[index] = state
         if tool_call is not None:
@@ -846,6 +894,16 @@ class VercelStreamContext:
                         input=self.approval_input.get(tool_call_id, {}),
                     )
                     self.tool_input_emitted[tool_call_id] = True
+
+                if event.preliminary:
+                    # Progress output: keep the call correlated so the final
+                    # result still maps onto the same tool part without
+                    # re-emitting its input.
+                    yield PreliminaryToolOutputAvailableEventPayload(
+                        toolCallId=tool_call_id,
+                        output=event.tool_output,
+                    )
+                    return
 
                 self.tool_finished[tool_call_id] = True
                 self.tool_input_emitted.pop(tool_call_id, None)
@@ -1378,6 +1436,48 @@ def convert_chat_messages_to_ui(
     return UIMessagesTA.validate_python(raw_messages)
 
 
+async def _session_event_chunks(
+    child_contexts: dict[uuid.UUID, VercelStreamContext],
+    stream_event: StreamSessionEvent,
+) -> AsyncIterator[tuple[AgentChunkEventPayload, VercelStreamContext]]:
+    """Convert a child session event into addressed ``data-agent-chunk`` parts.
+
+    Each child keeps its own context and its chunks form an independent UI
+    message stream: a ``start`` chunk (``messageId`` = child session id) on first
+    sight, then the child's parts. No ``finish`` is emitted; the parent's final
+    tool result marks the child as complete.
+
+    Yields each wrapped chunk with the child context that produced it, so the
+    caller can apply that context's repair-frame accounting.
+    """
+    session_id = str(stream_event.session_id)
+    event_id = stream_event.event_id
+    index = 0
+
+    def wrap(chunk: VercelSSEPayload) -> AgentChunkEventPayload:
+        nonlocal index
+        payload = AgentChunkEventPayload(
+            data=AgentChunkData(
+                session_id=session_id,
+                event_id=event_id,
+                index=index,
+                chunk=chunk,
+            )
+        )
+        index += 1
+        return payload
+
+    child_context = child_contexts.get(stream_event.session_id)
+    if child_context is None:
+        child_context = VercelStreamContext(message_id=session_id)
+        child_contexts[stream_event.session_id] = child_context
+        yield wrap(StartEventPayload(messageId=session_id)), child_context
+
+    child_context.part_id_seed = event_id
+    async for chunk in child_context.handle_event(stream_event.event):
+        yield wrap(chunk), child_context
+
+
 async def sse_vercel(
     events: AsyncIterable[StreamEvent],
     *,
@@ -1397,6 +1497,9 @@ async def sse_vercel(
     """
 
     context = VercelStreamContext(message_id=message_id)
+    # One context per child session: part ids and part states are per-session,
+    # so sharing the root context would let children collide with each other.
+    child_contexts: dict[uuid.UUID, VercelStreamContext] = {}
     resume_cursor = parse_vercel_frame_cursor(resume_from)
 
     # Composite-id state: the Redis id of the entry currently fanning out and a
@@ -1404,7 +1507,9 @@ async def sse_vercel(
     redis_id: str | None = None
     frame_index = 0
 
-    def emit(payload: VercelSSEPayload) -> str | None:
+    def emit(
+        payload: VercelSSEPayload, source: VercelStreamContext = context
+    ) -> str | None:
         nonlocal frame_index
         # Repair frames (a part-start the handler synthesized on resume because
         # the real start was before the cursor) did not exist in the original
@@ -1412,8 +1517,8 @@ async def sse_vercel(
         # frames keep their original indices and the drop math stays correct.
         # They carry no id: the client never needs to resume *to* a synthesized
         # frame, and reusing the next real frame's id would collide.
-        if context.repair_frames > 0:
-            context.repair_frames -= 1
+        if source.repair_frames > 0:
+            source.repair_frames -= 1
             return format_sse(payload)
         sse_id = f"{redis_id}:{frame_index}" if redis_id else None
         current_frame_index = frame_index
@@ -1441,6 +1546,13 @@ async def sse_vercel(
                     # Process agent stream events (PartStartEvent, PartDeltaEvent, etc.)
                     async for msg in context.handle_event(agent_event):
                         if frame := emit(msg):
+                            yield frame
+                case StreamSessionEvent(id=entry_id):
+                    redis_id, frame_index = entry_id, 0
+                    async for msg, child_context in _session_event_chunks(
+                        child_contexts, stream_event
+                    ):
+                        if frame := emit(msg, child_context):
                             yield frame
                 case StreamKeepAlive():
                     yield StreamKeepAlive.sse()
