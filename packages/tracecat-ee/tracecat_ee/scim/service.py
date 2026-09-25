@@ -513,7 +513,9 @@ class SCIMService(BaseOrgService):
         """Remove every mapping, revoke the token, and disable the connection.
 
         One transaction. Removing a group's last mapping keeps its IdP members
-        as manual rows, so nobody loses access as the directory detaches.
+        as manual rows, so nobody loses access as the directory detaches. The
+        pushed users and groups are then deleted: a reconnected provider starts
+        from an empty directory instead of re-admitting stale users.
 
         Raises:
             TracecatNotFoundError: No connection exists.
@@ -541,6 +543,17 @@ class SCIMService(BaseOrgService):
         await self._freeze_groups_losing_every_source(mapping_ids, [])
         for mapping_id in mapping_ids:
             await self.delete_mapping(mapping_id)
+        # Group membership rows cascade from both sides.
+        await self.session.execute(
+            delete(ExternalGroup).where(
+                ExternalGroup.organization_id == self.organization_id
+            )
+        )
+        await self.session.execute(
+            delete(ExternalUser).where(
+                ExternalUser.organization_id == self.organization_id
+            )
+        )
 
         connection.status = ScimConnectionStatus.DISABLED
         connection.revoked_at = connection.revoked_at or datetime.now(UTC)

@@ -499,12 +499,41 @@ test("disconnect confirms before detaching", async () => {
   connection = { ...initialConnection, status: "active" }
   disconnect.mockResolvedValue(undefined)
   renderScim()
+  await toggleTarget(user)
+  expect(screen.getByText(/1 draft applies after review/)).toBeInTheDocument()
   await user.click(screen.getByRole("button", { name: "Connection actions" }))
   await user.click(screen.getByRole("menuitem", { name: "Disconnect" }))
   expect(screen.getByText(/nobody loses access/)).toBeInTheDocument()
   expect(disconnect).not.toHaveBeenCalled()
   await user.click(screen.getByRole("button", { name: "Disconnect" }))
   await waitFor(() => expect(disconnect).toHaveBeenCalledTimes(1))
+  expect(screen.queryByText(/draft applies/)).not.toBeInTheDocument()
+})
+
+test("review caps source changes like gains", async () => {
+  review.mutateAsync.mockResolvedValue({
+    users: [],
+    plans: [],
+    groups: [
+      {
+        group_id: "target",
+        group_name: "Target team",
+        added_sources: ["IdP team"],
+        removed_sources: [],
+        changes: Array.from({ length: 12 }, (_, index) => ({
+          user_id: `mover-${index}`,
+          email: `mover-${String(index).padStart(2, "0")}@example.com`,
+          kind: "to_idp" as const,
+        })),
+      },
+    ],
+  })
+  renderScim()
+  fireEvent.click(screen.getByRole("button", { name: "Review and activate" }))
+  fireEvent.click(await screen.findByRole("button", { name: /Target team/ }))
+  expect(screen.getByText("mover-09@example.com")).toBeInTheDocument()
+  expect(screen.queryByText("mover-10@example.com")).not.toBeInTheDocument()
+  expect(screen.getByText("2 more users")).toBeInTheDocument()
 })
 
 test("a disconnected directory offers a new token instead", async () => {

@@ -210,15 +210,23 @@ function groupLines(group: ScimGroupTransitionRead): DiffLine[] {
       text: plural(gains.length - MAX_LISTED, "more user", "more users"),
     })
   }
-  for (const change of group.changes) {
-    if (change.kind === "to_idp" || change.kind === "to_manual") {
-      lines.push({
-        key: change.user_id,
-        kind: "modified",
-        text: email(change.email),
-        note: change.kind === "to_idp" ? "manual → IdP" : "IdP → manual",
-      })
-    }
+  const moves = group.changes.filter(
+    (change) => change.kind === "to_idp" || change.kind === "to_manual"
+  )
+  for (const change of moves.slice(0, MAX_LISTED)) {
+    lines.push({
+      key: change.user_id,
+      kind: "modified",
+      text: email(change.email),
+      note: change.kind === "to_idp" ? "manual → IdP" : "IdP → manual",
+    })
+  }
+  if (moves.length > MAX_LISTED) {
+    lines.push({
+      key: "move-more",
+      kind: "modified",
+      text: plural(moves.length - MAX_LISTED, "more user", "more users"),
+    })
   }
   if (lines.length === 0) {
     lines.push({

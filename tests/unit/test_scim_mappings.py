@@ -6,7 +6,7 @@ import uuid
 from collections.abc import Iterator
 
 import pytest
-from sqlalchemy import event, select, update
+from sqlalchemy import event, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.rbac.router import list_groups
 from tracecat_ee.rbac.service import RBACService
@@ -25,6 +25,7 @@ from tests.support.membership import (
 from tracecat.auth.types import Role
 from tracecat.authz.enums import ScimConnectionStatus
 from tracecat.db.models import (
+    ExternalGroup,
     ExternalGroupMapping,
     ExternalGroupMember,
     ExternalUser,
@@ -861,20 +862,40 @@ async def test_review_of_one_of_several_mappings_names_who_loses_access(
 
 @pytest.mark.anyio
 async def test_disconnect_detaches_the_directory_without_revoking_access(
-    session: AsyncSession, org: Organization, service: SCIMService
+    session: AsyncSession,
+    org: Organization,
+    other_org: Organization,
+    service: SCIMService,
 ) -> None:
-    """Disconnect removes mappings and the token; members stay as manual rows."""
+    """Disconnect deletes the pushed directory; members stay as manual rows."""
     external = await seed_external_group(
         session, organization_id=org.id, external_id="idp-disconnect"
     )
     member = await _pushed_member(session, org, external.id)
     group = await _make_group(session, org)
     await service.create_mapping(external_group_id=external.id, group_id=group.id)
+    theirs = await seed_external_group(
+        session, organization_id=other_org.id, external_id="idp-theirs"
+    )
 
     await service.disconnect()
 
     assert (await service.list_mappings(page=PageParams())).items == []
     assert await _manual_members(session, group.id) == {member.id}
+    for model in (ExternalUser, ExternalGroup, ExternalGroupMember):
+        remaining = await session.scalar(
+            select(func.count())
+            .select_from(model)
+            .where(model.organization_id == org.id)
+        )
+        assert remaining == 0, model.__tablename__
+    assert await session.get(ExternalGroup, theirs.id) is not None
+    assert await session.scalar(
+        select(OrganizationMembership.user_id).where(
+            OrganizationMembership.organization_id == org.id,
+            OrganizationMembership.user_id == member.id,
+        )
+    )
     connection = await session.scalar(
         select(ScimConnection).where(ScimConnection.organization_id == org.id)
     )

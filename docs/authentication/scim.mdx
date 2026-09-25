@@ -160,7 +160,7 @@ When your IdP deactivates a user, sets `active` to `false`, or deletes the user,
 Open the three-dot `Connection actions` menu in the Connection card.
 
 - Rotate token: issues a new token. The current token stops working immediately, so provisioning fails until you paste the new token into your IdP.
-- Disconnect: revokes the token, removes every group mapping, and marks the connection disconnected. Members of mapped groups stay as manual members, and pushed users stay in the organization. Generate a new token to reconnect, then review and activate again.
+- Disconnect: revokes the token, removes every group mapping, deletes the users and groups your IdP pushed, and marks the connection disconnected. Members of mapped groups stay as manual members, and pushed users stay in the organization. To reconnect, generate a new token, push users and groups from your IdP again, then review and activate.
 
 ## Limitations
 

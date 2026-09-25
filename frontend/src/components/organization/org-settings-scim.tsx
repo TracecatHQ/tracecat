@@ -216,7 +216,13 @@ export function OrgSettingsScim() {
           ) : undefined
         }
       />
-      <OrgSettingsScimConnection />
+      <OrgSettingsScimConnection
+        onDisconnect={() => {
+          // Drafts target the detached directory; keep none for the next one.
+          setDrafts([])
+          setRemovals([])
+        }}
+      />
       {!connectionError && (
         <OrgSettingsScimMappings
           connected={Boolean(connection)}

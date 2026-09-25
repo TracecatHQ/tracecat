@@ -128,7 +128,11 @@ function ConnectionDetails({
  * dialog that displays it. It is never written to the query cache or refetched,
  * because the API returns it exactly once and can never return it again.
  */
-export function OrgSettingsScimConnection() {
+export function OrgSettingsScimConnection({
+  onDisconnect,
+}: {
+  onDisconnect?: () => void
+} = {}) {
   const canManage = useScopeCheck("org:scim:manage")
   const baseUrl = useScimBaseUrl()
   const {
@@ -162,6 +166,7 @@ export function OrgSettingsScimConnection() {
 
   async function handleDisconnect() {
     await disconnect()
+    onDisconnect?.()
     setDisconnectOpen(false)
   }
 
@@ -306,9 +311,10 @@ export function OrgSettingsScimConnection() {
               Disconnect your identity provider?
             </AlertDialogTitle>
             <AlertDialogDescription>
-              The token is revoked and group mappings are removed. Members of
-              mapped groups stay as manual members, so nobody loses access.
-              Reconnect anytime with a new token.
+              The token is revoked, and group mappings and synced IdP users and
+              groups are removed. Members of mapped groups stay as manual
+              members, so nobody loses access. To reconnect, generate a new
+              token and push users and groups from your IdP again.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
