@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from tracecat.db.models import PlatformRegistryVersion
+from tracecat.registry.sync.jobs import _is_downgrade
 
 
 def _version(version: str) -> PlatformRegistryVersion:
@@ -35,8 +36,6 @@ def test_is_downgrade_handles_legacy_chained_release_tags(
     Production databases may still hold these tags, so the parser keeps
     accepting them even though the convention is retired.
     """
-    from tracecat.registry.sync.jobs import _is_downgrade
-
     assert _is_downgrade(_version(current_version), target_version) is expected
 
 
@@ -79,6 +78,37 @@ def test_is_downgrade_handles_release_tags(
     The base of a prerelease is the next stable version, so any `X.Y.Z` stable
     tag sorts below every prerelease of a later `X.Y.Z`.
     """
-    from tracecat.registry.sync.jobs import _is_downgrade
-
     assert _is_downgrade(_version(current_version), target_version) is expected
+
+
+@pytest.mark.parametrize(
+    ("older", "newer"),
+    [
+        ("1.2.0-alpha.1", "1.2.0-alpha.1.0"),
+        ("1.2.0-alpha.1", "1.2.0-alpha.1.2"),
+        ("1.2.0-alpha.1.2", "1.2.0-alpha.1.10"),
+        ("1.2.0-alpha.1.10", "1.2.0-alpha.2"),
+        ("1.2.0-alpha.1.10", "1.2.0-alpha.2.1"),
+        ("1.2.0-alpha.1.2", "1.2.0-beta.0"),
+        ("1.2.0-alpha.1.2", "1.2.0-beta.0-rc.1"),
+        ("1.2.0-alpha.1.2", "1.2.0-rc.0"),
+        ("1.2.0-alpha.1.2", "1.2.0"),
+        ("1.1.0", "1.2.0-alpha.1.2"),
+    ],
+)
+def test_is_downgrade_orders_alpha_hotfix_tags(older: str, newer: str) -> None:
+    """Allow upgrades and reject downgrades across alpha hotfix boundaries."""
+    older_version = PlatformRegistryVersion(version=older)
+    newer_version = PlatformRegistryVersion(version=newer)
+
+    assert _is_downgrade(older_version, newer) is False
+    assert _is_downgrade(newer_version, older) is True
+
+
+@pytest.mark.parametrize("current", ["1.2.0-alpha.1.2", "1.2.0a1.post2"])
+def test_is_downgrade_accepts_equivalent_alpha_hotfix_versions(current: str) -> None:
+    """Public and Python hotfix versions compare as the same release."""
+    current_version = PlatformRegistryVersion(version=current)
+
+    assert _is_downgrade(current_version, "1.2.0-alpha.1.2") is False
+    assert _is_downgrade(current_version, "1.2.0a1.post2") is False
