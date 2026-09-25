@@ -20,10 +20,71 @@ env:
 
 permissions:
   contents: read
-  packages: write
+
+concurrency:
+  group: publish-images-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
+  validate:
+    if: >-
+      github.event_name != 'workflow_dispatch' ||
+      github.actor == 'github-actions[bot]' ||
+      contains(
+        fromJSON(vars.TRUSTED_CI_ACTORS_JSON || '[]'),
+        github.triggering_actor || github.actor
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      latest: ${{ steps.release.outputs.latest }}
+    steps:
+      - name: Validate image tag
+        id: release
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag=''
+          latest=false
+          if [[ "$EVENT_NAME" == 'workflow_dispatch' ]]; then
+            # Manual rebuilds must use the existing tag as their checkout ref.
+            if [[ "$REF_TYPE" != 'tag' || "$INPUT_TAG" != "$REF_NAME" ]]; then
+              echo 'Dispatch from the matching tag ref, with tag set to that tag.' >&2
+              exit 1
+            fi
+            tag="$INPUT_TAG"
+          elif [[ "$EVENT_NAME" == 'push' && "$REF_TYPE" == 'tag' ]]; then
+            tag="$REF_NAME"
+          fi
+
+          if [[ -n "$tag" ]]; then
+            stable='(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)'
+            if [[ "$tag" =~ ^${stable}$ ]]; then
+              latest=true
+            elif ! [[ "$tag" =~ ^${stable}-[0-9A-Za-z][0-9A-Za-z.-]*$ || "$tag" =~ ^nightly-[0-9A-Za-z][0-9A-Za-z.-]*$ ]]; then
+              echo "Unsupported image tag: $tag" >&2
+              exit 1
+            fi
+            if (( ${#tag} > 128 )); then
+              echo 'Image tags must be at most 128 characters.' >&2
+              exit 1
+            fi
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
+
   build-and-push-api:
+    timeout-minutes: 30
+    needs: validate
+    permissions:
+      contents: read
+      packages: write
     if: >-
       github.event_name != 'workflow_dispatch' ||
       github.actor == 'github-actions[bot]' ||
@@ -45,6 +106,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
       - name: Disable IPv6 (Blacksmith VMs lack IPv6 routing)
         run: |
@@ -74,7 +137,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=nightly-{{date 'YYYYMMDD'}}-{{sha}},enable=${{ github.event_name == 'schedule' }}
             type=match,pattern=nightly-(.*),group=0
-            type=raw,value=${{ inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
+            type=raw,value=${{ needs.validate.outputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
 
       - name: Set up Docker builder
         uses: useblacksmith/setup-docker-builder@78f41686563c732ccc097f7baac2f092f67538f0 # v1
@@ -106,6 +169,10 @@ jobs:
           retention-days: 1
 
   merge-api:
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
     if: >-
       github.event_name != 'workflow_dispatch' ||
       github.actor == 'github-actions[bot]' ||
@@ -113,7 +180,7 @@ jobs:
         fromJSON(vars.TRUSTED_CI_ACTORS_JSON || '[]'),
         github.triggering_actor || github.actor
       )
-    needs: build-and-push-api
+    needs: [validate, build-and-push-api]
     runs-on: blacksmith-8vcpu-ubuntu-2404
     steps:
       - name: Download digests
@@ -151,20 +218,29 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=nightly-{{date 'YYYYMMDD'}}-{{sha}},enable=${{ github.event_name == 'schedule' }}
             type=match,pattern=nightly-(.*),group=0
-            type=raw,value=${{ inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
+            type=raw,value=${{ needs.validate.outputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
 
       - name: Create manifest list and push
         working-directory: /tmp/digests
         run: |
-          docker buildx imagetools create \
-            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf 'ghcr.io/tracecathq/tracecat@sha256:%s ' *)
+          args=()
+          while IFS= read -r tag; do
+            args+=(-t "$tag")
+          done < <(jq -r '.tags[]' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+          for digest in *; do
+            args+=("ghcr.io/tracecathq/tracecat@sha256:$digest")
+          done
+          docker buildx imagetools create "${args[@]}"
 
       - name: Inspect image
         run: |
           docker buildx imagetools inspect ghcr.io/tracecathq/tracecat:${{ steps.meta.outputs.version }}
 
   build-and-push-ui:
+    needs: validate
+    permissions:
+      contents: read
+      packages: write
     if: >-
       github.event_name != 'workflow_dispatch' ||
       github.actor == 'github-actions[bot]' ||
@@ -187,6 +263,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
       - name: Disable IPv6 (Blacksmith VMs lack IPv6 routing)
         run: |
@@ -216,7 +294,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=nightly-{{date 'YYYYMMDD'}}-{{sha}},enable=${{ github.event_name == 'schedule' }}
             type=match,pattern=nightly-(.*),group=0
-            type=raw,value=${{ inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
+            type=raw,value=${{ needs.validate.outputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
 
       - name: Set up Docker builder
         uses: useblacksmith/setup-docker-builder@78f41686563c732ccc097f7baac2f092f67538f0 # v1
@@ -260,6 +338,10 @@ jobs:
           retention-days: 1
 
   merge-ui:
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
     if: >-
       github.event_name != 'workflow_dispatch' ||
       github.actor == 'github-actions[bot]' ||
@@ -267,7 +349,7 @@ jobs:
         fromJSON(vars.TRUSTED_CI_ACTORS_JSON || '[]'),
         github.triggering_actor || github.actor
       )
-    needs: build-and-push-ui
+    needs: [validate, build-and-push-ui]
     runs-on: blacksmith-8vcpu-ubuntu-2404
     steps:
       - name: Download digests
@@ -305,15 +387,56 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=nightly-{{date 'YYYYMMDD'}}-{{sha}},enable=${{ github.event_name == 'schedule' }}
             type=match,pattern=nightly-(.*),group=0
-            type=raw,value=${{ inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
+            type=raw,value=${{ needs.validate.outputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
 
       - name: Create manifest list and push
         working-directory: /tmp/digests
         run: |
-          docker buildx imagetools create \
-            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf 'ghcr.io/tracecathq/tracecat-ui@sha256:%s ' *)
+          args=()
+          while IFS= read -r tag; do
+            args+=(-t "$tag")
+          done < <(jq -r '.tags[]' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+          for digest in *; do
+            args+=("ghcr.io/tracecathq/tracecat-ui@sha256:$digest")
+          done
+          docker buildx imagetools create "${args[@]}"
 
       - name: Inspect image
         run: |
           docker buildx imagetools inspect ghcr.io/tracecathq/tracecat-ui:${{ steps.meta.outputs.version }}
+
+  promote-latest:
+    needs: [validate, merge-api, merge-ui]
+    if: needs.validate.outputs.latest == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    # Hold one lock across both updates, including releases from other trains.
+    concurrency:
+      group: publish-images-latest
+      queue: max
+      cancel-in-progress: false
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Log in to Container registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Promote both stable manifests to latest
+        env:
+          VERSION: ${{ needs.validate.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for image in tracecat tracecat-ui; do
+            docker buildx imagetools create \
+              --tag "ghcr.io/tracecathq/$image:latest" \
+              "ghcr.io/tracecathq/$image:$VERSION"
+          done
