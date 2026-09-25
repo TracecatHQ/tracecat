@@ -87,3 +87,20 @@ def test_platform_catalog_includes_gpt_5_6_models() -> None:
     assert entries["gpt-5.6-sol"].metadata["max_input_tokens"] == 1050000
     assert entries["gpt-5.6-terra"].metadata["output_cost_per_token"] == 1.5e-05
     assert entries["gpt-5.6-luna"].metadata["input_cost_per_token"] == 1e-06
+
+
+def test_platform_catalog_includes_gpt_6_astra_and_claude_fable_5_1() -> None:
+    entries = {
+        (entry.model_provider, entry.model_name): entry
+        for entry in loader.get_platform_catalog_models()
+    }
+
+    astra = entries[("openai", "gpt-6-astra")]
+    assert astra.metadata["input_cost_per_token"] == 1e-05
+    assert astra.metadata["output_cost_per_token"] == 5e-05
+    assert astra.metadata["max_input_tokens"] == 922000
+
+    fable = entries[("anthropic", "claude-fable-5-1")]
+    assert fable.metadata["input_cost_per_token"] == 1e-05
+    assert fable.metadata["cache_read_input_token_cost"] == 2.5e-07
+    assert fable.metadata["max_input_tokens"] == 1000000
