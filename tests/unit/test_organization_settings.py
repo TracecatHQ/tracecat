@@ -826,18 +826,18 @@ async def test_setting_with_override(
 @pytest.mark.parametrize(
     ("stored", "expected"),
     [
-        pytest.param(None, False, id="missing"),
-        pytest.param([], False, id="empty"),
+        pytest.param(None, True, id="missing"),
+        pytest.param([], True, id="empty"),
         pytest.param("not-a-list", False, id="malformed"),
-        pytest.param([str(uuid.UUID(int=9))], False, id="other-workspace"),
-        pytest.param([str(uuid.UUID(int=7))], True, id="allowed"),
-        pytest.param([uuid.UUID(int=7)], True, id="allowed-uuid-objects"),
+        pytest.param([str(uuid.UUID(int=9))], True, id="other-workspace-blocked"),
+        pytest.param([str(uuid.UUID(int=7))], False, id="blocked"),
+        pytest.param([uuid.UUID(int=7)], False, id="blocked-uuid-objects"),
     ],
 )
 async def test_workspace_allows_error_details(
     stored: object, expected: bool, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The allow-list check only passes for a listed workspace and fails closed."""
+    """Workspaces are allowed unless block-listed; malformed values fail closed."""
     monkeypatch.setattr(
         settings_service_module,
         "get_setting_from_bypass_session",
@@ -855,7 +855,7 @@ async def test_workspace_allows_error_details(
 async def test_workspace_allows_error_details_fails_closed_on_db_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A failed allow-list lookup denies the workspace instead of raising."""
+    """A failed block-list lookup denies the workspace instead of raising."""
     monkeypatch.setattr(
         settings_service_module,
         "get_setting_from_bypass_session",

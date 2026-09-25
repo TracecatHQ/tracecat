@@ -25,7 +25,7 @@ def secret_error_withholding_disabled() -> bool:
     """Whether original error text may surface despite secrets in scope.
 
     True when the deployment-wide knob is on, or the current action opted in
-    and its organization allow-lists the workspace. Known secret values are
+    and its organization has not blocked the workspace. Known secret values are
     still exact-string masked downstream.
     """
     return (

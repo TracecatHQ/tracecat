@@ -1299,7 +1299,7 @@ export type AppSettingsRead = {
   app_workflow_export_enabled: boolean
   app_create_workspace_on_register: boolean
   app_action_form_mode_enabled: boolean
-  app_unsafe_disable_secret_error_withholding_workspace_ids?: Array<string>
+  app_secret_error_details_blocked_workspace_ids?: Array<string>
 }
 
 /**
@@ -1331,9 +1331,9 @@ export type AppSettingsUpdate = {
    */
   app_action_form_mode_enabled?: boolean
   /**
-   * UNSAFE: workspaces whose actions may opt into showing their original error message when secrets are in scope. Each action must still enable 'Show error details' individually. Known secret values are still masked.
+   * Workspaces whose actions may NOT opt into showing their original error message when secrets are in scope. All other workspaces are allowed; each action must still enable 'Show error details' individually. Known secret values are always masked.
    */
-  app_unsafe_disable_secret_error_withholding_workspace_ids?: Array<string>
+  app_secret_error_details_blocked_workspace_ids?: Array<string>
 }
 
 /**

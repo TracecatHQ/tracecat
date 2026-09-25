@@ -5119,13 +5119,13 @@ export const $AppSettingsRead = {
       type: "boolean",
       title: "App Action Form Mode Enabled",
     },
-    app_unsafe_disable_secret_error_withholding_workspace_ids: {
+    app_secret_error_details_blocked_workspace_ids: {
       items: {
         type: "string",
         format: "uuid",
       },
       type: "array",
-      title: "App Unsafe Disable Secret Error Withholding Workspace Ids",
+      title: "App Secret Error Details Blocked Workspace Ids",
     },
   },
   type: "object",
@@ -5182,15 +5182,15 @@ export const $AppSettingsUpdate = {
         "Whether to enable form mode for action inputs. When disabled, only YAML mode is available, preserving raw YAML formatting.",
       default: true,
     },
-    app_unsafe_disable_secret_error_withholding_workspace_ids: {
+    app_secret_error_details_blocked_workspace_ids: {
       items: {
         type: "string",
         format: "uuid",
       },
       type: "array",
-      title: "App Unsafe Disable Secret Error Withholding Workspace Ids",
+      title: "App Secret Error Details Blocked Workspace Ids",
       description:
-        "UNSAFE: workspaces whose actions may opt into showing their original error message when secrets are in scope. Each action must still enable 'Show error details' individually. Known secret values are still masked.",
+        "Workspaces whose actions may NOT opt into showing their original error message when secrets are in scope. All other workspaces are allowed; each action must still enable 'Show error details' individually. Known secret values are always masked.",
     },
   },
   type: "object",

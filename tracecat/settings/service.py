@@ -433,18 +433,19 @@ async def workspace_allows_error_details(
 ) -> bool:
     """Whether the org lets this workspace's actions opt out of secret error withholding.
 
+    Allowed by default; org admins opt workspaces out via a block-list.
     Fails closed: any lookup failure or malformed value denies the workspace.
     """
     try:
         value = await get_setting_from_bypass_session(
-            "app_unsafe_disable_secret_error_withholding_workspace_ids",
+            "app_secret_error_details_blocked_workspace_ids",
             organization_id=organization_id,
             session=session,
             default=[],
         )
     except SQLAlchemyError as e:
         logger.warning(
-            "Failed to read error-details workspace allow-list; denying",
+            "Failed to read error-details workspace block-list; denying",
             organization_id=organization_id,
             workspace_id=workspace_id,
             error=str(e),
@@ -452,7 +453,7 @@ async def workspace_allows_error_details(
         return False
     if not isinstance(value, list):
         return False
-    return str(workspace_id) in {str(item) for item in value}
+    return str(workspace_id) not in {str(item) for item in value}
 
 
 async def get_setting(

@@ -104,8 +104,8 @@ class AppSettingsRead(BaseSettingsGroup):
     app_workflow_export_enabled: bool
     app_create_workspace_on_register: bool
     app_action_form_mode_enabled: bool
-    app_unsafe_disable_secret_error_withholding_workspace_ids: list[WorkspaceID] = (
-        Field(default_factory=list)
+    app_secret_error_details_blocked_workspace_ids: list[WorkspaceID] = Field(
+        default_factory=list
     )
 
 
@@ -135,16 +135,14 @@ class AppSettingsUpdate(BaseSettingsGroup):
         default=True,
         description="Whether to enable form mode for action inputs. When disabled, only YAML mode is available, preserving raw YAML formatting.",
     )
-    app_unsafe_disable_secret_error_withholding_workspace_ids: list[WorkspaceID] = (
-        Field(
-            default_factory=list,
-            description=(
-                "UNSAFE: workspaces whose actions may opt into showing their "
-                "original error message when secrets are in scope. Each action "
-                "must still enable 'Show error details' individually. Known "
-                "secret values are still masked."
-            ),
-        )
+    app_secret_error_details_blocked_workspace_ids: list[WorkspaceID] = Field(
+        default_factory=list,
+        description=(
+            "Workspaces whose actions may NOT opt into showing their original "
+            "error message when secrets are in scope. All other workspaces are "
+            "allowed; each action must still enable 'Show error details' "
+            "individually. Known secret values are always masked."
+        ),
     )
 
 
