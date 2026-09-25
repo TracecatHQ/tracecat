@@ -6730,9 +6730,19 @@ async def test_secret_metadata_import_allows_in_batch_name_swap(
 
 
 @pytest.mark.anyio
-async def test_secret_metadata_import_rejects_key_change_on_external_reference(
+@pytest.mark.parametrize(
+    ("spec_name", "spec_keys", "match"),
+    [
+        ("vendor_api", ["OTHER"], "keys and type"),
+        ("vendor-api", ["TOKEN"], "snake_case"),
+    ],
+)
+async def test_secret_metadata_import_rejects_invalid_external_reference_spec(
     session: AsyncSession,
     svc_role: Role,
+    spec_name: str,
+    spec_keys: list[str],
+    match: str,
 ) -> None:
     assert svc_role.organization_id is not None
     assert svc_role.workspace_id is not None
@@ -6789,16 +6799,16 @@ async def test_secret_metadata_import_rejects_key_change_on_external_reference(
                 "version": 1,
                 "type": "secret_metadata",
                 "id": "default/vendor_api",
-                "name": "vendor_api",
+                "name": spec_name,
                 "environment": "default",
-                "keys": ["OTHER"],
+                "keys": spec_keys,
             }
         ),
     }
     snapshot, diagnostics = await service.parse_files(files, commit_sha="s" * 40)
     assert diagnostics == []
 
-    with pytest.raises(ValueError, match="externally backed"):
+    with pytest.raises(ValueError, match=match):
         await WorkspaceResourceImportService(
             session=session,
             role=svc_role,

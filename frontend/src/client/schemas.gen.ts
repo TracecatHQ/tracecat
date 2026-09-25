@@ -6271,6 +6271,8 @@ export const $AwsSecretReferenceCreate = {
     },
     environment: {
       type: "string",
+      maxLength: 100,
+      minLength: 1,
       title: "Environment",
       default: "default",
     },

@@ -33,6 +33,7 @@ from tracecat.secrets.schemas import (
     AwsSecretReferenceUpdate,
     SecretReferenceCheckRequest,
     SecretReferenceCheckResult,
+    SecretStoreUpdate,
 )
 from tracecat.secrets.service import SecretsService
 from tracecat.tiers.enums import Entitlement
@@ -226,6 +227,30 @@ def test_reference_description_fits_column() -> None:
         )
     with pytest.raises(ValidationError):
         AwsSecretReferenceUpdate.model_validate({"description": "x" * 256})
+
+
+@pytest.mark.parametrize("environment", ["", "x" * 101])
+def test_reference_environment_fits_column(environment: str) -> None:
+    mapping = {"mode": "whole_string", "keys": ["TOKEN"]}
+    with pytest.raises(ValidationError):
+        AwsSecretReferenceCreate.model_validate(
+            {
+                "name": "app_db",
+                "environment": environment,
+                "store_id": uuid.uuid4(),
+                "remote_reference": "synthetic/secret",
+                "key_mapping": mapping,
+            }
+        )
+
+
+@pytest.mark.parametrize("field", ["name", "enabled"])
+def test_store_update_rejects_explicit_null(field: str) -> None:
+    with pytest.raises(ValidationError):
+        SecretStoreUpdate.model_validate({field: None})
+    assert field not in SecretStoreUpdate.model_validate({}).model_dump(
+        exclude_unset=True
+    )
 
 
 @pytest.mark.parametrize("name", ["app_db", "_token", "a9"])

@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import re
+
 import sqlalchemy as sa
 from pydantic import BaseModel, SecretStr
 from sqlalchemy import select
 
 from tracecat.db.models import Secret
 from tracecat.secrets.enums import SecretType
-from tracecat.secrets.schemas import SecretKeyValue
+from tracecat.secrets.schemas import EXPRESSION_SECRET_NAME_PATTERN, SecretKeyValue
 from tracecat.secrets.service import (
     SecretsService,
     is_external_reference,
@@ -193,6 +195,13 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
                         f"Secret metadata sync source id {source_id!r} targets an "
                         f"externally backed secret {secret.name!r}; its keys and "
                         "type must be changed in the target workspace, not synced."
+                    )
+                if not re.fullmatch(EXPRESSION_SECRET_NAME_PATTERN, spec.name):
+                    raise ValueError(
+                        f"Secret metadata sync source id {source_id!r} names an "
+                        f"externally backed secret {spec.name!r}; AWS-backed secret "
+                        "names must be snake_case and start with a letter or "
+                        "underscore."
                     )
                 secret.name = spec.name
                 secret.environment = spec.environment

@@ -483,6 +483,14 @@ class SecretStoreUpdate(BaseModel):
         default=False, description="Allow all current and future workspaces."
     )
 
+    @field_validator("name", "enabled")
+    @classmethod
+    def reject_explicit_null(cls, value: str | bool | None) -> str | bool | None:
+        # Omit the field to leave it unchanged; the columns are NOT NULL.
+        if value is None:
+            raise ValueError("must not be null")
+        return value
+
 
 class SecretStoreRead(BaseModel):
     """Organization view of a secret store, including trust-policy inputs."""
@@ -580,7 +588,9 @@ class AwsSecretReferenceCreate(BaseModel):
 
     name: str = Field(..., max_length=100, pattern=EXPRESSION_SECRET_NAME_PATTERN)
     description: str | None = Field(default=None, min_length=0, max_length=255)
-    environment: str = DEFAULT_SECRETS_ENVIRONMENT
+    environment: str = Field(
+        default=DEFAULT_SECRETS_ENVIRONMENT, min_length=1, max_length=100
+    )
     tags: dict[str, str] | None = None
     store_id: UUID
     remote_reference: str = Field(..., pattern=AWS_SECRET_ID_PATTERN, max_length=2048)

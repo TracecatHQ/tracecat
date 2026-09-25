@@ -56,6 +56,7 @@ import {
   EditCredentialsDialog,
   EditCredentialsDialogTrigger,
 } from "@/components/workspaces/edit-workspace-secret"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import {
   useSecretDefinitions,
   useWorkspaceSecrets,
@@ -84,6 +85,8 @@ export function WorkspaceCredentialsInventory() {
   } = useSecretDefinitions(workspaceId)
   const { secrets, secretsIsLoading, secretsError } =
     useWorkspaceSecrets(workspaceId)
+  const { hasEntitlement } = useEntitlements()
+  const externalSecretStoresEnabled = hasEntitlement("external_secret_stores")
   const [searchQuery, setSearchQuery] = useState("")
   const [connectionFilter, setConnectionFilter] =
     useState<CredentialConnectionFilter>("all")
@@ -416,28 +419,30 @@ export function WorkspaceCredentialsInventory() {
                                   </ItemContent>
                                   <ItemActions className="ml-auto flex shrink-0 items-center gap-1.5 pl-3">
                                     {secret.source === "aws_secrets_manager" ? (
-                                      <>
-                                        <AwsSecretReferenceCheckButton
-                                          key={
-                                            editingAwsSecret?.id === secret.id
-                                              ? "editing"
-                                              : secret.id
-                                          }
-                                          workspaceId={workspaceId}
-                                          secretId={secret.id}
-                                        />
-                                        <Button
-                                          variant="outline"
-                                          size="sm"
-                                          className="h-6 border-input bg-background px-2.5 text-[11px] text-foreground hover:bg-muted"
-                                          onClick={(event) => {
-                                            event.stopPropagation()
-                                            setEditingAwsSecret(secret)
-                                          }}
-                                        >
-                                          Edit
-                                        </Button>
-                                      </>
+                                      externalSecretStoresEnabled && (
+                                        <>
+                                          <AwsSecretReferenceCheckButton
+                                            key={
+                                              editingAwsSecret?.id === secret.id
+                                                ? "editing"
+                                                : secret.id
+                                            }
+                                            workspaceId={workspaceId}
+                                            secretId={secret.id}
+                                          />
+                                          <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="h-6 border-input bg-background px-2.5 text-[11px] text-foreground hover:bg-muted"
+                                            onClick={(event) => {
+                                              event.stopPropagation()
+                                              setEditingAwsSecret(secret)
+                                            }}
+                                          >
+                                            Edit
+                                          </Button>
+                                        </>
+                                      )
                                     ) : (
                                       <EditCredentialsDialogTrigger asChild>
                                         <Button
