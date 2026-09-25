@@ -15,6 +15,7 @@ from tracecat_ee.scim.credentials import (
     SCIM_ROLE_SCOPES,
     authenticate_scim_connection,
 )
+from tracecat_ee.scim.service import SCIMService
 
 from tracecat.auth import ip_allowlist_enforcement
 from tracecat.auth.api_keys import SCIM_API_KEY_PREFIX
@@ -177,7 +178,7 @@ async def test_wrong_secret_rejected(
 
 
 @pytest.mark.anyio
-async def test_revoked_token_rejected(
+async def test_disconnected_token_rejected(
     session: AsyncSession,
     org: Organization,
     admin_role: Role,
@@ -185,7 +186,7 @@ async def test_revoked_token_rejected(
 ) -> None:
     service = ScimConnectionService(session, role=admin_role)
     issued = await service.issue_token()
-    await service.revoke()
+    await SCIMService(session, role=admin_role).disconnect()
 
     with pytest.raises(HTTPException) as exc:
         await authenticate_scim_connection(_bearer(issued.token))

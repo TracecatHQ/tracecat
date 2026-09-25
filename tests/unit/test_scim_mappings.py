@@ -10,6 +10,7 @@ from sqlalchemy import event, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.rbac.router import list_groups
 from tracecat_ee.rbac.service import RBACService
+from tracecat_ee.scim.connections import ScimConnectionService
 from tracecat_ee.scim.schemas import ExternalGroupMappingCreate
 from tracecat_ee.scim.service import SCIMService
 
@@ -414,6 +415,69 @@ async def test_delete_mapping_keeps_membership_another_mapping_supplies(
 
 
 @pytest.mark.anyio
+async def test_mapping_changes_remove_then_add_together(
+    session: AsyncSession, org: Organization, service: SCIMService
+) -> None:
+    """One call swaps a mapping: the removal and the addition both land."""
+    external = await seed_external_group(
+        session, organization_id=org.id, external_id="idp-eng"
+    )
+    old_group = await _make_group(session, org)
+    new_group = await _make_group(session, org)
+    old = await service.create_mapping(
+        external_group_id=external.id, group_id=old_group.id
+    )
+
+    await service.apply_mapping_changes(
+        create=[
+            ExternalGroupMappingCreate(
+                external_group_id=external.id, group_id=new_group.id
+            )
+        ],
+        delete=[old.id],
+    )
+
+    listed = (await service.list_mappings(page=PageParams())).items
+    assert [(m.external_group_id, m.group_id) for m in listed] == [
+        (external.id, new_group.id)
+    ]
+
+
+@pytest.mark.anyio
+async def test_mapping_changes_stop_at_an_unknown_removal(
+    session: AsyncSession, org: Organization, service: SCIMService
+) -> None:
+    """An unknown removal fails before any addition is written."""
+    external = await seed_external_group(
+        session, organization_id=org.id, external_id="idp-eng"
+    )
+    group = await _make_group(session, org)
+
+    with pytest.raises(TracecatNotFoundError):
+        await service.apply_mapping_changes(
+            create=[
+                ExternalGroupMappingCreate(
+                    external_group_id=external.id, group_id=group.id
+                )
+            ],
+            delete=[uuid.uuid4()],
+        )
+
+    assert (await service.list_mappings(page=PageParams())).items == []
+
+
+@pytest.mark.anyio
+async def test_mapping_changes_require_scim_management(
+    session: AsyncSession, org: Organization
+) -> None:
+    """Generic RBAC scopes cannot batch mapping changes."""
+    service = SCIMService(session, _role(org, "org:rbac:*"))
+
+    with pytest.raises(TracecatAuthorizationError):
+        await service.apply_mapping_changes(create=[], delete=[])
+
+
+@pytest.mark.anyio
 async def test_creating_a_duplicate_mapping_returns_the_existing_row(
     session: AsyncSession, org: Organization, service: SCIMService
 ) -> None:
@@ -657,9 +721,189 @@ async def test_activation_review_reports_the_plan_without_storing_it(
     assert [p.manual_members_purged for p in review.plans] == [[member.id]]
     assert review.plans[0].manual_member_emails == {member.id: member.email}
     assert [p.users_losing_access for p in review.plans] == [[member.id]]
+    assert review.plans[0].manual_members_in_source == []
     # A review is a read: the manual row and the absent mapping both survive.
     assert await _manual_members(session, group.id) == {member.id}
     assert (await service.list_mappings(page=PageParams())).items == []
+
+
+@pytest.mark.anyio
+async def test_activation_review_names_users_gaining_access(
+    session: AsyncSession, org: Organization, service: SCIMService
+) -> None:
+    """Pushed members who would gain access are listed by email."""
+    pushed = await _make_user(session, org)
+    external_user_id = await seed_external_user(
+        session, organization_id=org.id, user_id=pushed.id
+    )
+    external = await seed_external_group(
+        session, organization_id=org.id, external_id="idp-gain"
+    )
+    await seed_external_group_members(
+        session, external_group_id=external.id, external_user_ids=[external_user_id]
+    )
+    group = await _make_group(session, org)
+
+    review = await service.review_activation(
+        [ExternalGroupMappingCreate(external_group_id=external.id, group_id=group.id)]
+    )
+
+    assert review.plans[0].users_gaining_access == [pushed.id]
+    assert review.plans[0].gaining_member_emails == {pushed.id: pushed.email}
+    assert review.plans[0].manual_members_in_source == []
+
+
+@pytest.mark.anyio
+async def test_activation_review_marks_manual_members_the_idp_also_lists(
+    session: AsyncSession, org: Organization, service: SCIMService
+) -> None:
+    """A manual member who is in the mapped IdP group moves to IdP control."""
+    member = await _make_user(session, org)
+    external_user_id = await seed_external_user(
+        session, organization_id=org.id, user_id=member.id
+    )
+    group = await _make_group(session, org)
+    await seed_group_member(session, group_id=group.id, user_id=member.id)
+    external = await seed_external_group(
+        session, organization_id=org.id, external_id="idp-move"
+    )
+    await seed_external_group_members(
+        session, external_group_id=external.id, external_user_ids=[external_user_id]
+    )
+
+    review = await service.review_activation(
+        [ExternalGroupMappingCreate(external_group_id=external.id, group_id=group.id)]
+    )
+
+    plan = review.plans[0]
+    assert plan.manual_members_in_source == [member.id]
+    assert plan.users_losing_access == []
+    assert plan.users_gaining_access == []
+
+
+async def _pushed_member(
+    session: AsyncSession, org: Organization, external_group_id: uuid.UUID
+) -> User:
+    """An admitted user the provider lists in one external group."""
+    user = await _make_user(session, org)
+    external_user_id = await seed_external_user(
+        session, organization_id=org.id, user_id=user.id
+    )
+    await seed_external_group_members(
+        session,
+        external_group_id=external_group_id,
+        external_user_ids=[external_user_id],
+    )
+    return user
+
+
+@pytest.mark.anyio
+async def test_review_of_a_last_mapping_removal_keeps_members_as_manual(
+    session: AsyncSession, org: Organization, service: SCIMService
+) -> None:
+    """Removing a group's only mapping previews its IdP members turning manual."""
+    external = await seed_external_group(
+        session, organization_id=org.id, external_id="idp-last"
+    )
+    member = await _pushed_member(session, org, external.id)
+    group = await _make_group(session, org)
+    mapping = await service.create_mapping(
+        external_group_id=external.id, group_id=group.id
+    )
+
+    review = await service.review_activation([], [mapping.id])
+
+    removal = review.removals[0]
+    assert removal.becoming_manual == [member.id]
+    assert removal.losing_access == []
+    assert removal.member_emails == {member.id: member.email}
+    # The preview matches the removal itself.
+    await service.delete_mapping(mapping.id)
+    assert await _manual_members(session, group.id) == {member.id}
+
+
+@pytest.mark.anyio
+async def test_review_of_one_of_several_mappings_names_who_loses_access(
+    session: AsyncSession, org: Organization, service: SCIMService
+) -> None:
+    """Only members this mapping alone supplies lose the group."""
+    removed = await seed_external_group(
+        session, organization_id=org.id, external_id="idp-removed"
+    )
+    kept = await seed_external_group(
+        session, organization_id=org.id, external_id="idp-kept"
+    )
+    only_removed = await _pushed_member(session, org, removed.id)
+    in_both = await _pushed_member(session, org, removed.id)
+    await seed_external_group_members(
+        session,
+        external_group_id=kept.id,
+        external_user_ids=[
+            await seed_external_user(
+                session, organization_id=org.id, user_id=in_both.id
+            )
+        ],
+    )
+    group = await _make_group(session, org)
+    mapping = await service.create_mapping(
+        external_group_id=removed.id, group_id=group.id
+    )
+    await service.create_mapping(external_group_id=kept.id, group_id=group.id)
+
+    review = await service.review_activation([], [mapping.id])
+
+    removal = review.removals[0]
+    assert removal.becoming_manual == []
+    assert removal.losing_access == [only_removed.id]
+
+
+@pytest.mark.anyio
+async def test_disconnect_detaches_the_directory_without_revoking_access(
+    session: AsyncSession, org: Organization, service: SCIMService
+) -> None:
+    """Disconnect removes mappings and the token; members stay as manual rows."""
+    external = await seed_external_group(
+        session, organization_id=org.id, external_id="idp-disconnect"
+    )
+    member = await _pushed_member(session, org, external.id)
+    group = await _make_group(session, org)
+    await service.create_mapping(external_group_id=external.id, group_id=group.id)
+
+    await service.disconnect()
+
+    assert (await service.list_mappings(page=PageParams())).items == []
+    assert await _manual_members(session, group.id) == {member.id}
+    connection = await session.scalar(
+        select(ScimConnection).where(ScimConnection.organization_id == org.id)
+    )
+    assert connection is not None
+    assert connection.status == ScimConnectionStatus.DISABLED
+    assert connection.revoked_at is not None
+
+
+@pytest.mark.anyio
+async def test_reconnecting_after_disconnect_starts_pending(
+    session: AsyncSession, org: Organization, admin_role: Role, service: SCIMService
+) -> None:
+    """A new token after disconnect needs review and activation again."""
+    await _make_group(session, org)
+    await service.disconnect()
+
+    issued = await ScimConnectionService(session, admin_role).issue_token()
+
+    assert issued.connection.status == ScimConnectionStatus.PENDING
+    assert issued.connection.revoked_at is None
+
+
+@pytest.mark.anyio
+async def test_disconnect_requires_scim_management(
+    session: AsyncSession, org: Organization
+) -> None:
+    """Generic RBAC scopes cannot disconnect the directory."""
+    service = SCIMService(session, _role(org, "org:rbac:*"))
+
+    with pytest.raises(TracecatAuthorizationError):
+        await service.disconnect()
 
 
 async def _is_member(

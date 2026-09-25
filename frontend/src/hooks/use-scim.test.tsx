@@ -18,7 +18,6 @@ jest.mock("@/client", () => ({
   scimGetScimConnection: jest.fn(),
   scimGetScimDirectorySummary: jest.fn(),
   scimIssueScimToken: jest.fn(),
-  scimRevokeScimToken: jest.fn(),
   scimListExternalGroups: jest.fn(),
   scimListScimMappings: jest.fn(),
   scimCreateScimMapping: jest.fn(),

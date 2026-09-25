@@ -24775,6 +24775,13 @@ export const $ScimActivationReviewRead = {
       type: "array",
       title: "Plans",
     },
+    removals: {
+      items: {
+        $ref: "#/components/schemas/ScimRemovalPlanRead",
+      },
+      type: "array",
+      title: "Removals",
+    },
   },
   type: "object",
   required: ["users", "plans"],
@@ -25154,6 +25161,31 @@ export const $ScimListResponse = {
   description: "The envelope every SCIM query returns, paginated 1-based.",
 } as const
 
+export const $ScimMappingChangesRequest = {
+  properties: {
+    create: {
+      items: {
+        $ref: "#/components/schemas/ExternalGroupMappingCreate",
+      },
+      type: "array",
+      maxItems: 100,
+      title: "Create",
+    },
+    delete: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      maxItems: 100,
+      title: "Delete",
+    },
+  },
+  type: "object",
+  title: "ScimMappingChangesRequest",
+  description: "Mapping removals and additions to apply in one transaction.",
+} as const
+
 export const $ScimMappingPlanRead = {
   properties: {
     external_group_id: {
@@ -25192,6 +25224,14 @@ export const $ScimMappingPlanRead = {
       type: "object",
       title: "Manual Member Emails",
     },
+    manual_members_in_source: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      title: "Manual Members In Source",
+    },
     users_gaining_access: {
       items: {
         type: "string",
@@ -25199,6 +25239,16 @@ export const $ScimMappingPlanRead = {
       },
       type: "array",
       title: "Users Gaining Access",
+    },
+    gaining_member_emails: {
+      additionalProperties: {
+        type: "string",
+      },
+      propertyNames: {
+        format: "uuid",
+      },
+      type: "object",
+      title: "Gaining Member Emails",
     },
     users_losing_access: {
       items: {
@@ -25366,6 +25416,88 @@ export const $ScimPatchOperation = {
 
 \`\`op\`\` is case-insensitive per RFC 7644; Azure sends \`\`Add\`\` where Okta
 sends \`\`add\`\`.`,
+} as const
+
+export const $ScimRemovalPlanRead = {
+  properties: {
+    mapping_id: {
+      type: "string",
+      format: "uuid",
+      title: "Mapping Id",
+    },
+    external_group_display_name: {
+      type: "string",
+      title: "External Group Display Name",
+    },
+    group_name: {
+      type: "string",
+      title: "Group Name",
+    },
+    becoming_manual: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      title: "Becoming Manual",
+    },
+    losing_access: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      title: "Losing Access",
+    },
+    member_emails: {
+      additionalProperties: {
+        type: "string",
+      },
+      propertyNames: {
+        format: "uuid",
+      },
+      type: "object",
+      title: "Member Emails",
+    },
+  },
+  type: "object",
+  required: [
+    "mapping_id",
+    "external_group_display_name",
+    "group_name",
+    "becoming_manual",
+    "losing_access",
+    "member_emails",
+  ],
+  title: "ScimRemovalPlanRead",
+  description:
+    "What removing one mapping would do to its Tracecat group's members.",
+} as const
+
+export const $ScimReviewRequest = {
+  properties: {
+    mappings: {
+      items: {
+        $ref: "#/components/schemas/ExternalGroupMappingCreate",
+      },
+      type: "array",
+      maxItems: 100,
+      title: "Mappings",
+    },
+    delete: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      maxItems: 100,
+      title: "Delete",
+    },
+  },
+  type: "object",
+  title: "ScimReviewRequest",
+  description:
+    "Mapping additions and removals to preview without applying them.",
 } as const
 
 export const $ScimUserRequest = {

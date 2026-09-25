@@ -114,19 +114,6 @@ async def test_rotation_invalidates_the_previous_token(
 
 
 @pytest.mark.anyio
-async def test_revoke_marks_the_connection_revoked(
-    session: AsyncSession, org: Organization, admin_role: Role
-) -> None:
-    service = ScimConnectionService(session, role=admin_role)
-    await service.issue_token()
-
-    await service.revoke()
-
-    connection = await service.get_connection()
-    assert connection.revoked_at is not None
-
-
-@pytest.mark.anyio
 async def test_get_connection_without_one_raises(
     session: AsyncSession, org: Organization, admin_role: Role
 ) -> None:
@@ -191,5 +178,3 @@ async def test_connection_management_requires_explicit_scim_permission(
 
     with pytest.raises(ScopeDeniedError):
         await service.get_connection()
-    with pytest.raises(ScopeDeniedError):
-        await service.revoke()

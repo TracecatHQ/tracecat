@@ -9,16 +9,19 @@ import {
   type ScimDirectorySummaryRead,
   type ScimListExternalGroupsResponse,
   type ScimListScimMappingsResponse,
+  type ScimMappingChangesRequest,
+  type ScimReviewRequest,
   scimActivateScimConnection,
+  scimApplyScimMappingChanges,
   scimCreateScimMapping,
   scimDeleteScimMapping,
+  scimDisconnectScim,
   scimGetScimConnection,
   scimGetScimDirectorySummary,
   scimIssueScimToken,
   scimListExternalGroups,
   scimListScimMappings,
   scimReviewScimActivation,
-  scimRevokeScimToken,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
 import { getApiErrorDetail, type TracecatApiError } from "@/lib/errors"
@@ -93,17 +96,17 @@ export function useScimConnection() {
       onError: (error) => toastScimError("Failed to issue SCIM token", error),
     })
 
-  const { mutateAsync: revokeToken, isPending: revokeTokenIsPending } =
+  const { mutateAsync: disconnect, isPending: disconnectIsPending } =
     useMutation<void, TracecatApiError, void>({
-      mutationFn: async () => await scimRevokeScimToken(),
+      mutationFn: async () => await scimDisconnectScim(),
       onSuccess: async () => {
-        await queryClient.invalidateQueries({ queryKey: SCIM_CONNECTION_KEY })
+        await queryClient.invalidateQueries()
         toast({
-          title: "SCIM token revoked",
-          description: "Your IdP can no longer provision users or groups.",
+          title: "SCIM disconnected",
+          description: "Group members were kept as manual members.",
         })
       },
-      onError: (error) => toastScimError("Failed to revoke SCIM token", error),
+      onError: (error) => toastScimError("Failed to disconnect SCIM", error),
     })
 
   return {
@@ -114,8 +117,8 @@ export function useScimConnection() {
     refetchConnection,
     issueToken,
     issueTokenIsPending,
-    revokeToken,
-    revokeTokenIsPending,
+    disconnect,
+    disconnectIsPending,
   }
 }
 
@@ -227,6 +230,24 @@ export function useScimMappings() {
       onError: (error) => toastScimError("Failed to remove mapping", error),
     })
 
+  const {
+    mutateAsync: applyMappingChanges,
+    isPending: applyMappingChangesIsPending,
+  } = useMutation<void, TracecatApiError, ScimMappingChangesRequest>({
+    mutationFn: async (requestBody) =>
+      await scimApplyScimMappingChanges({ requestBody }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: SCIM_MAPPINGS_KEY })
+      await queryClient.invalidateQueries({
+        queryKey: SCIM_DIRECTORY_SUMMARY_KEY,
+      })
+      await queryClient.invalidateQueries({ queryKey: ["rbac-groups"] })
+      toast({ title: "Mapping changes applied" })
+    },
+    onError: (error) =>
+      toastScimError("Failed to apply mapping changes", error),
+  })
+
   return {
     mappings: query.data?.pages.flatMap((page) => page.items),
     mappingsIsLoading: query.isLoading,
@@ -238,6 +259,8 @@ export function useScimMappings() {
     createMappingIsPending,
     deleteMapping,
     deleteMappingIsPending,
+    applyMappingChanges,
+    applyMappingChangesIsPending,
   }
 }
 
@@ -247,10 +270,9 @@ export function useScimActivation() {
   const review = useMutation<
     ScimActivationReviewRead,
     TracecatApiError,
-    ExternalGroupMappingCreate[]
+    ScimReviewRequest
   >({
-    mutationFn: (mappings) =>
-      scimReviewScimActivation({ requestBody: { mappings } }),
+    mutationFn: (requestBody) => scimReviewScimActivation({ requestBody }),
     onError: (error) => toastScimError("Failed to review SCIM changes", error),
   })
   const activate = useMutation<

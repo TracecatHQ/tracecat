@@ -19,7 +19,7 @@ SCIM provisioning requires the access control add-on and the `org:scim:manage` s
 3. You map IdP groups onto Tracecat groups. While the connection is pending, mappings are drafts.
 4. You review and activate. Tracecat admits every active pushed user to the organization, revokes their pending invitations, and installs the draft mappings. Inactive users are skipped.
 
-After activation, Tracecat applies IdP changes as they arrive. Each new mapping is reviewed before Tracecat applies it.
+After activation, Tracecat applies IdP changes as they arrive. Mapping changes stay drafts until you review and apply them together.
 
 ## Connect your identity provider
 
@@ -115,10 +115,10 @@ Removing the last mapping for a Tracecat group keeps its current members as manu
 
 When your IdP deactivates a user, sets `active` to `false`, or deletes the user, Tracecat removes that user from this organization. The user keeps any membership in other organizations.
 
-## Manage the token
+## Manage the connection
 
 - Rotate token: issues a new token. The current token stops working immediately, so provisioning fails until you paste the new token into your IdP.
-- Revoke token: stops all provisioning. Existing mappings stay in place but stop receiving updates. Rotate the token to resume.
+- Disconnect: revokes the token, removes every group mapping, and marks the connection disconnected. Members of mapped groups stay as manual members, and pushed users stay in the organization. Generate a new token to reconnect, then review and activate again.
 
 ## Limitations
 

@@ -7569,6 +7569,7 @@ export type ScimActivationRequest = {
 export type ScimActivationReviewRead = {
   users: Array<ScimDirectoryUserRead>
   plans: Array<ScimMappingPlanRead>
+  removals?: Array<ScimRemovalPlanRead>
 }
 
 /**
@@ -7686,6 +7687,14 @@ export type ScimListResponse = {
 }
 
 /**
+ * Mapping removals and additions to apply in one transaction.
+ */
+export type ScimMappingChangesRequest = {
+  create?: Array<ExternalGroupMappingCreate>
+  delete?: Array<string>
+}
+
+/**
  * What activating one proposed mapping would do to a Tracecat group.
  */
 export type ScimMappingPlanRead = {
@@ -7697,7 +7706,11 @@ export type ScimMappingPlanRead = {
   manual_member_emails: {
     [key: string]: string
   }
+  manual_members_in_source?: Array<string>
   users_gaining_access: Array<string>
+  gaining_member_emails?: {
+    [key: string]: string
+  }
   users_losing_access: Array<string>
 }
 
@@ -7741,6 +7754,28 @@ export type ScimPatchOperation = {
 }
 
 export type op = "add" | "remove" | "replace"
+
+/**
+ * What removing one mapping would do to its Tracecat group's members.
+ */
+export type ScimRemovalPlanRead = {
+  mapping_id: string
+  external_group_display_name: string
+  group_name: string
+  becoming_manual: Array<string>
+  losing_access: Array<string>
+  member_emails: {
+    [key: string]: string
+  }
+}
+
+/**
+ * Mapping additions and removals to preview without applying them.
+ */
+export type ScimReviewRequest = {
+  mappings?: Array<ExternalGroupMappingCreate>
+  delete?: Array<string>
+}
 
 /**
  * An inbound User resource on POST or PUT.
@@ -15365,8 +15400,6 @@ export type ScimGetScimConnectionResponse = ScimConnectionRead
 
 export type ScimIssueScimTokenResponse = ScimConnectionTokenRead
 
-export type ScimRevokeScimTokenResponse = void
-
 export type ScimListExternalGroupsData = {
   cursor?: string | null
   limit?: number
@@ -15376,8 +15409,10 @@ export type ScimListExternalGroupsResponse = Page_ExternalGroupRead_
 
 export type ScimGetScimDirectorySummaryResponse = ScimDirectorySummaryRead
 
+export type ScimDisconnectScimResponse = void
+
 export type ScimReviewScimActivationData = {
-  requestBody: ScimActivationRequest
+  requestBody: ScimReviewRequest
 }
 
 export type ScimReviewScimActivationResponse = ScimActivationReviewRead
@@ -15400,6 +15435,12 @@ export type ScimCreateScimMappingData = {
 }
 
 export type ScimCreateScimMappingResponse = ExternalGroupMappingRead
+
+export type ScimApplyScimMappingChangesData = {
+  requestBody: ScimMappingChangesRequest
+}
+
+export type ScimApplyScimMappingChangesResponse = void
 
 export type ScimDeleteScimMappingData = {
   mappingId: string
@@ -22747,14 +22788,6 @@ export type $OpenApiTs = {
         200: ScimConnectionTokenRead
       }
     }
-    delete: {
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
-      }
-    }
   }
   "/scim/external-groups": {
     get: {
@@ -22778,6 +22811,16 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: ScimDirectorySummaryRead
+      }
+    }
+  }
+  "/scim/disconnect": {
+    post: {
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
       }
     }
   }
@@ -22832,6 +22875,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: ExternalGroupMappingRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/scim/mappings/batch": {
+    post: {
+      req: ScimApplyScimMappingChangesData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
         /**
          * Validation Error
          */

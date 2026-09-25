@@ -1,15 +1,18 @@
 "use client"
 
-import { KeyRoundIcon, UserMinusIcon, UserPlusIcon } from "lucide-react"
-import type { ReactNode } from "react"
-import type { ScimActivationReviewRead, ScimMappingPlanRead } from "@/client"
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion"
+import { ChevronRightIcon, CircleMinusIcon, CirclePlusIcon } from "lucide-react"
+import { type ReactNode, useState } from "react"
+import type {
+  ScimActivationReviewRead,
+  ScimMappingPlanRead,
+  ScimRemovalPlanRead,
+} from "@/client"
 import { Button } from "@/components/ui/button"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
 import {
   Dialog,
   DialogContent,
@@ -18,117 +21,235 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { cn } from "@/lib/utils"
+
+type DiffKind = "added" | "removed" | "modified" | "unchanged"
+
+type DiffLine = { key: string; kind: DiffKind; text: string; note?: string }
+
+const DIFF_MARKER: Record<DiffKind, string> = {
+  added: "+",
+  removed: "-",
+  modified: "~",
+  unchanged: "",
+}
 
 function plural(count: number, one: string, many: string): string {
   return `${count} ${count === 1 ? one : many}`
 }
 
-function unionSize(lists: string[][]): number {
-  return new Set(lists.flat()).size
-}
-
-function SummaryLine({
-  icon,
-  children,
-}: {
-  icon: ReactNode
-  children: ReactNode
-}) {
+/** Membership changes in the house unified-diff style. */
+function MembershipDiff({ lines }: { lines: DiffLine[] }) {
   return (
-    <p className="flex items-center gap-2.5 text-sm">
-      {icon}
-      <span>{children}</span>
-    </p>
-  )
-}
-
-function MemberList({
-  title,
-  rows,
-}: {
-  title: string
-  rows: { id: string; email: string; note: string }[]
-}) {
-  return (
-    <div className="space-y-1">
-      <p className="text-xs font-medium text-muted-foreground">{title}</p>
-      <ul className="space-y-0.5">
-        {rows.map((row) => (
-          <li key={row.id} className="flex justify-between gap-4 text-sm">
-            <span className="truncate">{row.email}</span>
-            <span className="shrink-0 text-xs text-muted-foreground">
-              {row.note}
-            </span>
-          </li>
-        ))}
-      </ul>
+    <div className="overflow-hidden rounded-md border bg-background py-1 font-mono text-xs leading-5">
+      {lines.map((line) => (
+        <div
+          key={line.key}
+          className={cn(
+            "grid grid-cols-[1.25rem_minmax(0,1fr)_auto] gap-x-2 pr-2",
+            line.kind === "added" && "bg-diff-added text-diff-added-foreground",
+            line.kind === "removed" &&
+              "bg-diff-removed text-diff-removed-foreground",
+            line.kind === "modified" &&
+              "bg-amber-50 text-amber-900 dark:bg-amber-500/15 dark:text-amber-200"
+          )}
+        >
+          <span
+            className={cn(
+              "select-none text-center",
+              line.kind === "added" && "text-diff-marker-added",
+              line.kind === "removed" && "text-diff-marker-removed",
+              line.kind === "modified" && "text-amber-600 dark:text-amber-400"
+            )}
+          >
+            {DIFF_MARKER[line.kind]}
+          </span>
+          <span className="truncate">{line.text}</span>
+          {line.note ? (
+            <span className="font-sans text-muted-foreground">{line.note}</span>
+          ) : null}
+        </div>
+      ))}
     </div>
   )
 }
 
-function PlanItem({ plan }: { plan: ScimMappingPlanRead }) {
-  const losing = new Set(plan.users_losing_access)
-  const email = (id: string) =>
-    plan.manual_member_emails?.[id] ?? "User details unavailable"
-  const lose = plan.users_losing_access.map((id) => ({
-    id,
-    email: email(id),
-    note: "Added manually, not in the IdP group",
-  }))
-  const kept = plan.manual_members_purged
-    .filter((id) => !losing.has(id))
-    .map((id) => ({
-      id,
-      email: email(id),
-      note: "Keeps access through the IdP group",
-    }))
-  const gaining = plan.users_gaining_access.length
+/** Mapping-level change, shown with the workspace-sync change icons. */
+type RowChange = "added" | "removed"
 
+type CountPart = { kind: Exclude<DiffKind, "unchanged">; value: number }
+
+const COUNT_SIGN: Record<CountPart["kind"], string> = {
+  added: "+",
+  removed: "−",
+  modified: "~",
+}
+
+const COUNT_CLASS: Record<CountPart["kind"], string> = {
+  added: "text-diff-marker-added",
+  removed: "text-diff-marker-removed",
+  modified: "text-amber-600 dark:text-amber-400",
+}
+
+/** People counts per change kind, colored like their diff lines. */
+function Counts({ parts }: { parts: CountPart[] }) {
   return (
-    <AccordionItem
-      value={`${plan.external_group_id}-${plan.group_id}`}
-      className="border-b last:border-b-0"
-    >
-      <AccordionTrigger className="gap-3 px-4 py-3 hover:no-underline">
-        <span className="flex-1 text-left">
-          {plan.external_group_display_name} → {plan.group_name}
-        </span>
-        <span className="text-xs font-normal text-muted-foreground">
-          +{gaining} gain
-        </span>
-        {plan.manual_members_purged.length > 0 && (
-          <span className="text-xs font-normal text-muted-foreground">
-            {plan.manual_members_purged.length} manual removed
+    <span className="flex shrink-0 gap-2 font-mono text-[11px]">
+      {parts
+        .filter((part) => part.value > 0)
+        .map((part) => (
+          <span key={part.kind} className={COUNT_CLASS[part.kind]}>
+            {COUNT_SIGN[part.kind]}
+            {part.value}
           </span>
-        )}
-        {lose.length > 0 && (
-          <span className="text-xs font-semibold">
-            {plural(lose.length, "loses", "lose")} access
-          </span>
-        )}
-      </AccordionTrigger>
-      <AccordionContent className="space-y-3 px-4 pl-11">
-        {lose.length > 0 && (
-          <MemberList title={`Loses ${plan.group_name} access`} rows={lose} />
-        )}
-        {kept.length > 0 && (
-          <MemberList
-            title="Manual members replaced by IdP membership"
-            rows={kept}
-          />
-        )}
-        {lose.length === 0 && kept.length === 0 && (
-          <p className="text-sm text-muted-foreground">
-            {plural(gaining, "user gains", "users gain")} access. No manual
-            members change.
-          </p>
-        )}
-      </AccordionContent>
-    </AccordionItem>
+        ))}
+    </span>
   )
 }
 
-/** Summarize what activation or a new mapping changes, then confirm it. */
+/** One collapsible change: a title, its counts, and the diff behind it. */
+function ChangeRow({
+  change,
+  title,
+  counts,
+  lines,
+  defaultOpen,
+}: {
+  change: RowChange
+  title: ReactNode
+  counts: CountPart[]
+  lines: DiffLine[]
+  defaultOpen: boolean
+}) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <CollapsibleTrigger className="flex w-full items-center gap-2 px-3 py-2.5 text-left outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring">
+        <ChevronRightIcon
+          className={cn(
+            "size-3.5 shrink-0 text-muted-foreground transition-transform",
+            open && "rotate-90"
+          )}
+        />
+        {change === "added" ? (
+          <CirclePlusIcon
+            aria-label="Added"
+            className="size-3.5 shrink-0 text-diff-marker-added"
+          />
+        ) : (
+          <CircleMinusIcon
+            aria-label="Removed"
+            className="size-3.5 shrink-0 text-diff-marker-removed"
+          />
+        )}
+        <span className="min-w-0 flex-1 truncate text-sm font-medium">
+          {title}
+        </span>
+        <Counts parts={counts} />
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="px-3 pb-3 pl-[3.25rem]">
+          <MembershipDiff lines={lines} />
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  )
+}
+
+const MAX_LISTED = 10
+
+function planLines(plan: ScimMappingPlanRead): DiffLine[] {
+  const losing = new Set(plan.users_losing_access)
+  const inSource = new Set(plan.manual_members_in_source ?? [])
+  const manualEmail = (id: string) =>
+    plan.manual_member_emails?.[id] ?? "User details unavailable"
+  const lines: DiffLine[] = plan.users_losing_access.map((id) => ({
+    key: `lose-${id}`,
+    kind: "removed",
+    text: manualEmail(id),
+    note: "manual → removed",
+  }))
+  const gaining = plan.users_gaining_access
+  for (const id of gaining.slice(0, MAX_LISTED)) {
+    lines.push({
+      key: `gain-${id}`,
+      kind: "added",
+      text: plan.gaining_member_emails?.[id] ?? "User details unavailable",
+    })
+  }
+  if (gaining.length > MAX_LISTED) {
+    lines.push({
+      key: "gain-more",
+      kind: "added",
+      text: `${plural(gaining.length - MAX_LISTED, "more user", "more users")}`,
+    })
+  }
+  for (const id of plan.manual_members_purged) {
+    if (losing.has(id)) continue
+    lines.push({
+      key: `keep-${id}`,
+      kind: "modified",
+      text: manualEmail(id),
+      note: inSource.has(id) ? "manual → IdP" : "manual → IdP (other mapping)",
+    })
+  }
+  if (lines.length === 0) {
+    lines.push({
+      key: "none",
+      kind: "unchanged",
+      text: "No membership changes",
+    })
+  }
+  return lines
+}
+
+function removalLines(plan: ScimRemovalPlanRead): DiffLine[] {
+  const email = (id: string) =>
+    plan.member_emails?.[id] ?? "User details unavailable"
+  const lines: DiffLine[] = [
+    ...plan.losing_access.map((id) => ({
+      key: `lose-${id}`,
+      kind: "removed" as const,
+      text: email(id),
+      note: "IdP → removed",
+    })),
+    ...plan.becoming_manual.map((id) => ({
+      key: `manual-${id}`,
+      kind: "modified" as const,
+      text: email(id),
+      note: "IdP → manual",
+    })),
+  ]
+  if (lines.length === 0) {
+    lines.push({
+      key: "none",
+      kind: "unchanged",
+      text: "No membership changes",
+    })
+  }
+  return lines
+}
+
+function removalCounts(plan: ScimRemovalPlanRead): CountPart[] {
+  return [
+    { kind: "removed", value: plan.losing_access.length },
+    { kind: "modified", value: plan.becoming_manual.length },
+  ]
+}
+
+function planCounts(plan: ScimMappingPlanRead): CountPart[] {
+  const losing = new Set(plan.users_losing_access)
+  return [
+    { kind: "added", value: plan.users_gaining_access.length },
+    { kind: "removed", value: losing.size },
+    {
+      kind: "modified",
+      value: plan.manual_members_purged.filter((id) => !losing.has(id)).length,
+    },
+  ]
+}
+
+/** Review what activation or a batch of mapping changes does, then confirm. */
 export function ScimReviewDialog({
   review,
   activation,
@@ -143,18 +264,14 @@ export function ScimReviewDialog({
   onConfirm: () => Promise<void>
 }) {
   const joining = review.users.filter((user) => user.active)
-  const skipped = review.users.length - joining.length
-  const gainCount = unionSize(review.plans.map((p) => p.users_gaining_access))
-  const loseCount = unionSize(review.plans.map((p) => p.users_losing_access))
   const missingLabels = review.plans.some((plan) =>
     plan.manual_members_purged.some((id) => !plan.manual_member_emails?.[id])
   )
-  const groupCount = new Set(review.plans.map((plan) => plan.group_id)).size
-  const firstPlan = review.plans[0]
-
+  const removals = review.removals ?? []
+  const changeCount = review.plans.length + removals.length
   const confirmLabel = activation
     ? `Activate for ${plural(joining.length, "user", "users")}`
-    : "Apply mapping"
+    : `Apply ${plural(changeCount, "change", "changes")}`
 
   return (
     <Dialog
@@ -163,99 +280,64 @@ export function ScimReviewDialog({
         if (!open && !pending) onClose()
       }}
     >
-      <DialogContent className="max-h-[85vh] max-w-xl overflow-y-auto">
+      <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
-            {activation ? "Activate SCIM provisioning" : "Review group mapping"}
+            {activation
+              ? "Activate SCIM provisioning"
+              : "Review mapping changes"}
           </DialogTitle>
           <DialogDescription>
-            {activation
-              ? `Your identity provider takes over membership for ${plural(groupCount, "group", "groups")}.`
-              : `Your identity provider takes over membership of ${firstPlan?.group_name ?? "this group"}.`}{" "}
             Access from other roles and groups is unchanged.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-2">
+        <div className="divide-y rounded-md border">
           {activation && (
-            <SummaryLine
-              icon={
-                <UserPlusIcon className="size-4 shrink-0 text-muted-foreground" />
+            <ChangeRow
+              change="added"
+              title="Organization members"
+              counts={[{ kind: "added", value: joining.length }]}
+              defaultOpen={false}
+              lines={
+                review.users.length === 0
+                  ? [
+                      {
+                        key: "none",
+                        kind: "unchanged",
+                        text: "No users have been pushed yet",
+                      },
+                    ]
+                  : review.users.map((user) => ({
+                      key: user.id,
+                      kind: user.active ? "added" : "unchanged",
+                      text: user.email,
+                      note: user.active ? "joins" : "inactive, skipped",
+                    }))
               }
-            >
-              <strong className="font-semibold">{joining.length}</strong>{" "}
-              {joining.length === 1 ? "user joins" : "users join"} the
-              organization
-              {skipped > 0 && (
-                <span className="text-muted-foreground">
-                  {" "}
-                  · {skipped} inactive skipped
-                </span>
-              )}
-            </SummaryLine>
+            />
           )}
-          <SummaryLine
-            icon={
-              <KeyRoundIcon className="size-4 shrink-0 text-muted-foreground" />
-            }
-          >
-            <strong className="font-semibold">{gainCount}</strong>{" "}
-            {gainCount === 1 ? "user gains" : "users gain"} group access
-          </SummaryLine>
-          {loseCount > 0 && (
-            <SummaryLine icon={<UserMinusIcon className="size-4 shrink-0" />}>
-              <strong className="font-semibold">{loseCount}</strong>{" "}
-              {loseCount === 1 ? "user loses" : "users lose"} group access
-              <span className="text-muted-foreground"> · listed below</span>
-            </SummaryLine>
-          )}
+          {review.plans.map((plan) => (
+            <ChangeRow
+              change="added"
+              key={`${plan.external_group_id}-${plan.group_id}`}
+              title={`${plan.external_group_display_name} → ${plan.group_name}`}
+              counts={planCounts(plan)}
+              defaultOpen={plan.users_losing_access.length > 0}
+              lines={planLines(plan)}
+            />
+          ))}
+          {removals.map((plan) => (
+            <ChangeRow
+              key={plan.mapping_id}
+              title={`${plan.external_group_display_name} → ${plan.group_name}`}
+              change="removed"
+              counts={removalCounts(plan)}
+              defaultOpen
+              lines={removalLines(plan)}
+            />
+          ))}
         </div>
-
-        {(review.plans.length > 0 || activation) && (
-          <Accordion
-            type="multiple"
-            defaultValue={review.plans
-              .filter((plan) => plan.users_losing_access.length > 0)
-              .map((plan) => `${plan.external_group_id}-${plan.group_id}`)}
-            className="rounded-lg border"
-          >
-            {review.plans.map((plan) => (
-              <PlanItem
-                key={`${plan.external_group_id}-${plan.group_id}`}
-                plan={plan}
-              />
-            ))}
-            {activation && (
-              <AccordionItem value="users" className="border-b-0">
-                <AccordionTrigger className="gap-3 px-4 py-3 hover:no-underline">
-                  <span className="flex-1 text-left">
-                    Users joining the organization
-                  </span>
-                  <span className="text-xs font-normal text-muted-foreground">
-                    {joining.length} join · {skipped} skipped · pending invites
-                    revoked
-                  </span>
-                </AccordionTrigger>
-                <AccordionContent className="px-4 pl-11">
-                  {review.users.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      No users have been pushed yet.
-                    </p>
-                  ) : (
-                    <MemberList
-                      title="Pushed users"
-                      rows={review.users.map((user) => ({
-                        id: user.id,
-                        email: user.email,
-                        note: user.active ? "Joins" : "Inactive, skipped",
-                      }))}
-                    />
-                  )}
-                </AccordionContent>
-              </AccordionItem>
-            )}
-          </Accordion>
-        )}
 
         {missingLabels && (
           <p role="alert" className="text-sm text-destructive">
@@ -264,23 +346,18 @@ export function ScimReviewDialog({
           </p>
         )}
 
-        <DialogFooter className="items-center gap-2 sm:justify-between">
-          <span className="text-xs text-muted-foreground">
-            Uses the directory as of confirmation.
-          </span>
-          <div className="flex gap-2">
-            <Button variant="outline" disabled={pending} onClick={onClose}>
-              Cancel
-            </Button>
-            <Button
-              disabled={pending || missingLabels}
-              onClick={() => {
-                void onConfirm().catch(() => {})
-              }}
-            >
-              {pending ? "Applying…" : confirmLabel}
-            </Button>
-          </div>
+        <DialogFooter>
+          <Button variant="outline" disabled={pending} onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            disabled={pending || missingLabels}
+            onClick={() => {
+              void onConfirm().catch(() => {})
+            }}
+          >
+            {pending ? "Applying…" : confirmLabel}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

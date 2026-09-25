@@ -108,7 +108,7 @@ async def test_get_without_a_connection_is_404(
 
 
 @pytest.mark.anyio
-async def test_revoke_returns_no_content(
+async def test_disconnect_returns_no_content(
     client: TestClient, test_admin_role: Role
 ) -> None:
     with (
@@ -117,17 +117,17 @@ async def test_revoke_returns_no_content(
             new=AsyncMock(return_value=None),
         ),
         patch(
-            "tracecat_ee.scim.connections.ScimConnectionService.revoke",
+            "tracecat_ee.scim.service.SCIMService.disconnect",
             new=AsyncMock(return_value=None),
         ),
     ):
-        response = client.request("DELETE", BASE)
+        response = client.post("/scim/disconnect")
 
     assert response.status_code == status.HTTP_204_NO_CONTENT
 
 
 @pytest.mark.anyio
-async def test_revoke_without_a_connection_is_404(
+async def test_disconnect_without_a_connection_is_404(
     client: TestClient, test_admin_role: Role
 ) -> None:
     with (
@@ -136,10 +136,10 @@ async def test_revoke_without_a_connection_is_404(
             new=AsyncMock(return_value=None),
         ),
         patch(
-            "tracecat_ee.scim.connections.ScimConnectionService.revoke",
+            "tracecat_ee.scim.service.SCIMService.disconnect",
             new=AsyncMock(side_effect=TracecatNotFoundError("missing")),
         ),
     ):
-        response = client.request("DELETE", BASE)
+        response = client.post("/scim/disconnect")
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
