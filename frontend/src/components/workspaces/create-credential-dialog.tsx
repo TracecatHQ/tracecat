@@ -24,6 +24,7 @@ import {
 } from "react-hook-form"
 import { z } from "zod"
 import type { SecretCreate, SecretDefinition } from "@/client"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CreateSecretTooltip } from "@/components/secrets/create-secret-tooltip"
 import { sshKeyRegex } from "@/components/ssh-keys/ssh-key-utils"
 import { SshPrivateKeyField } from "@/components/ssh-keys/ssh-private-key-field"
@@ -592,7 +593,10 @@ export function CreateCredentialDialog({
   }, [open, selectedTool, methods])
 
   const { hasEntitlement } = useEntitlements()
-  const externalSecretStoresEnabled = hasEntitlement("external_secret_stores")
+  // The store picker lists stores via a secret:read route.
+  const canReadSecrets = useScopeCheck("secret:read") === true
+  const externalSecretStoresEnabled =
+    hasEntitlement("external_secret_stores") && canReadSecrets
   const credentialSourceId = React.useId()
   const [credentialSource, setCredentialSource] = React.useState<
     "local" | "aws_secrets_manager"
