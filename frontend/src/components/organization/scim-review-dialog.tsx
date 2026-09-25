@@ -261,6 +261,21 @@ function userLine(user: ScimDirectoryUserRead): DiffLine {
   }
 }
 
+function usersLines(
+  pushedCount: number,
+  listedUsers: ScimDirectoryUserRead[]
+): DiffLine[] {
+  if (pushedCount === 0) {
+    return [
+      { key: "none", kind: "unchanged", text: "No users have been pushed yet" },
+    ]
+  }
+  if (listedUsers.length === 0) {
+    return [{ key: "none", kind: "unchanged", text: "No membership changes" }]
+  }
+  return listedUsers.map(userLine)
+}
+
 /** Review what activation or a batch of mapping changes does, then confirm. */
 export function ScimReviewDialog({
   review,
@@ -275,7 +290,11 @@ export function ScimReviewDialog({
   onClose: () => void
   onConfirm: () => Promise<void>
 }) {
-  const joining = review.users.filter((user) => user.active)
+  const joining = review.users.filter((user) => user.active && !user.is_member)
+  // Activation leaves active users who are already members unchanged.
+  const listedUsers = review.users.filter(
+    (user) => !(user.active && user.is_member)
+  )
   const leaving = review.users.filter((user) => !user.active && user.is_member)
   const groups = review.groups ?? []
   const missingLabels = groups.some((group) =>
@@ -318,17 +337,7 @@ export function ScimReviewDialog({
                 { kind: "removed", value: leaving.length },
               ]}
               defaultOpen={leaving.length > 0}
-              lines={
-                review.users.length === 0
-                  ? [
-                      {
-                        key: "none",
-                        kind: "unchanged",
-                        text: "No users have been pushed yet",
-                      },
-                    ]
-                  : review.users.map(userLine)
-              }
+              lines={usersLines(review.users.length, listedUsers)}
             />
           )}
           {groups.map((group) => (

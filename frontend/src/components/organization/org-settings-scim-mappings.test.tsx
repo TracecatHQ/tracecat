@@ -540,6 +540,20 @@ test("activation discloses inactive members leaving the organization", async () 
   review.mutateAsync.mockResolvedValue({
     users: [
       {
+        id: "joiner",
+        email: "joiner@example.com",
+        external_id: "idp-joiner",
+        active: true,
+        is_member: false,
+      },
+      {
+        id: "existing",
+        email: "existing@example.com",
+        external_id: "idp-existing",
+        active: true,
+        is_member: true,
+      },
+      {
         id: "leaver",
         email: "leaver@example.com",
         external_id: "idp-leaver",
@@ -564,4 +578,8 @@ test("activation discloses inactive members leaving the organization", async () 
     screen.getByText("inactive → leaves the organization")
   ).toBeInTheDocument()
   expect(screen.getByText("inactive, skipped")).toBeInTheDocument()
+  expect(screen.queryByText("existing@example.com")).not.toBeInTheDocument()
+  expect(
+    screen.getByRole("button", { name: "Activate for 1 user" })
+  ).toBeInTheDocument()
 })
