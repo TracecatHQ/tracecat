@@ -241,25 +241,30 @@ def test_accepts_new_label_without_treating_inherited_labels_as_rewrites(
     )
 
 
-@pytest.mark.parametrize("rewrite", [False, True])
+@pytest.mark.parametrize("rewrite", [None, "metadata", "body"])
 def test_cli_compares_base_history(
     history: Path,
     base_history: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
-    rewrite: bool,
+    rewrite: str | None,
 ) -> None:
     (history / "alembic.ini").write_text("[alembic]\nscript_location = .\n")
     write_revision(history, LINEAR_HISTORY_BASE, "baseline")
     write_revision(base_history, LINEAR_HISTORY_BASE, "baseline")
-    if rewrite:
+    if rewrite == "metadata":
         write_revision(history, "inserted", "baseline")
         write_revision(history, LINEAR_HISTORY_BASE, "inserted")
+    elif rewrite == "body":
+        with (history / "versions" / f"{LINEAR_HISTORY_BASE}.py").open("a") as file:
+            file.write("def upgrade():\n    raise RuntimeError('changed operation')\n")
     monkeypatch.chdir(history)
     assert main(["--base-dir", str(base_history)]) == (1 if rewrite else 0)
     output = capsys.readouterr()
-    if rewrite:
+    if rewrite == "metadata":
         assert "changed down_revision" in output.err
+    elif rewrite == "body":
+        assert "changed file contents" in output.err
     else:
         assert "Alembic migration history OK" in output.out
 
@@ -271,3 +276,49 @@ def test_cli_rejects_missing_base_directory(
     monkeypatch.chdir(history)
     assert main(["--base-dir", str(history / "missing")]) == 1
     assert "Path doesn't exist" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("revision", ["root", "deployed"])
+@pytest.mark.parametrize(
+    "body",
+    [
+        "def upgrade():\n    raise RuntimeError('changed upgrade')\n",
+        "def downgrade():\n    raise RuntimeError('changed downgrade')\n",
+        "# Formatting and comment edits are also rejected.\n\n",
+    ],
+)
+def test_rejects_changed_revision_contents(
+    history: Path, base_history: Path, revision: str, body: str
+) -> None:
+    for directory in (history, base_history):
+        write_revision(directory, "deployed", "baseline")
+        with (directory / "versions" / f"{revision}.py").open("a") as file:
+            file.write("def upgrade():\n    pass\ndef downgrade():\n    pass\n")
+    with (history / "versions" / f"{revision}.py").open("a") as file:
+        file.write(body)
+    with pytest.raises(ValueError, match=f"{revision} changed file contents"):
+        check_migrations(
+            ScriptDirectory(str(history)),
+            linear_since="baseline",
+            base=ScriptDirectory(str(base_history)),
+        )
+
+
+def test_accepts_unchanged_bodies_and_new_migration_operations(
+    history: Path, base_history: Path
+) -> None:
+    body = "def upgrade():\n    raise AssertionError('must not execute operations')\n"
+    for directory in (history, base_history):
+        with (directory / "versions" / "baseline.py").open("a") as file:
+            file.write(body)
+    write_revision(history, "new", "baseline")
+    with (history / "versions" / "new.py").open("a") as file:
+        file.write(body)
+    assert (
+        check_migrations(
+            ScriptDirectory(str(history)),
+            linear_since="baseline",
+            base=ScriptDirectory(str(base_history)),
+        )
+        == "new"
+    )

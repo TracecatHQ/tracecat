@@ -98,9 +98,10 @@ tables in workspace schemas. For these migrations:
 - New revisions must extend the current head in a single linear chain. CI checks
   the PR merge result with `uv run python scripts/check_migrations.py`, without
   running migrations or connecting to a database.
-- CI also compares revision metadata against the PR base (or previous commit on
-  push). Existing revision IDs, parents, dependencies, and branch labels must
-  stay unchanged; inserting a migration behind the previous head is rejected.
+- CI also compares existing revisions against the PR base (or previous commit
+  on push). Revision IDs, metadata, and file contents must stay unchanged,
+  including comments and formatting. Add a new revision for new operations;
+  inserting a migration behind the previous head is rejected.
   To run that comparison locally, add `--base-dir <base-checkout>/alembic`.
 - If another migration lands first, rebase your unmerged revision's
   `down_revision` onto the latest head. Do not add merge revisions or `depends_on`

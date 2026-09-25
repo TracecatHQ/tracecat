@@ -5,6 +5,7 @@ import argparse
 import sys
 import warnings
 from collections.abc import Sequence
+from pathlib import Path
 
 from alembic.config import Config
 from alembic.script import ScriptDirectory
@@ -57,6 +58,12 @@ def check_migrations(
                             "New migrations must extend the previous head without "
                             "rewriting existing revision metadata."
                         )
+                if Path(current.path).read_bytes() != Path(previous.path).read_bytes():
+                    raise ValueError(
+                        f"Existing revision {previous.revision} changed file contents. "
+                        "Existing migration files are immutable, including formatting; "
+                        "put new operations in a new revision."
+                    )
         historical = {
             revision.revision for revision in scripts.walk_revisions(head=linear_since)
         }
@@ -81,7 +88,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--base-dir",
-        help="Base checkout's Alembic directory; also reject rewritten revision metadata.",
+        help="Base checkout's Alembic directory; also reject changes to existing revisions.",
     )
     args = parser.parse_args(argv)
     try:
@@ -89,7 +96,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             ScriptDirectory.from_config(Config("alembic.ini")),
             base=ScriptDirectory(args.base_dir) if args.base_dir is not None else None,
         )
-    except (ValueError, KeyError, CommandError, RevisionError, UserWarning) as exc:
+    except (
+        ValueError,
+        KeyError,
+        OSError,
+        CommandError,
+        RevisionError,
+        UserWarning,
+    ) as exc:
         print(f"Alembic migration history check failed: {exc}", file=sys.stderr)
         return 1
     print(
