@@ -498,6 +498,7 @@ class SCIMService(BaseOrgService):
                 this organization.
             TracecatConflictError: The connection is not active.
         """
+        await lock_role_changes(self.session, self.organization_id)
         await self._freeze_groups_losing_every_source(delete, create)
         for mapping_id in delete:
             await self.delete_mapping(mapping_id)

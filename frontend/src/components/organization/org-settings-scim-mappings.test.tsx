@@ -8,6 +8,8 @@ import type {
 } from "@/client"
 import { OrgSettingsScim } from "@/components/organization/org-settings-scim"
 import { OrgSettingsScimConnection } from "@/components/organization/org-settings-scim-connection"
+import { OrganizationSidebar } from "@/components/sidebar/organization-sidebar"
+import { SidebarProvider } from "@/components/ui/sidebar"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import type { TracecatApiError } from "@/lib/errors"
 
@@ -45,6 +47,12 @@ const sourceGroup: ExternalGroupRead = {
 let externalGroups: ExternalGroupRead[] = [sourceGroup]
 
 let allowedScopes: string[] | null = null
+let hasEntitlementData = true
+let entitled = true
+jest.mock("next/navigation", () => ({
+  usePathname: () => "/organization/settings/scim",
+}))
+jest.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => false }))
 jest.mock("@/components/auth/scope-guard", () => ({
   useScopeCheck: (scope: string) =>
     allowedScopes === null || allowedScopes.includes(scope),
@@ -53,7 +61,11 @@ jest.mock("@/lib/api", () => ({
   getBaseUrl: () => "https://api.example.com/backend/",
 }))
 jest.mock("@/hooks/use-entitlements", () => ({
-  useEntitlements: () => ({ hasEntitlement: () => true, isLoading: false }),
+  useEntitlements: () => ({
+    hasEntitlement: () => entitled,
+    hasEntitlementData,
+    isLoading: false,
+  }),
 }))
 
 jest.mock("@/hooks/use-scim", () => ({
@@ -139,6 +151,8 @@ beforeEach(() => {
   mappingsIsFetchingNextPage = false
   mappingsError = null
   allowedScopes = ["org:scim:manage"]
+  hasEntitlementData = true
+  entitled = true
   connection = initialConnection
   connectionError = null
   connectionIsFetching = false
@@ -286,8 +300,15 @@ test("mapping pages load on request and removals apply after review", async () =
   const user = userEvent.setup()
   connection = { ...initialConnection, status: "active" }
   mappingsHasNextPage = true
-  mappings = [mapped]
+  mappings = [
+    { ...mapped, id: "other-mapping", external_group_id: "other-source" },
+  ]
   const { rerender } = renderScim()
+  expect(screen.queryByRole("button", { name: PICKER })).toBeNull()
+  expect(screen.queryByText("Not mapped")).toBeNull()
+  expect(
+    screen.getByText("Load all mappings to view selections.")
+  ).toBeInTheDocument()
   fireEvent.click(screen.getByRole("button", { name: "Load more mappings" }))
   expect(fetchNextMappings).toHaveBeenCalledTimes(1)
   mappingsIsFetchingNextPage = true
@@ -308,6 +329,18 @@ test("mapping pages load on request and removals apply after review", async () =
   )
   expect(screen.getByRole("alert")).toHaveTextContent(
     "Unable to load more mappings"
+  )
+  expect(screen.queryByRole("button", { name: PICKER })).toBeNull()
+  mappingsHasNextPage = false
+  mappingsError = null
+  mappings = [...mappings, mapped]
+  rerender(
+    <TooltipProvider>
+      <OrgSettingsScim />
+    </TooltipProvider>
+  )
+  expect(screen.getByRole("button", { name: PICKER })).toHaveTextContent(
+    "Target team"
   )
   review.mutateAsync.mockResolvedValue({
     users: [],
@@ -414,6 +447,47 @@ test("a confirmed absent connection still offers setup", () => {
   connection = null
   render(<ScimSettingsPage />)
   expect(screen.getByRole("button", { name: "Generate token" })).toBeEnabled()
+})
+
+test("unknown plan access shows an error instead of an upgrade denial", () => {
+  hasEntitlementData = false
+  entitled = false
+  const { rerender } = render(<ScimSettingsPage />, {
+    wrapper: TooltipProvider,
+  })
+  expect(screen.getByRole("alert")).toHaveTextContent(
+    "Unable to check plan access"
+  )
+  expect(screen.getByRole("button", { name: "Reload" })).toBeEnabled()
+  expect(screen.queryByText("Not available on your plan")).toBeNull()
+  expect(readConnection).not.toHaveBeenCalled()
+  hasEntitlementData = true
+  rerender(<ScimSettingsPage />)
+  expect(screen.getByText("Not available on your plan")).toBeInTheDocument()
+  entitled = true
+  rerender(<ScimSettingsPage />)
+  expect(screen.getByText("Pending activation")).toBeInTheDocument()
+})
+
+test("a SCIM-only custom role can navigate to SCIM settings", () => {
+  const { rerender } = render(
+    <SidebarProvider>
+      <OrganizationSidebar />
+    </SidebarProvider>
+  )
+  expect(screen.getByRole("link", { name: "SCIM" })).toHaveAttribute(
+    "href",
+    "/organization/settings/scim"
+  )
+  expect(screen.queryByRole("link", { name: "Application" })).toBeNull()
+  allowedScopes = []
+  rerender(
+    <SidebarProvider>
+      <OrganizationSidebar />
+    </SidebarProvider>
+  )
+  expect(screen.queryByRole("link", { name: "SCIM" })).toBeNull()
+  expect(screen.queryByText("Settings")).toBeNull()
 })
 
 test("a new token is shown once alongside the base URL", async () => {

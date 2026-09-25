@@ -126,6 +126,8 @@ export function OrgSettingsScimMappings({
     mappingsIsFetchingNextPage,
     fetchNextMappings,
   } = useScimMappings()
+  const mappingsIncomplete =
+    !isPending && (Boolean(mappingsHasNextPage) || Boolean(mappingsError))
   const {
     groups,
     isLoading: groupsIsLoading,
@@ -279,16 +281,22 @@ export function OrgSettingsScimMappings({
                     </RowLine>
                   </TableCell>
                   <TableCell className="align-top">
-                    <TargetPicker
-                      group={group}
-                      targets={targets}
-                      tracecatGroups={tracecatGroups}
-                      disabled={!canEdit || reviewIsPending}
-                      onAdd={onAdd}
-                      onRemove={(target) => {
-                        onRemove(target, target.mapping)
-                      }}
-                    />
+                    {mappingsIncomplete ? (
+                      <RowLine className="text-muted-foreground">
+                        Load all mappings to view selections.
+                      </RowLine>
+                    ) : (
+                      <TargetPicker
+                        group={group}
+                        targets={targets}
+                        tracecatGroups={tracecatGroups}
+                        disabled={!canEdit || reviewIsPending}
+                        onAdd={onAdd}
+                        onRemove={(target) => {
+                          onRemove(target, target.mapping)
+                        }}
+                      />
+                    )}
                   </TableCell>
                 </TableRow>
               ))}
@@ -308,7 +316,7 @@ export function OrgSettingsScimMappings({
           <ListFooter
             isPending={isPending}
             changeCount={drafts.length + removals.length}
-            reviewIsPending={reviewIsPending}
+            reviewIsPending={reviewIsPending || mappingsIncomplete}
             onDiscardDrafts={onDiscardDrafts}
             onReviewChanges={onReviewChanges}
             externalGroupsError={Boolean(externalGroupsError)}

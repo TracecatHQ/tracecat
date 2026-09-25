@@ -8,6 +8,8 @@ import {
   OrgSettingsScim,
   ScimPageHeader,
 } from "@/components/organization/org-settings-scim"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Button } from "@/components/ui/button"
 import { useEntitlements } from "@/hooks/use-entitlements"
 
 function PageShell({ children }: { children: ReactNode }) {
@@ -21,7 +23,7 @@ function PageShell({ children }: { children: ReactNode }) {
 }
 
 export default function ScimSettingsPage() {
-  const { hasEntitlement, isLoading } = useEntitlements()
+  const { hasEntitlement, hasEntitlementData, isLoading } = useEntitlements()
   const canManage = useScopeCheck("org:scim:manage")
 
   if (isLoading || canManage === undefined) {
@@ -29,6 +31,20 @@ export default function ScimSettingsPage() {
       <PageShell>
         <ScimPageHeader />
         <CenteredSpinner />
+      </PageShell>
+    )
+  }
+  if (!hasEntitlementData) {
+    return (
+      <PageShell>
+        <ScimPageHeader />
+        <Alert>
+          <AlertTitle>Unable to check plan access</AlertTitle>
+          <AlertDescription>Reload the page to try again.</AlertDescription>
+          <Button variant="outline" onClick={() => window.location.reload()}>
+            Reload
+          </Button>
+        </Alert>
       </PageShell>
     )
   }

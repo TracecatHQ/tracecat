@@ -445,6 +445,42 @@ async def test_mapping_changes_remove_then_add_together(
 
 
 @pytest.mark.anyio
+async def test_batch_removal_locks_organization_before_group(
+    session: AsyncSession, org: Organization, service: SCIMService
+) -> None:
+    """Batch removal follows creation's organization-before-group lock order."""
+    external = await seed_external_group(
+        session, organization_id=org.id, external_id="idp-lock-order"
+    )
+    group = await _make_group(session, org)
+    mapping = await service.create_mapping(
+        external_group_id=external.id, group_id=group.id
+    )
+    locks: list[str] = []
+
+    def capture(
+        conn: object,
+        cursor: object,
+        statement: str,
+        parameters: object,
+        context: object,
+        executemany: bool,
+    ) -> None:
+        if "FOR UPDATE" in statement or "FOR NO KEY UPDATE" in statement:
+            locks.append(statement)
+
+    bind = session.get_bind()
+    event.listen(bind, "before_cursor_execute", capture)
+    try:
+        await service.apply_mapping_changes(create=[], delete=[mapping.id])
+    finally:
+        event.remove(bind, "before_cursor_execute", capture)
+
+    assert "FROM organization " in locks[0]
+    assert any('FROM "group" ' in statement for statement in locks[1:])
+
+
+@pytest.mark.anyio
 async def test_mapping_changes_stop_at_an_unknown_removal(
     session: AsyncSession, org: Organization, service: SCIMService
 ) -> None:
