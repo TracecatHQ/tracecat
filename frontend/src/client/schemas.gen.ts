@@ -3091,7 +3091,10 @@ export const $AgentPresetSkillBindingBase = {
   type: "object",
   required: ["skill_id"],
   title: "AgentPresetSkillBindingBase",
-  description: "Shared fields for preset skill bindings.",
+  description: `Shared fields for preset skill bindings.
+
+Bindings reference a skill only; presets always run its latest published
+version, so there is no version to pin.`,
 } as const
 
 export const $AgentPresetSkillBindingChange = {

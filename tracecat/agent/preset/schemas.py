@@ -34,7 +34,11 @@ class AgentPresetSubagentEligibility(BaseModel):
 
 
 class AgentPresetSkillBindingBase(Schema):
-    """Shared fields for preset skill bindings."""
+    """Shared fields for preset skill bindings.
+
+    Bindings reference a skill only; presets always run its latest published
+    version, so there is no version to pin.
+    """
 
     skill_id: uuid.UUID
 

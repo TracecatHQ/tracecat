@@ -2435,6 +2435,54 @@ class TestAgentPresetService:
         assert version_read.skills[0].skill_version_id == skill_version_two.id
         assert version_read.skills[0].skill_name == "head-binding-v2"
 
+    async def test_head_skill_bindings_report_current_published_version(
+        self,
+        configure_minio_for_skills,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+    ) -> None:
+        """Publishing a skill is reflected on the preset head without re-attaching."""
+
+        skill_service = SkillService(session=session, role=svc_role)
+        created_skill = await skill_service.create_skill(
+            SkillCreate(name="follow-head-v1")
+        )
+        await skill_service.publish_skill(created_skill.id)
+
+        created_preset = await agent_preset_service.create_preset(
+            AgentPresetCreate(
+                name="Follow head preset",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                skills=[AgentPresetSkillBindingBase(skill_id=created_skill.id)],
+            )
+        )
+
+        draft = await skill_service.get_draft(created_skill.id)
+        assert draft is not None
+        await skill_service.patch_draft(
+            skill_id=created_skill.id,
+            params=SkillDraftPatch(
+                base_revision=draft.draft_revision,
+                operations=[
+                    SkillDraftUpsertTextFileOp(
+                        path="SKILL.md",
+                        content="---\nname: follow-head-v2\n---\n\n# Follow head v2\n",
+                        content_type="text/markdown; charset=utf-8",
+                    )
+                ],
+            ),
+        )
+        skill_version_two = await skill_service.publish_skill(created_skill.id)
+
+        preset_read = await agent_preset_service.build_preset_read(created_preset)
+
+        assert len(preset_read.skills) == 1
+        assert preset_read.skills[0].skill_version_id == skill_version_two.id
+        assert preset_read.skills[0].skill_version == 2
+        assert preset_read.skills[0].skill_name == "follow-head-v2"
+
     async def test_create_preset_rejects_duplicate_bound_skill_names(
         self,
         configure_minio_for_skills,
