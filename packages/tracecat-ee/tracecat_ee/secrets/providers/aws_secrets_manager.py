@@ -20,7 +20,13 @@ from uuid import UUID
 import aioboto3
 import orjson
 from aiobotocore.config import AioConfig
-from botocore.exceptions import BotoCoreError, ClientError
+from botocore.exceptions import (
+    BotoCoreError,
+    ClientError,
+    CredentialRetrievalError,
+    NoCredentialsError,
+    PartialCredentialsError,
+)
 
 from tracecat.exceptions import TracecatCredentialsError
 from tracecat.logger import logger
@@ -167,6 +173,9 @@ async def _fetch_secret_string(reference: ExternalSecretReference) -> _FetchOutc
         if failure == AwsSecretResolutionErrorCode.UNKNOWN:
             failure = AwsSecretResolutionErrorCode.ASSUME_ROLE_FAILED
         return _FetchOutcome(failure=failure, aws_error_code=aws_code)
+    except (NoCredentialsError, PartialCredentialsError, CredentialRetrievalError):
+        # The executor has no usable workload identity to assume the role with.
+        return _FetchOutcome(failure=AwsSecretResolutionErrorCode.ASSUME_ROLE_FAILED)
     except (BotoCoreError, TimeoutError):
         return _FetchOutcome(failure=AwsSecretResolutionErrorCode.TIMEOUT)
 

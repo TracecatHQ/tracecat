@@ -11,7 +11,7 @@ from dataclasses import replace
 from typing import Any, Self
 
 import pytest
-from botocore.exceptions import ClientError, EndpointConnectionError
+from botocore.exceptions import ClientError, EndpointConnectionError, NoCredentialsError
 from tracecat_ee.secrets.providers import aws_secrets_manager as asm
 from tracecat_ee.secrets.providers.aws_secrets_manager import (
     AwsSecretResolutionError,
@@ -281,6 +281,12 @@ async def test_friendly_name_reference_skips_region_check(
             lambda: EndpointConnectionError(endpoint_url="https://example.invalid"),
             "sm",
             AwsSecretResolutionErrorCode.TIMEOUT,
+            None,
+        ),
+        (
+            NoCredentialsError,
+            "sts",
+            AwsSecretResolutionErrorCode.ASSUME_ROLE_FAILED,
             None,
         ),
     ],
