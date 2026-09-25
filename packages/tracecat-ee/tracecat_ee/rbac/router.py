@@ -11,6 +11,7 @@ from tracecat.authz.enums import ScopeSource
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import (
     TracecatAuthorizationError,
+    TracecatConflictError,
     TracecatNotFoundError,
     TracecatValidationError,
 )
@@ -316,7 +317,7 @@ groups_router = APIRouter(
 
 
 @groups_router.get("", response_model=GroupList)
-@require_scope("org:rbac:read")
+@require_scope("org:rbac:read", "org:scim:manage", require_all=False)
 async def list_groups(
     *,
     role: OrgActorRole,
@@ -324,10 +325,12 @@ async def list_groups(
 ) -> GroupList:
     """List groups for the organization.
 
-    Requires: org:rbac:read scope
+    Requires: org:rbac:read or org:scim:manage to select mapping targets.
     """
     service = RBACService(session, role=role)
     groups = await service.list_groups()
+    counts = await service.group_member_counts()
+    managed = await service.managed_group_ids()
     return GroupList(
         items=[
             GroupReadWithMembers(
@@ -339,7 +342,8 @@ async def list_groups(
                 updated_at=g.updated_at,
                 created_by=g.created_by,
                 members=[],  # Don't include full member list in list view
-                member_count=len(g.members),
+                member_count=counts.get(g.id, 0),
+                is_idp_managed=g.id in managed,
             )
             for g in groups
         ],
@@ -382,6 +386,7 @@ async def get_group(
                 for user, gm in members
             ],
             member_count=len(members),
+            is_idp_managed=group_id in await service.managed_group_ids(),
         )
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
@@ -465,6 +470,7 @@ async def update_group(
                 for user, gm in members
             ],
             member_count=len(members),
+            is_idp_managed=group_id in await service.managed_group_ids(),
         )
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
@@ -521,6 +527,8 @@ async def add_group_member(
     try:
         await service.add_group_member(group_id, params.user_id)
         return {"message": "Member added successfully"}
+    except TracecatConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
     except TracecatValidationError as e:
@@ -553,6 +561,8 @@ async def remove_group_member(
     service = RBACService(session, role=role)
     try:
         await service.remove_group_member(group_id, user_id)
+    except TracecatConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 

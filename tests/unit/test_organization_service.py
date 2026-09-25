@@ -11,11 +11,17 @@ from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tests.support.membership import grant_org_membership
+from tests.support.membership import (
+    grant_org_membership,
+    seed_external_group,
+    seed_external_group_members,
+    seed_external_user,
+)
 from tracecat import config
 from tracecat.auth.api_keys import ORG_API_KEY_PREFIX, generate_managed_api_key
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
+from tracecat.authz.enums import ScimConnectionStatus
 from tracecat.authz.membership import ensure_member
 from tracecat.authz.scopes import ORG_ADMIN_SCOPES, ORG_MEMBER_SCOPES, ORG_OWNER_SCOPES
 from tracecat.authz.seeding import (
@@ -24,14 +30,17 @@ from tracecat.authz.seeding import (
 )
 from tracecat.db.models import (
     AccessToken,
+    ExternalGroupMapping,
     Group,
     GroupMember,
+    GroupRoleAssignment,
     Invitation,
     MCPRefreshToken,
     Membership,
     Organization,
     OrganizationMembership,
     RoleScope,
+    ScimConnection,
     Scope,
     ServiceAccount,
     ServiceAccountApiKey,
@@ -50,9 +59,11 @@ from tracecat.db.models import (
 )
 from tracecat.exceptions import (
     TracecatAuthorizationError,
+    TracecatConflictError,
     TracecatValidationError,
 )
 from tracecat.invitations.enums import InvitationStatus
+from tracecat.invitations.router import create_invitation
 from tracecat.invitations.schemas import InvitationCreate, InvitationGrant
 from tracecat.invitations.service import (
     InvitationService,
@@ -670,6 +681,186 @@ class TestOrganizationServiceDeleteMember:
         # Verify superuser was NOT deleted
         result = await session.execute(select(User).where(User.id == superuser.id))  # pyright: ignore[reportArgumentType]
         assert result.scalar_one_or_none() is not None
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        "connection_status,blocked",
+        [
+            (ScimConnectionStatus.ACTIVE, True),
+            (ScimConnectionStatus.PENDING, False),
+            (None, False),
+        ],
+    )
+    async def test_delete_member_requires_an_activated_directory_to_block(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        user_in_org1: User,
+        admin_in_org1: User,
+        connection_status: ScimConnectionStatus | None,
+        blocked: bool,
+    ) -> None:
+        await seed_external_user(
+            session, organization_id=org1.id, user_id=user_in_org1.id
+        )
+        if connection_status is not None:
+            session.add(
+                ScimConnection(
+                    organization_id=org1.id,
+                    key_id=uuid.uuid4().hex,
+                    hashed="x",
+                    salt="x",
+                    preview="scim_test",
+                    status=connection_status,
+                )
+            )
+            await session.flush()
+        service = OrgService(session, role=create_admin_role(org1.id, admin_in_org1.id))
+        if blocked:
+            with pytest.raises(TracecatConflictError, match="identity provider"):
+                await service.delete_member(user_in_org1.id)
+        else:
+            await service.delete_member(user_in_org1.id)
+        assert (
+            await session.get(OrganizationMembership, (user_in_org1.id, org1.id))
+            is not None
+        ) == blocked
+
+    @pytest.mark.anyio
+    async def test_delete_scim_managed_member_allowed_with_bypass(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        user_in_org1: User,
+        admin_in_org1: User,
+    ):
+        """allow_idp_managed is the SCIM deprovisioning path's own escape hatch."""
+        session.add(
+            ScimConnection(
+                organization_id=org1.id,
+                key_id=uuid.uuid4().hex,
+                hashed="x",
+                salt="x",
+                preview="scim_test",
+                status=ScimConnectionStatus.ACTIVE,
+            )
+        )
+        await seed_external_user(
+            session, organization_id=org1.id, user_id=user_in_org1.id
+        )
+
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = OrgService(session, role=role)
+
+        await service.delete_member(user_in_org1.id, allow_idp_managed=True)
+
+        assert (
+            await session.scalar(
+                select(OrganizationMembership).where(
+                    OrganizationMembership.user_id == user_in_org1.id,
+                    OrganizationMembership.organization_id == org1.id,
+                )
+            )
+            is None
+        )
+
+    @pytest.mark.anyio
+    async def test_delete_superuser_takes_precedence_over_scim_guard(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+    ):
+        """A SCIM-managed superuser still fails on the superuser check first."""
+        superuser = User(
+            id=uuid.uuid4(),
+            email=f"superuser-{uuid.uuid4().hex[:8]}@example.com",
+            hashed_password="hashed",
+            role=UserRole.ADMIN,
+            is_active=True,
+            is_superuser=True,
+            is_verified=True,
+        )
+        session.add(superuser)
+        await session.flush()
+
+        await seed_external_user(session, organization_id=org1.id, user_id=superuser.id)
+        await grant_org_membership(
+            session, user_id=superuser.id, organization_id=org1.id
+        )
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = OrgService(session, role=role)
+
+        with pytest.raises(TracecatAuthorizationError, match="Cannot delete superuser"):
+            await service.delete_member(superuser.id)
+
+        # The bypass does not lower the superuser bar either.
+        with pytest.raises(TracecatAuthorizationError, match="Cannot delete superuser"):
+            await service.delete_member(superuser.id, allow_idp_managed=True)
+
+    @pytest.mark.anyio
+    async def test_scim_guard_is_per_organization(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        org2: Organization,
+        user_in_org1: User,
+        admin_in_org1: User,
+    ):
+        """A linkage in one org must not block removal by another org's admin."""
+        session.add(
+            ScimConnection(
+                organization_id=org2.id,
+                key_id=uuid.uuid4().hex,
+                hashed="x",
+                salt="x",
+                preview="scim_test",
+                status=ScimConnectionStatus.ACTIVE,
+            )
+        )
+        await seed_external_user(
+            session, organization_id=org2.id, user_id=user_in_org1.id
+        )
+        service = OrgService(session, role=create_admin_role(org1.id, admin_in_org1.id))
+
+        # org2 owns the linkage, so org1's admin is unaffected by it.
+        await service.delete_member(user_in_org1.id)
+        assert (
+            await session.scalar(
+                select(OrganizationMembership).where(
+                    OrganizationMembership.user_id == user_in_org1.id,
+                    OrganizationMembership.organization_id == org1.id,
+                )
+            )
+            is None
+        )
+
+    @pytest.mark.anyio
+    async def test_scim_guard_blocks_the_owning_organization(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        user_in_org1: User,
+        admin_in_org1: User,
+    ):
+        """The org holding the linkage is the one refused."""
+        session.add(
+            ScimConnection(
+                organization_id=org1.id,
+                key_id=uuid.uuid4().hex,
+                hashed="x",
+                salt="x",
+                preview="scim_test",
+                status=ScimConnectionStatus.ACTIVE,
+            )
+        )
+        await seed_external_user(
+            session, organization_id=org1.id, user_id=user_in_org1.id
+        )
+        service = OrgService(session, role=create_admin_role(org1.id, admin_in_org1.id))
+
+        with pytest.raises(TracecatConflictError, match="identity provider"):
+            await service.delete_member(user_in_org1.id)
 
     @pytest.mark.anyio
     async def test_delete_nonexistent_member_raises(
@@ -1887,3 +2078,280 @@ class TestOrganizationServiceInvitations:
             await accept_invitation_for_user(
                 session, user_id=user_in_org2.id, token=invitation.token
             )
+
+
+class TestOrganizationScimInviteWarning:
+    """Manual invites into a SCIM-provisioned org carry a standing-exception warning."""
+
+    @staticmethod
+    async def _connect_scim(
+        session: AsyncSession, organization_id: uuid.UUID
+    ) -> ScimConnection:
+        connection = ScimConnection(
+            id=uuid.uuid4(),
+            organization_id=organization_id,
+            key_id=uuid.uuid4().hex[:32],
+            hashed=uuid.uuid4().hex,
+            salt=uuid.uuid4().hex,
+            preview="scim_...abcd",
+        )
+        session.add(connection)
+        await session.commit()
+        return connection
+
+    @pytest.mark.anyio
+    async def test_is_scim_connected_false_without_connection(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+    ):
+        service = InvitationService(
+            session, role=create_admin_role(org1.id, admin_in_org1.id)
+        )
+
+        assert await service.is_scim_connected() is False
+
+    @pytest.mark.anyio
+    async def test_is_scim_connected_true_with_connection(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+    ):
+        await self._connect_scim(session, org1.id)
+        service = InvitationService(
+            session, role=create_admin_role(org1.id, admin_in_org1.id)
+        )
+
+        assert await service.is_scim_connected() is True
+
+    @pytest.mark.anyio
+    async def test_is_scim_connected_ignores_other_org_connection(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        org2: Organization,
+        admin_in_org1: User,
+    ):
+        await self._connect_scim(session, org2.id)
+        service = InvitationService(
+            session, role=create_admin_role(org1.id, admin_in_org1.id)
+        )
+
+        assert await service.is_scim_connected() is False
+
+    @pytest.mark.anyio
+    async def test_create_invitation_warns_in_scim_org(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+        org1_member_role: DBRole,
+    ):
+        await self._connect_scim(session, org1.id)
+        role = create_admin_role(org1.id, admin_in_org1.id)
+
+        response = await create_invitation(
+            role=role,
+            session=session,
+            params=InvitationCreate(
+                email="manual@example.com",
+                grants=[InvitationGrant(role_id=org1_member_role.id)],
+            ),
+        )
+
+        assert response.warning is not None
+        assert "manual@example.com" in response.warning
+        assert "deprovisioned" in response.warning
+
+    @pytest.mark.anyio
+    async def test_create_invitation_has_no_warning_without_scim(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+        org1_member_role: DBRole,
+    ):
+        role = create_admin_role(org1.id, admin_in_org1.id)
+
+        response = await create_invitation(
+            role=role,
+            session=session,
+            params=InvitationCreate(
+                email="manual-no-scim@example.com",
+                grants=[InvitationGrant(role_id=org1_member_role.id)],
+            ),
+        )
+
+        assert response.warning is None
+
+
+@pytest.mark.anyio
+class TestOrganizationServiceTraceMemberAccess:
+    """Member access traces group role sources without merging workspaces."""
+
+    async def test_trace_groups_sources_by_role_and_workspace(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        user_in_org1: User,
+        admin_in_org1: User,
+    ):
+        """Retain every source while returning each role once per workspace."""
+        await seed_system_roles_for_org(session, org1.id)
+        group_role = (
+            await session.execute(
+                select(DBRole.id).where(
+                    DBRole.organization_id == org1.id,
+                    DBRole.slug == "organization-member",
+                )
+            )
+        ).scalar_one()
+
+        manual_group = Group(
+            id=uuid.uuid4(), name="manual-grp", organization_id=org1.id
+        )
+        second_manual_group = Group(
+            id=uuid.uuid4(), name="second-manual-grp", organization_id=org1.id
+        )
+        idp_group = Group(id=uuid.uuid4(), name="idp-grp", organization_id=org1.id)
+        workspace = Workspace(
+            id=uuid.uuid4(), name="trace-workspace", organization_id=org1.id
+        )
+        session.add_all([manual_group, second_manual_group, idp_group, workspace])
+        await session.flush()
+        for group in (manual_group, second_manual_group, idp_group):
+            session.add(
+                GroupRoleAssignment(
+                    organization_id=org1.id,
+                    group_id=group.id,
+                    workspace_id=None,
+                    role_id=group_role,
+                )
+            )
+        for group in (manual_group, second_manual_group):
+            session.add(
+                GroupMember(
+                    group_id=group.id,
+                    user_id=user_in_org1.id,
+                    organization_id=org1.id,
+                )
+            )
+        session.add(
+            GroupRoleAssignment(
+                organization_id=org1.id,
+                group_id=manual_group.id,
+                workspace_id=workspace.id,
+                role_id=group_role,
+            )
+        )
+        await session.flush()
+
+        external_user_id = await seed_external_user(
+            session, organization_id=org1.id, user_id=user_in_org1.id
+        )
+        external_group = await seed_external_group(
+            session, organization_id=org1.id, external_id="idp-trace"
+        )
+        await seed_external_group_members(
+            session,
+            external_group_id=external_group.id,
+            external_user_ids=[external_user_id],
+        )
+        session.add(
+            ExternalGroupMapping(
+                id=uuid.uuid4(),
+                organization_id=org1.id,
+                external_group_id=external_group.id,
+                group_id=idp_group.id,
+            )
+        )
+        await session.flush()
+
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        trace = await OrgService(session, role=role).trace_member_access(
+            user_in_org1.id
+        )
+
+        assert trace.user_id == user_in_org1.id
+        assert len(trace.roles) == 2
+        org_role, workspace_role = trace.roles
+        assert org_role.role_id == workspace_role.role_id == group_role
+        assert org_role.workspace_id is None
+        assert [source.type for source in org_role.sources] == [
+            "direct",
+            "group",
+            "group",
+            "idp_group",
+        ]
+        idp_source = org_role.sources[-1]
+        assert idp_source.group_id == idp_group.id
+        assert idp_source.group_name == "idp-grp"
+        assert idp_source.external_group_id == external_group.id
+        manual_sources = [s for s in org_role.sources if s.type == "group"]
+        assert {s.group_id for s in manual_sources} == {
+            manual_group.id,
+            second_manual_group.id,
+        }
+        assert all(s.external_group_id is None for s in manual_sources)
+        assert workspace_role.workspace_id == workspace.id
+        assert len(workspace_role.sources) == 1
+        assert workspace_role.sources[0].group_id == manual_group.id
+
+    async def test_inactive_external_user_drops_the_idp_source(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        user_in_org1: User,
+        admin_in_org1: User,
+    ):
+        """An inactive IdP user contributes no source; direct access remains."""
+        await seed_system_roles_for_org(session, org1.id)
+        group_role = (
+            await session.execute(
+                select(DBRole.id).where(
+                    DBRole.organization_id == org1.id,
+                    DBRole.slug == "organization-member",
+                )
+            )
+        ).scalar_one()
+        idp_group = Group(id=uuid.uuid4(), name="idp-only", organization_id=org1.id)
+        session.add(idp_group)
+        await session.flush()
+        session.add(
+            GroupRoleAssignment(
+                organization_id=org1.id,
+                group_id=idp_group.id,
+                workspace_id=None,
+                role_id=group_role,
+            )
+        )
+        external_user_id = await seed_external_user(
+            session, organization_id=org1.id, user_id=user_in_org1.id, active=False
+        )
+        external_group = await seed_external_group(
+            session, organization_id=org1.id, external_id="idp-inactive"
+        )
+        await seed_external_group_members(
+            session,
+            external_group_id=external_group.id,
+            external_user_ids=[external_user_id],
+        )
+        session.add(
+            ExternalGroupMapping(
+                id=uuid.uuid4(),
+                organization_id=org1.id,
+                external_group_id=external_group.id,
+                group_id=idp_group.id,
+            )
+        )
+        await session.flush()
+
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        trace = await OrgService(session, role=role).trace_member_access(
+            user_in_org1.id
+        )
+
+        assert len(trace.roles) == 1
+        assert [source.type for source in trace.roles[0].sources] == ["direct"]

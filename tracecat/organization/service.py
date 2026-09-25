@@ -5,8 +5,8 @@ from contextlib import asynccontextmanager
 from typing import Any
 from typing import cast as type_cast
 
-from sqlalchemy import and_, cast, delete, select
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import String, and_, cast, delete, func, literal, select, union_all
+from sqlalchemy.dialects.postgresql import UUID, aggregate_order_by
 from sqlalchemy.orm import contains_eager
 
 from tracecat.audit.logger import audit_log
@@ -17,27 +17,41 @@ from tracecat.auth.users import (
     get_user_manager_context,
 )
 from tracecat.authz.controls import has_scope, require_scope
+from tracecat.authz.enums import ScimConnectionStatus
 from tracecat.authz.membership import (
     drop_workspace_membership_mirror,
     lock_role_changes,
 )
 from tracecat.db.models import (
     AccessToken,
+    ExternalGroup,
+    ExternalGroupMapping,
+    ExternalGroupMember,
+    ExternalUser,
     Group,
     GroupMember,
+    GroupRoleAssignment,
     Organization,
     OrganizationMembership,
+    ScimConnection,
     User,
+    UserRoleAssignment,
     Workspace,
 )
+from tracecat.db.models import Role as DBRole
 from tracecat.exceptions import (
     TracecatAuthorizationError,
+    TracecatConflictError,
     TracecatNotFoundError,
 )
 from tracecat.identifiers import SessionID, UserID
 from tracecat.organization.management import (
     delete_organization_with_cleanup,
     validate_organization_delete_confirmation,
+)
+from tracecat.organization.schemas import (
+    MemberAccessTrace,
+    MemberRoleRead,
 )
 from tracecat.service import BaseOrgService
 
@@ -103,7 +117,14 @@ class OrgService(BaseOrgService):
 
     @require_scope("org:member:remove")
     @audit_log(resource_type="organization_member", action="delete")
-    async def delete_member(self, user_id: UserID) -> None:
+    async def delete_member(
+        self,
+        user_id: UserID,
+        *,
+        allow_idp_managed: bool = False,
+        member: User | None = None,
+        commit: bool = True,
+    ) -> None:
         """
         Remove a member of the organization.
 
@@ -114,16 +135,53 @@ class OrgService(BaseOrgService):
         that revokes their organization-scoped MCP tokens. It raises an
         authorization error for superusers, as superusers cannot be removed.
 
+        The identity provider is the source of truth for the users it manages,
+        so an actively linked member cannot be removed here: the next sync would
+        re-provision them and the removal would silently revert. The linkage is
+        per-tenant, so another organization's admin is unaffected.
+
         Args:
             user_id (UserID): The unique identifier of the user to be removed.
+            allow_idp_managed (bool): Bypass the guard. Reserved for the SCIM
+                deprovisioning path, which removes the member precisely because
+                the provider has already deprovisioned them.
+            member (User | None): An already-resolved member, for a caller whose
+                own preceding writes remove the last row this lookup joins on.
+            commit (bool): Commit on success. The SCIM path passes ``False`` so
+                deactivation and removal land in one transaction.
 
         Raises:
             TracecatAuthorizationError: If the user is a superuser and cannot be deleted.
+            TracecatConflictError: If the user is managed by the identity
+                provider and ``allow_idp_managed`` is not set.
         """
         await lock_role_changes(self.session, self.organization_id)
-        user = await self.get_member(user_id)
+        user = member if member is not None else await self.get_member(user_id)
+        # Checked before the provider guard: a superuser is never removable
+        # here, whichever directory happens to manage them.
         if user.is_superuser:
             raise TracecatAuthorizationError("Cannot delete superuser")
+
+        idp_managed = await self.session.scalar(
+            select(
+                select(ExternalUser.id)
+                .join(
+                    ScimConnection,
+                    ScimConnection.organization_id == ExternalUser.organization_id,
+                )
+                .where(
+                    ScimConnection.status == ScimConnectionStatus.ACTIVE,
+                    ExternalUser.user_id == user_id,
+                    ExternalUser.organization_id == self.organization_id,
+                    ExternalUser.active,
+                )
+                .exists()
+            )
+        )
+        if idp_managed and not allow_idp_managed:
+            raise TracecatConflictError(
+                "Member is managed by the identity provider; deprovision them there."
+            )
 
         await self.session.execute(
             delete(AccessToken).where(type_cast(Any, AccessToken.user_id) == user.id)
@@ -152,7 +210,129 @@ class OrgService(BaseOrgService):
                 OrganizationMembership.organization_id == self.organization_id,
             )
         )
-        await self.session.commit()
+        if commit:
+            await self.session.commit()
+
+    @require_scope("org:member:read")
+    async def trace_member_access(self, user_id: UserID) -> MemberAccessTrace:
+        """Trace a member's roles to their direct and group sources.
+
+        Group sources by role and workspace so a role appears once even when
+        held through multiple groups or a direct assignment.
+
+        Args:
+            user_id: The member whose access is being traced.
+
+        Returns:
+            The member's roles and the direct, group, or IdP group sources of each.
+        """
+        direct = (
+            select(
+                UserRoleAssignment.workspace_id,
+                DBRole.id.label("role_id"),
+                DBRole.name.label("role_name"),
+                literal(None, type_=UUID).label("group_id"),
+                literal(None, type_=String).label("group_name"),
+                literal(None, type_=UUID).label("external_group_id"),
+                literal(None, type_=String).label("external_group_display_name"),
+            )
+            .join(DBRole, DBRole.id == UserRoleAssignment.role_id)
+            .where(
+                UserRoleAssignment.user_id == user_id,
+                UserRoleAssignment.organization_id == self.organization_id,
+            )
+        )
+        via_group = (
+            select(
+                GroupRoleAssignment.workspace_id,
+                DBRole.id,
+                DBRole.name,
+                Group.id.label("group_id"),
+                Group.name.label("group_name"),
+                literal(None, type_=UUID).label("external_group_id"),
+                literal(None, type_=String).label("external_group_display_name"),
+            )
+            .join(DBRole, DBRole.id == GroupRoleAssignment.role_id)
+            .join(Group, Group.id == GroupRoleAssignment.group_id)
+            .join(GroupMember, GroupMember.group_id == GroupRoleAssignment.group_id)
+            .where(
+                GroupMember.user_id == user_id,
+                GroupRoleAssignment.organization_id == self.organization_id,
+            )
+        )
+        via_idp = (
+            select(
+                GroupRoleAssignment.workspace_id,
+                DBRole.id,
+                DBRole.name,
+                Group.id.label("group_id"),
+                Group.name.label("group_name"),
+                ExternalGroup.id.label("external_group_id"),
+                ExternalGroup.display_name.label("external_group_display_name"),
+            )
+            .join(DBRole, DBRole.id == GroupRoleAssignment.role_id)
+            .join(Group, Group.id == GroupRoleAssignment.group_id)
+            .join(
+                ExternalGroupMapping,
+                ExternalGroupMapping.group_id == GroupRoleAssignment.group_id,
+            )
+            .join(
+                ExternalGroup,
+                ExternalGroup.id == ExternalGroupMapping.external_group_id,
+            )
+            .join(
+                ExternalGroupMember,
+                ExternalGroupMember.external_group_id == ExternalGroup.id,
+            )
+            .join(ExternalUser, ExternalUser.id == ExternalGroupMember.external_user_id)
+            .where(
+                ExternalUser.user_id == user_id,
+                ExternalUser.active,
+                GroupRoleAssignment.organization_id == self.organization_id,
+            )
+        )
+        sources = union_all(
+            direct.add_columns(literal("direct").label("type")),
+            via_group.add_columns(literal("group").label("type")),
+            via_idp.add_columns(literal("idp_group").label("type")),
+        ).subquery()
+        stmt = (
+            select(
+                sources.c.role_id,
+                sources.c.role_name,
+                sources.c.workspace_id,
+                func.jsonb_agg(
+                    aggregate_order_by(
+                        func.jsonb_build_object(
+                            "type",
+                            sources.c.type,
+                            "group_id",
+                            sources.c.group_id,
+                            "group_name",
+                            sources.c.group_name,
+                            "external_group_id",
+                            sources.c.external_group_id,
+                            "external_group_display_name",
+                            sources.c.external_group_display_name,
+                        ),
+                        sources.c.type,
+                        sources.c.group_id,
+                        sources.c.external_group_id,
+                    )
+                ).label("sources"),
+            )
+            .group_by(sources.c.role_id, sources.c.role_name, sources.c.workspace_id)
+            .order_by(
+                sources.c.workspace_id.nulls_first(),
+                sources.c.role_name,
+                sources.c.role_id,
+            )
+        )
+        rows = (await self.session.execute(stmt)).mappings().all()
+        return MemberAccessTrace(
+            user_id=user_id,
+            roles=[MemberRoleRead.model_validate(row) for row in rows],
+        )
 
     @require_scope("org:member:update")
     @audit_log(resource_type="organization_member", action="update")

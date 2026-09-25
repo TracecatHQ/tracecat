@@ -276,6 +276,11 @@ class TestEnsureCanGrantScopes:
 class TestSystemRoleScopes:
     """Tests for system role scope definitions."""
 
+    def test_scim_management_defaults_to_org_administrators(self):
+        assert "org:scim:manage" in ORG_OWNER_SCOPES
+        assert "org:scim:manage" in ORG_ADMIN_SCOPES
+        assert "org:scim:manage" not in ORG_MEMBER_SCOPES | ADMIN_SCOPES
+
     def test_viewer_includes_inbox_read(self):
         assert "inbox:read" in VIEWER_SCOPES
 

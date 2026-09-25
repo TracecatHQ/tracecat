@@ -5,7 +5,6 @@ from fastapi import (
     APIRouter,
     Depends,
     FastAPI,
-    HTTPException,
     Request,
     Response,
     status,
@@ -16,8 +15,18 @@ from fastapi.responses import ORJSONResponse
 from pydantic import BaseModel
 from pydantic_core import to_jsonable_python
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.exceptions import HTTPException
 from tracecat_ee.admin.router import router as admin_router
 from tracecat_ee.agent.approvals.router import router as approvals_router
+from tracecat_ee.scim.protocol import (
+    is_scim_path,
+    scim_error_response,
+    scim_http_exception_handler,
+    scim_validation_exception_handler,
+)
+from tracecat_ee.scim.protocol import router as scim_protocol_router
+from tracecat_ee.scim.router import connections_router as scim_connections_router
+from tracecat_ee.scim.router import mappings_router as scim_mappings_router
 from tracecat_ee.watchtower.router import router as watchtower_router
 
 from tracecat import __version__ as APP_VERSION
@@ -114,7 +123,10 @@ from tracecat.exceptions import (
     EntitlementRequired,
     ScopeDeniedError,
     TracecatAuthorizationError,
+    TracecatConflictError,
     TracecatException,
+    TracecatNotFoundError,
+    TracecatValidationError,
 )
 from tracecat.feature_flags import FeatureFlag, FlagLike, is_feature_enabled
 from tracecat.feature_flags.router import router as feature_flags_router
@@ -311,6 +323,73 @@ async def setup_rbac_defaults(session: AsyncSession):
 
 
 # Catch-all exception handler to prevent stack traces from leaking
+def _install_scim_exception_handlers(app: FastAPI) -> None:
+    """Render failures on the SCIM paths as the specification's error envelope.
+
+    Okta's SPEC suite reads error bodies, so the app-wide JSON shapes are not
+    acceptable there. Each handler defers to the app-wide one off the SCIM
+    paths, keeping the rest of the API unchanged.
+    """
+
+    async def _http_async(request: Request, exc: Exception) -> Response:
+        if isinstance(exc, HTTPException) and is_scim_path(request):
+            return scim_http_exception_handler(request, exc)
+        return await http_exception_handler(request, exc)
+
+    def _validation(request: Request, exc: Exception) -> Response:
+        if isinstance(exc, RequestValidationError) and is_scim_path(request):
+            return scim_validation_exception_handler(request, exc)
+        return validation_exception_handler(request, exc)
+
+    # Domain errors differ only in the status and scimType they render.
+    scim_statuses: dict[type[Exception], tuple[int, str | None]] = {
+        TracecatNotFoundError: (status.HTTP_404_NOT_FOUND, None),
+        TracecatValidationError: (status.HTTP_400_BAD_REQUEST, "invalidValue"),
+        TracecatConflictError: (status.HTTP_409_CONFLICT, None),
+    }
+
+    def _domain(exc_type: type[Exception]) -> Callable[[Request, Exception], Response]:
+        status_code, scim_type = scim_statuses[exc_type]
+
+        def handler(request: Request, exc: Exception) -> Response:
+            if is_scim_path(request):
+                return scim_error_response(
+                    status_code=status_code, detail=str(exc), scim_type=scim_type
+                )
+            return tracecat_exception_handler(request, exc)
+
+        return handler
+
+    def _authorization(request: Request, exc: Exception) -> Response:
+        if is_scim_path(request):
+            return scim_error_response(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
+            )
+        return authorization_exception_handler(request, exc)
+
+    def _scope_denied(request: Request, exc: Exception) -> Response:
+        if is_scim_path(request):
+            return _authorization(request, exc)
+        return scope_denied_exception_handler(request, exc)
+
+    async def _unexpected(request: Request, exc: Exception) -> Response:
+        response = await generic_exception_handler(request, exc)
+        if is_scim_path(request):
+            return scim_error_response(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="An unexpected error occurred. Please try again later.",
+            )
+        return response
+
+    app.add_exception_handler(Exception, _unexpected)
+    app.add_exception_handler(TracecatAuthorizationError, _authorization)
+    app.add_exception_handler(ScopeDeniedError, _scope_denied)
+    app.add_exception_handler(HTTPException, _http_async)
+    app.add_exception_handler(RequestValidationError, _validation)
+    for exc_type in scim_statuses:
+        app.add_exception_handler(exc_type, _domain(exc_type))
+
+
 def validation_exception_handler(request: Request, exc: Exception) -> Response:
     """Improves visiblity of 422 errors."""
     if not isinstance(exc, RequestValidationError):
@@ -583,6 +662,13 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(rbac_roles_router)
     app.include_router(rbac_groups_router)
     app.include_router(rbac_assignments_router)
+
+    # EE-only SCIM connection and mapping administration - gated by RBAC entitlement
+    app.include_router(scim_connections_router)
+    app.include_router(scim_mappings_router)
+    # The protocol surface authenticates with a connection token, so it carries
+    # no session dependency and is mounted unguarded by the org gate.
+    app.include_router(scim_protocol_router)
     app.include_router(
         fastapi_users.get_users_router(UserRead, UserUpdate),
         prefix="/users",
@@ -673,6 +759,9 @@ def create_app(**kwargs) -> FastAPI:
     )
     app.add_exception_handler(ScopeDeniedError, scope_denied_exception_handler)
     app.add_exception_handler(HTTPException, http_exception_handler)
+    # SCIM paths answer with the spec's error envelope, so their handlers wrap
+    # the app-wide ones rather than replacing them.
+    _install_scim_exception_handlers(app)
 
     # Middleware
     app.add_middleware(RequestLoggingMiddleware)

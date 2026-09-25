@@ -11,14 +11,20 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tests.support.membership import grant_org_membership
+from tests.support.membership import (
+    grant_org_membership,
+    seed_external_group,
+    seed_external_group_members,
+    seed_external_user,
+)
 from tracecat.auth.types import Role
 from tracecat.authz.seeding import seed_system_scopes
 from tracecat.authz.service import resolve_grantable_role
 from tracecat.db.models import (
+    ExternalGroupMapping,
     Group,
     GroupMember,
     GroupRoleAssignment,
@@ -141,7 +147,7 @@ async def _assign_via_group(
     user: User,
     role: DBRole,
     workspace_id: uuid.UUID | None = None,
-) -> None:
+) -> Group:
     group = Group(
         id=uuid.uuid4(),
         name=f"group-{uuid.uuid4().hex[:8]}",
@@ -159,6 +165,7 @@ async def _assign_via_group(
         )
     )
     await session.commit()
+    return group
 
 
 def _role_claiming(user: User, org: Organization, scopes: set[str]) -> Role:
@@ -219,11 +226,13 @@ async def test_allows_when_database_exceeds_cached_scopes(
     assert resolved.id == target.id
 
 
+@pytest.mark.parametrize("idp_managed", [False, True])
 async def test_group_membership_counts_toward_ceiling(
     session: AsyncSession,
     org: Organization,
     granter_user: User,
     seeded: None,
+    idp_managed: bool,
 ) -> None:
     """Privileges held solely via group membership authorize a grant.
 
@@ -231,7 +240,30 @@ async def test_group_membership_counts_toward_ceiling(
     query unions the group path, not just direct assignments.
     """
     owner_role = await _make_role(session, org, "Owner", [OWNER_SCOPE])
-    await _assign_via_group(session, org, granter_user, owner_role)
+    group = await _assign_via_group(session, org, granter_user, owner_role)
+    if idp_managed:
+        await session.execute(
+            delete(GroupMember).where(GroupMember.group_id == group.id)
+        )
+        external_user_id = await seed_external_user(
+            session, organization_id=org.id, user_id=granter_user.id
+        )
+        external_group = await seed_external_group(
+            session, organization_id=org.id, external_id="idp-granters"
+        )
+        await seed_external_group_members(
+            session,
+            external_group_id=external_group.id,
+            external_user_ids=[external_user_id],
+        )
+        session.add(
+            ExternalGroupMapping(
+                organization_id=org.id,
+                external_group_id=external_group.id,
+                group_id=group.id,
+            )
+        )
+        await session.commit()
     target = await _make_role(session, org, "Owner Target", [OWNER_SCOPE])
 
     granter = _role_claiming(granter_user, org, set())

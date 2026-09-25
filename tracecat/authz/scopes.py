@@ -128,6 +128,8 @@ ORG_OWNER_SCOPES: frozenset[str] = frozenset(
         "org:rbac:create",
         "org:rbac:update",
         "org:rbac:delete",
+        # SCIM provisioning administration
+        "org:scim:manage",
         # Service account management
         "org:service_account:read",
         "org:service_account:create",
@@ -229,6 +231,8 @@ ORG_ADMIN_SCOPES: frozenset[str] = frozenset(
         "org:rbac:create",
         "org:rbac:update",
         "org:rbac:delete",
+        # SCIM provisioning administration
+        "org:scim:manage",
         # Service account management
         "org:service_account:read",
         "org:service_account:create",

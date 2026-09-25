@@ -86,7 +86,15 @@ async def create_invitation(
             detail="An invitation already exists for this email",
         ) from e
 
-    return InvitationRead.model_validate(invitation)
+    read = InvitationRead.model_validate(invitation)
+    if await service.is_scim_connected():
+        read.warning = (
+            f"{invitation.email} is invited manually into an organization "
+            "provisioned by an identity provider. They will not be projected "
+            "into mapped groups and will not be deprovisioned when the identity "
+            "provider removes them."
+        )
+    return read
 
 
 @router.post("/accept")

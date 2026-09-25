@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -377,3 +378,26 @@ async def test_mirror_helper_sets_and_restores_rls_bypass(
 
     assert seen == [RLS_BYPASS_ON]
     assert await read_bypass() == RLS_BYPASS_OFF
+
+
+def test_membership_deletion_has_one_choke_point() -> None:
+    """Only ``OrgService.delete_member`` may delete a membership row.
+
+    Removal revokes sessions, drops the legacy mirror and cascades role paths.
+    A second deletion site would skip that and silently strand access.
+    """
+    repo_root = Path(__file__).resolve().parents[2]
+    roots = (repo_root / "tracecat", repo_root / "packages")
+    allowed = repo_root / "tracecat" / "organization" / "service.py"
+
+    offenders = [
+        path.relative_to(repo_root)
+        for root in roots
+        for path in root.rglob("*.py")
+        if path != allowed and "delete(OrganizationMembership)" in path.read_text()
+    ]
+
+    assert offenders == [], (
+        "Delete membership rows through OrgService.delete_member, not directly: "
+        f"{offenders}"
+    )

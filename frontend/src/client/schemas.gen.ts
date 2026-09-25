@@ -14637,6 +14637,95 @@ export const $ExpressionValidationResponse = {
   title: "ExpressionValidationResponse",
 } as const
 
+export const $ExternalGroupMappingCreate = {
+  properties: {
+    external_group_id: {
+      type: "string",
+      format: "uuid",
+      title: "External Group Id",
+    },
+    group_id: {
+      type: "string",
+      format: "uuid",
+      title: "Group Id",
+    },
+  },
+  type: "object",
+  required: ["external_group_id", "group_id"],
+  title: "ExternalGroupMappingCreate",
+  description: "Request to project an external group into a Tracecat group.",
+} as const
+
+export const $ExternalGroupMappingRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    external_group_id: {
+      type: "string",
+      format: "uuid",
+      title: "External Group Id",
+    },
+    external_group_external_id: {
+      type: "string",
+      title: "External Group External Id",
+    },
+    external_group_display_name: {
+      type: "string",
+      title: "External Group Display Name",
+    },
+    group_id: {
+      type: "string",
+      format: "uuid",
+      title: "Group Id",
+    },
+    group_name: {
+      type: "string",
+      title: "Group Name",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "external_group_id",
+    "external_group_external_id",
+    "external_group_display_name",
+    "group_id",
+    "group_name",
+  ],
+  title: "ExternalGroupMappingRead",
+  description:
+    "A mapping joined with both sides, so a list renders without refetching.",
+} as const
+
+export const $ExternalGroupRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    external_id: {
+      type: "string",
+      title: "External Id",
+    },
+    display_name: {
+      type: "string",
+      title: "Display Name",
+    },
+    member_count: {
+      type: "integer",
+      title: "Member Count",
+    },
+  },
+  type: "object",
+  required: ["id", "external_id", "display_name", "member_count"],
+  title: "ExternalGroupRead",
+  description: "A synced IdP group offered to an admin as a mapping source.",
+} as const
+
 export const $ExternalObject = {
   properties: {
     typename: {
@@ -15728,8 +15817,15 @@ export const $GroupMemberRead = {
       title: "Last Name",
     },
     added_at: {
-      type: "string",
-      format: "date-time",
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Added At",
     },
   },
@@ -15799,6 +15895,11 @@ export const $GroupReadWithMembers = {
       type: "integer",
       title: "Member Count",
       default: 0,
+    },
+    is_idp_managed: {
+      type: "boolean",
+      title: "Is Idp Managed",
+      default: false,
     },
   },
   type: "object",
@@ -17052,6 +17153,17 @@ export const $InvitationRead = {
       },
       type: "array",
       title: "Grants",
+    },
+    warning: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Warning",
     },
   },
   type: "object",
@@ -19381,6 +19493,129 @@ export const $McpIntegrationMappingSelection = {
     "User-selected local MCP integration for one source integration reference.",
 } as const
 
+export const $MemberAccessTrace = {
+  properties: {
+    user_id: {
+      type: "string",
+      format: "uuid",
+      title: "User Id",
+    },
+    roles: {
+      items: {
+        $ref: "#/components/schemas/MemberRoleRead",
+      },
+      type: "array",
+      title: "Roles",
+    },
+  },
+  type: "object",
+  required: ["user_id", "roles"],
+  title: "MemberAccessTrace",
+  description: "A member's roles and the sources of each role.",
+} as const
+
+export const $MemberRoleRead = {
+  properties: {
+    role_id: {
+      type: "string",
+      format: "uuid",
+      title: "Role Id",
+    },
+    role_name: {
+      type: "string",
+      title: "Role Name",
+    },
+    workspace_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workspace Id",
+    },
+    sources: {
+      items: {
+        $ref: "#/components/schemas/MemberRoleSource",
+      },
+      type: "array",
+      title: "Sources",
+    },
+  },
+  type: "object",
+  required: ["role_id", "role_name", "workspace_id", "sources"],
+  title: "MemberRoleRead",
+  description:
+    "A member's role in one workspace or organization, with its sources.",
+} as const
+
+export const $MemberRoleSource = {
+  properties: {
+    type: {
+      $ref: "#/components/schemas/MemberRoleSourceType",
+    },
+    group_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Group Id",
+    },
+    group_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Group Name",
+    },
+    external_group_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "External Group Id",
+    },
+    external_group_display_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "External Group Display Name",
+    },
+  },
+  type: "object",
+  required: ["type"],
+  title: "MemberRoleSource",
+  description:
+    "A direct assignment or group through which a member holds a role.",
+} as const
+
+export const $MemberRoleSourceType = {
+  type: "string",
+  enum: ["direct", "group", "idp_group"],
+} as const
+
 export const $MentionTargetType = {
   type: "string",
   enum: ["agent"],
@@ -20535,6 +20770,84 @@ export const $OutputType = {
       type: "object",
     },
   ],
+} as const
+
+export const $Page_ExternalGroupMappingRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/ExternalGroupMappingRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Next-page cursor",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Previous-page cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "Page[ExternalGroupMappingRead]",
+} as const
+
+export const $Page_ExternalGroupRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/ExternalGroupRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Next-page cursor",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Previous-page cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "Page[ExternalGroupRead]",
 } as const
 
 export const $PayloadChangedEventRead = {
@@ -23338,7 +23651,7 @@ export const $Role = {
   properties: {
     type: {
       type: "string",
-      enum: ["user", "service", "service_account"],
+      enum: ["user", "service", "service_account", "scim"],
       title: "Type",
     },
     workspace_id: {
@@ -23400,6 +23713,18 @@ export const $Role = {
         },
       ],
       title: "Service Account Id",
+    },
+    scim_connection_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Scim Connection Id",
     },
     service_id: {
       type: "string",
@@ -24417,6 +24742,725 @@ export const $ScheduleUpdate = {
   },
   type: "object",
   title: "ScheduleUpdate",
+} as const
+
+export const $ScimActivationRequest = {
+  properties: {
+    mappings: {
+      items: {
+        $ref: "#/components/schemas/ExternalGroupMappingCreate",
+      },
+      type: "array",
+      title: "Mappings",
+    },
+  },
+  type: "object",
+  title: "ScimActivationRequest",
+  description: "Mappings to install as the connection is activated.",
+} as const
+
+export const $ScimActivationReviewRead = {
+  properties: {
+    users: {
+      items: {
+        $ref: "#/components/schemas/ScimDirectoryUserRead",
+      },
+      type: "array",
+      title: "Users",
+    },
+    plans: {
+      items: {
+        $ref: "#/components/schemas/ScimMappingPlanRead",
+      },
+      type: "array",
+      title: "Plans",
+    },
+  },
+  type: "object",
+  required: ["users", "plans"],
+  title: "ScimActivationReviewRead",
+  description:
+    "What arrived while the connection was pending, and the effect of each mapping.",
+} as const
+
+export const $ScimConnectionRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    preview: {
+      type: "string",
+      title: "Preview",
+    },
+    status: {
+      $ref: "#/components/schemas/ScimConnectionStatus",
+    },
+    last_used_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Used At",
+    },
+    revoked_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Revoked At",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "organization_id",
+    "preview",
+    "status",
+    "created_at",
+    "updated_at",
+  ],
+  title: "ScimConnectionRead",
+  description:
+    "Status of an organization's SCIM connection. Never carries the token.",
+} as const
+
+export const $ScimConnectionStatus = {
+  type: "string",
+  enum: ["pending", "active", "disabled"],
+  title: "ScimConnectionStatus",
+  description: "Whether the provider's pushes admit users yet.",
+} as const
+
+export const $ScimConnectionTokenRead = {
+  properties: {
+    connection: {
+      $ref: "#/components/schemas/ScimConnectionRead",
+    },
+    token: {
+      type: "string",
+      title: "Token",
+    },
+  },
+  type: "object",
+  required: ["connection", "token"],
+  title: "ScimConnectionTokenRead",
+  description:
+    "A freshly issued token. The raw value is returned exactly once.",
+} as const
+
+export const $ScimDirectoryUserRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    email: {
+      type: "string",
+      title: "Email",
+    },
+    external_id: {
+      type: "string",
+      title: "External Id",
+    },
+    active: {
+      type: "boolean",
+      title: "Active",
+    },
+  },
+  type: "object",
+  required: ["id", "email", "external_id", "active"],
+  title: "ScimDirectoryUserRead",
+  description: "A user the provider has pushed into this organization.",
+} as const
+
+export const $ScimEmail = {
+  properties: {
+    value: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Value",
+    },
+    primary: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Primary",
+    },
+    type: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Type",
+    },
+  },
+  type: "object",
+  title: "ScimEmail",
+  description: "One entry of a user's multi-valued email attribute.",
+} as const
+
+export const $ScimGroupMemberRef = {
+  properties: {
+    value: {
+      type: "string",
+      title: "Value",
+    },
+    display: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Display",
+    },
+  },
+  type: "object",
+  required: ["value"],
+  title: "ScimGroupMemberRef",
+  description: "A member reference inside a Group resource.",
+} as const
+
+export const $ScimGroupRequest = {
+  properties: {
+    schemas: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Schemas",
+    },
+    displayName: {
+      type: "string",
+      maxLength: 255,
+      title: "Displayname",
+    },
+    externalId: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Externalid",
+    },
+    members: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/ScimGroupMemberRef",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Members",
+    },
+  },
+  type: "object",
+  required: ["displayName"],
+  title: "ScimGroupRequest",
+  description: "An inbound Group resource on POST or PUT.",
+} as const
+
+export const $ScimGroupResource = {
+  properties: {
+    schemas: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Schemas",
+    },
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    displayName: {
+      type: "string",
+      title: "Displayname",
+    },
+    externalId: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Externalid",
+    },
+    members: {
+      items: {
+        $ref: "#/components/schemas/ScimGroupMemberRef",
+      },
+      type: "array",
+      title: "Members",
+    },
+    meta: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ScimMeta",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  required: ["id", "displayName"],
+  title: "ScimGroupResource",
+  description: "A Group resource as returned to the provider.",
+} as const
+
+export const $ScimListResponse = {
+  properties: {
+    schemas: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Schemas",
+    },
+    totalResults: {
+      type: "integer",
+      title: "Totalresults",
+    },
+    startIndex: {
+      type: "integer",
+      title: "Startindex",
+    },
+    itemsPerPage: {
+      type: "integer",
+      title: "Itemsperpage",
+    },
+    Resources: {
+      items: {
+        additionalProperties: true,
+        type: "object",
+      },
+      type: "array",
+      title: "Resources",
+    },
+  },
+  type: "object",
+  required: ["totalResults", "startIndex", "itemsPerPage"],
+  title: "ScimListResponse",
+  description: "The envelope every SCIM query returns, paginated 1-based.",
+} as const
+
+export const $ScimMappingPlanRead = {
+  properties: {
+    external_group_id: {
+      type: "string",
+      format: "uuid",
+      title: "External Group Id",
+    },
+    external_group_display_name: {
+      type: "string",
+      title: "External Group Display Name",
+    },
+    group_id: {
+      type: "string",
+      format: "uuid",
+      title: "Group Id",
+    },
+    group_name: {
+      type: "string",
+      title: "Group Name",
+    },
+    manual_members_purged: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      title: "Manual Members Purged",
+    },
+    manual_member_emails: {
+      additionalProperties: {
+        type: "string",
+      },
+      propertyNames: {
+        format: "uuid",
+      },
+      type: "object",
+      title: "Manual Member Emails",
+    },
+    users_gaining_access: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      title: "Users Gaining Access",
+    },
+    users_losing_access: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      title: "Users Losing Access",
+    },
+  },
+  type: "object",
+  required: [
+    "external_group_id",
+    "external_group_display_name",
+    "group_id",
+    "group_name",
+    "manual_members_purged",
+    "manual_member_emails",
+    "users_gaining_access",
+    "users_losing_access",
+  ],
+  title: "ScimMappingPlanRead",
+  description:
+    "What activating one proposed mapping would do to a Tracecat group.",
+} as const
+
+export const $ScimMeta = {
+  properties: {
+    resourceType: {
+      type: "string",
+      title: "Resourcetype",
+    },
+    created: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Created",
+    },
+    lastModified: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Lastmodified",
+    },
+    location: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Location",
+    },
+  },
+  type: "object",
+  required: ["resourceType"],
+  title: "ScimMeta",
+  description: "Resource metadata. Only the fields Okta reads are emitted.",
+} as const
+
+export const $ScimName = {
+  properties: {
+    givenName: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Givenname",
+    },
+    familyName: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Familyname",
+    },
+    formatted: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Formatted",
+    },
+  },
+  type: "object",
+  title: "ScimName",
+  description: "A user's name components as pushed by the provider.",
+} as const
+
+export const $ScimPatchOp = {
+  properties: {
+    schemas: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Schemas",
+    },
+    Operations: {
+      items: {
+        $ref: "#/components/schemas/ScimPatchOperation",
+      },
+      type: "array",
+      title: "Operations",
+    },
+  },
+  type: "object",
+  required: ["Operations"],
+  title: "ScimPatchOp",
+  description: "A PATCH request body.",
+} as const
+
+export const $ScimPatchOperation = {
+  properties: {
+    op: {
+      type: "string",
+      enum: ["add", "remove", "replace"],
+      title: "Op",
+    },
+    path: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Path",
+    },
+    value: {
+      title: "Value",
+    },
+  },
+  type: "object",
+  required: ["op"],
+  title: "ScimPatchOperation",
+  description: `One entry of a PatchOp \`\`Operations\`\` array.
+
+\`\`op\`\` is case-insensitive per RFC 7644; Azure sends \`\`Add\`\` where Okta
+sends \`\`add\`\`.`,
+} as const
+
+export const $ScimUserRequest = {
+  properties: {
+    schemas: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Schemas",
+    },
+    userName: {
+      type: "string",
+      maxLength: 320,
+      title: "Username",
+    },
+    externalId: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Externalid",
+    },
+    active: {
+      type: "boolean",
+      title: "Active",
+      default: true,
+    },
+    name: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ScimName",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    displayName: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Displayname",
+    },
+    emails: {
+      items: {
+        $ref: "#/components/schemas/ScimEmail",
+      },
+      type: "array",
+      title: "Emails",
+    },
+  },
+  type: "object",
+  required: ["userName"],
+  title: "ScimUserRequest",
+  description: `An inbound User resource on POST or PUT.
+
+\`\`userName\`\` is the only attribute Tracecat stores as identity; the display
+and name attributes are accepted so providers do not see a validation
+failure, but nothing here maps onto a Tracecat column.`,
+} as const
+
+export const $ScimUserResource = {
+  properties: {
+    schemas: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Schemas",
+    },
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    userName: {
+      type: "string",
+      title: "Username",
+    },
+    externalId: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Externalid",
+    },
+    active: {
+      type: "boolean",
+      title: "Active",
+      default: true,
+    },
+    name: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ScimName",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    displayName: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Displayname",
+    },
+    emails: {
+      items: {
+        $ref: "#/components/schemas/ScimEmail",
+      },
+      type: "array",
+      title: "Emails",
+    },
+    meta: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ScimMeta",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  required: ["id", "userName"],
+  title: "ScimUserResource",
+  description: "A User resource as returned to the provider.",
 } as const
 
 export const $ScopeCreate = {

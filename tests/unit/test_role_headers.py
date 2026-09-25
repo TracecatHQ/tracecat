@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
+from fastapi import HTTPException
 from pydantic import ValidationError
 
 from tracecat.auth.credentials import _authenticate_service, compute_effective_scopes
@@ -283,3 +284,28 @@ class TestAuthenticateServiceRoundtrip:
         assert await compute_effective_scopes(reconstructed) == frozenset(
             {"workflow:read"}
         )
+
+    async def test_authenticate_service_rejects_forwarded_scim_role(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A SCIM role never crosses a service hop, not even as a plain service."""
+        monkeypatch.setattr(
+            "tracecat.auth.credentials.config.TRACECAT__SERVICE_KEY", "test-key"
+        )
+        monkeypatch.setattr(
+            "tracecat.auth.credentials.config.TRACECAT__SERVICE_ROLES_WHITELIST",
+            ["tracecat-api"],
+        )
+        scim_role = Role(
+            type="scim",
+            service_id="tracecat-api",
+            organization_id=uuid4(),
+            scim_connection_id=uuid4(),
+            scopes=frozenset({"org:member:remove"}),
+        )
+        request = MagicMock()
+        request.headers = MockHeaders(scim_role.to_headers())
+
+        with pytest.raises(HTTPException) as exc:
+            await _authenticate_service(request, api_key="test-key")
+        assert exc.value.status_code == 401

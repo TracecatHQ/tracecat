@@ -25,6 +25,7 @@ from tracecat.authz.membership import (
 from tracecat.authz.scopes import ORG_MEMBER_ROLE_SLUG, PRESET_ROLE_SCOPES
 from tracecat.authz.service import resolve_grantable_role, resolve_granter_scopes
 from tracecat.db.models import (
+    ExternalGroupMapping,
     Group,
     GroupMember,
     GroupRoleAssignment,
@@ -34,6 +35,7 @@ from tracecat.db.models import (
     User,
     UserRoleAssignment,
     Workspace,
+    effective_group_members,
 )
 from tracecat.db.models import (
     Role as DBRole,
@@ -46,7 +48,7 @@ from tracecat.exceptions import (
 )
 from tracecat.identifiers import WorkspaceID
 from tracecat.service import BaseOrgService
-from tracecat_ee.rbac.schemas import UserRoleAssignmentsReplace
+from tracecat_ee.rbac.schemas import GroupMemberRead, UserRoleAssignmentsReplace
 
 
 class RBACService(BaseOrgService):
@@ -372,6 +374,27 @@ class RBACService(BaseOrgService):
         result = await self.session.execute(stmt)
         await self._ensure_can_grant_scopes(result.scalars().all())
 
+    async def _reject_if_idp_managed(self, group_id: UUID) -> None:
+        """Reject hand-editing a group whose membership the provider owns.
+
+        Raises:
+            TracecatConflictError: A mapping projects members into the group.
+        """
+        mapped = await self.session.scalar(
+            select(
+                select(ExternalGroupMapping.id)
+                .where(
+                    ExternalGroupMapping.group_id == group_id,
+                    ExternalGroupMapping.organization_id == self.organization_id,
+                )
+                .exists()
+            )
+        )
+        if mapped:
+            raise TracecatConflictError(
+                "This group's membership is managed by the identity provider."
+            )
+
     # =========================================================================
     # Group Management
     # =========================================================================
@@ -462,6 +485,7 @@ class RBACService(BaseOrgService):
         await lock_role_changes(self.session, self.organization_id)
         # Verify group exists
         await self._assert_group_exists(group_id)
+        await self._reject_if_idp_managed(group_id)
         await self._ensure_group_membership_assignable(group_id)
 
         # Verify user belongs to this organization
@@ -492,6 +516,7 @@ class RBACService(BaseOrgService):
     async def remove_group_member(self, group_id: UUID, user_id: UUID) -> None:
         """Remove a user from a group."""
         await lock_role_changes(self.session, self.organization_id)
+        await self._reject_if_idp_managed(group_id)
         stmt = (
             select(GroupMember)
             .join(Group, Group.id == GroupMember.group_id)
@@ -509,22 +534,48 @@ class RBACService(BaseOrgService):
         await self.session.delete(member)
         await self.session.commit()
 
+    async def managed_group_ids(self) -> set[UUID]:
+        """Return mapped targets for ownership labels and membership controls."""
+        stmt = select(ExternalGroupMapping.group_id).where(
+            ExternalGroupMapping.organization_id == self.organization_id
+        )
+        return set((await self.session.execute(stmt)).scalars())
+
+    async def group_member_counts(self) -> dict[UUID, int]:
+        """Count unique effective members across manual and eligible IdP paths."""
+        stmt = (
+            select(effective_group_members.c.group_id, func.count())
+            .join(Group, Group.id == effective_group_members.c.group_id)
+            .where(Group.organization_id == self.organization_id)
+            .group_by(effective_group_members.c.group_id)
+        )
+        return dict((await self.session.execute(stmt)).tuples().all())
+
     async def list_group_members(
         self, group_id: UUID
-    ) -> Sequence[tuple[User, GroupMember]]:
-        """List members of a group with their membership info."""
+    ) -> Sequence[tuple[User, GroupMemberRead]]:
+        """List unique effective members, without inventing shadow timestamps."""
         stmt = (
-            select(User, GroupMember)
-            .join(GroupMember, GroupMember.user_id == User.id)
-            .join(Group, Group.id == GroupMember.group_id)
-            .where(
-                GroupMember.group_id == group_id,
-                Group.organization_id == self.organization_id,
-            )
+            select(User, effective_group_members.c.added_at)
+            .join(effective_group_members, effective_group_members.c.user_id == User.id)
+            .join(Group, Group.id == effective_group_members.c.group_id)
+            .where(Group.id == group_id, Group.organization_id == self.organization_id)
             .order_by(User.email)
         )
-        result = await self.session.execute(stmt)
-        return result.tuples().all()
+        rows = (await self.session.execute(stmt)).tuples().all()
+        return [
+            (
+                user,
+                GroupMemberRead(
+                    user_id=user.id,
+                    email=user.email,
+                    first_name=user.first_name,
+                    last_name=user.last_name,
+                    added_at=added_at,
+                ),
+            )
+            for user, added_at in rows
+        ]
 
     # =========================================================================
     # Group Assignment Management
@@ -553,8 +604,9 @@ class RBACService(BaseOrgService):
             stmt = stmt.where(GroupRoleAssignment.group_id == group_id)
         if user_id is not None:
             stmt = stmt.join(
-                GroupMember, GroupMember.group_id == GroupRoleAssignment.group_id
-            ).where(GroupMember.user_id == user_id)
+                effective_group_members,
+                effective_group_members.c.group_id == GroupRoleAssignment.group_id,
+            ).where(effective_group_members.c.user_id == user_id)
         if workspace_id is not None:
             stmt = stmt.where(GroupRoleAssignment.workspace_id == workspace_id)
 
