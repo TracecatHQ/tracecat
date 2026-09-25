@@ -524,17 +524,16 @@ test("a disconnected directory offers a new token instead", async () => {
   expect(screen.queryByRole("menuitem", { name: "Disconnect" })).toBeNull()
 })
 
-test("a picker with several groups shows a count, not one name", () => {
+test("a picker with several groups lists every name A to Z", () => {
   connection = { ...initialConnection, status: "active" }
   mappings = [
+    { ...mapped, id: "third", group_id: "third", group_name: "Third team" },
     mapped,
     { ...mapped, id: "second", group_id: "other", group_name: "Other team" },
-    { ...mapped, id: "third", group_id: "third", group_name: "Third team" },
   ]
   renderScim()
   const picker = screen.getByRole("button", { name: PICKER })
-  expect(picker).toHaveTextContent("3 groups")
-  expect(picker).not.toHaveTextContent("Target team")
+  expect(picker).toHaveTextContent("Other teamTarget teamThird team")
 })
 
 test("activation discloses inactive members leaving the organization", async () => {
