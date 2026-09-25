@@ -4,8 +4,8 @@ import { ChevronRightIcon, CircleMinusIcon, CirclePlusIcon } from "lucide-react"
 import { type ReactNode, useState } from "react"
 import type {
   ScimActivationReviewRead,
-  ScimMappingPlanRead,
-  ScimRemovalPlanRead,
+  ScimDirectoryUserRead,
+  ScimGroupTransitionRead,
 } from "@/client"
 import { Button } from "@/components/ui/button"
 import {
@@ -74,9 +74,6 @@ function MembershipDiff({ lines }: { lines: DiffLine[] }) {
   )
 }
 
-/** Mapping-level change, shown with the workspace-sync change icons. */
-type RowChange = "added" | "removed"
-
 type CountPart = { kind: Exclude<DiffKind, "unchanged">; value: number }
 
 const COUNT_SIGN: Record<CountPart["kind"], string> = {
@@ -107,19 +104,52 @@ function Counts({ parts }: { parts: CountPart[] }) {
   )
 }
 
+/** The IdP groups a change adds or removes as sources of a Tracecat group. */
+function SourceChanges({
+  added,
+  removed,
+}: {
+  added: string[]
+  removed: string[]
+}) {
+  if (added.length === 0 && removed.length === 0) return null
+  return (
+    <div className="flex flex-wrap gap-x-3 gap-y-1 pb-2 text-xs text-muted-foreground">
+      {added.map((name) => (
+        <span key={`added-${name}`} className="flex items-center gap-1">
+          <CirclePlusIcon
+            aria-label="Source added"
+            className="size-3 text-diff-marker-added"
+          />
+          {name}
+        </span>
+      ))}
+      {removed.map((name) => (
+        <span key={`removed-${name}`} className="flex items-center gap-1">
+          <CircleMinusIcon
+            aria-label="Source removed"
+            className="size-3 text-diff-marker-removed"
+          />
+          {name}
+        </span>
+      ))}
+    </div>
+  )
+}
+
 /** One collapsible change: a title, its counts, and the diff behind it. */
 function ChangeRow({
-  change,
   title,
   counts,
   lines,
   defaultOpen,
+  children,
 }: {
-  change: RowChange
   title: ReactNode
   counts: CountPart[]
   lines: DiffLine[]
   defaultOpen: boolean
+  children?: ReactNode
 }) {
   const [open, setOpen] = useState(defaultOpen)
   return (
@@ -131,24 +161,14 @@ function ChangeRow({
             open && "rotate-90"
           )}
         />
-        {change === "added" ? (
-          <CirclePlusIcon
-            aria-label="Added"
-            className="size-3.5 shrink-0 text-diff-marker-added"
-          />
-        ) : (
-          <CircleMinusIcon
-            aria-label="Removed"
-            className="size-3.5 shrink-0 text-diff-marker-removed"
-          />
-        )}
         <span className="min-w-0 flex-1 truncate text-sm font-medium">
           {title}
         </span>
         <Counts parts={counts} />
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <div className="px-3 pb-3 pl-[3.25rem]">
+        <div className="px-3 pb-3 pl-8">
+          {children}
           <MembershipDiff lines={lines} />
         </div>
       </CollapsibleContent>
@@ -158,40 +178,47 @@ function ChangeRow({
 
 const MAX_LISTED = 10
 
-function planLines(plan: ScimMappingPlanRead): DiffLine[] {
-  const losing = new Set(plan.users_losing_access)
-  const inSource = new Set(plan.manual_members_in_source ?? [])
-  const manualEmail = (id: string) =>
-    plan.manual_member_emails?.[id] ?? "User details unavailable"
-  const lines: DiffLine[] = plan.users_losing_access.map((id) => ({
-    key: `lose-${id}`,
-    kind: "removed",
-    text: manualEmail(id),
-    note: "manual → removed",
-  }))
-  const gaining = plan.users_gaining_access
-  for (const id of gaining.slice(0, MAX_LISTED)) {
+const SOURCE_LABEL = { manual: "manual", idp: "IdP" } as const
+
+function groupLines(group: ScimGroupTransitionRead): DiffLine[] {
+  const email = (value: string) => value || "User details unavailable"
+  const from = (source: "manual" | "idp" | null | undefined) =>
+    source ? SOURCE_LABEL[source] : "manual"
+  const lines: DiffLine[] = []
+  for (const change of group.changes) {
+    if (change.kind === "lose") {
+      lines.push({
+        key: change.user_id,
+        kind: "removed",
+        text: email(change.email),
+        note: `${from(change.from_source)} → removed`,
+      })
+    }
+  }
+  const gains = group.changes.filter((change) => change.kind === "gain")
+  for (const change of gains.slice(0, MAX_LISTED)) {
     lines.push({
-      key: `gain-${id}`,
+      key: change.user_id,
       kind: "added",
-      text: plan.gaining_member_emails?.[id] ?? "User details unavailable",
+      text: email(change.email),
     })
   }
-  if (gaining.length > MAX_LISTED) {
+  if (gains.length > MAX_LISTED) {
     lines.push({
       key: "gain-more",
       kind: "added",
-      text: `${plural(gaining.length - MAX_LISTED, "more user", "more users")}`,
+      text: plural(gains.length - MAX_LISTED, "more user", "more users"),
     })
   }
-  for (const id of plan.manual_members_purged) {
-    if (losing.has(id)) continue
-    lines.push({
-      key: `keep-${id}`,
-      kind: "modified",
-      text: manualEmail(id),
-      note: inSource.has(id) ? "manual → IdP" : "manual → IdP (other mapping)",
-    })
+  for (const change of group.changes) {
+    if (change.kind === "to_idp" || change.kind === "to_manual") {
+      lines.push({
+        key: change.user_id,
+        kind: "modified",
+        text: email(change.email),
+        note: change.kind === "to_idp" ? "manual → IdP" : "IdP → manual",
+      })
+    }
   }
   if (lines.length === 0) {
     lines.push({
@@ -203,50 +230,35 @@ function planLines(plan: ScimMappingPlanRead): DiffLine[] {
   return lines
 }
 
-function removalLines(plan: ScimRemovalPlanRead): DiffLine[] {
-  const email = (id: string) =>
-    plan.member_emails?.[id] ?? "User details unavailable"
-  const lines: DiffLine[] = [
-    ...plan.losing_access.map((id) => ({
-      key: `lose-${id}`,
-      kind: "removed" as const,
-      text: email(id),
-      note: "IdP → removed",
-    })),
-    ...plan.becoming_manual.map((id) => ({
-      key: `manual-${id}`,
-      kind: "modified" as const,
-      text: email(id),
-      note: "IdP → manual",
-    })),
+function groupCounts(group: ScimGroupTransitionRead): CountPart[] {
+  const count = (kinds: string[]) =>
+    group.changes.filter((change) => kinds.includes(change.kind)).length
+  return [
+    { kind: "added", value: count(["gain"]) },
+    { kind: "removed", value: count(["lose"]) },
+    { kind: "modified", value: count(["to_idp", "to_manual"]) },
   ]
-  if (lines.length === 0) {
-    lines.push({
-      key: "none",
-      kind: "unchanged",
-      text: "No membership changes",
-    })
+}
+
+function userLine(user: ScimDirectoryUserRead): DiffLine {
+  if (user.active) {
+    return { key: user.id, kind: "added", text: user.email, note: "joins" }
   }
-  return lines
-}
-
-function removalCounts(plan: ScimRemovalPlanRead): CountPart[] {
-  return [
-    { kind: "removed", value: plan.losing_access.length },
-    { kind: "modified", value: plan.becoming_manual.length },
-  ]
-}
-
-function planCounts(plan: ScimMappingPlanRead): CountPart[] {
-  const losing = new Set(plan.users_losing_access)
-  return [
-    { kind: "added", value: plan.users_gaining_access.length },
-    { kind: "removed", value: losing.size },
-    {
-      kind: "modified",
-      value: plan.manual_members_purged.filter((id) => !losing.has(id)).length,
-    },
-  ]
+  if (user.is_member) {
+    // Activation deprovisions inactive members, with their roles and groups.
+    return {
+      key: user.id,
+      kind: "removed",
+      text: user.email,
+      note: "inactive → leaves the organization",
+    }
+  }
+  return {
+    key: user.id,
+    kind: "unchanged",
+    text: user.email,
+    note: "inactive, skipped",
+  }
 }
 
 /** Review what activation or a batch of mapping changes does, then confirm. */
@@ -264,11 +276,16 @@ export function ScimReviewDialog({
   onConfirm: () => Promise<void>
 }) {
   const joining = review.users.filter((user) => user.active)
-  const missingLabels = review.plans.some((plan) =>
-    plan.manual_members_purged.some((id) => !plan.manual_member_emails?.[id])
+  const leaving = review.users.filter((user) => !user.active && user.is_member)
+  const groups = review.groups ?? []
+  const missingLabels = groups.some((group) =>
+    group.changes.some((change) => !change.email)
   )
-  const removals = review.removals ?? []
-  const changeCount = review.plans.length + removals.length
+  const changeCount = groups.reduce(
+    (total, group) =>
+      total + group.added_sources.length + group.removed_sources.length,
+    0
+  )
   const confirmLabel = activation
     ? `Activate for ${plural(joining.length, "user", "users")}`
     : `Apply ${plural(changeCount, "change", "changes")}`
@@ -295,10 +312,12 @@ export function ScimReviewDialog({
         <div className="divide-y rounded-md border">
           {activation && (
             <ChangeRow
-              change="added"
               title="Organization members"
-              counts={[{ kind: "added", value: joining.length }]}
-              defaultOpen={false}
+              counts={[
+                { kind: "added", value: joining.length },
+                { kind: "removed", value: leaving.length },
+              ]}
+              defaultOpen={leaving.length > 0}
               lines={
                 review.users.length === 0
                   ? [
@@ -308,34 +327,25 @@ export function ScimReviewDialog({
                         text: "No users have been pushed yet",
                       },
                     ]
-                  : review.users.map((user) => ({
-                      key: user.id,
-                      kind: user.active ? "added" : "unchanged",
-                      text: user.email,
-                      note: user.active ? "joins" : "inactive, skipped",
-                    }))
+                  : review.users.map(userLine)
               }
             />
           )}
-          {review.plans.map((plan) => (
+          {groups.map((group) => (
             <ChangeRow
-              change="added"
-              key={`${plan.external_group_id}-${plan.group_id}`}
-              title={`${plan.external_group_display_name} → ${plan.group_name}`}
-              counts={planCounts(plan)}
-              defaultOpen={plan.users_losing_access.length > 0}
-              lines={planLines(plan)}
-            />
-          ))}
-          {removals.map((plan) => (
-            <ChangeRow
-              key={plan.mapping_id}
-              title={`${plan.external_group_display_name} → ${plan.group_name}`}
-              change="removed"
-              counts={removalCounts(plan)}
-              defaultOpen
-              lines={removalLines(plan)}
-            />
+              key={group.group_id}
+              title={group.group_name}
+              counts={groupCounts(group)}
+              defaultOpen={group.changes.some(
+                (change) => change.kind === "lose"
+              )}
+              lines={groupLines(group)}
+            >
+              <SourceChanges
+                added={group.added_sources}
+                removed={group.removed_sources}
+              />
+            </ChangeRow>
           ))}
         </div>
 

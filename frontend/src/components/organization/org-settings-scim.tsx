@@ -5,6 +5,7 @@ import type {
   ExternalGroupMappingRead,
   ScimActivationReviewRead,
   ScimConnectionRead,
+  ScimReviewRequest,
 } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { EntitlementRequiredEmptyState } from "@/components/entitlement-required-empty-state"
@@ -92,7 +93,11 @@ function StatusBadge({ state }: { state: ConnectionState }) {
   )
 }
 
-type Review = { review: ScimActivationReviewRead; activation: boolean }
+type Review = {
+  review: ScimActivationReviewRead
+  activation: boolean
+  request: ScimReviewRequest
+}
 
 function sameTarget(a: ScimMappingDraft, b: ScimMappingDraft): boolean {
   return (
@@ -142,15 +147,18 @@ export function OrgSettingsScim() {
   const reviewIsPending = review.isPending || activate.isPending
 
   function openReview(activation: boolean) {
+    const request: ScimReviewRequest = {
+      mappings: drafts.map((item) => ({
+        external_group_id: item.external_group_id,
+        group_id: item.group_id,
+      })),
+      delete: activation ? [] : removals.map((mapping) => mapping.id),
+    }
     void review
-      .mutateAsync({
-        mappings: drafts.map((item) => ({
-          external_group_id: item.external_group_id,
-          group_id: item.group_id,
-        })),
-        delete: activation ? [] : removals.map((mapping) => mapping.id),
-      })
-      .then((result) => setPendingReview({ review: result, activation }))
+      .mutateAsync(request)
+      .then((result) =>
+        setPendingReview({ review: result, activation, request })
+      )
       .catch(() => {})
   }
 
@@ -182,18 +190,11 @@ export function OrgSettingsScim() {
   async function confirmReview() {
     if (!pendingReview) return
     // Apply exactly what was reviewed, even if the table changed meanwhile.
-    const proposed = pendingReview.review.plans.map((plan) => ({
-      external_group_id: plan.external_group_id,
-      group_id: plan.group_id,
-    }))
+    const { mappings = [], delete: removed = [] } = pendingReview.request
     if (pendingReview.activation) {
-      await activate.mutateAsync(proposed)
+      await activate.mutateAsync(mappings)
     } else {
-      await applyMappingChanges({
-        create: proposed,
-        delete:
-          pendingReview.review.removals?.map((plan) => plan.mapping_id) ?? [],
-      })
+      await applyMappingChanges({ create: mappings, delete: removed })
     }
     setDrafts([])
     setRemovals([])

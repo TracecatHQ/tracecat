@@ -63,8 +63,9 @@ from tracecat_ee.scim.schemas import (
     ScimDirectorySummaryRead,
     ScimDirectoryUserCounts,
     ScimDirectoryUserRead,
+    ScimGroupTransitionRead,
     ScimMappingPlanRead,
-    ScimRemovalPlanRead,
+    ScimMembershipChange,
 )
 
 
@@ -484,8 +485,9 @@ class SCIMService(BaseOrgService):
     ) -> None:
         """Remove then add mappings in the caller's transaction.
 
-        Removals run first so a removal that freezes members as manual rows is
-        purged again by an addition to the same group.
+        A group that loses every source keeps its full IdP membership as manual
+        rows first, so the result does not depend on removal order. Removals run
+        before additions, and an addition purges a group's manual rows.
 
         Args:
             create: Mappings to add.
@@ -496,6 +498,7 @@ class SCIMService(BaseOrgService):
                 this organization.
             TracecatConflictError: The connection is not active.
         """
+        await self._freeze_groups_losing_every_source(delete, create)
         for mapping_id in delete:
             await self.delete_mapping(mapping_id)
         for mapping in create:
@@ -535,6 +538,7 @@ class SCIMService(BaseOrgService):
                 )
             ).scalars()
         )
+        await self._freeze_groups_losing_every_source(mapping_ids, [])
         for mapping_id in mapping_ids:
             await self.delete_mapping(mapping_id)
 
@@ -560,6 +564,7 @@ class SCIMService(BaseOrgService):
 
         Args:
             proposed: The mappings the admin intends to install.
+            delete: Mapping IDs the admin intends to remove.
 
         Returns:
             The pushed users and one plan per proposed mapping. Combined access
@@ -594,8 +599,13 @@ class SCIMService(BaseOrgService):
             plan.users_gaining_access = []
             plan.gaining_member_emails = {}
             plan.users_losing_access = []
-        removals = [await self._removal_plan(mapping_id) for mapping_id in delete]
-        return ScimActivationReviewRead(users=users, plans=plans, removals=removals)
+        groups = await self._group_transitions(
+            proposed,
+            delete,
+            # Activation admits active pushed users before installing mappings.
+            assume_admitted=await self._connection_is_pending(),
+        )
+        return ScimActivationReviewRead(users=users, plans=plans, groups=groups)
 
     @require_scope("org:scim:manage")
     @audit_log(resource_type="scim_connection", action="update")
@@ -664,17 +674,30 @@ class SCIMService(BaseOrgService):
                     User.__table__.c.email,
                     ExternalUser.external_id,
                     ExternalUser.active,
+                    OrganizationMembership.user_id.is_not(None),
                 )
                 .join(User, User.__table__.c.id == ExternalUser.user_id)
+                .outerjoin(
+                    OrganizationMembership,
+                    and_(
+                        OrganizationMembership.user_id == ExternalUser.user_id,
+                        OrganizationMembership.organization_id
+                        == ExternalUser.organization_id,
+                    ),
+                )
                 .where(ExternalUser.organization_id == self.organization_id)
                 .order_by(User.__table__.c.email)
             )
         ).tuples()
         return [
             ScimDirectoryUserRead(
-                id=row_id, email=email, external_id=external_id, active=active
+                id=row_id,
+                email=email,
+                external_id=external_id,
+                active=active,
+                is_member=is_member,
             )
-            for row_id, email, external_id, active in rows
+            for row_id, email, external_id, active, is_member in rows
         ]
 
     async def _mapping_plan(
@@ -736,71 +759,205 @@ class SCIMService(BaseOrgService):
             users_losing_access=sorted(manual - incoming - already, key=str),
         )
 
-    async def _removal_plan(self, mapping_id: UUID) -> ScimRemovalPlanRead:
-        """What removing one mapping would do, mirroring ``delete_mapping``."""
-        row = (
+    async def _freeze_groups_losing_every_source(
+        self,
+        delete: Sequence[UUID],
+        create: Sequence[ExternalGroupMappingCreate],
+    ) -> None:
+        """Keep full IdP membership as manual rows for groups losing every source."""
+        for group_id in await self._groups_losing_every_source(delete, create):
+            await self._lock_group(group_id)
+            await self._freeze_idp_members_as_manual(group_id)
+
+    async def _groups_losing_every_source(
+        self,
+        delete: Sequence[UUID],
+        create: Sequence[ExternalGroupMappingCreate],
+    ) -> list[UUID]:
+        if not delete:
+            return []
+        removed = (
             await self.session.execute(
-                select(ExternalGroupMapping, ExternalGroup.display_name, Group.name)
-                .join(
-                    ExternalGroup,
-                    ExternalGroup.id == ExternalGroupMapping.external_group_id,
-                )
-                .join(Group, Group.id == ExternalGroupMapping.group_id)
-                .where(
-                    ExternalGroupMapping.id == mapping_id,
+                select(ExternalGroupMapping.id, ExternalGroupMapping.group_id).where(
+                    ExternalGroupMapping.id.in_(delete),
                     ExternalGroupMapping.organization_id == self.organization_id,
                 )
             )
-        ).first()
-        if row is None:
-            raise TracecatNotFoundError("External group mapping not found")
-        mapping, external_name, group_name = row
-
-        via_this = await self._admitted_idp_members({mapping.external_group_id})
-        becoming_manual: set[UUID] = set()
-        losing: set[UUID] = set()
-        if await self._is_last_mapping(mapping.group_id, mapping.external_group_id):
-            becoming_manual = via_this
-        else:
-            other_sources = set(
+        ).tuples()
+        removed_by_group: dict[UUID, set[UUID]] = {}
+        for mapping_id, group_id in removed:
+            removed_by_group.setdefault(group_id, set()).add(mapping_id)
+        gaining = {mapping.group_id for mapping in create}
+        losing: list[UUID] = []
+        for group_id, removed_ids in sorted(removed_by_group.items(), key=str):
+            if group_id in gaining:
+                continue
+            remaining = set(
                 (
                     await self.session.execute(
-                        select(ExternalGroupMapping.external_group_id).where(
-                            ExternalGroupMapping.group_id == mapping.group_id,
-                            ExternalGroupMapping.id != mapping.id,
+                        select(ExternalGroupMapping.id).where(
+                            ExternalGroupMapping.group_id == group_id
                         )
                     )
                 ).scalars()
             )
-            losing = (
-                via_this
-                - await self._admitted_idp_members(other_sources)
-                - await self._manual_member_ids(mapping.group_id)
-            )
-        affected = becoming_manual | losing
-        emails = (
-            dict(
-                (
-                    await self.session.execute(
-                        select(User.__table__.c.id, User.__table__.c.email).where(
-                            User.__table__.c.id.in_(affected)
-                        )
+            if remaining <= removed_ids:
+                losing.append(group_id)
+        return losing
+
+    async def _group_transitions(
+        self,
+        create: Sequence[ExternalGroupMappingCreate],
+        delete: Sequence[UUID],
+        *,
+        assume_admitted: bool,
+    ) -> list[ScimGroupTransitionRead]:
+        """Simulate ``apply_mapping_changes`` per touched Tracecat group.
+
+        Mirrors its order: groups losing every source freeze first, removals
+        run, then any addition purges the group's manual rows.
+        """
+        removed_rows = (
+            (
+                await self.session.execute(
+                    select(
+                        ExternalGroupMapping.id,
+                        ExternalGroupMapping.group_id,
+                        ExternalGroupMapping.external_group_id,
+                    ).where(
+                        ExternalGroupMapping.id.in_(delete),
+                        ExternalGroupMapping.organization_id == self.organization_id,
                     )
                 )
-                .tuples()
-                .all()
             )
-            if affected
-            else {}
+            .tuples()
+            .all()
+            if delete
+            else []
         )
-        return ScimRemovalPlanRead(
-            mapping_id=mapping.id,
-            external_group_display_name=external_name,
-            group_name=group_name,
-            becoming_manual=sorted(becoming_manual, key=str),
-            losing_access=sorted(losing, key=str),
-            member_emails=emails,
+        if len(removed_rows) != len(set(delete)):
+            raise TracecatNotFoundError("External group mapping not found")
+        for mapping in create:
+            await self._get_external_group(mapping.external_group_id)
+
+        removed_by_group: dict[UUID, set[UUID]] = {}
+        for _, group_id, external_group_id in removed_rows:
+            removed_by_group.setdefault(group_id, set()).add(external_group_id)
+        added_by_group: dict[UUID, set[UUID]] = {}
+        for mapping in create:
+            added_by_group.setdefault(mapping.group_id, set()).add(
+                mapping.external_group_id
+            )
+
+        transitions: list[ScimGroupTransitionRead] = []
+        touched = set(removed_by_group) | set(added_by_group)
+        for group_id in sorted(touched, key=str):
+            group_name = (
+                await self.session.execute(
+                    select(Group.name).where(
+                        Group.id == group_id,
+                        Group.organization_id == self.organization_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if group_name is None:
+                raise TracecatNotFoundError("Group not found")
+            removed = removed_by_group.get(group_id, set())
+            added = added_by_group.get(group_id, set())
+            sources_before = set(
+                (
+                    await self.session.execute(
+                        select(ExternalGroupMapping.external_group_id).where(
+                            ExternalGroupMapping.group_id == group_id
+                        )
+                    )
+                ).scalars()
+            )
+            sources_after = (sources_before - removed) | added
+            members = (
+                self._external_group_members
+                if assume_admitted
+                else self._admitted_idp_members
+            )
+            manual_before = await self._manual_member_ids(group_id)
+            idp_before = await members(sources_before)
+            idp_after = await members(sources_after)
+            manual_after = set(manual_before)
+            if removed and not sources_before - removed and not added:
+                manual_after |= idp_before
+            if added:
+                manual_after = set()
+
+            before = manual_before | idp_before
+            after = manual_after | idp_after
+            changes: list[tuple[UUID, str, str | None]] = []
+            for user_id in before | after:
+                was = "idp" if user_id in idp_before else "manual"
+                now = "idp" if user_id in idp_after else "manual"
+                if user_id not in before:
+                    changes.append((user_id, "gain", None))
+                elif user_id not in after:
+                    changes.append((user_id, "lose", was))
+                elif was != now:
+                    changes.append((user_id, f"to_{now}", was))
+            emails = await self._emails({user_id for user_id, _, _ in changes})
+            source_names = await self._external_group_names(removed | added)
+            transitions.append(
+                ScimGroupTransitionRead(
+                    group_id=group_id,
+                    group_name=group_name,
+                    added_sources=sorted(source_names[e] for e in added),
+                    removed_sources=sorted(source_names[e] for e in removed),
+                    changes=[
+                        ScimMembershipChange(
+                            user_id=user_id,
+                            email=emails.get(user_id, ""),
+                            kind=kind,  # pyright: ignore[reportArgumentType]
+                            from_source=source,  # pyright: ignore[reportArgumentType]
+                        )
+                        for user_id, kind, source in sorted(
+                            changes, key=lambda change: emails.get(change[0], "")
+                        )
+                    ],
+                )
+            )
+        return transitions
+
+    async def _external_group_members(self, external_group_ids: set[UUID]) -> set[UUID]:
+        """Active users the provider lists in any of these groups."""
+        members: set[UUID] = set()
+        for external_group_id in external_group_ids:
+            members |= await self._external_group_user_ids(external_group_id)
+        return members
+
+    async def _external_group_names(self, ids: set[UUID]) -> dict[UUID, str]:
+        if not ids:
+            return {}
+        rows = await self.session.execute(
+            select(ExternalGroup.id, ExternalGroup.display_name).where(
+                ExternalGroup.id.in_(ids),
+                ExternalGroup.organization_id == self.organization_id,
+            )
         )
+        return dict(rows.tuples().all())
+
+    async def _emails(self, user_ids: set[UUID]) -> dict[UUID, str]:
+        if not user_ids:
+            return {}
+        rows = await self.session.execute(
+            select(User.__table__.c.id, User.__table__.c.email).where(
+                User.__table__.c.id.in_(user_ids)
+            )
+        )
+        return dict(rows.tuples().all())
+
+    async def _connection_is_pending(self) -> bool:
+        status = await self.session.scalar(
+            select(ScimConnection.status).where(
+                ScimConnection.organization_id == self.organization_id
+            )
+        )
+        return status == ScimConnectionStatus.PENDING
 
     async def _admitted_idp_members(self, external_group_ids: set[UUID]) -> set[UUID]:
         """Active, admitted users the provider lists in any of these groups."""

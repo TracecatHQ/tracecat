@@ -54,6 +54,9 @@ def test_activation_review_combines_sources_per_target(
         service, "_external_group_user_ids", AsyncMock(side_effect=members.__getitem__)
     )
     monkeypatch.setattr(service, "_idp_member_ids", AsyncMock(return_value={existing}))
+    # This test covers per-mapping plans; group transitions have their own tests.
+    monkeypatch.setattr(service, "_group_transitions", AsyncMock(return_value=[]))
+    monkeypatch.setattr(service, "_connection_is_pending", AsyncMock(return_value=True))
     sources = [source_b, source_a] if reverse else [source_a, source_b]
     proposed = [
         ExternalGroupMappingCreate(external_group_id=sources[0], group_id=target),

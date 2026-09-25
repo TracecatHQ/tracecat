@@ -98,6 +98,8 @@ class ScimDirectoryUserRead(Schema):
     email: str
     external_id: str
     active: bool
+    # Inactive members are removed from the organization on activation.
+    is_member: bool = False
 
 
 class ScimMappingPlanRead(Schema):
@@ -116,16 +118,27 @@ class ScimMappingPlanRead(Schema):
     users_losing_access: list[UUID]
 
 
-class ScimRemovalPlanRead(Schema):
-    """What removing one mapping would do to its Tracecat group's members."""
+ScimMembershipChangeKind = Literal["gain", "lose", "to_idp", "to_manual"]
 
-    mapping_id: UUID
-    external_group_display_name: str
+
+class ScimMembershipChange(Schema):
+    """How one person's membership of a Tracecat group changes."""
+
+    user_id: UUID
+    email: str
+    kind: ScimMembershipChangeKind
+    # How the person held the group before the change, when they did.
+    from_source: Literal["manual", "idp"] | None = None
+
+
+class ScimGroupTransitionRead(Schema):
+    """The combined effect of every proposed change on one Tracecat group."""
+
+    group_id: UUID
     group_name: str
-    # The group's last mapping: its IdP members are kept as manual rows.
-    becoming_manual: list[UUID]
-    losing_access: list[UUID]
-    member_emails: dict[UUID, str]
+    added_sources: list[str]
+    removed_sources: list[str]
+    changes: list[ScimMembershipChange]
 
 
 class ScimActivationReviewRead(Schema):
@@ -133,7 +146,7 @@ class ScimActivationReviewRead(Schema):
 
     users: list[ScimDirectoryUserRead]
     plans: list[ScimMappingPlanRead]
-    removals: list[ScimRemovalPlanRead] = Field(default_factory=list)
+    groups: list[ScimGroupTransitionRead] = Field(default_factory=list)
 
 
 class ScimMappingChangesRequest(BaseModel):

@@ -813,10 +813,11 @@ async def test_review_of_a_last_mapping_removal_keeps_members_as_manual(
 
     review = await service.review_activation([], [mapping.id])
 
-    removal = review.removals[0]
-    assert removal.becoming_manual == [member.id]
-    assert removal.losing_access == []
-    assert removal.member_emails == {member.id: member.email}
+    (transition,) = review.groups
+    assert [(c.user_id, c.kind, c.email) for c in transition.changes] == [
+        (member.id, "to_manual", member.email)
+    ]
+    assert transition.removed_sources == ["idp-last"]
     # The preview matches the removal itself.
     await service.delete_mapping(mapping.id)
     assert await _manual_members(session, group.id) == {member.id}
@@ -852,9 +853,10 @@ async def test_review_of_one_of_several_mappings_names_who_loses_access(
 
     review = await service.review_activation([], [mapping.id])
 
-    removal = review.removals[0]
-    assert removal.becoming_manual == []
-    assert removal.losing_access == [only_removed.id]
+    (transition,) = review.groups
+    assert [(c.user_id, c.kind, c.from_source) for c in transition.changes] == [
+        (only_removed.id, "lose", "idp")
+    ]
 
 
 @pytest.mark.anyio
@@ -904,6 +906,114 @@ async def test_disconnect_requires_scim_management(
 
     with pytest.raises(TracecatAuthorizationError):
         await service.disconnect()
+
+
+async def _two_source_group(
+    session: AsyncSession, org: Organization, service: SCIMService
+) -> tuple[Group, list[ExternalGroupMapping], User, User]:
+    """A group fed by two IdP groups, each with one member of its own."""
+    first = await seed_external_group(
+        session, organization_id=org.id, external_id=f"idp-a-{uuid.uuid4().hex[:6]}"
+    )
+    second = await seed_external_group(
+        session, organization_id=org.id, external_id=f"idp-b-{uuid.uuid4().hex[:6]}"
+    )
+    only_first = await _pushed_member(session, org, first.id)
+    only_second = await _pushed_member(session, org, second.id)
+    group = await _make_group(session, org)
+    mappings = [
+        await service.create_mapping(external_group_id=first.id, group_id=group.id),
+        await service.create_mapping(external_group_id=second.id, group_id=group.id),
+    ]
+    return group, mappings, only_first, only_second
+
+
+@pytest.mark.anyio
+async def test_disconnect_keeps_every_sources_members(
+    session: AsyncSession, org: Organization, service: SCIMService
+) -> None:
+    """Members unique to any source stay, not just the last one removed."""
+    group, _, only_first, only_second = await _two_source_group(session, org, service)
+
+    await service.disconnect()
+
+    assert await _manual_members(session, group.id) == {only_first.id, only_second.id}
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("reverse", [False, True])
+async def test_removing_every_source_keeps_members_in_any_order(
+    session: AsyncSession, org: Organization, service: SCIMService, reverse: bool
+) -> None:
+    """A batch that removes all of a group's sources keeps all its members."""
+    group, mappings, only_first, only_second = await _two_source_group(
+        session, org, service
+    )
+    ids = [m.id for m in mappings]
+
+    review = await service.review_activation([], ids[::-1] if reverse else ids)
+    await service.apply_mapping_changes(create=[], delete=ids[::-1] if reverse else ids)
+
+    (transition,) = review.groups
+    assert {(c.user_id, c.kind) for c in transition.changes} == {
+        (only_first.id, "to_manual"),
+        (only_second.id, "to_manual"),
+    }
+    assert await _manual_members(session, group.id) == {only_first.id, only_second.id}
+
+
+@pytest.mark.anyio
+async def test_review_discloses_losses_when_a_source_is_replaced(
+    session: AsyncSession, org: Organization, service: SCIMService
+) -> None:
+    """Swapping a group's only source shows who the swap removes."""
+    old_source = await seed_external_group(
+        session, organization_id=org.id, external_id="idp-old"
+    )
+    new_source = await seed_external_group(
+        session, organization_id=org.id, external_id="idp-new"
+    )
+    leaving = await _pushed_member(session, org, old_source.id)
+    joining = await _pushed_member(session, org, new_source.id)
+    group = await _make_group(session, org)
+    old = await service.create_mapping(
+        external_group_id=old_source.id, group_id=group.id
+    )
+    swap = [
+        ExternalGroupMappingCreate(external_group_id=new_source.id, group_id=group.id)
+    ]
+
+    review = await service.review_activation(swap, [old.id])
+    await service.apply_mapping_changes(create=swap, delete=[old.id])
+
+    (transition,) = review.groups
+    assert {(c.user_id, c.kind) for c in transition.changes} == {
+        (leaving.id, "lose"),
+        (joining.id, "gain"),
+    }
+    assert transition.added_sources == ["idp-new"]
+    assert transition.removed_sources == ["idp-old"]
+    # The preview matches the swap itself.
+    assert await _manual_members(session, group.id) == set()
+    assert await _idp_members(session, group.id) == {joining.id}
+
+
+@pytest.mark.anyio
+async def test_activation_review_marks_inactive_members(
+    session: AsyncSession, org: Organization, service: SCIMService
+) -> None:
+    """Inactive pushed users who are already members are flagged for removal."""
+    member = await _make_user(session, org)
+    await session.execute(
+        update(ExternalUser)
+        .where(ExternalUser.user_id == member.id)
+        .values(active=False)
+    )
+
+    review = await service.review_activation([])
+
+    (user,) = [u for u in review.users if u.email == member.email]
+    assert (user.active, user.is_member) == (False, True)
 
 
 async def _is_member(

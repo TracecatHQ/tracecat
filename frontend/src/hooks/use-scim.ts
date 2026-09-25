@@ -2,7 +2,6 @@
 
 import {
   type ExternalGroupMappingCreate,
-  type ExternalGroupMappingRead,
   type ScimActivationReviewRead,
   type ScimConnectionRead,
   type ScimConnectionTokenRead,
@@ -13,8 +12,6 @@ import {
   type ScimReviewRequest,
   scimActivateScimConnection,
   scimApplyScimMappingChanges,
-  scimCreateScimMapping,
-  scimDeleteScimMapping,
   scimDisconnectScim,
   scimGetScimConnection,
   scimGetScimDirectorySummary,
@@ -184,52 +181,6 @@ export function useScimMappings() {
     getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
   })
 
-  const { mutateAsync: createMapping, isPending: createMappingIsPending } =
-    useMutation<
-      ExternalGroupMappingRead,
-      TracecatApiError,
-      { externalGroupId: string; groupId: string }
-    >({
-      mutationFn: async ({ externalGroupId, groupId }) =>
-        await scimCreateScimMapping({
-          requestBody: {
-            external_group_id: externalGroupId,
-            group_id: groupId,
-          },
-        }),
-      onSuccess: async (mapping) => {
-        await queryClient.invalidateQueries({ queryKey: SCIM_MAPPINGS_KEY })
-        await queryClient.invalidateQueries({
-          queryKey: SCIM_DIRECTORY_SUMMARY_KEY,
-        })
-        await queryClient.invalidateQueries({ queryKey: ["rbac-groups"] })
-        toast({
-          title: "Mapping created",
-          description: `${mapping.external_group_display_name} now grants membership of ${mapping.group_name}.`,
-        })
-      },
-      onError: (error) => toastScimError("Failed to create mapping", error),
-    })
-
-  const { mutateAsync: deleteMapping, isPending: deleteMappingIsPending } =
-    useMutation<void, TracecatApiError, string>({
-      mutationFn: async (mappingId) =>
-        await scimDeleteScimMapping({ mappingId }),
-      onSuccess: async () => {
-        await queryClient.invalidateQueries({ queryKey: SCIM_MAPPINGS_KEY })
-        await queryClient.invalidateQueries({
-          queryKey: SCIM_DIRECTORY_SUMMARY_KEY,
-        })
-        await queryClient.invalidateQueries({ queryKey: ["rbac-groups"] })
-        toast({
-          title: "Mapping removed",
-          description:
-            "If this was the final mapping, eligible members were retained as manual members. Otherwise, remaining mappings determine membership.",
-        })
-      },
-      onError: (error) => toastScimError("Failed to remove mapping", error),
-    })
-
   const {
     mutateAsync: applyMappingChanges,
     isPending: applyMappingChangesIsPending,
@@ -255,10 +206,6 @@ export function useScimMappings() {
     mappingsHasNextPage: query.hasNextPage,
     mappingsIsFetchingNextPage: query.isFetchingNextPage,
     fetchNextMappings: query.fetchNextPage,
-    createMapping,
-    createMappingIsPending,
-    deleteMapping,
-    deleteMappingIsPending,
     applyMappingChanges,
     applyMappingChangesIsPending,
   }
