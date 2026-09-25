@@ -4,7 +4,7 @@
 import argparse
 import sys
 import warnings
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from alembic.config import Config
@@ -16,12 +16,49 @@ from alembic.util import CommandError
 # Its ancestors can contain branches, merges and cross-branch dependencies.
 LINEAR_HISTORY_BASE = "2f14222e0d12"
 
+# The 1.1.0-alpha.2.1 release commit re-parented 9680c861644a onto
+# bc3124ad3437 on its release branch only. Main kept both as siblings of
+# a7c3e9f1b2d4, so databases upgraded with alpha.2.1 failed later upgrades with
+# column "email_claimed_at" already exists. These one-time rewrites make main
+# match the shipped graph. They become inert once the rewrite is on every base
+# and may then be deleted.
+AUDITED_REWRITES: Mapping[str, tuple[tuple[bytes, bytes], ...]] = {
+    "9680c861644a": (
+        (b"Revises: a7c3e9f1b2d4\n", b"Revises: bc3124ad3437\n"),
+        (
+            b'down_revision = "a7c3e9f1b2d4"\n',
+            b'down_revision = "bc3124ad3437"\n',
+        ),
+    ),
+    "b4e8f2a6c1d9": (
+        (
+            b"Revises: 9680c861644a, bc3124ad3437\n",
+            b"Revises: 9680c861644a\n",
+        ),
+        (
+            b'down_revision: tuple[str, str] | None = ("9680c861644a", "bc3124ad3437")\n',
+            b'down_revision: str | None = "9680c861644a"\n',
+        ),
+    ),
+    "8c0e18190001": (
+        (
+            b"Revises: 391f391da70b, bc3124ad3437\n",
+            b"Revises: 391f391da70b\n",
+        ),
+        (
+            b'down_revision = ("391f391da70b", "bc3124ad3437")\n',
+            b'down_revision = "391f391da70b"\n',
+        ),
+    ),
+}
+
 
 def check_migrations(
     scripts: ScriptDirectory,
     *,
     linear_since: str = LINEAR_HISTORY_BASE,
     base: ScriptDirectory | None = None,
+    audited_rewrites: Mapping[str, tuple[tuple[bytes, bytes], ...]] = AUDITED_REWRITES,
 ) -> str:
     """Return the sole head, rejecting invalid graphs and new non-linear history."""
     # Alembic warns rather than fails for some invalid metadata (e.g. duplicate
@@ -49,7 +86,13 @@ def check_migrations(
                     )
                 # Use declared metadata: Alembic's branch_labels attribute also
                 # includes labels inherited from other revisions in the graph.
-                for field in ("down_revision", "depends_on", "branch_labels"):
+                audited_rewrite = audited_rewrites.get(previous.revision)
+                fields = (
+                    ("depends_on", "branch_labels")
+                    if audited_rewrite is not None
+                    else ("down_revision", "depends_on", "branch_labels")
+                )
+                for field in fields:
                     if getattr(current.module, field, None) != getattr(
                         previous.module, field, None
                     ):
@@ -58,7 +101,29 @@ def check_migrations(
                             "New migrations must extend the previous head without "
                             "rewriting existing revision metadata."
                         )
-                if Path(current.path).read_bytes() != Path(previous.path).read_bytes():
+                current_bytes = Path(current.path).read_bytes()
+                base_bytes = Path(previous.path).read_bytes()
+                if audited_rewrite is not None:
+                    expected_bytes = base_bytes
+                    for old_line, new_line in audited_rewrite:
+                        old_count = expected_bytes.count(old_line)
+                        if old_count == 1:
+                            expected_bytes = expected_bytes.replace(
+                                old_line, new_line, 1
+                            )
+                        elif old_count == 0 and expected_bytes.count(new_line) == 1:
+                            continue
+                        else:
+                            raise ValueError(
+                                f"The audited rewrite for {previous.revision} no "
+                                "longer matches the base file."
+                            )
+                    if current_bytes != expected_bytes:
+                        raise ValueError(
+                            f"Existing revision {previous.revision} changed file "
+                            "contents beyond its audited rewrite."
+                        )
+                elif current_bytes != base_bytes:
                     raise ValueError(
                         f"Existing revision {previous.revision} changed file contents. "
                         "Existing migration files are immutable, including formatting; "

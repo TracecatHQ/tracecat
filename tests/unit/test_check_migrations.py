@@ -7,9 +7,18 @@ import pytest
 from alembic.script import ScriptDirectory
 from alembic.script.revision import RevisionError
 from alembic.util import CommandError
-from check_migrations import LINEAR_HISTORY_BASE, check_migrations, main
+from check_migrations import (
+    AUDITED_REWRITES,
+    LINEAR_HISTORY_BASE,
+    check_migrations,
+    main,
+)
 
 type Parent = str | tuple[str, ...] | None
+
+TEST_AUDITED_REWRITES = {
+    "right": ((b"down_revision = 'root'\n", b"down_revision = ('root',)\n"),)
+}
 
 
 def write_revision(
@@ -171,6 +180,111 @@ def test_base_comparison_accepts_append_only_history(
         )
         == head
     )
+
+
+def test_accepts_audited_down_revision_rewrite(
+    history: Path, base_history: Path
+) -> None:
+    write_revision(history, "right", ("root",))
+    assert (
+        check_migrations(
+            ScriptDirectory(str(history)),
+            linear_since="baseline",
+            base=ScriptDirectory(str(base_history)),
+            audited_rewrites=TEST_AUDITED_REWRITES,
+        )
+        == "baseline"
+    )
+
+
+def test_rejects_unaudited_down_revision_rewrite(
+    history: Path, base_history: Path
+) -> None:
+    write_revision(history, "right", ("root",))
+    with pytest.raises(ValueError, match="right changed down_revision"):
+        check_migrations(
+            ScriptDirectory(str(history)),
+            linear_since="baseline",
+            base=ScriptDirectory(str(base_history)),
+            audited_rewrites={},
+        )
+
+
+def test_rejects_changes_beyond_audited_rewrite(
+    history: Path, base_history: Path
+) -> None:
+    write_revision(history, "right", ("root",))
+    with (history / "versions" / "right.py").open("a") as file:
+        file.write("# Additional change.\n")
+    with pytest.raises(ValueError, match="beyond its audited rewrite"):
+        check_migrations(
+            ScriptDirectory(str(history)),
+            linear_since="baseline",
+            base=ScriptDirectory(str(base_history)),
+            audited_rewrites=TEST_AUDITED_REWRITES,
+        )
+
+
+def test_accepts_audited_rewrite_already_in_base(
+    history: Path, base_history: Path
+) -> None:
+    for directory in (history, base_history):
+        write_revision(directory, "right", ("root",))
+    assert (
+        check_migrations(
+            ScriptDirectory(str(history)),
+            linear_since="baseline",
+            base=ScriptDirectory(str(base_history)),
+            audited_rewrites=TEST_AUDITED_REWRITES,
+        )
+        == "baseline"
+    )
+
+
+def test_rejects_audited_rewrite_that_no_longer_matches_base(
+    history: Path, base_history: Path
+) -> None:
+    audited_rewrites = {
+        "right": ((b"# Missing old line.\n", b"# Missing new line.\n"),)
+    }
+    with pytest.raises(ValueError, match="no longer matches the base file"):
+        check_migrations(
+            ScriptDirectory(str(history)),
+            linear_since="baseline",
+            base=ScriptDirectory(str(base_history)),
+            audited_rewrites=audited_rewrites,
+        )
+
+
+@pytest.mark.parametrize("field", ["depends_on", "branch_labels"])
+def test_rejects_changed_metadata_for_audited_revision(
+    history: Path, base_history: Path, field: str
+) -> None:
+    write_revision(
+        history,
+        "right",
+        ("root",),
+        depends_on="left" if field == "depends_on" else None,
+        branch_labels="changed" if field == "branch_labels" else None,
+    )
+    with pytest.raises(ValueError, match=f"right changed {field}"):
+        check_migrations(
+            ScriptDirectory(str(history)),
+            linear_since="baseline",
+            base=ScriptDirectory(str(base_history)),
+            audited_rewrites=TEST_AUDITED_REWRITES,
+        )
+
+
+def test_real_audited_rewrites_are_exact_whole_line_pairs() -> None:
+    assert set(AUDITED_REWRITES) == {
+        "9680c861644a",
+        "b4e8f2a6c1d9",
+        "8c0e18190001",
+    }
+    for rewrites in AUDITED_REWRITES.values():
+        assert len(rewrites) == 2
+        assert all(old.endswith(b"\n") and new.endswith(b"\n") for old, new in rewrites)
 
 
 @pytest.mark.parametrize("child,parent", [("left", "root"), ("deployed", "baseline")])
