@@ -42,9 +42,14 @@ router = APIRouter(
     tags=["secrets"],
     dependencies=[Depends(_require_entitlement)],
 )
+stores_router = APIRouter(
+    prefix="/secret-stores",
+    tags=["secrets"],
+    dependencies=[Depends(_require_entitlement)],
+)
 
 
-@router.get("/stores", response_model=Page[WorkspaceSecretStoreRead])
+@stores_router.get("", response_model=Page[WorkspaceSecretStoreRead])
 @require_scope("secret:read")
 async def list_authorized_secret_stores(
     *,

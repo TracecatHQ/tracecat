@@ -287,6 +287,14 @@ class SecretUpdate(BaseModel):
     tags: dict[str, str] | None = Field(default=None, min_length=0, max_length=1000)
     environment: str | None = Field(default=None, min_length=1, max_length=100)
 
+    @field_validator("name", "environment")
+    @classmethod
+    def reject_explicit_null(cls, value: str | None) -> str | None:
+        # Omit the field to leave it unchanged; the columns are NOT NULL.
+        if value is None:
+            raise ValueError("must not be null")
+        return value
+
     @model_validator(mode="after")
     def validate_typed_secret(self) -> SecretUpdate:
         if self.type == SecretType.SSH_KEY and self.keys is not None:
@@ -611,6 +619,14 @@ class AwsSecretReferenceUpdate(BaseModel):
         default=None, pattern=AWS_SECRET_ID_PATTERN, max_length=2048
     )
     key_mapping: AwsSecretKeyMapping | None = None
+
+    @field_validator("name", "environment")
+    @classmethod
+    def reject_explicit_null(cls, value: str | None) -> str | None:
+        # Omit the field to leave it unchanged; the columns are NOT NULL.
+        if value is None:
+            raise ValueError("must not be null")
+        return value
 
 
 class SecretReferenceCheckRequest(BaseModel):

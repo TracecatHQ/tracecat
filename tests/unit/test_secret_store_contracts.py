@@ -18,6 +18,7 @@ from tracecat_ee.secrets.stores.service import SecretStoresService
 
 from tracecat import config
 from tracecat.agent import service as agent_service
+from tracecat.api.app import create_app
 from tracecat.auth import sandbox as auth_sandbox
 from tracecat.auth.types import Role
 from tracecat.db.models import OrganizationSecretStore, Secret
@@ -34,6 +35,7 @@ from tracecat.secrets.schemas import (
     SecretReferenceCheckRequest,
     SecretReferenceCheckResult,
     SecretStoreUpdate,
+    SecretUpdate,
 )
 from tracecat.secrets.service import SecretsService
 from tracecat.tiers.enums import Entitlement
@@ -251,6 +253,22 @@ def test_store_update_rejects_explicit_null(field: str) -> None:
     assert field not in SecretStoreUpdate.model_validate({}).model_dump(
         exclude_unset=True
     )
+
+
+def test_store_listing_does_not_shadow_secret_names() -> None:
+    paths = create_app().openapi()["paths"]
+    assert "/workspaces/{workspace_id}/secret-stores" in paths
+    assert "/workspaces/{workspace_id}/secrets/stores" not in paths
+
+
+@pytest.mark.parametrize("model", [AwsSecretReferenceUpdate, SecretUpdate])
+@pytest.mark.parametrize("field", ["name", "environment"])
+def test_secret_update_rejects_explicit_null(
+    model: type[AwsSecretReferenceUpdate] | type[SecretUpdate], field: str
+) -> None:
+    with pytest.raises(ValidationError):
+        model.model_validate({field: None})
+    assert field not in model.model_validate({}).model_dump(exclude_unset=True)
 
 
 @pytest.mark.parametrize("name", ["app_db", "_token", "a9"])

@@ -12002,15 +12002,6 @@ export type WorkflowsPullWorkflowsData = {
 
 export type WorkflowsPullWorkflowsResponse = PullResult
 
-export type SecretsListAuthorizedSecretStoresData = {
-  cursor?: string | null
-  limit?: number
-  workspaceId: string
-}
-
-export type SecretsListAuthorizedSecretStoresResponse =
-  Page_WorkspaceSecretStoreRead_
-
 export type SecretsCreateAwsSecretReferenceData = {
   requestBody: AwsSecretReferenceCreate
   workspaceId: string
@@ -12032,6 +12023,15 @@ export type SecretsCheckAwsSecretReferenceData = {
 }
 
 export type SecretsCheckAwsSecretReferenceResponse = SecretReferenceCheckResult
+
+export type SecretsListAuthorizedSecretStoresData = {
+  cursor?: string | null
+  limit?: number
+  workspaceId: string
+}
+
+export type SecretsListAuthorizedSecretStoresResponse =
+  Page_WorkspaceSecretStoreRead_
 
 export type SecretsSearchSecretsData = {
   environment: string
@@ -16801,21 +16801,6 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workspaces/{workspace_id}/secrets/stores": {
-    get: {
-      req: SecretsListAuthorizedSecretStoresData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: Page_WorkspaceSecretStoreRead_
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
   "/workspaces/{workspace_id}/secrets/aws": {
     post: {
       req: SecretsCreateAwsSecretReferenceData
@@ -16854,6 +16839,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: SecretReferenceCheckResult
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/secret-stores": {
+    get: {
+      req: SecretsListAuthorizedSecretStoresData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Page_WorkspaceSecretStoreRead_
         /**
          * Validation Error
          */

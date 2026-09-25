@@ -3588,35 +3588,6 @@ export const workflowsPullWorkflows = (
 }
 
 /**
- * List Authorized Secret Stores
- * List external secret stores this workspace is authorized to reference.
- * @param data The data for the request.
- * @param data.workspaceId
- * @param data.limit
- * @param data.cursor
- * @returns Page_WorkspaceSecretStoreRead_ Successful Response
- * @throws ApiError
- */
-export const secretsListAuthorizedSecretStores = (
-  data: SecretsListAuthorizedSecretStoresData
-): CancelablePromise<SecretsListAuthorizedSecretStoresResponse> => {
-  return __request(OpenAPI, {
-    method: "GET",
-    url: "/workspaces/{workspace_id}/secrets/stores",
-    path: {
-      workspace_id: data.workspaceId,
-    },
-    query: {
-      limit: data.limit,
-      cursor: data.cursor,
-    },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
  * Create Aws Secret Reference
  * Create a custom secret whose values live in AWS Secrets Manager.
  * @param data The data for the request.
@@ -3688,6 +3659,35 @@ export const secretsCheckAwsSecretReference = (
     path: {
       workspace_id: data.workspaceId,
       secret_id: data.secretId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Authorized Secret Stores
+ * List external secret stores this workspace is authorized to reference.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.limit
+ * @param data.cursor
+ * @returns Page_WorkspaceSecretStoreRead_ Successful Response
+ * @throws ApiError
+ */
+export const secretsListAuthorizedSecretStores = (
+  data: SecretsListAuthorizedSecretStoresData
+): CancelablePromise<SecretsListAuthorizedSecretStoresResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/secret-stores",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
     },
     errors: {
       422: "Validation Error",

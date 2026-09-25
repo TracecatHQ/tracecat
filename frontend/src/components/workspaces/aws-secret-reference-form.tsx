@@ -124,7 +124,7 @@ export function buildKeyMapping(values: AwsReferenceForm): AwsSecretKeyMapping {
     mode: "json",
     fields: values.fields.map((entry) => ({
       key: entry.key.trim(),
-      field: entry.field.trim(),
+      field: entry.field,
     })),
   }
 }
