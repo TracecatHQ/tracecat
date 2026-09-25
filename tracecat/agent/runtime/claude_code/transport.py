@@ -28,6 +28,12 @@ from tracecat.agent.common.config import (
     TRACECAT__AGENT_MCP_BRIDGE_PORT,
     build_agent_runtime_uv_env,
 )
+from tracecat.agent.runtime.claude_code.diagnostics import (
+    STDERR_READ_BYTES,
+    StderrSnapshot,
+    StderrTail,
+    summarize_stderr,
+)
 from tracecat.agent.runtime.session_paths import (
     JAILED_AGENT_JOB_DIR,
     JAILED_AGENT_UV_STATE_DIR,
@@ -47,6 +53,21 @@ _TRUSTED_MCP_BRIDGE_PATH = "/mcp"
 # How long a broken write waits for the shim to be reaped before giving up on
 # recording its exit code. Short enough not to stall the error path.
 _EXIT_REAP_TIMEOUT_SECONDS = 0.5
+_PROCESS_EXIT_TIMEOUT_SECONDS = 5.0
+
+
+class TransportDiagnostics(StderrSnapshot):
+    """Safe process/I/O observations taken before teardown."""
+
+    transport_phase: str
+    process_started: bool
+    process_returncode: int | None
+    stdout_bytes: int
+    stdout_messages: int
+    stderr_bytes: int
+    stderr_partial: str | None
+    stderr_callback_failed: bool
+    sdk_version: str
 
 
 class ClaudeShimInitPayload(TypedDict):
@@ -125,7 +146,13 @@ class SandboxedCLITransport(Transport):
         self._ready = False
         self._write_lock = asyncio.Lock()
         self._stderr_task: asyncio.Task[None] | None = None
-        self._stderr_buffer: list[str] = []
+        self._stderr_tail = StderrTail()
+        self._stderr_bytes = 0
+        self._stderr_partial: str | None = None
+        self._stdout_bytes = 0
+        self._stdout_messages = 0
+        self._stderr_callback_failed = False
+        self._phase = "created"
         self._connect_started_at: float | None = None
         self._logged_first_message = False
         self._exit_code: int | None = None
@@ -151,6 +178,7 @@ class SandboxedCLITransport(Transport):
             return
 
         self._connect_started_at = perf_counter()
+        self._phase = "building_command"
         self._logged_first_message = False
         self._log_benchmark_phase("broker_transport_connect_start")
         with open_mcp_bridge_binding(
@@ -187,6 +215,7 @@ class SandboxedCLITransport(Transport):
                 init_payload_path=str(init_payload_path),
             )
 
+            self._phase = "spawning_process"
             self._spawned_runtime = await spawn_jailed_runtime(
                 socket_dir=self._socket_dir,
                 init_payload_path=init_payload_path,
@@ -206,6 +235,7 @@ class SandboxedCLITransport(Transport):
             raise CLIConnectionError("Sandbox shim stdio was not initialized")
 
         self._ready = True
+        self._phase = "awaiting_initialize"
         self._log_benchmark_phase(
             "broker_transport_sandbox_spawned",
             pid=self._process.pid,
@@ -266,6 +296,7 @@ class SandboxedCLITransport(Transport):
 
         json_buffer = ""
         while line_bytes := await self._process.stdout.readline():
+            self._stdout_bytes += len(line_bytes)
             line = line_bytes.decode("utf-8", errors="replace").strip()
             if not line:
                 continue
@@ -275,7 +306,7 @@ class SandboxedCLITransport(Transport):
                 if not stripped:
                     continue
                 if not json_buffer and not stripped.startswith("{"):
-                    logger.debug("Skipping non-JSON sandbox stdout line", line=stripped)
+                    logger.debug("Skipping non-JSON sandbox stdout line")
                     continue
 
                 json_buffer += stripped
@@ -298,6 +329,7 @@ class SandboxedCLITransport(Transport):
                 if not self._logged_first_message:
                     self._logged_first_message = True
                     self._log_benchmark_phase("broker_transport_first_stdout_message")
+                self._stdout_messages += 1
                 yield data
 
         if self._process.returncode is None:
@@ -315,40 +347,44 @@ class SandboxedCLITransport(Transport):
 
     async def close(self) -> None:
         """Close the sandbox shim and clean up job-scoped spawn resources."""
-        async with self._write_lock:
-            self._ready = False
-            if self._process is not None and self._process.stdin is not None:
-                self._process.stdin.close()
-
-        if self._stderr_task is not None:
-            self._stderr_task.cancel()
-            try:
-                await self._stderr_task
-            except asyncio.CancelledError:
-                pass
-            self._stderr_task = None
-
-        if self._process is not None and self._process.returncode is None:
-            try:
-                await asyncio.wait_for(self._process.wait(), timeout=5.0)
-            except TimeoutError:
-                self._process.terminate()
+        self._ready = False
+        try:
+            async with self._write_lock:
+                if self._process is not None and self._process.stdin is not None:
+                    self._process.stdin.close()
+            if self._process is not None and self._process.returncode is None:
                 try:
-                    await asyncio.wait_for(self._process.wait(), timeout=5.0)
+                    async with asyncio.timeout(_PROCESS_EXIT_TIMEOUT_SECONDS):
+                        await self._process.wait()
                 except TimeoutError:
-                    self._process.kill()
-                    await self._process.wait()
-
-        # Deliberately not recording the exit code here. By this point the host
-        # may have terminated or killed the process itself, and treating that
-        # as a runtime death would re-attribute an unrelated error. Only
-        # ``read_messages`` records a code, where a non-zero exit is the jailed
-        # process dying on its own; that value is never cleared, so it still
-        # survives this teardown.
-        self._process = None
-        if self._spawned_runtime is not None:
-            cleanup_spawned_runtime(self._spawned_runtime)
-            self._spawned_runtime = None
+                    with suppress(ProcessLookupError):
+                        self._process.terminate()
+                    async with asyncio.timeout(_PROCESS_EXIT_TIMEOUT_SECONDS):
+                        await self._process.wait()
+        except TimeoutError:
+            pass
+        finally:
+            # Cancellation, a broken stdin, or a failed stderr reader must not
+            # leave the child alive. Reaping and task cancellation remain bounded.
+            try:
+                if self._process is not None and self._process.returncode is None:
+                    with suppress(ProcessLookupError):
+                        self._process.kill()
+                    with suppress(TimeoutError):
+                        async with asyncio.timeout(1.0):
+                            await self._process.wait()
+            finally:
+                if self._stderr_task is not None:
+                    self._stderr_task.cancel()
+                    with suppress(asyncio.CancelledError, Exception):
+                        async with asyncio.timeout(0.25):
+                            await self._stderr_task
+                    self._stderr_task = None
+                # Never attribute a host-requested termination as a child death.
+                self._process = None
+                if self._spawned_runtime is not None:
+                    cleanup_spawned_runtime(self._spawned_runtime)
+                    self._spawned_runtime = None
 
     def is_ready(self) -> bool:
         """Return whether the shim is ready for Claude SDK traffic."""
@@ -588,48 +624,74 @@ class SandboxedCLITransport(Transport):
             env["CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK"] = skip_version_check
         return env
 
+    def initialization_diagnostics(self) -> TransportDiagnostics:
+        """Snapshot process and I/O state without commands, env, or payloads.
+
+        This is taken before cleanup so a host termination is not mistaken for
+        the cause of failed initialization. The SDK version is package metadata;
+        do not launch a second CLI process just to retrieve its version.
+        """
+        return {
+            **self._stderr_tail.snapshot(),
+            "transport_phase": self._phase,
+            "process_started": self._process is not None,
+            "process_returncode": (
+                self._process.returncode if self._process is not None else None
+            ),
+            "stdout_bytes": self._stdout_bytes,
+            "stdout_messages": self._stdout_messages,
+            "stderr_bytes": self._stderr_bytes,
+            "stderr_partial": self._stderr_partial,
+            "stderr_callback_failed": self._stderr_callback_failed,
+            "sdk_version": __version__,
+        }
+
+    def _capture_stderr(self, line: bytes) -> None:
+        summary = self._stderr_tail.append(line.decode("utf-8", errors="replace"))
+        if summary is None:
+            return
+        if self._options.stderr is not None and not self._stderr_callback_failed:
+            try:
+                self._options.stderr(summary)
+            except Exception:
+                # A logging callback must never stop draining the child's pipe.
+                self._stderr_callback_failed = True
+
     async def _drain_stderr(self) -> None:
-        """Forward shim stderr lines into the configured Claude stderr callback."""
+        """Drain fixed-size chunks, retaining only a bounded prefix per line."""
         if self._process is None or self._process.stderr is None:
             return
 
-        while line_bytes := await self._process.stderr.readline():
-            line = line_bytes.decode("utf-8", errors="replace").rstrip()
-            if not line:
-                continue
-            self._stderr_buffer.append(line)
-            if len(self._stderr_buffer) > 200:
-                del self._stderr_buffer[:-200]
-            if self._options.stderr is not None:
-                self._options.stderr(line)
-            else:
-                logger.warning("Sandbox shim stderr", line=line)
+        prefix = bytearray()
+        line_started = False
+        while chunk := await self._process.stderr.read(STDERR_READ_BYTES):
+            self._stderr_bytes += len(chunk)
+            parts = chunk.split(b"\n")
+            for index, part in enumerate(parts):
+                prefix.extend(part[: STDERR_READ_BYTES - len(prefix)])
+                line_started = line_started or bool(part)
+                if index < len(parts) - 1:
+                    self._capture_stderr(bytes(prefix))
+                    prefix.clear()
+                    line_started = False
+            self._stderr_partial = (
+                summarize_stderr(prefix.decode("utf-8", errors="replace"))
+                if line_started
+                else None
+            )
+            # StreamReader.read can complete synchronously during a flood.
+            await asyncio.sleep(0)
+        if line_started:
+            self._capture_stderr(bytes(prefix))
+        self._stderr_partial = None
 
     async def _collect_error_stderr(self) -> str:
-        """Return the buffered stderr tail for a failed shim process."""
+        """Return only the bounded, minimized tail; never perform an EOF read."""
         if self._stderr_task is not None:
-            try:
-                await asyncio.wait_for(self._stderr_task, timeout=1.0)
-            except TimeoutError:
-                logger.warning(
-                    "Timed out waiting for sandbox stderr drain",
-                    session_id=self._session_id,
-                )
-            finally:
-                if self._stderr_task.done():
-                    self._stderr_task = None
-
-        if self._process is not None and self._process.stderr is not None:
-            remaining = await self._process.stderr.read()
-            if remaining:
-                for line in remaining.decode("utf-8", errors="replace").splitlines():
-                    if line:
-                        self._stderr_buffer.append(line)
-
-        if not self._stderr_buffer:
-            return "No stderr captured"
-
-        stderr_output = "\n".join(self._stderr_buffer[-200:])
-        if len(stderr_output) > 4000:
-            return stderr_output[-4000:]
-        return stderr_output
+            with suppress(Exception):
+                async with asyncio.timeout(1.0):
+                    await asyncio.shield(self._stderr_task)
+        return (
+            "\n".join(self._stderr_tail.snapshot()["stderr_tail"])
+            or "No stderr captured"
+        )
