@@ -2383,6 +2383,11 @@ docstring carries the full RFC 6902 patch rules.
 - {_SKILL_FILE_WARNING}
 - Call `prepare_skill_upload` with file metadata, upload the raw bytes to each
   returned URL, then call `complete_skill_upload` with the upload IDs.
+- Preset skill bindings follow the skill's latest published version at run
+  time. After `publish_skill`, do NOT call `update_agent_preset` (or re-send
+  `skills`) to move attached presets onto the new version; only touch
+  `skills` to attach or detach a skill. The `skill_version` shown on a
+  preset's `skills` is informational and may lag the newest publish.
 
 ## Structured argument quick reference
 Tool docstrings are the source of truth for every other argument shape.
@@ -8543,7 +8548,9 @@ async def create_agent_preset(
 ) -> AgentPresetRead:
     """Create an agent preset in the selected workspace.
 
-    Use `skills` to attach published skills. Each binding contains `skill_id`.
+    Use `skills` to attach published skills. Each binding contains `skill_id`
+    only; the preset always runs each skill's latest published version, so
+    there is no version to pin.
 
     Attach tools via `actions`, `mcp_integration_ids`, or a skill's
     `metadata.tools`.
@@ -8630,7 +8637,9 @@ async def update_agent_preset(
 
     Use `skills` to replace attached published skills. Each binding contains
     `skill_id`. Omit `skills` to leave bindings unchanged, or pass an empty list
-    to detach all skills.
+    to detach all skills. Attached skills always run at their latest published
+    version, so do not call this after `publish_skill` just to refresh a
+    skill version; only pass `skills` when adding or removing a skill.
 
     Attach tools via `actions`, `mcp_integration_ids`, or a skill's
     `metadata.tools`.
@@ -9772,7 +9781,9 @@ async def publish_skill(
 ) -> SkillVersionRead:
     """Publish a skill draft into an immutable skill version.
 
-    Only published skill versions can be attached to agent presets.
+    Only published skills can be attached to agent presets. Presets that
+    already have this skill attached pick up the new version automatically on
+    their next run; no `update_agent_preset` call is needed afterwards.
     """
 
     try:
