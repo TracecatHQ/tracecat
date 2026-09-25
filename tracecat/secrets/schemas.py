@@ -4,6 +4,8 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
+import botocore.session
+from botocore.exceptions import UnknownRegionError
 from cryptography import x509
 from cryptography.exceptions import UnsupportedAlgorithm
 from cryptography.hazmat.primitives.serialization import (
@@ -383,6 +385,18 @@ AWS_ROLE_ARN_PATTERN = r"^arn:aws(?:-[a-z]+)*:iam::\d{12}:role/[\w+=,.@/-]+$"
 AWS_REGION_PATTERN = r"^[a-z]{2}(?:-[a-z]+)+-\d$"
 
 
+def check_aws_partition(role_arn: str, region: str) -> None:
+    """Reject a role ARN from a different AWS partition than the region."""
+    try:
+        partition = botocore.session.get_session().get_partition_for_region(region)
+    except UnknownRegionError:
+        return  # Region is newer than the pinned botocore; let AWS decide.
+    if role_arn.split(":")[1] != partition:
+        raise ValueError(
+            f"Role ARN partition must be {partition!r} for region {region!r}"
+        )
+
+
 class AwsSecretJsonField(BaseModel):
     """One declared output key sourced from a top-level JSON field."""
 
@@ -448,6 +462,11 @@ class AwsSecretsManagerStoreCreate(BaseModel):
     )
     role_arn: str = Field(..., pattern=AWS_ROLE_ARN_PATTERN, max_length=2048)
     region: str = Field(..., pattern=AWS_REGION_PATTERN, max_length=64)
+
+    @model_validator(mode="after")
+    def validate_partition(self) -> AwsSecretsManagerStoreCreate:
+        check_aws_partition(self.role_arn, self.region)
+        return self
 
 
 class AwsSecretsManagerStoreUpdate(BaseModel):

@@ -12,6 +12,7 @@ from pydantic import ValidationError
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from tracecat_ee.secrets.providers.aws_secrets_manager import AwsSecretsManagerBackend
 from tracecat_ee.secrets.references import router, workflows
 from tracecat_ee.secrets.references.service import SecretReferencesService
 from tracecat_ee.secrets.stores.service import SecretStoresService
@@ -32,6 +33,8 @@ from tracecat.secrets.schemas import (
     AwsSecretKeyMapping,
     AwsSecretReferenceCreate,
     AwsSecretReferenceUpdate,
+    AwsSecretsManagerStoreCreate,
+    AwsSecretsManagerStoreUpdate,
     SecretReferenceCheckRequest,
     SecretReferenceCheckResult,
     SecretStoreUpdate,
@@ -269,6 +272,34 @@ def test_secret_update_rejects_explicit_null(
     with pytest.raises(ValidationError):
         model.model_validate({field: None})
     assert field not in model.model_validate({}).model_dump(exclude_unset=True)
+
+
+@pytest.mark.parametrize(
+    ("role_arn", "region"),
+    [
+        ("arn:aws:iam::123456789012:role/reader", "cn-north-1"),
+        ("arn:aws-us-gov:iam::123456789012:role/reader", "us-east-1"),
+    ],
+)
+def test_store_config_rejects_mixed_partitions(role_arn: str, region: str) -> None:
+    with pytest.raises(ValidationError):
+        AwsSecretsManagerStoreCreate(role_arn=role_arn, region=region)
+    config = AwsSecretsManagerBackend().new_config(
+        AwsSecretsManagerStoreCreate(
+            role_arn="arn:aws:iam::123456789012:role/reader", region="us-east-1"
+        )
+    )
+    with pytest.raises(ValueError):
+        AwsSecretsManagerBackend().update_config(
+            config, AwsSecretsManagerStoreUpdate(role_arn=role_arn, region=region)
+        )
+
+
+def test_store_config_allows_regions_unknown_to_botocore() -> None:
+    config = AwsSecretsManagerStoreCreate(
+        role_arn="arn:aws:iam::123456789012:role/reader", region="xx-future-1"
+    )
+    assert config.region == "xx-future-1"
 
 
 @pytest.mark.parametrize("name", ["app_db", "_token", "a9"])

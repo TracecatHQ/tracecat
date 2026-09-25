@@ -138,6 +138,10 @@ async def update_secret_store(
     try:
         store = await service.get_store(store_id)
         await service.update_store(store, params)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
+        ) from e
     except TracecatNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Secret store not found"

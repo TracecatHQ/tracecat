@@ -1,7 +1,7 @@
 """Add organization secret stores and AWS-backed workspace secret references.
 
 Revision ID: a7f3e2c9d1b4
-Revises: 31ee4b7f175a
+Revises: 2f14222e0d12
 Create Date: 2026-09-14 19:00:00.000000
 
 Expand-only: new tables plus nullable/defaulted columns on ``secret``. Existing
@@ -23,7 +23,7 @@ from tracecat.db.tenant_rls import (
 
 # revision identifiers, used by Alembic.
 revision: str = "a7f3e2c9d1b4"
-down_revision: str | None = "31ee4b7f175a"
+down_revision: str | None = "2f14222e0d12"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

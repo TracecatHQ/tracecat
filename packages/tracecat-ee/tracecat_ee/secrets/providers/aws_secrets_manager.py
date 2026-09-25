@@ -33,6 +33,7 @@ from tracecat.secrets.schemas import (
     AwsSecretsManagerStoreConfig,
     AwsSecretsManagerStoreCreate,
     AwsSecretsManagerStoreUpdate,
+    check_aws_partition,
 )
 from tracecat.secrets.types import (
     CheckResult,
@@ -347,9 +348,11 @@ class AwsSecretsManagerBackend:
         params: AwsSecretsManagerStoreUpdate,
     ) -> AwsSecretsManagerStoreConfig:
         """Apply role/region updates. The external ID is never changed."""
-        return config.model_copy(
+        updated = config.model_copy(
             update=params.model_dump(exclude_unset=True, exclude_none=True)
         )
+        check_aws_partition(updated.role_arn, updated.region)
+        return updated
 
     def validate_reference(
         self, config: AwsSecretsManagerStoreConfig, key: str
