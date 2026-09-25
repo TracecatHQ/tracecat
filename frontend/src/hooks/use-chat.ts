@@ -41,6 +41,11 @@ import {
   useQuery,
   useQueryClient,
 } from "@/lib/query"
+import {
+  AGENT_CHUNK_DATA_PART_TYPE,
+  parseAgentChunkData,
+  SubagentStreamStore,
+} from "@/lib/subagent-stream"
 
 const DEFAULT_CHAT_ERROR_MESSAGE =
   "The assistant couldn't complete that request. Please try again."
@@ -594,6 +599,9 @@ export function useVercelChat({
     chatId: string | undefined
     message: string
   } | null>(null)
+  // Live child-session transcripts. Child chunks are transient data parts, so
+  // they never enter `messages`; they are routed here instead.
+  const [subagentStore] = useState(() => new SubagentStreamStore())
 
   // Build the Vercel streaming endpoint URL
   const apiEndpoint = useMemo(() => {
@@ -673,11 +681,21 @@ export function useVercelChat({
         }, delayMs)
       }
     },
-    onData,
+    onData: (dataPart) => {
+      if (dataPart.type === AGENT_CHUNK_DATA_PART_TYPE) {
+        const chunkData = parseAgentChunkData(dataPart.data)
+        if (chunkData) {
+          subagentStore.ingest(chunkData)
+        }
+        return
+      }
+      onData?.(dataPart)
+    },
   })
 
   return {
     ...chat,
+    subagentStore,
     lastError:
       lastError && lastError.chatId === chatId ? lastError.message : null,
     clearError: useCallback(() => setLastError(null), []),

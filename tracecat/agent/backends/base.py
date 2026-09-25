@@ -141,6 +141,29 @@ class AgentBackend[InputT, OutputT](ABC):
             )
         )
 
+    async def retains_terminal_ownership(
+        self, context: SessionTurnContext, run_id: UUID
+    ) -> bool:
+        """Whether a terminal turn must keep its session reservation.
+
+        Called only after Temporal confirms that the workflow for ``run_id`` is
+        terminal, and before the shared lifecycle releases that turn's ownership.
+        ``context.session`` is the session row locked for update in
+        ``context.db``. Return True when the backend's durable records show that
+        the turn ended with an uncertain outcome that must be reconciled before
+        another turn; the session then stays owned and the new turn is rejected
+        as a conflict. Implementations must be read-only: never write, flush,
+        commit, or roll back ``context.db``.
+
+        Args:
+            context: The turn being admitted, holding the locked session row.
+            run_id: The terminal turn that currently owns the session.
+
+        Returns:
+            True to keep the session owned by ``run_id``; False to release it.
+        """
+        return False
+
     async def _release_terminal_turn(
         self, context: SessionTurnContext, client: Client
     ) -> bool:
@@ -163,6 +186,8 @@ class AgentBackend[InputT, OutputT](ABC):
             WorkflowExecutionStatus.TERMINATED,
             WorkflowExecutionStatus.TIMED_OUT,
         }:
+            return False
+        if await self.retains_terminal_ownership(context, run_id):
             return False
         released = await context.db.scalar(
             update(AgentSession)

@@ -11,6 +11,7 @@ import pytest
 
 from tracecat.agent.adapter.vercel import (
     DataEventPayload,
+    PreliminaryToolOutputAvailableEventPayload,
     ReasoningDeltaEventPayload,
     ReasoningEndEventPayload,
     ReasoningStartEventPayload,
@@ -397,6 +398,87 @@ async def test_tool_execution_success():
     assert isinstance(frames[2], ToolOutputAvailableEventPayload)
     assert frames[2].toolCallId == "call_123"
     assert frames[2].output == {"results": ["item1", "item2"]}
+
+
+def _subagent_events(*, with_stop: bool) -> list[UnifiedStreamEvent]:
+    child_session_id = "0b5c6f7e-1d2a-4c3b-9e8f-7a6b5c4d3e2f"
+    events = [
+        UnifiedStreamEvent(
+            type=StreamEventType.TOOL_CALL_START,
+            part_id=0,
+            tool_call_id="call_subagent",
+            tool_name="subagent",
+            tool_input={"alias": "triage", "task": "Summarize"},
+        ),
+    ]
+    if with_stop:
+        events.append(
+            UnifiedStreamEvent(
+                type=StreamEventType.TOOL_CALL_STOP,
+                part_id=0,
+                tool_call_id="call_subagent",
+                tool_name="subagent",
+                tool_input={"alias": "triage", "task": "Summarize"},
+            )
+        )
+    events.extend(
+        [
+            UnifiedStreamEvent(
+                type=StreamEventType.TOOL_RESULT,
+                tool_call_id="call_subagent",
+                tool_name="subagent",
+                tool_output={"session_id": child_session_id, "status": "running"},
+                preliminary=True,
+            ),
+            UnifiedStreamEvent(
+                type=StreamEventType.TOOL_RESULT,
+                tool_call_id="call_subagent",
+                tool_name="subagent",
+                tool_output={"session_id": child_session_id, "summary": "done"},
+            ),
+        ]
+    )
+    return events
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("with_stop", [True, False])
+async def test_preliminary_tool_result_then_final_result(with_stop: bool):
+    """A preliminary result streams without closing the call for its final."""
+    ctx = VercelStreamContext(message_id="msg_test")
+
+    frames = await collect_frames(ctx, _subagent_events(with_stop=with_stop))
+
+    assert [type(frame) for frame in frames] == [
+        ToolInputStartEventPayload,
+        ToolInputAvailableEventPayload,
+        PreliminaryToolOutputAvailableEventPayload,
+        ToolOutputAvailableEventPayload,
+    ]
+    input_frame = cast(ToolInputAvailableEventPayload, frames[1])
+    assert input_frame.input == {"alias": "triage", "task": "Summarize"}
+
+    preliminary = json.loads(format_sse(frames[2])[len("data: ") :])
+    assert preliminary == {
+        "type": "tool-output-available",
+        "toolCallId": "call_subagent",
+        "output": {
+            "session_id": "0b5c6f7e-1d2a-4c3b-9e8f-7a6b5c4d3e2f",
+            "status": "running",
+        },
+        "preliminary": True,
+    }
+    final = json.loads(format_sse(frames[3])[len("data: ") :])
+    assert final == {
+        "type": "tool-output-available",
+        "toolCallId": "call_subagent",
+        "output": {
+            "session_id": "0b5c6f7e-1d2a-4c3b-9e8f-7a6b5c4d3e2f",
+            "summary": "done",
+        },
+    }
+    assert ctx.tool_finished == {"call_subagent": True}
+    assert "call_subagent" not in ctx.tool_input_emitted
 
 
 @pytest.mark.anyio
