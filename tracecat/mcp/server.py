@@ -2383,11 +2383,11 @@ docstring carries the full RFC 6902 patch rules.
 - {_SKILL_FILE_WARNING}
 - Call `prepare_skill_upload` with file metadata, upload the raw bytes to each
   returned URL, then call `complete_skill_upload` with the upload IDs.
-- Preset skill bindings follow the skill's latest published version at run
-  time. After `publish_skill`, do NOT call `update_agent_preset` (or re-send
-  `skills`) to move attached presets onto the new version; only touch
-  `skills` to attach or detach a skill. The `skill_version` shown on a
-  preset's `skills` is informational and may lag the newest publish.
+- Skill versions cannot be pinned on agent presets. Bindings carry only
+  `skill_id`; the preset always runs, and `get_agent_preset` always reports,
+  the skill's latest published version. After `publish_skill`, do NOT call
+  `update_agent_preset` (or re-send `skills`); only touch `skills` to attach
+  or detach a skill.
 
 ## Structured argument quick reference
 Tool docstrings are the source of truth for every other argument shape.
