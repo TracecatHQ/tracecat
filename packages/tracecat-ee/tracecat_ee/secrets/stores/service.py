@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 
-from sqlalchemy import func, select
+from sqlalchemy import exists, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
@@ -99,6 +99,23 @@ class SecretStoresService(BaseOrgService):
             await set_rls_context_from_role(self.session, self.role)
         return dict(result.tuples().all())
 
+    async def _has_arn_references(self, store_id: uuid.UUID) -> bool:
+        """Whether any workspace secret references the store by full ARN."""
+        stmt = select(
+            exists().where(
+                Secret.store_id == store_id,
+                Secret.remote_reference.startswith("arn:"),
+            )
+        )
+        # Same RLS bypass as count_references: org sessions cannot see `secret`.
+        await set_rls_context(
+            self.session, self.organization_id, None, self.role.user_id, bypass=True
+        )
+        try:
+            return bool(await self.session.scalar(stmt))
+        finally:
+            await set_rls_context_from_role(self.session, self.role)
+
     @require_scope("org:secret:create")
     @audit_log(resource_type="organization_secret_store", action="create")
     async def create_store(self, params: SecretStoreCreate) -> OrganizationSecretStore:
@@ -127,9 +144,16 @@ class SecretStoresService(BaseOrgService):
         fields = params.model_dump(exclude_unset=True)
         fields.pop("config", None)
         if params.config is not None:
-            config = get_backend(store.provider).update_config(
-                parse_store_config(store), params.config
-            )
+            current = parse_store_config(store)
+            config = get_backend(store.provider).update_config(current, params.config)
+            # Saved ARN references were validated against the current region.
+            if config.region != current.region and await self._has_arn_references(
+                store.id
+            ):
+                raise TracecatConflictError(
+                    "Update or remove secrets that reference this store by ARN"
+                    " before changing its region."
+                )
             store.config = config.model_dump(mode="json")
         for field, value in fields.items():
             setattr(store, field, value)

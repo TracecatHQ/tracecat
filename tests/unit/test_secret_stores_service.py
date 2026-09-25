@@ -259,6 +259,47 @@ async def test_reference_region_must_match_store(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("remote_reference", "region_change_allowed"),
+    [(SECRET_ARN, False), ("app/api", True)],
+)
+async def test_region_change_rejected_while_arn_references_exist(
+    stores: SecretStoresService,
+    secrets: SecretReferencesService,
+    svc_workspace: Workspace,
+    remote_reference: str,
+    region_change_allowed: bool,
+) -> None:
+    store = await stores.create_store(
+        SecretStoreCreate(
+            name="prod",
+            config=AwsSecretsManagerStoreCreate(role_arn=ROLE_ARN, region=REGION),
+        )
+    )
+    await stores.authorize_workspace(store, svc_workspace.id)
+    params = reference_params(store.id)
+    params.remote_reference = remote_reference
+    await secrets.create_aws_secret_reference(params)
+
+    # Role-only changes never strand references.
+    new_role = "arn:aws:iam::123456789012:role/other-reader"
+    await stores.update_store(
+        store,
+        SecretStoreUpdate(config=AwsSecretsManagerStoreUpdate(role_arn=new_role)),
+    )
+    region_update = SecretStoreUpdate(
+        config=AwsSecretsManagerStoreUpdate(region="eu-west-1")
+    )
+    if region_change_allowed:
+        await stores.update_store(store, region_update)
+        assert parse_store_config(store).region == "eu-west-1"
+    else:
+        with pytest.raises(TracecatConflictError, match="by ARN"):
+            await stores.update_store(store, region_update)
+        assert parse_store_config(store).region == REGION
+
+
+@pytest.mark.anyio
 async def test_name_uniqueness_spans_local_and_aws_rows(
     stores: SecretStoresService,
     secrets: SecretReferencesService,
