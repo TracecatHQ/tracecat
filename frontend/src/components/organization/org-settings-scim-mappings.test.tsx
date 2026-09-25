@@ -12,8 +12,6 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import type { TracecatApiError } from "@/lib/errors"
 
 let mappings: ExternalGroupMappingRead[] = []
-const createMapping = jest.fn()
-const deleteMapping = jest.fn()
 const applyMappingChanges = jest.fn()
 const fetchNextMappings = jest.fn()
 let mappingsHasNextPage = false
@@ -62,8 +60,6 @@ jest.mock("@/hooks/use-scim", () => ({
   useScimExternalGroups: () => ({ externalGroups }),
   useScimMappings: () => ({
     mappings,
-    createMapping,
-    deleteMapping,
     applyMappingChanges,
     mappingsHasNextPage,
     mappingsIsFetchingNextPage,
@@ -104,19 +100,25 @@ const preview = {
       email: "eligible@example.com",
       external_id: "idp-user",
       active: true,
+      is_member: false,
     },
   ],
-  plans: [
+  plans: [],
+  groups: [
     {
-      external_group_id: "source",
-      external_group_display_name: "IdP team",
       group_id: "target",
       group_name: "Target team",
-      manual_members_purged: ["manual"],
-      manual_member_emails: { manual: "manual@example.com" },
-      users_gaining_access: ["user"],
-      gaining_member_emails: { user: "eligible@example.com" },
-      users_losing_access: ["manual"],
+      added_sources: ["IdP team"],
+      removed_sources: [],
+      changes: [
+        {
+          user_id: "manual",
+          email: "manual@example.com",
+          kind: "lose",
+          from_source: "manual",
+        },
+        { user_id: "user", email: "eligible@example.com", kind: "gain" },
+      ],
     },
   ],
 }
@@ -143,7 +145,6 @@ beforeEach(() => {
   externalGroups = [sourceGroup]
   review.mutateAsync.mockResolvedValue(preview)
   activate.mutateAsync.mockResolvedValue(undefined)
-  createMapping.mockResolvedValue(undefined)
   applyMappingChanges.mockResolvedValue(undefined)
 })
 
@@ -177,7 +178,7 @@ test("pending mappings stay local until reviewed activation", async () => {
   expect(
     screen.getByText(/1 draft applies when you activate/)
   ).toBeInTheDocument()
-  expect(createMapping).not.toHaveBeenCalled()
+  expect(applyMappingChanges).not.toHaveBeenCalled()
   expect(activate.mutateAsync).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole("button", { name: "Review and activate" }))
   expect(await screen.findByText("manual@example.com")).toBeInTheDocument()
@@ -193,7 +194,7 @@ test("pending mappings stay local until reviewed activation", async () => {
       { external_group_id: "source", group_id: "target" },
     ])
   )
-  expect(createMapping).not.toHaveBeenCalled()
+  expect(applyMappingChanges).not.toHaveBeenCalled()
 })
 
 test("discarding drafts clears them without writing", async () => {
@@ -233,7 +234,12 @@ test("missing affected-user labels prevent confirmation", async () => {
   connection = { ...initialConnection, status: "active" }
   review.mutateAsync.mockResolvedValue({
     ...preview,
-    plans: [{ ...preview.plans[0], manual_member_emails: {} }],
+    groups: [
+      {
+        ...preview.groups[0],
+        changes: [{ user_id: "manual", email: "", kind: "lose" }],
+      },
+    ],
   })
   const user = userEvent.setup()
   renderScim()
@@ -243,7 +249,7 @@ test("missing affected-user labels prevent confirmation", async () => {
     "Affected user details could not be loaded"
   )
   expect(screen.getByRole("button", { name: "Apply 1 change" })).toBeDisabled()
-  expect(createMapping).not.toHaveBeenCalled()
+  expect(applyMappingChanges).not.toHaveBeenCalled()
 })
 
 test("cancelling review leaves memberships untouched", async () => {
@@ -252,7 +258,7 @@ test("cancelling review leaves memberships untouched", async () => {
   await screen.findByText("manual@example.com")
   fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
   expect(activate.mutateAsync).not.toHaveBeenCalled()
-  expect(createMapping).not.toHaveBeenCalled()
+  expect(applyMappingChanges).not.toHaveBeenCalled()
 })
 
 test("search narrows the group rows", () => {
@@ -306,14 +312,26 @@ test("mapping pages load on request and removals apply after review", async () =
   review.mutateAsync.mockResolvedValue({
     users: [],
     plans: [],
-    removals: [
+    groups: [
       {
-        mapping_id: "mapping",
-        external_group_display_name: "IdP team",
+        group_id: "target",
         group_name: "Target team",
-        becoming_manual: ["kept"],
-        losing_access: ["gone"],
-        member_emails: { kept: "kept@example.com", gone: "gone@example.com" },
+        added_sources: [],
+        removed_sources: ["IdP team"],
+        changes: [
+          {
+            user_id: "kept",
+            email: "kept@example.com",
+            kind: "to_manual",
+            from_source: "idp",
+          },
+          {
+            user_id: "gone",
+            email: "gone@example.com",
+            kind: "lose",
+            from_source: "idp",
+          },
+        ],
       },
     ],
   })
@@ -517,4 +535,34 @@ test("a picker with several groups shows a count, not one name", () => {
   const picker = screen.getByRole("button", { name: PICKER })
   expect(picker).toHaveTextContent("3 groups")
   expect(picker).not.toHaveTextContent("Target team")
+})
+
+test("activation discloses inactive members leaving the organization", async () => {
+  review.mutateAsync.mockResolvedValue({
+    users: [
+      {
+        id: "leaver",
+        email: "leaver@example.com",
+        external_id: "idp-leaver",
+        active: false,
+        is_member: true,
+      },
+      {
+        id: "stranger",
+        email: "stranger@example.com",
+        external_id: "idp-stranger",
+        active: false,
+        is_member: false,
+      },
+    ],
+    plans: [],
+    groups: [],
+  })
+  renderScim()
+  fireEvent.click(screen.getByRole("button", { name: "Review and activate" }))
+  expect(await screen.findByText("leaver@example.com")).toBeInTheDocument()
+  expect(
+    screen.getByText("inactive → leaves the organization")
+  ).toBeInTheDocument()
+  expect(screen.getByText("inactive, skipped")).toBeInTheDocument()
 })

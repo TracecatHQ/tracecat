@@ -7569,7 +7569,7 @@ export type ScimActivationRequest = {
 export type ScimActivationReviewRead = {
   users: Array<ScimDirectoryUserRead>
   plans: Array<ScimMappingPlanRead>
-  removals?: Array<ScimRemovalPlanRead>
+  groups?: Array<ScimGroupTransitionRead>
 }
 
 /**
@@ -7632,6 +7632,7 @@ export type ScimDirectoryUserRead = {
   email: string
   external_id: string
   active: boolean
+  is_member?: boolean
 }
 
 /**
@@ -7671,6 +7672,17 @@ export type ScimGroupResource = {
   externalId?: string | null
   members?: Array<ScimGroupMemberRef>
   meta?: ScimMeta | null
+}
+
+/**
+ * The combined effect of every proposed change on one Tracecat group.
+ */
+export type ScimGroupTransitionRead = {
+  group_id: string
+  group_name: string
+  added_sources: Array<string>
+  removed_sources: Array<string>
+  changes: Array<ScimMembershipChange>
 }
 
 /**
@@ -7715,6 +7727,18 @@ export type ScimMappingPlanRead = {
 }
 
 /**
+ * How one person's membership of a Tracecat group changes.
+ */
+export type ScimMembershipChange = {
+  user_id: string
+  email: string
+  kind: "gain" | "lose" | "to_idp" | "to_manual"
+  from_source?: "manual" | "idp" | null
+}
+
+export type kind = "gain" | "lose" | "to_idp" | "to_manual"
+
+/**
  * Resource metadata. Only the fields Okta reads are emitted.
  */
 export type ScimMeta = {
@@ -7754,20 +7778,6 @@ export type ScimPatchOperation = {
 }
 
 export type op = "add" | "remove" | "replace"
-
-/**
- * What removing one mapping would do to its Tracecat group's members.
- */
-export type ScimRemovalPlanRead = {
-  mapping_id: string
-  external_group_display_name: string
-  group_name: string
-  becoming_manual: Array<string>
-  losing_access: Array<string>
-  member_emails: {
-    [key: string]: string
-  }
-}
 
 /**
  * Mapping additions and removals to preview without applying them.
@@ -8215,7 +8225,7 @@ export type SkillDraftFileRead = {
   download_url?: string | null
 }
 
-export type kind = "inline" | "download"
+export type kind2 = "inline" | "download"
 
 /**
  * Move (rename) a draft file to a new path while preserving its blob.
@@ -10119,7 +10129,7 @@ export type WebhookStoredObjectDownloadResponse = {
   size_bytes: number
 }
 
-export type kind2 = "download_file" | "download_export"
+export type kind3 = "download_file" | "download_export"
 
 export type WebhookStoredObjectInlineResponse = {
   kind: "value"

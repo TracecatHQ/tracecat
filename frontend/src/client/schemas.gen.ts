@@ -24775,12 +24775,12 @@ export const $ScimActivationReviewRead = {
       type: "array",
       title: "Plans",
     },
-    removals: {
+    groups: {
       items: {
-        $ref: "#/components/schemas/ScimRemovalPlanRead",
+        $ref: "#/components/schemas/ScimGroupTransitionRead",
       },
       type: "array",
-      title: "Removals",
+      title: "Groups",
     },
   },
   type: "object",
@@ -24954,6 +24954,11 @@ export const $ScimDirectoryUserRead = {
       type: "boolean",
       title: "Active",
     },
+    is_member: {
+      type: "boolean",
+      title: "Is Member",
+      default: false,
+    },
   },
   type: "object",
   required: ["id", "email", "external_id", "active"],
@@ -25125,6 +25130,52 @@ export const $ScimGroupResource = {
   description: "A Group resource as returned to the provider.",
 } as const
 
+export const $ScimGroupTransitionRead = {
+  properties: {
+    group_id: {
+      type: "string",
+      format: "uuid",
+      title: "Group Id",
+    },
+    group_name: {
+      type: "string",
+      title: "Group Name",
+    },
+    added_sources: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Added Sources",
+    },
+    removed_sources: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Removed Sources",
+    },
+    changes: {
+      items: {
+        $ref: "#/components/schemas/ScimMembershipChange",
+      },
+      type: "array",
+      title: "Changes",
+    },
+  },
+  type: "object",
+  required: [
+    "group_id",
+    "group_name",
+    "added_sources",
+    "removed_sources",
+    "changes",
+  ],
+  title: "ScimGroupTransitionRead",
+  description:
+    "The combined effect of every proposed change on one Tracecat group.",
+} as const
+
 export const $ScimListResponse = {
   properties: {
     schemas: {
@@ -25275,6 +25326,41 @@ export const $ScimMappingPlanRead = {
     "What activating one proposed mapping would do to a Tracecat group.",
 } as const
 
+export const $ScimMembershipChange = {
+  properties: {
+    user_id: {
+      type: "string",
+      format: "uuid",
+      title: "User Id",
+    },
+    email: {
+      type: "string",
+      title: "Email",
+    },
+    kind: {
+      type: "string",
+      enum: ["gain", "lose", "to_idp", "to_manual"],
+      title: "Kind",
+    },
+    from_source: {
+      anyOf: [
+        {
+          type: "string",
+          enum: ["manual", "idp"],
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "From Source",
+    },
+  },
+  type: "object",
+  required: ["user_id", "email", "kind"],
+  title: "ScimMembershipChange",
+  description: "How one person's membership of a Tracecat group changes.",
+} as const
+
 export const $ScimMeta = {
   properties: {
     resourceType: {
@@ -25416,62 +25502,6 @@ export const $ScimPatchOperation = {
 
 \`\`op\`\` is case-insensitive per RFC 7644; Azure sends \`\`Add\`\` where Okta
 sends \`\`add\`\`.`,
-} as const
-
-export const $ScimRemovalPlanRead = {
-  properties: {
-    mapping_id: {
-      type: "string",
-      format: "uuid",
-      title: "Mapping Id",
-    },
-    external_group_display_name: {
-      type: "string",
-      title: "External Group Display Name",
-    },
-    group_name: {
-      type: "string",
-      title: "Group Name",
-    },
-    becoming_manual: {
-      items: {
-        type: "string",
-        format: "uuid",
-      },
-      type: "array",
-      title: "Becoming Manual",
-    },
-    losing_access: {
-      items: {
-        type: "string",
-        format: "uuid",
-      },
-      type: "array",
-      title: "Losing Access",
-    },
-    member_emails: {
-      additionalProperties: {
-        type: "string",
-      },
-      propertyNames: {
-        format: "uuid",
-      },
-      type: "object",
-      title: "Member Emails",
-    },
-  },
-  type: "object",
-  required: [
-    "mapping_id",
-    "external_group_display_name",
-    "group_name",
-    "becoming_manual",
-    "losing_access",
-    "member_emails",
-  ],
-  title: "ScimRemovalPlanRead",
-  description:
-    "What removing one mapping would do to its Tracecat group's members.",
 } as const
 
 export const $ScimReviewRequest = {
