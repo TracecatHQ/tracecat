@@ -285,33 +285,21 @@ describe("WorkspaceSyncSettings", () => {
     })
   })
 
-  it("requires an explicit supported provider choice for unsupported persisted providers", async () => {
+  it("saves a Bitbucket Cloud connection", async () => {
     const user = userEvent.setup()
     render(
       <WorkspaceSyncSettings
         workspace={setupHooks({ gitProvider: "bitbucket" })}
       />
     )
-
-    expect(
-      screen.getByText(/The saved provider "bitbucket" is not supported/)
-    ).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled()
-
-    await user.click(screen.getByRole("button", { name: "GitLab" }))
-    const gitlabUrl =
-      "git+ssh://git@gitlab.com/test-org/subgroup/custom-repo.git"
-    await user.type(screen.getByLabelText("Remote repository URL"), gitlabUrl)
+    const url = "git+ssh://git@bitbucket.org/example-workspace/example-repo.git"
+    await user.type(screen.getByLabelText("Remote repository URL"), url)
     await user.click(screen.getByRole("button", { name: "Save" }))
-
-    await waitFor(() => {
+    await waitFor(() =>
       expect(mockUpdateWorkspace).toHaveBeenCalledWith({
-        settings: {
-          git_provider: "gitlab",
-          git_repo_url: gitlabUrl,
-        },
+        settings: { git_provider: "bitbucket", git_repo_url: url },
       })
-    })
+    )
   })
 
   it("selects an app repository when repository options are available", async () => {

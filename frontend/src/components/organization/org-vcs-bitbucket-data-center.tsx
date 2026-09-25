@@ -1,11 +1,12 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { GitlabIcon, Trash2Icon } from "lucide-react"
+import { Trash2Icon } from "lucide-react"
 import { useEffect, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import { CenteredSpinner } from "@/components/loading/spinner"
+import { BitbucketIcon } from "@/components/organization/vcs-icons"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -35,29 +36,33 @@ import {
 import { Input } from "@/components/ui/input"
 import { useToast } from "@/components/ui/use-toast"
 import {
-  useDeleteGitLabTokenCredentials,
-  useGitLabTokenCredentials,
-  useGitLabTokenCredentialsStatus,
-} from "@/lib/hooks"
+  useBitbucketDataCenterTokenCredentials,
+  useBitbucketDataCenterTokenCredentialsStatus,
+  useDeleteBitbucketDataCenterTokenCredentials,
+} from "@/hooks/use-bitbucket-data-center-credentials"
 
-const gitLabTokenFormSchema = z.object({
+const bitbucketDataCenterTokenFormSchema = z.object({
   base_url: z
     .string()
     .trim()
-    .url("Please enter a valid URL")
-    .default("https://gitlab.com"),
+    .url("Enter your HTTPS instance URL")
+    .startsWith("https://"),
   token: z.string().trim().min(1, "Token is required"),
 })
 
-type GitLabTokenFormData = z.infer<typeof gitLabTokenFormSchema>
+type BitbucketDataCenterTokenFormData = z.infer<
+  typeof bitbucketDataCenterTokenFormSchema
+>
 
-export function GitLabTokenSetup() {
+/** Configure organization credentials for Bitbucket Data Center workspace sync. */
+export function BitbucketDataCenterTokenSetup() {
   const {
     credentialsStatus,
     credentialsStatusIsLoading,
+    credentialsStatusError,
     refetchCredentialsStatus,
-  } = useGitLabTokenCredentialsStatus()
-  const { deleteCredentials } = useDeleteGitLabTokenCredentials()
+  } = useBitbucketDataCenterTokenCredentialsStatus()
+  const { deleteCredentials } = useDeleteBitbucketDataCenterTokenCredentials()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const { toast } = useToast()
@@ -65,13 +70,22 @@ export function GitLabTokenSetup() {
   const isConfigured = credentialsStatus?.exists ?? false
   const isCorrupted = credentialsStatus?.is_corrupted ?? false
 
+  let statusLabel = "Not connected"
+  if (isCorrupted) {
+    statusLabel =
+      "Stored credentials are unreadable. Re-enter the API token to reconnect."
+  } else if (isConfigured) {
+    statusLabel = `Instance URL: ${credentialsStatus?.base_url ?? "unknown"}`
+  }
+
   async function handleDelete() {
     try {
       await deleteCredentials.mutateAsync()
       setDeleteDialogOpen(false)
       toast({
-        title: "GitLab credentials deleted",
-        description: "GitLab workspace sync has been disconnected.",
+        title: "Bitbucket Data Center credentials deleted",
+        description:
+          "Bitbucket Data Center workspace sync has been disconnected.",
       })
     } catch (error) {
       toast({
@@ -89,20 +103,25 @@ export function GitLabTokenSetup() {
     return <CenteredSpinner />
   }
 
+  if (credentialsStatusError) {
+    return (
+      <p className="text-sm text-destructive">
+        Unable to load Bitbucket Data Center credentials.{" "}
+        <Button variant="link" onClick={() => refetchCredentialsStatus()}>
+          Retry
+        </Button>
+      </p>
+    )
+  }
+
   return (
     <>
       <div className="flex items-center justify-between rounded-lg border p-4">
         <div className="flex items-center gap-3">
-          <GitlabIcon className="size-5 text-muted-foreground" />
+          <BitbucketIcon className="size-5 text-muted-foreground" />
           <div>
-            <p className="text-sm font-medium">GitLab</p>
-            <p className="text-xs text-muted-foreground">
-              {isCorrupted
-                ? "Stored credentials are unreadable. Re-enter the GitLab token to reconnect."
-                : isConfigured
-                  ? `Base URL: ${credentialsStatus?.base_url ?? "unknown"}`
-                  : "Not connected"}
-            </p>
+            <p className="text-sm font-medium">Bitbucket Data Center</p>
+            <p className="text-xs text-muted-foreground">{statusLabel}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -118,6 +137,7 @@ export function GitLabTokenSetup() {
               <Button
                 variant="destructive"
                 size="sm"
+                aria-label="Delete Bitbucket Data Center credentials"
                 onClick={() => setDeleteDialogOpen(true)}
               >
                 <Trash2Icon className="size-3.5" />
@@ -131,7 +151,7 @@ export function GitLabTokenSetup() {
         </div>
       </div>
 
-      <GitLabConnectionDialog
+      <BitbucketDataCenterConnectionDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         existingBaseUrl={credentialsStatus?.base_url ?? undefined}
@@ -139,8 +159,9 @@ export function GitLabTokenSetup() {
           setDialogOpen(false)
           refetchCredentialsStatus()
           toast({
-            title: "GitLab credentials saved",
-            description: "GitLab workspace sync credentials are ready.",
+            title: "Bitbucket Data Center credentials saved",
+            description:
+              "Bitbucket Data Center workspace sync credentials are ready.",
           })
         }}
       />
@@ -148,11 +169,13 @@ export function GitLabTokenSetup() {
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete GitLab credentials</AlertDialogTitle>
+            <AlertDialogTitle>
+              Delete Bitbucket Data Center credentials
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete the GitLab token credentials?
-              GitLab workspace sync will stop working until credentials are
-              reconnected.
+              Are you sure you want to delete the Bitbucket Data Center token
+              credentials? Bitbucket Data Center workspace sync will stop
+              working until credentials are reconnected.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -173,7 +196,7 @@ export function GitLabTokenSetup() {
   )
 }
 
-function GitLabConnectionDialog({
+function BitbucketDataCenterConnectionDialog({
   open,
   onOpenChange,
   existingBaseUrl,
@@ -184,27 +207,24 @@ function GitLabConnectionDialog({
   existingBaseUrl?: string
   onFormSuccess: () => void
 }) {
-  const { saveCredentials } = useGitLabTokenCredentials()
+  const { saveCredentials } = useBitbucketDataCenterTokenCredentials()
   const { toast } = useToast()
-  const form = useForm<GitLabTokenFormData>({
-    resolver: zodResolver(gitLabTokenFormSchema),
+  const form = useForm<BitbucketDataCenterTokenFormData>({
+    resolver: zodResolver(bitbucketDataCenterTokenFormSchema),
     defaultValues: {
-      base_url: existingBaseUrl ?? "https://gitlab.com",
+      base_url: existingBaseUrl ?? "",
       token: "",
     },
   })
 
   useEffect(() => {
-    if (!open) {
-      return
-    }
     form.reset({
-      base_url: existingBaseUrl ?? "https://gitlab.com",
+      base_url: existingBaseUrl ?? "",
       token: "",
     })
   }, [existingBaseUrl, form, open])
 
-  async function onSubmit(values: GitLabTokenFormData) {
+  async function onSubmit(values: BitbucketDataCenterTokenFormData) {
     try {
       await saveCredentials.mutateAsync(values)
       onFormSuccess()
@@ -214,7 +234,7 @@ function GitLabConnectionDialog({
         description:
           error instanceof Error
             ? error.message
-            : "Failed to save GitLab credentials",
+            : "Failed to save Bitbucket Data Center credentials",
         variant: "destructive",
       })
     }
@@ -224,7 +244,9 @@ function GitLabConnectionDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>GitLab workspace sync credential</DialogTitle>
+          <DialogTitle>
+            Bitbucket Data Center workspace sync credential
+          </DialogTitle>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
@@ -233,12 +255,16 @@ function GitLabConnectionDialog({
               name="base_url"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Base URL</FormLabel>
+                  <FormLabel>Instance URL</FormLabel>
                   <FormControl>
-                    <Input placeholder="https://gitlab.com" {...field} />
+                    <Input
+                      placeholder="https://bitbucket.example.com"
+                      {...field}
+                    />
                   </FormControl>
                   <FormDescription>
-                    Use your self-managed GitLab URL when not using GitLab.com.
+                    Use the HTTPS instance URL, including its context path if
+                    configured.
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
@@ -254,15 +280,21 @@ function GitLabConnectionDialog({
                     <Input
                       type="password"
                       autoComplete="off"
-                      placeholder="glpat-..."
+                      placeholder="HTTP access token"
                       {...field}
                     />
                   </FormControl>
                   <FormDescription>
-                    Use a GitLab project or group access token with the api
-                    scope. Tracecat stores this token as the GitLab credential
-                    for workspace sync; prefer it over a personal access token
-                    for long-lived sync.
+                    Use a Data Center HTTP access token with repository write
+                    permission.{" "}
+                    <a
+                      className="underline"
+                      href="https://confluence.atlassian.com/bitbucketserver/http-access-tokens-939515499.html"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Token permissions
+                    </a>
                   </FormDescription>
                   <FormMessage />
                 </FormItem>

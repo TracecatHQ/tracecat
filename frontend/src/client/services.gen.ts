@@ -877,8 +877,12 @@ import type {
   VariablesSearchVariablesResponse,
   VariablesUpdateVariableByIdData,
   VariablesUpdateVariableByIdResponse,
+  VcsDeleteBitbucketDataCenterTokenCredentialsResponse,
+  VcsDeleteBitbucketTokenCredentialsResponse,
   VcsDeleteGithubAppCredentialsResponse,
   VcsDeleteGitlabTokenCredentialsResponse,
+  VcsGetBitbucketDataCenterTokenCredentialsStatusResponse,
+  VcsGetBitbucketTokenCredentialsStatusResponse,
   VcsGetGithubAppCredentialsStatusResponse,
   VcsGetGithubAppManifestResponse,
   VcsGetGitlabTokenCredentialsStatusResponse,
@@ -886,6 +890,10 @@ import type {
   VcsGithubAppInstallCallbackResponse,
   VcsGithubWebhookData,
   VcsGithubWebhookResponse,
+  VcsSaveBitbucketDataCenterTokenCredentialsData,
+  VcsSaveBitbucketDataCenterTokenCredentialsResponse,
+  VcsSaveBitbucketTokenCredentialsData,
+  VcsSaveBitbucketTokenCredentialsResponse,
   VcsSaveGithubAppCredentialsData,
   VcsSaveGithubAppCredentialsResponse,
   VcsSaveGitlabTokenCredentialsData,
@@ -13429,6 +13437,106 @@ export const vcsGetGitlabTokenCredentialsStatus =
     return __request(OpenAPI, {
       method: "GET",
       url: "/organization/vcs/gitlab/credentials/status",
+    })
+  }
+
+/**
+ * Save Bitbucket Token Credentials
+ * Save Bitbucket token credentials (create if new or update existing).
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns BitbucketTokenCredentialsSaveResponse Successful Response
+ * @throws ApiError
+ */
+export const vcsSaveBitbucketTokenCredentials = (
+  data: VcsSaveBitbucketTokenCredentialsData
+): CancelablePromise<VcsSaveBitbucketTokenCredentialsResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/organization/vcs/bitbucket/credentials",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Bitbucket Token Credentials
+ * Delete Bitbucket token credentials.
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const vcsDeleteBitbucketTokenCredentials =
+  (): CancelablePromise<VcsDeleteBitbucketTokenCredentialsResponse> => {
+    return __request(OpenAPI, {
+      method: "DELETE",
+      url: "/organization/vcs/bitbucket/credentials",
+    })
+  }
+
+/**
+ * Get Bitbucket Token Credentials Status
+ * Get the status of Bitbucket token credentials.
+ * @returns BitbucketTokenCredentialsStatus Successful Response
+ * @throws ApiError
+ */
+export const vcsGetBitbucketTokenCredentialsStatus =
+  (): CancelablePromise<VcsGetBitbucketTokenCredentialsStatusResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/organization/vcs/bitbucket/credentials/status",
+    })
+  }
+
+/**
+ * Save Bitbucket Data Center Token Credentials
+ * Save Bitbucket Data Center token credentials (create if new or update existing).
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns BitbucketDataCenterTokenCredentialsSaveResponse Successful Response
+ * @throws ApiError
+ */
+export const vcsSaveBitbucketDataCenterTokenCredentials = (
+  data: VcsSaveBitbucketDataCenterTokenCredentialsData
+): CancelablePromise<VcsSaveBitbucketDataCenterTokenCredentialsResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/organization/vcs/bitbucket-data-center/credentials",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Bitbucket Data Center Token Credentials
+ * Delete Bitbucket Data Center token credentials.
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const vcsDeleteBitbucketDataCenterTokenCredentials =
+  (): CancelablePromise<VcsDeleteBitbucketDataCenterTokenCredentialsResponse> => {
+    return __request(OpenAPI, {
+      method: "DELETE",
+      url: "/organization/vcs/bitbucket-data-center/credentials",
+    })
+  }
+
+/**
+ * Get Bitbucket Data Center Token Credentials Status
+ * Get the status of Bitbucket Data Center token credentials.
+ * @returns BitbucketDataCenterTokenCredentialsStatus Successful Response
+ * @throws ApiError
+ */
+export const vcsGetBitbucketDataCenterTokenCredentialsStatus =
+  (): CancelablePromise<VcsGetBitbucketDataCenterTokenCredentialsStatusResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/organization/vcs/bitbucket-data-center/credentials/status",
     })
   }
 

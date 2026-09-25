@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import NotRequired, TypedDict
+from typing import NotRequired, Self, TypedDict
 
-from pydantic import EmailStr, Field, computed_field, field_validator
+from pydantic import EmailStr, Field, computed_field, field_validator, model_validator
 
 from tracecat import config
 from tracecat.core.schemas import Schema
@@ -78,15 +78,28 @@ class WorkspaceSettingsUpdate(Schema):
         description="Whether to validate file content matches declared MIME type using magic number detection. Defaults to true for security.",
     )
 
-    @field_validator("git_provider")
-    @classmethod
-    def validate_git_provider(cls, value: VcsProvider | None) -> VcsProvider | None:
-        """Restrict writable workspace sync providers to implemented transports."""
-        if value is VcsProvider.BITBUCKET:
-            raise ValueError(
-                "bitbucket workspace sync is not implemented yet. Use github or gitlab."
-            )
-        return value
+    @model_validator(mode="after")
+    def validate_bitbucket_cloud(self) -> Self:
+        """Reject self-hosted URLs when selecting Bitbucket Cloud."""
+        if self.git_provider is VcsProvider.BITBUCKET and self.git_repo_url:
+            match = GIT_SSH_URL_REGEX.match(self.git_repo_url)
+            if match and (
+                match.group("host") != "bitbucket.org"
+                or match.group("port")
+                or len(match.group("path").split("/")) != 2
+            ):
+                raise ValueError(
+                    "Bitbucket Cloud requires a bitbucket.org workspace/repository URL"
+                )
+        if self.git_provider is VcsProvider.BITBUCKET_DATA_CENTER and self.git_repo_url:
+            match = GIT_SSH_URL_REGEX.match(self.git_repo_url)
+            if match and (
+                match.group("port") or len(match.group("path").split("/")) != 2
+            ):
+                raise ValueError(
+                    "Use a project/repository URL; configure the port and context path in the organization instance URL"
+                )
+        return self
 
     @field_validator("git_repo_url", mode="before")
     @classmethod

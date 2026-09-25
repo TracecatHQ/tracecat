@@ -1284,6 +1284,20 @@ async def test_agent_preset_subagent_target_skips_soft_deleted_preset(
                 repo="git-sync-qa",
             ),
         ),
+        (
+            VcsProvider.BITBUCKET,
+            "git+ssh://git@bitbucket.org/example-workspace/example-repo.git",
+            GitUrl(host="bitbucket.org", org="example-workspace", repo="example-repo"),
+        ),
+        (
+            VcsProvider.BITBUCKET_DATA_CENTER,
+            "git+ssh://git@bitbucket.example.test/example-workspace/example-repo.git",
+            GitUrl(
+                host="bitbucket.example.test",
+                org="example-workspace",
+                repo="example-repo",
+            ),
+        ),
     ],
 )
 async def test_source_export_target_pull_preserves_projected_workspace(

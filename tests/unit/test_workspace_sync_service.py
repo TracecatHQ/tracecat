@@ -64,7 +64,6 @@ from tracecat.workspace_sync.transport import (
     GitHubWorkspaceSyncTransport,
     VcsTreeSnapshot,
     _git_blob_sha,
-    unsupported_transport,
 )
 from tracecat.workspace_sync.workflow import (
     serialize_workflow_spec,
@@ -2214,13 +2213,6 @@ async def test_github_read_files_uses_commit_tree_sha(
     assert snapshot.commit_sha == "c" * 40
     assert snapshot.tree_sha == "t" * 40
     assert MANIFEST_FILENAME in snapshot.files
-
-
-def test_bitbucket_transport_is_explicitly_unsupported() -> None:
-    error = unsupported_transport(VcsProvider.BITBUCKET)
-
-    assert isinstance(error, TracecatValidationError)
-    assert VcsProvider.BITBUCKET.value in str(error)
 
 
 def _legacy_workflow_yaml(source_id: str, *, title: str) -> str:
