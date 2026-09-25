@@ -55,8 +55,8 @@ from tracecat.agent.common.config import (
     TRACECAT__DISABLE_NSJAIL,
 )
 from tracecat.agent.common.exceptions import (
+    AgentRuntimeInvariantError,
     AgentSandboxProcessExitError,
-    AgentSandboxValidationError,
 )
 from tracecat.agent.common.output_format import build_sdk_output_format
 from tracecat.agent.common.protocol import RuntimeInitPayload
@@ -130,7 +130,7 @@ def _claude_project_dir_name(cwd: Path) -> str:
     """
     sanitized = CLAUDE_PROJECT_DIR_SANITIZE_RE.sub("-", str(cwd))
     if len(sanitized) > CLAUDE_PROJECT_DIR_MAX_LENGTH:
-        raise AgentSandboxValidationError(
+        raise AgentRuntimeInvariantError(
             "Claude runtime cwd is too long for deterministic session persistence: "
             f"sanitized path length {len(sanitized)} exceeds "
             f"{CLAUDE_PROJECT_DIR_MAX_LENGTH}. Shorten TMPDIR or the runtime cwd."
@@ -730,14 +730,14 @@ class ClaudeAgentRuntime:
         ~/.claude/projects/{encoded-cwd}/{session_id}.jsonl
 
         Raises:
-            AgentSandboxValidationError: If sdk_session_id contains path traversal.
+            AgentRuntimeInvariantError: If sdk_session_id contains path traversal.
         """
         # Validate session ID to prevent path traversal
         # Only allow alphanumeric, hyphens, and underscores
         if not sdk_session_id or not all(
             c.isalnum() or c in "-_" for c in sdk_session_id
         ):
-            raise AgentSandboxValidationError(
+            raise AgentRuntimeInvariantError(
                 f"Invalid sdk_session_id: must be alphanumeric with hyphens/underscores only, got {sdk_session_id!r}"
             )
 

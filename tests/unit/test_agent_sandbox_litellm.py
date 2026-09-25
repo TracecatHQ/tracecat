@@ -3099,7 +3099,7 @@ async def _run_executor_through_route_materialization(
 
 
 @pytest.mark.anyio
-async def test_executor_classifies_passthrough_without_base_url_as_invalid_config(
+async def test_executor_classifies_passthrough_without_base_url_as_platform(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -3116,8 +3116,8 @@ async def test_executor_classifies_passthrough_without_base_url_as_invalid_confi
 
     assert result.success is False
     assert result.classification is not None
-    assert result.classification.owner is RuntimeErrorOwner.USER
-    assert result.classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
+    assert result.classification.owner is RuntimeErrorOwner.PLATFORM
+    assert result.classification.kind is RuntimeErrorKind.AGENT_PREPARATION_FAILED
     assert result.classification.retry_disposition is RetryDisposition.NON_RETRYABLE
 
 

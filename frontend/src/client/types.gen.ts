@@ -7456,6 +7456,8 @@ export type RuntimeErrorKind =
   | "agent.llm.budget_exceeded"
   | "agent.llm.rate_limited"
   | "agent.llm.read_timeout"
+  | "agent.mcp.auth_failed"
+  | "agent.mcp.unavailable"
   | "agent.execution.failed"
   | "agent.executor.unavailable"
   | "agent.executor.timed_out"

@@ -11,6 +11,10 @@ from dataclasses import dataclass
 
 from tracecat_registry import RegistrySecretType
 
+from tracecat.agent.common.exceptions import (
+    AgentToolLimitExceededError,
+    AgentToolResolutionError,
+)
 from tracecat.agent.types import Tool
 from tracecat.config import TRACECAT__AGENT_MAX_TOOLS
 from tracecat.dsl.enums import PlatformAction
@@ -173,7 +177,8 @@ async def build_agent_tools(
         BuildToolsResult containing tools and collected secrets
 
     Raises:
-        ValueError: If actions are missing/failed or max_tools exceeded
+        AgentToolResolutionError: If actions are missing or fail to build.
+        AgentToolLimitExceededError: If max_tools is exceeded.
     """
     included_actions = [
         action_name
@@ -217,23 +222,35 @@ async def build_agent_tools(
             collected_secrets.update(result.collected_secrets)
             tools.append(result.tool)
 
-    if missing_actions or failed_actions:
-        details: list[str] = []
-        if missing_actions:
-            missing_list = "\n".join(
-                f"- {action}" for action in sorted(missing_actions)
-            )
-            details.append("Requested actions not found in registry:\n" + missing_list)
-        if failed_actions:
-            failed_list = "\n".join(f"- {action}" for action in sorted(failed_actions))
-            details.append("Failed to build the following actions:\n" + failed_list)
+        missing_platform = (
+            await service.classify_missing_platform_actions(sorted(missing_actions))
+            if missing_actions
+            else None
+        )
+    missing_platform_actions = missing_platform.platform if missing_platform else set()
+    entitlement_denied_actions = (
+        missing_platform.entitlement_denied if missing_platform else set()
+    )
 
-        raise ValueError(
-            "Unable to build the requested tools:\n" + "\n\n".join(details)
+    if missing_actions or failed_actions:
+        logger.warning(
+            "Unable to build the requested agent tools",
+            missing_actions=sorted(missing_actions),
+            missing_platform_actions=sorted(missing_platform_actions),
+            entitlement_denied_actions=sorted(entitlement_denied_actions),
+            failed_actions=sorted(failed_actions),
+        )
+        raise AgentToolResolutionError(
+            missing_actions=frozenset(
+                missing_actions - missing_platform_actions - entitlement_denied_actions
+            ),
+            missing_platform_actions=frozenset(missing_platform_actions),
+            entitlement_denied_actions=frozenset(entitlement_denied_actions),
+            failed_actions=frozenset(failed_actions),
         )
 
     if max_tools > 0 and len(tools) > max_tools:
-        raise ValueError(f"Cannot request more than {max_tools} tools")
+        raise AgentToolLimitExceededError(requested=len(tools), limit=max_tools)
 
     return BuildToolsResult(tools=tools, collected_secrets=collected_secrets)
 

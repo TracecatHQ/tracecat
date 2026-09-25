@@ -6,7 +6,14 @@ import signal
 from dataclasses import dataclass
 
 from tracecat.agent.common.config import TRACECAT__AGENT_SANDBOX_MEMORY_MB
-from tracecat.agent.common.exceptions import AgentSandboxProcessExitError
+from tracecat.agent.common.exceptions import (
+    AgentRuntimeInvariantError,
+    AgentSandboxProcessExitError,
+    AgentToolLimitExceededError,
+    AgentToolResolutionError,
+    UserMCPDiscoveryAuthError,
+    UserMCPDiscoveryUnavailableError,
+)
 from tracecat.exceptions import RegistryLockAmbiguousActionError
 from tracecat.runtime.errors import (
     RetryDisposition,
@@ -50,6 +57,117 @@ def invalid_agent_configuration(
         retry_disposition=RetryDisposition.NON_RETRYABLE,
         cause=error,
     )
+
+
+# Caps for user-configured names echoed in messages, bounding their size.
+_MAX_MESSAGE_NAME_LENGTH = 64
+_MAX_MESSAGE_ACTION_NAMES = 5
+
+
+def _message_name(name: str) -> str:
+    if len(name) <= _MAX_MESSAGE_NAME_LENGTH:
+        return name
+    return f"{name[: _MAX_MESSAGE_NAME_LENGTH - 3]}..."
+
+
+def _message_action_names(action_names: frozenset[str]) -> str:
+    names = sorted(action_names)
+    shown = ", ".join(_message_name(name) for name in names[:_MAX_MESSAGE_ACTION_NAMES])
+    if (hidden := len(names) - _MAX_MESSAGE_ACTION_NAMES) > 0:
+        return f"{shown} (+{hidden} more)"
+    return shown
+
+
+def agent_tools_not_found(
+    error: AgentToolResolutionError,
+) -> RuntimeErrorClassification:
+    """Classify tools that reference actions absent from every registry."""
+    return RuntimeErrorClassification.user(
+        kind=RuntimeErrorKind.AGENT_CONFIGURATION_INVALID,
+        message=(
+            "Agent tools reference actions that are not in the registry: "
+            f"{_message_action_names(error.missing_actions)}"
+        ),
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        cause=error,
+    )
+
+
+def agent_tool_limit_exceeded(
+    error: AgentToolLimitExceededError,
+) -> RuntimeErrorClassification:
+    """Classify an agent that requests more tools than the configured limit."""
+    return RuntimeErrorClassification.user(
+        kind=RuntimeErrorKind.AGENT_CONFIGURATION_INVALID,
+        message=f"Agent requests {error.requested} tools; the limit is {error.limit}",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        cause=error,
+    )
+
+
+def agent_tool_build_failure(error: ValueError) -> RuntimeErrorClassification:
+    """Classify a failed agent tool build by owner.
+
+    Missing platform actions and failed builds are platform-owned. Otherwise,
+    entitlement-gated platform actions are a tenant plan gap, and actions that
+    only a custom registry could provide are the caller's to fix.
+    """
+    if isinstance(error, AgentToolLimitExceededError):
+        return agent_tool_limit_exceeded(error)
+    if not isinstance(error, AgentToolResolutionError) or (
+        error.missing_platform_actions or error.failed_actions
+    ):
+        return agent_preparation_failed(error, retryable=False)
+    if error.entitlement_denied_actions:
+        return tenant_entitlement_denied(error)
+    if error.missing_actions:
+        return agent_tools_not_found(error)
+    return agent_preparation_failed(error, retryable=False)
+
+
+def agent_mcp_auth_failed(
+    error: UserMCPDiscoveryAuthError,
+) -> RuntimeErrorClassification:
+    """Classify a user MCP server that rejected the configured credentials."""
+    return RuntimeErrorClassification.user(
+        kind=RuntimeErrorKind.AGENT_MCP_AUTH_FAILED,
+        message=(
+            f"MCP server '{_message_name(error.server_name)}' rejected the "
+            "configured credentials; reconnect the integration"
+        ),
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        cause=error,
+    )
+
+
+def agent_mcp_unavailable(
+    error: UserMCPDiscoveryUnavailableError,
+) -> RuntimeErrorClassification:
+    """Classify a user MCP server that was unreachable or rejected discovery."""
+    server_name = _message_name(error.server_name)
+    return RuntimeErrorClassification.user(
+        kind=RuntimeErrorKind.AGENT_MCP_UNAVAILABLE,
+        message=(
+            f"MCP server '{server_name}' is unavailable; retry later"
+            if error.retryable
+            else f"MCP server '{server_name}' rejected the tool discovery request"
+        ),
+        retry_disposition=(
+            RetryDisposition.RETRYABLE
+            if error.retryable
+            else RetryDisposition.NON_RETRYABLE
+        ),
+        cause=error,
+    )
+
+
+def mcp_discovery_failure(error: BaseException) -> RuntimeErrorClassification:
+    """Classify a user MCP discovery failure, defaulting to platform-owned."""
+    if isinstance(error, UserMCPDiscoveryAuthError):
+        return agent_mcp_auth_failed(error)
+    if isinstance(error, UserMCPDiscoveryUnavailableError):
+        return agent_mcp_unavailable(error)
+    return agent_preparation_failed(error, retryable=False)
 
 
 def registry_lock_invalid_data(
@@ -241,10 +359,17 @@ def agent_runtime_failure(
     """Classify an exception raised out of a Claude runtime turn.
 
     A jailed process that exited with a resource-limit code is attributed to
-    the caller and carries its own message. Every other failure remains
+    the caller and carries its own message. A runtime invariant violation is a
+    non-retryable preparation failure. Every other failure remains
     platform-owned executor unavailability, surfacing ``fallback_message``.
     """
     for cause in iter_error_chain(error):
+        if isinstance(cause, AgentRuntimeInvariantError):
+            classification = agent_preparation_failed(cause, retryable=False)
+            return AgentRuntimeFailure(
+                message=classification.message,
+                classification=classification,
+            )
         if (
             isinstance(cause, AgentSandboxProcessExitError)
             and cause.exit_code in AGENT_SANDBOX_RESOURCE_LIMIT_EXIT_CODES

@@ -65,8 +65,8 @@ _WORKFLOW_FAILURE_SCENARIOS: tuple[_FailureScenario, ...] = (
             harness.FaultPoint.WORKSPACE_CONTEXT_MISSING
         ),
         status=_FAILED,
-        owner=RuntimeErrorOwner.USER,
-        kind=RuntimeErrorKind.AGENT_CONFIGURATION_INVALID,
+        owner=RuntimeErrorOwner.PLATFORM,
+        kind=RuntimeErrorKind.AGENT_WORKFLOW_INTERNAL_ERROR,
         retry_disposition=RetryDisposition.NON_RETRYABLE,
         should_stream=False,
         fault_calls=0,
@@ -80,8 +80,8 @@ _WORKFLOW_FAILURE_SCENARIOS: tuple[_FailureScenario, ...] = (
             harness.FaultPoint.ORGANIZATION_CONTEXT_MISSING
         ),
         status=_FAILED,
-        owner=RuntimeErrorOwner.USER,
-        kind=RuntimeErrorKind.AGENT_CONFIGURATION_INVALID,
+        owner=RuntimeErrorOwner.PLATFORM,
+        kind=RuntimeErrorKind.AGENT_WORKFLOW_INTERNAL_ERROR,
         retry_disposition=RetryDisposition.NON_RETRYABLE,
         should_stream=False,
         fault_calls=0,

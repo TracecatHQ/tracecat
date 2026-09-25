@@ -29,6 +29,7 @@ from claude_agent_sdk.types import (
 
 import tracecat.agent.runtime.claude_code.runtime as runtime_module
 from tracecat.agent.common.exceptions import (
+    AgentRuntimeInvariantError,
     AgentSandboxProcessExitError,
     AgentSandboxValidationError,
 )
@@ -3457,7 +3458,7 @@ class TestClaudeAgentRuntimeSessionLineFlushing:
     ) -> None:
         """Long paths are rejected instead of guessing Claude's hash suffix."""
         with pytest.raises(
-            AgentSandboxValidationError,
+            AgentRuntimeInvariantError,
             match="runtime cwd is too long",
         ):
             _claude_project_dir_name(cwd)
@@ -3475,7 +3476,7 @@ class TestClaudeAgentRuntimeSessionLineFlushing:
         )
 
         with pytest.raises(
-            AgentSandboxValidationError,
+            AgentRuntimeInvariantError,
             match="runtime cwd is too long",
         ):
             runtime._ensure_working_directory(uuid.uuid4())

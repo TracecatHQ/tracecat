@@ -25,6 +25,11 @@ from tenacity import (
     wait_exponential,
 )
 
+from tracecat.agent.common.exceptions import (
+    UserMCPDiscoveryAuthError,
+    UserMCPDiscoveryError,
+    UserMCPDiscoveryUnavailableError,
+)
 from tracecat.agent.common.types import MCPHttpServerConfig, MCPToolDefinition
 from tracecat.agent.mcp.http_limits import (
     MCPResponseTooLargeError,
@@ -131,22 +136,13 @@ async def list_remote_mcp_tools(
 
 
 def _iter_exception_chain(exc: BaseException) -> list[BaseException]:
-    """Return an exception and its explicit cause/context chain."""
-    chain: list[BaseException] = []
-    current: BaseException | None = exc
-    while current is not None and current not in chain:
-        chain.append(current)
-        current = current.__cause__ or current.__context__
-    return chain
+    """Return an exception, its cause/context links, and ExceptionGroup members.
 
-
-def _contains_response_too_large(exc: BaseException) -> bool:
-    """Walk cause/context and ExceptionGroup members for the byte-cap error.
-
-    The cap raise surfaces differently by path: bare on tools/call, wrapped in
-    a connect RuntimeError on the handshake, and nested inside an anyio
+    Failures surface differently by path: bare on tools/call, wrapped in a
+    connect RuntimeError on the handshake, and nested inside an anyio
     ExceptionGroup in either case.
     """
+    chain: list[BaseException] = []
     seen: set[int] = set()
     stack: list[BaseException] = [exc]
     while stack:
@@ -154,14 +150,21 @@ def _contains_response_too_large(exc: BaseException) -> bool:
         if id(current) in seen:
             continue
         seen.add(id(current))
-        if isinstance(current, MCPResponseTooLargeError):
-            return True
+        chain.append(current)
         if isinstance(current, BaseExceptionGroup):
             stack.extend(current.exceptions)
         for linked in (current.__cause__, current.__context__):
             if linked is not None:
                 stack.append(linked)
-    return False
+    return chain
+
+
+def _contains_response_too_large(exc: BaseException) -> bool:
+    """Return whether the byte-cap error appears anywhere in the failure."""
+    return any(
+        isinstance(chained, MCPResponseTooLargeError)
+        for chained in _iter_exception_chain(exc)
+    )
 
 
 def _is_retryable_discovery_error_leaf(exc: BaseException) -> bool:
@@ -180,6 +183,32 @@ def _is_retryable_discovery_error(exc: BaseException) -> bool:
         _is_retryable_discovery_error_leaf(chained)
         for chained in _iter_exception_chain(exc)
     )
+
+
+def _discovery_error_status_codes(exc: BaseException) -> set[int]:
+    return {
+        chained.response.status_code
+        for chained in _iter_exception_chain(exc)
+        if isinstance(chained, httpx.HTTPStatusError)
+    }
+
+
+def _typed_discovery_error(
+    server_name: str,
+    exc: BaseException,
+) -> UserMCPDiscoveryError:
+    """Map a discovery failure onto the typed error that carries its owner."""
+    status_codes = _discovery_error_status_codes(exc)
+    if status_codes & {
+        int(httpx.codes.UNAUTHORIZED),
+        int(httpx.codes.FORBIDDEN),
+    }:
+        return UserMCPDiscoveryAuthError(server_name)
+    if _is_retryable_discovery_error(exc):
+        return UserMCPDiscoveryUnavailableError(server_name, retryable=True)
+    if any(400 <= code < 500 for code in status_codes):
+        return UserMCPDiscoveryUnavailableError(server_name, retryable=False)
+    return UserMCPDiscoveryError(server_name)
 
 
 def _safe_discovery_error_summary(exc: BaseException) -> str:
@@ -252,9 +281,7 @@ class UserMCPClient:
                 )
                 failed_servers[server_name] = error_summary
                 if fail_on_error:
-                    raise RuntimeError(
-                        f"Failed to discover tools from user MCP server '{server_name}'"
-                    ) from e
+                    raise _typed_discovery_error(server_name, e) from e
 
         logger.info(
             "Discovered user MCP tools",

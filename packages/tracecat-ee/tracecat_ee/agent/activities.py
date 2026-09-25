@@ -21,7 +21,8 @@ from tracecat.agent.common.types import (
 )
 from tracecat.agent.error_policy import (
     agent_preparation_failed,
-    invalid_agent_configuration,
+    agent_tool_build_failure,
+    mcp_discovery_failure,
     registry_lock_action_ambiguous,
     registry_lock_invalid_data,
     tenant_entitlement_denied,
@@ -309,7 +310,7 @@ class AgentActivities:
                 tool_approvals=args.tool_approvals,
             )
         except ValueError as e:
-            raise_application_error_from_classification(invalid_agent_configuration(e))
+            raise_application_error_from_classification(agent_tool_build_failure(e))
         # Convert to dict[str, MCPToolDefinition] keyed by canonical action name
         # Tools already have canonical names (with dots, e.g., "core.cases.list_cases")
         defs: dict[str, MCPToolDefinition] = {}
@@ -503,7 +504,7 @@ class AgentActivities:
                 )
                 if args.fail_on_mcp_discovery_error:
                     raise_application_error_from_classification(
-                        invalid_agent_configuration(e)
+                        mcp_discovery_failure(e)
                     )
                 # Continue without user MCP tools - don't fail the whole operation
             finally:
