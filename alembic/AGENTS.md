@@ -101,7 +101,7 @@ tables in workspace schemas. For these migrations:
 - If another migration lands first, rebase your unmerged revision's
   `down_revision` onto the latest head. Do not add merge revisions or `depends_on`
   links, and do not rewrite deployed revisions.
-- Historical branches and merges through `6e921d4f0b72` are preserved. That
+- Historical branches and merges through `2f14222e0d12` are preserved. That
   one-time merge establishes the boundary for linear history going forward.
 - Bring the database up first (`just cluster up -d`) and check the port with
   `just cluster ports`.

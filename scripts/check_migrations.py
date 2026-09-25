@@ -11,7 +11,7 @@ from alembic.util import CommandError
 
 # This merge reconciles the heads that predate the linear-history policy.
 # Its ancestors can contain branches, merges and cross-branch dependencies.
-LINEAR_HISTORY_BASE = "6e921d4f0b72"
+LINEAR_HISTORY_BASE = "2f14222e0d12"
 
 
 def check_migrations(
