@@ -201,6 +201,7 @@ Tracecat follows [Semantic Versioning](https://semver.org/). Version numbers are
 | Tag | What it is | Cut from |
 |-----|------------|----------|
 | `1.X.0-alpha.N` | A build of `main` before the train is frozen. Features still land between alphas. Nothing is promised. | `main` |
+| `1.X.0-alpha.N.M` | A hotfix of alpha `N`: cherry-picked fixes only, no new migrations, database-schema changes, backfills, or registry actions. | `release/1.X.0-alpha.N` |
 | `1.X.0-rc.N` | The train is frozen and only fixes may land. Used when a change needs validation outside Tracecat Cloud before it ships. Most trains skip this stage. | `release/1.X` |
 | `1.X.0` | The stable train. | `release/1.X` |
 | `1.X.Y` | A hotfix on a shipped train: cherry-picked fixes only, no new migrations or registry actions. | `release/1.X` |
@@ -209,13 +210,14 @@ Tracecat follows [Semantic Versioning](https://semver.org/). Version numbers are
 Tags are bare versions with no leading `v`. Ordering follows semver:
 
 ```
-1.1.0-alpha.1 < 1.1.0-rc.1 < 1.1.0 < 1.1.1 < 1.2.0-alpha.1
+1.1.0-alpha.1 < 1.1.0-alpha.1.1 < 1.1.0-alpha.1.2 < 1.1.0-alpha.2 < 1.1.0-rc.1 < 1.1.0 < 1.1.1 < 1.2.0-alpha.1
 ```
 
 ### Rules
 
-- **Prerelease suffixes only hang off a `.0`.** Alphas and release candidates exist for the next minor or major. A patch goes out directly with no prerelease, because it is a small, already-reviewed fix on a validated train. If a patch feels risky enough to want an rc, it belongs in the next train instead.
-- **Alphas start from `main`.** Before freeze, cut each alpha on a `release/<tag>` snapshot branch from a merged `main` commit. Version bumps and tags stay on the snapshot branch. Once a train freezes, `main` continues toward the next train; cutting a release does not advance `main`.
+- **Prerelease suffixes only hang off a `.0`.** Alphas and release candidates exist for the next minor or major. A stable patch goes out directly with no prerelease, because it is a small, already-reviewed fix on a validated train. Alpha hotfixes use `alpha.N.M` and remain prereleases. If a stable patch feels risky enough to want an rc, it belongs in the next train instead.
+- **New alpha lines start from `main`.** Before freeze, cut each `1.X.0-alpha.N` on `release/1.X.0-alpha.N` from a merged `main` commit. Version bumps and tags stay on that branch. Once a train freezes, `main` continues toward the next train; cutting a release does not advance `main`.
+- **Alpha hotfixes reuse their alpha branch.** Cherry-pick fixes from `main` onto `release/1.X.0-alpha.N` and tag successive `alpha.N.M` releases there. For example, `1.1.0-alpha.1.1` and `1.1.0-alpha.1.2` both belong on `release/1.1.0-alpha.1`; never create a branch per hotfix. These hotfixes require a published alpha on that line, not a stable release. Both alpha hotfixes and stable patches exclude new migrations, database-schema changes, backfills, and new registry actions, including dependencies of a proposed fix.
 - **One long-lived branch per frozen train.** Create `release/1.X` at freeze. It carries release candidates, the stable tag, and every `1.X.Y`. It is never deleted, and it is never merged back; fixes land on `main` first and are cherry-picked onto the branch. A patch reuses the existing train branch, rather than branching from newer `main` code.
 - **Alpha releases are deployed to Tracecat’s own environments ahead of stable releases.** Self-hosted deployments should use stable version tags.
 - **Breaking changes decide the next number.** A `!` in a pull request title marks a change that breaks a self-hoster without a deprecation path, such as dropping a migration chain, changing the Compose topology in a way that needs manual steps, or removing an API without the three-step deprecation above. Any such change in a train makes it the next major. Deprecations announced under that process ride minors.
@@ -224,7 +226,7 @@ Tags are bare versions with no leading `v`. Ordering follows semver:
 
 Stable releases, prereleases, and hotfixes all use the same direct branch flow. The [gh-release skill](.agents/skills/gh-release/SKILL.md) covers the checks and commands. Release branches are not merged into `main`, and no release pull request is needed.
 
-1. Choose a merged, validated base commit. For an alpha, create its snapshot branch from `main`. At freeze, create the train branch; for subsequent RCs and patches, reuse its current tip with the reviewed fixes already cherry-picked. The branch must contain the current image-publishing workflow, including the stable-only `latest` guard.
+1. Choose a validated base commit. For a new alpha line, create its branch from merged `main`. For an alpha hotfix, reuse that alpha line's branch with reviewed fixes cherry-picked from `main`. At freeze, create the train branch; for subsequent RCs and stable patches, reuse its current tip with the reviewed fixes already cherry-picked. The branch must contain the current image-publishing workflow, including the stable-only `latest` guard.
 2. On that branch, run `just update-version <version>`, review the diff, and commit it as `release: <version>`. The command writes the public tag to `__version__` and the PEP 440 equivalent (`1.1.0-alpha.1` becomes `1.1.0a1`) to `__pep440_version__` for Python package builds.
 3. Push the branch, then create and push an annotated version tag on that version-bump commit. Never move an existing release tag. Leave the branch in place.
 4. Wait for `.github/workflows/build-push-images.yml` to succeed for that tag and commit. It publishes `ghcr.io/tracecathq/tracecat:<tag>` and `ghcr.io/tracecathq/tracecat-ui:<tag>`. Only bare stable versions (`MAJOR.MINOR.PATCH`) also update `latest`; alphas, RCs, and nightly builds leave it unchanged. Every stable publication qualifies, including a hotfix on an older train.
