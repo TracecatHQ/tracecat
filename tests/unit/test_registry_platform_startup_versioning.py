@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from tracecat.db.models import PlatformRegistryVersion
+from tracecat.registry.sync.jobs import _is_downgrade
 
 
 @pytest.mark.parametrize(
@@ -23,8 +24,6 @@ def test_is_downgrade_handles_temporary_beta_rc_release_tags(
     expected: bool,
 ) -> None:
     """Test downgrade checks for the temporary stacked beta/rc release format."""
-    from tracecat.registry.sync.jobs import _is_downgrade
-
     current = PlatformRegistryVersion(
         version=current_version,
         manifest={"version": "1.0", "actions": {}},
@@ -32,3 +31,36 @@ def test_is_downgrade_handles_temporary_beta_rc_release_tags(
     )
 
     assert _is_downgrade(current, target_version) is expected
+
+
+@pytest.mark.parametrize(
+    ("older", "newer"),
+    [
+        ("1.2.0-alpha.1", "1.2.0-alpha.1.0"),
+        ("1.2.0-alpha.1", "1.2.0-alpha.1.2"),
+        ("1.2.0-alpha.1.2", "1.2.0-alpha.1.10"),
+        ("1.2.0-alpha.1.10", "1.2.0-alpha.2"),
+        ("1.2.0-alpha.1.10", "1.2.0-alpha.2.1"),
+        ("1.2.0-alpha.1.2", "1.2.0-beta.0"),
+        ("1.2.0-alpha.1.2", "1.2.0-beta.0-rc.1"),
+        ("1.2.0-alpha.1.2", "1.2.0-rc.0"),
+        ("1.2.0-alpha.1.2", "1.2.0"),
+        ("1.1.0", "1.2.0-alpha.1.2"),
+    ],
+)
+def test_is_downgrade_orders_alpha_hotfix_tags(older: str, newer: str) -> None:
+    """Allow upgrades and reject downgrades across alpha hotfix boundaries."""
+    older_version = PlatformRegistryVersion(version=older)
+    newer_version = PlatformRegistryVersion(version=newer)
+
+    assert _is_downgrade(older_version, newer) is False
+    assert _is_downgrade(newer_version, older) is True
+
+
+@pytest.mark.parametrize("current", ["1.2.0-alpha.1.2", "1.2.0a1.post2"])
+def test_is_downgrade_accepts_equivalent_alpha_hotfix_versions(current: str) -> None:
+    """Public and Python hotfix versions compare as the same release."""
+    current_version = PlatformRegistryVersion(version=current)
+
+    assert _is_downgrade(current_version, "1.2.0-alpha.1.2") is False
+    assert _is_downgrade(current_version, "1.2.0a1.post2") is False
