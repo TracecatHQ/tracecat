@@ -1075,7 +1075,7 @@ class TestCreateSessionActivity:
         mock_agent_session = MagicMock(backend_id="oss", harness_type="claude_code")
         mock_agent_session.agents_binding = None
         mock_agent_session.sdk_session_id = None
-        mock_agent_session.parent_session_id = None
+        mock_agent_session.forked_from_session_id = None
         mock_service = AsyncMock()
         mock_service.get_or_create_session.return_value = (mock_agent_session, False)
 
@@ -1107,7 +1107,7 @@ class TestCreateSessionActivity:
         mock_agent_session = MagicMock(backend_id="oss", harness_type="claude_code")
         mock_agent_session.agents_binding = None
         mock_agent_session.sdk_session_id = None
-        mock_agent_session.parent_session_id = None
+        mock_agent_session.forked_from_session_id = None
         mock_service = AsyncMock()
         mock_service.get_or_create_session.return_value = (
             mock_agent_session,
@@ -1134,7 +1134,7 @@ class TestCreateSessionActivity:
             "incoming_agents_binding",
             "persisted_agents_binding",
             "sdk_session_id",
-            "parent_session_id",
+            "source_session_id",
             "expected_success",
             "expected_backfill",
         ),
@@ -1225,7 +1225,7 @@ class TestCreateSessionActivity:
         incoming_agents_binding: ResolvedAgentsConfig | None,
         persisted_agents_binding: dict[str, object] | None,
         sdk_session_id: str | None,
-        parent_session_id: uuid.UUID | None,
+        source_session_id: uuid.UUID | None,
         expected_success: bool,
         expected_backfill: bool,
         enforce_session_agents_binding: bool,
@@ -1243,7 +1243,7 @@ class TestCreateSessionActivity:
         mock_agent_session = MagicMock(backend_id="oss", harness_type="claude_code")
         mock_agent_session.agents_binding = persisted_agents_binding
         mock_agent_session.sdk_session_id = sdk_session_id
-        mock_agent_session.parent_session_id = parent_session_id
+        mock_agent_session.forked_from_session_id = source_session_id
         mock_service = AsyncMock()
         mock_service.get_or_create_session.return_value = (
             mock_agent_session,
@@ -1300,7 +1300,7 @@ class TestCreateSessionActivity:
         mock_agent_session = MagicMock(backend_id="oss", harness_type="claude_code")
         mock_agent_session.agents_binding = None
         mock_agent_session.sdk_session_id = None
-        mock_agent_session.parent_session_id = None
+        mock_agent_session.forked_from_session_id = None
         mock_service.get_session.return_value = mock_agent_session
 
         mock_ctx = AsyncMock()
@@ -1430,7 +1430,7 @@ class TestCreateSessionActivity:
         mock_agent_session = MagicMock(backend_id="oss", harness_type="claude_code")
         mock_agent_session.agents_binding = None
         mock_agent_session.sdk_session_id = None
-        mock_agent_session.parent_session_id = None
+        mock_agent_session.forked_from_session_id = None
         mock_service = AsyncMock()
         mock_service.get_or_create_session.return_value = (mock_agent_session, False)
         mock_service.auto_title_session_on_first_prompt = AsyncMock()
@@ -1487,7 +1487,7 @@ class TestLoadSessionActivity:
         mock_agent_session = MagicMock()
         mock_agent_session.agents_binding = None
         mock_agent_session.sdk_session_id = None
-        mock_agent_session.parent_session_id = None
+        mock_agent_session.forked_from_session_id = None
 
         # Set up the mock service
         mock_service = AsyncMock()
@@ -1522,7 +1522,7 @@ class TestLoadSessionActivity:
         agents_binding = ResolvedAgentsConfig.model_validate({"subagents": []})
         mock_agent_session.agents_binding = agents_binding.model_dump(mode="json")
         mock_agent_session.sdk_session_id = "sdk-session-123"
-        mock_agent_session.parent_session_id = None
+        mock_agent_session.forked_from_session_id = None
 
         # Set up the mock service
         mock_service = AsyncMock()
@@ -1544,11 +1544,16 @@ class TestLoadSessionActivity:
 
     @pytest.mark.anyio
     @patch("tracecat.agent.session.activities.AgentSessionService.with_session")
-    async def test_loads_forked_parent_session_metadata(
-        self, mock_with_session, mock_role: Role, mock_session_id: uuid.UUID
+    @pytest.mark.parametrize("source_sdk_id", ["source-sdk-session", None])
+    async def test_loads_forked_source_session_metadata(
+        self,
+        mock_with_session,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        source_sdk_id: str | None,
     ):
-        """Forked first turns resume from parent metadata without SDK JSONL."""
-        parent_session_id = uuid.uuid4()
+        """Forked first turns use captured native identity when one exists."""
+        source_session_id = uuid.uuid4()
         input = LoadSessionInput(
             role=mock_role,
             session_id=mock_session_id,
@@ -1557,14 +1562,15 @@ class TestLoadSessionActivity:
         mock_agent_session = MagicMock()
         mock_agent_session.agents_binding = None
         mock_agent_session.sdk_session_id = None
-        mock_agent_session.parent_session_id = parent_session_id
-        mock_parent_session = MagicMock()
-        mock_parent_session.sdk_session_id = "parent-sdk-session"
+        mock_agent_session.forked_from_session_id = source_session_id
+        mock_agent_session.forked_from_sdk_session_id = source_sdk_id
+        mock_source_session = MagicMock()
+        mock_source_session.sdk_session_id = "later-sdk-session"
 
         mock_service = AsyncMock()
         mock_service.get_session.side_effect = [
             mock_agent_session,
-            mock_parent_session,
+            mock_source_session,
         ]
 
         mock_ctx = AsyncMock()
@@ -1574,9 +1580,9 @@ class TestLoadSessionActivity:
         result = await load_session_activity(input)
 
         assert result.found is True
-        assert result.sdk_session_id == "parent-sdk-session"
+        assert result.sdk_session_id == source_sdk_id
         assert result.sdk_session_data is None
-        assert result.is_fork is True
+        assert result.is_fork is (source_sdk_id is not None)
         assert result.agents_binding is None
         assert result.has_resume_state is True
 

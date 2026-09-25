@@ -490,6 +490,11 @@ class AgentSessionService(BaseWorkspaceService):
             The created AgentSession model.
         """
         backend = get_agent_backend(args.backend_id, harness_type=args.harness_type)
+        if args.parent_session_id is not None:
+            if await self.get_session(args.parent_session_id) is None:
+                raise TracecatNotFoundError(
+                    "Parent session not found in this workspace"
+                )
         # Apply default tools based on entity type if tools not provided.
         # Workspace chat merges its always-on defaults at runtime instead, so
         # ``tools`` stores only the extras the user added (never the defaults).
@@ -539,6 +544,7 @@ class AgentSessionService(BaseWorkspaceService):
             # Harness
             backend_id=args.backend_id,
             harness_type=args.harness_type or backend.default_harness,
+            parent_session_id=args.parent_session_id,
         )
         # Use provided ID if given, otherwise DB default generates one
         if args.id:
@@ -798,6 +804,8 @@ class AgentSessionService(BaseWorkspaceService):
         entity_id: uuid.UUID | None = None,
         exclude_entity_types: list[AgentSessionEntity] | None = None,
         parent_session_id: uuid.UUID | None = None,
+        forked_from_session_id: uuid.UUID | None = None,
+        include_children: bool = False,
         limit: int = 100,
     ) -> list[AgentSessionRead | ChatReadMinimal]:
         """List agent sessions and read-only legacy chats for the workspace.
@@ -808,7 +816,9 @@ class AgentSessionService(BaseWorkspaceService):
             entity_type: Filter by entity type.
             entity_id: Filter by entity ID.
             exclude_entity_types: Entity types to exclude from results.
-            parent_session_id: Filter by parent session ID (for finding forked sessions).
+            parent_session_id: Filter by spawning parent session ID.
+            forked_from_session_id: Filter by history source session ID.
+            include_children: Include spawned children without a parent filter.
             limit: Maximum number of results.
 
         Returns:
@@ -838,6 +848,12 @@ class AgentSessionService(BaseWorkspaceService):
             session_stmt = session_stmt.where(
                 AgentSession.parent_session_id == parent_session_id
             )
+        elif not include_children:
+            session_stmt = session_stmt.where(AgentSession.parent_session_id.is_(None))
+        if forked_from_session_id is not None:
+            session_stmt = session_stmt.where(
+                AgentSession.forked_from_session_id == forked_from_session_id
+            )
         # Bound query cost at the database layer; we still merge+sort below.
         session_stmt = session_stmt.order_by(AgentSession.created_at.desc()).limit(
             limit
@@ -847,7 +863,11 @@ class AgentSessionService(BaseWorkspaceService):
         sessions = list(session_result.scalars().all())
 
         legacy_chats: list[Chat] = []
-        if parent_session_id is None and not filter_created_by_none:
+        if (
+            parent_session_id is None
+            and forked_from_session_id is None
+            and not filter_created_by_none
+        ):
             chat_stmt = select(Chat).where(Chat.workspace_id == self.workspace_id)
             if created_by is not None:
                 chat_stmt = chat_stmt.where(Chat.user_id == created_by)
@@ -1153,7 +1173,7 @@ class AgentSessionService(BaseWorkspaceService):
         Reconstructs the SDK session JSONL from stored history entries.
         Returns None if no history exists or no sdk_session_id is set.
 
-        For forked sessions (with parent_session_id), loads the parent's history
+        For forked sessions, loads captured source history
         and sets is_fork=True so the runtime uses fork_session=True with the SDK.
 
         The sdk_session_id is stored on the AgentSession model. Rows that need
@@ -1175,26 +1195,30 @@ class AgentSessionService(BaseWorkspaceService):
         # On subsequent turns, child has its own sdk_session_id and should resume normally
         is_fork = False
         if (
-            agent_session.parent_session_id is not None
+            agent_session.forked_from_session_id is not None
             and agent_session.sdk_session_id is None
         ):
             is_fork = True
-            parent_session = await self.get_session(agent_session.parent_session_id)
-            if parent_session is None:
+            fork_source = await self.get_session(agent_session.forked_from_session_id)
+            if fork_source is None:
                 logger.warning(
-                    "Forked session references non-existent parent",
+                    "Forked session references non-existent source",
                     session_id=session_id,
-                    parent_session_id=agent_session.parent_session_id,
+                    forked_from_session_id=agent_session.forked_from_session_id,
                 )
                 return None
-            # Use parent's sdk_session_id and history
-            source_session = parent_session
-            source_session_id = agent_session.parent_session_id
+            # Use the captured source identity and bounded source history.
+            source_session = fork_source
+            source_session_id = agent_session.forked_from_session_id
         else:
             source_session = agent_session
             source_session_id = session_id
 
-        sdk_session_id = source_session.sdk_session_id
+        sdk_session_id = (
+            agent_session.forked_from_sdk_session_id
+            if is_fork
+            else source_session.sdk_session_id
+        )
         if not sdk_session_id:
             logger.debug(
                 "No sdk_session_id on session (new session)",
@@ -1210,6 +1234,12 @@ class AgentSessionService(BaseWorkspaceService):
             )
             .order_by(AgentSessionHistory.surrogate_id)
         )
+        if is_fork:
+            if agent_session.forked_from_history_id is None:
+                return None
+            stmt = stmt.where(
+                AgentSessionHistory.surrogate_id <= agent_session.forked_from_history_id
+            )
         result = await self.session.execute(stmt)
         history_entries = list(result.scalars().all())
 
@@ -2621,22 +2651,24 @@ class AgentSessionService(BaseWorkspaceService):
             AgentSessionEntity.WORKFLOW,
             AgentSessionEntity.APPROVAL,
         ):
-            # Check if this is a forked session (has parent_session_id)
-            if agent_session.parent_session_id is not None:
-                # Forked sessions use the parent's preset but with no tools.
+            # Forked reviewer sessions use their history source's preset.
+            if agent_session.forked_from_session_id is not None:
+                # Forked reviewer sessions use the source preset with no tools.
                 # Prepend context - agent should not mention this is a forked session.
                 fork_context = (
                     "You do not have access to any tools in this conversation. "
                     "If the user asks you to perform actions, politely decline and "
                     "suggest they start a new workflow if they need to take action.\n\n"
                 )
-                # Get parent session to check for preset
-                parent_session = await self.get_session(agent_session.parent_session_id)
-                if parent_session and parent_session.agent_preset_id:
-                    # Use parent's preset with forked context prepended
+                # Get the history source to check for its preset.
+                fork_source = await self.get_session(
+                    agent_session.forked_from_session_id
+                )
+                if fork_source and fork_source.agent_preset_id:
+                    # Use the source preset with forked context prepended.
                     async with agent_svc.with_preset_config(
-                        preset_id=parent_session.agent_preset_id,
-                        preset_version_id=parent_session.agent_preset_version_id,
+                        preset_id=fork_source.agent_preset_id,
+                        preset_version_id=fork_source.agent_preset_version_id,
                     ) as preset_config:
                         combined_instructions = (
                             f"{fork_context}{preset_config.instructions}"
@@ -2728,8 +2760,23 @@ class AgentSessionService(BaseWorkspaceService):
         current_run_id: uuid.UUID | None,
         approval_tool_call_ids: set[str],
         include_active: bool,
+        forked_from_session_id: uuid.UUID | None = None,
+        forked_from_history_id: int | None = None,
     ) -> list[AgentSessionHistory]:
         """Query the history rows visible to this message read."""
+        history_filter = AgentSessionHistory.session_id.in_(session_ids)
+        if forked_from_session_id is not None:
+            source_filter = AgentSessionHistory.session_id == forked_from_session_id
+            if forked_from_history_id is None:
+                history_filter = AgentSessionHistory.session_id == session_ids[-1]
+            else:
+                history_filter = or_(
+                    AgentSessionHistory.session_id == session_ids[-1],
+                    and_(
+                        source_filter,
+                        AgentSessionHistory.surrogate_id <= forked_from_history_id,
+                    ),
+                )
         approval_boundary: int | None = None
         if not include_active and current_run_id is not None and approval_tool_call_ids:
             boundary_stmt = (
@@ -2738,7 +2785,7 @@ class AgentSessionService(BaseWorkspaceService):
                     AgentSessionHistory.content,
                 )
                 .where(
-                    AgentSessionHistory.session_id.in_(session_ids),
+                    history_filter,
                     AgentSessionHistory.curr_run_id == current_run_id,
                 )
                 .order_by(AgentSessionHistory.surrogate_id.desc())
@@ -2755,7 +2802,7 @@ class AgentSessionService(BaseWorkspaceService):
 
         stmt = (
             select(AgentSessionHistory)
-            .where(AgentSessionHistory.session_id.in_(session_ids))
+            .where(history_filter)
             .order_by(AgentSessionHistory.surrogate_id)
         )
         if not include_active and current_run_id is not None:
@@ -2812,8 +2859,12 @@ class AgentSessionService(BaseWorkspaceService):
             )
 
         session_ids = [session_id]
-        if agent_session and agent_session.parent_session_id:
-            session_ids.insert(0, agent_session.parent_session_id)
+        if agent_session.forked_from_session_id:
+            if await self.get_session(agent_session.forked_from_session_id) is None:
+                raise TracecatNotFoundError(
+                    "Fork source session not found in this workspace"
+                )
+            session_ids.insert(0, agent_session.forked_from_session_id)
 
         approval_result = await self.session.execute(
             select(Approval).where(Approval.session_id.in_(session_ids))
@@ -2830,12 +2881,25 @@ class AgentSessionService(BaseWorkspaceService):
                 approval_tool_call_ids=set(approval_by_tool_id),
                 include_active=include_active,
             )
+            if agent_session.forked_from_session_id is not None:
+                entries = [
+                    entry
+                    for entry in entries
+                    if entry.session_id == session_id
+                    or (
+                        entry.session_id == agent_session.forked_from_session_id
+                        and agent_session.forked_from_history_id is not None
+                        and entry.surrogate_id <= agent_session.forked_from_history_id
+                    )
+                ]
         else:
             entries = await self._visible_history_entries(
                 session_ids=session_ids,
                 current_run_id=agent_session.curr_run_id,
                 approval_tool_call_ids=set(approval_by_tool_id),
                 include_active=include_active,
+                forked_from_session_id=agent_session.forked_from_session_id,
+                forked_from_history_id=agent_session.forked_from_history_id,
             )
 
         return self._render_history_entries(
@@ -3337,9 +3401,10 @@ class AgentSessionService(BaseWorkspaceService):
 
     async def fork_session(
         self,
-        parent_session_id: uuid.UUID,
+        source_session_id: uuid.UUID,
         *,
         entity_type: AgentSessionEntity | None = None,
+        parent_session_id: uuid.UUID | None = None,
     ) -> AgentSession:
         """Create a forked session from a parent session.
 
@@ -3347,7 +3412,8 @@ class AgentSessionService(BaseWorkspaceService):
         after making approval decisions, to ask for context or clarification.
 
         Args:
-            parent_session_id: The ID of the session to fork.
+            source_session_id: The ID of the session whose history is forked.
+            parent_session_id: Optional session that spawned the forked child.
             entity_type: Override entity type for the forked session. If None,
                 inherits from parent. Use APPROVAL for inbox forks to hide
                 from main chat list.
@@ -3358,36 +3424,50 @@ class AgentSessionService(BaseWorkspaceService):
         Raises:
             TracecatNotFoundError: If the parent session is not found.
         """
-        parent = await self.get_session(parent_session_id)
-        if parent is None:
+        source = await self.get_session(source_session_id)
+        if source is None:
             raise TracecatNotFoundError(
-                f"Parent session with ID {parent_session_id} not found"
+                f"Source session with ID {source_session_id} not found"
             )
+        if (
+            parent_session_id is not None
+            and await self.get_session(parent_session_id) is None
+        ):
+            raise TracecatNotFoundError("Parent session not found in this workspace")
 
-        backend = get_agent_backend(parent.backend_id, harness_type=parent.harness_type)
+        boundary = await self.session.scalar(
+            select(func.max(AgentSessionHistory.surrogate_id)).where(
+                AgentSessionHistory.session_id == source_session_id
+            )
+        )
+
+        backend = get_agent_backend(source.backend_id, harness_type=source.harness_type)
 
         # Forked sessions are read-only "reviewer" sessions.
         forked_session = AgentSession(
             workspace_id=self.workspace_id,
             # Metadata - inherit from parent, except entity_type if overridden
-            title=f"{parent.title} (continued)",
+            title=f"{source.title} (continued)",
             created_by=self.role.user_id,
-            entity_type=entity_type.value if entity_type else parent.entity_type,
-            entity_id=parent.entity_id,
-            channel_context=parent.channel_context,
+            entity_type=entity_type.value if entity_type else source.entity_type,
+            entity_id=source.entity_id,
+            channel_context=source.channel_context,
             tools=[],
             agent_preset_id=None,
             # Harness - inherit from parent
-            backend_id=parent.backend_id,
-            harness_type=parent.harness_type,
+            backend_id=source.backend_id,
+            harness_type=source.harness_type,
             # Fork reference
             parent_session_id=parent_session_id,
+            forked_from_session_id=source_session_id,
+            forked_from_history_id=boundary,
+            forked_from_sdk_session_id=source.sdk_session_id,
         )
         self.session.add(forked_session)
         await self.session.flush()
         await backend.prepare_fork(
             SessionForkContext(
-                db=self.session, parent=parent, fork=forked_session, role=self.role
+                db=self.session, parent=source, fork=forked_session, role=self.role
             )
         )
         await self.session.commit()
@@ -3396,6 +3476,7 @@ class AgentSessionService(BaseWorkspaceService):
         logger.info(
             "Created forked session",
             forked_session_id=forked_session.id,
+            forked_from_session_id=source_session_id,
             parent_session_id=parent_session_id,
         )
 

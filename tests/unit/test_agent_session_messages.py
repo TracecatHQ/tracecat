@@ -120,6 +120,8 @@ async def test_load_session_history_omits_cancelled_marker_rows() -> None:
     sdk_session = SimpleNamespace(
         id=session_id,
         parent_session_id=None,
+        forked_from_session_id=None,
+        forked_from_sdk_session_id=None,
         sdk_session_id="sdk-session-123",
         curr_run_id=None,
     )
@@ -243,6 +245,8 @@ async def test_load_session_history_prefers_exact_raw_nul_content() -> None:
     sdk_session = SimpleNamespace(
         id=session_id,
         parent_session_id=None,
+        forked_from_session_id=None,
+        forked_from_sdk_session_id=None,
         sdk_session_id="sdk-session-123",
         curr_run_id=None,
     )
@@ -284,6 +288,8 @@ async def test_load_session_history_omits_internal_rows_and_repairs_parent_chain
     sdk_session = SimpleNamespace(
         id=session_id,
         parent_session_id=None,
+        forked_from_session_id=None,
+        forked_from_sdk_session_id=None,
         sdk_session_id="sdk-session-123",
         curr_run_id=None,
     )

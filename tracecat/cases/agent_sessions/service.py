@@ -72,6 +72,7 @@ class CaseAgentSessionInteractionService(BaseWorkspaceService):
             statement = select(
                 AgentSession.id,
                 AgentSession.parent_session_id,
+                AgentSession.forked_from_session_id,
             ).where(
                 AgentSession.workspace_id == self.workspace_id,
                 AgentSession.id == current_session_id,
@@ -85,10 +86,11 @@ class CaseAgentSessionInteractionService(BaseWorkspaceService):
                     f"Agent session '{session_id}' not found in this workspace"
                 )
 
-            resolved_session_id, parent_session_id = result
-            if parent_session_id is None:
+            resolved_session_id, parent_session_id, forked_from_session_id = result
+            related_session_id = parent_session_id or forked_from_session_id
+            if related_session_id is None:
                 return resolved_session_id
-            current_session_id = parent_session_id
+            current_session_id = related_session_id
 
         raise TracecatValidationError("Agent session lineage contains a cycle")
 

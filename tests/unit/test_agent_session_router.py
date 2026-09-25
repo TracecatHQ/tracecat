@@ -91,6 +91,7 @@ def _agent_session_stub(**overrides: Any) -> SimpleNamespace:
         "last_error": None,
         "artifacts": [],
         "parent_session_id": None,
+        "forked_from_session_id": None,
     }
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -163,6 +164,8 @@ async def test_list_sessions_service_account_defaults_to_workspace_sessions() ->
             created_by=None,
             exclude_entity_types=None,
             parent_session_id=None,
+            forked_from_session_id=None,
+            include_children=False,
             limit=100,
         )
 
@@ -173,6 +176,8 @@ async def test_list_sessions_service_account_defaults_to_workspace_sessions() ->
         entity_id=None,
         exclude_entity_types=[AgentSessionEntity.WORKSPACE_CHAT],
         parent_session_id=None,
+        forked_from_session_id=None,
+        include_children=False,
         limit=100,
     )
 
@@ -206,6 +211,8 @@ async def test_list_sessions_user_filters_by_explicit_user_id() -> None:
             created_by=user_id,
             exclude_entity_types=None,
             parent_session_id=None,
+            forked_from_session_id=None,
+            include_children=False,
             limit=100,
         )
 
@@ -216,6 +223,8 @@ async def test_list_sessions_user_filters_by_explicit_user_id() -> None:
         entity_id=None,
         exclude_entity_types=[AgentSessionEntity.WORKSPACE_CHAT],
         parent_session_id=None,
+        forked_from_session_id=None,
+        include_children=False,
         limit=100,
     )
 
@@ -239,6 +248,8 @@ async def test_list_sessions_keeps_workspace_chat_when_entitled() -> None:
             created_by=None,
             exclude_entity_types=None,
             parent_session_id=None,
+            forked_from_session_id=None,
+            include_children=False,
             limit=100,
         )
 
@@ -249,6 +260,8 @@ async def test_list_sessions_keeps_workspace_chat_when_entitled() -> None:
         entity_id=None,
         exclude_entity_types=None,
         parent_session_id=None,
+        forked_from_session_id=None,
+        include_children=False,
         limit=100,
     )
 
@@ -281,6 +294,8 @@ async def test_list_sessions_user_defaults_to_workspace_sessions() -> None:
             created_by=None,
             exclude_entity_types=None,
             parent_session_id=None,
+            forked_from_session_id=None,
+            include_children=False,
             limit=100,
         )
 
@@ -291,6 +306,8 @@ async def test_list_sessions_user_defaults_to_workspace_sessions() -> None:
         entity_id=None,
         exclude_entity_types=[AgentSessionEntity.WORKSPACE_CHAT],
         parent_session_id=None,
+        forked_from_session_id=None,
+        include_children=False,
         limit=100,
     )
 
@@ -1511,6 +1528,9 @@ async def test_stream_session_events_returns_204_when_no_turn() -> None:
     role = _make_stream_role(workspace_id)
 
     fake_session = SimpleNamespace(
+        id=session_id,
+        parent_session_id=None,
+        forked_from_session_id=None,
         entity_type=AgentSessionEntity.AGENT_PRESET,
         last_stream_id=None,
         active_stream_id=None,
@@ -1562,6 +1582,9 @@ async def test_stream_session_events_returns_204_when_completed() -> None:
     role = _make_stream_role(workspace_id)
 
     fake_session = SimpleNamespace(
+        id=session_id,
+        parent_session_id=None,
+        forked_from_session_id=None,
         entity_type=AgentSessionEntity.AGENT_PRESET,
         last_stream_id=None,
         active_stream_id=None,
@@ -1613,6 +1636,9 @@ async def test_stream_session_events_emits_terminal_frame_when_failed() -> None:
     role = _make_stream_role(workspace_id)
 
     fake_session = SimpleNamespace(
+        id=session_id,
+        parent_session_id=None,
+        forked_from_session_id=None,
         entity_type=AgentSessionEntity.AGENT_PRESET,
         last_stream_id=None,
         active_stream_id=stream_id,
@@ -1666,6 +1692,9 @@ async def test_stream_session_events_attaches_when_running_no_cursor() -> None:
     role = _make_stream_role(workspace_id)
 
     fake_session = SimpleNamespace(
+        id=session_id,
+        parent_session_id=None,
+        forked_from_session_id=None,
         entity_type=AgentSessionEntity.AGENT_PRESET,
         last_stream_id=None,
         active_stream_id=stream_id,
@@ -1730,6 +1759,9 @@ async def test_stream_session_events_returns_204_when_pending_approvals() -> Non
     role = _make_stream_role(workspace_id)
 
     fake_session = SimpleNamespace(
+        id=session_id,
+        parent_session_id=None,
+        forked_from_session_id=None,
         entity_type=AgentSessionEntity.AGENT_PRESET,
         last_stream_id=None,
         active_stream_id=stream_id,
@@ -1789,6 +1821,9 @@ async def test_stream_session_events_running_always_replays_from_start() -> None
     role = _make_stream_role(workspace_id)
 
     fake_session = SimpleNamespace(
+        id=session_id,
+        parent_session_id=None,
+        forked_from_session_id=None,
         entity_type=AgentSessionEntity.AGENT_PRESET,
         last_stream_id=None,
         active_stream_id=stream_id,
