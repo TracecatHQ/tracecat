@@ -44,5 +44,13 @@ jobs:
         # Skip project fixtures, which require Postgres, Redis and MinIO.
         run: uv run --no-sync pytest --noconftest -q tests/unit/test_check_migrations.py
 
+      # Compare with the exact base used by this event, not a moving branch tip.
+      - name: Check out previous migration history
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.event.before }}
+          path: .migration-base
+          persist-credentials: false
+
       - name: Check Alembic migration history
-        run: uv run --no-sync python scripts/check_migrations.py
+        run: uv run --no-sync python scripts/check_migrations.py --base-dir .migration-base/alembic

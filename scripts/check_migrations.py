@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Check Alembic topology without running env.py or connecting to a database."""
 
+import argparse
 import sys
 import warnings
+from collections.abc import Sequence
 
 from alembic.config import Config
 from alembic.script import ScriptDirectory
@@ -15,7 +17,10 @@ LINEAR_HISTORY_BASE = "2f14222e0d12"
 
 
 def check_migrations(
-    scripts: ScriptDirectory, *, linear_since: str = LINEAR_HISTORY_BASE
+    scripts: ScriptDirectory,
+    *,
+    linear_since: str = LINEAR_HISTORY_BASE,
+    base: ScriptDirectory | None = None,
 ) -> str:
     """Return the sole head, rejecting invalid graphs and new non-linear history."""
     # Alembic warns rather than fails for some invalid metadata (e.g. duplicate
@@ -33,6 +38,25 @@ def check_migrations(
             raise ValueError(f"Expected exactly one Alembic base; found {bases}.")
 
         revisions = list(scripts.walk_revisions())
+        if base is not None:
+            candidate = {revision.revision: revision for revision in revisions}
+            for previous in base.walk_revisions():
+                current = candidate.get(previous.revision)
+                if current is None:
+                    raise ValueError(
+                        f"Existing revision {previous.revision} was removed or renamed."
+                    )
+                # Use declared metadata: Alembic's branch_labels attribute also
+                # includes labels inherited from other revisions in the graph.
+                for field in ("down_revision", "depends_on", "branch_labels"):
+                    if getattr(current.module, field, None) != getattr(
+                        previous.module, field, None
+                    ):
+                        raise ValueError(
+                            f"Existing revision {previous.revision} changed {field}. "
+                            "New migrations must extend the previous head without "
+                            "rewriting existing revision metadata."
+                        )
         historical = {
             revision.revision for revision in scripts.walk_revisions(head=linear_since)
         }
@@ -53,9 +77,18 @@ def check_migrations(
         return heads[0]
 
 
-def main() -> int:
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--base-dir",
+        help="Base checkout's Alembic directory; also reject rewritten revision metadata.",
+    )
+    args = parser.parse_args(argv)
     try:
-        head = check_migrations(ScriptDirectory.from_config(Config("alembic.ini")))
+        head = check_migrations(
+            ScriptDirectory.from_config(Config("alembic.ini")),
+            base=ScriptDirectory(args.base_dir) if args.base_dir is not None else None,
+        )
     except (ValueError, KeyError, CommandError, RevisionError, UserWarning) as exc:
         print(f"Alembic migration history check failed: {exc}", file=sys.stderr)
         return 1

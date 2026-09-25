@@ -1,5 +1,6 @@
 """Exercise real Alembic revision graphs without application or DB fixtures."""
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,7 @@ def write_revision(
     parent: Parent,
     *,
     depends_on: Parent = None,
+    branch_labels: Parent = None,
     filename: str | None = None,
 ) -> None:
     versions = directory / "versions"
@@ -25,7 +27,7 @@ def write_revision(
         f"revision = {revision!r}\n"
         f"down_revision = {parent!r}\n"
         f"depends_on = {depends_on!r}\n"
-        "branch_labels = None\n"
+        f"branch_labels = {branch_labels!r}\n"
     )
 
 
@@ -131,7 +133,7 @@ def test_cli_fails_for_invalid_history(
     write_revision(history, "first", "baseline")
     write_revision(history, "second", "baseline")
     monkeypatch.chdir(history)
-    assert main() == 1
+    assert main([]) == 1
     assert "Expected exactly one Alembic head" in capsys.readouterr().err
 
 
@@ -141,5 +143,131 @@ def test_cli_accepts_valid_history(
     (history / "alembic.ini").write_text("[alembic]\nscript_location = .\n")
     write_revision(history, LINEAR_HISTORY_BASE, "baseline")
     monkeypatch.chdir(history)
-    assert main() == 0
+    assert main([]) == 0
     assert "Alembic migration history OK" in capsys.readouterr().out
+
+
+@pytest.fixture
+def base_history(history: Path, tmp_path_factory: pytest.TempPathFactory) -> Path:
+    base = tmp_path_factory.mktemp("base") / "alembic"
+    shutil.copytree(history, base)
+    return base
+
+
+@pytest.mark.parametrize("new_revisions", [0, 1, 3])
+def test_base_comparison_accepts_append_only_history(
+    history: Path, base_history: Path, new_revisions: int
+) -> None:
+    head = "baseline"
+    for index in range(new_revisions):
+        revision = f"new_{index}"
+        write_revision(history, revision, head)
+        head = revision
+    assert (
+        check_migrations(
+            ScriptDirectory(str(history)),
+            linear_since="baseline",
+            base=ScriptDirectory(str(base_history)),
+        )
+        == head
+    )
+
+
+@pytest.mark.parametrize("child,parent", [("left", "root"), ("deployed", "baseline")])
+def test_rejects_insertions_behind_existing_head(
+    history: Path, base_history: Path, child: str, parent: str
+) -> None:
+    # Cover both grandfathered history and the new linear chain.
+    write_revision(base_history, "deployed", "baseline")
+    write_revision(history, "deployed", "baseline")
+    write_revision(history, "inserted", parent)
+    write_revision(history, child, "inserted")
+    scripts = ScriptDirectory(str(history))
+    assert check_migrations(scripts, linear_since="baseline") == "deployed"
+    assert list(scripts.iterate_revisions("heads", "deployed")) == []
+    with pytest.raises(ValueError, match=f"{child} changed down_revision"):
+        check_migrations(
+            scripts,
+            linear_since="baseline",
+            base=ScriptDirectory(str(base_history)),
+        )
+
+
+@pytest.mark.parametrize("rename", [False, True])
+def test_rejects_removed_or_renamed_existing_revision(
+    history: Path, base_history: Path, rename: bool
+) -> None:
+    write_revision(base_history, "deployed", "baseline")
+    if rename:
+        write_revision(history, "renamed", "baseline")
+    with pytest.raises(ValueError, match="deployed was removed or renamed"):
+        check_migrations(
+            ScriptDirectory(str(history)),
+            linear_since="baseline",
+            base=ScriptDirectory(str(base_history)),
+        )
+
+
+@pytest.mark.parametrize("field", ["depends_on", "branch_labels"])
+def test_rejects_changed_historical_metadata(
+    history: Path, base_history: Path, field: str
+) -> None:
+    write_revision(
+        history,
+        "right",
+        "root",
+        depends_on="left" if field == "depends_on" else None,
+        branch_labels="changed" if field == "branch_labels" else None,
+    )
+    with pytest.raises(ValueError, match=f"right changed {field}"):
+        check_migrations(
+            ScriptDirectory(str(history)),
+            linear_since="baseline",
+            base=ScriptDirectory(str(base_history)),
+        )
+
+
+def test_accepts_new_label_without_treating_inherited_labels_as_rewrites(
+    history: Path, base_history: Path
+) -> None:
+    write_revision(history, "new", "baseline", branch_labels="new_label")
+    assert (
+        check_migrations(
+            ScriptDirectory(str(history)),
+            linear_since="baseline",
+            base=ScriptDirectory(str(base_history)),
+        )
+        == "new"
+    )
+
+
+@pytest.mark.parametrize("rewrite", [False, True])
+def test_cli_compares_base_history(
+    history: Path,
+    base_history: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    rewrite: bool,
+) -> None:
+    (history / "alembic.ini").write_text("[alembic]\nscript_location = .\n")
+    write_revision(history, LINEAR_HISTORY_BASE, "baseline")
+    write_revision(base_history, LINEAR_HISTORY_BASE, "baseline")
+    if rewrite:
+        write_revision(history, "inserted", "baseline")
+        write_revision(history, LINEAR_HISTORY_BASE, "inserted")
+    monkeypatch.chdir(history)
+    assert main(["--base-dir", str(base_history)]) == (1 if rewrite else 0)
+    output = capsys.readouterr()
+    if rewrite:
+        assert "changed down_revision" in output.err
+    else:
+        assert "Alembic migration history OK" in output.out
+
+
+def test_cli_rejects_missing_base_directory(
+    history: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (history / "alembic.ini").write_text("[alembic]\nscript_location = .\n")
+    monkeypatch.chdir(history)
+    assert main(["--base-dir", str(history / "missing")]) == 1
+    assert "Path doesn't exist" in capsys.readouterr().err
