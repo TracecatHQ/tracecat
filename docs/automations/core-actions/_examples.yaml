@@ -909,6 +909,18 @@ examples:
           value: secops
           limit: 25
 
+  tables-semantic-search:
+    title: Find related records by meaning
+    language: yaml
+    code: |
+      - ref: find_related_records
+        action: core.table.search
+        args:
+          table: incident_notes
+          query: Someone signed in using stolen credentials
+          limit: 10
+          allow_partial: false
+
   tables-search:
     title: Search table rows
     language: yaml

@@ -162,6 +162,66 @@ Default: `100`.
     limit: 25
 ```
 
+## `core.table.search`
+
+Search selected text without changing literal search_rows behavior.
+
+Select TEXT columns and wait for Ready before running this action.
+See [Semantic search](/automations/tables#semantic-search) for setup,
+readiness, excerpts, and pagination limits.
+
+### Inputs
+
+<ParamField path="query" type="string" required>
+
+Search text, limited to 512 tokens or the model's smaller input limit.
+
+</ParamField>
+
+<ParamField path="table" type="string" required>
+
+The workspace table name.
+
+</ParamField>
+
+<ParamField path="allow_partial" type="boolean">
+
+Allow an incomplete index; only fully indexed current rows can match.
+
+Default: `false`.
+
+</ParamField>
+
+<ParamField path="cursor" type="string | null">
+
+Next cursor from the previous page. Keep other inputs unchanged. Expires after five minutes; windows hold at most 100 rows.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer">
+
+Rows per page, from 1 to 100.
+
+Default: `10`.
+
+</ParamField>
+
+### Examples
+
+**Find related records by meaning**
+
+```yaml
+- ref: find_related_records
+  action: core.table.search
+  args:
+    table: incident_notes
+    query: Someone signed in using stolen credentials
+    limit: 10
+    allow_partial: false
+```
+
 ## `core.table.search_rows`
 
 Search for rows in a table with optional filtering.
