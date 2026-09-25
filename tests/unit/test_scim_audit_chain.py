@@ -240,7 +240,7 @@ async def test_connection_issue_and_revoke_are_audited(
     token = ctx_role.set(admin_role)
     try:
         issued = await service.issue_token()
-        await service.revoke()
+        await SCIMService(session, role=admin_role).disconnect()
     finally:
         ctx_role.reset(token)
 
@@ -248,7 +248,7 @@ async def test_connection_issue_and_revoke_are_audited(
     by_action = {e.action: e for e in succeeded if e.resource_type == "scim_connection"}
 
     assert "create" in by_action, f"issue emitted no event; got {by_action}"
-    assert "revoke" in by_action, f"revoke emitted no event; got {by_action}"
+    assert "revoke" in by_action, f"disconnect emitted no event; got {by_action}"
 
     created = by_action["create"]
     assert created.actor_type is AuditEventActor.USER

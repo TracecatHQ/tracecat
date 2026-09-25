@@ -672,6 +672,8 @@ import type {
   SchedulesUpdateScheduleResponse,
   ScimActivateScimConnectionData,
   ScimActivateScimConnectionResponse,
+  ScimApplyScimMappingChangesData,
+  ScimApplyScimMappingChangesResponse,
   ScimCreateGroupData,
   ScimCreateGroupResponse,
   ScimCreateScimMappingData,
@@ -684,9 +686,11 @@ import type {
   ScimDeleteScimMappingResponse,
   ScimDeleteUserData,
   ScimDeleteUserResponse,
+  ScimDisconnectScimResponse,
   ScimGetGroupData,
   ScimGetGroupResponse,
   ScimGetScimConnectionResponse,
+  ScimGetScimDirectorySummaryResponse,
   ScimGetUserData,
   ScimGetUserResponse,
   ScimIssueScimTokenResponse,
@@ -709,7 +713,6 @@ import type {
   ScimResourceTypesResponse,
   ScimReviewScimActivationData,
   ScimReviewScimActivationResponse,
-  ScimRevokeScimTokenResponse,
   ScimSchemasDocumentResponse,
   ScimServiceProviderConfigResponse,
   SearchGetEmbeddingConfigurationData,
@@ -14122,20 +14125,6 @@ export const scimIssueScimToken =
   }
 
 /**
- * Revoke Scim Token
- * Revoke the SCIM connection token.
- * @returns void Successful Response
- * @throws ApiError
- */
-export const scimRevokeScimToken =
-  (): CancelablePromise<ScimRevokeScimTokenResponse> => {
-    return __request(OpenAPI, {
-      method: "DELETE",
-      url: "/scim/connection",
-    })
-  }
-
-/**
  * List External Groups
  * List synced IdP groups available as mapping sources.
  * @param data The data for the request.
@@ -14159,6 +14148,34 @@ export const scimListExternalGroups = (
     },
   })
 }
+
+/**
+ * Get Scim Directory Summary
+ * Count the users and groups the provider has pushed.
+ * @returns ScimDirectorySummaryRead Successful Response
+ * @throws ApiError
+ */
+export const scimGetScimDirectorySummary =
+  (): CancelablePromise<ScimGetScimDirectorySummaryResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/scim/directory/summary",
+    })
+  }
+
+/**
+ * Disconnect Scim
+ * Remove all mappings, revoke the token, and disable the connection.
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const scimDisconnectScim =
+  (): CancelablePromise<ScimDisconnectScimResponse> => {
+    return __request(OpenAPI, {
+      method: "POST",
+      url: "/scim/disconnect",
+    })
+  }
 
 /**
  * Review Scim Activation
@@ -14245,6 +14262,28 @@ export const scimCreateScimMapping = (
   return __request(OpenAPI, {
     method: "POST",
     url: "/scim/mappings",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Apply Scim Mapping Changes
+ * Remove and add mappings together; any failure applies none of them.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const scimApplyScimMappingChanges = (
+  data: ScimApplyScimMappingChangesData
+): CancelablePromise<ScimApplyScimMappingChangesResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/scim/mappings/batch",
     body: data.requestBody,
     mediaType: "application/json",
     errors: {

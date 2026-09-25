@@ -11,6 +11,7 @@ import {
   LogsIcon,
   MousePointerClickIcon,
   RadioTowerIcon,
+  RefreshCwIcon,
   Settings2,
   ShieldCheckIcon,
   UsersIcon,
@@ -42,11 +43,13 @@ export function OrganizationSidebar({
   const customRegistryEnabled = hasEntitlement("custom_registry")
   const gitSyncEnabled = hasEntitlement("git_sync")
   const serviceAccountsEnabled = hasEntitlement("service_accounts")
+  const rbacAddonsEnabled = hasEntitlement("rbac_addons")
 
   // Scope checks for org sidebar items
   const canViewSettings = useScopeCheck("org:settings:read")
   const canViewServiceAccounts = useScopeCheck("org:service_account:read")
   const canViewMembers = useScopeCheck("org:member:read")
+  const canManageScim = useScopeCheck("org:scim:manage")
 
   const navCustomRegistry = [
     {
@@ -94,6 +97,14 @@ export function OrganizationSidebar({
       isActive: pathname?.includes("/organization/settings/domains"),
       visible: canViewSettings === true,
       locked: false,
+    },
+    {
+      title: "SCIM",
+      url: "/organization/settings/scim",
+      icon: RefreshCwIcon,
+      isActive: pathname?.includes("/organization/settings/scim"),
+      visible: canManageScim === true,
+      locked: !rbacAddonsEnabled,
     },
     {
       title: "Application",

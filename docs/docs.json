@@ -137,7 +137,8 @@
             "pages": [
               "authentication/basic",
               "authentication/saml",
-              "authentication/oidc"
+              "authentication/oidc",
+              "authentication/scim"
             ]
           },
           {

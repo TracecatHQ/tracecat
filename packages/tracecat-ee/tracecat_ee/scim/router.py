@@ -22,6 +22,9 @@ from tracecat_ee.scim.schemas import (
     ScimActivationReviewRead,
     ScimConnectionRead,
     ScimConnectionTokenRead,
+    ScimDirectorySummaryRead,
+    ScimMappingChangesRequest,
+    ScimReviewRequest,
 )
 from tracecat_ee.scim.service import SCIMService
 
@@ -76,22 +79,6 @@ async def get_scim_connection(
     return ScimConnectionRead.model_validate(connection)
 
 
-@connections_router.delete("", status_code=status.HTTP_204_NO_CONTENT)
-async def revoke_scim_token(
-    *,
-    role: OrgActorRole,
-    session: AsyncDBSession,
-) -> None:
-    """Revoke the SCIM connection token."""
-    service = ScimConnectionService(session, role=role)
-    try:
-        await service.revoke()
-    except TracecatNotFoundError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="SCIM connection not found"
-        ) from e
-
-
 # Distinct from the /scim/v2 protocol surface: these are org-admin session
 # routes, so is_scim_path leaves their errors in the normal envelope.
 mappings_router = APIRouter(
@@ -119,19 +106,44 @@ async def list_external_groups(
     )
 
 
+@mappings_router.get("/directory/summary", response_model=ScimDirectorySummaryRead)
+async def get_scim_directory_summary(
+    *,
+    role: OrgActorRole,
+    session: AsyncDBSession,
+) -> ScimDirectorySummaryRead:
+    """Count the users and groups the provider has pushed."""
+    return await SCIMService(session, role=role).get_directory_summary()
+
+
+@mappings_router.post("/disconnect", status_code=status.HTTP_204_NO_CONTENT)
+async def disconnect_scim(
+    *,
+    role: OrgActorRole,
+    session: AsyncDBSession,
+) -> None:
+    """Remove all mappings, revoke the token, and disable the connection."""
+    try:
+        await SCIMService(session, role=role).disconnect()
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+
+
 @mappings_router.post("/activation/review", response_model=ScimActivationReviewRead)
 async def review_scim_activation(
     *,
     role: OrgActorRole,
     session: AsyncDBSession,
-    params: ScimActivationRequest,
+    params: ScimReviewRequest,
 ) -> ScimActivationReviewRead:
     """Report what the provider pushed and what activating would change.
 
     A read: the returned plan is not stored, so activation recomputes it.
     """
     try:
-        return await SCIMService(session, role=role).review_activation(params.mappings)
+        return await SCIMService(session, role=role).review_activation(
+            params.mappings, params.delete
+        )
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
@@ -187,6 +199,25 @@ async def create_scim_mapping(
         raise HTTPException(status_code=409, detail=str(e)) from e
     await session.commit()
     return await service.get_mapping(mapping.id)
+
+
+@mappings_router.post("/mappings/batch", status_code=status.HTTP_204_NO_CONTENT)
+async def apply_scim_mapping_changes(
+    *,
+    role: OrgActorRole,
+    session: AsyncDBSession,
+    params: ScimMappingChangesRequest,
+) -> None:
+    """Remove and add mappings together; any failure applies none of them."""
+    try:
+        await SCIMService(session, role=role).apply_mapping_changes(
+            create=params.create, delete=params.delete
+        )
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except TracecatConflictError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    await session.commit()
 
 
 @mappings_router.delete(

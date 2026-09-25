@@ -51,6 +51,28 @@ class ExternalGroupRead(Schema):
     member_count: int
 
 
+class ScimDirectoryUserCounts(Schema):
+    """Pushed users, split by the provider's active flag."""
+
+    total: int
+    active: int
+    inactive: int
+
+
+class ScimDirectoryGroupCounts(Schema):
+    """Synced groups, and how many no mapping reads."""
+
+    total: int
+    unmapped: int
+
+
+class ScimDirectorySummaryRead(Schema):
+    """What the provider has pushed into this organization."""
+
+    users: ScimDirectoryUserCounts
+    groups: ScimDirectoryGroupCounts
+
+
 class ExternalGroupMappingRead(Schema):
     """A mapping joined with both sides, so a list renders without refetching."""
 
@@ -76,6 +98,8 @@ class ScimDirectoryUserRead(Schema):
     email: str
     external_id: str
     active: bool
+    # Inactive members are removed from the organization on activation.
+    is_member: bool = False
 
 
 class ScimMappingPlanRead(Schema):
@@ -87,8 +111,34 @@ class ScimMappingPlanRead(Schema):
     group_name: str
     manual_members_purged: list[UUID]
     manual_member_emails: dict[UUID, str]
+    # Manual members the mapped IdP group also lists; the rest stay via another mapping.
+    manual_members_in_source: list[UUID] = Field(default_factory=list)
     users_gaining_access: list[UUID]
+    gaining_member_emails: dict[UUID, str] = Field(default_factory=dict)
     users_losing_access: list[UUID]
+
+
+ScimMembershipChangeKind = Literal["gain", "lose", "to_idp", "to_manual"]
+
+
+class ScimMembershipChange(Schema):
+    """How one person's membership of a Tracecat group changes."""
+
+    user_id: UUID
+    email: str
+    kind: ScimMembershipChangeKind
+    # How the person held the group before the change, when they did.
+    from_source: Literal["manual", "idp"] | None = None
+
+
+class ScimGroupTransitionRead(Schema):
+    """The combined effect of every proposed change on one Tracecat group."""
+
+    group_id: UUID
+    group_name: str
+    added_sources: list[str]
+    removed_sources: list[str]
+    changes: list[ScimMembershipChange]
 
 
 class ScimActivationReviewRead(Schema):
@@ -96,6 +146,25 @@ class ScimActivationReviewRead(Schema):
 
     users: list[ScimDirectoryUserRead]
     plans: list[ScimMappingPlanRead]
+    groups: list[ScimGroupTransitionRead] = Field(default_factory=list)
+
+
+class ScimMappingChangesRequest(BaseModel):
+    """Mapping removals and additions to apply in one transaction."""
+
+    create: list[ExternalGroupMappingCreate] = Field(
+        default_factory=list, max_length=100
+    )
+    delete: list[UUID] = Field(default_factory=list, max_length=100)
+
+
+class ScimReviewRequest(BaseModel):
+    """Mapping additions and removals to preview without applying them."""
+
+    mappings: list[ExternalGroupMappingCreate] = Field(
+        default_factory=list, max_length=100
+    )
+    delete: list[UUID] = Field(default_factory=list, max_length=100)
 
 
 class ScimActivationRequest(BaseModel):

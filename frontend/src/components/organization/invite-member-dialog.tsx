@@ -2,11 +2,17 @@
 
 import { zodResolver } from "@hookform/resolvers/zod"
 import { PlusIcon } from "@radix-ui/react-icons"
-import { FolderIcon, GlobeIcon, Trash2Icon } from "lucide-react"
+import {
+  FolderIcon,
+  GlobeIcon,
+  Trash2Icon,
+  TriangleAlertIcon,
+} from "lucide-react"
 import { useEffect, useState } from "react"
 import { useFieldArray, useForm } from "react-hook-form"
 import { z } from "zod"
 import { useScopeCheck } from "@/components/auth/scope-guard"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -106,6 +112,7 @@ function InviteMemberForm({
   initialWorkspaceId?: string | null
 }) {
   const { createInvitation, createInvitationIsPending } = useOrgMembers()
+  const [warning, setWarning] = useState<string | null>(null)
   const { roles } = useRbacRoles()
   // A preset role only fits the scope it was built for: a workspace role
   // granted org-wide would apply its scopes across every workspace. Custom
@@ -135,7 +142,7 @@ function InviteMemberForm({
 
   const handleSubmit = async (values: InviteFormValues) => {
     try {
-      await createInvitation({
+      const invitation = await createInvitation({
         email: values.email,
         grants: values.grants.map((grant) => ({
           role_id: grant.role_id,
@@ -143,6 +150,11 @@ function InviteMemberForm({
         })),
       })
       form.reset()
+      // Hold the dialog open so a SCIM advisory is read before it disappears.
+      if (invitation.warning) {
+        setWarning(invitation.warning)
+        return
+      }
       onOpenChange(false)
     } catch {
       // Error handled in hook
@@ -161,6 +173,13 @@ function InviteMemberForm({
           role organization-wide or on a single workspace.
         </DialogDescription>
       </DialogHeader>
+      {warning && (
+        <Alert variant="warning">
+          <TriangleAlertIcon className="size-4" />
+          <AlertTitle>Invitation created</AlertTitle>
+          <AlertDescription>{warning}</AlertDescription>
+        </Alert>
+      )}
       <Form {...form}>
         <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
           <FormField
